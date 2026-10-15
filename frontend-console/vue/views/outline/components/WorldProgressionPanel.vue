@@ -163,9 +163,9 @@
             <p>截止场景：{{ budgetPreview.scene_title || sceneTitle(budgetPreview.scene_id) }} · {{ budgetPreview.scene_index != null ? `场景 ${budgetPreview.scene_index + 1}` : "最近已写到的位置" }}</p>
             <div class="world-progression__metrics">
               <div><strong>{{ budgetPreview.participants }}</strong><span>位参与者</span></div>
-              <div><strong>{{ budgetPreview.request_budget?.estimate_minimum }}–{{ budgetPreview.request_budget?.estimate_maximum }}</strong><span>预计请求 / 上限 {{ budgetPreview.request_budget?.limit }}</span></div>
+              <div><strong>{{ budgetPreview.request_budget?.estimate_minimum }}–{{ budgetPreview.request_budget?.estimate_maximum }}</strong><span>{{ budgetPreview.request_budget?.estimate_scope === "authorization_window" ? "首步至授权窗口预计请求" : "完成所选步骤预计请求" }} / 上限 {{ budgetPreview.request_budget?.limit }}</span></div>
               <div><strong>{{ formatNumber(budgetPreview.token_budget?.estimate_minimum) }}–{{ formatNumber(budgetPreview.token_budget?.estimate_maximum) }}</strong><span>预计 Token / 上限 {{ formatNumber(budgetPreview.token_budget?.limit) }}</span></div>
-              <div><strong>{{ budgetPreview.time_budget?.estimate_minimum_seconds }}–{{ budgetPreview.time_budget?.estimate_maximum_seconds }} 秒</strong><span>预计耗时区间</span></div>
+              <div><strong>{{ budgetPreview.time_budget?.estimate_minimum_seconds }}–{{ budgetPreview.time_budget?.estimate_maximum_seconds }} 秒</strong><span>预计耗时 / 上限 {{ budgetPreview.time_budget?.limit_seconds }} 秒</span></div>
             </div>
             <p class="world-progression__fee">{{ budgetPreview.fee_status }}</p>
             <p class="world-progression__help">步长建议：{{ recommendationText(budgetPreview.step_length_recommendation) }}</p>

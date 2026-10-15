@@ -24,6 +24,7 @@ from modules.evidence.facade import (
     attach_result_ref,
     require_fresh_confirmation,
 )
+from modules.project.contracts import ProjectLLMConfigurationError
 from modules.project.facade import (
     build_project_llm_execution_snapshot,
     require_active_project,
@@ -35,7 +36,7 @@ from modules.story.world_progression_continuous import (
     read_continuous_authorization,
     set_continuous_authorization,
 )
-from modules.story.world_progression_hooks import router as _hook_router
+from modules.story.world_progression_hooks_api import router as _hook_router
 from modules.story.world_progression_models import (
     StoryWorldProgressionAuthorization,
     StoryWorldProgressionBranch,
@@ -105,6 +106,11 @@ def _raise_http(error: Exception) -> HTTPException:
         return HTTPException(status_code=404, detail=str(error))
     if isinstance(error, ConflictError):
         return HTTPException(status_code=409, detail=str(error))
+    if isinstance(error, ProjectLLMConfigurationError):
+        return HTTPException(
+            status_code=409,
+            detail="请先在账户设置中连接并验证模型，再重新预览世界推进预算。",
+        )
     if isinstance(error, ValueError):
         return HTTPException(status_code=400, detail=str(error))
     return HTTPException(
@@ -177,7 +183,7 @@ async def _enqueue_existing_root(
     confirmation_id: str | None,
 ):
     meta = _task_meta(
-        request=meta_request,
+        request={"novel_id": str(root.novel_id), **meta_request},
         root_id=root.id,
         branch_id=branch.id,
         execution_snapshot=execution_snapshot,
@@ -229,8 +235,8 @@ async def _enqueue_existing_root(
 async def api_progression_budget_preview(
     data: ProgressionBudgetPreviewRequest, db: DbSession
 ):
-    _enabled()
     await require_active_project(db, data.novel_id)
+    _enabled()
     try:
         snapshot = await build_project_llm_execution_snapshot(db, data.novel_id)
         source = await _source_for_request(db, data, snapshot=snapshot)
@@ -255,8 +261,8 @@ async def api_progression_budget_preview(
     },
 )
 async def api_start_progression(data: ProgressionStartRequest, db: DbSession):
-    _enabled()
     await require_active_project(db, data.novel_id)
+    _enabled()
     request_payload = data.model_dump(mode="json", exclude={"operation_id"})
     try:
         existing = await _existing_task(
@@ -333,7 +339,11 @@ async def api_start_progression(data: ProgressionStartRequest, db: DbSession):
             source_snapshot_json=source,
             status="queued",
         )
-        db.add_all([root, branch])
+        # The models intentionally have no ORM relationship; flush the parent
+        # before its composite (novel_id, root_id) child FK.
+        db.add(root)
+        await db.flush()
+        db.add(branch)
         await db.flush()
         task_response = await _enqueue_existing_root(
             db,
@@ -362,8 +372,8 @@ async def api_start_progression(data: ProgressionStartRequest, db: DbSession):
 async def api_advance_progression(
     root_id: str, data: ProgressionAdvanceRequest, db: DbSession
 ):
-    _enabled()
     await require_active_project(db, data.novel_id)
+    _enabled()
     if str(data.root_id) != root_id:
         raise HTTPException(status_code=409, detail="推进请求与所选运行不匹配")
     fingerprint_request = data.model_dump(mode="json", exclude={"operation_id"})
@@ -501,8 +511,8 @@ async def api_advance_progression(
 async def api_resume_progression(
     root_id: str, branch_id: str, data: ProgressionResumeRequest, db: DbSession
 ):
-    _enabled()
     await require_active_project(db, data.novel_id)
+    _enabled()
     if str(data.root_id) != root_id or str(data.branch_id) != branch_id:
         raise HTTPException(status_code=409, detail="恢复请求与所选历史分支不匹配")
     request_payload = data.model_dump(mode="json", exclude={"operation_id"})
@@ -682,8 +692,8 @@ async def api_progression_history(
     root_id: str | None = Query(default=None),
     include_deleted: bool = Query(default=False),
 ):
-    _enabled()
     await require_active_project(db, novel_id)
+    _enabled()
     try:
         return await read_progression_history(
             db,
@@ -708,8 +718,8 @@ async def api_progression_history(
 async def api_progression_metadata(
     branch_id: str, data: ProgressionMetadataRequest, db: DbSession
 ):
-    _enabled()
     await require_active_project(db, data.novel_id)
+    _enabled()
     changes = data.model_dump(include={"name", "note", "starred"}, exclude_unset=True)
     try:
         return await update_branch_metadata(
@@ -735,8 +745,8 @@ async def api_progression_metadata(
 async def api_delete_progression_branch(
     branch_id: str, data: ProgressionDeleteRequest, db: DbSession
 ):
-    _enabled()
     await require_active_project(db, data.novel_id)
+    _enabled()
     if not data.confirm:
         raise HTTPException(status_code=400, detail="请确认将该分支移入 30 天恢复区")
     try:
@@ -773,8 +783,8 @@ async def api_delete_progression_branch(
 async def api_restore_progression_branch(
     branch_id: str, data: ProgressionDeleteRequest, db: DbSession
 ):
-    _enabled()
     await require_active_project(db, data.novel_id)
+    _enabled()
     try:
         return await restore_progression_branch(
             db, novel_id=data.novel_id, branch_id=branch_id
@@ -791,10 +801,10 @@ async def api_restore_progression_branch(
     },
 )
 async def api_compare_progression_steps(data: ProgressionCompareRequest, db: DbSession):
+    await require_active_project(db, data.novel_id)
     _enabled()
     try:
         novel_id = data.novel_id
-        await require_active_project(db, novel_id)
         return await compare_progression_steps(
             db,
             novel_id=novel_id,
@@ -825,8 +835,8 @@ async def api_read_continuous_authorization(
     *,
     novel_id: str = Query(...),
 ):
-    _enabled()
     await require_active_project(db, novel_id)
+    _enabled()
     try:
         root = await get_progression_root(db, novel_id, root_id)
         branch = await get_progression_branch(db, novel_id, branch_id)
@@ -855,8 +865,8 @@ async def api_set_continuous_authorization(
     data: ProgressionContinuousAuthorizationRequest,
     db: DbSession,
 ):
-    _enabled()
     await require_active_project(db, data.novel_id)
+    _enabled()
     try:
         await db.scalar(
             select(StoryWorldProgressionAuthorization)

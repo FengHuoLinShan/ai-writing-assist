@@ -236,7 +236,7 @@ async def read_map_progression_state(
             item
             for item in scenes
             if str(item.get("scene_id")) == scene_id
-            and int(item.get("scene_index") or -1) == int(scene_index)
+            and item.get("scene_index") == scene_index
         ),
         None,
     )

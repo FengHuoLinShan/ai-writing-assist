@@ -574,6 +574,7 @@ def _actor_view_packet(role: dict, state: dict, actor_id: str, step_length: str)
     return {
         "viewpoint": role.get("viewpoint"),
         "visible_brief": role.get("brief"),
+        "source_ids": role.get("source_ids", []),
         "known_participant_ids": role.get("known_participant_ids", []),
         "known_entity_ids": role.get("known_entity_ids", []),
         "known_route_ids": role.get("known_route_ids", []),

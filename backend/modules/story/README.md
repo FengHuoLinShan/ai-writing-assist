@@ -431,7 +431,9 @@ Scene 顺序、状态、章节引用和 `replaced_by_scene_ids`。查询按 `nov
 
 `world_progression_operations.OPERATIONS_SPEC` 是纯目录数据：history/compare/budget preview 为 R0，
 沿已确认根推进一步为 R1，独立根预算启动与半步恢复为 R4，钩子采用为 R3。AI 没有历史删除或持续授权写操作；
-Assistant R1 必须证明普通作者回合、同一 Scene、参与者与资料确认。钩子先调用
+Assistant R1 必须证明普通作者回合、同一 Scene、参与者与资料确认。
+纯目录操作在 prepare 与 apply 均核 Assistant work 的 Scene、参与者、目标与原 Evidence 选择；
+整作品历史和跨窗口钩子预览需完整项目范围，作者 HTTP 工作台仍按项目所有权验权。钩子先调用
 `story.plan_structure` 的 rolling-window prepare 只读预览，再按来源重验与 CAS 创建可编辑剧情线、
 篇章或计划 Scene。持续提醒的 `NOTICE_SOURCE_SPEC` 仅由合并器读取，不会从 GET 启动任务；
 Evolution 成功 Scene 回执同事务投递免费检查，提交后只把全部 Scene 成功覆盖当前 canonical 版本的章节计入 N；
@@ -440,7 +442,11 @@ GET、Writing 发布与失败回执均不会触发计费。章节重排撤销原
 
 作者时点快照消费 C0c 的 `WORLD_READ_OBJECT_VALIDITY_NOTICES`：对象/关系字段按相同 typed 身份与
 字段核对；地图路线只读当前 adopted/saved revision、原始 FeatureKey、有效期与 Story 精确覆盖，
-身份和来源指纹进入快照。生命状态缺少唯一 exact typed fact 时明确标为 unknown。移动证据必须是
+身份和来源指纹进入快照。生命状态缺少唯一 exact typed fact 时明确标为 unknown。
+参与者身份由 World 当前 canonical typed 对象证明，档案条目仅提供带时点的事实；没有档案字段的
+已采用人物仍可引用自己的 `world:entity:<UUID>` 身份依据提出原地意图，不据此推断其他事实。
+预算预览返回实际截止 Scene 的 ID、零基索引和标题，低于完整步骤所需额度时显示不足提醒。
+移动证据必须是
 角色可见且意图引用的当前路线、可信截止时间与 typed 行程资料；路线存在本身不代表移动成功，
 资料缺失时 `simulation_v3` 结算为 uncertain，不用坐标或地名推断。
 

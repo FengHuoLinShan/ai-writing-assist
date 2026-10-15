@@ -10,7 +10,7 @@ from core.errors import ConflictError
 from infrastructure.llm.workflow_budget import new_ai_run_envelope
 from modules.story.world_progression_continuous import _lineage_goal_step
 from modules.story.world_progression_engine import derive_progression_metrics
-from modules.story.world_progression_hooks import _find_adopted_operation
+from modules.story.world_progression_hooks_api import _find_adopted_operation
 from modules.story.world_progression_schemas import (
     ProgressionBudgetPreviewRequest,
     ProgressionKnowledgeUpdate,

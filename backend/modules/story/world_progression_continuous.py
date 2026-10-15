@@ -20,7 +20,6 @@ from infrastructure.tasks.facade import (
     get_operation_task,
 )
 from infrastructure.tasks.models import AsyncTask
-from infrastructure.tasks.registry import task_handler
 from modules.evidence.facade import require_fresh_confirmation
 from modules.story.generation import STORY_ONE_CLICK_ACTION
 from modules.story.world_progression_context import read_progression_source
@@ -108,16 +107,6 @@ async def queue_progression_read_check(db, *, novel_id: str) -> str | None:
         novel_id=novel_id,
     )
     return receipt.task_id
-
-
-@task_handler(_READ_COMMIT_CHECK_TASK, recovery_policy="restart_origin")
-async def handle_progression_chapter_commit_check(db, task) -> dict:
-    novel_id = str((task.meta or {}).get("novel_id") or "")
-    if not novel_id or novel_id != str(task.novel_id):
-        raise ValueError("章节推进检查缺少作品身份")
-    return await consider_progression_after_chapter_commit(
-        db, novel_id=novel_id, latest_effective_chapter=0
-    )
 
 
 def _budget_view(root) -> dict:

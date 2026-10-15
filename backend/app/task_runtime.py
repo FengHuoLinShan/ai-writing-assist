@@ -21,7 +21,7 @@ _TASK_HANDLER_MODULES = (
     "modules.story.tasks",
     "modules.story.director_tasks",
     "modules.story.world_progression_tasks",
-    "modules.story.world_progression_continuous",
+    "modules.story.world_progression_continuous_tasks",
     "modules.world.tasks",
     "modules.writing.tasks",
 )

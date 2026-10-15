@@ -643,6 +643,23 @@ CAPABILITY_REGISTRY: dict[str, CapabilityKnowledgePolicy] = {
             notes="逐人物可知资料与导演层分离；输出仅为冻结候选历史，不写正文或正史。",
         ),
         _policy(
+            "story.world_progression",
+            DOMAIN_STORY,
+            "世界推进候选模拟",
+            subjects=("author", "character"),
+            dimensions=(
+                "character_knowledge",
+                "world_entities",
+                "outline",
+                "scene_state",
+            ),
+            advisory_dimensions=(*_MAP_SPATIAL_ADVISORY, *_OBJECT_REFERENCE_ADVISORY),
+            confirmation=CONFIRMATION_REQUIRED,
+            outputs=(OUTPUT_PROPOSAL,),
+            gate=ADOPTION_DISPLAY_ONLY,
+            notes="逐角色知识包与导演层分离；根预算与来源冻结，候选不自动写入正史。",
+        ),
+        _policy(
             "story.scene_fusion",
             DOMAIN_STORY,
             "Scene 融合草稿",

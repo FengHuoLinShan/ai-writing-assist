@@ -49,7 +49,9 @@ def preview_progression_budget(
     else:
         planned_steps = None
         request_min = calls_per_step
-        request_max = request.request_limit
+        # Goal/budget runs have no known completion count. Show at least the
+        # calls needed for one complete step even when the author grants less.
+        request_max = max(request_min, request.request_limit)
 
     role_text = sum(
         len(json.dumps(value.get("brief") or {}, ensure_ascii=False))
@@ -71,10 +73,12 @@ def preview_progression_budget(
     steps_for_estimate = planned_steps or max(1, request.request_limit // calls_per_step)
     tokens_low = max(1, int(chars_per_step / 4.0)) * steps_for_estimate
     tokens_high = max(tokens_low, int(chars_per_step / 2.5)) * steps_for_estimate
-    estimated_calls = min(request.request_limit, request_max)
-    time_low = estimated_calls * 2
-    time_high = min(request.time_budget_seconds, estimated_calls * 25)
-    enough_one_step = request.request_limit * 0.8 >= calls_per_step
+    time_low = request_min * 2
+    time_high = request_max * 25
+    # The worker checks the 80% guard before each provider request. A final
+    # request may cross it, then the next request is refused.
+    requests_before_guard = (request.request_limit * 4 + 4) // 5
+    enough_one_step = requests_before_guard >= calls_per_step
     warnings = [
         "这是授权预览；实际请求和 token 以运行账本为准，不估算金额。",
         "预算到 80%、计费状态未知或新调用可能导致停在半步时暂停。",
@@ -82,6 +86,16 @@ def preview_progression_budget(
     ]
     if not enough_one_step:
         warnings.append("请求额度不足以在 80% 闸门前完成一个完整步骤。")
+    elif planned_steps is not None and requests_before_guard < request_max:
+        warnings.append("请求额度不足以在 80% 闸门前完成所选全部步骤。")
+    if tokens_low > request.token_limit:
+        warnings.append("预计 Token 最低需求超过授权上限，运行可能提前暂停。")
+    if time_low > request.time_budget_seconds:
+        warnings.append("预计最短耗时超过授权时长，运行可能提前暂停。")
+    if planned_steps is None:
+        warnings.append(
+            "目标或预算停止模式无法预知完成步数；区间只估算首步与当前授权窗口。"
+        )
     map_state = source.get("map_state", {})
     if map_state.get("coverage") != "available":
         warnings.extend(map_state.get("unknowns") or [])
@@ -97,6 +111,12 @@ def preview_progression_budget(
     return {
         "preview_hash": content_hash(progression_preview_identity(request, source)),
         "scene_id": source["scene_id"],
+        "scene_index": source.get("scene_index"),
+        "scene_title": (
+            ((source.get("scene_context") or {}).get("outline_bundle") or {})
+            .get("scene", {})
+            .get("title")
+        ),
         "participants": participant_count,
         "participant_ids": [item.id for item in request.participants],
         "grouping": source.get("context_groups", {}),
@@ -108,11 +128,17 @@ def preview_progression_budget(
             "limit": request.request_limit,
             "estimate_minimum": request_min,
             "estimate_maximum": request_max,
+            "max_complete_steps_before_guard": requests_before_guard // calls_per_step,
+            "estimate_scope": (
+                "complete_selection"
+                if planned_steps is not None
+                else "authorization_window"
+            ),
         },
         "token_budget": {
             "limit": request.token_limit,
             "estimate_minimum": tokens_low,
-            "estimate_maximum": min(tokens_high, request.token_limit),
+            "estimate_maximum": tokens_high,
             "input_context_limit": input_limit,
             "method": "按冻结资料文本长度估算区间；不代表 provider 实际用量。",
         },

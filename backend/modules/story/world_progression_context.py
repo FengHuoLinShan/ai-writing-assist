@@ -27,6 +27,7 @@ from modules.story.world_progression_schemas import (
     ProgressionParticipant,
     ProgressionTarget,
 )
+from modules.world.facade import get_hidden_guard_sources, read_map_progression_state
 from modules.writing.facade import get_latest_effective_chapter_index
 
 _ENTITY_GROUP_SIZE = 16
@@ -281,6 +282,17 @@ async def read_progression_source(
         or scene_context.get("scene_id") != scene_id
     ):
         raise ValueError("截止 Scene 上下文身份不匹配")
+    # StorySceneContextResponse places the ordered Scene inside outline_bundle;
+    # its top-level fields are only the context identity and fingerprint.
+    scene = (scene_context.get("outline_bundle") or {}).get("scene") or {}
+    scene_index = scene.get("scene_index")
+    if (
+        str(scene.get("id")) != scene_id
+        or isinstance(scene_index, bool)
+        or not isinstance(scene_index, int)
+        or scene_index < 0
+    ):
+        raise ValueError("截止 Scene 排序依据不可用，请重新选择")
 
     object_validity_notices = await get(WORLD_READ_OBJECT_VALIDITY_NOTICES)(
         db, novel_id, {"scene_id": scene_id}
@@ -305,9 +317,7 @@ async def read_progression_source(
     time_basis = {
         "cutoff": {
             "scene_id": scene_id,
-            "scene_index": author_state.get(
-                "scene_index", scene_context.get("scene_index")
-            ),
+            "scene_index": author_state.get("scene_index", scene_index),
             "chapter_index": author_state.get("chapter_index"),
         },
         "checkpoint_status": timeline_dimension.get("status", "missing"),
@@ -353,16 +363,17 @@ async def read_progression_source(
             )
         )
     author_brief = _merge_briefs(author_parts)
-    world_by_id = {
-        str(item.get("entity_id")): item
-        for item in author_brief.get("world_items") or []
-        if item.get("entity_id")
-    }
+    # A canonical World identity exists independently of optional dossier
+    # entries. The dossier contributes time-scoped facts, not the identity gate.
+    world_entities, _ = await get_hidden_guard_sources(
+        db, novel_id=novel_id, entity_ids=participant_ids, relation_ids=[]
+    )
+    world_by_id = {item.entity_id: item for item in world_entities}
     for participant in participants:
         item = world_by_id.get(participant.id)
-        if item is None or item.get("status") not in {None, "canonical", "adopted"}:
+        if item is None or item.status != "canonical":
             raise ValueError("参与者身份没有当前已采用的 World 证明")
-        entity_type = str(item.get("entity_type") or "")
+        entity_type = item.entity_type
         allowed = (
             {"character"}
             if participant.kind == "character"
@@ -417,7 +428,9 @@ async def read_progression_source(
             "brief": brief,
             "known_participant_ids": sorted(set(participant_ids) & visible_ids),
             "known_entity_ids": sorted(visible_ids),
-            "source_ids": sorted(_source_ids(brief)),
+            # The exact canonical World identity is a valid starting basis
+            # even when this actor has no time-scoped dossier entry yet.
+            "source_ids": sorted(_source_ids(brief) | {f"world:entity:{participant.id}"}),
             "coverage": brief.get("coverage", "unknown"),
         }
 
@@ -462,15 +475,13 @@ async def read_progression_source(
     if map_reader is None:
         # Cross-module calls go through the frozen World facade; composition can
         # inject this explicitly in focused tests without creating a second reader.
-        from modules.world.facade import read_map_progression_state
-
         map_reader = read_map_progression_state
     if map_reader is not None:
         value = await map_reader(
             db,
             novel_id=novel_id,
             scene_id=scene_id,
-            scene_index=int(scene_context["scene_index"]),
+            scene_index=scene_index,
             actor_ids=character_ids,
         )
         map_state = _dump(value)
@@ -525,7 +536,7 @@ async def read_progression_source(
     return {
         "novel_id": novel_id,
         "scene_id": scene_id,
-        "scene_index": scene_context.get("scene_index"),
+        "scene_index": scene_index,
         "latest_written_scene": latest,
         "scene_context": scene_context,
         "time_basis": time_basis,

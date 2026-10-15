@@ -533,6 +533,23 @@ A3_AUTHOR_OPERATIONS = {
     "collaboration.workspace.atomic_adopt",
 }
 C4_TRANSFER_OPERATIONS = {"story.scene_director.transfer_world_candidate"}
+C5_WORLD_PROGRESSION_OPERATIONS = {
+    "story.world_progression.history",
+    "story.world_progression.compare",
+    "story.world_progression.preview",
+    "story.world_progression.start",
+    "story.world_progression.advance",
+    "story.world_progression.resume",
+    "story.world_progression.preview_hook",
+    "story.world_progression.adopt_hook",
+    "story.world_progression.read_continuous_authorization",
+}
+C0_DOSSIER_INTERCHANGE_OPERATIONS = {
+    "world.dossier.template.borrowed.read",
+    "world.dossier.template.borrowed.edit",
+    "world.dossier.manifest.preview",
+    "world.dossier.manifest.apply",
+}
 # Preserve the pre-C0c snapshot above. These seven contracts were deliberately
 # versioned after the response or nested request shape changed.
 C0C_REVISED_SNAPSHOT = {
@@ -584,7 +601,13 @@ C0C_REVISED_SNAPSHOT = {
 def _pre_c0c_manifest():
     from modules.assistant.operations import operation_manifest
 
-    excluded = C0C_VALIDITY_OPERATIONS | A3_AUTHOR_OPERATIONS | C4_TRANSFER_OPERATIONS
+    excluded = (
+        C0C_VALIDITY_OPERATIONS
+        | A3_AUTHOR_OPERATIONS
+        | C4_TRANSFER_OPERATIONS
+        | C5_WORLD_PROGRESSION_OPERATIONS
+        | C0_DOSSIER_INTERCHANGE_OPERATIONS
+    )
     frozen = {
         name: value
         for name, value in operation_manifest().items()
@@ -610,6 +633,8 @@ def test_bootstrap_operation_catalog_matches_snapshot():
         | C0C_VALIDITY_OPERATIONS
         | A3_AUTHOR_OPERATIONS
         | C4_TRANSFER_OPERATIONS
+        | C5_WORLD_PROGRESSION_OPERATIONS
+        | C0_DOSSIER_INTERCHANGE_OPERATIONS
     )
     mismatches = {
         name: {
@@ -674,6 +699,8 @@ def test_catalog_v2_metadata_and_trace_inventory_match_runtime_schemas():
         + len(C0C_VALIDITY_OPERATIONS)
         + len(A3_AUTHOR_OPERATIONS)
         + len(C4_TRANSFER_OPERATIONS)
+        + len(C5_WORLD_PROGRESSION_OPERATIONS)
+        + len(C0_DOSSIER_INTERCHANGE_OPERATIONS)
     )
     assert set(operations) == set(manifest)
     for op_id, operation in operations.items():
@@ -771,11 +798,20 @@ def test_v12_author_operations_do_not_enter_a_frozen_v11_directory():
     frozen_v11 = {
         name: value
         for name, value in operation_manifest().items()
-        if name not in A3_AUTHOR_OPERATIONS | C4_TRANSFER_OPERATIONS
+        if name
+        not in (
+            A3_AUTHOR_OPERATIONS
+            | C4_TRANSFER_OPERATIONS
+            | C5_WORLD_PROGRESSION_OPERATIONS
+            | C0_DOSSIER_INTERCHANGE_OPERATIONS
+        )
     }
     assert not (set(resolve_operations(frozen_v11)) & A3_AUTHOR_OPERATIONS)
     assert set(operation_manifest()) - set(frozen_v11) == (
-        A3_AUTHOR_OPERATIONS | C4_TRANSFER_OPERATIONS
+        A3_AUTHOR_OPERATIONS
+        | C4_TRANSFER_OPERATIONS
+        | C5_WORLD_PROGRESSION_OPERATIONS
+        | C0_DOSSIER_INTERCHANGE_OPERATIONS
     )
 
 
@@ -789,9 +825,18 @@ def test_v13_transfer_is_r3_and_absent_from_a_frozen_v12_directory():
     frozen_v12 = {
         name: value
         for name, value in manifest.items()
-        if name not in C4_TRANSFER_OPERATIONS
+        if name
+        not in (
+            C4_TRANSFER_OPERATIONS
+            | C5_WORLD_PROGRESSION_OPERATIONS
+            | C0_DOSSIER_INTERCHANGE_OPERATIONS
+        )
     }
-    assert set(manifest) - set(frozen_v12) == C4_TRANSFER_OPERATIONS
+    assert set(manifest) - set(frozen_v12) == (
+        C4_TRANSFER_OPERATIONS
+        | C5_WORLD_PROGRESSION_OPERATIONS
+        | C0_DOSSIER_INTERCHANGE_OPERATIONS
+    )
     assert not (set(resolve_operations(frozen_v12)) & C4_TRANSFER_OPERATIONS)
     operation = get("assistant.operations")[
         "story.scene_director.transfer_world_candidate"

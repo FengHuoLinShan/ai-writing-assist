@@ -362,32 +362,30 @@ async def _preset_preview(db, novel_id, args, *, context=None):
             ProjectVocabularyTerm.preset_id.in_(args.preset_ids),
         )
     )
-    applied_keys = {
-        (item.preset_id, item.preset_version, item.preset_item_key)
-        for item in applied_terms
-    }
+    applied_keys = {(item.preset_id, item.preset_item_key) for item in applied_terms}
     known: dict[str, set[str]] = {}
     for item in by_id.values():
         known.setdefault(item["kind"], set()).update(_keys(item))
     create_count = 0
     for preset_id in args.preset_ids:
         preset = PRESETS[preset_id]
-        for item in preset.items:
-            identity = (preset.id, preset.version, item.key)
-            if identity in applied_keys:
-                continue
-            fields = VocabularyTermFields(
-                name=item.name,
-                description=item.description,
-                aliases=list(item.aliases),
-                traits=item.traits or {},
-            )
-            keys = _keys(fields)
-            if keys & known.setdefault(item.kind, set()):
-                continue
-            known[item.kind].update(keys)
-            applied_keys.add(identity)
-            create_count += 1
+        for _version, items in ((preset.version, preset.items), *preset.extensions):
+            for item in items:
+                identity = (preset.id, item.key)
+                if identity in applied_keys:
+                    continue
+                fields = VocabularyTermFields(
+                    name=item.name,
+                    description=item.description,
+                    aliases=list(item.aliases),
+                    traits=item.traits or {},
+                )
+                keys = _keys(fields)
+                if keys & known.setdefault(item.kind, set()):
+                    continue
+                known[item.kind].update(keys)
+                applied_keys.add(identity)
+                create_count += 1
     if create_count > 20:
         raise ValidationError("一次题材预设确认最多创建 20 个词条，请拆分预设选择")
     return _preview(
@@ -474,6 +472,8 @@ async def _apply_split(db, novel_id, args, preview, *, context=None):
 
 async def _apply_presets(db, novel_id, args, preview, *, context=None):
     await _confirm_preview(db, novel_id, args, preview, _preset_preview, context)
+    if int(preview["after"]["expected_created_count"]) > 20:
+        raise ValidationError("题材预设一次最多创建 20 个词条")
     result = await apply_vocabulary_presets(db, novel_id, args.preset_ids)
     if result.applied > 20:
         raise ValidationError("题材预设一次最多创建 20 个词条")

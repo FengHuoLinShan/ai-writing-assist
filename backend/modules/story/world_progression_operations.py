@@ -4,7 +4,10 @@ from __future__ import annotations
 
 from core.container import get
 from core.errors import ConflictError
-from core.service_keys import ASSISTANT_IS_AUTHOR_TURN_RUN
+from core.service_keys import (
+    ASSISTANT_IS_AUTHOR_TURN_RUN,
+    ASSISTANT_REQUIRE_OPERATION_TARGETS,
+)
 from modules.project.facade import (
     build_project_llm_execution_snapshot,
     require_active_project,
@@ -29,6 +32,7 @@ from modules.story.world_progression_service import (
     compare_progression_steps,
     get_progression_branch,
     get_progression_root,
+    get_progression_step,
     list_root_metrics,
     progression_resume_hash,
     read_progression_history,
@@ -72,6 +76,67 @@ def _require_project(novel_id: str, args) -> None:
         raise PermissionError("操作作品与当前作者工作范围不一致")
 
 
+async def _require_work_scope(
+    db,
+    novel_id: str,
+    context,
+    *,
+    scene_id=None,
+    participant_ids=(),
+    target_refs=(),
+    aggregate=False,
+) -> None:
+    if context is None:
+        return
+    work = context.work
+    if aggregate:
+        if work.scope != "project":
+            raise PermissionError("当前 Scene 工作范围不能读取整部作品的推进历史")
+        await get(ASSISTANT_REQUIRE_OPERATION_TARGETS)(
+            db, novel_id, context, [], aggregate=True
+        )
+        return
+    if scene_id is None:
+        raise PermissionError("世界推进操作缺少可核验的 Scene 截止点")
+    if work.scope == "current" and (
+        work.scene_id is None or str(work.scene_id) != str(scene_id)
+    ):
+        raise PermissionError("世界推进 Scene 超出当前作者工作范围")
+    targets = [("outline_scene", str(scene_id))]
+    targets.extend(("core_entity", str(actor_id)) for actor_id in participant_ids)
+    targets.extend((str(kind), str(target_id)) for kind, target_id in target_refs)
+    await get(ASSISTANT_REQUIRE_OPERATION_TARGETS)(db, novel_id, context, targets)
+
+
+async def _require_root_scope(db, novel_id, context, root) -> None:
+    request = root.request_json or {}
+    await _require_work_scope(
+        db,
+        novel_id,
+        context,
+        scene_id=root.scene_id,
+        participant_ids=[
+            item["id"] for item in request.get("participants") or [] if item.get("id")
+        ],
+        target_refs=[
+            (item["kind"], item["id"])
+            for item in request.get("targets") or []
+            if item.get("kind") and item.get("id")
+        ],
+    )
+
+
+async def _require_requested_scope(db, novel_id, args, context, source) -> None:
+    await _require_work_scope(
+        db,
+        novel_id,
+        context,
+        scene_id=source["scene_id"],
+        participant_ids=[item.id for item in args.participants],
+        target_refs=[(item.kind, item.id) for item in args.targets],
+    )
+
+
 def _require_enabled() -> None:
     from modules.story.world_progression_api import _enabled
 
@@ -105,7 +170,10 @@ async def _prepare_budget(db, novel_id, args, *, context=None):
     await require_active_project(db, novel_id)
     snapshot = await build_project_llm_execution_snapshot(db, novel_id)
     source = await _source(db, novel_id, args, snapshot=snapshot)
-    metrics = await list_root_metrics(db, novel_id)
+    await _require_requested_scope(db, novel_id, args, context, source)
+    # Historical recommendations are project-wide aggregates. A narrowed
+    # Assistant work context may preview its own source without reading them.
+    metrics = await list_root_metrics(db, novel_id) if context is None else []
     return preview_progression_budget(
         args, source, model_name=_model_name(snapshot), metrics=metrics
     )
@@ -120,6 +188,8 @@ async def _prepare_start(db, novel_id, args, *, context=None):
 
 async def _apply_start(db, novel_id, args, preview, *, context=None):
     _require_project(novel_id, args)
+    source = await _source(db, novel_id, args)
+    await _require_requested_scope(db, novel_id, args, context, source)
     from modules.story.world_progression_api import api_start_progression
 
     result = await api_start_progression(args, db)
@@ -130,6 +200,19 @@ async def _prepare_history(db, novel_id, args, *, context=None):
     _require_enabled()
     _require_project(novel_id, args)
     await require_active_project(db, novel_id)
+    if args.root_id is not None:
+        root = await get_progression_root(db, novel_id, str(args.root_id))
+        if args.scene_id is not None and str(args.scene_id) != str(root.scene_id):
+            raise ConflictError("筛选 Scene 与世界推进运行不一致")
+        await _require_root_scope(db, novel_id, context, root)
+    elif args.scene_id is not None:
+        await _require_work_scope(db, novel_id, context, scene_id=args.scene_id)
+        if context is not None:
+            await get(ASSISTANT_REQUIRE_OPERATION_TARGETS)(
+                db, novel_id, context, [], aggregate=True
+            )
+    else:
+        await _require_work_scope(db, novel_id, context, aggregate=True)
     return await read_progression_history(
         db,
         novel_id,
@@ -143,6 +226,12 @@ async def _prepare_compare(db, novel_id, args, *, context=None):
     _require_enabled()
     _require_project(novel_id, args)
     await require_active_project(db, novel_id)
+    first = await get_progression_step(db, novel_id, str(args.first_step_id))
+    second = await get_progression_step(db, novel_id, str(args.second_step_id))
+    if first.root_id != second.root_id:
+        raise ConflictError("只能比较同一运行中的步骤")
+    root = await get_progression_root(db, novel_id, str(first.root_id))
+    await _require_root_scope(db, novel_id, context, root)
     return await compare_progression_steps(
         db,
         novel_id=novel_id,
@@ -162,6 +251,7 @@ async def _assert_author_turn(db, novel_id, args, context) -> dict:
     ):
         raise PermissionError("目标运行或自动任务不能代替普通作者助手推进世界")
     root = await get_progression_root(db, novel_id, str(args.root_id))
+    await _require_root_scope(db, novel_id, context, root)
     branch = await get_progression_branch(db, novel_id, str(args.branch_id))
     if str(branch.root_id) != str(root.id):
         raise ConflictError("推进分支与运行根不匹配")
@@ -225,6 +315,7 @@ async def _prepare_resume(db, novel_id, args, *, context=None):
     _require_project(novel_id, args)
     await require_active_project(db, novel_id)
     root = await get_progression_root(db, novel_id, str(args.root_id))
+    await _require_root_scope(db, novel_id, context, root)
     branch = await get_progression_branch(db, novel_id, str(args.branch_id))
     if str(branch.root_id) != str(root.id) or not branch.pending_step_json:
         raise ConflictError("所选分支没有可恢复的半步检查点")
@@ -259,6 +350,8 @@ async def _prepare_resume(db, novel_id, args, *, context=None):
 
 async def _apply_resume(db, novel_id, args, preview, *, context=None):
     _require_project(novel_id, args)
+    root = await get_progression_root(db, novel_id, str(args.root_id))
+    await _require_root_scope(db, novel_id, context, root)
     from modules.story.world_progression_api import api_resume_progression
 
     return dict(
@@ -268,7 +361,13 @@ async def _apply_resume(db, novel_id, args, preview, *, context=None):
 
 async def _prepare_hook_preview(db, novel_id, args, *, context=None):
     _require_project(novel_id, args)
-    from modules.story.world_progression_hooks import api_progression_hook_preview
+    root = await get_progression_root(db, novel_id, str(args.root_id))
+    step = await get_progression_step(db, novel_id, str(args.step_id))
+    if step.root_id != root.id:
+        raise ConflictError("钩子步骤与世界推进运行不匹配")
+    await _require_root_scope(db, novel_id, context, root)
+    await _require_work_scope(db, novel_id, context, aggregate=True)
+    from modules.story.world_progression_hooks_api import api_progression_hook_preview
 
     return await api_progression_hook_preview(args, db)
 
@@ -276,7 +375,13 @@ async def _prepare_hook_preview(db, novel_id, args, *, context=None):
 async def _prepare_hook_adopt(db, novel_id, args, *, context=None):
     _require_enabled()
     _require_project(novel_id, args)
-    from modules.story.world_progression_hooks import _prepare_hook_preview
+    root = await get_progression_root(db, novel_id, str(args.root_id))
+    step = await get_progression_step(db, novel_id, str(args.step_id))
+    if step.root_id != root.id:
+        raise ConflictError("钩子步骤与世界推进运行不匹配")
+    await _require_root_scope(db, novel_id, context, root)
+    await _require_work_scope(db, novel_id, context, aggregate=True)
+    from modules.story.world_progression_hooks_api import _prepare_hook_preview
 
     preview = await _prepare_hook_preview(db, args)
     if preview["preview_hash"] != args.preview_hash:
@@ -294,7 +399,10 @@ async def _prepare_hook_adopt(db, novel_id, args, *, context=None):
 
 async def _apply_hook_adopt(db, novel_id, args, preview, *, context=None):
     _require_project(novel_id, args)
-    from modules.story.world_progression_hooks import api_progression_hook_adopt
+    root = await get_progression_root(db, novel_id, str(args.root_id))
+    await _require_root_scope(db, novel_id, context, root)
+    await _require_work_scope(db, novel_id, context, aggregate=True)
+    from modules.story.world_progression_hooks_api import api_progression_hook_adopt
 
     return await api_progression_hook_adopt(args, db)
 
@@ -303,6 +411,11 @@ async def _read_continuous(db, novel_id, args, *, context=None):
     _require_enabled()
     _require_project(novel_id, args)
     await require_active_project(db, novel_id)
+    root = await get_progression_root(db, novel_id, str(args.root_id))
+    branch = await get_progression_branch(db, novel_id, str(args.branch_id))
+    if branch.root_id != root.id:
+        raise ConflictError("持续授权分支与世界推进运行不匹配")
+    await _require_root_scope(db, novel_id, context, root)
     from modules.story.world_progression_continuous import read_continuous_authorization
 
     current = await read_continuous_authorization(db, novel_id)

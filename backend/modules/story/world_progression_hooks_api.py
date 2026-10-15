@@ -266,8 +266,8 @@ async def api_progression_hook_preview(
 ):
     from modules.story.world_progression_api import _enabled
 
-    _enabled()
     await require_active_project(db, data.novel_id)
+    _enabled()
     try:
         await require_fresh_confirmation(
             db,
@@ -331,8 +331,8 @@ async def _find_adopted_operation(
 async def _apply_hook_adoption(db, data):
     from modules.story.world_progression_api import _enabled
 
-    _enabled()
     await require_active_project(db, data.novel_id)
+    _enabled()
     prior = await _find_adopted_operation(
         db, data.novel_id, data.asset_type, str(data.operation_id), data.preview_hash
     )

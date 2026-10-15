@@ -9,9 +9,12 @@ from datetime import UTC, datetime, timedelta
 from types import SimpleNamespace
 
 import pytest
-from sqlalchemy import select
-from sqlalchemy.ext.asyncio import async_sessionmaker
+import pytest_asyncio
+from sqlalchemy import event, select
+from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
+from sqlalchemy.pool import StaticPool
 
+from core.base import Base
 from infrastructure.llm.client import LLMClient
 from infrastructure.llm.limits import reset_llm_limiter_for_tests
 from infrastructure.llm.schemas import LLMCallResponse, LLMUsage
@@ -73,9 +76,34 @@ class _Manager:
         self.session_factory = sessions
 
 
+@pytest_asyncio.fixture
+async def isolated_worker_engine():
+    """The worker commits, so it must not leak rows into the shared test engine."""
+    engine = create_async_engine(
+        "sqlite+aiosqlite:///:memory:",
+        poolclass=StaticPool,
+        connect_args={"check_same_thread": False},
+    )
+
+    @event.listens_for(engine.sync_engine, "connect")
+    def disable_implicit_transactions(connection, _record):
+        connection.isolation_level = None
+
+    @event.listens_for(engine.sync_engine, "begin")
+    def begin_transaction(connection):
+        connection.exec_driver_sql("BEGIN")
+
+    async with engine.begin() as connection:
+        await connection.run_sync(Base.metadata.create_all)
+    try:
+        yield engine
+    finally:
+        await engine.dispose()
+
+
 @pytest.mark.asyncio
 async def test_world_progression_worker_persists_offline_steps(
-    test_engine, monkeypatch, *, seed_project=False, step_count=1
+    isolated_worker_engine, monkeypatch, *, seed_project=False, step_count=1
 ):
     expected_calls = 2 * step_count
     actor, novel_id, scene_id, root_id, branch_id = [uuid.uuid4() for _ in range(5)]
@@ -144,7 +172,9 @@ async def test_world_progression_worker_persists_offline_steps(
         "capability_from_execution_snapshot",
         lambda _snapshot: SimpleNamespace(hard_input_tokens=12000),
     )
-    sessions = async_sessionmaker(test_engine, expire_on_commit=False, autoflush=False)
+    sessions = async_sessionmaker(
+        isolated_worker_engine, expire_on_commit=False, autoflush=False
+    )
     started = datetime.now(UTC)
     envelope = new_ai_run_envelope(
         operation_id=str(uuid.uuid4()),
@@ -224,7 +254,7 @@ async def test_world_progression_worker_persists_offline_steps(
         branch = await db.get(StoryWorldProgressionBranch, branch_id)
         root.current_task_id = branch.current_task_id = task_id
 
-    await TaskWorker(db_manager=_Manager(test_engine, sessions)).run_once(
+    await TaskWorker(db_manager=_Manager(isolated_worker_engine, sessions)).run_once(
         task_id=task_id, novel_id=novel_id
     )
     async with sessions() as db:
