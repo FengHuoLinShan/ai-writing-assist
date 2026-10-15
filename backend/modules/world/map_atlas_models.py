@@ -306,7 +306,8 @@ class MapAtlasRevision(Base, UUIDMixin, TimestampMixin, NovelMixin):
             name="fk_map_revision_node",
         ),
         CheckConstraint(
-            "status IN ('candidate', 'saved', 'rejected')", name="ck_map_revision_status"
+            "status IN ('candidate', 'saved', 'rejected', 'superseded')",
+            name="ck_map_revision_status",
         ),
         CheckConstraint(
             "writing_chapter_index IS NULL OR writing_chapter_index >= 0",
