@@ -17,6 +17,10 @@ from modules.world.map_atlas_models import MapAtlasNode
 from modules.world.map_atlas_schemas import MapAtlasNodeUpdate
 from modules.world.map_atlas_service import MapAtlasService
 from modules.world.map_auto_draft_service import list_map_auto_drafts
+from modules.world.map_node_merge import (
+    MapNodeMergeApplyRequest,
+    MapNodeMergeService,
+)
 from modules.world.map_spatial_clue_schemas import (
     MapSpatialClueDecisionRequest,
 )
@@ -634,6 +638,7 @@ async def _auto_draft_group_preview(db, novel_id, args, *, context=None):
                 select(MapAtlasNode).where(
                     MapAtlasNode.novel_id == UUID(novel_id),
                     MapAtlasNode.status == "adopted",
+                    MapAtlasNode.merged_into_node_id.is_(None),
                 )
             )
         ).all()
@@ -1102,6 +1107,77 @@ async def _node_merge_candidate(db, novel_id, args, preview, *, context=None):
     }
 
 
+async def _merge_nodes_preview(db, novel_id, args, *, context=None):
+    if args.source_node_id == args.target_node_id:
+        raise ValidationError("不能将地图节点合并到自身")
+    _require_workbench_scope(context)
+    await get(ASSISTANT_REQUIRE_OPERATION_TARGETS)(
+        db,
+        novel_id,
+        context,
+        [
+            ("map_atlas_node", args.source_node_id),
+            ("map_atlas_node", args.target_node_id),
+        ],
+        aggregate=True,
+    )
+    preview = await MapNodeMergeService().preview(
+        db, novel_id, args.source_node_id, args.target_node_id
+    )
+    return {
+        **preview.model_dump(mode="json"),
+        "target_keys": [
+            f"map:{preview.source_node_id}",
+            f"map:{preview.target_node_id}",
+        ],
+        "effect": (
+            f"把“{preview.source_title}”的已保存空间资料追加到“{preview.target_title}”；"
+            "保留两个空间的独立坐标、来源与固定类型，来源节点保留为转向目标的历史身份"
+        ),
+        "can_execute_merge": preview.can_execute,
+        "requires_source_disposition_confirmation": True,
+        "label": f"预览将“{preview.source_title}”合并到“{preview.target_title}”",
+    }
+
+
+async def _merge_nodes_apply(db, novel_id, args, preview, *, context=None):
+    _require_workbench_scope(context)
+    await get(ASSISTANT_REQUIRE_OPERATION_TARGETS)(
+        db,
+        novel_id,
+        context,
+        [
+            ("map_atlas_node", args.source_node_id),
+            ("map_atlas_node", args.target_node_id),
+        ],
+        aggregate=True,
+    )
+    if not preview.get("can_execute_merge"):
+        raise ConflictError("合并预览未通过安全检查，请回到地图工作台核对")
+    if str(preview.get("source_node_id")) != str(args.source_node_id) or str(
+        preview.get("target_node_id")
+    ) != str(args.target_node_id):
+        raise ConflictError("合并预览与本次操作目标不一致")
+    result = await MapNodeMergeService().apply(
+        db,
+        novel_id,
+        MapNodeMergeApplyRequest(
+            source_node_id=args.source_node_id,
+            target_node_id=args.target_node_id,
+            preview_fingerprint=preview["fingerprint"],
+            confirmed_source_disposition=True,
+        ),
+    )
+    return {
+        **result,
+        "id": result["target_node_id"],
+        "target_keys": [
+            f"map:{result['source_node_id']}",
+            f"map:{result['target_node_id']}",
+        ],
+    }
+
+
 OPERATIONS_SPEC = {
     "map.prepare_tray_placement": {
         "label": "准备托盘地点放置入口（由作者选点）",
@@ -1114,6 +1190,13 @@ OPERATIONS_SPEC = {
         "schema": PreviewMapNodeMerge,
         "prepare": _node_merge_preview,
         "apply": _node_merge_candidate,
+    },
+    "map.merge_nodes": {
+        "label": "合并两个已保存的地图节点",
+        "revision": "2",
+        "schema": PreviewMapNodeMerge,
+        "prepare": _merge_nodes_preview,
+        "apply": _merge_nodes_apply,
     },
     "map.add_known_location": {
         "label": "把已知地点加入地图（保留未知位置）",

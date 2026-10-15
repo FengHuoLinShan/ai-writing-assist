@@ -294,7 +294,9 @@ def source_text(payload) -> str:
 
 
 class MapStructureService:
-    async def node(self, db, novel_id: str, node_id: str, *, lock=False) -> MapAtlasNode:
+    async def node(
+        self, db, novel_id: str, node_id: str, *, lock=False, allow_merged=False
+    ) -> MapAtlasNode:
         await require_active_project(db, novel_id)
         statement = select(MapAtlasNode).where(
             MapAtlasNode.novel_id == parse_uuid(novel_id, "novel_id"),
@@ -305,6 +307,18 @@ class MapStructureService:
         node = await db.scalar(statement.execution_options(populate_existing=lock))
         if node is None:
             raise NotFoundError("地图不存在")
+        if node.merged_into_node_id is not None and not allow_merged:
+            raise ConflictError(
+                "此地图已合并，请打开目标地图",
+                code="map_node_merged",
+                context={
+                    "redirect_node_id": str(node.merged_into_node_id),
+                    "redirect_to": (
+                        f"/api/world/map-atlas/{novel_id}/nodes/"
+                        f"{node.merged_into_node_id}/map"
+                    ),
+                },
+            )
         return node
 
     async def revision(
@@ -364,6 +378,7 @@ class MapStructureService:
                 .where(
                     MapAtlasNode.novel_id == nid,
                     MapAtlasNode.status == "adopted",
+                    MapAtlasNode.merged_into_node_id.is_(None),
                     MapAtlasRevision.novel_id == nid,
                     MapAtlasRevision.status == "saved",
                 )
@@ -760,7 +775,7 @@ class MapStructureService:
     async def history(self, db, novel_id, node_id):
         from modules.world.services.revision_notes import load_revision_notes
 
-        await self.node(db, novel_id, node_id)
+        await self.node(db, novel_id, node_id, allow_merged=True)
         rows = (
             await db.scalars(
                 select(MapAtlasRevision)
@@ -778,7 +793,7 @@ class MapStructureService:
         return [self.response(row, change_note=notes.get(row.id)) for row in rows]
 
     async def preview_revision(self, db, novel_id, node_id, revision_id):
-        await self.node(db, novel_id, node_id)
+        await self.node(db, novel_id, node_id, allow_merged=True)
         row = await self.revision(db, novel_id, node_id, revision_id)
         document = MapDocument.model_validate(row.document)
         problems = [
@@ -1545,6 +1560,7 @@ async def list_adopted_map_continuity_facts(
             .where(
                 MapAtlasNode.novel_id == parse_uuid(novel_id, "novel_id"),
                 MapAtlasNode.status == "adopted",
+                MapAtlasNode.merged_into_node_id.is_(None),
                 MapAtlasRevision.status == "saved",
             )
             .order_by(MapAtlasNode.sort_order, MapAtlasNode.id)
@@ -1676,6 +1692,7 @@ async def read_map_node_heads(
             .where(
                 MapAtlasNode.novel_id == parse_uuid(novel_id, "novel_id"),
                 MapAtlasNode.id.in_([parse_uuid(value, "node_id") for value in parsed]),
+                MapAtlasNode.merged_into_node_id.is_(None),
             )
         )
     ).all()

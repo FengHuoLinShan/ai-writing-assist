@@ -348,6 +348,7 @@ class MapAtlasNodeResponse(BaseModel):
     id: str
     novel_id: str
     parent_id: str | None = None
+    merged_into_node_id: str | None = None
     location_entity_id: str | None = None
     current_revision_id: str | None = None
     title: str

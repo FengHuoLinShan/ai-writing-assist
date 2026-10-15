@@ -1192,6 +1192,7 @@ async def _persist_plan(db, task, run: MapAtlasRun, plan: AtlasPlan) -> None:
                     MapAtlasNode.novel_id == run.novel_id,
                     MapAtlasNode.id.in_(existing_parent_ids),
                     MapAtlasNode.status == "adopted",
+                    MapAtlasNode.merged_into_node_id.is_(None),
                 )
             )
         ).scalars()
@@ -1256,6 +1257,8 @@ async def _persist_plan(db, task, run: MapAtlasRun, plan: AtlasPlan) -> None:
             )
             db.add(node)
             await db.flush()
+        elif node.merged_into_node_id is not None:
+            raise ValueError("atlas plan points to a merged map node")
         node_by_key[item.plan_key] = node
         parent_by_key[item.plan_key] = parent
         semantic_by_key[item.plan_key] = semantic_key

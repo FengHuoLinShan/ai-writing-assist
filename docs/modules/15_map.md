@@ -63,7 +63,7 @@ ORM 位于 `backend/modules/world/map_atlas_models.py`。
 | 表 | 归属与约束 |
 |---|---|
 | `map_atlas_runs` | 一次计划/生成 run；保存授权选项、secret-free LLM/图片快照、context hash、source manifest、计划、进度与停止状态。 |
-| `map_atlas_nodes` | 唯一层级目录、地点身份、当前空间版本与结构任务；可独立于图片任务创建。 |
+| `map_atlas_nodes` | 唯一层级目录、地点身份、当前空间版本与结构任务；可独立于图片任务创建。`merged_into_node_id` 是同项目的保留式合并重定向，历史身份和版本不删除。 |
 | `map_atlas_revisions` | 不可变空间图元、约束、来源和图片展示配置；当前 head 使用同项目、同节点复合外键。 |
 | `map_atlas_pages` | 必填 `novel_id/run_id/node_id`；每次生成或编辑都是独立页面，并用 `derived_from_page_id` 形成历史链。 |
 | `map_atlas_annotations` | 前端文字标注的归一化坐标、来源打开目标、可选目标节点和乐观并发版本。 |
@@ -232,6 +232,8 @@ finalization 在短事务中取得项目 share lock 与 task lease，持锁上�
 | 方法 | 路径 | 行为 |
 |---|---|---|
 | POST | `/{novel_id}/nodes` | 无需图片任务创建区域或城市地图。 |
+| POST | `/{novel_id}/nodes/merge-preview`、`/merge` | 预览并确认两个已保存兄弟节点的受限合并；合并前须显式确认来源处置。 |
+| POST | `/{novel_id}/nodes/merge-undo-preview`、`/merge-undo` | 预览并确认无后续改动时的合并撤回。 |
 | GET | `/{novel_id}/nodes/{node_id}/map` | 当前结构、候选、图片层状态和空间任务状态。 |
 | GET/POST | `/{novel_id}/nodes/{node_id}/revisions` | 查询历史或按基准版本保存地图。 |
 | POST | `/{novel_id}/nodes/{node_id}/layout` | 有界布局、来源校验和图片校准预览，不持久化。 |
@@ -335,12 +337,36 @@ ADR-0023 经 Evidence author-only inspection 读取当前采用的空间版本�
 地图助手新操作以双阶段预览和确认进入 World 操作目录：可按层级或空间审核自动草图，
 确认批次覆盖完整候选修订 ID、批次指纹与正式 head 基线，实际改动最多 20 项；空间线索按
 精确引文和可选 Scene 位置定位，歧义时停止，处置仍复用 World 的来源重验。空间与层级节点
-支持创建、移动和改名；空间可合并并按实际图元变更计数，节点合并仅提供绑定两个版本的受控候选预览，
-尚不执行节点合并或原节点处置。空间、关系和行程编辑沿用 `MapDocument` 校验，
+支持创建、移动、改名和受限的已保存节点合并；空间可合并并按实际图元变更计数。节点合并先预览，
+再由作者确认目标版本和来源节点处置；详细边界见下文。空间、关系和行程编辑沿用 `MapDocument` 校验，
 助手输入不含点坐标。行程可以保留原文逐字来源，也可带服务端验证的 `author_decision`；
 助手从当前 run 绑定的作者消息取 ID 与正文哈希，并将作者决定保存到空间版本；预览、确认和保存均重验，
 不把对话写成正文 canonical 引文。候选地点采用地图时保留实体绑定；地点经 World 原入口采用前，
 读者预览、空间简报与检查排除该图元及依赖路线，拒绝或删除地点才降级为文字标签。
+
+### 已保存节点合并
+
+合并预览与执行分别位于 `POST /api/world/map-atlas/{novel_id}/nodes/merge-preview` 和
+`POST /api/world/map-atlas/{novel_id}/nodes/merge`；撤回使用 `merge-undo-preview` 与
+`merge-undo`。预览绑定来源和目标当前 revision、层级与上级、固定类型修订、完整空间文档、来源 hash、
+待处理草图、图片页、跳转引用、标注、自动草图托盘及在途地图任务。执行时按节点 UUID 稳定顺序锁定两端，
+重算同一指纹，并用 head CAS 在一个事务内追加目标 revision、写入来源 `merged_into_node_id` 墓碑和撤回回执。
+
+当前只执行同一上级、同一层级、已采用且未绑定世界地点的纯空间兄弟节点；来源不能有子节点，双方都不能有
+图片页、校准、图片标注绑定、待审核草图、在途任务或未放置托盘地点。其他地图对来源节点的子图或标注跳转
+也必须先处理。任一边界不满足时预览给出阻止原因。合并后最多保留 200 个图元、400 条关系与行程；
+`affected_count` 按地图结构编辑的 `changed_items` 口径统计目标文档中实际变化的空间、图元、关系与行程，
+并加上来源节点退役动作。超过单次 20 项时预览仍披露真实数量，但阻止执行；当前没有隐式分批合并。
+不会推断坐标变换或移动图片。
+
+合并将来源空间 ID 与图元、关系和行程 ID 稳定重映射到目标文档中的独立空间，保留原坐标、图元类型、固定
+类型修订、逐字来源和作者安排；不把两个坐标系叠在一起。目标新增不可变的 `saved` revision，来源原状态和
+历史 revision 保留。正式地图册、读者预览、空间简报、连续性事实、助手读取与地图链接查询都排除来源墓碑。
+旧节点 API 返回 `409 map_node_merged`，上下文带同一项目内目标地图 API 路径；访问仍经过正常项目 owner 门禁。
+
+撤回只在来源墓碑、来源 head 与目标合并 head 均未变化、且没有新页面或依赖时可用。撤回会清除来源重定向，
+为目标追加一条内容等于合并前版本的新 revision，不改写任何历史版本。任何后续地图修改都会要求作者回到工作台
+手动核对，不执行强制覆盖。
 
 新作者运行使用 v6，旧 v1–v5 的操作和读取工具清单保持冻结，旧 MapNodeCreate schema 保持原字段与哈希。
 v6 提供明确的两地行程和对象当前 Scene 最后位置查询，缺失或同名歧义返回 `unknown`；

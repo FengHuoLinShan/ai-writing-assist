@@ -47,6 +47,7 @@ async def read_map_chapter_consumers(
                 )
                 .where(
                     MapAtlasNode.novel_id == nid,
+                    MapAtlasNode.merged_into_node_id.is_(None),
                     MapAtlasRevision.novel_id == nid,
                     MapAtlasRevision.status == "saved",
                 )
@@ -205,6 +206,7 @@ async def _read_auto_draft_chapter_consumers(
             )
             .where(
                 MapAtlasNode.novel_id == nid,
+                MapAtlasNode.merged_into_node_id.is_(None),
                 MapAtlasRevision.novel_id == nid,
                 MapAtlasRevision.id.in_(revision_ids),
                 MapAtlasRevision.status == "candidate",

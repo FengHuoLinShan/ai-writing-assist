@@ -422,6 +422,7 @@ class MapAtlasService:
                         select(MapAtlasNode.id).where(
                             MapAtlasNode.novel_id == nid,
                             MapAtlasNode.current_revision_id.is_not(None),
+                            MapAtlasNode.merged_into_node_id.is_(None),
                         )
                     )
                 ).all()
@@ -435,6 +436,7 @@ class MapAtlasService:
                         select(MapAtlasNode).where(
                             MapAtlasNode.novel_id == nid,
                             MapAtlasNode.id.in_(frontier),
+                            MapAtlasNode.merged_into_node_id.is_(None),
                         )
                     )
                 )
@@ -468,9 +470,13 @@ class MapAtlasService:
         adopted_targets = set(
             (
                 await db.execute(
-                    select(MapAtlasPage.node_id).where(
+                    select(MapAtlasPage.node_id)
+                    .join(MapAtlasNode, MapAtlasNode.id == MapAtlasPage.node_id)
+                    .where(
                         MapAtlasPage.novel_id == nid,
                         MapAtlasPage.review_status == "adopted",
+                        MapAtlasNode.novel_id == nid,
+                        MapAtlasNode.merged_into_node_id.is_(None),
                     )
                 )
             ).scalars()
@@ -482,6 +488,7 @@ class MapAtlasService:
                     select(MapAtlasNode.id).where(
                         MapAtlasNode.novel_id == nid,
                         MapAtlasNode.current_revision_id.is_not(None),
+                        MapAtlasNode.merged_into_node_id.is_(None),
                     )
                 )
             ).all()
@@ -495,7 +502,11 @@ class MapAtlasService:
                         MapAtlasNode,
                         MapAtlasNode.current_revision_id == MapAtlasRevision.id,
                     )
-                    .where(MapAtlasRevision.novel_id == nid, MapAtlasNode.novel_id == nid)
+                    .where(
+                        MapAtlasRevision.novel_id == nid,
+                        MapAtlasNode.novel_id == nid,
+                        MapAtlasNode.merged_into_node_id.is_(None),
+                    )
                 )
             ).all()
         }
@@ -770,6 +781,7 @@ class MapAtlasService:
                     MapAtlasNode.id == target_id,
                     MapAtlasNode.novel_id == nid,
                     MapAtlasNode.current_revision_id.is_not(None),
+                    MapAtlasNode.merged_into_node_id.is_(None),
                 )
             )
             if not adopted and not spatial_target:
@@ -1019,6 +1031,10 @@ class MapAtlasService:
         node = by_id.get(parse_uuid(node_id, "node_id"))
         if node is None:
             raise NotFoundError("地图节点不存在")
+        if node.merged_into_node_id is not None:
+            from modules.world.map_structure_service import MapStructureService
+
+            await MapStructureService().node(db, novel_id, node_id)
         if node.updated_at != data.expected_updated_at:
             raise ConflictError("地图层级已在别处更新，请刷新后重试")
         if "level_type_ref" in data.model_fields_set and data.level_type_ref is not None:
@@ -1050,7 +1066,11 @@ class MapAtlasService:
         if new_parent_id == node.id:
             raise ValidationError("地图节点不能成为自己的上级")
         parent = by_id.get(new_parent_id) if new_parent_id else None
-        if new_parent_id and (parent is None or parent.status != "adopted"):
+        if new_parent_id and (
+            parent is None
+            or parent.status != "adopted"
+            or parent.merged_into_node_id is not None
+        ):
             raise ValidationError("上级地图必须是已加入的地点")
         if new_level in {"cover", "world"} and parent is not None:
             raise ValidationError("封面与世界图不能有上级地图")
@@ -1075,6 +1095,7 @@ class MapAtlasService:
             before.id == node.id
             or before.parent_id != new_parent_id
             or before.status != "adopted"
+            or before.merged_into_node_id is not None
         ):
             raise ValidationError("插入位置必须是同一上级下的已加入地点")
         old_parent_id = node.parent_id
@@ -1112,6 +1133,7 @@ class MapAtlasService:
             if item.id != node.id
             and item.parent_id == new_parent_id
             and item.status == "adopted"
+            and item.merged_into_node_id is None
         ]
         target_adopted.sort(key=lambda item: (item.sort_order, item.id))
         if before_supplied:
@@ -1135,6 +1157,7 @@ class MapAtlasService:
                     if item.id != node.id
                     and item.parent_id == old_parent_id
                     and item.status == "adopted"
+                    and item.merged_into_node_id is None
                 ]
                 old_siblings.sort(key=lambda item: (item.sort_order, item.id))
                 for index, item in enumerate(old_siblings):
@@ -1475,6 +1498,8 @@ class MapAtlasService:
             ).scalar_one_or_none()
             if node is None:
                 raise ConflictError("地图层级已变化，请刷新后重试")
+            if node.merged_into_node_id is not None:
+                raise ConflictError("地图已合并，请打开目标地图")
             node.status = "adopted"
             node_id = node.parent_id
 
@@ -1538,6 +1563,8 @@ class MapAtlasService:
             node = nodes_by_id.get(node_id)
             if node is None:
                 raise ConflictError("地图层级已变化，请刷新后重试")
+            if node.merged_into_node_id is not None:
+                raise ConflictError("地图已合并，请重新检查层级候选")
             proposal = (
                 selected_proposal if node_id == page.node_id else proposals.get(node_id)
             )
@@ -1585,6 +1612,7 @@ class MapAtlasService:
                     if item.id != node.id
                     and item.parent_id == proposal.parent_id
                     and item.status == "adopted"
+                    and item.merged_into_node_id is None
                 ]
                 siblings.sort(key=lambda item: (item.sort_order, item.id))
                 siblings.insert(min(proposal.sort_order, len(siblings)), node)
@@ -1597,6 +1625,7 @@ class MapAtlasService:
                         if item.id != node.id
                         and item.parent_id == old_parent_id
                         and item.status == "adopted"
+                        and item.merged_into_node_id is None
                     ]
                     old_siblings.sort(key=lambda item: (item.sort_order, item.id))
                     for index, sibling in enumerate(old_siblings):
@@ -1825,6 +1854,7 @@ class MapAtlasService:
                 MapAtlasNode.novel_id == novel_id,
                 MapAtlasNode.id == parse_uuid(node_id, "node_id"),
                 MapAtlasNode.status == "adopted",
+                MapAtlasNode.merged_into_node_id.is_(None),
             )
         )
         if node is None:
@@ -1983,6 +2013,7 @@ class MapAtlasService:
             "id": str(node.id),
             "novel_id": str(node.novel_id),
             "parent_id": _uuid(node.parent_id),
+            "merged_into_node_id": _uuid(node.merged_into_node_id),
             "location_entity_id": _uuid(node.location_entity_id),
             "current_revision_id": _uuid(node.current_revision_id),
             "title": node.title,

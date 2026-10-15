@@ -540,7 +540,7 @@ can/cannot/cost/failure/maintenance 约束写法）、主要地点 3-5、势力/
 | `entity_revisions` | 实体改动历史（改动前快照 + 写作进度 + 改动字段摘要；Scene 回滚兜底仍优先 `TextArchive`）；`restored_from_revision_id` 记录恢复来源 |
 | `world_revision_notes` | 实体/页面/地图修订的事后补写备注（`(novel_id, target_kind, revision_id)` 唯一，无跨表外键，服务层校验归属；不进入快照/摘要/Canon receipt） |
 | `map_atlas_runs` | AI 地图册计划、上下文快照、任务进度与停止状态 |
-| `map_atlas_nodes` | 封面到街道/室内的层级节点与采用状态 |
+| `map_atlas_nodes` | 封面到街道/室内的层级节点与采用状态；`merged_into_node_id` 保存同项目的合并重定向，历史节点不删除 |
 | `map_atlas_pages` | 独立候选/已采用/拒绝/移出图片与派生链 |
 | `map_atlas_annotations` | 未绑定图片标注及其空间图元绑定入口 |
 | `map_atlas_revisions` | 节点拥有的不可变空间结构、来源、约束与图片展示配置 |
@@ -688,6 +688,13 @@ upsert；调用方不应再实现“先查再插”的并发控制。关系复�
 留为可恢复历史；引文、生效区间、作者图元名称、位置与锁定均按地图合同保留。
 规划前可从正式 World Bible 和已回读正文提取空间线索；它们只补充持久化 page prompt，
 不生成坐标、比例、方向或 annotation 几何字段。
+
+作者也可在 `POST /nodes/merge-preview` 预览并在 `POST /nodes/merge` 确认两个无地点绑定的已保存兄弟节点合并。
+服务拒绝带子节点、图片页、标注跳转、未决草图/托盘或在途地图任务的节点，冻结两端文档与层级指纹；执行
+在单事务内追加目标 saved revision，并把来源节点保留为 `merged_into_node_id` 墓碑。图元 ID 和来源空间 ID
+确定性重映射，坐标与固定类型/来源原样保留。正式地图、brief、assistant 与 reader 投影均排除来源墓碑；旧节点
+读写返回带目标路径的 409。撤回需预览且确认，CAS 检查来源 head 与目标合并 head 未变后才恢复来源并追加目标
+旧文档 revision；历史行不覆盖。具体拒绝条件、范围与路由见 `docs/modules/15_map.md`。
 
 ## 对外契约（contracts.py）
 
@@ -1200,6 +1207,8 @@ E2E_DATABASE_URL='<dedicated-postgresql-url>' make generate-e2e
 | PUT | `/api/world/knowledge/{knowledge_id}` | 更新人物知识 |
 | DELETE | `/api/world/knowledge/{knowledge_id}` | 删除人物知识 |
 | POST | `/api/world/map-atlas/{novel_id}/runs` | 创建地图册计划与生成任务 |
+| POST | `/api/world/map-atlas/{novel_id}/nodes/merge-preview`、`/merge` | 预览并确认安全范围内的节点合并 |
+| POST | `/api/world/map-atlas/{novel_id}/nodes/merge-undo-preview`、`/merge-undo` | 预览并确认未发生后续改动的撤回 |
 | GET | `/api/world/map-atlas/{novel_id}/runs/latest` | 查询最新 run 与恢复状态 |
 | GET | `/api/world/map-atlas/{novel_id}/runs/{run_id}/results` | 查询本次生成候选层级 |
 | GET | `/api/world/map-atlas/{novel_id}/atlas` | 查询已采用地图册与画廊 |

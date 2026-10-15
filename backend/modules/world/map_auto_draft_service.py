@@ -393,6 +393,7 @@ async def _hierarchy_edges(
             select(MapAtlasNode).where(
                 MapAtlasNode.novel_id == parse_uuid(novel_id, "novel_id"),
                 MapAtlasNode.status == "adopted",
+                MapAtlasNode.merged_into_node_id.is_(None),
                 MapAtlasNode.location_entity_id.is_not(None),
             )
         )
@@ -563,6 +564,7 @@ async def _ensure_location_nodes(
                 MapAtlasNode.novel_id == parse_uuid(novel_id, "novel_id"),
                 MapAtlasNode.location_entity_id.in_(location_ids),
                 MapAtlasNode.level.in_(STRUCTURE_LEVELS),
+                MapAtlasNode.merged_into_node_id.is_(None),
             )
             .order_by(
                 MapAtlasNode.status.desc(),
@@ -1846,9 +1848,12 @@ async def _process_batch(
             )
             .with_for_update()
         )
-        if node is None or (
-            str(node.current_revision_id) if node.current_revision_id else None
-        ) != shard.get("base_revision_id"):
+        if (
+            node is None
+            or node.merged_into_node_id is not None
+            or (str(node.current_revision_id) if node.current_revision_id else None)
+            != shard.get("base_revision_id")
+        ):
             batch.status = "stale"
             batch.stale_reason = "地图正式版本已变化，请刷新基线后重新生成"
             break
@@ -2314,7 +2319,7 @@ async def _tray_item_context(
         )
         .with_for_update()
     )
-    if node is None:
+    if node is None or node.merged_into_node_id is not None:
         raise NotFoundError("地图节点不存在")
     revision = await db.scalar(
         select(MapAtlasRevision)

@@ -92,6 +92,16 @@ class MapAtlasNode(Base, UUIDMixin, TimestampMixin, NovelMixin):
         ),
         UniqueConstraint("novel_id", "id", name="uq_map_atlas_nodes_novel_id"),
         ForeignKeyConstraint(
+            ["novel_id", "merged_into_node_id"],
+            ["map_atlas_nodes.novel_id", "map_atlas_nodes.id"],
+            name="fk_map_atlas_node_merged_into_same_novel",
+            ondelete="RESTRICT",
+        ),
+        CheckConstraint(
+            "merged_into_node_id IS NULL OR merged_into_node_id <> id",
+            name="ck_map_atlas_node_not_merged_into_self",
+        ),
+        ForeignKeyConstraint(
             ["novel_id", "id", "current_revision_id"],
             [
                 "map_atlas_revisions.novel_id",
@@ -131,6 +141,7 @@ class MapAtlasNode(Base, UUIDMixin, TimestampMixin, NovelMixin):
             "parent_id",
             "sort_order",
         ),
+        Index("ix_map_atlas_nodes_merge_target", "novel_id", "merged_into_node_id"),
     )
 
     created_by_run_id: Mapped[uuid.UUID | None] = mapped_column(
@@ -149,6 +160,8 @@ class MapAtlasNode(Base, UUIDMixin, TimestampMixin, NovelMixin):
         nullable=True,
         index=True,
     )
+    merged_into_node_id: Mapped[uuid.UUID | None] = mapped_column(UUIDType, nullable=True)
+    merge_metadata: Mapped[dict | None] = mapped_column(JSON, nullable=True)
     location_entity_id: Mapped[uuid.UUID | None] = mapped_column(
         UUIDType,
         ForeignKey("core_entities.id", ondelete="SET NULL"),

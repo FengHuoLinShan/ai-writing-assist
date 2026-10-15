@@ -297,6 +297,7 @@ class MapSpatialAdvisoryService:
                     .where(
                         MapAtlasNode.novel_id == parse_uuid(data.novel_id, "novel_id"),
                         MapAtlasNode.status == "adopted",
+                        MapAtlasNode.merged_into_node_id.is_(None),
                         MapAtlasRevision.status == "saved",
                     )
                     .order_by(MapAtlasNode.sort_order, MapAtlasNode.id)

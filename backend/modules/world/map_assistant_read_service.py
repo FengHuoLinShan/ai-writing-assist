@@ -33,6 +33,7 @@ async def read_map_cold_start_drafts(db, novel_id: str, run_key: str):
                 select(MapAtlasNode).where(
                     MapAtlasNode.novel_id == UUID(str(novel_id)),
                     MapAtlasNode.status == "adopted",
+                    MapAtlasNode.merged_into_node_id.is_(None),
                     MapAtlasNode.current_revision_id.is_not(None),
                 )
             )
@@ -53,6 +54,7 @@ async def read_map_cold_start_drafts(db, novel_id: str, run_key: str):
                     .where(
                         MapAtlasNode.novel_id == UUID(str(novel_id)),
                         MapAtlasNode.id.in_(relevant_node_ids),
+                        MapAtlasNode.merged_into_node_id.is_(None),
                         MapAtlasRevision.status == "saved",
                     )
                     .limit(200)
