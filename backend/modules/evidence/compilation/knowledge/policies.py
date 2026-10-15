@@ -98,6 +98,7 @@ KNOWLEDGE_DIMENSIONS: dict[str, str] = {
     "source_canon": "RP 绑定的同 owner 冻结版本",
     "imported_assets": "导入资产",
     "map_spatial": "空间结构与地理",
+    "director_reference": "作者显式选择的场景导演参考副本",
 }
 """知识维度词表；必查与参考维度都必须取自此处。"""
 
@@ -169,6 +170,7 @@ _WRITING_DIMENSIONS = (
     "memory",
 )
 _MAP_SPATIAL_ADVISORY = ("map_spatial",)
+_WRITING_ADVISORY_DIMENSIONS = ("map_spatial", "director_reference")
 
 CAPABILITY_REGISTRY: dict[str, CapabilityKnowledgePolicy] = {
     entry.capability_id: entry
@@ -180,7 +182,7 @@ CAPABILITY_REGISTRY: dict[str, CapabilityKnowledgePolicy] = {
             "正文生成与续写（AI 稿候选）",
             subjects=("author", "character"),
             dimensions=_WRITING_DIMENSIONS,
-            advisory_dimensions=_MAP_SPATIAL_ADVISORY,
+            advisory_dimensions=_WRITING_ADVISORY_DIMENSIONS,
             confirmation=CONFIRMATION_REQUIRED,
             snapshot=SNAPSHOT_REQUIRED,
             outputs=(OUTPUT_PROSE,),
@@ -211,7 +213,7 @@ CAPABILITY_REGISTRY: dict[str, CapabilityKnowledgePolicy] = {
             "定向返修（最多一次语义返修）",
             subjects=("author", "character"),
             dimensions=_WRITING_DIMENSIONS,
-            advisory_dimensions=_MAP_SPATIAL_ADVISORY,
+            advisory_dimensions=_WRITING_ADVISORY_DIMENSIONS,
             confirmation=CONFIRMATION_REQUIRED,
             snapshot=SNAPSHOT_REQUIRED,
             outputs=(OUTPUT_PROSE,),

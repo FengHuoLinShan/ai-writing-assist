@@ -377,6 +377,31 @@ export function useWritingWorkspace(props) {
   }
 
   const focusedSelection = useEvidenceSelection(() => `${projectId}:writing:${selectedChapter.value}:${currentScene.value?.id || ''}`)
+  const directorReferenceStorageKey = `writing-director-reference-ids-v1:${projectId}`
+  const directorReferenceIdsByScene = reactive({})
+  try {
+    const saved = JSON.parse(globalThis.sessionStorage?.getItem(directorReferenceStorageKey) || "{}")
+    if (saved && typeof saved === "object" && !Array.isArray(saved)) {
+      for (const [sceneId, values] of Object.entries(saved)) {
+        if (Array.isArray(values)) directorReferenceIdsByScene[sceneId] = [...new Set(values.map(String))].slice(0, 20)
+      }
+    }
+  } catch { /* invalid session draft is safely ignored */ }
+  const directorReferenceIds = computed(() => directorReferenceIdsByScene[currentScene.value?.id || ""] || [])
+  function setDirectorReferenceIds(values) {
+    const sceneId = currentScene.value?.id
+    if (!sceneId) return false
+    const ids = [...new Set((Array.isArray(values) ? values : []).map(String))]
+    if (ids.length > 20) {
+      toast("一次最多选择 20 份导演参考副本。", "warning")
+      return false
+    }
+    directorReferenceIdsByScene[sceneId] = ids
+    try { globalThis.sessionStorage?.setItem(directorReferenceStorageKey, JSON.stringify(directorReferenceIdsByScene)) } catch {
+      toast("导演参考选择暂存在本页；浏览器未能保存会话副本。", "warning")
+    }
+    return true
+  }
   const commands = createWritingCommandController({
     api,
     toast,
@@ -384,6 +409,7 @@ export function useWritingWorkspace(props) {
     getChapter: () => selectedChapter.value,
     getScene: () => currentScene.value,
     getPinnedRefs: () => focusedSelection.refs.value,
+    getDirectorReferenceIds: () => directorReferenceIds.value,
     editor,
     onResult: applyCommandResult,
     onLoadingChange: (value) => { generationLoading.value = Boolean(value) },
@@ -1715,6 +1741,8 @@ export function useWritingWorkspace(props) {
     conflictTask,
     sceneLens,
     focusedSelection,
+    directorReferenceIds,
+    setDirectorReferenceIds,
     deepImportState,
     deepImportHasScenes,
     deepAuditOpen,

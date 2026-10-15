@@ -10,10 +10,33 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Protocol
 
+from core.container import ServiceKey
+
 if TYPE_CHECKING:
     from sqlalchemy.ext.asyncio import AsyncSession
 
     from modules.evidence.compilation.services.compiled_context import CompiledContext
+    from modules.story.contracts import StoryDirectorReferencesForWritingContract
+
+
+class StoryDirectorReferencesForWritingPort(Protocol):
+    """Story's bounded copy reader; Evidence controls the action and POV filter."""
+
+    async def __call__(
+        self,
+        db: AsyncSession,
+        *,
+        novel_id: str,
+        scene_id: str | None,
+        reference_ids: list[str],
+        consumer_action: str,
+        max_chars: int,
+    ) -> StoryDirectorReferencesForWritingContract: ...
+
+
+EVIDENCE_READ_STORY_DIRECTOR_REFERENCES: ServiceKey[
+    StoryDirectorReferencesForWritingPort
+] = ServiceKey("evidence.read_story_director_references")
 
 
 class SceneMemoryContractPort(Protocol):
@@ -166,6 +189,8 @@ class CompileOptions:
     """是否为作者模式加入 LLM 派生的世界观简介"""
     selected_world_bible_draft_ids: list[str] = field(default_factory=list)
     """作者显式选择的 World Bible 工作稿"""
+    director_reference_ids: list[str] = field(default_factory=list)
+    """作者显式选择的导演参考副本；只适用于 writing.generate/targeted_revision。"""
     world_synopsis_revision_id: str | None = None
     """确认/回放时钉住的不可变简介 revision"""
     world_synopsis_source_hash: str | None = None
@@ -239,6 +264,7 @@ class ContextConfirmationRequest:
     user_note: str | None = None
     include_world_synopsis: bool = False
     selected_world_bible_draft_ids: list[str] | None = None
+    director_reference_ids: list[str] | None = None
     activation_profile_id: str | None = None
     activation_profile_version: int | None = None
     expected_context_fingerprint: str | None = None
@@ -555,6 +581,8 @@ class StructureContextBundle:
     """来自 World adopted-map facade 的有界只读空间参考。"""
     object_dossier_brief: dict | None = None
     """Evidence-owned projection of World dossiers, Story cutoff state and L3 patterns."""
+    director_reference_brief: dict | None = None
+    """Evidence projection of explicitly selected Story Director reference copies."""
     memory_records: list = field(default_factory=list)
     """长期记忆记录列表"""
     scene_checkpoint_set: dict | None = None

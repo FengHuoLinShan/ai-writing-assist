@@ -170,8 +170,10 @@ one-click task。Story 新建排演使用 `simulation_v3`，共用类型化身�
 `observation_v2` 可用原差量校验回放，`rehearsal_v1` 只有历史事件视图。
 Interaction 的 `team_v1` 与 `observation_v2` 仍按原入口策略执行，`max_actors` 不变。通用 OneClick
 的旧目录请求继续走 `legacy`；未来目录接入 v3 时需显式版本/路由，不得默默重解释冻结运行。
-现有 Scene 排演入口现提交单回合 v3；连续推进须待共享根预算与再次授权入口，归入后续 C4b。
-Scene 工作台的导演模式、素材组合和作者介入属于后续 C4b，当前协议基础不代表导演功能已完成。
+现有 Scene 排演入口保留单回合 v3；旧 rehearsal 记录只读。C4b 在独立 Story 域中实现了多轮导演入口、共享根预算续算、作者历史树、参考副本、素材和介入；
+这些 handler/router 与组件仍待 app task manifest、operation catalog、notice-source registry、迁移链和专用 PostgreSQL 组合验证，故尚不是完整应用能力。
+导演角色意图只收到当前 Evidence 角色 POV 简报，Story 卡自由文本仅留在作者侧；正式 Writing `director_reference` Evidence 维度及其 generate/targeted-revision 消费者仍待接线。
+导演结果全为候选，不写入 Scene、World、continuity 或正文。
 排演的人物意图、环境裁决与剧本生成均使用项目账户连接；本机 CLI 按
 [ADR-0029](../adr/0029-local-cli-image-only.md) 只用于图片生成。共享 Story 输入入口在 Context 重物化与账户客户端恢复前拒绝带
 `_local_agent` 或 `agent_llm_execution_snapshot` 的遗留任务，包含同时保留有效账户快照的

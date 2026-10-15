@@ -9,10 +9,12 @@ the facade/service boundary.
 from __future__ import annotations
 
 import uuid
+from datetime import datetime
 from typing import Any
 
 from sqlalchemy import (
     JSON,
+    DateTime,
     ForeignKeyConstraint,
     Index,
     Integer,
@@ -287,3 +289,143 @@ class StorySimulationStep(Base, UUIDMixin, TimestampMixin, NovelMixin):
     intents_json: Mapped[dict] = mapped_column(JSON, default=dict)
     events_json: Mapped[list] = mapped_column(JSON, default=list)
     state_json: Mapped[dict] = mapped_column(JSON, default=dict)
+
+
+class StorySceneDirectorRoot(Base, UUIDMixin, TimestampMixin, NovelMixin):
+    """One author-budgeted director root shared by its immutable branches."""
+
+    __tablename__ = "story_scene_director_roots"
+    __table_args__ = (
+        UniqueConstraint("novel_id", "id", name="uq_story_scene_director_root_novel"),
+        Index("ix_story_scene_director_root_scene", "novel_id", "scene_id", "created_at"),
+    )
+
+    scene_id: Mapped[uuid.UUID] = mapped_column(UUIDType, nullable=False)
+    source_hash: Mapped[str] = mapped_column(String(64), nullable=False)
+    request_json: Mapped[dict] = mapped_column(JSON, nullable=False, default=dict)
+    llm_execution_snapshot_json: Mapped[dict] = mapped_column(
+        JSON, nullable=False, default=dict
+    )
+    run_envelope_json: Mapped[dict] = mapped_column(JSON, nullable=False, default=dict)
+    status: Mapped[str] = mapped_column(String(32), nullable=False, default="ready")
+    current_task_id: Mapped[uuid.UUID | None] = mapped_column(UUIDType, nullable=True)
+
+
+class StorySceneDirectorBranch(Base, UUIDMixin, TimestampMixin, NovelMixin):
+    """A branch starts at a frozen round and only appends its own results."""
+
+    __tablename__ = "story_scene_director_branches"
+    __table_args__ = (
+        UniqueConstraint("novel_id", "id", name="uq_story_scene_director_branch_novel"),
+        ForeignKeyConstraint(
+            ["novel_id", "root_id"],
+            ["story_scene_director_roots.novel_id", "story_scene_director_roots.id"],
+            ondelete="CASCADE",
+        ),
+        Index("ix_story_scene_director_branch_root", "novel_id", "root_id", "created_at"),
+    )
+
+    root_id: Mapped[uuid.UUID] = mapped_column(UUIDType, nullable=False)
+    parent_round_id: Mapped[uuid.UUID | None] = mapped_column(UUIDType, nullable=True)
+    branch_kind: Mapped[str] = mapped_column(String(24), nullable=False, default="start")
+    source_hash: Mapped[str] = mapped_column(String(64), nullable=False)
+    request_json: Mapped[dict] = mapped_column(JSON, nullable=False, default=dict)
+    pending_round_json: Mapped[dict] = mapped_column(JSON, nullable=False, default=dict)
+    status: Mapped[str] = mapped_column(String(32), nullable=False, default="queued")
+    name: Mapped[str | None] = mapped_column(String(180), nullable=True)
+    note: Mapped[str] = mapped_column(Text, nullable=False, default="")
+    starred: Mapped[bool] = mapped_column(nullable=False, default=False)
+    deleted_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+    restore_until: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+    current_task_id: Mapped[uuid.UUID | None] = mapped_column(UUIDType, nullable=True)
+
+
+class StorySceneDirectorRound(Base, UUIDMixin, TimestampMixin, NovelMixin):
+    """Frozen director input and output for a single completed round."""
+
+    __tablename__ = "story_scene_director_rounds"
+    __table_args__ = (
+        UniqueConstraint("novel_id", "id", name="uq_story_scene_director_round_novel"),
+        UniqueConstraint(
+            "novel_id",
+            "branch_id",
+            "round_number",
+            name="uq_story_scene_director_round_number",
+        ),
+        ForeignKeyConstraint(
+            ["novel_id", "branch_id"],
+            [
+                "story_scene_director_branches.novel_id",
+                "story_scene_director_branches.id",
+            ],
+            ondelete="CASCADE",
+        ),
+        Index("ix_story_scene_director_round_root", "novel_id", "root_id", "created_at"),
+    )
+
+    root_id: Mapped[uuid.UUID] = mapped_column(UUIDType, nullable=False)
+    branch_id: Mapped[uuid.UUID] = mapped_column(UUIDType, nullable=False)
+    round_number: Mapped[int] = mapped_column(Integer, nullable=False)
+    parent_round_id: Mapped[uuid.UUID | None] = mapped_column(UUIDType, nullable=True)
+    source_hash: Mapped[str] = mapped_column(String(64), nullable=False)
+    input_hash: Mapped[str] = mapped_column(String(64), nullable=False)
+    output_hash: Mapped[str] = mapped_column(String(64), nullable=False)
+    input_json: Mapped[dict] = mapped_column(JSON, nullable=False, default=dict)
+    output_json: Mapped[dict] = mapped_column(JSON, nullable=False, default=dict)
+    state_json: Mapped[dict] = mapped_column(JSON, nullable=False, default=dict)
+    run_envelope_json: Mapped[dict] = mapped_column(JSON, nullable=False, default=dict)
+    name: Mapped[str | None] = mapped_column(String(180), nullable=True)
+    note: Mapped[str] = mapped_column(Text, nullable=False, default="")
+    starred: Mapped[bool] = mapped_column(nullable=False, default=False)
+
+
+class StorySceneDirectorReference(Base, UUIDMixin, TimestampMixin, NovelMixin):
+    """Independent content copy for a writing reference, never an adopted script."""
+
+    __tablename__ = "story_scene_director_references"
+    __table_args__ = (
+        UniqueConstraint(
+            "novel_id", "id", name="uq_story_scene_director_reference_novel"
+        ),
+        Index(
+            "ix_story_scene_director_reference_scene",
+            "novel_id",
+            "scene_id",
+            "created_at",
+        ),
+    )
+
+    root_id: Mapped[uuid.UUID] = mapped_column(UUIDType, nullable=False)
+    scene_id: Mapped[uuid.UUID] = mapped_column(UUIDType, nullable=False)
+    source_round_id: Mapped[uuid.UUID | None] = mapped_column(UUIDType, nullable=True)
+    source_basis_hash: Mapped[str] = mapped_column(String(64), nullable=False)
+    source_deleted: Mapped[bool] = mapped_column(nullable=False, default=False)
+    name: Mapped[str] = mapped_column(String(180), nullable=False)
+    content_copy_json: Mapped[dict] = mapped_column(JSON, nullable=False, default=dict)
+    material_ids_json: Mapped[list] = mapped_column(JSON, nullable=False, default=list)
+    angle_json: Mapped[dict] = mapped_column(JSON, nullable=False, default=dict)
+    annotation: Mapped[str] = mapped_column(Text, nullable=False, default="")
+    deleted_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+    restore_until: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+
+
+class StorySceneDirectorPreference(Base, UUIDMixin, TimestampMixin, NovelMixin):
+    """Project-local, author-editable anti-cliché phrase list."""
+
+    __tablename__ = "story_scene_director_preferences"
+    __table_args__ = (
+        UniqueConstraint("novel_id", name="uq_story_scene_director_preference_novel"),
+    )
+
+    cliche_phrases_json: Mapped[list] = mapped_column(JSON, nullable=False, default=list)
+
+
+# A model import from ``story.models`` is part of the app's ORM discovery contract.

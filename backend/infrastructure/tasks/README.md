@@ -60,7 +60,8 @@ infrastructure/tasks/
   （`world_generation_suggestion` 的 meta 可携带 `session_id`/`session_action`：任务成功后由
   world 域把回合与成果追加进持久化共创会话，见 ADR-0021；transport 合并与任务指纹不受影响）
 - story：`story_outline_generate`、`outline_analyze`、`outline_generate`、`scene_fusion_preview`、
-  `story_character_card_generate`、`story_reaction_propose`、`story_scene_script_generate`、`story_one_click`。
+  `story_character_card_generate`、`story_reaction_propose`、`story_scene_script_generate`、
+  `story_one_click`、`story_scene_director`。
   `plot_structure_generate`、`chapter_card_extraction`、`chapter_scene_generate` 仅为存量任务返回
   `unsupported` 的兼容注册，不是当前生产生成入口
 
@@ -74,8 +75,9 @@ infrastructure/tasks/
 - interaction：`interaction_story_generate`、`interaction_summary_refresh`
 
 `story_one_click` 同时承载新建的 `simulation_v3` Scene 排演；通用入口仍默认旧版请求形状。
-Story 在入队前核对当前项目的 World 身份引用，worker 在生成前及每回合落盘前重验；
-没有新增任务类型、队列或基础设施处理器。
+`story_scene_director` 是独立的 Story handler，复用同一协议与有限结算，使用 `never_retry` 和同一根累计
+`AIRunEnvelope`；未知/可能计费结果需要作者显式续算。handler 在 Story 模块声明，最终 app task manifest
+和操作目录组合接线仍由集成者完成；此处的任务类型记录不代表完整应用接线或迁移链已通过。
 
 `deep_import` 完成时可把 post-import adoption package 的 compact receipt 写入既有
 `result.phase_artifacts`；这不是新任务类型或队列状态。包组装失败不得覆盖已完成的

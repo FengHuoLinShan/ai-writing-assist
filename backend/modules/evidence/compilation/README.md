@@ -21,6 +21,18 @@ resume 不重置累计账本；planner/nomination 的 step timeout 保持原样�
 confirmation 时仍保留其核心资料、排除项和知识边界，仅由服务端指定当前消费者的地图开关；
 地图变化或被省略不会改变核心资料指纹。已确认的 `world.ask` 直接消费其确认内简报，不再额外加载全书地图。
 
+`director_reference` 是另一项独立 advisory dimension，只适用于作者明确选择参考副本的
+`writing.generate` 与 `writing.targeted_revision`。能力开关
+`NOVELCRAFT_DIRECTOR_REFERENCE_ENABLED_CAPABILITIES` 默认空，只允许这两个 capability ID；
+编译请求和 confirmation 同时冻结所选副本身份。Evidence 通过
+`EVIDENCE_READ_STORY_DIRECTOR_REFERENCES` 只读 port 调用 Story facade，并负责 POV 投影、section、
+预算与 `advisory_omitted` 回执。作者视角可读取所选内容副本；character POV 只读取本人表演和
+具有该 POV 感知回执的素材，不读取其他人物内心或导演批注；reader view 禁用。所选副本缺失、来源指纹变化、
+角色不可感知或剩余预算不足只产生独立提醒，不阻断核心知识范围，也不进入 `KnowledgeScopeReceipt.omitted`。
+Writing 在任务入队时冻结经确认的副本；执行期间来源删除或变化时沿用快照并追加提示。此维度不写入
+`SceneScriptFile`、`adopted_scripts` 或 `get_scene_story_basis_hash`。最终 `app/bootstrap.py` DI port
+注册由 C4b 组合根完成；没有注册时默认关闭，若显式开启但 port 不可用，编译会警告并省略该 advisory 来源。
+
 ## 定位
 
 Evidence 的 compilation 子域决定本次 AI 操作能看到哪些资料、哪些资料要被裁剪，以及哪些

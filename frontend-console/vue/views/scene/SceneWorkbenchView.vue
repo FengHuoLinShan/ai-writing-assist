@@ -228,15 +228,6 @@
           v-else-if="storyWorkspace.activeTab === 'simulation'"
           :scene="storyWorkspace.scene"
           :simulation="storyWorkspace.simulation"
-          :progress="storyWorkspace.simulationProgress"
-          :loading="storyWorkspace.loading"
-          :running="storyWorkspace.simulationRunning"
-          :reaction-running="storyWorkspace.reactionRunning"
-          :error="storyWorkspace.loadError"
-          @run="storyWorkspace.startSimulation"
-          @run-reactions="storyWorkspace.startReactionGeneration"
-          @cancel="storyWorkspace.cancelSimulation"
-          @reaction="storyWorkspace.setReactionStatus"
         />
         <SceneScriptsPanel
           v-else
@@ -712,9 +703,8 @@ const SceneDetailPanel = defineComponent({
   },
 })
 
-const toolContext = computed(() => [({ management: "场景管理", characters: "人物卡", simulation: "推演", script: "剧本区" })[storyWorkspace.activeTab], selectedItem.value?.scene?.title].filter(Boolean).join(" · "))
+const toolContext = computed(() => [({ management: "场景管理", characters: "人物卡", simulation: "场景导演", script: "剧本区" })[storyWorkspace.activeTab], selectedItem.value?.scene?.title].filter(Boolean).join(" · "))
 const moreTools = computed(() => [
-  ...(storyWorkspace.activeTab === "simulation" ? [{ key: "reactions", label: "只生成人物反应", disabled: !storyWorkspace.hasScene || storyWorkspace.loading || storyWorkspace.simulationRunning || storyWorkspace.reactionRunning }] : []),
   ...(storyWorkspace.activeTab === "characters" && storyWorkspace.cardDraft?.cardId ? [{ key: "card-history", label: "人物卡版本历史" }] : []),
   ...(storyWorkspace.activeTab === "script" && storyWorkspace.activeScriptFileId ? [{ key: "script-history", label: "剧本版本历史" }] : []),
 ])
@@ -737,9 +727,9 @@ const toolActions = computed(() => {
   } else {
     const tab = storyWorkspace.activeTab
     primary = tab === "characters" ? { key: "card", label: storyWorkspace.cardDraft ? "继续编辑人物卡" : "选择人物并编辑" }
-      : tab === "simulation" ? { key: "simulate", label: "推演并补齐人物卡", dataAction: "run-scene-simulation" }
+      : tab === "simulation" ? { key: "director", label: "打开场景导演", dataAction: "open-scene-director" }
       : { key: "script", label: "生成剧本建议", dataAction: "generate-scene-script" }
-    primary.disabled = !storyWorkspace.hasScene || storyWorkspace.loading || Boolean(running)
+    primary.disabled = !storyWorkspace.hasScene || (tab !== "simulation" && (storyWorkspace.loading || Boolean(running)))
     base = [primary,
       { key: "management", label: "查看当前场景" },
       { key: tab === "characters" ? "simulation" : tab === "simulation" ? "script-tab" : "validate", label: tab === "characters" ? "进入推演" : tab === "simulation" ? "进入剧本区" : "检查这一稿", disabled: !storyWorkspace.hasScene },
@@ -761,8 +751,11 @@ async function runTool(key) {
   if (key === "suggestions") return modalController.showSuggestions()
   if (key === "selected" && selectedItem.value) return runContextActionSafely(selectedItem.value)
   if (key === "preview") return showOutlineGeneratePreview()
-  if (key === "simulate") return storyWorkspace.startSimulation()
-  if (key === "reactions") return storyWorkspace.startReactionGeneration()
+  if (key === "director") {
+    if (storyWorkspace.activeTab !== "simulation") storyWorkspace.selectTab("simulation")
+    await focusWorkspaceTool(toolsRoot.value, ".scene-simulation-panel")
+    return
+  }
   if (key === "script") return storyWorkspace.startScriptGeneration()
   if (key === "validate") return storyWorkspace.validateScript()
   if (key === "card-history") return storyWorkspace.loadCardHistory()

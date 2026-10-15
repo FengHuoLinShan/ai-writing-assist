@@ -267,6 +267,9 @@ async def handle_writing_generate(db, task):
         base_draft_id=meta.get("base_draft_id"),
         confirm_stale_story_assets=bool(meta.get("confirm_stale_story_assets", False)),
         story_asset_basis=meta.get("story_asset_basis") or [],
+        director_reference_context_snapshot=meta.get(
+            "director_reference_context_snapshot"
+        ),
         freeze_paid_output=True,
     )
     task.update_progress(1.0)
@@ -368,6 +371,10 @@ async def handle_writing_targeted_revision(db, task):
         instruction=meta.get("instruction"),
         llm_execution_snapshot=snapshot,
         contract_item_ids=[str(value) for value in meta.get("contract_item_ids") or []],
+        context_confirmation_id=meta.get("context_confirmation_id"),
+        director_reference_context_snapshot=meta.get(
+            "director_reference_context_snapshot"
+        ),
     )
     task.update_progress(1.0)
     await db.flush()

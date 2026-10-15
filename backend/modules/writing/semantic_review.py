@@ -534,6 +534,9 @@ class WritingSemanticWorkflowService:
         }:
             raise ValueError("Unsupported internal review metadata")
         payload = data.model_dump(mode="json", exclude={"operation_id"})
+        if not data.director_reference_ids:
+            payload.pop("director_reference_ids", None)
+            payload.pop("context_confirmation_id", None)
         if investigation_hypotheses:
             if len(investigation_hypotheses) > 24 or any(
                 len(value) > 4000 for value in investigation_hypotheses
@@ -1583,7 +1586,15 @@ class WritingSemanticWorkflowService:
     async def submit_targeted_revision(
         self, db, data, *, internal_meta=None, llm_execution_snapshot=None
     ):
-        from infrastructure.tasks.facade import enqueue_task_with_optional_operation
+        from infrastructure.tasks.facade import (
+            enqueue_task_with_optional_operation,
+            get_operation_task,
+        )
+        from modules.evidence.facade import (
+            attach_result_ref,
+            freeze_director_reference_context,
+            prepare_confirmed_ai_action,
+        )
         from modules.project.facade import (
             build_project_llm_execution_snapshot,
             require_active_project,
@@ -1597,6 +1608,70 @@ class WritingSemanticWorkflowService:
             "_task_priority",
         }:
             raise ValueError("Unsupported internal revision metadata")
+        payload = data.model_dump(mode="json", exclude={"operation_id"})
+        director_reference_context_snapshot = None
+        if data.director_reference_ids:
+            try:
+                existing = await get_operation_task(
+                    db,
+                    operation_id=str(data.operation_id) if data.operation_id else None,
+                    task_type="writing_targeted_revision",
+                    novel_id=data.novel_id,
+                    request_payload=payload,
+                )
+            except ValueError as error:
+                raise ConflictError(
+                    "原返修请求已用于另一组问题，请沿用原请求或重新提交"
+                ) from error
+            if existing:
+                return {"task_id": existing.task_id, "status": existing.status}
+            prepared = await self.prepare_targeted_revision(
+                db,
+                novel_id=data.novel_id,
+                draft_id=data.draft_id,
+                review_task_id=data.review_task_id,
+                finding_ids=data.finding_ids,
+                contract_item_ids=data.contract_item_ids,
+            )
+            base_provenance = dict(prepared["base"].provenance_json or {})
+            expected_scene_id = str(base_provenance.get("scene_id") or "") or None
+            expected_pov = (
+                str(base_provenance.get("viewpoint_character_id") or "") or None
+            )
+            confirmed = await prepare_confirmed_ai_action(
+                db,
+                novel_id=data.novel_id,
+                action="writing.targeted_revision",
+                confirmation_id=str(data.context_confirmation_id),
+            )
+            options = dict(confirmed.compile_options or {})
+            if set(map(str, options.get("director_reference_ids") or [])) != set(
+                data.director_reference_ids
+            ):
+                raise ConflictError(
+                    "本次选择的导演参考与已确认资料不一致，请重新整理并确认",
+                    code="director_reference_confirmation_mismatch",
+                )
+            if expected_scene_id != str(options.get("scene_id") or ""):
+                raise ConflictError(
+                    "定向返修的导演参考必须来自原正文建议的 Scene",
+                    code="director_reference_scene_mismatch",
+                )
+            character_pov = base_provenance.get("generation_profile") == "pov_character"
+            invalid_view = (
+                options.get("reveal_mode") != "character"
+                or str(options.get("viewpoint_character_id") or "") != expected_pov
+                if character_pov
+                else options.get("reveal_mode") not in {"author_safe", "author_full"}
+            )
+            if invalid_view:
+                raise ConflictError(
+                    "定向返修导演参考的视角必须与原正文建议一致",
+                    code="director_reference_view_mismatch",
+                )
+            director_reference_context_snapshot = freeze_director_reference_context(
+                confirmed
+            )
         if llm_execution_snapshot:
             await restore_project_llm_execution_settings(
                 db, data.novel_id, llm_execution_snapshot
@@ -1604,7 +1679,6 @@ class WritingSemanticWorkflowService:
         snapshot = llm_execution_snapshot or await build_project_llm_execution_snapshot(
             db, data.novel_id
         )
-        payload = data.model_dump(mode="json", exclude={"operation_id"})
         try:
             receipt = await enqueue_task_with_optional_operation(
                 db,
@@ -1614,6 +1688,9 @@ class WritingSemanticWorkflowService:
                 request_payload=payload,
                 meta={
                     **payload,
+                    "director_reference_context_snapshot": (
+                        director_reference_context_snapshot
+                    ),
                     "llm_execution_snapshot": snapshot,
                     **(internal_meta or {}),
                 },
@@ -1622,6 +1699,19 @@ class WritingSemanticWorkflowService:
             raise ConflictError(
                 "原返修请求已用于另一组问题，请沿用原请求或重新提交"
             ) from error
+        if (
+            data.director_reference_ids
+            and not receipt.reused
+            and data.context_confirmation_id
+        ):
+            await attach_result_ref(
+                db,
+                novel_id=data.novel_id,
+                confirmation_id=data.context_confirmation_id,
+                result_type="task",
+                result_id=receipt.task_id,
+                status="running",
+            )
         await db.flush()
         return {"task_id": receipt.task_id, "status": receipt.status}
 
@@ -1790,9 +1880,15 @@ class WritingSemanticWorkflowService:
         instruction: str | None,
         llm_execution_snapshot: dict[str, Any],
         contract_item_ids: list[str] | None = None,
+        context_confirmation_id: str | None = None,
+        director_reference_context_snapshot: dict[str, Any] | None = None,
     ) -> WritingDraftResponse:
         from infrastructure.tasks.facade import (
             require_task_checkpoint_session,
+        )
+        from modules.evidence.facade import (
+            prepare_confirmed_ai_action,
+            restore_director_reference_context,
         )
         from modules.project.facade import require_active_project
 
@@ -1812,6 +1908,66 @@ class WritingSemanticWorkflowService:
         bundle = prepared["bundle"]
         revision_ranges = prepared["revision_ranges"]
         expected_context_fingerprint = prepared["expected_context_fingerprint"]
+        director_reference_usage = {
+            "selected_ids": [],
+            "included_ids": [],
+            "omitted_ids": [],
+            "warnings": [],
+        }
+        director_reference_advisory = None
+        if director_reference_context_snapshot:
+            if not context_confirmation_id:
+                raise ValidationError(
+                    "director references require a frozen targeted-revision confirmation"
+                )
+            confirmed_reference_context = await prepare_confirmed_ai_action(
+                db,
+                novel_id=novel_id,
+                action="writing.targeted_revision",
+                confirmation_id=context_confirmation_id,
+            )
+            options = dict(confirmed_reference_context.compile_options or {})
+            selected_ids = list(
+                (director_reference_context_snapshot or {}).get("selected_ids") or []
+            )
+            if set(map(str, options.get("director_reference_ids") or [])) != set(
+                map(str, selected_ids)
+            ):
+                raise ConflictError(
+                    "导演参考选择与返修确认不一致，请重新确认",
+                    code="director_reference_confirmation_mismatch",
+                )
+            base_provenance = dict(base.provenance_json or {})
+            expected_scene_id = str(base_provenance.get("scene_id") or "")
+            character_pov = base_provenance.get("generation_profile") == "pov_character"
+            invalid_view = (
+                options.get("reveal_mode") != "character"
+                or str(options.get("viewpoint_character_id") or "")
+                != str(base_provenance.get("viewpoint_character_id") or "")
+                if character_pov
+                else options.get("reveal_mode") not in {"author_safe", "author_full"}
+            )
+            if (
+                not expected_scene_id
+                or str(options.get("scene_id") or "") != expected_scene_id
+                or invalid_view
+            ):
+                raise ConflictError(
+                    "导演参考的场景或视角与原正文建议不一致",
+                    code="director_reference_view_mismatch",
+                )
+            director_reference_usage = restore_director_reference_context(
+                confirmed_reference_context,
+                director_reference_context_snapshot,
+            )
+            director_reference_advisory = next(
+                (
+                    section.content
+                    for section in confirmed_reference_context.compiled.sections
+                    if section.key == "director_reference"
+                ),
+                None,
+            )
         profile = llm_execution_snapshot.get("profile")
         model = str(profile.get("model") or "") if isinstance(profile, dict) else ""
         if not model:
@@ -1880,6 +2036,16 @@ class WritingSemanticWorkflowService:
                             "preserve": preserve,
                             "must_not_change": must_not_change,
                             "author_instruction": instruction,
+                            **(
+                                {
+                                    "director_reference_advisory": (
+                                        director_reference_advisory
+                                    ),
+                                    "director_reference_only_as_advisory": True,
+                                }
+                                if director_reference_advisory
+                                else {}
+                            ),
                         },
                         ensure_ascii=False,
                         default=str,
@@ -1991,6 +2157,11 @@ class WritingSemanticWorkflowService:
                     "applied_patches": applied_patches,
                     "preserve": preserve,
                     "must_not_change": must_not_change,
+                    **(
+                        {"director_reference": director_reference_usage}
+                        if director_reference_usage.get("selected_ids")
+                        else {}
+                    ),
                     "supersedes": draft_id,
                     "review_required": True,
                     "independent_review": None,
