@@ -112,3 +112,12 @@ ADR-0040、ADR-0041 为准；不是新的授权或验收豁免。
 - 从已审 C4 固定点复用共用协议和知情 packet；由 Story 持有新推进运行/步骤与不可变历史，不把导演回合改名当推进。根开关 STORY_WORLD_PROGRESSION_ENABLED 默认关闭；目录中准备运行为 R4、已授权根内推进一步 R1、读取 R0、钩子结构预览/采用 R3，费用与授权语义分别核验。
 - Assistant 的 world_progression_review 引导流程按 ADR-0032 正式注册且默认关闭；钩子接真实 story.plan_structure 滚动窗口预览，交汇起点向导演传显式假设。人物近况只进入作者备注的确认入口。推进记录不进入 Writing 检索、Evolution 阅读或 RP。
 - 持续推进提醒需要真实持续授权预算/读入新章的触发及统一 NoticeSource，不能用静态提示冒充轻量自由推进，也不能后台另起脱离授权的预算。模型推荐步长须来自可说明的模型/步推进量观测；无实测时明确样本缺口，不伪造测量值。长篇、题材与真人验收仍单列。
+
+
+## 2026-10-16T04:41 已集成C4的C5起点
+
+- primary固定6ad6b94df，产品等于Sol10b5f6f00（C4与Goal组合）；b085仅测试notice manager回收。新C5树world-progression-impl/codex/world-progression-impl已从6ad创建，无产品WIP。上文早期未装配清单是历史记录；现在v10实际100项，其中导演8项：history、check_consistency、advance、save_reference、preview、start、continue_preview、continue。旧v1-v9与map.edit哈希90aa均保留。
+- Director/Goal新空专库联合24项、前端3157/lint/build通过；实际worker同根8次受控provider/80token与新unknown再次停、390/1280参考保存/刷新/Writing窄栏键盘保存已验，零真实模型。普通广覆盖仍有3个测试fixture遗留manager顺序失败，由C4 Sol修后再结案；不影响从固定产品实现C5，但不可冒称回归全绿。
+- 共享组合根、keys、操作目录冻结、TaskRegistry与migration祖先当前由C0 Sol单写。C5先独立服务/schema/router/task/纯SPEC/组件，报告精确接线；完成实现后仍须Sol真实注册、API/trace/PG/worker与浏览器审修。root独占三TASK。
+- 复用director_budget/tasks已审durable checkpoint、原root start/deadline与账本单调合并，避免重演expire_all异步失效、client.timeout、内部mode误校验和续轮preview漏branch_kind等实际缺陷。普通Assistant的R1域内推进必须验证确为author turn并记原领域根；Goal未适配不得伪造根身份。
+- C0 Sol正补Map/Relation/自定义状态真实typed有效期读取及director consistency，不把尚未接线写成永久unknown。C5先从稳定接口准备明确依赖，不抢写该批composition。

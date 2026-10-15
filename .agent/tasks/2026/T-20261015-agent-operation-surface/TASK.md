@@ -3,7 +3,7 @@ id: T-20261015-agent-operation-surface
 title: 全模块 AI 操作入口、目标运行与操作留痕设计
 status: active
 created: 2026-10-15T14:30:00+08:00
-updated: 2026-10-16T04:07:17+08:00
+updated: 2026-10-16T04:41:33+08:00
 ---
 
 # 全模块 AI 操作入口、目标运行与操作留痕设计
@@ -19,14 +19,17 @@ updated: 2026-10-16T04:07:17+08:00
 2026-10-15 技术评审后按推荐修订 ADR-0038：目录项事务形态、目标运行 `goal` 模式与每项目唯一索引、
 高频操作留痕合并或豁免。修订经用户授权在第三个本地提交 `20d6f1eff` 中提交，未推送。
 2026-10-15 用户采纳 ADR-0038（Accepted / 未实施）；ADR-0023 补充说明与索引同步。
-用户已明确三份计划全部实施。primary固定105dca0bfd，已合入A2完整实现和Sol审修7c2/605a2985。root首轮扩大回归4700通过/4失败，四项为任务身份、路由active guard、输出上限继承、能力绑定，已由原Sol直接修复；root复跑4704通过/1地图CAS间歇失败/1deselected，原四项均消失；该地图用例孤立通过，expected与DB时间差2微秒，已交C4 Sol顺序查证，不能靠时间容差或重跑冒称全绿。前端249文件/3150测试、lint/build通过。root新专库goal_primary_test_20261016 fresh迁移、metadata parity、17项PG均通过；Sol原专库17项PG及真实HTTP批准完成回读/409保草稿/旧请求跨项目隔离有证据，浏览器断言文件明确为原stdout转录。
+用户已明确三份计划全部实施。primary当前6ad6b94df，已无冲突合入C4b完整Sol审修10b5f6f及notice测试归属修复b085c0ffa（父1bcbe7df6+105dca0bfd）及Goal A2；产品内容与10b相同，root仅另维护三TASK。目录v10实测100项/导演8项，旧v1-v9和map.edit_spatial_structure哈希90aa保持。root新专库director_primary_test_20261016从空库升级/check通过，Director+Goal联合24项PG通过6.79s；原goal_primary的17项亦已通过。root前端全集250文件3157项、lint/build通过；6ad的make docs-check BASE_REF=origin/main通过（169表/62任务/16路由/49ADR）；加入Writing的组合后端首轮5099通过/3失败，b085后第二轮仍5099通过/3同序隔离失败，不能称全绿。日志分别为/tmp/map-c4-primary-combined-20261016.log、/tmp/map-c4-primary-combined-fixed-20261016.log。
 
-C2业务219a50aaa及精确PG测试0d3123444已集成；此前root4492后端/3141前端/7PG通过，390/1280真实V2卡保存、合成反应回执消费、700ms姓名迟到、选择/刷新/跨Scene隔离已验证。C0c Luna/max在world-object-dossier-impl固定首片89b34c1ee（93后端/121前端与门禁），仍继续第二个独立提交：地图声明可信Story字段契约与剧情覆盖；不能把暂缺契约当永久范围豁免。完整有效期接线与真实PG须Sol独立审修。
+A2原4700通过/4失败已经原Sol605a2985修复；之后4704通过/1地图CAS间歇失败，Sol实证批量UPDATE后内存与DB的子节点时间戳相差1–2微秒，已在C4组合中按真实改名子树批量回读，保留精确CAS、12次独立重复通过，root两轮扩大复验均覆盖并通过地图CAS，尚存失败来自其他测试的manager归属。C2业务219a50aaa及精确PG测试0d3123444已集成；卡/反应、700ms姓名迟到、390/1280保存回读及选择/刷新/Scene隔离证据保留。
 
-C4b Luna1628717107正由Sol/high在map-assistant-vocab-review独立审修；Root FK顺序、人物分页、来源指纹及旧账本覆盖风险已实证并直接修，1151普通回归与首6项PG仅代表相应固定点。实际TaskWorker已完成一整轮：4次受控本地provider请求、round持久化及started=settled=4；Sol直接修复内部mode校验、client.timeout、检查点expire后的读取/事务、state_delta序列化四项运行期问题。同根续轮/80%/unknown/checkpoint仍继续验证，零真实模型调用。正式目录除初始4操作还须history、现有额度单轮推进、实际一致性检查、参考剧本保存；将顺序组合105dca0后用fresh director_combined_review_test_20261016核迁移/metadata，旧库保留。曾怀疑Round删除trigger阻断级联的结论已撤回，原实现允许合法嵌套级联，不能记作已修缺陷。
+C4实际TaskWorker精确task_id/novel_id已完成同根两轮：8次受控本地provider、tokens80、run_id/started_at/deadline不变；80%入队前409且零新增provider，旧unknown确认后新unknown再次暂停。Sol已直接修mode校验、client.timeout、检查点expire/事务、state_delta序列化、续轮preview漏字段、账本旧快照覆盖及重核误称检查。真实HTTP/history/完整表演素材角度/独立参考保存回读、390恢复选择与Writing同Scene选中已验；root已看图，Writing236px窄栏输入挤压也由Sol修并实际键盘保存。零真实模型。Sol适用后端广覆盖8296通过/3同Writing隔离失败；b085只修Notice创建者，同序probe现另定位test_editorial经async_client触发operation trace创建manager后未回收，Sol正直接修测试fixture归属，不放宽产品guard。Evals同序15项已通过；不能称广覆盖全绿。18582/18583均已停，PG保留待最终释放使用权。
 
-A3 Luna/max在map-assistant-review/codex/author-interaction-operations-impl已启动，临时让槽给A2四修后已恢复；专库仅author_operations_impl_test_20261016。A1章节排序/精确时间线覆盖、A4独立报表工程、C3机制对齐尾项、C5仍需执行。C1长篇/M5势力/RP迁移/数周真实留痕数据为条件门禁，不能用合成测试代替。R3保持诊断封存，holdout不解码；仅本地提交，无推送/PR/main合并/部署。
+C0c Luna固定89b34c1ee+371ab21d4、专属笔记ee51f869a，自有前端/静态通过；新增op未注册使backend pytest加载被硬拒，未绕过。原Sol现复用map-clue-review/codex/world-object-validity-review，已取完整候选并合7b为197e91bcd；本域5b9b/c8ab等直接修有效期先过滤、safe视角私有对照、时序/歧义/degraded、Notice先截断漏报、循环导入及失效别名区间写入重验。新map Story确认应按事实采用定R3。共享bootstrap/keys/catalog已正式转该Sol独占；当前未提交接线使app.main可导入、目录105项、29定向通过，完整冻结/导演有效期实读/API/PG/浏览器仍待，不能称装配完成；专库validity_review_test_20261016已fresh升级单head dossier_story_field_key，后续真实API/PG/浏览器待接线。
 
+A3 Luna/max在map-assistant-review/codex/author-interaction-operations-impl实际实施作者设置/旅程、摘要预览与Collaboration准备。已实证旧interaction_summary_refresh虽跨attempt累计，但V1允许unknown后继续reserve且handler内部重试；新入口暂以ROOT_BUDGET_ADAPTER_UNAVAILABLE拒绝入队，后续必须由Sol直接补任务级冻结/unknown-stop并完成真实执行，不是最终范围豁免。task pointer FK仅用于overview重载定位，幂等仍exact TaskFacade回执。专库仅author_operations_impl_test_20261016。
+
+接下来C4收尾释放槽后立即启动Luna C5；已从6ad创建world-progression-impl/codex/world-progression-impl干净独立树，C0 Sol继续独占共享装配；A1章节排序/精确时间线、A4独立报表工程、C3机制对齐尾项仍在范围。C1长篇/M5势力/RP迁移/数周真实留痕数据为条件门禁，不能以合成测试代替。R3继续诊断封存，holdout不解码；未push/PR/main合并/部署。
 ## 目标与验收
 
 - 目标：各模块开放或增加 AI 操作入口，让 AI 能自主规划、操作，完成作者的目标；
