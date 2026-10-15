@@ -71,6 +71,7 @@ WORLD_FACADE_API = {
     "list_entities",
     "list_entity_terms",
     "list_adopted_map_continuity_facts",
+    "read_map_spatial_brief",
     "list_world_bible_working_page_ids",
     "mark_worldbuilding_context_stale",
     "mark_world_bible_synopsis_stale",
@@ -155,6 +156,9 @@ WORLD_CONTRACT_API = {
     "GenerationBackgroundProvider",
     "KnowledgeVisibilityDecision",
     "KnowledgeVisibilityRequest",
+    "MapSpatialBriefItem",
+    "MapSpatialBriefRequest",
+    "MapSpatialBriefResponse",
     "MergeResult",
     "ResolveResult",
     "WorldBackgroundBundleContract",
@@ -165,6 +169,7 @@ WORLD_CONTRACT_API = {
     "WorldBibleActivationTargetContract",
     "WorldBibleSynopsisContextContract",
     "WorldAliasRelationTaskPort",
+    "WorldReadMapSpatialBriefPort",
 }
 
 

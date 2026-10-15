@@ -83,6 +83,9 @@ from modules.world.map_atlas_facade import (  # noqa: F401
     list_adopted_map_continuity_facts,
     read_map_node_heads,
 )
+from modules.world.map_spatial_brief_service import (
+    read_map_spatial_brief,
+)
 from modules.world.map_spatial_clue_service import (  # noqa: F401
     read_spatial_discovery_context,
     stage_spatial_discovery,
@@ -204,6 +207,7 @@ __all__ = [
     "list_auto_ingested_entities",
     "list_adopted_map_continuity_facts",
     "read_map_node_heads",
+    "read_map_spatial_brief",
     "read_spatial_discovery_context",
     "stage_spatial_discovery",
     "read_world_bible_page_revisions",
