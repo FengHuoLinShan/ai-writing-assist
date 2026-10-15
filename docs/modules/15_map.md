@@ -24,6 +24,8 @@ Scene 锚点按当前顺序读取，退役替换链的起点取最早、终点�
 暂不消费带生效范围的内容；M3 空间简报按当前 Scene 的实际 cutoff 筛选并解析替换锚点。
 稳定章节 UUID 与数字章节序号尚无映射，章节 UUID 锚点在简报中保持待核对。
 `vertical/directed/movable/independent_space/qualitative_distance` 当前保留声明，
+主 Scene 回执后的空间 context 可接收本场已物化 World 候选端点；World 重验原理解回执与最新来源前缀，并要求实体来源元数据的 run、Scene、index 和 attempt 全部一致。未物化提案、其他运行或未来 Scene 的候选不因冻结 UUID 提名进入输入；这不会采用实体、线索或地图。
+
 不代表完整移动、上下或度量计算已经实现。空间发现和自动草图另按 ADR-0036 分批接入。
 
 - API 前缀：`/api/world/map-atlas`

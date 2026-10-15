@@ -30,6 +30,7 @@ from modules.world.contracts import (
     VocabularyEvidence,
     VocabularyReviewReceipt,
     VocabularyTraits,
+    normalize_author_entity_type,
     vocabulary_evidence_hash,
     vocabulary_proposal_hash,
 )
@@ -181,6 +182,7 @@ def spatial_method_fingerprint() -> str:
     return content_hash(
         {
             "version": SPATIAL_VERSION,
+            "endpoint_projection_version": 2,
             "discovery_method": SPATIAL_METHOD_ID,
             "review_method": SPATIAL_REVIEW_METHOD_ID,
             "discovery_prompt": SPATIAL_DISCOVERY_PROMPT,
@@ -236,6 +238,7 @@ def _density_hits(scene_text: str, endpoints: list[dict], context: MapSpatialClu
             item["surface"]
             for item in endpoints
             if (item.get("entity_type") or "").casefold() in LOCATION_ENTITY_TYPES
+            and _normalized(item["surface"]) in text
         }
     )
     return {
@@ -281,6 +284,7 @@ def _current_endpoints(payload):
     candidates = world_context.get("identity_candidates") or []
     new_ids = world_context.get("_new_entity_ids") or {}
     accepted_candidate_ids = {str(value) for value in new_ids.values()}
+    post_main = bool(payload.get("optional_scene_stage"))
     by_id: dict[str, dict] = {}
     surfaces: dict[str, set[str]] = defaultdict(set)
     for observation in observations:
@@ -297,12 +301,24 @@ def _current_endpoints(payload):
                     key, {"entity_id": key, "state": None, "surfaces": set()}
                 )
                 by_id[key]["surfaces"].add(surface)
-                if key in accepted_candidate_ids:
+                if key in accepted_candidate_ids and not post_main:
                     by_id[key]["state"] = "candidate"
     for item in candidates:
         surface = str(item.get("name") or "").strip()
         if surface:
             surfaces[surface].add(str(item.get("entity_type") or ""))
+        # Only the committed optional stage may project World-only identities.
+        # World revalidates materialization and the original receipt below; a
+        # frozen UUID or a successful proposal alone does not make an endpoint.
+        entity_id = new_ids.get(item.get("prompt_ref"))
+        if post_main and surface and entity_id:
+            key = str(entity_id)
+            endpoint = by_id.setdefault(
+                key, {"entity_id": key, "state": None, "surfaces": set()}
+            )
+            endpoint["world_candidate"] = True
+            endpoint["surfaces"].add(surface)
+            surfaces[surface].add(normalize_author_entity_type(item["entity_type"]))
     return by_id, surfaces
 
 
@@ -751,6 +767,20 @@ async def finish_scene_spatial(db, store, frozen, source, caller):
                 endpoint_surfaces=sorted(surfaces)[:SPATIAL_ENDPOINT_LIMIT],
                 type_limit=SPATIAL_TYPE_LIMIT,
                 clue_limit=SPATIAL_CLUE_LIMIT,
+                **(
+                    {
+                        "world_candidate_ids": [
+                            key
+                            for key in sorted(by_id)[:SPATIAL_ENDPOINT_LIMIT]
+                            if by_id[key].get("world_candidate")
+                        ],
+                        "world_attempt_id": payload["optional_scene_stage"][
+                            "receipt_attempt_id"
+                        ],
+                    }
+                    if payload.get("optional_scene_stage")
+                    else {}
+                ),
             )
         context = MapSpatialClueContext.model_validate(context)
         current_scene_index = int(payload["scene_index"])

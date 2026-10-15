@@ -1253,6 +1253,8 @@ World Bible、生成模板，以及 AI 地图册的计划、候选、画廊和�
 它是事实模块，不拥有正文、Scene、context confirmation 或 RAG 候选；AI 输出默认进入
 待处理建议，只有用户明确授权的流水线才可按领域门禁写入可回滚资产。
 
+主 Scene 回执后的空间 context 可接收本场已物化 World 候选端点；World 重验原理解回执与最新来源前缀，并要求实体来源元数据的 run、Scene、index 和 attempt 全部一致。未物化提案、其他运行或未来 Scene 的候选不因冻结 UUID 提名进入输入；这不会采用实体、线索或地图。
+
 空间地图仍属于 World 的可编辑派生资产，不进入 Canon 或 Scene memory。纯空间节点可显示和跳转；
 图片移出不影响空间版本。完整 API、数据上限、校准和阅读条件见 `docs/modules/15_map.md`。
 

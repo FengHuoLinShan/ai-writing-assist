@@ -14,7 +14,10 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from core.container import get
 from core.errors import ConflictError, NotFoundError, ValidationError
-from core.service_keys import STORY_SCENE_SOURCE
+from core.service_keys import (
+    EVOLUTION_REQUIRE_CURRENT_WORLD_CANDIDATE,
+    STORY_SCENE_SOURCE,
+)
 from modules.project.facade import (
     require_active_project,
     require_active_project_exclusive,
@@ -901,6 +904,8 @@ async def read_spatial_discovery_context(
     type_limit: int,
     clue_limit: int,
     run_id: str | None = None,
+    world_candidate_ids: list[str] | None = None,
+    world_attempt_id: str | None = None,
 ) -> MapSpatialClueContext:
     """Return bounded, same-project, strictly earlier spatial context."""
     await require_active_project(db, novel_id)
@@ -911,6 +916,19 @@ async def read_spatial_discovery_context(
         raise ValidationError("Spatial discovery run identity is invalid")
     nid = parse_uuid(novel_id, "novel_id")
     endpoint_uuid_ids = [parse_uuid(item, "endpoint_id") for item in endpoint_ids]
+    current_world_ids = {
+        parse_uuid(item, "world_candidate_id") for item in (world_candidate_ids or [])
+    }
+    if current_world_ids:
+        if (
+            not run_id
+            or not world_attempt_id
+            or not current_world_ids.issubset(endpoint_uuid_ids)
+        ):
+            raise ValidationError("Current World endpoints require their Scene receipt")
+        await get(EVOLUTION_REQUIRE_CURRENT_WORLD_CANDIDATE)(
+            db, novel_id, {"run_key": run_id, "attempt_id": world_attempt_id}
+        )
     endpoint_surfaces = [
         item.strip().casefold() for item in endpoint_surfaces if item.strip()
     ]
@@ -924,11 +942,22 @@ async def read_spatial_discovery_context(
                 )
             )
         ).all()
-        states = {
-            str(entity.id): "canonical" if entity.status == "canonical" else "candidate"
-            for entity in entities
-            if entity.status in {"canonical", "candidate", "draft"}
-        }
+        for entity in entities:
+            if entity.status not in {"canonical", "candidate", "draft"}:
+                continue
+            if entity.id in current_world_ids:
+                metadata = (entity.content_json or {}).get("_meta") or {}
+                if (
+                    metadata.get("workflow_id") != run_id
+                    or metadata.get("scene_id") != scene_id
+                    or metadata.get("source_scene_index") != scene_index
+                    or metadata.get("evolution_ref")
+                    != {"run_key": run_id, "attempt_id": world_attempt_id}
+                ):
+                    continue
+            states[str(entity.id)] = (
+                "canonical" if entity.status == "canonical" else "candidate"
+            )
 
     clue_rows = (
         await db.scalars(

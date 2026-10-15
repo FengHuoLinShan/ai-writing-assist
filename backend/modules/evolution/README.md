@@ -584,6 +584,7 @@ World v3 审查准备含冻结 `context_snapshot`，即使分组相同，上下�
 各步骤付费 journal 留在原 attempt，经 `optional_scene_stage.receipt_attempt_id` 关联主回执；
 后置结果不改写主回执的 `paid_call_receipts`。费用未知只记本步骤缺口且不重发；
 原阶段未收尾先恢复，补扫不复制其主阶段身份。
+本场主回执后，空间端点可投影独立审查且已物化的 World 新候选，不依赖主 observation 是否列出该地点。World 按 owner/作品、原回执与当前来源前缀及同 run/Scene/index/attempt 的实体来源元数据重新验证，未物化、其他运行、未来场景或失效对象不进入输入。中文标准类型沿用正式类型归一化；真实地点端点可触发密度门，只有正文实际包含的名称才计数，不推测自定义对象类型。端点投影版本进入方法指纹，旧冻结保留原指纹并诚实报告 stale。
 旧冻结和 append/continue 不升级，shadow 可选阶段明确 not_run。精确阶段字段及覆盖见下述实施合同。
 授权固定空间方法指纹；append/continue 保留未核清补扫登记和草图游标。来源、端点、词表与严格更早的线索构成冻结 consumer read-set；候选只经 World stage 写入地图域，不写 World 关系或地图 head。旧运行通过独立空间补扫授权启动，不修改原阅读开关或方法版本；批次结束时只请求一个幂等 auto-draft build，候选仍待作者审核。覆盖四态、预算保留、来源核验和 World ports 见 [ADR-0036 实施合同](../../../docs/modules/22_evolution.md#adr-0036-空间可选阅读步骤m1)。
 

@@ -504,6 +504,8 @@ shadow 阶段明确标记 `not_run/shadow_isolated`，不写正式领域。补�
 空间抽取与复核分别使用 `scene_spatial_discovery` / `scene_spatial_review` journal，方法标识为
 `evolution.spatial_discover.v1` / `evolution.spatial_review.v1`。调用前冻结当前 Scene 正文、身份候选、
 项目空间类型与严格更早的线索，实际召回和省略数进入 consumer read-set；不读后续 Scene。
+本场主回执后，空间端点可投影独立审查且已物化的 World 新候选，不依赖主 observation 是否列出该地点。World 按 owner/作品、原回执与当前来源前缀及同 run/Scene/index/attempt 的实体来源元数据重新验证，未物化、其他运行、未来场景或失效对象不进入输入。中文标准类型沿用正式类型归一化；真实地点端点可触发密度门，只有正文实际包含的名称才计数，不推测自定义对象类型。端点投影版本进入方法指纹，旧冻结保留原指纹并诚实报告 stale。
+
 来源模式保持 Story 实际 `working` 或 `canonical`，引文必须在当前 Scene 正文唯一、逐字命中且落在一个
 被绑定的源区间。模型给出的端点 ID 只在本批 World 输入中解析；未解析端点保留为文字待放置线索。
 独立复核按提案与精确引文绑定；新类型首场只形成涌现草案，至少第二场的累计 prior+current 原文证据
