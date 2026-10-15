@@ -54,3 +54,20 @@ PG DB；不访问默认开发库、封存 R3、holdout、65302 或真实模型�
 - `AssistantOperationTrace`、事件汇总、序列汇总都是 append-only/privacy 边界的一部分。
   新格式与旧目录/旧汇总要显式区分，保留历史，不重写旧事件。统计只给作者本人，
   不开放AI外部导出或扩大授权。实际样本不足时展示不可测和覆盖量，不用合成样本选真实Top3。
+
+## A3 摘要根预算审修必做（Luna实际源码核对）
+
+新摘要入口当前 `ROOT_BUDGET_ADAPTER_UNAVAILABLE` 是暂时安全停点，不是A3交付豁免。
+后续Sol直接补任务级适配并验证真正执行，不能仅改预览的 `execution_ready`。
+
+- `interaction/tasks.py` 的 `interaction_summary_refresh` 当前 auto_requeue/max_attempts=2、
+  request_limit=8、deadline=None，handler 还套 `retry_with_backoff(max_attempts=2)`；
+  structured修复可能另发一次请求。
+- `workflow_budget.py` 的 unknown-stop 仅覆盖AIRunEnvelopeV4；V1 settle无usage会记unknown，
+  后一次reserve仍能进行。Task worker的非EnvelopeError失败又可能auto_requeue。
+  现有worker已经跨attempt恢复同一V1信封并在provider前按租约checkpoint，不能误称其重置账本。
+- 真实复现应覆盖：第一次provider Timeout/结果未知 → 下一次retry/reserve零provider；
+  worker重排/恢复不清原unknown、不重置start/deadline/累计；作者重新核对后新增unknown再次停。
+  冻结源版本/路径/Project profile及finalizer stale fence也须实际worker验证。
+- 收窄到该摘要任务，不全局放宽或迁移旧V1运行；原冻结运行与旅程只读来源边界保持。
+  以精确TaskFacade任务回执证明幂等与恢复，overview的task pointer仅是当前投影，不代替回执账本。
