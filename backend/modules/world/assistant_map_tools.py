@@ -6,7 +6,7 @@ from uuid import UUID
 from pydantic import BaseModel, ConfigDict, Field
 
 from core.container import get
-from core.errors import ConflictError
+from core.errors import ConflictError, ValidationError
 from core.service_keys import (
     ASSISTANT_REQUIRE_OPERATION_TARGETS,
 )
@@ -18,6 +18,7 @@ from modules.world.map_structure_schemas import (
     MapSaveRequest,
 )
 from modules.world.map_structure_service import MapStructureService
+from modules.world.project_vocabulary_service import resolve_vocabulary_type_revisions
 
 
 class ReviewMapRevision(BaseModel):
@@ -168,9 +169,30 @@ async def _node_preview(db, novel_id, args, *, context=None):
         await WorldEntityService().get(
             db, str(args.location_entity_id), novel_id=novel_id
         )
+    level_type = None
+    type_ref = getattr(args, "level_type_ref", None)
+    revision_id = getattr(args, "level_type_revision_id", None)
+    if type_ref is not None:
+        types = await resolve_vocabulary_type_revisions(
+            db, novel_id, {(type_ref, revision_id)}
+        )
+        pinned = types[(type_ref, revision_id)]
+        if pinned["kind"] != "level":
+            raise ValidationError("地图层级必须引用层级类型")
+        level_type = {
+            "type_ref": str(type_ref),
+            "type_revision_id": str(revision_id),
+            "name": pinned["name"],
+            "description": pinned["description"],
+            "status": pinned["status"],
+        }
     return {
         "title": args.title,
-        "after": {"title": args.title, "level": args.level},
+        "after": {
+            "title": args.title,
+            "level": args.level,
+            **({"level_type": level_type} if level_type else {}),
+        },
         "effect": "创建空白地图节点，不生成地形、坐标或世界事实",
     }
 
