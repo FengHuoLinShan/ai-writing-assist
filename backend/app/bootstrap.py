@@ -14,6 +14,7 @@ from core.service_keys import (
     ASSISTANT_READ_MAP_AUTHOR_DECISION,
     EVOLUTION_READ_MAP_COLD_START_STATUS,
     WORLD_READ_MAP_COLD_START_DRAFTS,
+    WORLD_READ_MAP_NOTIFICATION_SIGNALS,
     CONDITIONALLY_REGISTERED,
     ACCOUNT_PROJECT_CONTEXT,
     ACCOUNT_PROJECT_IDS_FOR_OWNER,
@@ -254,6 +255,9 @@ from modules.evolution.facade import (
     read_map_cold_start_status as _read_map_cold_start_status,
 )
 from modules.world.facade import read_map_cold_start_drafts as _read_map_cold_start_drafts
+from modules.world.facade import (
+    read_map_notification_signals as _read_map_notification_signals,
+)
 from modules.collaboration.facade import (
     changed_cases as _collab_changed_cases,
     collect_forecast_understanding as _collab_collect_forecast_understanding,
@@ -425,6 +429,7 @@ def _container_services() -> Iterable[tuple[ServiceKey[Any], Any]]:
         (ASSISTANT_READ_MAP_AUTHOR_DECISION, _read_map_author_decision),
         (EVOLUTION_READ_MAP_COLD_START_STATUS, _read_map_cold_start_status),
         (WORLD_READ_MAP_COLD_START_DRAFTS, _read_map_cold_start_drafts),
+        (WORLD_READ_MAP_NOTIFICATION_SIGNALS, _read_map_notification_signals),
         (
             ASSISTANT_PROACTIVE_SUBMITTERS,
             {

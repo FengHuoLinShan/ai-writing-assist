@@ -770,6 +770,7 @@ __all__ = [
     "WorldAliasRelationTaskPort",
     "WorldReadMapSpatialBriefPort",
     "WorldReadMapColdStartDraftsPort",
+    "WorldReadMapNotificationSignalsPort",
     "WorldReadMapSpatialAdvisoriesPort",
     "normalize_author_entity_type",
 ]
@@ -782,3 +783,9 @@ from modules.world.services.core.entity_types import (  # noqa: E402
 
 class WorldReadMapColdStartDraftsPort(Protocol):
     async def __call__(self, db: AsyncSession, novel_id: str, run_key: str) -> dict: ...
+
+
+class WorldReadMapNotificationSignalsPort(Protocol):
+    async def __call__(
+        self, db: AsyncSession, novel_id: str, request: dict
+    ) -> dict | None: ...

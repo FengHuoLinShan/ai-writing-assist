@@ -41,6 +41,7 @@ it.each([
   [{ type: "world_validation", target: { type: "core_entity", id: "entity" }, location: { review_id: "review" } }, "world", "bible", { validation_run_id: "review" }],
   [{ type: "scene_story_assets", id: "scene" }, "scene", "scene", {}],
   [{ type: "map_atlas_node", id: "map" }, "map", null, { node_id: "map" }],
+  [{ type: "map_changes", page: "map", events: [{ scene_id: "private-scene" }], id: "internal-event" }, "map", null, {}],
   [{ type: "map_atlas_node", id: "map", revision_id: "saved" }, "map", null, { node_id: "map", revision_id: "saved" }],
   [{ type: "map_atlas_page", id: "image", run_id: "run", node_id: "map" }, "map", null, { node_id: "map", run_id: "run", page_id: "image", atlas_view: "review" }],
   [{ type: "world_suggestion", id: "candidate" }, "world", "bible", { suggestion_id: "candidate", open: "suggestions" }],
