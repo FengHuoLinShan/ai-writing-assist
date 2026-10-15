@@ -897,6 +897,12 @@ class WorldEntityService(
         self._assert_found_in_novel(entity, entity_id, nid)
         assert entity is not None
 
+        if data.expected_source_hash is not None:
+            from modules.world.map_candidate_locations import promotion_source_hash
+
+            if promotion_source_hash(entity) != data.expected_source_hash:
+                raise ConflictError("地点内容已变化，请重新预览后确认采用")
+
         if not _validation_prechecked:
             require_legacy_canon_write_allowed = _container_get(
                 WORLD_WORLDBUILDING_REQUIRE_LEGACY_CANON_WRITE_ALLOWED
@@ -927,7 +933,7 @@ class WorldEntityService(
             key: value
             for key, value in data.model_dump(
                 exclude_unset=True,
-                exclude={"approved_by"},
+                exclude={"approved_by", "expected_source_hash"},
             ).items()
             if value is not None
         }

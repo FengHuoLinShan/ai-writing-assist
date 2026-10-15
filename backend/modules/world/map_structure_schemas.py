@@ -537,6 +537,8 @@ class MapReviewPreview(SpatialModel):
     base_revision_id: str | None
     applied_change_keys: list[str]
     expanded_change_keys: list[str]
+    candidate_locations: list[dict] = Field(default_factory=list, max_length=20)
+    candidate_locations_truncated: bool = False
 
 
 class MapRevisionResponse(SpatialModel):

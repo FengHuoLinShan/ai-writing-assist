@@ -188,7 +188,7 @@ async def choice(db, novel_id, run, flow, artifacts, settings, value):
                 raise ConflictError("实际补扫范围与本流程不同")
         artifacts["authorization"] = {"run_key": run_key, "operation_id": operation_id}
         return True
-    if step in {"monitor", "review"} and action == "refresh":
+    if step in {"monitor", "review", "locations"} and action == "refresh":
         return False
     if step == "locations" and action == "finish":
         artifacts["locations"] = {"author_decision": "finish_after_world_review_or_skip"}

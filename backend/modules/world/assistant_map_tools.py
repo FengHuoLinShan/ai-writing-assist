@@ -425,6 +425,19 @@ async def _review_preview(db, novel_id, args, *, context=None):
             )
         )
     )
+    from modules.world.map_structure_review import changed_items
+
+    baseline = (
+        MapDocument.model_validate(
+            (
+                await service.revision(
+                    db, novel_id, str(node.id), node.current_revision_id
+                )
+            ).document
+        )
+        if node.current_revision_id
+        else MapDocument()
+    )
     return {
         "target_key": f"map:{node.id}",
         "title": node.title,
@@ -435,12 +448,7 @@ async def _review_preview(db, novel_id, args, *, context=None):
             set(result.applied_change_keys) | set(result.expanded_change_keys)
         )
         if args.action == "adopt"
-        else max(
-            1,
-            len(result.document.features)
-            + len(result.document.constraints)
-            + len(result.document.journeys),
-        ),
+        else max(1, len(changed_items(baseline, result.document))),
         "changes": result.model_dump(mode="json")
         if hasattr(result, "model_dump")
         else result,
@@ -727,10 +735,14 @@ async def _auto_draft_group_preview(db, novel_id, args, *, context=None):
                 | set(decision_preview.expanded_change_keys)
             )
         else:
+            if set(selected_keys) != all_keys:
+                raise ConflictError(
+                    "这份草图还包含其他空间，请在草图工作台明确拒绝整个版本"
+                )
             await service.preview_revision(
                 db, novel_id, str(node.id), str(item.revision_id)
             )
-            count = len(selected_keys)
+            count = len(all_keys)
         affected += count
         decisions.append(
             {

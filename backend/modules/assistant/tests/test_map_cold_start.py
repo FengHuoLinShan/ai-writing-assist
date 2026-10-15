@@ -132,6 +132,14 @@ async def test_guide_persists_scope_and_never_retries_unknown(
             test_project_id,
             run_id,
             owner,
+            {"choice": {"step_id": "locations", "action": "refresh"}},
+        )
+        assert view["stop"]["step_id"] == "locations"
+        view = await runtime.advance(
+            db_session,
+            test_project_id,
+            run_id,
+            owner,
             {"choice": {"step_id": "locations", "action": "finish"}},
         )
         assert view["status"] == "completed"

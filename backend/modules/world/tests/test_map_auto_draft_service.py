@@ -1044,3 +1044,158 @@ async def test_g8a_saved_map_with_only_journey_sources_is_a_consumer(
         current_source_hash="f" * 64,
     )
     assert [item["revision_id"] for item in report["maps"]] == [saved.id]
+
+
+@pytest.mark.asyncio
+async def test_candidate_place_preview_and_original_world_adoption_are_separate(
+    db_session, project_novel_id, async_client
+):
+    from modules.world.map_assistant_read_service import read_map_cold_start_drafts
+
+    scene, start, end, clue = await _stage_bound_clue(
+        db_session, project_novel_id, entity_status="candidate"
+    )
+    request = _build_request(scene, clue)
+    result = await build_map_auto_drafts(db_session, project_novel_id, request)
+    ref = result.revisions[0]
+    service = MapStructureService()
+    preview = await service.review_preview(
+        db_session,
+        project_novel_id,
+        str(ref.node_id),
+        str(ref.revision_id),
+        MapRevisionReview(action="adopt", base_revision_id=None),
+    )
+    assert {row["entity_id"] for row in preview.candidate_locations} == {
+        str(start.id),
+        str(end.id),
+    }
+    assert all(row["can_adopt"] for row in preview.candidate_locations)
+    assert not preview.candidate_locations_truncated
+    node = await db_session.get(MapAtlasNode, ref.node_id)
+    assert node.current_revision_id is None
+    location = next(
+        row for row in preview.candidate_locations if row["entity_id"] == str(start.id)
+    )
+    start.summary = "确认预览后被另一处编辑的地点说明"
+    await db_session.flush()
+    stale = await async_client.post(
+        location["promotion_endpoint"],
+        params={"novel_id": project_novel_id},
+        json={"expected_source_hash": location["source_hash"]},
+    )
+    assert stale.status_code == 409, stale.text
+    assert start.status == "candidate" and node.current_revision_id is None
+    preview = await service.review_preview(
+        db_session,
+        project_novel_id,
+        str(ref.node_id),
+        str(ref.revision_id),
+        MapRevisionReview(action="adopt", base_revision_id=None),
+    )
+    for location in preview.candidate_locations:
+        response = await async_client.post(
+            location["promotion_endpoint"], params={"novel_id": project_novel_id}, json={}
+        )
+        assert response.status_code == 200, response.text
+    # Promoting World locations does not adopt the map in the same transaction.
+    await db_session.refresh(node)
+    assert node.current_revision_id is None
+    refreshed = await service.review_preview(
+        db_session,
+        project_novel_id,
+        str(ref.node_id),
+        str(ref.revision_id),
+        MapRevisionReview(action="adopt", base_revision_id=None),
+    )
+    assert refreshed.candidate_locations == []
+    assert preview.candidate_locations != refreshed.candidate_locations
+    adopted = await service.review(
+        db_session,
+        project_novel_id,
+        str(ref.node_id),
+        str(ref.revision_id),
+        MapRevisionReview(action="adopt", base_revision_id=None),
+    )
+    assert adopted.status == "saved"
+    drafts = await read_map_cold_start_drafts(
+        db_session, project_novel_id, request.run_id
+    )
+    assert drafts["candidate_locations"] == []
+
+
+@pytest.mark.asyncio
+async def test_candidate_place_preview_reports_original_prefix_gate_without_adoption(
+    db_session, project_novel_id, async_client
+):
+    scene, start, _end, clue = await _stage_bound_clue(
+        db_session, project_novel_id, entity_status="candidate"
+    )
+    start.content_json = {"_meta": {"evolution_ref": {"run_key": "missing-attempt"}}}
+    await db_session.flush()
+    result = await build_map_auto_drafts(
+        db_session, project_novel_id, _build_request(scene, clue)
+    )
+    ref = result.revisions[0]
+    preview = await MapStructureService().review_preview(
+        db_session,
+        project_novel_id,
+        str(ref.node_id),
+        str(ref.revision_id),
+        MapRevisionReview(action="adopt", base_revision_id=None),
+    )
+    location = next(
+        row for row in preview.candidate_locations if row["entity_id"] == str(start.id)
+    )
+    assert not location["can_adopt"]
+    assert "理解来源记录不完整" in location["block_reason"]
+    response = await async_client.post(
+        location["promotion_endpoint"], params={"novel_id": project_novel_id}, json={}
+    )
+    assert response.status_code == 409, response.text
+    assert "理解来源记录不完整" in response.text
+    await db_session.refresh(start)
+    assert start.status == "candidate"
+    assert (await db_session.get(MapAtlasNode, ref.node_id)).current_revision_id is None
+    # Skipping World adoption remains a valid, independent map decision.
+    await MapStructureService().review(
+        db_session,
+        project_novel_id,
+        str(ref.node_id),
+        str(ref.revision_id),
+        MapRevisionReview(action="adopt", base_revision_id=None),
+    )
+    from modules.world.map_assistant_read_service import read_map_cold_start_drafts
+
+    drafts = await read_map_cold_start_drafts(
+        db_session, project_novel_id, _build_request(scene, clue).run_id
+    )
+    assert {row["entity_id"] for row in drafts["candidate_locations"]} == {
+        str(start.id),
+        str(_end.id),
+    }
+
+
+@pytest.mark.asyncio
+async def test_candidate_location_hash_never_grants_cross_project_adoption(
+    db_session, two_projects, async_client
+):
+    from modules.world.map_candidate_locations import promotion_source_hash
+
+    first, second = two_projects
+    entity = CoreEntity(
+        novel_id=uuid.UUID(first),
+        entity_type="location",
+        name="私有港口",
+        status="candidate",
+    )
+    db_session.add(entity)
+    await db_session.flush()
+    response = await async_client.post(
+        f"/api/world/entities/{entity.id}/promote",
+        params={"novel_id": second},
+        json={"expected_source_hash": promotion_source_hash(entity)},
+    )
+    assert response.status_code == 404, response.text
+    await db_session.refresh(entity)
+    assert entity.status == "candidate"

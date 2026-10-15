@@ -881,8 +881,13 @@ class MapStructureService:
             raise ValidationError("采用范围预览只接受采用操作")
         node = await self.node(db, novel_id, node_id)
         row = await self.revision(db, novel_id, node_id, revision_id)
-        _, applied, expanded, _candidate = await self._adoption_document(
+        document, applied, expanded, _candidate = await self._adoption_document(
             db, novel_id, node_id, node, row, data
+        )
+        from modules.world.map_candidate_locations import preview_candidate_locations
+
+        locations, locations_truncated = await preview_candidate_locations(
+            db, novel_id, [document]
         )
         return MapReviewPreview(
             candidate_revision_id=str(row.id),
@@ -891,6 +896,8 @@ class MapStructureService:
             ),
             applied_change_keys=applied,
             expanded_change_keys=expanded,
+            candidate_locations=locations,
+            candidate_locations_truncated=locations_truncated,
         )
 
     async def review(self, db, novel_id, node_id, revision_id, data: MapRevisionReview):
