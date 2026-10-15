@@ -21,10 +21,11 @@ from modules.account.facade import is_demo_readonly_principal
 from modules.assistant.contracts import AssistantOperation
 from modules.assistant.operation_trace_models import (
     AssistantOperationSequenceAggregate,
-    AssistantOperationTraceLifecycleAggregate,
-    AssistantOperationTraceMetricAggregate,
     AssistantOperationTrace,
     AssistantOperationTraceAggregate,
+    AssistantOperationTraceLifecycleAggregate,
+    AssistantOperationTraceMetricAggregate,
+    AssistantOperationTraceParameterAggregate,
     AssistantOperationTracePreference,
     AssistantOperationTraceProjectSalt,
 )
@@ -229,11 +230,7 @@ def _event_metadata(operation: AssistantOperation, value: object) -> dict:
     if isinstance(changed, (list, tuple, set)):
         allowed = set(operation.schema.model_fields)
         fields = sorted(
-            {
-                name
-                for name in changed
-                if isinstance(name, str) and name in allowed
-            }
+            {name for name in changed if isinstance(name, str) and name in allowed}
         )
         if fields:
             result["changed_fields"] = fields
@@ -243,8 +240,53 @@ def _event_metadata(operation: AssistantOperation, value: object) -> dict:
     return result
 
 
-def operation_trace_sequences(rows) -> list[tuple[date, list[str]]]:
-    """Return one deterministic terminal operation sequence per UTC day group."""
+def _parameter_profile(value: object) -> dict | None:
+    """Keep only coarse shapes; drop values, exact lengths, and all hashes."""
+    if not isinstance(value, Mapping):
+        return None
+    source_fields = value.get("fields")
+    if not isinstance(source_fields, Mapping):
+        return None
+    fields: dict[str, dict] = {}
+    for name, source in sorted(source_fields.items()):
+        if not isinstance(name, str) or not isinstance(source, Mapping):
+            continue
+        present = source.get("present")
+        if type(present) is not bool:
+            continue
+        item = {"present": present}
+        if present:
+            kind = source.get("type")
+            if not isinstance(kind, str) or not re.fullmatch(r"[a-zA-Z_]{1,40}", kind):
+                continue
+            item["type"] = kind
+            if kind == "number" and isinstance(source.get("size"), str):
+                if source["size"] in {"0", "1", "2-4", "5-9", "10-49", "50+"}:
+                    item["size"] = source["size"]
+            elif kind == "string":
+                item["length"] = _bucket(_positive_int(source.get("length")))
+            elif kind == "array" and isinstance(source.get("count"), str):
+                if source["count"] in {"0", "1", "2-4", "5-9", "10-49", "50+"}:
+                    item["count"] = source["count"]
+            elif kind == "object" and isinstance(source.get("field_count"), str):
+                if source["field_count"] in {"0", "1", "2-4", "5-9", "10-49", "50+"}:
+                    item["field_count"] = source["field_count"]
+        fields[name] = item
+    unknown = value.get("unknown_fields")
+    return {
+        "fields": fields,
+        "unknown_fields_present": bool(
+            isinstance(unknown, Mapping) and unknown.get("present") is True
+        ),
+    }
+
+
+def _positive_int(value: object) -> int:
+    return value if type(value) is int and value >= 0 else 0
+
+
+def operation_trace_sequence_records(rows) -> list[tuple[date, list[str], bool]]:
+    """Return terminal sequences and whether call-level dedupe was provable."""
     groups: dict[tuple[date, str], list[AssistantOperationTrace]] = {}
     for row in rows:
         if row.event_type not in {"executed", "failed", "outcome_unknown"}:
@@ -253,7 +295,7 @@ def operation_trace_sequences(rows) -> list[tuple[date, list[str]]]:
         group_id = str(row.session_id or row.run_id or row.call_id or row.id)
         groups.setdefault((occurred_on, group_id), []).append(row)
 
-    sequences: list[tuple[date, list[str]]] = []
+    sequences: list[tuple[date, list[str], bool]] = []
     for (occurred_on, _group_id), items in groups.items():
         latest_terminal: dict[tuple[str, str], AssistantOperationTrace] = {}
         for row in items:
@@ -264,13 +306,32 @@ def operation_trace_sequences(rows) -> list[tuple[date, list[str]]]:
                 latest_terminal[key] = row
         ordered = sorted(latest_terminal.values(), key=lambda item: item.id)
         if ordered:
-            sequences.append((occurred_on, [row.op_id for row in ordered]))
+            sequences.append(
+                (
+                    occurred_on,
+                    [row.op_id for row in ordered],
+                    all(row.call_id is not None for row in items),
+                )
+            )
     return sequences
+
+
+def operation_trace_sequences(rows) -> list[tuple[date, list[str]]]:
+    """Return deterministic terminal operation sequences per UTC day group."""
+    return [
+        (occurred_on, sequence)
+        for occurred_on, sequence, _complete in operation_trace_sequence_records(rows)
+    ]
 
 
 def _lifecycle_daily_counts(rows) -> dict[tuple[date, str], dict[str, int]]:
     grouped: dict[tuple[date, str, str], list[AssistantOperationTrace]] = {}
     result: dict[tuple[date, str], dict[str, int]] = {}
+
+    def order(row: AssistantOperationTrace) -> tuple:
+        if type(row.id) is int:
+            return (0, row.id)
+        return (1, _utc_datetime(row.occurred_at), str(row.id or ""))
 
     def bucket(key: tuple[date, str]) -> dict[str, int]:
         return result.setdefault(
@@ -281,11 +342,26 @@ def _lifecycle_daily_counts(rows) -> dict[tuple[date, str], dict[str, int]]:
                 "declined_count": 0,
                 "edited_accepted_count": 0,
                 "unresolved_count": 0,
+                "outcome_unknown_count": 0,
                 "unmatched_decision_count": 0,
                 "ambiguous_count": 0,
+                "proposal_event_count": 0,
+                "confirmed_event_count": 0,
+                "declined_event_count": 0,
+                "edited_event_count": 0,
+                "outcome_unknown_event_count": 0,
+                "failed_event_count": 0,
+                "failed_execution_count": 0,
+                "unknown_execution_count": 0,
+                "restored_event_count": 0,
+                "undone_event_count": 0,
                 "unlinked_proposal_events": 0,
                 "unlinked_decision_events": 0,
+                "unlinked_execution_events": 0,
+                "unlinked_reversal_events": 0,
                 "executed_count": 0,
+                "executed_event_count": 0,
+                "reversal_event_count": 0,
                 "matched_reversal_count": 0,
                 "unmatched_reversal_count": 0,
             },
@@ -294,6 +370,27 @@ def _lifecycle_daily_counts(rows) -> dict[tuple[date, str], dict[str, int]]:
     unlinked: list[AssistantOperationTrace] = []
     for row in rows:
         occurred_on = _utc_datetime(row.occurred_at).date()
+        counts = bucket((occurred_on, row.op_id))
+        if row.event_type == "proposed":
+            counts["proposal_event_count"] += 1
+        elif row.event_type == "confirmed":
+            counts["confirmed_event_count"] += 1
+        elif row.event_type == "declined":
+            counts["declined_event_count"] += 1
+        elif row.event_type == "edited":
+            counts["edited_event_count"] += 1
+        elif row.event_type == "outcome_unknown":
+            counts["outcome_unknown_event_count"] += 1
+        elif row.event_type == "restored":
+            counts["restored_event_count"] += 1
+            counts["reversal_event_count"] += 1
+        elif row.event_type == "undone":
+            counts["undone_event_count"] += 1
+            counts["reversal_event_count"] += 1
+        elif row.event_type == "executed":
+            counts["executed_event_count"] += 1
+        elif row.event_type == "failed":
+            counts["failed_event_count"] += 1
         if row.call_id is None:
             unlinked.append(row)
             continue
@@ -305,35 +402,86 @@ def _lifecycle_daily_counts(rows) -> dict[tuple[date, str], dict[str, int]]:
             counts["unlinked_proposal_events"] += 1
         elif row.event_type in {"confirmed", "declined"}:
             counts["unlinked_decision_events"] += 1
+        elif row.event_type in {"executed", "failed", "outcome_unknown"}:
+            # Without a call id, two terminal rows may be one repeated result.
+            # Keep their raw event count, but do not claim outcome groups.
+            counts["unlinked_execution_events"] += 1
         elif row.event_type in {"restored", "undone"}:
+            counts["unlinked_reversal_events"] += 1
             counts["unmatched_reversal_count"] += 1
-        elif row.event_type == "executed":
-            counts["executed_count"] += 1
 
     for (occurred_on, op_id, _call_id), items in grouped.items():
-        events = {row.event_type for row in items}
+        ordered = sorted(items, key=order)
+        events = {row.event_type for row in ordered}
         counts = bucket((occurred_on, op_id))
-        has_proposal = "proposed" in events
-        decisions = events.intersection({"confirmed", "declined"})
+        proposals = [row for row in ordered if row.event_type == "proposed"]
+        has_proposal = bool(proposals)
+        decisions = [
+            row for row in ordered if row.event_type in {"confirmed", "declined"}
+        ]
+        matched_decisions = [
+            row
+            for row in decisions
+            if any(order(proposal) < order(row) for proposal in proposals)
+        ]
+        decision_types = {row.event_type for row in matched_decisions}
         if has_proposal:
             counts["proposed_count"] += 1
-            if len(decisions) > 1:
+            if len(decision_types) > 1:
                 counts["ambiguous_count"] += 1
-            elif "confirmed" in decisions:
+            elif "confirmed" in decision_types:
                 counts["accepted_count"] += 1
-                if "edited" in events:
+                latest_confirmation = max(
+                    (row for row in matched_decisions if row.event_type == "confirmed"),
+                    key=order,
+                )
+                if any(
+                    row.event_type == "edited"
+                    and any(order(proposal) < order(row) for proposal in proposals)
+                    and order(row) < order(latest_confirmation)
+                    for row in ordered
+                ):
                     counts["edited_accepted_count"] += 1
-            elif "declined" in decisions:
+            elif "declined" in decision_types:
                 counts["declined_count"] += 1
+            elif any(
+                row.event_type == "outcome_unknown"
+                and any(order(proposal) < order(row) for proposal in proposals)
+                for row in ordered
+            ):
+                pass
             else:
                 counts["unresolved_count"] += 1
-        elif decisions:
+        if decisions and not matched_decisions:
             counts["unmatched_decision_count"] += 1
+        if "outcome_unknown" in events:
+            counts["outcome_unknown_count"] += 1
 
-        if "executed" in events:
+        terminal = [
+            row
+            for row in ordered
+            if row.event_type in {"executed", "failed", "outcome_unknown"}
+        ]
+        final_state = max(terminal, key=order).event_type if terminal else None
+        if final_state == "executed":
             counts["executed_count"] += 1
-        if events.intersection({"restored", "undone"}):
-            if "executed" in events:
+        elif final_state == "failed":
+            counts["failed_execution_count"] += 1
+        elif final_state == "outcome_unknown":
+            counts["unknown_execution_count"] += 1
+
+        reversals = [row for row in ordered if row.event_type in {"restored", "undone"}]
+        if reversals:
+            matched = False
+            for reversal in reversals:
+                prior_terminal = [row for row in terminal if order(row) < order(reversal)]
+                if (
+                    prior_terminal
+                    and max(prior_terminal, key=order).event_type == "executed"
+                ):
+                    matched = True
+                    break
+            if matched:
                 counts["matched_reversal_count"] += 1
             else:
                 counts["unmatched_reversal_count"] += 1
@@ -342,13 +490,15 @@ def _lifecycle_daily_counts(rows) -> dict[tuple[date, str], dict[str, int]]:
 
 def _metric_values(row: AssistantOperationTrace) -> dict:
     usage = _usage_summary(row.usage) or {}
-    usage_totals = {
-        key: value for key, value in usage.items() if key in _USAGE_COUNTS
-    }
+    usage_totals = {key: value for key, value in usage.items() if key in _USAGE_COUNTS}
     return {
         "observed_event_count": 1,
-        "duration_count": int(row.duration_ms is not None),
-        "duration_ms_total": max(0, int(row.duration_ms or 0)),
+        "duration_count": int(type(row.duration_ms) is int and row.duration_ms >= 0),
+        "duration_ms_total": (
+            row.duration_ms
+            if type(row.duration_ms) is int and row.duration_ms >= 0
+            else 0
+        ),
         "usage_event_count": int(bool(usage)),
         "usage_complete_count": int(usage.get("usage_complete") is True),
         "usage_unknown_count": int(usage.get("usage_unknown") is True),
@@ -472,9 +622,9 @@ async def archive_expired_operation_traces(
     postgres = db.get_bind().dialect.name == "postgresql"
     # Use the same transaction clock as the append-only trigger and pin one
     # UTC-day boundary for the whole archive/read operation.
-    current = _utc_datetime(now or (
-        await db.scalar(select(func.now())) if postgres else datetime.now(UTC)
-    ))
+    current = _utc_datetime(
+        now or (await db.scalar(select(func.now())) if postgres else datetime.now(UTC))
+    )
     cutoff = operation_trace_cutoff(current)
     novel_uuid = UUID(str(novel_id))
     if postgres:
@@ -567,7 +717,7 @@ async def archive_expired_operation_traces(
             "event_count",
             count,
         )
-    for occurred_on, sequence in operation_trace_sequences(rows):
+    for occurred_on, sequence, complete in operation_trace_sequence_records(rows):
         sequence_json = json.dumps(sequence, separators=(",", ":"), ensure_ascii=True)
         sequence_hash = hashlib.sha256(sequence_json.encode()).hexdigest()
         await _increment_aggregate(
@@ -578,7 +728,7 @@ async def archive_expired_operation_traces(
                 "occurred_on": occurred_on,
                 "sequence_hash": sequence_hash,
                 "operation_sequence": sequence,
-                "sequence_complete": True,
+                "sequence_complete": complete,
             },
             "sequence_count",
         )
@@ -639,6 +789,43 @@ async def archive_expired_operation_traces(
             },
             values,
         )
+
+    parameter_values: dict[tuple[date, str, str, str], dict] = {}
+    for row in rows:
+        profile = _parameter_profile(row.parameter_summary)
+        if profile is None:
+            continue
+        encoded = json.dumps(profile, sort_keys=True, separators=(",", ":"))
+        profile_hash = hashlib.sha256(encoded.encode("utf-8")).hexdigest()
+        key = (
+            _utc_datetime(row.occurred_at).date(),
+            row.op_id,
+            row.event_type,
+            profile_hash,
+        )
+        item = parameter_values.setdefault(
+            key, {"parameter_profile": profile, "event_count": 0}
+        )
+        item["event_count"] += 1
+    for (
+        occurred_on,
+        op_id,
+        event_type,
+        profile_hash,
+    ), values in parameter_values.items():
+        await _increment_structured_aggregate(
+            db,
+            AssistantOperationTraceParameterAggregate,
+            {
+                "novel_id": novel_uuid,
+                "occurred_on": occurred_on,
+                "op_id": op_id,
+                "event_type": event_type,
+                "profile_hash": profile_hash,
+                "parameter_profile": values["parameter_profile"],
+            },
+            {"event_count": values["event_count"]},
+        )
     for row in rows:
         await db.delete(row)
     await db.flush()
@@ -691,6 +878,8 @@ async def record_operation_trace(
     if operation.trace_rule.mode == "exempt":
         return True
     try:
+        if event_type not in _TRACE_EVENT_TYPES:
+            raise ValueError("unsupported operation trace event")
         if enabled is False or not await operation_trace_enabled(db, owner_id):
             return True
         stable_error = (
@@ -753,7 +942,9 @@ __all__ = [
     "archive_one_expired_operation_trace_project",
     "operation_trace_enabled",
     "operation_trace_cutoff",
+    "_parameter_profile",
     "operation_trace_sequences",
+    "operation_trace_sequence_records",
     "record_operation_trace",
     "reset_operation_trace_context",
     "set_operation_trace_preference",

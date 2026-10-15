@@ -204,10 +204,43 @@ class AssistantOperationTraceLifecycleAggregate(Base):
     declined_count: Mapped[int] = mapped_column(Integer, nullable=False)
     edited_accepted_count: Mapped[int] = mapped_column(Integer, nullable=False)
     unresolved_count: Mapped[int] = mapped_column(Integer, nullable=False)
+    outcome_unknown_count: Mapped[int] = mapped_column(Integer, nullable=False)
     unmatched_decision_count: Mapped[int] = mapped_column(Integer, nullable=False)
     ambiguous_count: Mapped[int] = mapped_column(Integer, nullable=False)
+    proposal_event_count: Mapped[int] = mapped_column(Integer, nullable=False)
+    confirmed_event_count: Mapped[int] = mapped_column(Integer, nullable=False)
+    declined_event_count: Mapped[int] = mapped_column(Integer, nullable=False)
+    edited_event_count: Mapped[int] = mapped_column(Integer, nullable=False)
+    outcome_unknown_event_count: Mapped[int] = mapped_column(Integer, nullable=False)
+    failed_event_count: Mapped[int] = mapped_column(Integer, nullable=False)
+    failed_execution_count: Mapped[int] = mapped_column(Integer, nullable=False)
+    unknown_execution_count: Mapped[int] = mapped_column(Integer, nullable=False)
+    restored_event_count: Mapped[int] = mapped_column(Integer, nullable=False)
+    undone_event_count: Mapped[int] = mapped_column(Integer, nullable=False)
     unlinked_proposal_events: Mapped[int] = mapped_column(Integer, nullable=False)
     unlinked_decision_events: Mapped[int] = mapped_column(Integer, nullable=False)
+    unlinked_execution_events: Mapped[int] = mapped_column(Integer, nullable=False)
+    unlinked_reversal_events: Mapped[int] = mapped_column(Integer, nullable=False)
     executed_count: Mapped[int] = mapped_column(Integer, nullable=False)
+    executed_event_count: Mapped[int] = mapped_column(Integer, nullable=False)
+    reversal_event_count: Mapped[int] = mapped_column(Integer, nullable=False)
     matched_reversal_count: Mapped[int] = mapped_column(Integer, nullable=False)
     unmatched_reversal_count: Mapped[int] = mapped_column(Integer, nullable=False)
+
+
+class AssistantOperationTraceParameterAggregate(Base):
+    """Daily counts for coarse, non-content parameter shapes."""
+
+    __tablename__ = "assistant_operation_trace_parameter_aggregates"
+
+    novel_id: Mapped[object] = mapped_column(
+        UUIDType,
+        ForeignKey("projects.id", ondelete="CASCADE"),
+        primary_key=True,
+    )
+    occurred_on: Mapped[date] = mapped_column(Date, primary_key=True)
+    op_id: Mapped[str] = mapped_column(String(160), primary_key=True)
+    event_type: Mapped[str] = mapped_column(String(24), primary_key=True)
+    profile_hash: Mapped[str] = mapped_column(String(64), primary_key=True)
+    parameter_profile: Mapped[dict] = mapped_column(JSON, nullable=False)
+    event_count: Mapped[int] = mapped_column(Integer, nullable=False)

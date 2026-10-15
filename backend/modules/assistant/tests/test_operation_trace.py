@@ -181,7 +181,6 @@ async def test_local_default_public_opt_in_and_demo_never(db_session, monkeypatc
     await set_operation_trace_preference(db_session, str(owner_id), False)
     assert await operation_trace_enabled(db_session, str(owner_id)) is False
 
-
     await set_operation_trace_preference(db_session, str(owner_id), True)
     assert await operation_trace_enabled(db_session, str(owner_id)) is True
 

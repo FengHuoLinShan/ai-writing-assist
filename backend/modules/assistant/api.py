@@ -1,8 +1,10 @@
 """Thin authenticated assistant API; private execution state is never returned."""
 
+from typing import Literal
 from uuid import UUID
 
 from fastapi import APIRouter, Query, Response
+from fastapi.responses import JSONResponse
 from pydantic import BaseModel
 from sqlalchemy import select
 
@@ -19,13 +21,11 @@ from modules.assistant.editorial_contracts import (
     ReviewSubmit,
 )
 from modules.assistant.models import AssistantRun
-from modules.assistant.operation_trace_models import (
-    AssistantOperationSequenceAggregate,
-    AssistantOperationTrace,
-    AssistantOperationTraceAggregate,
+from modules.assistant.operation_trace_report import (
+    build_operation_trace_report,
+    operation_trace_report_csv,
 )
 from modules.assistant.operation_trace_service import (
-    archive_expired_operation_traces,
     operation_trace_enabled,
     set_operation_trace_preference,
 )
@@ -97,10 +97,9 @@ async def update_operation_trace_preference(
     return {"enabled": await operation_trace_enabled(db, owner_id), "explicit": True}
 
 
-async def _operation_trace_aggregate(db, novel_id: UUID, owner_id: str) -> dict:
-    from collections import Counter
-    from datetime import UTC, datetime, timedelta
-
+async def _operation_trace_aggregate(
+    db, novel_id: UUID, owner_id: str, *, period: str = "180d"
+) -> dict:
     await require_active_project(db, str(novel_id), allow_demo_readonly=False)
     if is_demo_readonly_principal():
         raise NotFoundError("项目不可访问")
@@ -111,54 +110,12 @@ async def _operation_trace_aggregate(db, novel_id: UUID, owner_id: str) -> dict:
         or project.project_kind != "author"
     ):
         raise NotFoundError("项目不可访问")
-    await archive_expired_operation_traces(db, str(novel_id))
-    event_counts = Counter()
-    archived = (
-        await db.scalars(
-            select(AssistantOperationTraceAggregate).where(
-                AssistantOperationTraceAggregate.novel_id == novel_id
-            )
-        )
-    ).all()
-    for row in archived:
-        event_counts[(row.occurred_on.isoformat(), row.op_id, row.event_type)] += (
-            row.event_count
-        )
-
-    cutoff = datetime.now(UTC) - timedelta(days=180)
-    details = (
-        await db.scalars(
-            select(AssistantOperationTrace).where(
-                AssistantOperationTrace.novel_id == novel_id,
-                AssistantOperationTrace.occurred_at >= cutoff,
-            )
-        )
-    ).all()
-    for row in details:
-        event_counts[(row.occurred_at.date().isoformat(), row.op_id, row.event_type)] += 1
-
-    sequence_counts = Counter()
-    sequences = (
-        await db.scalars(
-            select(AssistantOperationSequenceAggregate).where(
-                AssistantOperationSequenceAggregate.novel_id == novel_id
-            )
-        )
-    ).all()
-    for row in sequences:
-        sequence_counts[(row.occurred_on.isoformat(), tuple(row.operation_sequence))] += (
-            row.sequence_count
-        )
-    return {
-        "events": [
-            {"date": day, "operation": op_id, "event": event, "count": count}
-            for (day, op_id, event), count in sorted(event_counts.items())
-        ],
-        "sequences": [
-            {"date": day, "operations": list(sequence), "count": count}
-            for (day, sequence), count in sorted(sequence_counts.items())
-        ],
-    }
+    return await build_operation_trace_report(
+        db,
+        str(novel_id),
+        period=period,
+        collection_enabled=await operation_trace_enabled(db, owner_id),
+    )
 
 
 @router.get(
@@ -169,8 +126,14 @@ async def _operation_trace_aggregate(db, novel_id: UUID, owner_id: str) -> dict:
         )
     },
 )
-async def operation_trace_aggregate(db: DbSession, novel_id: UUID):
-    return await _operation_trace_aggregate(db, novel_id, str(current_account_id()))
+async def operation_trace_aggregate(
+    db: DbSession,
+    novel_id: UUID,
+    period: Literal["30d", "90d", "180d", "all"] = Query("180d"),
+):
+    return await _operation_trace_aggregate(
+        db, novel_id, str(current_account_id()), period=period
+    )
 
 
 @router.get(
@@ -182,21 +145,27 @@ async def operation_trace_aggregate(db: DbSession, novel_id: UUID):
         )
     },
 )
-async def export_operation_trace_aggregate(db: DbSession, novel_id: UUID):
-    import csv
-    from io import StringIO
-
-    data = await _operation_trace_aggregate(db, novel_id, str(current_account_id()))
-    output = StringIO()
-    writer = csv.writer(output)
-    writer.writerow(("date", "operation", "event", "count"))
-    for row in data["events"]:
-        writer.writerow((row["date"], row["operation"], row["event"], row["count"]))
-    writer.writerow(())
-    writer.writerow(("date", "operation_sequence", "count"))
-    for row in data["sequences"]:
-        writer.writerow((row["date"], " → ".join(row["operations"]), row["count"]))
-    return Response(output.getvalue(), media_type="text/csv; charset=utf-8")
+async def export_operation_trace_aggregate(
+    db: DbSession,
+    novel_id: UUID,
+    period: Literal["30d", "90d", "180d", "all"] = Query("180d"),
+    format: Literal["csv", "json"] = Query("csv"),
+):
+    data = await _operation_trace_aggregate(
+        db, novel_id, str(current_account_id()), period=period
+    )
+    headers = {
+        "Content-Disposition": f'attachment; filename="operation-trace-report.{format}"',
+        "Cache-Control": "no-store",
+        "X-Content-Type-Options": "nosniff",
+    }
+    if format == "json":
+        return JSONResponse(data, headers=headers)
+    return Response(
+        operation_trace_report_csv(data),
+        media_type="text/csv; charset=utf-8",
+        headers=headers,
+    )
 
 
 @router.get("/editorial/policy")
