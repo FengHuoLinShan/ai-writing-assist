@@ -40,7 +40,18 @@ def geometry_hash(document: MapDocument) -> str:
             for f in sorted(document.features, key=lambda f: f.id)
         ],
         "constraints": [
-            c.model_dump(mode="json", exclude={"sources", "generated_by_task_id"})
+            c.model_dump(
+                mode="json",
+                include={
+                    "id",
+                    "subject",
+                    "relation",
+                    "target",
+                    "via",
+                    "path_kind",
+                    "path_label",
+                },
+            )
             for c in sorted(document.constraints, key=lambda c: c.id)
         ],
     }
