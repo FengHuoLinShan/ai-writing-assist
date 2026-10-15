@@ -12,8 +12,8 @@
       </div>
 
     </header>
-    <ProjectVocabularyPanel v-if="projectId" v-show="!structureState.reader && !structureState.focused" :key="projectId" :project-id="projectId" :disabled="busy || loading || structureState.dirty || annotationDirty || promptDirty || uploadDraftDirty || uploading || spatialClueState.dirty || spatialClueState.busy" @state="vocabularyState = $event" @changed="vocabularyRevision++" />
-    <MapSpatialCluePanel v-if="projectId" v-show="!structureState.reader && !structureState.focused" :key="projectId" :project-id="projectId" :disabled="busy || loading || structureState.dirty || annotationDirty || promptDirty || uploadDraftDirty || uploading || vocabularyState.dirty || vocabularyState.busy" @state="spatialClueState = $event" />
+    <ProjectVocabularyPanel v-if="projectId" v-show="!structureState.reader && !structureState.focused" :key="projectId" :project-id="projectId" :disabled="busy || loading || structureState.dirty || structureState.busy || annotationDirty || promptDirty || uploadDraftDirty || uploading || spatialClueState.dirty || spatialClueState.busy" @state="vocabularyState = $event" @changed="vocabularyRevision++" />
+    <MapSpatialCluePanel v-if="projectId" v-show="!structureState.reader && !structureState.focused" :key="projectId" :project-id="projectId" :disabled="busy || loading || structureState.dirty || structureState.busy || annotationDirty || promptDirty || uploadDraftDirty || uploading || vocabularyState.dirty || vocabularyState.busy" @state="spatialClueState = $event" />
     <p v-if="vocabularyLocked" role="status">{{ spatialClueState.dirty || spatialClueState.busy ? '请先提交或收起空间线索复核，再继续修改地图。' : '请先保存或收起项目类型编辑，再继续修改地图。' }}</p>
     <p v-if="mapCapabilities?.upload?.available === false" class="atlas-alert" role="status">{{ mapCapabilities.upload.reason }} 空间示意仍可编辑，画面说明可复制后在外部使用。</p>
 

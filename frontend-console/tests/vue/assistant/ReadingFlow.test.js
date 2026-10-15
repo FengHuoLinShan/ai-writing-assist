@@ -451,3 +451,15 @@ it("空间补扫选范围使预览失效，结果未知不显示恢复按钮", a
   expect(button(wrapper, '确认范围与费用并补扫空间')).toBeUndefined()
   wrapper.unmount()
 })
+
+it('空间覆盖分开显示密度跳过、缺口与未检查，细节旧四态仍保留', async () => {
+  const status = vi.fn().mockResolvedValue({ engine: { engine: 'evolution', epoch: 1 }, run: {
+    run_key: 'new', status: 'completed', completed_scenes: 4, total_scenes: 4, end_chapter: 1,
+    optional_step_coverage: { spatial: { counts: { inspected: 1, density_skipped: 1, gap: 1, not_checked: 1 }, gaps: [{ scene_index: 2, reason: 'unknown' }] }, details: { counts: { inspected: 1, not_run: 1, unknown: 1, stale: 1 } } },
+  } })
+  setBridgeOverrides({ api: { evolution: { status } } })
+  const wrapper = mount(ReadingFlow, { props: { projectId: 'p', entry: true } }); await flushPromises()
+  expect(wrapper.text()).toContain('已检查 1 场，已检查但密度不足 1 场，有缺口 1 场，未检查 1 场')
+  expect(wrapper.text()).toContain('细节发现：已检查 1 场，未执行 1 场，结果未知 1 场，来源变化 1 场')
+  wrapper.unmount()
+})

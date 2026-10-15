@@ -317,7 +317,7 @@ onBeforeUnmount(() => { generation++; clearTimeout(timer) })
       <details v-if="optionalCoverage.length" class="reading-optional-coverage">
         <summary>可选发现的检查覆盖</summary>
         <p>主阅读完成不表示所有可选发现均已检查；未执行、结果未知或来源变化的部分需另行核对。</p>
-        <p v-for="[name, coverage] in optionalCoverage" :key="name">{{ name === 'spatial' ? '空间发现' : '细节发现' }}：已检查 {{ coverage.counts?.inspected || 0 }} 场，未执行 {{ coverage.counts?.not_run || 0 }} 场，结果未知 {{ coverage.counts?.unknown || 0 }} 场，来源变化 {{ coverage.counts?.stale || 0 }} 场。<span v-if="coverage.gaps?.length">另有 {{ coverage.gaps.length }} 条检查缺口。</span></p>
+        <p v-for="[name, coverage] in optionalCoverage" :key="name"><template v-if="name === 'spatial' && 'density_skipped' in (coverage.counts || {})">空间发现：已检查 {{ coverage.counts?.inspected || 0 }} 场，已检查但密度不足 {{ coverage.counts?.density_skipped || 0 }} 场，有缺口 {{ coverage.counts?.gap || 0 }} 场，未检查 {{ coverage.counts?.not_checked || 0 }} 场。</template><template v-else>{{ name === 'spatial' ? '空间发现' : '细节发现' }}：已检查 {{ coverage.counts?.inspected || 0 }} 场，未执行 {{ coverage.counts?.not_run || 0 }} 场，结果未知 {{ coverage.counts?.unknown || 0 }} 场，来源变化 {{ coverage.counts?.stale || 0 }} 场。</template><span v-if="coverage.gaps?.length">另有 {{ coverage.gaps.length }} 条检查缺口。</span></p>
       </details>
       <div class="reading-actions">
         <button class="btn btn-sm" type="button" :disabled="busy" @click="refresh">刷新进度</button>

@@ -148,6 +148,7 @@
       <button v-if="reader && !externalTools" class="btn btn-sm" @click="exitReader">回到作者视图</button>
       <span v-if="reader">仅显示该章开始前可公开的内容，位置保持不变。</span>
     </div>
+    <MapSpatialMetadataPanel v-if="!readOnly && !focused" :project-id="projectId" :document="doc" :selected-feature-id="selectedId" :disabled="loading || saving" @change="applySpatialDocument" @state="metadataBusy = $event.busy" />
     <div v-if="!readOnly" v-show="!focused" class="map-evidence-panel">
     <FocusedEvidencePanel
       :project-id="projectId" consumer="map" :scope-key="node.id"
@@ -250,6 +251,7 @@ import MapRehearsalPanel from './MapRehearsalPanel.vue'
 import MapBindAcrossMaps from "./MapBindAcrossMaps.vue"
 import MapSourcePicker from './MapSourcePicker.vue'
 import MapScenePanel from './MapScenePanel.vue'
+import MapSpatialMetadataPanel from './MapSpatialMetadataPanel.vue'
 
 const props = defineProps({ projectId: { type: String, required: true }, node: { type: Object, required: true }, images: { type: Array, default: () => [] }, knownNodes: { type: Array, default: () => [] }, hasReference: Boolean, externalTools: Boolean, reviewImageId: { type: String, default: "" }, initialFeatureId: { type: String, default: '' }, initialRevisionId: { type: String, default: '' }, evidenceRefs: { type: Array, default: () => [] } })
 const emit = defineEmits(["saved", "open-node", "reference-visible", "state", "select-feature", "pin-evidence", "clear-evidence"])
@@ -299,7 +301,8 @@ const imageRequests = new Map()
 let resizeObserver = null
 let epoch = 0, alive = true, installing = false, backupTimer = null, pollTimer = null, drag = null, reviewEpoch = 0, imageBaselineEpoch = 0, comparisonEpoch = 0, lastLoadError = '', pan = null
 const dirty = computed(() => JSON.stringify(doc.value) !== baseline.value)
-const busy = computed(() => loading.value || saving.value)
+const metadataBusy = ref(false)
+const busy = computed(() => loading.value || saving.value || metadataBusy.value)
 const taskRunning = computed(() => ["pending", "running"].includes(taskStatus.value))
 const generationCounters = computed(() => {
   const summary = generationSummary.value
@@ -482,6 +485,11 @@ function mutate(change) {
   change(doc.value)
   if (JSON.stringify(doc.value) === previous) return
   undoStack.value = [...undoStack.value.slice(-19), previous]; redoStack.value = []
+}
+function applySpatialDocument(value) {
+  mutate(document => Object.assign(document, value))
+  const selected = doc.value.features.find(feature => feature.id === selectedId.value)
+  if (selected) activeSpaceId.value = selected.space_id || 'main'
 }
 function undo() { if (readOnly.value || !undoStack.value.length) return; redoStack.value.push(JSON.stringify(doc.value)); doc.value = JSON.parse(undoStack.value.pop()) }
 function redo() { if (readOnly.value || !redoStack.value.length) return; undoStack.value.push(JSON.stringify(doc.value)); doc.value = JSON.parse(redoStack.value.pop()) }
@@ -924,7 +932,7 @@ async function saveAndLeave() {
   if (!dirty.value && !saving.value) finishLeave(true)
 }
 function canLeave() {
-  if (saving.value || drag) return false
+  if (saving.value || metadataBusy.value || drag) return false
   if (!dirty.value) return true
   persistDraft()
   if (!backedUp.value && !downloaded.value) { error.value = "当前编辑还未保存或备份，请先保存或下载备份。"; return false }
@@ -933,7 +941,7 @@ function canLeave() {
   leaveDialog.value.showModal()
   return leaveDecision
 }
-function beforeUnload(event) { persistDraft(); if (dirty.value || saving.value) { event.preventDefault(); event.returnValue = "" } }
+function beforeUnload(event) { persistDraft(); if (dirty.value || saving.value || metadataBusy.value) { event.preventDefault(); event.returnValue = "" } }
 watch(doc, () => {
   if (installing || !initialized.value) return
   backedUp.value = false; downloaded.value = false; clearTimeout(backupTimer); backupTimer = setTimeout(persistDraft, 200)
@@ -1013,7 +1021,7 @@ async function runToolbarAction(key) {
 }
 watch(spaceChoices, choices => { if (!choices.some(space => space.id === activeSpaceId.value)) activeSpaceId.value = choices[0].id }, { immediate: true })
 watch(activeSpaceId, () => { selectedId.value = ''; placing.value = false; rehearsalStops.value = []; dragBounds.value = null; drag = null; if (scrollArea.value) { scrollArea.value.scrollLeft = 0; scrollArea.value.scrollTop = 0 } }, { flush: 'sync' })
-watch([dirty, revision, reader, focused, toolbar], () => emit("state", { nodeId: props.node.id, dirty: dirty.value, revision: revision.value, reader: Boolean(reader.value), focused: focused.value, toolbar: toolbar.value }), { immediate: true })
+watch([dirty, revision, reader, focused, toolbar, metadataBusy], () => emit("state", { nodeId: props.node.id, dirty: dirty.value, busy: metadataBusy.value || loading.value || saving.value, revision: revision.value, reader: Boolean(reader.value), focused: focused.value, toolbar: toolbar.value }), { immediate: true })
 watch([selectedId, activeSpaceId, zoom, focused, rehearsalStops], rememberView, { deep: true })
 watch([selectedId, busy, focused, readOnly], () => { sourcePickerOpen.value = false }, { flush: 'sync' })
 watch([candidateView, () => revision.value?.id, () => serverRevision.value?.id, selectedChangeKeys], () => { ++reviewEpoch; adoptionPreview.value = null; previewing.value = false }, { deep: true, flush: 'sync' })
