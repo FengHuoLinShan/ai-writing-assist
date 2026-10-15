@@ -414,6 +414,66 @@ OPERATION_SNAPSHOT.update(
             "1",
             "de83bb98ac25d3e8b0e352d13b6849c340dede8e467045f35bebff0e3317591c",
         ),
+        "assistant.notice.mute_category": (
+            "静默这一类提醒",
+            "confirm",
+            "1",
+            "21330dd4d44f49119544c5e900fa099574ba6f6bc89ff1b984bbce500ec3bd2b",
+        ),
+        "assistant.notice.set_disposition": (
+            "处理提醒",
+            "confirm",
+            "1",
+            "2800f7f6c80fb20ac0ab98c0e8080d6ab0bd92a584368fa89bdd44137db00a9a",
+        ),
+        "assistant.notice.unmute_category": (
+            "恢复这一类提醒",
+            "confirm",
+            "1",
+            "21330dd4d44f49119544c5e900fa099574ba6f6bc89ff1b984bbce500ec3bd2b",
+        ),
+        "world.dossier.entry.create": (
+            "新增对象档案条目",
+            "confirm",
+            "1",
+            "1621cab68c2573e27dda545a5bd3cfe356c145d05c7c7cb79ee8c7177b3d8746",
+        ),
+        "world.dossier.entry.edit": (
+            "修订对象档案条目",
+            "confirm",
+            "1",
+            "0bae31d9664252c31020b2bd7b5db6aee09f5d9f5d11530300bf06f4db745d56",
+        ),
+        "world.dossier.entry.restore": (
+            "恢复对象档案历史版本",
+            "confirm",
+            "1",
+            "b4169b8499b5f94b51fef9ed0dad43b05adc3ec62d4414d1bbf06875dc60cb65",
+        ),
+        "world.dossier.history.read": (
+            "读取对象档案历史",
+            "read",
+            "1",
+            "5556705289373ce29fc0458583b2da5b775b0083bd867e34f10af9223e4d1368",
+        ),
+        "world.dossier.read": (
+            "读取对象档案",
+            "read",
+            "1",
+            "c6fa145e02df9d5ee1a91df7998c6db46d6f3dc7caa7072f63eacf44159e7f59",
+        ),
+        "world.dossier.template.edit": (
+            "修订对象档案模板",
+            "confirm",
+            "1",
+            "db350f7f859917fd69288cfe848f3b66bfc3262bf1e121c0b34657b9f62e952c",
+        ),
+        "world.dossier.template.read": (
+            "读取对象档案模板",
+            "read",
+            "1",
+            "f701fcd49fdb3a4ac35e21066d7905bc8c271b89d84289a46bf61428f5e749e8",
+        ),
     }
 )
 
@@ -477,7 +537,7 @@ def test_catalog_v2_metadata_and_trace_inventory_match_runtime_schemas():
     register_container_services()
     operations = get("assistant.operations")
     manifest = operation_manifest()
-    assert len(operations) == len(manifest) == 64
+    assert len(operations) == len(manifest) == 74
     assert set(operations) == set(manifest)
     for op_id, operation in operations.items():
         frozen = manifest[op_id]

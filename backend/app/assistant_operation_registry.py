@@ -35,6 +35,7 @@ from modules.story.assistant_structure_workflow import (
 )
 from modules.story.assistant_tools import OPERATIONS_SPEC as _STORY
 from modules.world.assistant_cocreation_tools import OPERATIONS_SPEC as _WORLD_COCREATION
+from modules.world.assistant_dossier_tools import OPERATIONS_SPEC as _WORLD_DOSSIER
 from modules.world.assistant_map_tools import OPERATIONS_SPEC as _WORLD_MAP
 from modules.world.assistant_opening_tools import (
     OPERATIONS_SPEC as _WORLD_OPENING,
@@ -348,6 +349,7 @@ world_page_operations = _materialize(_WORLD_PAGE)
 world_outcome_operations = _materialize(_WORLD_OUTCOME)
 world_cocreation_operations = _materialize(_WORLD_COCREATION)
 world_review_operations = _materialize(_WORLD_REVIEW)
+world_dossier_operations = _materialize(_WORLD_DOSSIER)
 
 assistant_spatial_advisory_operations = _materialize(_SPATIAL_ADVISORIES)
 assistant_notice_operations = _materialize(_NOTICE_DISPOSITIONS)

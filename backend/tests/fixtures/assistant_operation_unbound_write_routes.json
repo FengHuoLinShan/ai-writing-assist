@@ -1,0 +1,2272 @@
+[
+  {
+    "method": "DELETE",
+    "path": "/api/account/deletion",
+    "reason": "Legacy DELETE /api/account/deletion domain API; authorization and validation remain in its owning domain service. New routes require an operation ID or explicit exemption."
+  },
+  {
+    "method": "DELETE",
+    "path": "/api/account/settings/image-connection",
+    "reason": "Legacy DELETE /api/account/settings/image-connection domain API; authorization and validation remain in its owning domain service. New routes require an operation ID or explicit exemption."
+  },
+  {
+    "method": "DELETE",
+    "path": "/api/account/settings/llm-connections/{provider_id}",
+    "reason": "Legacy DELETE /api/account/settings/llm-connections/{provider_id} domain API; authorization and validation remain in its owning domain service. New routes require an operation ID or explicit exemption."
+  },
+  {
+    "method": "DELETE",
+    "path": "/api/debug/frontend-errors",
+    "reason": "Legacy DELETE /api/debug/frontend-errors domain API; authorization and validation remain in its owning domain service. New routes require an operation ID or explicit exemption."
+  },
+  {
+    "method": "DELETE",
+    "path": "/api/imports/migrations/{session_id}",
+    "reason": "Legacy DELETE /api/imports/migrations/{session_id} domain API; authorization and validation remain in its owning domain service. New routes require an operation ID or explicit exemption."
+  },
+  {
+    "method": "DELETE",
+    "path": "/api/interactions/journeys/{journey_id}",
+    "reason": "Legacy DELETE /api/interactions/journeys/{journey_id} domain API; authorization and validation remain in its owning domain service. New routes require an operation ID or explicit exemption."
+  },
+  {
+    "method": "DELETE",
+    "path": "/api/local-agent/devices/{device_id}",
+    "reason": "Legacy DELETE /api/local-agent/devices/{device_id} domain API; authorization and validation remain in its owning domain service. New routes require an operation ID or explicit exemption."
+  },
+  {
+    "method": "DELETE",
+    "path": "/api/outline/arcs/{arc_id}",
+    "reason": "Legacy DELETE /api/outline/arcs/{arc_id} domain API; authorization and validation remain in its owning domain service. New routes require an operation ID or explicit exemption."
+  },
+  {
+    "method": "DELETE",
+    "path": "/api/outline/foreshadowing/{plan_id}",
+    "reason": "Legacy DELETE /api/outline/foreshadowing/{plan_id} domain API; authorization and validation remain in its owning domain service. New routes require an operation ID or explicit exemption."
+  },
+  {
+    "method": "DELETE",
+    "path": "/api/outline/reveals/{plan_id}",
+    "reason": "Legacy DELETE /api/outline/reveals/{plan_id} domain API; authorization and validation remain in its owning domain service. New routes require an operation ID or explicit exemption."
+  },
+  {
+    "method": "DELETE",
+    "path": "/api/outline/scenes/{scene_id}",
+    "reason": "Legacy DELETE /api/outline/scenes/{scene_id} domain API; authorization and validation remain in its owning domain service. New routes require an operation ID or explicit exemption."
+  },
+  {
+    "method": "DELETE",
+    "path": "/api/outline/threads/{thread_id}",
+    "reason": "Legacy DELETE /api/outline/threads/{thread_id} domain API; authorization and validation remain in its owning domain service. New routes require an operation ID or explicit exemption."
+  },
+  {
+    "method": "DELETE",
+    "path": "/api/projects/{project_id}",
+    "reason": "Legacy DELETE /api/projects/{project_id} domain API; authorization and validation remain in its owning domain service. New routes require an operation ID or explicit exemption."
+  },
+  {
+    "method": "DELETE",
+    "path": "/api/projects/{project_id}/author-preferences/field/{field_name}",
+    "reason": "Legacy DELETE /api/projects/{project_id}/author-preferences/field/{field_name} domain API; authorization and validation remain in its owning domain service. New routes require an operation ID or explicit exemption."
+  },
+  {
+    "method": "DELETE",
+    "path": "/api/projects/{project_id}/llm-settings/field/{field_name}",
+    "reason": "Legacy DELETE /api/projects/{project_id}/llm-settings/field/{field_name} domain API; authorization and validation remain in its owning domain service. New routes require an operation ID or explicit exemption."
+  },
+  {
+    "method": "DELETE",
+    "path": "/api/projects/{project_id}/permanent",
+    "reason": "Legacy DELETE /api/projects/{project_id}/permanent domain API; authorization and validation remain in its owning domain service. New routes require an operation ID or explicit exemption."
+  },
+  {
+    "method": "DELETE",
+    "path": "/api/world/bible/drafts/{draft_id}",
+    "reason": "Legacy DELETE /api/world/bible/drafts/{draft_id} domain API; authorization and validation remain in its owning domain service. New routes require an operation ID or explicit exemption."
+  },
+  {
+    "method": "DELETE",
+    "path": "/api/world/characters/{character_id}",
+    "reason": "Legacy DELETE /api/world/characters/{character_id} domain API; authorization and validation remain in its owning domain service. New routes require an operation ID or explicit exemption."
+  },
+  {
+    "method": "DELETE",
+    "path": "/api/world/characters/{character_id}/knowledge-tags/{tag_id}/exclude",
+    "reason": "Legacy DELETE /api/world/characters/{character_id}/knowledge-tags/{tag_id}/exclude domain API; authorization and validation remain in its owning domain service. New routes require an operation ID or explicit exemption."
+  },
+  {
+    "method": "DELETE",
+    "path": "/api/world/entities/{entity_id}",
+    "reason": "Legacy DELETE /api/world/entities/{entity_id} domain API; authorization and validation remain in its owning domain service. New routes require an operation ID or explicit exemption."
+  },
+  {
+    "method": "DELETE",
+    "path": "/api/world/entities/{entity_id}/aliases",
+    "reason": "Legacy DELETE /api/world/entities/{entity_id}/aliases domain API; authorization and validation remain in its owning domain service. New routes require an operation ID or explicit exemption."
+  },
+  {
+    "method": "DELETE",
+    "path": "/api/world/events/{entity_id}",
+    "reason": "Legacy DELETE /api/world/events/{entity_id} domain API; authorization and validation remain in its owning domain service. New routes require an operation ID or explicit exemption."
+  },
+  {
+    "method": "DELETE",
+    "path": "/api/world/generation-prompt-templates/{template_id}",
+    "reason": "Legacy DELETE /api/world/generation-prompt-templates/{template_id} domain API; authorization and validation remain in its owning domain service. New routes require an operation ID or explicit exemption."
+  },
+  {
+    "method": "DELETE",
+    "path": "/api/world/knowledge/{knowledge_id}",
+    "reason": "Legacy DELETE /api/world/knowledge/{knowledge_id} domain API; authorization and validation remain in its owning domain service. New routes require an operation ID or explicit exemption."
+  },
+  {
+    "method": "DELETE",
+    "path": "/api/world/library/favorites",
+    "reason": "Legacy DELETE /api/world/library/favorites domain API; authorization and validation remain in its owning domain service. New routes require an operation ID or explicit exemption."
+  },
+  {
+    "method": "DELETE",
+    "path": "/api/world/library/topics/{topic_id}/members/{target_kind}/{target_id}",
+    "reason": "Legacy DELETE /api/world/library/topics/{topic_id}/members/{target_kind}/{target_id} domain API; authorization and validation remain in its owning domain service. New routes require an operation ID or explicit exemption."
+  },
+  {
+    "method": "DELETE",
+    "path": "/api/world/relations/{rel_id}",
+    "reason": "Legacy DELETE /api/world/relations/{rel_id} domain API; authorization and validation remain in its owning domain service. New routes require an operation ID or explicit exemption."
+  },
+  {
+    "method": "DELETE",
+    "path": "/api/writing/chapters/{chapter_index}",
+    "reason": "Legacy DELETE /api/writing/chapters/{chapter_index} domain API; authorization and validation remain in its owning domain service. New routes require an operation ID or explicit exemption."
+  },
+  {
+    "method": "DELETE",
+    "path": "/api/writing/drafts/{draft_id}",
+    "reason": "Legacy DELETE /api/writing/drafts/{draft_id} domain API; authorization and validation remain in its owning domain service. New routes require an operation ID or explicit exemption."
+  },
+  {
+    "method": "PATCH",
+    "path": "/api/evidence/compilation/activation-profiles/{profile_id}",
+    "reason": "Legacy PATCH /api/evidence/compilation/activation-profiles/{profile_id} domain API; authorization and validation remain in its owning domain service. New routes require an operation ID or explicit exemption."
+  },
+  {
+    "method": "PATCH",
+    "path": "/api/interactions/journeys/{journey_id}/modes",
+    "reason": "Legacy PATCH /api/interactions/journeys/{journey_id}/modes domain API; authorization and validation remain in its owning domain service. New routes require an operation ID or explicit exemption."
+  },
+  {
+    "method": "PATCH",
+    "path": "/api/interactions/journeys/{journey_id}/references",
+    "reason": "Legacy PATCH /api/interactions/journeys/{journey_id}/references domain API; authorization and validation remain in its owning domain service. New routes require an operation ID or explicit exemption."
+  },
+  {
+    "method": "PATCH",
+    "path": "/api/interactions/journeys/{journey_id}/source",
+    "reason": "Legacy PATCH /api/interactions/journeys/{journey_id}/source domain API; authorization and validation remain in its owning domain service. New routes require an operation ID or explicit exemption."
+  },
+  {
+    "method": "PATCH",
+    "path": "/api/interactions/journeys/{journey_id}/title",
+    "reason": "Legacy PATCH /api/interactions/journeys/{journey_id}/title domain API; authorization and validation remain in its owning domain service. New routes require an operation ID or explicit exemption."
+  },
+  {
+    "method": "PATCH",
+    "path": "/api/outline/arcs/{arc_id}",
+    "reason": "Legacy PATCH /api/outline/arcs/{arc_id} domain API; authorization and validation remain in its owning domain service. New routes require an operation ID or explicit exemption."
+  },
+  {
+    "method": "PATCH",
+    "path": "/api/outline/foreshadowing/{plan_id}",
+    "reason": "Legacy PATCH /api/outline/foreshadowing/{plan_id} domain API; authorization and validation remain in its owning domain service. New routes require an operation ID or explicit exemption."
+  },
+  {
+    "method": "PATCH",
+    "path": "/api/outline/reveals/{plan_id}",
+    "reason": "Legacy PATCH /api/outline/reveals/{plan_id} domain API; authorization and validation remain in its owning domain service. New routes require an operation ID or explicit exemption."
+  },
+  {
+    "method": "PATCH",
+    "path": "/api/outline/scene-workbench/scenes/{scene_id}/mapping",
+    "reason": "Legacy PATCH /api/outline/scene-workbench/scenes/{scene_id}/mapping domain API; authorization and validation remain in its owning domain service. New routes require an operation ID or explicit exemption."
+  },
+  {
+    "method": "PATCH",
+    "path": "/api/outline/scenes/{scene_id}",
+    "reason": "Legacy PATCH /api/outline/scenes/{scene_id} domain API; authorization and validation remain in its owning domain service. New routes require an operation ID or explicit exemption."
+  },
+  {
+    "method": "PATCH",
+    "path": "/api/outline/threads/{thread_id}",
+    "reason": "Legacy PATCH /api/outline/threads/{thread_id} domain API; authorization and validation remain in its owning domain service. New routes require an operation ID or explicit exemption."
+  },
+  {
+    "method": "PATCH",
+    "path": "/api/projects/{project_id}/author-tasks/{task_id}",
+    "reason": "Legacy PATCH /api/projects/{project_id}/author-tasks/{task_id} domain API; authorization and validation remain in its owning domain service. New routes require an operation ID or explicit exemption."
+  },
+  {
+    "method": "PATCH",
+    "path": "/api/world/adoption-packages/{suggestion_id}/items",
+    "reason": "Legacy PATCH /api/world/adoption-packages/{suggestion_id}/items domain API; authorization and validation remain in its owning domain service. New routes require an operation ID or explicit exemption."
+  },
+  {
+    "method": "PATCH",
+    "path": "/api/world/bible/categories/{category_id}",
+    "reason": "Legacy PATCH /api/world/bible/categories/{category_id} domain API; authorization and validation remain in its owning domain service. New routes require an operation ID or explicit exemption."
+  },
+  {
+    "method": "PATCH",
+    "path": "/api/world/bible/drafts/{draft_id}",
+    "reason": "Legacy PATCH /api/world/bible/drafts/{draft_id} domain API; authorization and validation remain in its owning domain service. New routes require an operation ID or explicit exemption."
+  },
+  {
+    "method": "PATCH",
+    "path": "/api/world/bible/page-templates/{template_id}",
+    "reason": "Legacy PATCH /api/world/bible/page-templates/{template_id} domain API; authorization and validation remain in its owning domain service. New routes require an operation ID or explicit exemption."
+  },
+  {
+    "method": "PATCH",
+    "path": "/api/world/bible/pages/{page_id}",
+    "reason": "Legacy PATCH /api/world/bible/pages/{page_id} domain API; authorization and validation remain in its owning domain service. New routes require an operation ID or explicit exemption."
+  },
+  {
+    "method": "PATCH",
+    "path": "/api/world/bible/synopsis/auto-refresh",
+    "reason": "Legacy PATCH /api/world/bible/synopsis/auto-refresh domain API; authorization and validation remain in its owning domain service. New routes require an operation ID or explicit exemption."
+  },
+  {
+    "method": "PATCH",
+    "path": "/api/world/cocreation-sessions/{session_id}",
+    "reason": "Legacy PATCH /api/world/cocreation-sessions/{session_id} domain API; authorization and validation remain in its owning domain service. New routes require an operation ID or explicit exemption."
+  },
+  {
+    "method": "PATCH",
+    "path": "/api/world/entities/{entity_id}/aliases",
+    "reason": "Legacy PATCH /api/world/entities/{entity_id}/aliases domain API; authorization and validation remain in its owning domain service. New routes require an operation ID or explicit exemption."
+  },
+  {
+    "method": "PATCH",
+    "path": "/api/world/entities/{entity_id}/aliases/edit",
+    "reason": "Legacy PATCH /api/world/entities/{entity_id}/aliases/edit domain API; authorization and validation remain in its owning domain service. New routes require an operation ID or explicit exemption."
+  },
+  {
+    "method": "PATCH",
+    "path": "/api/world/library/topics/{topic_id}",
+    "reason": "Legacy PATCH /api/world/library/topics/{topic_id} domain API; authorization and validation remain in its owning domain service. New routes require an operation ID or explicit exemption."
+  },
+  {
+    "method": "PATCH",
+    "path": "/api/world/map-atlas/{novel_id}/annotations/{annotation_id}",
+    "reason": "Legacy PATCH /api/world/map-atlas/{novel_id}/annotations/{annotation_id} domain API; authorization and validation remain in its owning domain service. New routes require an operation ID or explicit exemption."
+  },
+  {
+    "method": "PATCH",
+    "path": "/api/world/map-atlas/{novel_id}/nodes/{node_id}",
+    "reason": "Legacy PATCH /api/world/map-atlas/{novel_id}/nodes/{node_id} domain API; authorization and validation remain in its owning domain service. New routes require an operation ID or explicit exemption."
+  },
+  {
+    "method": "PATCH",
+    "path": "/api/world/map-atlas/{novel_id}/pages/{page_id}/prompt",
+    "reason": "Legacy PATCH /api/world/map-atlas/{novel_id}/pages/{page_id}/prompt domain API; authorization and validation remain in its owning domain service. New routes require an operation ID or explicit exemption."
+  },
+  {
+    "method": "PATCH",
+    "path": "/api/world/project-vocabulary/{novel_id}/terms/{type_ref}",
+    "reason": "Legacy PATCH /api/world/project-vocabulary/{novel_id}/terms/{type_ref} domain API; authorization and validation remain in its owning domain service. New routes require an operation ID or explicit exemption."
+  },
+  {
+    "method": "PATCH",
+    "path": "/api/world/relations/{rel_id}/review-edit",
+    "reason": "Legacy PATCH /api/world/relations/{rel_id}/review-edit domain API; authorization and validation remain in its owning domain service. New routes require an operation ID or explicit exemption."
+  },
+  {
+    "method": "PATCH",
+    "path": "/api/writing/comments/{comment_id}",
+    "reason": "Legacy PATCH /api/writing/comments/{comment_id} domain API; authorization and validation remain in its owning domain service. New routes require an operation ID or explicit exemption."
+  },
+  {
+    "method": "PATCH",
+    "path": "/api/writing/conflict-check-items/{item_id}",
+    "reason": "Legacy PATCH /api/writing/conflict-check-items/{item_id} domain API; authorization and validation remain in its owning domain service. New routes require an operation ID or explicit exemption."
+  },
+  {
+    "method": "POST",
+    "path": "/api/account/deletion",
+    "reason": "Legacy POST /api/account/deletion domain API; authorization and validation remain in its owning domain service. New routes require an operation ID or explicit exemption."
+  },
+  {
+    "method": "POST",
+    "path": "/api/account/settings/llm-connections/{provider_id}/activate",
+    "reason": "Legacy POST /api/account/settings/llm-connections/{provider_id}/activate domain API; authorization and validation remain in its owning domain service. New routes require an operation ID or explicit exemption."
+  },
+  {
+    "method": "POST",
+    "path": "/api/account/settings/refresh",
+    "reason": "Legacy POST /api/account/settings/refresh domain API; authorization and validation remain in its owning domain service. New routes require an operation ID or explicit exemption."
+  },
+  {
+    "method": "POST",
+    "path": "/api/assistant/batches/{batch_id}/decide",
+    "reason": "Legacy POST /api/assistant/batches/{batch_id}/decide domain API; authorization and validation remain in its owning domain service. New routes require an operation ID or explicit exemption."
+  },
+  {
+    "method": "POST",
+    "path": "/api/assistant/batches/{batch_id}/recheck",
+    "reason": "Legacy POST /api/assistant/batches/{batch_id}/recheck domain API; authorization and validation remain in its owning domain service. New routes require an operation ID or explicit exemption."
+  },
+  {
+    "method": "POST",
+    "path": "/api/assistant/editorial/issues/revise",
+    "reason": "Legacy POST /api/assistant/editorial/issues/revise domain API; authorization and validation remain in its owning domain service. New routes require an operation ID or explicit exemption."
+  },
+  {
+    "method": "POST",
+    "path": "/api/assistant/editorial/issues/{issue_id}/recheck",
+    "reason": "Legacy POST /api/assistant/editorial/issues/{issue_id}/recheck domain API; authorization and validation remain in its owning domain service. New routes require an operation ID or explicit exemption."
+  },
+  {
+    "method": "POST",
+    "path": "/api/assistant/editorial/reviews",
+    "reason": "Legacy POST /api/assistant/editorial/reviews domain API; authorization and validation remain in its owning domain service. New routes require an operation ID or explicit exemption."
+  },
+  {
+    "method": "POST",
+    "path": "/api/assistant/editorial/reviews/{review_id}/resume",
+    "reason": "Legacy POST /api/assistant/editorial/reviews/{review_id}/resume domain API; authorization and validation remain in its owning domain service. New routes require an operation ID or explicit exemption."
+  },
+  {
+    "method": "POST",
+    "path": "/api/assistant/editorial/reviews/{review_id}/stop",
+    "reason": "Legacy POST /api/assistant/editorial/reviews/{review_id}/stop domain API; authorization and validation remain in its owning domain service. New routes require an operation ID or explicit exemption."
+  },
+  {
+    "method": "POST",
+    "path": "/api/assistant/flows",
+    "reason": "Legacy POST /api/assistant/flows domain API; authorization and validation remain in its owning domain service. New routes require an operation ID or explicit exemption."
+  },
+  {
+    "method": "POST",
+    "path": "/api/assistant/flows/{run_id}/abandon",
+    "reason": "Legacy POST /api/assistant/flows/{run_id}/abandon domain API; authorization and validation remain in its owning domain service. New routes require an operation ID or explicit exemption."
+  },
+  {
+    "method": "POST",
+    "path": "/api/assistant/flows/{run_id}/advance",
+    "reason": "Legacy POST /api/assistant/flows/{run_id}/advance domain API; authorization and validation remain in its owning domain service. New routes require an operation ID or explicit exemption."
+  },
+  {
+    "method": "POST",
+    "path": "/api/assistant/flows/{run_id}/settings",
+    "reason": "Legacy POST /api/assistant/flows/{run_id}/settings domain API; authorization and validation remain in its owning domain service. New routes require an operation ID or explicit exemption."
+  },
+  {
+    "method": "POST",
+    "path": "/api/assistant/forecasts/activity",
+    "reason": "Legacy POST /api/assistant/forecasts/activity domain API; authorization and validation remain in its owning domain service. New routes require an operation ID or explicit exemption."
+  },
+  {
+    "method": "POST",
+    "path": "/api/assistant/forecasts/candidates/{candidate_id}/decision",
+    "reason": "Legacy POST /api/assistant/forecasts/candidates/{candidate_id}/decision domain API; authorization and validation remain in its owning domain service. New routes require an operation ID or explicit exemption."
+  },
+  {
+    "method": "POST",
+    "path": "/api/assistant/forecasts/candidates/{candidate_id}/prepare",
+    "reason": "Legacy POST /api/assistant/forecasts/candidates/{candidate_id}/prepare domain API; authorization and validation remain in its owning domain service. New routes require an operation ID or explicit exemption."
+  },
+  {
+    "method": "POST",
+    "path": "/api/assistant/forecasts/candidates/{candidate_id}/recheck",
+    "reason": "Legacy POST /api/assistant/forecasts/candidates/{candidate_id}/recheck domain API; authorization and validation remain in its owning domain service. New routes require an operation ID or explicit exemption."
+  },
+  {
+    "method": "POST",
+    "path": "/api/assistant/forecasts/evaluate",
+    "reason": "Legacy POST /api/assistant/forecasts/evaluate domain API; authorization and validation remain in its owning domain service. New routes require an operation ID or explicit exemption."
+  },
+  {
+    "method": "POST",
+    "path": "/api/assistant/forecasts/feed",
+    "reason": "Legacy POST /api/assistant/forecasts/feed domain API; authorization and validation remain in its owning domain service. New routes require an operation ID or explicit exemption."
+  },
+  {
+    "method": "POST",
+    "path": "/api/assistant/forecasts/runs/{run_id}/cancel",
+    "reason": "Legacy POST /api/assistant/forecasts/runs/{run_id}/cancel domain API; authorization and validation remain in its owning domain service. New routes require an operation ID or explicit exemption."
+  },
+  {
+    "method": "POST",
+    "path": "/api/assistant/forecasts/runs/{run_id}/resume",
+    "reason": "Legacy POST /api/assistant/forecasts/runs/{run_id}/resume domain API; authorization and validation remain in its owning domain service. New routes require an operation ID or explicit exemption."
+  },
+  {
+    "method": "POST",
+    "path": "/api/assistant/forecasts/runs/{run_id}/revisit",
+    "reason": "Legacy POST /api/assistant/forecasts/runs/{run_id}/revisit domain API; authorization and validation remain in its owning domain service. New routes require an operation ID or explicit exemption."
+  },
+  {
+    "method": "POST",
+    "path": "/api/assistant/notices/{notice_id}/decide",
+    "reason": "Legacy POST /api/assistant/notices/{notice_id}/decide domain API; authorization and validation remain in its owning domain service. New routes require an operation ID or explicit exemption."
+  },
+  {
+    "method": "POST",
+    "path": "/api/assistant/notices/{notice_id}/recheck",
+    "reason": "Legacy POST /api/assistant/notices/{notice_id}/recheck domain API; authorization and validation remain in its owning domain service. New routes require an operation ID or explicit exemption."
+  },
+  {
+    "method": "POST",
+    "path": "/api/assistant/runs/{run_id}/collaboration/continue",
+    "reason": "Legacy POST /api/assistant/runs/{run_id}/collaboration/continue domain API; authorization and validation remain in its owning domain service. New routes require an operation ID or explicit exemption."
+  },
+  {
+    "method": "POST",
+    "path": "/api/assistant/runs/{run_id}/resume",
+    "reason": "Legacy POST /api/assistant/runs/{run_id}/resume domain API; authorization and validation remain in its owning domain service. New routes require an operation ID or explicit exemption."
+  },
+  {
+    "method": "POST",
+    "path": "/api/assistant/runs/{run_id}/select-plan",
+    "reason": "Legacy POST /api/assistant/runs/{run_id}/select-plan domain API; authorization and validation remain in its owning domain service. New routes require an operation ID or explicit exemption."
+  },
+  {
+    "method": "POST",
+    "path": "/api/assistant/runs/{run_id}/stop",
+    "reason": "Legacy POST /api/assistant/runs/{run_id}/stop domain API; authorization and validation remain in its owning domain service. New routes require an operation ID or explicit exemption."
+  },
+  {
+    "method": "POST",
+    "path": "/api/assistant/sessions",
+    "reason": "Legacy POST /api/assistant/sessions domain API; authorization and validation remain in its owning domain service. New routes require an operation ID or explicit exemption."
+  },
+  {
+    "method": "POST",
+    "path": "/api/assistant/sessions/{session_id}/team-runs",
+    "reason": "Legacy POST /api/assistant/sessions/{session_id}/team-runs domain API; authorization and validation remain in its owning domain service. New routes require an operation ID or explicit exemption."
+  },
+  {
+    "method": "POST",
+    "path": "/api/assistant/sessions/{session_id}/turns",
+    "reason": "Legacy POST /api/assistant/sessions/{session_id}/turns domain API; authorization and validation remain in its owning domain service. New routes require an operation ID or explicit exemption."
+  },
+  {
+    "method": "POST",
+    "path": "/api/auth/anonymous-rp",
+    "reason": "Legacy POST /api/auth/anonymous-rp domain API; authorization and validation remain in its owning domain service. New routes require an operation ID or explicit exemption."
+  },
+  {
+    "method": "POST",
+    "path": "/api/auth/demo-login",
+    "reason": "Legacy POST /api/auth/demo-login domain API; authorization and validation remain in its owning domain service. New routes require an operation ID or explicit exemption."
+  },
+  {
+    "method": "POST",
+    "path": "/api/auth/email/request-code",
+    "reason": "Legacy POST /api/auth/email/request-code domain API; authorization and validation remain in its owning domain service. New routes require an operation ID or explicit exemption."
+  },
+  {
+    "method": "POST",
+    "path": "/api/auth/email/verify",
+    "reason": "Legacy POST /api/auth/email/verify domain API; authorization and validation remain in its owning domain service. New routes require an operation ID or explicit exemption."
+  },
+  {
+    "method": "POST",
+    "path": "/api/auth/logout",
+    "reason": "Legacy POST /api/auth/logout domain API; authorization and validation remain in its owning domain service. New routes require an operation ID or explicit exemption."
+  },
+  {
+    "method": "POST",
+    "path": "/api/auth/reauth/email/request-code",
+    "reason": "Legacy POST /api/auth/reauth/email/request-code domain API; authorization and validation remain in its owning domain service. New routes require an operation ID or explicit exemption."
+  },
+  {
+    "method": "POST",
+    "path": "/api/auth/reauth/email/verify",
+    "reason": "Legacy POST /api/auth/reauth/email/verify domain API; authorization and validation remain in its owning domain service. New routes require an operation ID or explicit exemption."
+  },
+  {
+    "method": "POST",
+    "path": "/api/collaboration/cases",
+    "reason": "Legacy POST /api/collaboration/cases domain API; authorization and validation remain in its owning domain service. New routes require an operation ID or explicit exemption."
+  },
+  {
+    "method": "POST",
+    "path": "/api/collaboration/cases/{case_id}/runs",
+    "reason": "Legacy POST /api/collaboration/cases/{case_id}/runs domain API; authorization and validation remain in its owning domain service. New routes require an operation ID or explicit exemption."
+  },
+  {
+    "method": "POST",
+    "path": "/api/collaboration/cases/{case_id}/workspaces",
+    "reason": "Legacy POST /api/collaboration/cases/{case_id}/workspaces domain API; authorization and validation remain in its owning domain service. New routes require an operation ID or explicit exemption."
+  },
+  {
+    "method": "POST",
+    "path": "/api/collaboration/import-scope",
+    "reason": "Legacy POST /api/collaboration/import-scope domain API; authorization and validation remain in its owning domain service. New routes require an operation ID or explicit exemption."
+  },
+  {
+    "method": "POST",
+    "path": "/api/collaboration/runs/{run_id}/resume",
+    "reason": "Legacy POST /api/collaboration/runs/{run_id}/resume domain API; authorization and validation remain in its owning domain service. New routes require an operation ID or explicit exemption."
+  },
+  {
+    "method": "POST",
+    "path": "/api/collaboration/runs/{run_id}/stop",
+    "reason": "Legacy POST /api/collaboration/runs/{run_id}/stop domain API; authorization and validation remain in its owning domain service. New routes require an operation ID or explicit exemption."
+  },
+  {
+    "method": "POST",
+    "path": "/api/collaboration/understanding/{record_id}",
+    "reason": "Legacy POST /api/collaboration/understanding/{record_id} domain API; authorization and validation remain in its owning domain service. New routes require an operation ID or explicit exemption."
+  },
+  {
+    "method": "POST",
+    "path": "/api/collaboration/workspaces/{workspace_id}/fork",
+    "reason": "Legacy POST /api/collaboration/workspaces/{workspace_id}/fork domain API; authorization and validation remain in its owning domain service. New routes require an operation ID or explicit exemption."
+  },
+  {
+    "method": "POST",
+    "path": "/api/collaboration/workspaces/{workspace_id}/merge",
+    "reason": "Legacy POST /api/collaboration/workspaces/{workspace_id}/merge domain API; authorization and validation remain in its owning domain service. New routes require an operation ID or explicit exemption."
+  },
+  {
+    "method": "POST",
+    "path": "/api/collaboration/workspaces/{workspace_id}/rebase",
+    "reason": "Legacy POST /api/collaboration/workspaces/{workspace_id}/rebase domain API; authorization and validation remain in its owning domain service. New routes require an operation ID or explicit exemption."
+  },
+  {
+    "method": "POST",
+    "path": "/api/collaboration/workspaces/{workspace_id}/revert",
+    "reason": "Legacy POST /api/collaboration/workspaces/{workspace_id}/revert domain API; authorization and validation remain in its owning domain service. New routes require an operation ID or explicit exemption."
+  },
+  {
+    "method": "POST",
+    "path": "/api/collaboration/workspaces/{workspace_id}/revisions",
+    "reason": "Legacy POST /api/collaboration/workspaces/{workspace_id}/revisions domain API; authorization and validation remain in its owning domain service. New routes require an operation ID or explicit exemption."
+  },
+  {
+    "method": "POST",
+    "path": "/api/collaboration/workspaces/{workspace_id}/seal",
+    "reason": "Legacy POST /api/collaboration/workspaces/{workspace_id}/seal domain API; authorization and validation remain in its owning domain service. New routes require an operation ID or explicit exemption."
+  },
+  {
+    "method": "POST",
+    "path": "/api/collaboration/workspaces/{workspace_id}/test",
+    "reason": "Legacy POST /api/collaboration/workspaces/{workspace_id}/test domain API; authorization and validation remain in its owning domain service. New routes require an operation ID or explicit exemption."
+  },
+  {
+    "method": "POST",
+    "path": "/api/debug/frontend-errors",
+    "reason": "Legacy POST /api/debug/frontend-errors domain API; authorization and validation remain in its owning domain service. New routes require an operation ID or explicit exemption."
+  },
+  {
+    "method": "POST",
+    "path": "/api/evidence/compilation/activation-preview",
+    "reason": "Legacy POST /api/evidence/compilation/activation-preview domain API; authorization and validation remain in its owning domain service. New routes require an operation ID or explicit exemption."
+  },
+  {
+    "method": "POST",
+    "path": "/api/evidence/compilation/activation-profiles",
+    "reason": "Legacy POST /api/evidence/compilation/activation-profiles domain API; authorization and validation remain in its owning domain service. New routes require an operation ID or explicit exemption."
+  },
+  {
+    "method": "POST",
+    "path": "/api/evidence/compilation/activation-profiles/{profile_id}/publish",
+    "reason": "Legacy POST /api/evidence/compilation/activation-profiles/{profile_id}/publish domain API; authorization and validation remain in its owning domain service. New routes require an operation ID or explicit exemption."
+  },
+  {
+    "method": "POST",
+    "path": "/api/evidence/compilation/activation-profiles/{profile_id}/revisions/{version_number}/restore-draft",
+    "reason": "Legacy POST /api/evidence/compilation/activation-profiles/{profile_id}/revisions/{version_number}/restore-draft domain API; authorization and validation remain in its owning domain service. New routes require an operation ID or explicit exemption."
+  },
+  {
+    "method": "POST",
+    "path": "/api/evidence/compilation/compile",
+    "reason": "Legacy POST /api/evidence/compilation/compile domain API; authorization and validation remain in its owning domain service. New routes require an operation ID or explicit exemption."
+  },
+  {
+    "method": "POST",
+    "path": "/api/evidence/compilation/confirm",
+    "reason": "Legacy POST /api/evidence/compilation/confirm domain API; authorization and validation remain in its owning domain service. New routes require an operation ID or explicit exemption."
+  },
+  {
+    "method": "POST",
+    "path": "/api/evidence/compilation/evidence/grep",
+    "reason": "Legacy POST /api/evidence/compilation/evidence/grep domain API; authorization and validation remain in its owning domain service. New routes require an operation ID or explicit exemption."
+  },
+  {
+    "method": "POST",
+    "path": "/api/evidence/compilation/evidence/inspect",
+    "reason": "Legacy POST /api/evidence/compilation/evidence/inspect domain API; authorization and validation remain in its owning domain service. New routes require an operation ID or explicit exemption."
+  },
+  {
+    "method": "POST",
+    "path": "/api/evidence/compilation/evidence/read",
+    "reason": "Legacy POST /api/evidence/compilation/evidence/read domain API; authorization and validation remain in its owning domain service. New routes require an operation ID or explicit exemption."
+  },
+  {
+    "method": "POST",
+    "path": "/api/evidence/compilation/evidence/search",
+    "reason": "Legacy POST /api/evidence/compilation/evidence/search domain API; authorization and validation remain in its owning domain service. New routes require an operation ID or explicit exemption."
+  },
+  {
+    "method": "POST",
+    "path": "/api/evidence/compilation/evidence/trace",
+    "reason": "Legacy POST /api/evidence/compilation/evidence/trace domain API; authorization and validation remain in its owning domain service. New routes require an operation ID or explicit exemption."
+  },
+  {
+    "method": "POST",
+    "path": "/api/evidence/compilation/focused-search",
+    "reason": "Legacy POST /api/evidence/compilation/focused-search domain API; authorization and validation remain in its owning domain service. New routes require an operation ID or explicit exemption."
+  },
+  {
+    "method": "POST",
+    "path": "/api/evidence/compilation/focused-search/{task_id}/resume",
+    "reason": "Legacy POST /api/evidence/compilation/focused-search/{task_id}/resume domain API; authorization and validation remain in its owning domain service. New routes require an operation ID or explicit exemption."
+  },
+  {
+    "method": "POST",
+    "path": "/api/evidence/compilation/render",
+    "reason": "Legacy POST /api/evidence/compilation/render domain API; authorization and validation remain in its owning domain service. New routes require an operation ID or explicit exemption."
+  },
+  {
+    "method": "POST",
+    "path": "/api/evidence/compilation/scene-lens",
+    "reason": "Legacy POST /api/evidence/compilation/scene-lens domain API; authorization and validation remain in its owning domain service. New routes require an operation ID or explicit exemption."
+  },
+  {
+    "method": "POST",
+    "path": "/api/evidence/compilation/selection-proposals",
+    "reason": "Legacy POST /api/evidence/compilation/selection-proposals domain API; authorization and validation remain in its owning domain service. New routes require an operation ID or explicit exemption."
+  },
+  {
+    "method": "POST",
+    "path": "/api/evidence/compilation/snapshots/maintenance",
+    "reason": "Legacy POST /api/evidence/compilation/snapshots/maintenance domain API; authorization and validation remain in its owning domain service. New routes require an operation ID or explicit exemption."
+  },
+  {
+    "method": "POST",
+    "path": "/api/evidence/indexing/chunks",
+    "reason": "Legacy POST /api/evidence/indexing/chunks domain API; authorization and validation remain in its owning domain service. New routes require an operation ID or explicit exemption."
+  },
+  {
+    "method": "POST",
+    "path": "/api/evidence/indexing/chunks/split",
+    "reason": "Legacy POST /api/evidence/indexing/chunks/split domain API; authorization and validation remain in its owning domain service. New routes require an operation ID or explicit exemption."
+  },
+  {
+    "method": "POST",
+    "path": "/api/evidence/indexing/prewarm",
+    "reason": "Legacy POST /api/evidence/indexing/prewarm domain API; authorization and validation remain in its owning domain service. New routes require an operation ID or explicit exemption."
+  },
+  {
+    "method": "POST",
+    "path": "/api/evidence/indexing/rebuild",
+    "reason": "Legacy POST /api/evidence/indexing/rebuild domain API; authorization and validation remain in its owning domain service. New routes require an operation ID or explicit exemption."
+  },
+  {
+    "method": "POST",
+    "path": "/api/evidence/indexing/retrieve",
+    "reason": "Legacy POST /api/evidence/indexing/retrieve domain API; authorization and validation remain in its owning domain service. New routes require an operation ID or explicit exemption."
+  },
+  {
+    "method": "POST",
+    "path": "/api/evidence/indexing/retry-embeddings",
+    "reason": "Legacy POST /api/evidence/indexing/retry-embeddings domain API; authorization and validation remain in its owning domain service. New routes require an operation ID or explicit exemption."
+  },
+  {
+    "method": "POST",
+    "path": "/api/evolution/engine",
+    "reason": "Legacy POST /api/evolution/engine domain API; authorization and validation remain in its owning domain service. New routes require an operation ID or explicit exemption."
+  },
+  {
+    "method": "POST",
+    "path": "/api/evolution/ledger/{entry_id}/decision",
+    "reason": "Legacy POST /api/evolution/ledger/{entry_id}/decision domain API; authorization and validation remain in its owning domain service. New routes require an operation ID or explicit exemption."
+  },
+  {
+    "method": "POST",
+    "path": "/api/evolution/reading",
+    "reason": "Legacy POST /api/evolution/reading domain API; authorization and validation remain in its owning domain service. New routes require an operation ID or explicit exemption."
+  },
+  {
+    "method": "POST",
+    "path": "/api/evolution/reading/preview",
+    "reason": "Legacy POST /api/evolution/reading/preview domain API; authorization and validation remain in its owning domain service. New routes require an operation ID or explicit exemption."
+  },
+  {
+    "method": "POST",
+    "path": "/api/evolution/reading/{run_key}/category-rescan",
+    "reason": "Legacy POST /api/evolution/reading/{run_key}/category-rescan domain API; authorization and validation remain in its owning domain service. New routes require an operation ID or explicit exemption."
+  },
+  {
+    "method": "POST",
+    "path": "/api/evolution/reading/{run_key}/category-rescan-preview",
+    "reason": "Legacy POST /api/evolution/reading/{run_key}/category-rescan-preview domain API; authorization and validation remain in its owning domain service. New routes require an operation ID or explicit exemption."
+  },
+  {
+    "method": "POST",
+    "path": "/api/evolution/reading/{run_key}/category-rescan/{operation_id}/resume",
+    "reason": "Legacy POST /api/evolution/reading/{run_key}/category-rescan/{operation_id}/resume domain API; authorization and validation remain in its owning domain service. New routes require an operation ID or explicit exemption."
+  },
+  {
+    "method": "POST",
+    "path": "/api/evolution/reading/{run_key}/proposals/{attempt_id}/world-audit",
+    "reason": "Legacy POST /api/evolution/reading/{run_key}/proposals/{attempt_id}/world-audit domain API; authorization and validation remain in its owning domain service. New routes require an operation ID or explicit exemption."
+  },
+  {
+    "method": "POST",
+    "path": "/api/evolution/reading/{run_key}/proposals/{attempt_id}/world-audit-preview",
+    "reason": "Legacy POST /api/evolution/reading/{run_key}/proposals/{attempt_id}/world-audit-preview domain API; authorization and validation remain in its owning domain service. New routes require an operation ID or explicit exemption."
+  },
+  {
+    "method": "POST",
+    "path": "/api/evolution/reading/{run_key}/proposals/{attempt_id}/world-audit-resume",
+    "reason": "Legacy POST /api/evolution/reading/{run_key}/proposals/{attempt_id}/world-audit-resume domain API; authorization and validation remain in its owning domain service. New routes require an operation ID or explicit exemption."
+  },
+  {
+    "method": "POST",
+    "path": "/api/evolution/reading/{run_key}/resume",
+    "reason": "Legacy POST /api/evolution/reading/{run_key}/resume domain API; authorization and validation remain in its owning domain service. New routes require an operation ID or explicit exemption."
+  },
+  {
+    "method": "POST",
+    "path": "/api/evolution/reading/{run_key}/spatial-rescan",
+    "reason": "Legacy POST /api/evolution/reading/{run_key}/spatial-rescan domain API; authorization and validation remain in its owning domain service. New routes require an operation ID or explicit exemption."
+  },
+  {
+    "method": "POST",
+    "path": "/api/evolution/reading/{run_key}/spatial-rescan-preview",
+    "reason": "Legacy POST /api/evolution/reading/{run_key}/spatial-rescan-preview domain API; authorization and validation remain in its owning domain service. New routes require an operation ID or explicit exemption."
+  },
+  {
+    "method": "POST",
+    "path": "/api/evolution/reading/{run_key}/spatial-rescan/{operation_id}/resume",
+    "reason": "Legacy POST /api/evolution/reading/{run_key}/spatial-rescan/{operation_id}/resume domain API; authorization and validation remain in its owning domain service. New routes require an operation ID or explicit exemption."
+  },
+  {
+    "method": "POST",
+    "path": "/api/imports/deep",
+    "reason": "Legacy POST /api/imports/deep domain API; authorization and validation remain in its owning domain service. New routes require an operation ID or explicit exemption."
+  },
+  {
+    "method": "POST",
+    "path": "/api/imports/deep/abandon",
+    "reason": "Legacy POST /api/imports/deep/abandon domain API; authorization and validation remain in its owning domain service. New routes require an operation ID or explicit exemption."
+  },
+  {
+    "method": "POST",
+    "path": "/api/imports/deep/resume",
+    "reason": "Legacy POST /api/imports/deep/resume domain API; authorization and validation remain in its owning domain service. New routes require an operation ID or explicit exemption."
+  },
+  {
+    "method": "POST",
+    "path": "/api/imports/migrations",
+    "reason": "Legacy POST /api/imports/migrations domain API; authorization and validation remain in its owning domain service. New routes require an operation ID or explicit exemption."
+  },
+  {
+    "method": "POST",
+    "path": "/api/imports/migrations/{session_id}/ai-runs",
+    "reason": "Legacy POST /api/imports/migrations/{session_id}/ai-runs domain API; authorization and validation remain in its owning domain service. New routes require an operation ID or explicit exemption."
+  },
+  {
+    "method": "POST",
+    "path": "/api/imports/migrations/{session_id}/apply",
+    "reason": "Legacy POST /api/imports/migrations/{session_id}/apply domain API; authorization and validation remain in its owning domain service. New routes require an operation ID or explicit exemption."
+  },
+  {
+    "method": "POST",
+    "path": "/api/imports/migrations/{session_id}/rollback",
+    "reason": "Legacy POST /api/imports/migrations/{session_id}/rollback domain API; authorization and validation remain in its owning domain service. New routes require an operation ID or explicit exemption."
+  },
+  {
+    "method": "POST",
+    "path": "/api/imports/review-resolutions",
+    "reason": "Legacy POST /api/imports/review-resolutions domain API; authorization and validation remain in its owning domain service. New routes require an operation ID or explicit exemption."
+  },
+  {
+    "method": "POST",
+    "path": "/api/imports/review-resolutions/{task_id}/decisions",
+    "reason": "Legacy POST /api/imports/review-resolutions/{task_id}/decisions domain API; authorization and validation remain in its owning domain service. New routes require an operation ID or explicit exemption."
+  },
+  {
+    "method": "POST",
+    "path": "/api/imports/review-resolutions/{task_id}/rollback",
+    "reason": "Legacy POST /api/imports/review-resolutions/{task_id}/rollback domain API; authorization and validation remain in its owning domain service. New routes require an operation ID or explicit exemption."
+  },
+  {
+    "method": "POST",
+    "path": "/api/imports/review-resolutions/{task_id}/scene-groups/{group_key}/apply",
+    "reason": "Legacy POST /api/imports/review-resolutions/{task_id}/scene-groups/{group_key}/apply domain API; authorization and validation remain in its owning domain service. New routes require an operation ID or explicit exemption."
+  },
+  {
+    "method": "POST",
+    "path": "/api/imports/stages/plot-structure",
+    "reason": "Legacy POST /api/imports/stages/plot-structure domain API; authorization and validation remain in its owning domain service. New routes require an operation ID or explicit exemption."
+  },
+  {
+    "method": "POST",
+    "path": "/api/imports/stages/scenes",
+    "reason": "Legacy POST /api/imports/stages/scenes domain API; authorization and validation remain in its owning domain service. New routes require an operation ID or explicit exemption."
+  },
+  {
+    "method": "POST",
+    "path": "/api/imports/stages/world-objects",
+    "reason": "Legacy POST /api/imports/stages/world-objects domain API; authorization and validation remain in its owning domain service. New routes require an operation ID or explicit exemption."
+  },
+  {
+    "method": "POST",
+    "path": "/api/imports/targeted-completions",
+    "reason": "Legacy POST /api/imports/targeted-completions domain API; authorization and validation remain in its owning domain service. New routes require an operation ID or explicit exemption."
+  },
+  {
+    "method": "POST",
+    "path": "/api/imports/targeted-completions/{task_id}/defer",
+    "reason": "Legacy POST /api/imports/targeted-completions/{task_id}/defer domain API; authorization and validation remain in its owning domain service. New routes require an operation ID or explicit exemption."
+  },
+  {
+    "method": "POST",
+    "path": "/api/imports/targeted-completions/{task_id}/rollback",
+    "reason": "Legacy POST /api/imports/targeted-completions/{task_id}/rollback domain API; authorization and validation remain in its owning domain service. New routes require an operation ID or explicit exemption."
+  },
+  {
+    "method": "POST",
+    "path": "/api/imports/upload",
+    "reason": "Legacy POST /api/imports/upload domain API; authorization and validation remain in its owning domain service. New routes require an operation ID or explicit exemption."
+  },
+  {
+    "method": "POST",
+    "path": "/api/imports/workflows/{task_id}/cleanup",
+    "reason": "Legacy POST /api/imports/workflows/{task_id}/cleanup domain API; authorization and validation remain in its owning domain service. New routes require an operation ID or explicit exemption."
+  },
+  {
+    "method": "POST",
+    "path": "/api/interactions/demo-journeys",
+    "reason": "Legacy POST /api/interactions/demo-journeys domain API; authorization and validation remain in its owning domain service. New routes require an operation ID or explicit exemption."
+  },
+  {
+    "method": "POST",
+    "path": "/api/interactions/journeys",
+    "reason": "Legacy POST /api/interactions/journeys domain API; authorization and validation remain in its owning domain service. New routes require an operation ID or explicit exemption."
+  },
+  {
+    "method": "POST",
+    "path": "/api/interactions/journeys/{journey_id}/archive",
+    "reason": "Legacy POST /api/interactions/journeys/{journey_id}/archive domain API; authorization and validation remain in its owning domain service. New routes require an operation ID or explicit exemption."
+  },
+  {
+    "method": "POST",
+    "path": "/api/interactions/journeys/{journey_id}/attempts/{attempt_id}/continue",
+    "reason": "Legacy POST /api/interactions/journeys/{journey_id}/attempts/{attempt_id}/continue domain API; authorization and validation remain in its owning domain service. New routes require an operation ID or explicit exemption."
+  },
+  {
+    "method": "POST",
+    "path": "/api/interactions/journeys/{journey_id}/attempts/{attempt_id}/keep",
+    "reason": "Legacy POST /api/interactions/journeys/{journey_id}/attempts/{attempt_id}/keep domain API; authorization and validation remain in its owning domain service. New routes require an operation ID or explicit exemption."
+  },
+  {
+    "method": "POST",
+    "path": "/api/interactions/journeys/{journey_id}/attempts/{attempt_id}/retry",
+    "reason": "Legacy POST /api/interactions/journeys/{journey_id}/attempts/{attempt_id}/retry domain API; authorization and validation remain in its owning domain service. New routes require an operation ID or explicit exemption."
+  },
+  {
+    "method": "POST",
+    "path": "/api/interactions/journeys/{journey_id}/attempts/{attempt_id}/stop",
+    "reason": "Legacy POST /api/interactions/journeys/{journey_id}/attempts/{attempt_id}/stop domain API; authorization and validation remain in its owning domain service. New routes require an operation ID or explicit exemption."
+  },
+  {
+    "method": "POST",
+    "path": "/api/interactions/journeys/{journey_id}/attempts/{attempt_id}/stream",
+    "reason": "Legacy POST /api/interactions/journeys/{journey_id}/attempts/{attempt_id}/stream domain API; authorization and validation remain in its owning domain service. New routes require an operation ID or explicit exemption."
+  },
+  {
+    "method": "POST",
+    "path": "/api/interactions/journeys/{journey_id}/care/notices/{notice_id}/decide",
+    "reason": "Legacy POST /api/interactions/journeys/{journey_id}/care/notices/{notice_id}/decide domain API; authorization and validation remain in its owning domain service. New routes require an operation ID or explicit exemption."
+  },
+  {
+    "method": "POST",
+    "path": "/api/interactions/journeys/{journey_id}/care/notices/{notice_id}/recheck",
+    "reason": "Legacy POST /api/interactions/journeys/{journey_id}/care/notices/{notice_id}/recheck domain API; authorization and validation remain in its owning domain service. New routes require an operation ID or explicit exemption."
+  },
+  {
+    "method": "POST",
+    "path": "/api/interactions/journeys/{journey_id}/forecasts/candidates/{candidate_id}/decision",
+    "reason": "Legacy POST /api/interactions/journeys/{journey_id}/forecasts/candidates/{candidate_id}/decision domain API; authorization and validation remain in its owning domain service. New routes require an operation ID or explicit exemption."
+  },
+  {
+    "method": "POST",
+    "path": "/api/interactions/journeys/{journey_id}/forecasts/candidates/{candidate_id}/prefill",
+    "reason": "Legacy POST /api/interactions/journeys/{journey_id}/forecasts/candidates/{candidate_id}/prefill domain API; authorization and validation remain in its owning domain service. New routes require an operation ID or explicit exemption."
+  },
+  {
+    "method": "POST",
+    "path": "/api/interactions/journeys/{journey_id}/forecasts/evaluate",
+    "reason": "Legacy POST /api/interactions/journeys/{journey_id}/forecasts/evaluate domain API; authorization and validation remain in its owning domain service. New routes require an operation ID or explicit exemption."
+  },
+  {
+    "method": "POST",
+    "path": "/api/interactions/journeys/{journey_id}/forecasts/feed",
+    "reason": "Legacy POST /api/interactions/journeys/{journey_id}/forecasts/feed domain API; authorization and validation remain in its owning domain service. New routes require an operation ID or explicit exemption."
+  },
+  {
+    "method": "POST",
+    "path": "/api/interactions/journeys/{journey_id}/forecasts/runs/{run_id}/cancel",
+    "reason": "Legacy POST /api/interactions/journeys/{journey_id}/forecasts/runs/{run_id}/cancel domain API; authorization and validation remain in its owning domain service. New routes require an operation ID or explicit exemption."
+  },
+  {
+    "method": "POST",
+    "path": "/api/interactions/journeys/{journey_id}/forecasts/runs/{run_id}/resume",
+    "reason": "Legacy POST /api/interactions/journeys/{journey_id}/forecasts/runs/{run_id}/resume domain API; authorization and validation remain in its owning domain service. New routes require an operation ID or explicit exemption."
+  },
+  {
+    "method": "POST",
+    "path": "/api/interactions/journeys/{journey_id}/heartbeat",
+    "reason": "Legacy POST /api/interactions/journeys/{journey_id}/heartbeat domain API; authorization and validation remain in its owning domain service. New routes require an operation ID or explicit exemption."
+  },
+  {
+    "method": "POST",
+    "path": "/api/interactions/journeys/{journey_id}/leave",
+    "reason": "Legacy POST /api/interactions/journeys/{journey_id}/leave domain API; authorization and validation remain in its owning domain service. New routes require an operation ID or explicit exemption."
+  },
+  {
+    "method": "POST",
+    "path": "/api/interactions/journeys/{journey_id}/messages",
+    "reason": "Legacy POST /api/interactions/journeys/{journey_id}/messages domain API; authorization and validation remain in its owning domain service. New routes require an operation ID or explicit exemption."
+  },
+  {
+    "method": "POST",
+    "path": "/api/interactions/journeys/{journey_id}/nodes/{node_id}/continue-from-here",
+    "reason": "Legacy POST /api/interactions/journeys/{journey_id}/nodes/{node_id}/continue-from-here domain API; authorization and validation remain in its owning domain service. New routes require an operation ID or explicit exemption."
+  },
+  {
+    "method": "POST",
+    "path": "/api/interactions/journeys/{journey_id}/nodes/{node_id}/edit",
+    "reason": "Legacy POST /api/interactions/journeys/{journey_id}/nodes/{node_id}/edit domain API; authorization and validation remain in its owning domain service. New routes require an operation ID or explicit exemption."
+  },
+  {
+    "method": "POST",
+    "path": "/api/interactions/journeys/{journey_id}/nodes/{node_id}/regenerate",
+    "reason": "Legacy POST /api/interactions/journeys/{journey_id}/nodes/{node_id}/regenerate domain API; authorization and validation remain in its owning domain service. New routes require an operation ID or explicit exemption."
+  },
+  {
+    "method": "POST",
+    "path": "/api/interactions/journeys/{journey_id}/nodes/{node_id}/select",
+    "reason": "Legacy POST /api/interactions/journeys/{journey_id}/nodes/{node_id}/select domain API; authorization and validation remain in its owning domain service. New routes require an operation ID or explicit exemption."
+  },
+  {
+    "method": "POST",
+    "path": "/api/interactions/journeys/{journey_id}/overview/retry",
+    "reason": "Legacy POST /api/interactions/journeys/{journey_id}/overview/retry domain API; authorization and validation remain in its owning domain service. New routes require an operation ID or explicit exemption."
+  },
+  {
+    "method": "POST",
+    "path": "/api/interactions/journeys/{journey_id}/restore",
+    "reason": "Legacy POST /api/interactions/journeys/{journey_id}/restore domain API; authorization and validation remain in its owning domain service. New routes require an operation ID or explicit exemption."
+  },
+  {
+    "method": "POST",
+    "path": "/api/interactions/openings/{opening_id}/start",
+    "reason": "Legacy POST /api/interactions/openings/{opening_id}/start domain API; authorization and validation remain in its owning domain service. New routes require an operation ID or explicit exemption."
+  },
+  {
+    "method": "POST",
+    "path": "/api/interactions/preferences/see-sea-notice",
+    "reason": "Legacy POST /api/interactions/preferences/see-sea-notice domain API; authorization and validation remain in its owning domain service. New routes require an operation ID or explicit exemption."
+  },
+  {
+    "method": "POST",
+    "path": "/api/interactions/sources/from-project",
+    "reason": "Legacy POST /api/interactions/sources/from-project domain API; authorization and validation remain in its owning domain service. New routes require an operation ID or explicit exemption."
+  },
+  {
+    "method": "POST",
+    "path": "/api/interactions/sources/import",
+    "reason": "Legacy POST /api/interactions/sources/import domain API; authorization and validation remain in its owning domain service. New routes require an operation ID or explicit exemption."
+  },
+  {
+    "method": "POST",
+    "path": "/api/interactions/sources/import-preview",
+    "reason": "Legacy POST /api/interactions/sources/import-preview domain API; authorization and validation remain in its owning domain service. New routes require an operation ID or explicit exemption."
+  },
+  {
+    "method": "POST",
+    "path": "/api/interactions/sources/{revision_id}/ambiguities/{ambiguity_key}",
+    "reason": "Legacy POST /api/interactions/sources/{revision_id}/ambiguities/{ambiguity_key} domain API; authorization and validation remain in its owning domain service. New routes require an operation ID or explicit exemption."
+  },
+  {
+    "method": "POST",
+    "path": "/api/interactions/sources/{revision_id}/anchors/match",
+    "reason": "Legacy POST /api/interactions/sources/{revision_id}/anchors/match domain API; authorization and validation remain in its owning domain service. New routes require an operation ID or explicit exemption."
+  },
+  {
+    "method": "POST",
+    "path": "/api/interactions/sources/{revision_id}/refresh",
+    "reason": "Legacy POST /api/interactions/sources/{revision_id}/refresh domain API; authorization and validation remain in its owning domain service. New routes require an operation ID or explicit exemption."
+  },
+  {
+    "method": "POST",
+    "path": "/api/local-agent/companion/activate",
+    "reason": "Legacy POST /api/local-agent/companion/activate domain API; authorization and validation remain in its owning domain service. New routes require an operation ID or explicit exemption."
+  },
+  {
+    "method": "POST",
+    "path": "/api/local-agent/companion/claim",
+    "reason": "Legacy POST /api/local-agent/companion/claim domain API; authorization and validation remain in its owning domain service. New routes require an operation ID or explicit exemption."
+  },
+  {
+    "method": "POST",
+    "path": "/api/local-agent/companion/jobs/{invocation_id}/events",
+    "reason": "Legacy POST /api/local-agent/companion/jobs/{invocation_id}/events domain API; authorization and validation remain in its owning domain service. New routes require an operation ID or explicit exemption."
+  },
+  {
+    "method": "POST",
+    "path": "/api/local-agent/companion/jobs/{invocation_id}/finish",
+    "reason": "Legacy POST /api/local-agent/companion/jobs/{invocation_id}/finish domain API; authorization and validation remain in its owning domain service. New routes require an operation ID or explicit exemption."
+  },
+  {
+    "method": "POST",
+    "path": "/api/local-agent/companion/jobs/{invocation_id}/heartbeat",
+    "reason": "Legacy POST /api/local-agent/companion/jobs/{invocation_id}/heartbeat domain API; authorization and validation remain in its owning domain service. New routes require an operation ID or explicit exemption."
+  },
+  {
+    "method": "POST",
+    "path": "/api/local-agent/devices/pair",
+    "reason": "Legacy POST /api/local-agent/devices/pair domain API; authorization and validation remain in its owning domain service. New routes require an operation ID or explicit exemption."
+  },
+  {
+    "method": "POST",
+    "path": "/api/local-agent/tasks/{task_id}/approve",
+    "reason": "Legacy POST /api/local-agent/tasks/{task_id}/approve domain API; authorization and validation remain in its owning domain service. New routes require an operation ID or explicit exemption."
+  },
+  {
+    "method": "POST",
+    "path": "/api/novels/{novel_id}/memories/rebuild",
+    "reason": "Legacy POST /api/novels/{novel_id}/memories/rebuild domain API; authorization and validation remain in its owning domain service. New routes require an operation ID or explicit exemption."
+  },
+  {
+    "method": "POST",
+    "path": "/api/novels/{novel_id}/memories/scene-checkpoints/ensure",
+    "reason": "Legacy POST /api/novels/{novel_id}/memories/scene-checkpoints/ensure domain API; authorization and validation remain in its owning domain service. New routes require an operation ID or explicit exemption."
+  },
+  {
+    "method": "POST",
+    "path": "/api/novels/{novel_id}/memories/scene-checkpoints/rebuild",
+    "reason": "Legacy POST /api/novels/{novel_id}/memories/scene-checkpoints/rebuild domain API; authorization and validation remain in its owning domain service. New routes require an operation ID or explicit exemption."
+  },
+  {
+    "method": "POST",
+    "path": "/api/novels/{novel_id}/memories/scene-checkpoints/repair",
+    "reason": "Legacy POST /api/novels/{novel_id}/memories/scene-checkpoints/repair domain API; authorization and validation remain in its owning domain service. New routes require an operation ID or explicit exemption."
+  },
+  {
+    "method": "POST",
+    "path": "/api/novels/{novel_id}/memories/scene-state-trial",
+    "reason": "Legacy POST /api/novels/{novel_id}/memories/scene-state-trial domain API; authorization and validation remain in its owning domain service. New routes require an operation ID or explicit exemption."
+  },
+  {
+    "method": "POST",
+    "path": "/api/novels/{novel_id}/memories/scene-state-view",
+    "reason": "Legacy POST /api/novels/{novel_id}/memories/scene-state-view domain API; authorization and validation remain in its owning domain service. New routes require an operation ID or explicit exemption."
+  },
+  {
+    "method": "POST",
+    "path": "/api/novels/{novel_id}/memories/snapshots/capture",
+    "reason": "Legacy POST /api/novels/{novel_id}/memories/snapshots/capture domain API; authorization and validation remain in its owning domain service. New routes require an operation ID or explicit exemption."
+  },
+  {
+    "method": "POST",
+    "path": "/api/outline/analyze",
+    "reason": "Legacy POST /api/outline/analyze domain API; authorization and validation remain in its owning domain service. New routes require an operation ID or explicit exemption."
+  },
+  {
+    "method": "POST",
+    "path": "/api/outline/arcs",
+    "reason": "Legacy POST /api/outline/arcs domain API; authorization and validation remain in its owning domain service. New routes require an operation ID or explicit exemption."
+  },
+  {
+    "method": "POST",
+    "path": "/api/outline/foreshadowing",
+    "reason": "Legacy POST /api/outline/foreshadowing domain API; authorization and validation remain in its owning domain service. New routes require an operation ID or explicit exemption."
+  },
+  {
+    "method": "POST",
+    "path": "/api/outline/generate",
+    "reason": "Legacy POST /api/outline/generate domain API; authorization and validation remain in its owning domain service. New routes require an operation ID or explicit exemption."
+  },
+  {
+    "method": "POST",
+    "path": "/api/outline/generate/apply",
+    "reason": "Legacy POST /api/outline/generate/apply domain API; authorization and validation remain in its owning domain service. New routes require an operation ID or explicit exemption."
+  },
+  {
+    "method": "POST",
+    "path": "/api/outline/generate/apply/preview",
+    "reason": "Legacy POST /api/outline/generate/apply/preview domain API; authorization and validation remain in its owning domain service. New routes require an operation ID or explicit exemption."
+  },
+  {
+    "method": "POST",
+    "path": "/api/outline/reveals",
+    "reason": "Legacy POST /api/outline/reveals domain API; authorization and validation remain in its owning domain service. New routes require an operation ID or explicit exemption."
+  },
+  {
+    "method": "POST",
+    "path": "/api/outline/scene-workbench/chapters/{chapter_index}/scenes",
+    "reason": "Legacy POST /api/outline/scene-workbench/chapters/{chapter_index}/scenes domain API; authorization and validation remain in its owning domain service. New routes require an operation ID or explicit exemption."
+  },
+  {
+    "method": "POST",
+    "path": "/api/outline/scene-workbench/chapters/{chapter_index}/scenes/{scene_id}",
+    "reason": "Legacy POST /api/outline/scene-workbench/chapters/{chapter_index}/scenes/{scene_id} domain API; authorization and validation remain in its owning domain service. New routes require an operation ID or explicit exemption."
+  },
+  {
+    "method": "POST",
+    "path": "/api/outline/scene-workbench/fusion-suggestions/dismiss",
+    "reason": "Legacy POST /api/outline/scene-workbench/fusion-suggestions/dismiss domain API; authorization and validation remain in its owning domain service. New routes require an operation ID or explicit exemption."
+  },
+  {
+    "method": "POST",
+    "path": "/api/outline/scene-workbench/fusion/preview",
+    "reason": "Legacy POST /api/outline/scene-workbench/fusion/preview domain API; authorization and validation remain in its owning domain service. New routes require an operation ID or explicit exemption."
+  },
+  {
+    "method": "POST",
+    "path": "/api/outline/scene-workbench/fusion/preview-task",
+    "reason": "Legacy POST /api/outline/scene-workbench/fusion/preview-task domain API; authorization and validation remain in its owning domain service. New routes require an operation ID or explicit exemption."
+  },
+  {
+    "method": "POST",
+    "path": "/api/outline/scene-workbench/fusion/save",
+    "reason": "Legacy POST /api/outline/scene-workbench/fusion/save domain API; authorization and validation remain in its owning domain service. New routes require an operation ID or explicit exemption."
+  },
+  {
+    "method": "POST",
+    "path": "/api/outline/scene-workbench/merge",
+    "reason": "Legacy POST /api/outline/scene-workbench/merge domain API; authorization and validation remain in its owning domain service. New routes require an operation ID or explicit exemption."
+  },
+  {
+    "method": "POST",
+    "path": "/api/outline/scene-workbench/merge/preview",
+    "reason": "Legacy POST /api/outline/scene-workbench/merge/preview domain API; authorization and validation remain in its owning domain service. New routes require an operation ID or explicit exemption."
+  },
+  {
+    "method": "POST",
+    "path": "/api/outline/scene-workbench/replacement-suggestions/apply",
+    "reason": "Legacy POST /api/outline/scene-workbench/replacement-suggestions/apply domain API; authorization and validation remain in its owning domain service. New routes require an operation ID or explicit exemption."
+  },
+  {
+    "method": "POST",
+    "path": "/api/outline/scene-workbench/review",
+    "reason": "Legacy POST /api/outline/scene-workbench/review domain API; authorization and validation remain in its owning domain service. New routes require an operation ID or explicit exemption."
+  },
+  {
+    "method": "POST",
+    "path": "/api/outline/scene-workbench/source-mapping/review",
+    "reason": "Legacy POST /api/outline/scene-workbench/source-mapping/review domain API; authorization and validation remain in its owning domain service. New routes require an operation ID or explicit exemption."
+  },
+  {
+    "method": "POST",
+    "path": "/api/outline/scene-workbench/split",
+    "reason": "Legacy POST /api/outline/scene-workbench/split domain API; authorization and validation remain in its owning domain service. New routes require an operation ID or explicit exemption."
+  },
+  {
+    "method": "POST",
+    "path": "/api/outline/scene-workbench/split/preview",
+    "reason": "Legacy POST /api/outline/scene-workbench/split/preview domain API; authorization and validation remain in its owning domain service. New routes require an operation ID or explicit exemption."
+  },
+  {
+    "method": "POST",
+    "path": "/api/outline/scenes",
+    "reason": "Legacy POST /api/outline/scenes domain API; authorization and validation remain in its owning domain service. New routes require an operation ID or explicit exemption."
+  },
+  {
+    "method": "POST",
+    "path": "/api/outline/scenes/reorder",
+    "reason": "Legacy POST /api/outline/scenes/reorder domain API; authorization and validation remain in its owning domain service. New routes require an operation ID or explicit exemption."
+  },
+  {
+    "method": "POST",
+    "path": "/api/outline/scenes/split",
+    "reason": "Legacy POST /api/outline/scenes/split domain API; authorization and validation remain in its owning domain service. New routes require an operation ID or explicit exemption."
+  },
+  {
+    "method": "POST",
+    "path": "/api/outline/story-outline/generate",
+    "reason": "Legacy POST /api/outline/story-outline/generate domain API; authorization and validation remain in its owning domain service. New routes require an operation ID or explicit exemption."
+  },
+  {
+    "method": "POST",
+    "path": "/api/outline/story-outline/generate/apply",
+    "reason": "Legacy POST /api/outline/story-outline/generate/apply domain API; authorization and validation remain in its owning domain service. New routes require an operation ID or explicit exemption."
+  },
+  {
+    "method": "POST",
+    "path": "/api/outline/story-outline/revisions",
+    "reason": "Legacy POST /api/outline/story-outline/revisions domain API; authorization and validation remain in its owning domain service. New routes require an operation ID or explicit exemption."
+  },
+  {
+    "method": "POST",
+    "path": "/api/outline/story-outline/revisions/{revision_id}/apply",
+    "reason": "Legacy POST /api/outline/story-outline/revisions/{revision_id}/apply domain API; authorization and validation remain in its owning domain service. New routes require an operation ID or explicit exemption."
+  },
+  {
+    "method": "POST",
+    "path": "/api/outline/threads",
+    "reason": "Legacy POST /api/outline/threads domain API; authorization and validation remain in its owning domain service. New routes require an operation ID or explicit exemption."
+  },
+  {
+    "method": "POST",
+    "path": "/api/projects",
+    "reason": "Legacy POST /api/projects domain API; authorization and validation remain in its owning domain service. New routes require an operation ID or explicit exemption."
+  },
+  {
+    "method": "POST",
+    "path": "/api/projects/demo-copy",
+    "reason": "Legacy POST /api/projects/demo-copy domain API; authorization and validation remain in its owning domain service. New routes require an operation ID or explicit exemption."
+  },
+  {
+    "method": "POST",
+    "path": "/api/projects/recycle-bin/permanent-delete",
+    "reason": "Legacy POST /api/projects/recycle-bin/permanent-delete domain API; authorization and validation remain in its owning domain service. New routes require an operation ID or explicit exemption."
+  },
+  {
+    "method": "POST",
+    "path": "/api/projects/{project_id}/author-tasks",
+    "reason": "Legacy POST /api/projects/{project_id}/author-tasks domain API; authorization and validation remain in its owning domain service. New routes require an operation ID or explicit exemption."
+  },
+  {
+    "method": "POST",
+    "path": "/api/projects/{project_id}/restore",
+    "reason": "Legacy POST /api/projects/{project_id}/restore domain API; authorization and validation remain in its owning domain service. New routes require an operation ID or explicit exemption."
+  },
+  {
+    "method": "POST",
+    "path": "/api/projects/{project_id}/smart-dedup/apply",
+    "reason": "Legacy POST /api/projects/{project_id}/smart-dedup/apply domain API; authorization and validation remain in its owning domain service. New routes require an operation ID or explicit exemption."
+  },
+  {
+    "method": "POST",
+    "path": "/api/projects/{project_id}/smart-dedup/scan",
+    "reason": "Legacy POST /api/projects/{project_id}/smart-dedup/scan domain API; authorization and validation remain in its owning domain service. New routes require an operation ID or explicit exemption."
+  },
+  {
+    "method": "POST",
+    "path": "/api/story/character-cards",
+    "reason": "Legacy POST /api/story/character-cards domain API; authorization and validation remain in its owning domain service. New routes require an operation ID or explicit exemption."
+  },
+  {
+    "method": "POST",
+    "path": "/api/story/character-cards/{card_id}/restore",
+    "reason": "Legacy POST /api/story/character-cards/{card_id}/restore domain API; authorization and validation remain in its owning domain service. New routes require an operation ID or explicit exemption."
+  },
+  {
+    "method": "POST",
+    "path": "/api/story/character-cards/{card_id}/revisions",
+    "reason": "Legacy POST /api/story/character-cards/{card_id}/revisions domain API; authorization and validation remain in its owning domain service. New routes require an operation ID or explicit exemption."
+  },
+  {
+    "method": "POST",
+    "path": "/api/story/character-cards/{card_id}/revisions/{revision_id}/archive",
+    "reason": "Legacy POST /api/story/character-cards/{card_id}/revisions/{revision_id}/archive domain API; authorization and validation remain in its owning domain service. New routes require an operation ID or explicit exemption."
+  },
+  {
+    "method": "POST",
+    "path": "/api/story/rehearsals/{run_id}/forks",
+    "reason": "Legacy POST /api/story/rehearsals/{run_id}/forks domain API; authorization and validation remain in its owning domain service. New routes require an operation ID or explicit exemption."
+  },
+  {
+    "method": "POST",
+    "path": "/api/story/rehearsals/{run_id}/replay",
+    "reason": "Legacy POST /api/story/rehearsals/{run_id}/replay domain API; authorization and validation remain in its owning domain service. New routes require an operation ID or explicit exemption."
+  },
+  {
+    "method": "POST",
+    "path": "/api/story/scenes/{scene_id}/character-cards",
+    "reason": "Legacy POST /api/story/scenes/{scene_id}/character-cards domain API; authorization and validation remain in its owning domain service. New routes require an operation ID or explicit exemption."
+  },
+  {
+    "method": "POST",
+    "path": "/api/story/scenes/{scene_id}/character-cards/generate",
+    "reason": "Legacy POST /api/story/scenes/{scene_id}/character-cards/generate domain API; authorization and validation remain in its owning domain service. New routes require an operation ID or explicit exemption."
+  },
+  {
+    "method": "POST",
+    "path": "/api/story/scenes/{scene_id}/character-cards/{card_id}/revisions",
+    "reason": "Legacy POST /api/story/scenes/{scene_id}/character-cards/{card_id}/revisions domain API; authorization and validation remain in its owning domain service. New routes require an operation ID or explicit exemption."
+  },
+  {
+    "method": "POST",
+    "path": "/api/story/scenes/{scene_id}/reactions/generate",
+    "reason": "Legacy POST /api/story/scenes/{scene_id}/reactions/generate domain API; authorization and validation remain in its owning domain service. New routes require an operation ID or explicit exemption."
+  },
+  {
+    "method": "POST",
+    "path": "/api/story/scenes/{scene_id}/rehearsals",
+    "reason": "Legacy POST /api/story/scenes/{scene_id}/rehearsals domain API; authorization and validation remain in its owning domain service. New routes require an operation ID or explicit exemption."
+  },
+  {
+    "method": "POST",
+    "path": "/api/story/scenes/{scene_id}/script-files",
+    "reason": "Legacy POST /api/story/scenes/{scene_id}/script-files domain API; authorization and validation remain in its owning domain service. New routes require an operation ID or explicit exemption."
+  },
+  {
+    "method": "POST",
+    "path": "/api/story/scenes/{scene_id}/script-revisions",
+    "reason": "Legacy POST /api/story/scenes/{scene_id}/script-revisions domain API; authorization and validation remain in its owning domain service. New routes require an operation ID or explicit exemption."
+  },
+  {
+    "method": "POST",
+    "path": "/api/story/scenes/{scene_id}/scripts",
+    "reason": "Legacy POST /api/story/scenes/{scene_id}/scripts domain API; authorization and validation remain in its owning domain service. New routes require an operation ID or explicit exemption."
+  },
+  {
+    "method": "POST",
+    "path": "/api/story/scenes/{scene_id}/scripts/generate",
+    "reason": "Legacy POST /api/story/scenes/{scene_id}/scripts/generate domain API; authorization and validation remain in its owning domain service. New routes require an operation ID or explicit exemption."
+  },
+  {
+    "method": "POST",
+    "path": "/api/story/scenes/{scene_id}/scripts/{file_id}/revisions",
+    "reason": "Legacy POST /api/story/scenes/{scene_id}/scripts/{file_id}/revisions domain API; authorization and validation remain in its owning domain service. New routes require an operation ID or explicit exemption."
+  },
+  {
+    "method": "POST",
+    "path": "/api/story/scenes/{scene_id}/scripts/{file_id}/revisions/{revision_id}/adopt",
+    "reason": "Legacy POST /api/story/scenes/{scene_id}/scripts/{file_id}/revisions/{revision_id}/adopt domain API; authorization and validation remain in its owning domain service. New routes require an operation ID or explicit exemption."
+  },
+  {
+    "method": "POST",
+    "path": "/api/story/scenes/{scene_id}/simulate",
+    "reason": "Legacy POST /api/story/scenes/{scene_id}/simulate domain API; authorization and validation remain in its owning domain service. New routes require an operation ID or explicit exemption."
+  },
+  {
+    "method": "POST",
+    "path": "/api/story/script-files/{file_id}/revisions/{revision_id}/adopt",
+    "reason": "Legacy POST /api/story/script-files/{file_id}/revisions/{revision_id}/adopt domain API; authorization and validation remain in its owning domain service. New routes require an operation ID or explicit exemption."
+  },
+  {
+    "method": "POST",
+    "path": "/api/story/script-files/{file_id}/revisions/{revision_id}/archive",
+    "reason": "Legacy POST /api/story/script-files/{file_id}/revisions/{revision_id}/archive domain API; authorization and validation remain in its owning domain service. New routes require an operation ID or explicit exemption."
+  },
+  {
+    "method": "POST",
+    "path": "/api/story/script-files/{file_id}/unadopt",
+    "reason": "Legacy POST /api/story/script-files/{file_id}/unadopt domain API; authorization and validation remain in its owning domain service. New routes require an operation ID or explicit exemption."
+  },
+  {
+    "method": "POST",
+    "path": "/api/story/tasks/character-card",
+    "reason": "Legacy POST /api/story/tasks/character-card domain API; authorization and validation remain in its owning domain service. New routes require an operation ID or explicit exemption."
+  },
+  {
+    "method": "POST",
+    "path": "/api/story/tasks/one-click",
+    "reason": "Legacy POST /api/story/tasks/one-click domain API; authorization and validation remain in its owning domain service. New routes require an operation ID or explicit exemption."
+  },
+  {
+    "method": "POST",
+    "path": "/api/story/tasks/reaction",
+    "reason": "Legacy POST /api/story/tasks/reaction domain API; authorization and validation remain in its owning domain service. New routes require an operation ID or explicit exemption."
+  },
+  {
+    "method": "POST",
+    "path": "/api/story/tasks/script",
+    "reason": "Legacy POST /api/story/tasks/script domain API; authorization and validation remain in its owning domain service. New routes require an operation ID or explicit exemption."
+  },
+  {
+    "method": "POST",
+    "path": "/api/tasks",
+    "reason": "Legacy POST /api/tasks domain API; authorization and validation remain in its owning domain service. New routes require an operation ID or explicit exemption."
+  },
+  {
+    "method": "POST",
+    "path": "/api/tasks/{task_id}/cancel",
+    "reason": "Legacy POST /api/tasks/{task_id}/cancel domain API; authorization and validation remain in its owning domain service. New routes require an operation ID or explicit exemption."
+  },
+  {
+    "method": "POST",
+    "path": "/api/tasks/{task_id}/retry",
+    "reason": "Legacy POST /api/tasks/{task_id}/retry domain API; authorization and validation remain in its owning domain service. New routes require an operation ID or explicit exemption."
+  },
+  {
+    "method": "POST",
+    "path": "/api/world/_test/entities/{entity_id}/text-archive",
+    "reason": "Legacy POST /api/world/_test/entities/{entity_id}/text-archive domain API; authorization and validation remain in its owning domain service. New routes require an operation ID or explicit exemption."
+  },
+  {
+    "method": "POST",
+    "path": "/api/world/adoption-packages",
+    "reason": "Legacy POST /api/world/adoption-packages domain API; authorization and validation remain in its owning domain service. New routes require an operation ID or explicit exemption."
+  },
+  {
+    "method": "POST",
+    "path": "/api/world/adoption-packages/{suggestion_id}/apply",
+    "reason": "Legacy POST /api/world/adoption-packages/{suggestion_id}/apply domain API; authorization and validation remain in its owning domain service. New routes require an operation ID or explicit exemption."
+  },
+  {
+    "method": "POST",
+    "path": "/api/world/adoption-packages/{suggestion_id}/rollback",
+    "reason": "Legacy POST /api/world/adoption-packages/{suggestion_id}/rollback domain API; authorization and validation remain in its owning domain service. New routes require an operation ID or explicit exemption."
+  },
+  {
+    "method": "POST",
+    "path": "/api/world/alias-relations/extract",
+    "reason": "Legacy POST /api/world/alias-relations/extract domain API; authorization and validation remain in its owning domain service. New routes require an operation ID or explicit exemption."
+  },
+  {
+    "method": "POST",
+    "path": "/api/world/aliases",
+    "reason": "Legacy POST /api/world/aliases domain API; authorization and validation remain in its owning domain service. New routes require an operation ID or explicit exemption."
+  },
+  {
+    "method": "POST",
+    "path": "/api/world/aliases/review-batch",
+    "reason": "Legacy POST /api/world/aliases/review-batch domain API; authorization and validation remain in its owning domain service. New routes require an operation ID or explicit exemption."
+  },
+  {
+    "method": "POST",
+    "path": "/api/world/ask-world",
+    "reason": "Legacy POST /api/world/ask-world domain API; authorization and validation remain in its owning domain service. New routes require an operation ID or explicit exemption."
+  },
+  {
+    "method": "POST",
+    "path": "/api/world/ask-world/citations/open",
+    "reason": "Legacy POST /api/world/ask-world/citations/open domain API; authorization and validation remain in its owning domain service. New routes require an operation ID or explicit exemption."
+  },
+  {
+    "method": "POST",
+    "path": "/api/world/ask-world/suggestions",
+    "reason": "Legacy POST /api/world/ask-world/suggestions domain API; authorization and validation remain in its owning domain service. New routes require an operation ID or explicit exemption."
+  },
+  {
+    "method": "POST",
+    "path": "/api/world/bible/categories",
+    "reason": "Legacy POST /api/world/bible/categories domain API; authorization and validation remain in its owning domain service. New routes require an operation ID or explicit exemption."
+  },
+  {
+    "method": "POST",
+    "path": "/api/world/bible/drafts",
+    "reason": "Legacy POST /api/world/bible/drafts domain API; authorization and validation remain in its owning domain service. New routes require an operation ID or explicit exemption."
+  },
+  {
+    "method": "POST",
+    "path": "/api/world/bible/drafts/{draft_id}/apply-template",
+    "reason": "Legacy POST /api/world/bible/drafts/{draft_id}/apply-template domain API; authorization and validation remain in its owning domain service. New routes require an operation ID or explicit exemption."
+  },
+  {
+    "method": "POST",
+    "path": "/api/world/bible/drafts/{draft_id}/publish",
+    "reason": "Legacy POST /api/world/bible/drafts/{draft_id}/publish domain API; authorization and validation remain in its owning domain service. New routes require an operation ID or explicit exemption."
+  },
+  {
+    "method": "POST",
+    "path": "/api/world/bible/imports/preview",
+    "reason": "Legacy POST /api/world/bible/imports/preview domain API; authorization and validation remain in its owning domain service. New routes require an operation ID or explicit exemption."
+  },
+  {
+    "method": "POST",
+    "path": "/api/world/bible/imports/{suggestion_id}/apply",
+    "reason": "Legacy POST /api/world/bible/imports/{suggestion_id}/apply domain API; authorization and validation remain in its owning domain service. New routes require an operation ID or explicit exemption."
+  },
+  {
+    "method": "POST",
+    "path": "/api/world/bible/page-templates",
+    "reason": "Legacy POST /api/world/bible/page-templates domain API; authorization and validation remain in its owning domain service. New routes require an operation ID or explicit exemption."
+  },
+  {
+    "method": "POST",
+    "path": "/api/world/bible/page-templates/{template_id}/revisions/{version_number}/restore-draft",
+    "reason": "Legacy POST /api/world/bible/page-templates/{template_id}/revisions/{version_number}/restore-draft domain API; authorization and validation remain in its owning domain service. New routes require an operation ID or explicit exemption."
+  },
+  {
+    "method": "POST",
+    "path": "/api/world/bible/pages",
+    "reason": "Legacy POST /api/world/bible/pages domain API; authorization and validation remain in its owning domain service. New routes require an operation ID or explicit exemption."
+  },
+  {
+    "method": "POST",
+    "path": "/api/world/bible/pages/{page_id}/organize",
+    "reason": "Legacy POST /api/world/bible/pages/{page_id}/organize domain API; authorization and validation remain in its owning domain service. New routes require an operation ID or explicit exemption."
+  },
+  {
+    "method": "POST",
+    "path": "/api/world/bible/pages/{page_id}/refresh-projection",
+    "reason": "Legacy POST /api/world/bible/pages/{page_id}/refresh-projection domain API; authorization and validation remain in its owning domain service. New routes require an operation ID or explicit exemption."
+  },
+  {
+    "method": "POST",
+    "path": "/api/world/bible/pages/{page_id}/revisions/{version_number}/restore-draft",
+    "reason": "Legacy POST /api/world/bible/pages/{page_id}/revisions/{version_number}/restore-draft domain API; authorization and validation remain in its owning domain service. New routes require an operation ID or explicit exemption."
+  },
+  {
+    "method": "POST",
+    "path": "/api/world/bible/synopsis/refresh",
+    "reason": "Legacy POST /api/world/bible/synopsis/refresh domain API; authorization and validation remain in its owning domain service. New routes require an operation ID or explicit exemption."
+  },
+  {
+    "method": "POST",
+    "path": "/api/world/bible/synopsis/revisions/{revision_id}/restore",
+    "reason": "Legacy POST /api/world/bible/synopsis/revisions/{revision_id}/restore domain API; authorization and validation remain in its owning domain service. New routes require an operation ID or explicit exemption."
+  },
+  {
+    "method": "POST",
+    "path": "/api/world/bible/synopsis/unpin",
+    "reason": "Legacy POST /api/world/bible/synopsis/unpin domain API; authorization and validation remain in its owning domain service. New routes require an operation ID or explicit exemption."
+  },
+  {
+    "method": "POST",
+    "path": "/api/world/bible/validation-policy/activate",
+    "reason": "Legacy POST /api/world/bible/validation-policy/activate domain API; authorization and validation remain in its owning domain service. New routes require an operation ID or explicit exemption."
+  },
+  {
+    "method": "POST",
+    "path": "/api/world/bible/validation-policy/draft",
+    "reason": "Legacy POST /api/world/bible/validation-policy/draft domain API; authorization and validation remain in its owning domain service. New routes require an operation ID or explicit exemption."
+  },
+  {
+    "method": "POST",
+    "path": "/api/world/bible/validation-runs",
+    "reason": "Legacy POST /api/world/bible/validation-runs domain API; authorization and validation remain in its owning domain service. New routes require an operation ID or explicit exemption."
+  },
+  {
+    "method": "POST",
+    "path": "/api/world/bible/validation-runs/{run_id}/accept-warnings",
+    "reason": "Legacy POST /api/world/bible/validation-runs/{run_id}/accept-warnings domain API; authorization and validation remain in its owning domain service. New routes require an operation ID or explicit exemption."
+  },
+  {
+    "method": "POST",
+    "path": "/api/world/bible/validation-runs/{run_id}/continue",
+    "reason": "Legacy POST /api/world/bible/validation-runs/{run_id}/continue domain API; authorization and validation remain in its owning domain service. New routes require an operation ID or explicit exemption."
+  },
+  {
+    "method": "POST",
+    "path": "/api/world/bible/validation-runs/{run_id}/review-items",
+    "reason": "Legacy POST /api/world/bible/validation-runs/{run_id}/review-items domain API; authorization and validation remain in its owning domain service. New routes require an operation ID or explicit exemption."
+  },
+  {
+    "method": "POST",
+    "path": "/api/world/canon/admissions",
+    "reason": "Legacy POST /api/world/canon/admissions domain API; authorization and validation remain in its owning domain service. New routes require an operation ID or explicit exemption."
+  },
+  {
+    "method": "POST",
+    "path": "/api/world/canon/admissions/preview",
+    "reason": "Legacy POST /api/world/canon/admissions/preview domain API; authorization and validation remain in its owning domain service. New routes require an operation ID or explicit exemption."
+  },
+  {
+    "method": "POST",
+    "path": "/api/world/canon/revert",
+    "reason": "Legacy POST /api/world/canon/revert domain API; authorization and validation remain in its owning domain service. New routes require an operation ID or explicit exemption."
+  },
+  {
+    "method": "POST",
+    "path": "/api/world/characters",
+    "reason": "Legacy POST /api/world/characters domain API; authorization and validation remain in its owning domain service. New routes require an operation ID or explicit exemption."
+  },
+  {
+    "method": "POST",
+    "path": "/api/world/characters/{character_id}/knowledge",
+    "reason": "Legacy POST /api/world/characters/{character_id}/knowledge domain API; authorization and validation remain in its owning domain service. New routes require an operation ID or explicit exemption."
+  },
+  {
+    "method": "POST",
+    "path": "/api/world/characters/{character_id}/knowledge-tags/{tag_id}/exclude",
+    "reason": "Legacy POST /api/world/characters/{character_id}/knowledge-tags/{tag_id}/exclude domain API; authorization and validation remain in its owning domain service. New routes require an operation ID or explicit exemption."
+  },
+  {
+    "method": "POST",
+    "path": "/api/world/characters/{character_id}/knowledge-tags/{tag_id}/lock",
+    "reason": "Legacy POST /api/world/characters/{character_id}/knowledge-tags/{tag_id}/lock domain API; authorization and validation remain in its owning domain service. New routes require an operation ID or explicit exemption."
+  },
+  {
+    "method": "POST",
+    "path": "/api/world/cocreation-sessions",
+    "reason": "Legacy POST /api/world/cocreation-sessions domain API; authorization and validation remain in its owning domain service. New routes require an operation ID or explicit exemption."
+  },
+  {
+    "method": "POST",
+    "path": "/api/world/cocreation-sessions/{session_id}/chat",
+    "reason": "Legacy POST /api/world/cocreation-sessions/{session_id}/chat domain API; authorization and validation remain in its owning domain service. New routes require an operation ID or explicit exemption."
+  },
+  {
+    "method": "POST",
+    "path": "/api/world/cocreation-sessions/{session_id}/checkpoint",
+    "reason": "Legacy POST /api/world/cocreation-sessions/{session_id}/checkpoint domain API; authorization and validation remain in its owning domain service. New routes require an operation ID or explicit exemption."
+  },
+  {
+    "method": "POST",
+    "path": "/api/world/cocreation-sessions/{session_id}/messages",
+    "reason": "Legacy POST /api/world/cocreation-sessions/{session_id}/messages domain API; authorization and validation remain in its owning domain service. New routes require an operation ID or explicit exemption."
+  },
+  {
+    "method": "POST",
+    "path": "/api/world/cocreation-turns/task",
+    "reason": "Legacy POST /api/world/cocreation-turns/task domain API; authorization and validation remain in its owning domain service. New routes require an operation ID or explicit exemption."
+  },
+  {
+    "method": "POST",
+    "path": "/api/world/conflicts/{conflict_id}/resolve",
+    "reason": "Legacy POST /api/world/conflicts/{conflict_id}/resolve domain API; authorization and validation remain in its owning domain service. New routes require an operation ID or explicit exemption."
+  },
+  {
+    "method": "POST",
+    "path": "/api/world/core-checkpoints",
+    "reason": "Legacy POST /api/world/core-checkpoints domain API; authorization and validation remain in its owning domain service. New routes require an operation ID or explicit exemption."
+  },
+  {
+    "method": "POST",
+    "path": "/api/world/design-checkpoints",
+    "reason": "Legacy POST /api/world/design-checkpoints domain API; authorization and validation remain in its owning domain service. New routes require an operation ID or explicit exemption."
+  },
+  {
+    "method": "POST",
+    "path": "/api/world/design-checkpoints/revisions",
+    "reason": "Legacy POST /api/world/design-checkpoints/revisions domain API; authorization and validation remain in its owning domain service. New routes require an operation ID or explicit exemption."
+  },
+  {
+    "method": "POST",
+    "path": "/api/world/entities",
+    "reason": "Legacy POST /api/world/entities domain API; authorization and validation remain in its owning domain service. New routes require an operation ID or explicit exemption."
+  },
+  {
+    "method": "POST",
+    "path": "/api/world/entities/fusion-suggestions",
+    "reason": "Legacy POST /api/world/entities/fusion-suggestions domain API; authorization and validation remain in its owning domain service. New routes require an operation ID or explicit exemption."
+  },
+  {
+    "method": "POST",
+    "path": "/api/world/entities/fusion-suggestions/apply",
+    "reason": "Legacy POST /api/world/entities/fusion-suggestions/apply domain API; authorization and validation remain in its owning domain service. New routes require an operation ID or explicit exemption."
+  },
+  {
+    "method": "POST",
+    "path": "/api/world/entities/{candidate_id}/merge",
+    "reason": "Legacy POST /api/world/entities/{candidate_id}/merge domain API; authorization and validation remain in its owning domain service. New routes require an operation ID or explicit exemption."
+  },
+  {
+    "method": "POST",
+    "path": "/api/world/entities/{candidate_id}/resolve-as-alias",
+    "reason": "Legacy POST /api/world/entities/{candidate_id}/resolve-as-alias domain API; authorization and validation remain in its owning domain service. New routes require an operation ID or explicit exemption."
+  },
+  {
+    "method": "POST",
+    "path": "/api/world/entities/{entity_id}/image-candidates",
+    "reason": "Legacy POST /api/world/entities/{entity_id}/image-candidates domain API; authorization and validation remain in its owning domain service. New routes require an operation ID or explicit exemption."
+  },
+  {
+    "method": "POST",
+    "path": "/api/world/entities/{entity_id}/promote",
+    "reason": "Legacy POST /api/world/entities/{entity_id}/promote domain API; authorization and validation remain in its owning domain service. New routes require an operation ID or explicit exemption."
+  },
+  {
+    "method": "POST",
+    "path": "/api/world/entities/{entity_id}/rollback",
+    "reason": "Legacy POST /api/world/entities/{entity_id}/rollback domain API; authorization and validation remain in its owning domain service. New routes require an operation ID or explicit exemption."
+  },
+  {
+    "method": "POST",
+    "path": "/api/world/entities/{entity_id}/rollback-by-revision",
+    "reason": "Legacy POST /api/world/entities/{entity_id}/rollback-by-revision domain API; authorization and validation remain in its owning domain service. New routes require an operation ID or explicit exemption."
+  },
+  {
+    "method": "POST",
+    "path": "/api/world/events",
+    "reason": "Legacy POST /api/world/events domain API; authorization and validation remain in its owning domain service. New routes require an operation ID or explicit exemption."
+  },
+  {
+    "method": "POST",
+    "path": "/api/world/generation-center/chat",
+    "reason": "Legacy POST /api/world/generation-center/chat domain API; authorization and validation remain in its owning domain service. New routes require an operation ID or explicit exemption."
+  },
+  {
+    "method": "POST",
+    "path": "/api/world/generation-center/convergence",
+    "reason": "Legacy POST /api/world/generation-center/convergence domain API; authorization and validation remain in its owning domain service. New routes require an operation ID or explicit exemption."
+  },
+  {
+    "method": "POST",
+    "path": "/api/world/generation-center/exploration",
+    "reason": "Legacy POST /api/world/generation-center/exploration domain API; authorization and validation remain in its owning domain service. New routes require an operation ID or explicit exemption."
+  },
+  {
+    "method": "POST",
+    "path": "/api/world/generation-center/semantic-inspection",
+    "reason": "Legacy POST /api/world/generation-center/semantic-inspection domain API; authorization and validation remain in its owning domain service. New routes require an operation ID or explicit exemption."
+  },
+  {
+    "method": "POST",
+    "path": "/api/world/generation-center/suggestions",
+    "reason": "Legacy POST /api/world/generation-center/suggestions domain API; authorization and validation remain in its owning domain service. New routes require an operation ID or explicit exemption."
+  },
+  {
+    "method": "POST",
+    "path": "/api/world/generation-center/suggestions/task",
+    "reason": "Legacy POST /api/world/generation-center/suggestions/task domain API; authorization and validation remain in its owning domain service. New routes require an operation ID or explicit exemption."
+  },
+  {
+    "method": "POST",
+    "path": "/api/world/generation-center/suggestions/{suggestion_id}/apply-page-draft",
+    "reason": "Legacy POST /api/world/generation-center/suggestions/{suggestion_id}/apply-page-draft domain API; authorization and validation remain in its owning domain service. New routes require an operation ID or explicit exemption."
+  },
+  {
+    "method": "POST",
+    "path": "/api/world/generation-prompt-templates",
+    "reason": "Legacy POST /api/world/generation-prompt-templates domain API; authorization and validation remain in its owning domain service. New routes require an operation ID or explicit exemption."
+  },
+  {
+    "method": "POST",
+    "path": "/api/world/generation-prompt-templates/preview",
+    "reason": "Legacy POST /api/world/generation-prompt-templates/preview domain API; authorization and validation remain in its owning domain service. New routes require an operation ID or explicit exemption."
+  },
+  {
+    "method": "POST",
+    "path": "/api/world/generation-prompt-templates/validate",
+    "reason": "Legacy POST /api/world/generation-prompt-templates/validate domain API; authorization and validation remain in its owning domain service. New routes require an operation ID or explicit exemption."
+  },
+  {
+    "method": "POST",
+    "path": "/api/world/generation-prompt-templates/{template_id}/copy",
+    "reason": "Legacy POST /api/world/generation-prompt-templates/{template_id}/copy domain API; authorization and validation remain in its owning domain service. New routes require an operation ID or explicit exemption."
+  },
+  {
+    "method": "POST",
+    "path": "/api/world/image-candidates/{candidate_id}/adopt",
+    "reason": "Legacy POST /api/world/image-candidates/{candidate_id}/adopt domain API; authorization and validation remain in its owning domain service. New routes require an operation ID or explicit exemption."
+  },
+  {
+    "method": "POST",
+    "path": "/api/world/image-candidates/{candidate_id}/discard",
+    "reason": "Legacy POST /api/world/image-candidates/{candidate_id}/discard domain API; authorization and validation remain in its owning domain service. New routes require an operation ID or explicit exemption."
+  },
+  {
+    "method": "POST",
+    "path": "/api/world/impact-preview/source",
+    "reason": "Legacy POST /api/world/impact-preview/source domain API; authorization and validation remain in its owning domain service. New routes require an operation ID or explicit exemption."
+  },
+  {
+    "method": "POST",
+    "path": "/api/world/library/favorites",
+    "reason": "Legacy POST /api/world/library/favorites domain API; authorization and validation remain in its owning domain service. New routes require an operation ID or explicit exemption."
+  },
+  {
+    "method": "POST",
+    "path": "/api/world/library/recents",
+    "reason": "Legacy POST /api/world/library/recents domain API; authorization and validation remain in its owning domain service. New routes require an operation ID or explicit exemption."
+  },
+  {
+    "method": "POST",
+    "path": "/api/world/library/topics",
+    "reason": "Legacy POST /api/world/library/topics domain API; authorization and validation remain in its owning domain service. New routes require an operation ID or explicit exemption."
+  },
+  {
+    "method": "POST",
+    "path": "/api/world/library/topics/reorder",
+    "reason": "Legacy POST /api/world/library/topics/reorder domain API; authorization and validation remain in its owning domain service. New routes require an operation ID or explicit exemption."
+  },
+  {
+    "method": "POST",
+    "path": "/api/world/library/topics/{topic_id}/archive",
+    "reason": "Legacy POST /api/world/library/topics/{topic_id}/archive domain API; authorization and validation remain in its owning domain service. New routes require an operation ID or explicit exemption."
+  },
+  {
+    "method": "POST",
+    "path": "/api/world/library/topics/{topic_id}/members",
+    "reason": "Legacy POST /api/world/library/topics/{topic_id}/members domain API; authorization and validation remain in its owning domain service. New routes require an operation ID or explicit exemption."
+  },
+  {
+    "method": "POST",
+    "path": "/api/world/library/topics/{topic_id}/move",
+    "reason": "Legacy POST /api/world/library/topics/{topic_id}/move domain API; authorization and validation remain in its owning domain service. New routes require an operation ID or explicit exemption."
+  },
+  {
+    "method": "POST",
+    "path": "/api/world/map-atlas/{novel_id}/auto-drafts/build",
+    "reason": "Legacy POST /api/world/map-atlas/{novel_id}/auto-drafts/build domain API; authorization and validation remain in its owning domain service. New routes require an operation ID or explicit exemption."
+  },
+  {
+    "method": "POST",
+    "path": "/api/world/map-atlas/{novel_id}/auto-drafts/{batch_id}/nodes/{node_id}/revisions/{revision_id}/tray/{item_id}/place",
+    "reason": "Legacy POST /api/world/map-atlas/{novel_id}/auto-drafts/{batch_id}/nodes/{node_id}/revisions/{revision_id}/tray/{item_id}/place domain API; authorization and validation remain in its owning domain service. New routes require an operation ID or explicit exemption."
+  },
+  {
+    "method": "POST",
+    "path": "/api/world/map-atlas/{novel_id}/auto-drafts/{batch_id}/nodes/{node_id}/revisions/{revision_id}/tray/{item_id}/preview",
+    "reason": "Legacy POST /api/world/map-atlas/{novel_id}/auto-drafts/{batch_id}/nodes/{node_id}/revisions/{revision_id}/tray/{item_id}/preview domain API; authorization and validation remain in its owning domain service. New routes require an operation ID or explicit exemption."
+  },
+  {
+    "method": "POST",
+    "path": "/api/world/map-atlas/{novel_id}/auto-drafts/{batch_id}/redo",
+    "reason": "Legacy POST /api/world/map-atlas/{novel_id}/auto-drafts/{batch_id}/redo domain API; authorization and validation remain in its owning domain service. New routes require an operation ID or explicit exemption."
+  },
+  {
+    "method": "POST",
+    "path": "/api/world/map-atlas/{novel_id}/auto-drafts/{batch_id}/resume",
+    "reason": "Legacy POST /api/world/map-atlas/{novel_id}/auto-drafts/{batch_id}/resume domain API; authorization and validation remain in its owning domain service. New routes require an operation ID or explicit exemption."
+  },
+  {
+    "method": "POST",
+    "path": "/api/world/map-atlas/{novel_id}/nodes",
+    "reason": "Legacy POST /api/world/map-atlas/{novel_id}/nodes domain API; authorization and validation remain in its owning domain service. New routes require an operation ID or explicit exemption."
+  },
+  {
+    "method": "POST",
+    "path": "/api/world/map-atlas/{novel_id}/nodes/merge",
+    "reason": "Legacy POST /api/world/map-atlas/{novel_id}/nodes/merge domain API; authorization and validation remain in its owning domain service. New routes require an operation ID or explicit exemption."
+  },
+  {
+    "method": "POST",
+    "path": "/api/world/map-atlas/{novel_id}/nodes/merge-preview",
+    "reason": "Legacy POST /api/world/map-atlas/{novel_id}/nodes/merge-preview domain API; authorization and validation remain in its owning domain service. New routes require an operation ID or explicit exemption."
+  },
+  {
+    "method": "POST",
+    "path": "/api/world/map-atlas/{novel_id}/nodes/merge-undo",
+    "reason": "Legacy POST /api/world/map-atlas/{novel_id}/nodes/merge-undo domain API; authorization and validation remain in its owning domain service. New routes require an operation ID or explicit exemption."
+  },
+  {
+    "method": "POST",
+    "path": "/api/world/map-atlas/{novel_id}/nodes/merge-undo-preview",
+    "reason": "Legacy POST /api/world/map-atlas/{novel_id}/nodes/merge-undo-preview domain API; authorization and validation remain in its owning domain service. New routes require an operation ID or explicit exemption."
+  },
+  {
+    "method": "POST",
+    "path": "/api/world/map-atlas/{novel_id}/nodes/{node_id}/generate-structure",
+    "reason": "Legacy POST /api/world/map-atlas/{novel_id}/nodes/{node_id}/generate-structure domain API; authorization and validation remain in its owning domain service. New routes require an operation ID or explicit exemption."
+  },
+  {
+    "method": "POST",
+    "path": "/api/world/map-atlas/{novel_id}/nodes/{node_id}/layout",
+    "reason": "Legacy POST /api/world/map-atlas/{novel_id}/nodes/{node_id}/layout domain API; authorization and validation remain in its owning domain service. New routes require an operation ID or explicit exemption."
+  },
+  {
+    "method": "POST",
+    "path": "/api/world/map-atlas/{novel_id}/nodes/{node_id}/revisions",
+    "reason": "Legacy POST /api/world/map-atlas/{novel_id}/nodes/{node_id}/revisions domain API; authorization and validation remain in its owning domain service. New routes require an operation ID or explicit exemption."
+  },
+  {
+    "method": "POST",
+    "path": "/api/world/map-atlas/{novel_id}/nodes/{node_id}/revisions/{revision_id}/review",
+    "reason": "Legacy POST /api/world/map-atlas/{novel_id}/nodes/{node_id}/revisions/{revision_id}/review domain API; authorization and validation remain in its owning domain service. New routes require an operation ID or explicit exemption."
+  },
+  {
+    "method": "POST",
+    "path": "/api/world/map-atlas/{novel_id}/nodes/{node_id}/revisions/{revision_id}/review-preview",
+    "reason": "Legacy POST /api/world/map-atlas/{novel_id}/nodes/{node_id}/revisions/{revision_id}/review-preview domain API; authorization and validation remain in its owning domain service. New routes require an operation ID or explicit exemption."
+  },
+  {
+    "method": "POST",
+    "path": "/api/world/map-atlas/{novel_id}/pages/upload",
+    "reason": "Legacy POST /api/world/map-atlas/{novel_id}/pages/upload domain API; authorization and validation remain in its owning domain service. New routes require an operation ID or explicit exemption."
+  },
+  {
+    "method": "POST",
+    "path": "/api/world/map-atlas/{novel_id}/pages/{page_id}/adopt",
+    "reason": "Legacy POST /api/world/map-atlas/{novel_id}/pages/{page_id}/adopt domain API; authorization and validation remain in its owning domain service. New routes require an operation ID or explicit exemption."
+  },
+  {
+    "method": "POST",
+    "path": "/api/world/map-atlas/{novel_id}/pages/{page_id}/archive",
+    "reason": "Legacy POST /api/world/map-atlas/{novel_id}/pages/{page_id}/archive domain API; authorization and validation remain in its owning domain service. New routes require an operation ID or explicit exemption."
+  },
+  {
+    "method": "POST",
+    "path": "/api/world/map-atlas/{novel_id}/pages/{page_id}/edit",
+    "reason": "Legacy POST /api/world/map-atlas/{novel_id}/pages/{page_id}/edit domain API; authorization and validation remain in its owning domain service. New routes require an operation ID or explicit exemption."
+  },
+  {
+    "method": "POST",
+    "path": "/api/world/map-atlas/{novel_id}/pages/{page_id}/regenerate",
+    "reason": "Legacy POST /api/world/map-atlas/{novel_id}/pages/{page_id}/regenerate domain API; authorization and validation remain in its owning domain service. New routes require an operation ID or explicit exemption."
+  },
+  {
+    "method": "POST",
+    "path": "/api/world/map-atlas/{novel_id}/pages/{page_id}/reject",
+    "reason": "Legacy POST /api/world/map-atlas/{novel_id}/pages/{page_id}/reject domain API; authorization and validation remain in its owning domain service. New routes require an operation ID or explicit exemption."
+  },
+  {
+    "method": "POST",
+    "path": "/api/world/map-atlas/{novel_id}/pages/{page_id}/restore",
+    "reason": "Legacy POST /api/world/map-atlas/{novel_id}/pages/{page_id}/restore domain API; authorization and validation remain in its owning domain service. New routes require an operation ID or explicit exemption."
+  },
+  {
+    "method": "POST",
+    "path": "/api/world/map-atlas/{novel_id}/pages/{page_id}/retry",
+    "reason": "Legacy POST /api/world/map-atlas/{novel_id}/pages/{page_id}/retry domain API; authorization and validation remain in its owning domain service. New routes require an operation ID or explicit exemption."
+  },
+  {
+    "method": "POST",
+    "path": "/api/world/map-atlas/{novel_id}/runs",
+    "reason": "Legacy POST /api/world/map-atlas/{novel_id}/runs domain API; authorization and validation remain in its owning domain service. New routes require an operation ID or explicit exemption."
+  },
+  {
+    "method": "POST",
+    "path": "/api/world/map-atlas/{novel_id}/runs/{run_id}/confirm-prompts",
+    "reason": "Legacy POST /api/world/map-atlas/{novel_id}/runs/{run_id}/confirm-prompts domain API; authorization and validation remain in its owning domain service. New routes require an operation ID or explicit exemption."
+  },
+  {
+    "method": "POST",
+    "path": "/api/world/map-atlas/{novel_id}/runs/{run_id}/resume",
+    "reason": "Legacy POST /api/world/map-atlas/{novel_id}/runs/{run_id}/resume domain API; authorization and validation remain in its owning domain service. New routes require an operation ID or explicit exemption."
+  },
+  {
+    "method": "POST",
+    "path": "/api/world/map-atlas/{novel_id}/runs/{run_id}/stop",
+    "reason": "Legacy POST /api/world/map-atlas/{novel_id}/runs/{run_id}/stop domain API; authorization and validation remain in its owning domain service. New routes require an operation ID or explicit exemption."
+  },
+  {
+    "method": "POST",
+    "path": "/api/world/map-atlas/{novel_id}/spatial-clues/{clue_id}/review",
+    "reason": "Legacy POST /api/world/map-atlas/{novel_id}/spatial-clues/{clue_id}/review domain API; authorization and validation remain in its owning domain service. New routes require an operation ID or explicit exemption."
+  },
+  {
+    "method": "POST",
+    "path": "/api/world/opening-skeleton/tasks",
+    "reason": "Legacy POST /api/world/opening-skeleton/tasks domain API; authorization and validation remain in its owning domain service. New routes require an operation ID or explicit exemption."
+  },
+  {
+    "method": "POST",
+    "path": "/api/world/profiles/{entity_id}/migrate-generic",
+    "reason": "Legacy POST /api/world/profiles/{entity_id}/migrate-generic domain API; authorization and validation remain in its owning domain service. New routes require an operation ID or explicit exemption."
+  },
+  {
+    "method": "POST",
+    "path": "/api/world/project-vocabulary/{novel_id}/merge",
+    "reason": "Legacy POST /api/world/project-vocabulary/{novel_id}/merge domain API; authorization and validation remain in its owning domain service. New routes require an operation ID or explicit exemption."
+  },
+  {
+    "method": "POST",
+    "path": "/api/world/project-vocabulary/{novel_id}/presets",
+    "reason": "Legacy POST /api/world/project-vocabulary/{novel_id}/presets domain API; authorization and validation remain in its owning domain service. New routes require an operation ID or explicit exemption."
+  },
+  {
+    "method": "POST",
+    "path": "/api/world/project-vocabulary/{novel_id}/terms",
+    "reason": "Legacy POST /api/world/project-vocabulary/{novel_id}/terms domain API; authorization and validation remain in its owning domain service. New routes require an operation ID or explicit exemption."
+  },
+  {
+    "method": "POST",
+    "path": "/api/world/project-vocabulary/{novel_id}/terms/{type_ref}/archive",
+    "reason": "Legacy POST /api/world/project-vocabulary/{novel_id}/terms/{type_ref}/archive domain API; authorization and validation remain in its owning domain service. New routes require an operation ID or explicit exemption."
+  },
+  {
+    "method": "POST",
+    "path": "/api/world/project-vocabulary/{novel_id}/terms/{type_ref}/restore",
+    "reason": "Legacy POST /api/world/project-vocabulary/{novel_id}/terms/{type_ref}/restore domain API; authorization and validation remain in its owning domain service. New routes require an operation ID or explicit exemption."
+  },
+  {
+    "method": "POST",
+    "path": "/api/world/project-vocabulary/{novel_id}/terms/{type_ref}/split",
+    "reason": "Legacy POST /api/world/project-vocabulary/{novel_id}/terms/{type_ref}/split domain API; authorization and validation remain in its owning domain service. New routes require an operation ID or explicit exemption."
+  },
+  {
+    "method": "POST",
+    "path": "/api/world/relations",
+    "reason": "Legacy POST /api/world/relations domain API; authorization and validation remain in its owning domain service. New routes require an operation ID or explicit exemption."
+  },
+  {
+    "method": "POST",
+    "path": "/api/world/relations/membership-batch",
+    "reason": "Legacy POST /api/world/relations/membership-batch domain API; authorization and validation remain in its owning domain service. New routes require an operation ID or explicit exemption."
+  },
+  {
+    "method": "POST",
+    "path": "/api/world/relations/review-batch",
+    "reason": "Legacy POST /api/world/relations/review-batch domain API; authorization and validation remain in its owning domain service. New routes require an operation ID or explicit exemption."
+  },
+  {
+    "method": "POST",
+    "path": "/api/world/stress-reports/{report_id}/decisions",
+    "reason": "Legacy POST /api/world/stress-reports/{report_id}/decisions domain API; authorization and validation remain in its owning domain service. New routes require an operation ID or explicit exemption."
+  },
+  {
+    "method": "POST",
+    "path": "/api/world/suggestions/{suggestion_id}/confirm",
+    "reason": "Legacy POST /api/world/suggestions/{suggestion_id}/confirm domain API; authorization and validation remain in its owning domain service. New routes require an operation ID or explicit exemption."
+  },
+  {
+    "method": "POST",
+    "path": "/api/world/suggestions/{suggestion_id}/edit-confirm",
+    "reason": "Legacy POST /api/world/suggestions/{suggestion_id}/edit-confirm domain API; authorization and validation remain in its owning domain service. New routes require an operation ID or explicit exemption."
+  },
+  {
+    "method": "POST",
+    "path": "/api/world/suggestions/{suggestion_id}/merge",
+    "reason": "Legacy POST /api/world/suggestions/{suggestion_id}/merge domain API; authorization and validation remain in its owning domain service. New routes require an operation ID or explicit exemption."
+  },
+  {
+    "method": "POST",
+    "path": "/api/world/suggestions/{suggestion_id}/reject",
+    "reason": "Legacy POST /api/world/suggestions/{suggestion_id}/reject domain API; authorization and validation remain in its owning domain service. New routes require an operation ID or explicit exemption."
+  },
+  {
+    "method": "POST",
+    "path": "/api/world/suggestions/{suggestion_id}/resolve-as-alias",
+    "reason": "Legacy POST /api/world/suggestions/{suggestion_id}/resolve-as-alias domain API; authorization and validation remain in its owning domain service. New routes require an operation ID or explicit exemption."
+  },
+  {
+    "method": "POST",
+    "path": "/api/writing/comment-runs",
+    "reason": "Legacy POST /api/writing/comment-runs domain API; authorization and validation remain in its owning domain service. New routes require an operation ID or explicit exemption."
+  },
+  {
+    "method": "POST",
+    "path": "/api/writing/conflict-check-items/{item_id}/ai-suggestion-task",
+    "reason": "Legacy POST /api/writing/conflict-check-items/{item_id}/ai-suggestion-task domain API; authorization and validation remain in its owning domain service. New routes require an operation ID or explicit exemption."
+  },
+  {
+    "method": "POST",
+    "path": "/api/writing/conflict-check-items/{item_id}/confirm-continuity",
+    "reason": "Legacy POST /api/writing/conflict-check-items/{item_id}/confirm-continuity domain API; authorization and validation remain in its owning domain service. New routes require an operation ID or explicit exemption."
+  },
+  {
+    "method": "POST",
+    "path": "/api/writing/conflict-checks",
+    "reason": "Legacy POST /api/writing/conflict-checks domain API; authorization and validation remain in its owning domain service. New routes require an operation ID or explicit exemption."
+  },
+  {
+    "method": "POST",
+    "path": "/api/writing/conflict-checks/{check_id}/ai-review-task",
+    "reason": "Legacy POST /api/writing/conflict-checks/{check_id}/ai-review-task domain API; authorization and validation remain in its owning domain service. New routes require an operation ID or explicit exemption."
+  },
+  {
+    "method": "POST",
+    "path": "/api/writing/drafts",
+    "reason": "Legacy POST /api/writing/drafts domain API; authorization and validation remain in its owning domain service. New routes require an operation ID or explicit exemption."
+  },
+  {
+    "method": "POST",
+    "path": "/api/writing/drafts/{draft_id}/adopt",
+    "reason": "Legacy POST /api/writing/drafts/{draft_id}/adopt domain API; authorization and validation remain in its owning domain service. New routes require an operation ID or explicit exemption."
+  },
+  {
+    "method": "POST",
+    "path": "/api/writing/drafts/{draft_id}/checkpoint",
+    "reason": "Legacy POST /api/writing/drafts/{draft_id}/checkpoint domain API; authorization and validation remain in its owning domain service. New routes require an operation ID or explicit exemption."
+  },
+  {
+    "method": "POST",
+    "path": "/api/writing/drafts/{draft_id}/comments",
+    "reason": "Legacy POST /api/writing/drafts/{draft_id}/comments domain API; authorization and validation remain in its owning domain service. New routes require an operation ID or explicit exemption."
+  },
+  {
+    "method": "POST",
+    "path": "/api/writing/drafts/{draft_id}/discard",
+    "reason": "Legacy POST /api/writing/drafts/{draft_id}/discard domain API; authorization and validation remain in its owning domain service. New routes require an operation ID or explicit exemption."
+  },
+  {
+    "method": "POST",
+    "path": "/api/writing/drafts/{draft_id}/editorial-ready",
+    "reason": "Legacy POST /api/writing/drafts/{draft_id}/editorial-ready domain API; authorization and validation remain in its owning domain service. New routes require an operation ID or explicit exemption."
+  },
+  {
+    "method": "POST",
+    "path": "/api/writing/generate",
+    "reason": "Legacy POST /api/writing/generate domain API; authorization and validation remain in its owning domain service. New routes require an operation ID or explicit exemption."
+  },
+  {
+    "method": "POST",
+    "path": "/api/writing/recompute",
+    "reason": "Legacy POST /api/writing/recompute domain API; authorization and validation remain in its owning domain service. New routes require an operation ID or explicit exemption."
+  },
+  {
+    "method": "POST",
+    "path": "/api/writing/recompute/{operation_id}/adopt",
+    "reason": "Legacy POST /api/writing/recompute/{operation_id}/adopt domain API; authorization and validation remain in its owning domain service. New routes require an operation ID or explicit exemption."
+  },
+  {
+    "method": "POST",
+    "path": "/api/writing/semantic-reviews",
+    "reason": "Legacy POST /api/writing/semantic-reviews domain API; authorization and validation remain in its owning domain service. New routes require an operation ID or explicit exemption."
+  },
+  {
+    "method": "POST",
+    "path": "/api/writing/targeted-revisions",
+    "reason": "Legacy POST /api/writing/targeted-revisions domain API; authorization and validation remain in its owning domain service. New routes require an operation ID or explicit exemption."
+  },
+  {
+    "method": "PUT",
+    "path": "/api/account/settings/author-preferences",
+    "reason": "Legacy PUT /api/account/settings/author-preferences domain API; authorization and validation remain in its owning domain service. New routes require an operation ID or explicit exemption."
+  },
+  {
+    "method": "PUT",
+    "path": "/api/account/settings/image-connection",
+    "reason": "Legacy PUT /api/account/settings/image-connection domain API; authorization and validation remain in its owning domain service. New routes require an operation ID or explicit exemption."
+  },
+  {
+    "method": "PUT",
+    "path": "/api/account/settings/llm-connections/{provider_id}",
+    "reason": "Legacy PUT /api/account/settings/llm-connections/{provider_id} domain API; authorization and validation remain in its owning domain service. New routes require an operation ID or explicit exemption."
+  },
+  {
+    "method": "PUT",
+    "path": "/api/account/settings/llm-defaults",
+    "reason": "Legacy PUT /api/account/settings/llm-defaults domain API; authorization and validation remain in its owning domain service. New routes require an operation ID or explicit exemption."
+  },
+  {
+    "method": "PUT",
+    "path": "/api/account/settings/llm-defaults/secondary-models",
+    "reason": "Legacy PUT /api/account/settings/llm-defaults/secondary-models domain API; authorization and validation remain in its owning domain service. New routes require an operation ID or explicit exemption."
+  },
+  {
+    "method": "PUT",
+    "path": "/api/assistant/editorial/issues/{issue_id}",
+    "reason": "Legacy PUT /api/assistant/editorial/issues/{issue_id} domain API; authorization and validation remain in its owning domain service. New routes require an operation ID or explicit exemption."
+  },
+  {
+    "method": "PUT",
+    "path": "/api/assistant/editorial/policy",
+    "reason": "Legacy PUT /api/assistant/editorial/policy domain API; authorization and validation remain in its owning domain service. New routes require an operation ID or explicit exemption."
+  },
+  {
+    "method": "PUT",
+    "path": "/api/assistant/forecasts/policy",
+    "reason": "Legacy PUT /api/assistant/forecasts/policy domain API; authorization and validation remain in its owning domain service. New routes require an operation ID or explicit exemption."
+  },
+  {
+    "method": "PUT",
+    "path": "/api/assistant/policy",
+    "reason": "Legacy PUT /api/assistant/policy domain API; authorization and validation remain in its owning domain service. New routes require an operation ID or explicit exemption."
+  },
+  {
+    "method": "PUT",
+    "path": "/api/collaboration/cases/{case_id}/goal",
+    "reason": "Legacy PUT /api/collaboration/cases/{case_id}/goal domain API; authorization and validation remain in its owning domain service. New routes require an operation ID or explicit exemption."
+  },
+  {
+    "method": "PUT",
+    "path": "/api/collaboration/cases/{case_id}/grant",
+    "reason": "Legacy PUT /api/collaboration/cases/{case_id}/grant domain API; authorization and validation remain in its owning domain service. New routes require an operation ID or explicit exemption."
+  },
+  {
+    "method": "PUT",
+    "path": "/api/imports/migrations/{session_id}/decisions",
+    "reason": "Legacy PUT /api/imports/migrations/{session_id}/decisions domain API; authorization and validation remain in its owning domain service. New routes require an operation ID or explicit exemption."
+  },
+  {
+    "method": "PUT",
+    "path": "/api/imports/migrations/{session_id}/mapping",
+    "reason": "Legacy PUT /api/imports/migrations/{session_id}/mapping domain API; authorization and validation remain in its owning domain service. New routes require an operation ID or explicit exemption."
+  },
+  {
+    "method": "PUT",
+    "path": "/api/interactions/journeys/{journey_id}/care/policy",
+    "reason": "Legacy PUT /api/interactions/journeys/{journey_id}/care/policy domain API; authorization and validation remain in its owning domain service. New routes require an operation ID or explicit exemption."
+  },
+  {
+    "method": "PUT",
+    "path": "/api/interactions/journeys/{journey_id}/overview",
+    "reason": "Legacy PUT /api/interactions/journeys/{journey_id}/overview domain API; authorization and validation remain in its owning domain service. New routes require an operation ID or explicit exemption."
+  },
+  {
+    "method": "PUT",
+    "path": "/api/interactions/openings/{opening_id}",
+    "reason": "Legacy PUT /api/interactions/openings/{opening_id} domain API; authorization and validation remain in its owning domain service. New routes require an operation ID or explicit exemption."
+  },
+  {
+    "method": "PUT",
+    "path": "/api/local-agent/companion/jobs/{invocation_id}/output",
+    "reason": "Legacy PUT /api/local-agent/companion/jobs/{invocation_id}/output domain API; authorization and validation remain in its owning domain service. New routes require an operation ID or explicit exemption."
+  },
+  {
+    "method": "PUT",
+    "path": "/api/local-agent/executor",
+    "reason": "Legacy PUT /api/local-agent/executor domain API; authorization and validation remain in its owning domain service. New routes require an operation ID or explicit exemption."
+  },
+  {
+    "method": "PUT",
+    "path": "/api/projects/{project_id}",
+    "reason": "Legacy PUT /api/projects/{project_id} domain API; authorization and validation remain in its owning domain service. New routes require an operation ID or explicit exemption."
+  },
+  {
+    "method": "PUT",
+    "path": "/api/projects/{project_id}/author-examples",
+    "reason": "Legacy PUT /api/projects/{project_id}/author-examples domain API; authorization and validation remain in its owning domain service. New routes require an operation ID or explicit exemption."
+  },
+  {
+    "method": "PUT",
+    "path": "/api/projects/{project_id}/author-examples/for-writing",
+    "reason": "Legacy PUT /api/projects/{project_id}/author-examples/for-writing domain API; authorization and validation remain in its owning domain service. New routes require an operation ID or explicit exemption."
+  },
+  {
+    "method": "PUT",
+    "path": "/api/projects/{project_id}/author-preferences",
+    "reason": "Legacy PUT /api/projects/{project_id}/author-preferences domain API; authorization and validation remain in its owning domain service. New routes require an operation ID or explicit exemption."
+  },
+  {
+    "method": "PUT",
+    "path": "/api/projects/{project_id}/editorial-brief",
+    "reason": "Legacy PUT /api/projects/{project_id}/editorial-brief domain API; authorization and validation remain in its owning domain service. New routes require an operation ID or explicit exemption."
+  },
+  {
+    "method": "PUT",
+    "path": "/api/projects/{project_id}/editorial-brief/for-writing",
+    "reason": "Legacy PUT /api/projects/{project_id}/editorial-brief/for-writing domain API; authorization and validation remain in its owning domain service. New routes require an operation ID or explicit exemption."
+  },
+  {
+    "method": "PUT",
+    "path": "/api/projects/{project_id}/llm-cost-saving",
+    "reason": "Legacy PUT /api/projects/{project_id}/llm-cost-saving domain API; authorization and validation remain in its owning domain service. New routes require an operation ID or explicit exemption."
+  },
+  {
+    "method": "PUT",
+    "path": "/api/projects/{project_id}/llm-settings",
+    "reason": "Legacy PUT /api/projects/{project_id}/llm-settings domain API; authorization and validation remain in its owning domain service. New routes require an operation ID or explicit exemption."
+  },
+  {
+    "method": "PUT",
+    "path": "/api/world/characters/{character_id}",
+    "reason": "Legacy PUT /api/world/characters/{character_id} domain API; authorization and validation remain in its owning domain service. New routes require an operation ID or explicit exemption."
+  },
+  {
+    "method": "PUT",
+    "path": "/api/world/entities/{entity_id}",
+    "reason": "Legacy PUT /api/world/entities/{entity_id} domain API; authorization and validation remain in its owning domain service. New routes require an operation ID or explicit exemption."
+  },
+  {
+    "method": "PUT",
+    "path": "/api/world/entities/{entity_id}/image",
+    "reason": "Legacy PUT /api/world/entities/{entity_id}/image domain API; authorization and validation remain in its owning domain service. New routes require an operation ID or explicit exemption."
+  },
+  {
+    "method": "PUT",
+    "path": "/api/world/events/{entity_id}",
+    "reason": "Legacy PUT /api/world/events/{entity_id} domain API; authorization and validation remain in its owning domain service. New routes require an operation ID or explicit exemption."
+  },
+  {
+    "method": "PUT",
+    "path": "/api/world/generation-prompt-templates/{template_id}",
+    "reason": "Legacy PUT /api/world/generation-prompt-templates/{template_id} domain API; authorization and validation remain in its owning domain service. New routes require an operation ID or explicit exemption."
+  },
+  {
+    "method": "PUT",
+    "path": "/api/world/knowledge/{knowledge_id}",
+    "reason": "Legacy PUT /api/world/knowledge/{knowledge_id} domain API; authorization and validation remain in its owning domain service. New routes require an operation ID or explicit exemption."
+  },
+  {
+    "method": "PUT",
+    "path": "/api/world/library/view-prefs",
+    "reason": "Legacy PUT /api/world/library/view-prefs domain API; authorization and validation remain in its owning domain service. New routes require an operation ID or explicit exemption."
+  },
+  {
+    "method": "PUT",
+    "path": "/api/world/profiles/{entity_id}",
+    "reason": "Legacy PUT /api/world/profiles/{entity_id} domain API; authorization and validation remain in its owning domain service. New routes require an operation ID or explicit exemption."
+  },
+  {
+    "method": "PUT",
+    "path": "/api/world/relations/{rel_id}",
+    "reason": "Legacy PUT /api/world/relations/{rel_id} domain API; authorization and validation remain in its owning domain service. New routes require an operation ID or explicit exemption."
+  },
+  {
+    "method": "PUT",
+    "path": "/api/world/revision-notes",
+    "reason": "Legacy PUT /api/world/revision-notes domain API; authorization and validation remain in its owning domain service. New routes require an operation ID or explicit exemption."
+  },
+  {
+    "method": "PUT",
+    "path": "/api/writing/drafts/{draft_id}",
+    "reason": "Legacy PUT /api/writing/drafts/{draft_id} domain API; authorization and validation remain in its owning domain service. New routes require an operation ID or explicit exemption."
+  }
+]

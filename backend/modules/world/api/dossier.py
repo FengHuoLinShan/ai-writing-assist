@@ -34,6 +34,7 @@ from modules.world.schemas.dossier import (
 @router.get(
     "/entities/{entity_id}/dossier",
     response_model=DossierReadResponse,
+    openapi_extra={"x-novelcraft-operation-id": "world.dossier.read"},
 )
 async def read_dossier(
     db: DbSession,
@@ -70,6 +71,7 @@ async def list_dossier_facets(
 @router.get(
     "/entities/{entity_id}/dossier/history",
     response_model=DossierHistoryResponse,
+    openapi_extra={"x-novelcraft-operation-id": "world.dossier.history.read"},
 )
 async def read_dossier_history(
     db: DbSession,
@@ -94,6 +96,10 @@ async def read_dossier_history(
     "/entities/{entity_id}/dossier/entries",
     response_model=DossierEntryResponse,
     status_code=201,
+    openapi_extra={
+        "x-novelcraft-operation-id": "world.dossier.entry.create",
+        "x-novelcraft-operation-argument-map": {"data": "entry"},
+    },
 )
 async def create_dossier_entry(
     db: DbSession,
@@ -108,6 +114,10 @@ async def create_dossier_entry(
 @router.patch(
     "/entities/{entity_id}/dossier/entries/{revision_id}",
     response_model=DossierEntryResponse,
+    openapi_extra={
+        "x-novelcraft-operation-id": "world.dossier.entry.edit",
+        "x-novelcraft-operation-argument-map": {"data": "update"},
+    },
 )
 async def update_dossier_entry(
     db: DbSession,
@@ -125,6 +135,10 @@ async def update_dossier_entry(
 @router.post(
     "/entities/{entity_id}/dossier/groups/{entry_group_id}/restore",
     response_model=DossierEntryResponse,
+    openapi_extra={
+        "x-novelcraft-operation-id": "world.dossier.entry.restore",
+        "x-novelcraft-operation-argument-map": {"data": "restore"},
+    },
 )
 async def restore_dossier_entry(
     db: DbSession,
@@ -142,6 +156,7 @@ async def restore_dossier_entry(
 @router.get(
     "/dossier-templates/{profile_type}",
     response_model=DossierTemplateResponse,
+    openapi_extra={"x-novelcraft-operation-id": "world.dossier.template.read"},
 )
 async def read_dossier_template(
     db: DbSession,
@@ -168,6 +183,10 @@ async def read_dossier_template_history(
 @router.put(
     "/dossier-templates/{profile_type}",
     response_model=DossierTemplateResponse,
+    openapi_extra={
+        "x-novelcraft-operation-id": "world.dossier.template.edit",
+        "x-novelcraft-operation-argument-map": {"data": "update"},
+    },
 )
 async def upsert_dossier_template(
     db: DbSession,

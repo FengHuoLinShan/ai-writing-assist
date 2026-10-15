@@ -221,6 +221,7 @@ from app.assistant_operation_registry import (
     assistant_spatial_advisory_operations,
     assistant_notice_operations,
     imports_operations,
+    world_dossier_operations,
 )
 from app.notice_source_registry import notice_sources as _assistant_notice_sources
 from app.assistant_operation_registry import project_dedup_operations
@@ -431,6 +432,7 @@ def _container_services() -> Iterable[tuple[ServiceKey[Any], Any]]:
                 **world_vocabulary_operations,
                 **world_review_operations,
                 **assistant_notice_operations,
+                **world_dossier_operations,
             },
         ),
         (ASSISTANT_OPERATION_TRACE, _record_operation_trace),

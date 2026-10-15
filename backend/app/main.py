@@ -817,7 +817,7 @@ app.include_router(
 )
 
 
-def _trace_route_arguments(values: dict) -> dict:
+def _trace_route_arguments(values: dict, argument_map: dict | None = None) -> dict:
     arguments = {}
     for name, value in values.items():
         if name in {"db", "request", "response"}:
@@ -825,7 +825,11 @@ def _trace_route_arguments(values: dict) -> dict:
         if hasattr(value, "model_dump"):
             rendered = value.model_dump(mode="json")
             if isinstance(rendered, dict):
-                arguments.update(rendered)
+                target = (argument_map or {}).get(name)
+                if target:
+                    arguments[target] = rendered
+                else:
+                    arguments.update(rendered)
         else:
             arguments[name] = value
     return arguments
@@ -875,10 +879,17 @@ def _install_operation_trace_route_adapters(application: FastAPI) -> None:
             )
         original_endpoint = route.endpoint
         original_app = route.app
+        argument_map = (route.openapi_extra or {}).get(
+            "x-novelcraft-operation-argument-map", {}
+        )
 
         @wraps(original_endpoint)
         async def traced_endpoint(
-            *args, __endpoint=original_endpoint, __operation=operation, **kwargs
+            *args,
+            __endpoint=original_endpoint,
+            __operation=operation,
+            __argument_map=argument_map,
+            **kwargs,
         ):
             trace_context = _active_http_operation_trace.get()
             db = kwargs.get("db")
@@ -890,7 +901,7 @@ def _install_operation_trace_route_adapters(application: FastAPI) -> None:
                 owner_id = str(current_account_id())
             except Exception:
                 return await __endpoint(*args, **kwargs)
-            arguments = _trace_route_arguments(kwargs)
+            arguments = _trace_route_arguments(kwargs, __argument_map)
             novel_id = str(arguments.get("novel_id") or arguments.get("project_id") or "")
             trace_context.update(
                 owner_id=owner_id,
