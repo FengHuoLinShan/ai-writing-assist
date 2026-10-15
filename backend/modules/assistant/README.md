@@ -57,7 +57,7 @@ World/Writing 复用原领域审稿任务；RP 使用 Interaction 的连续性�
 Scene 聚合；POST `/dispositions` 处理已读、稍后（1–720 小时）和忽略；PUT/DELETE
 `/category-mutes/{source_id}/{category}` 以行版本静默或恢复类别。路由先校验当前 owner 的
 活跃项目；Scene scope 再经 `OUTLINE_SCENE_SERVICE` 按同一 novel 校验。写操作沿请求事务
-flush，不在领域服务内 commit。
+flush，不在领域服务内 commit；处置与类别静默服务入口拒绝公开 demo 只读身份。
 
 `app.notice_source_registry.notice_sources` 物化只读 provider spec。Assistant 聚合只调用此
 registry；每个并行来源各自打开和关闭 AsyncSession，超时或异常显示“暂时无法读取”并令响应

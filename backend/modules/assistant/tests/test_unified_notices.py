@@ -14,10 +14,18 @@ from alembic.migration import MigrationContext
 from alembic.operations import Operations
 from sqlalchemy import select
 
-from core.errors import ConflictError
+from core.errors import ConflictError, NotFoundError
+from modules.account.context import bind_principal, reset_principal
+from modules.account.contracts import AccountPrincipal
+from modules.account.models import Account
 from modules.assistant import notice_service
-from modules.assistant.notice_contracts import NoticeDispositionRequest, NoticeScope
+from modules.assistant.notice_contracts import (
+    NoticeCategoryMuteRequest,
+    NoticeDispositionRequest,
+    NoticeScope,
+)
 from modules.assistant.notice_models import AssistantNoticeDisposition
+from modules.project.models import Project
 from modules.story.notice_sources import _scene_issues
 from modules.writing.notice_sources import decide_conflict_notice
 from modules.writing.recompute import WritingRecomputeService
@@ -375,6 +383,59 @@ async def test_disposition_provider_timeout_is_bounded(db_session, test_project_
             sources={"test.slow": source},
         )
     assert error.value.code == "NOTICE_UNAVAILABLE"
+
+
+@pytest.mark.asyncio
+async def test_public_demo_cannot_write_notice_state(db_session):
+    from modules.assistant.notices_api import (
+        mute_notice_category,
+        update_notice_disposition,
+    )
+
+    account = Account(status="active", support_code="NOTICE-DEMO")
+    db_session.add(account)
+    await db_session.flush()
+    project = Project(
+        owner_id=account.id,
+        title="演示作品",
+        language="zh",
+        default_reveal_policy="author_safe",
+        settings={},
+    )
+    db_session.add(project)
+    await db_session.flush()
+    token = bind_principal(
+        AccountPrincipal(
+            account_id=account.id,
+            status="active",
+            identity_type="demo_readonly",
+            support_code=account.support_code,
+            access_scope="demo_readonly",
+            demo_project_id=project.id,
+        )
+    )
+    try:
+        request = NoticeDispositionRequest(
+            novel_id=project.id,
+            source_id="story.structure",
+            notice_key="story.structure:one",
+            basis_fingerprint="a" * 64,
+            scope=NoticeScope(chapter_index=1),
+            expected_row_version=0,
+            action="read",
+        )
+        with pytest.raises(NotFoundError):
+            await update_notice_disposition(db_session, request)
+        with pytest.raises(NotFoundError):
+            await mute_notice_category(
+                db_session,
+                "story.structure",
+                "scene_structure",
+                NoticeCategoryMuteRequest(novel_id=project.id, expected_row_version=0),
+            )
+    finally:
+        reset_principal(token)
+    assert await db_session.scalar(select(AssistantNoticeDisposition)) is None
 
 
 @pytest.mark.asyncio

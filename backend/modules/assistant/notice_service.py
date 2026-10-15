@@ -28,6 +28,7 @@ from modules.assistant.notice_models import (
     AssistantNoticeCategoryMute,
     AssistantNoticeDisposition,
 )
+from modules.project.facade import require_active_project
 
 logger = logging.getLogger(__name__)
 
@@ -256,6 +257,7 @@ async def apply_disposition(
     *,
     sources: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
+    await require_active_project(db, str(request.novel_id), allow_demo_readonly=False)
     source, item = await _find_current_item(
         db,
         str(request.novel_id),
@@ -370,6 +372,7 @@ async def set_category_mute(
     muted: bool,
     sources: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
+    await require_active_project(db, novel_id, allow_demo_readonly=False)
     registry = sources if sources is not None else _sources()
     if source_id not in registry:
         raise NotFoundError("提醒来源不存在")
