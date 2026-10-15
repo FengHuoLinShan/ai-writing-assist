@@ -83,6 +83,13 @@ from modules.world.map_atlas_facade import (  # noqa: F401
     list_adopted_map_continuity_facts,
     read_map_node_heads,
 )
+from modules.world.project_vocabulary_service import (  # noqa: F401
+    invalidate_model_vocabulary_evidence,
+    persist_reviewed_model_vocabulary_proposal,
+    read_project_vocabulary,
+    replace_model_vocabulary_evidence,
+    resolve_vocabulary_type_revisions,
+)
 from modules.world.services.core.knowledge_visibility_service import (
     check_knowledge_visibility as _check_knowledge_visibility_impl,
 )
@@ -194,6 +201,11 @@ __all__ = [
     "list_adopted_map_continuity_facts",
     "read_map_node_heads",
     "read_world_bible_page_revisions",
+    "read_project_vocabulary",
+    "resolve_vocabulary_type_revisions",
+    "persist_reviewed_model_vocabulary_proposal",
+    "replace_model_vocabulary_evidence",
+    "invalidate_model_vocabulary_evidence",
     "list_characters",
     "list_entities",
     "list_entity_terms",

@@ -775,6 +775,7 @@ from modules.story.continuity import api as memory_api  # noqa: E402
 from modules.story.outline_state import api as outline_api  # noqa: E402
 from modules.world import api as world_api  # noqa: E402
 from modules.world import map_atlas_api as world_map_atlas_api  # noqa: E402
+from modules.world import project_vocabulary_api as world_vocabulary_api  # noqa: E402
 from modules.writing import api as writing_api  # noqa: E402
 
 app.include_router(assistant_api.router)
@@ -794,6 +795,7 @@ app.include_router(interaction_api.router)
 app.include_router(interaction_forecast_router)
 app.include_router(world_api.router)
 app.include_router(world_map_atlas_api.router)
+app.include_router(world_vocabulary_api.router)
 app.include_router(memory_api.router)
 app.include_router(outline_api.router)
 app.include_router(evidence_api.router)

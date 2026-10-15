@@ -528,6 +528,11 @@ with more than 1,000 objects using the explicit PostgreSQL E2E environment and `
 真实浏览器 `map-structure.spec.js` 使用合成地图/PNG、专用 PostgreSQL 和私有 MinIO，
 不调用付费模型。模型质量和付费图片效果必须通过各自显式实测报告，不能由上述结果代替。
 
+项目词表的 PostgreSQL 门禁为 `tests/e2e/test_project_vocabulary_postgres.py`，已纳入
+`make test-postgresql-critical`：验证修订与词条禁止直接硬删、历史不可修改、head/previous
+不能引用另一词条、并发同名创建去重、同一版本竞争更新只成功一次，以及项目删除的级联清理。
+只允许显式专用数据库；SQLite 词表测试不代替这些事务验证。
+
 RP 长期约定与max兼容性用例位于 interaction 的 services/prompts/tasks 测试、LLM能力/客户端测试、
 `tests/e2e/test_rp_agreements.py` 和前端 InteractionView/interaction E2E。验收包括旧快照、零覆盖、
 省略/清空、多次reducer、分支、并发、格式失败与30秒等待状态。工程测试不调用付费模型。

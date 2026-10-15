@@ -13,6 +13,27 @@ from typing import TYPE_CHECKING, Any, Literal, Protocol
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
+from modules.world.project_vocabulary_schemas import (
+    ModelVocabularyProposal as ModelVocabularyProposal,
+)
+from modules.world.project_vocabulary_schemas import (
+    ProjectVocabularyReadResponse as ProjectVocabularyReadResponse,
+)
+from modules.world.project_vocabulary_schemas import (
+    VocabularyEvidence as VocabularyEvidence,
+)
+from modules.world.project_vocabulary_schemas import (
+    VocabularyReviewReceipt as VocabularyReviewReceipt,
+)
+from modules.world.project_vocabulary_schemas import (
+    VocabularyTraits as VocabularyTraits,
+)
+from modules.world.project_vocabulary_schemas import (
+    vocabulary_evidence_hash as vocabulary_evidence_hash,
+)
+from modules.world.project_vocabulary_schemas import (
+    vocabulary_proposal_hash as vocabulary_proposal_hash,
+)
 from modules.world.schemas import RelationKind
 
 if TYPE_CHECKING:

@@ -34,6 +34,10 @@ Imports 纯规划/切分/提交原语准备边界，不创建旧 workflow owner�
 
 ## 职责边界
 
+观察模态的七种值由 `shared.observation.ObservationModality` 定义，Evolution contracts
+继续原名再出口。空间、档案等消费者复用同一 Literal，避免另建不兼容的置信度枚举；
+这次归属调整不改变既有观察值、稳定身份或回执版本。
+
 - 消费登记与影响评估（P2-C，2026-10-07）：`consumption.py` 契约（登记内嵌产物行
   `state_json["_consumption_registry"]`，不加表）+ `registration.py` 写入端 +
   `impact.py` 组装层。失效回执增量携带 `affected`（场景+机器可读原因+known/unknown）、

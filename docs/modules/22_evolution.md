@@ -1,5 +1,9 @@
 # Module: evolution / 演化系统模块
 
+`ObservationModality` 的七种值统一定义于 `shared.observation`，本模块 contracts 保持
+原名再出口。类型共享不改变观察 wire、稳定身份或回执版本；地图与其他消费者不得另造
+不兼容的置信度枚举。
+
 第三阶段实施入口见 [作者全景、细节台账与持续发现计划](../plans/2026-10-08-world-evolution-phase3.md)。
 当前新增 `ledger_contracts.py` 定义派生主题、逐字证据/发生实例、修订变化包和独立作者决定，
 以及主题/不可变修订的 ORM 与迁移；`discovery.py` 已接逐场理解和原请求冻结/预算，

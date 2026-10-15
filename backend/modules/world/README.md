@@ -1422,3 +1422,15 @@ version_number 对应的 revision_id/revision_digest；页面和 revision 联接
 在 Story，总纲读取只比较响应，不回写任何 World/Story 状态。World background 的页面输入
 在同一查询附带 revision 元数据，避免消费后再查最新版本导致登记错误。该元数据不进入原 source_hash。
 现有公开 API owner 门禁、append-only 修订和 CAS 机制不变；内部批量出口不新增公开路由。
+
+
+### 统一项目词表（地图增强 M0）
+
+`project_vocabulary_service.py` 管理 `project_vocabulary_terms` 与不可变修订，覆盖空间类型、
+层级、图元、关系、交通与通行，以及共用的档案面向和势力类型。作者创建和变更比较期望修订，
+合并保留重定向，归档保留墓碑；预设按版本复制，可混搭且重复应用幂等。地图固定类型修订，
+不读取当前修订覆盖旧特性。模型涌现经两个Scene证据和独立复核绑定，调用方仍须先验证原文。
+
+`project_vocabulary_api.router` 挂载 `/api/world/project-vocabulary`；跨模块仅经 contracts/facade
+导出的有界读取、固定修订解析、复核提案持久化与证据失效窄口。详见
+[项目词表实现](project_vocabulary.md) 与 [World模块](../../../docs/modules/02_world.md)。
