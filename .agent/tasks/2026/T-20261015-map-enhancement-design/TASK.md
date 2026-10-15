@@ -3,7 +3,7 @@ id: T-20261015-map-enhancement-design
 title: 地图系统增强设计与分批实施（自动冷启动、参与创作决策、题材鲁棒性）
 status: active
 created: 2026-10-15T10:54:00+08:00
-updated: 2026-10-15T22:44:27+08:00
+updated: 2026-10-15T23:04:48+08:00
 ---
 
 # 地图系统增强设计
@@ -13,14 +13,14 @@ updated: 2026-10-15T22:44:27+08:00
 - 当前授权：2026-10-15 用户 `/goal` 要求执行 `codex/map-enhancement-plan` 的计划；Luna/max 子代理并行实现，Sol/high 按批次 review 与修复。只做本地开发验证；没有发布、真实数据破坏或对外发送授权。用户16:43补充“修复由sol子代理直接修”：后续代码修复均由Sol/high子代理直接执行。用户曾要求“由你收尾”；其后明确答复范围为三份计划全部实施，包括操作目录、对象档案、导演、世界推进。root继续负责分批拆解、集成、验证、任务记录与实际隔离评测；已明确确认采用“模拟作者显式指定Scene地点后做辅助Writing对比”。
 - 主工作区：`/Users/tywww/项目/ai-writing-assist/.worktrees/map-enhancement-plan`，分支 `codex/map-enhancement-plan`。原 Desktop 路径已失效；仓库实际已迁至 `/Users/tywww/项目/ai-writing-assist`。
 - 恢复时基线：设计提交 `3fd5ca29e`；刚 fetch 的 `origin/main=00d861283` 已无冲突合并为 `b74d7c28d`（本地），包含 G8c 与第三批评测/HTTPX2 变更。开始时主工作区干净，其他 worktree/WIP 保留。
-- 当前里程碑：primary HEAD `158cbe57b`，A0a目录v7及Sol兼容性修复、C3a通知后端及Sol修复、R3结构失败根因修复已集成本地。A0扩大回归1217pass、C3/Story/Evolution回归797pass；地图旧4561pass限旧版本。C0a23e322e01正在Sol/high审修；两个Luna/max分别继续A0b trace和C0b/C2三层聚合。没有push/PR/main合并/部署。
-- 下一步：收C0a Sol直接修复并集成；A0b追踪/路由ratchet及C0b/C2聚合每个可审查切片继续交Sol。新服务组合根接线、线性迁移和隔离PG验证后继续A1/A2、C3前端/C4/C5。R3正常停止封存，5主回执不变，Writing/Assistant/judge未运行、holdout不读取；不重试旧实验，下一真实评测须新pipeline身份。
+- 当前里程碑：primary HEAD1d503209b（代码b81ba6887），A0a与C3a、C0a均已由Sol/high直接审修并集成本地。root扩大回归A0为1217pass、C3/Story/Evolution为797pass、C0跨World/Story/Evidence为2978pass+1skip+2deselect；新服务组合根仍待A0b，工程通过不等于产品闭环或真实质量。A0b trace、C0b/C2聚合、C3b界面并行，C0b cherry冲突暂交Sol直接解决。
+- 下一步：收Sol在C0b树的净冲突修复后恢复Luna继续聚合；收A0b trace/路由ratchet和C3b UI可审查提交交Sol。C0/C3/trace组合根、线性迁移和PG parity后继续A1/A2、C2/C4/C5。R3保持正常停止封存，5主回执不变；下一真实评测需新pipeline身份，旧实验不重试、holdout不读取。
 - 范围：用户已明确“该分支三份计划全部实施，包括操作目录、对象档案、导演和世界推进”。执行地图M0–M5及两个配套完整计划；既有计划的条件依赖和真实质量门禁仍有效，不能冒称完成。
 - 依赖：M5 依赖独立势力路线图阶段 1，现有计划明确阶段 1 前不提供领地图层；不得读取旧无时效势力字段冒充完成。
 - 已落地共享前置：`6fcce3bfd` 把7种ObservationModality上移shared并保持Evolution兼容再出口（16测）；`16f64570a` 在既有Story scene-source port提供按当前顺序的锚点/替换链只读数据（5测）。两者ruff通过，后续纳入Sol审查。
 - 验证环境：主树独立backend/.venv（Python3.14.8、locked ci）及frontend node_modules；本任务专用PostgreSQL容器 `map-enhancement-test-20261015`、loopback65202、数据库 `map_enhancement_test`，基线完整Alembic升级已通过，未接触真实库。
 - 验证：实现前 `make docs-check` 已通过（152 ORM表、49ADR）；没有真实模型/真实稿件验证。
-- 最后核实：2026-10-15T22:44:27+08:00
+- 最后核实：2026-10-15T23:04:48+08:00
 
 ## 批次与分工
 
@@ -372,3 +372,11 @@ updated: 2026-10-15T22:44:27+08:00
 - R3封存停止，本批未重跑真实请求、未改实验DB/原始回执/种子或holdout。真实质量未通过、human_validated=false；本地工程绿色不等于作者验收。没有push/PR/main合并/部署。
 
 - 文档门禁：158cbe57b的inventory通过（12模块/158表/61任务/16路由/49ADR）；直接BASE_REF检查列出CLAUDE.md、模块总览html/drawio、05_memory.md四个未改文件，root已逐项核对并用脚本支持的no-change-reason通过影响检查，理由为稳定导航/现有12模块61方向未变，A0/C3/R3不改Memory事件与checkpoint写入所有权。C0 typed state尚未集成，后续须重核并更新相关文档；不把此理由沿用到未来实现。
+
+## 2026-10-15T23:04:48+08:00 C0a 审修集成与跨域回归
+
+- 主树实现为b81ba6887（C0原13a11cff0 + Sol直接修复），另1d503209b补05_memory类型化来源边界；当前干净。Sol修复非空旧资料created_at默认失败、C3 ORM/迁移FK索引/时间/comment漂移、恢复Scene锚与停用facet、结构化legacy值、demo拒写、typed状态与有向态度、分页unknown、静态trace白名单；动态Story字段不回填World稳定层。
+- Sol证据：58 unit；独立PG dossier_review_test_20261015 fresh升级、dossier_upgrade_test_20261015非空旧数据升级；1项独立session并发CAS/失败回滚/跨novel E2E通过。原map_enhancement_test仍map_node_merge未修改；C3两表metadata parity尚依赖A0b共享env/bootstrap notice_models显式导入。
+- root在b81ba6887代码上扩大World+Story+Evidence+container/registry：2978 passed、1 skipped、2 deselected（67.62s），已存在Pydantic schema warning无新增失败。1d503209b docs inventory通过：12模块/159表/61任务/16前端路由/49ADR。未完成全分支最终门禁、真实质量或作者验收。
+- 三层聚合Luna保存WIP633293ee2并接C3四提交后，cherry c99a702ae在dossier_service.py冲突；root暂时interrupt该子任务释放宿主并发槽，已交Sol直接解冲突，禁止root/Luna手改审修冲突。Luna恢复后继续Evidence聚合与C2。C3b新Luna/max在simulation-v3-director-impl/codex/copilot-unified-ui做真实提醒/ReadingFlow待核候选和缺失G8a/editorial薄来源；无UI假数据。A0b Luna继续trace与组合根，已要求本轮新C0写路由显式绑定op_id，不能放进历史豁免baseline。
+- 世界对象统一三层读取/GenericEntityProfile映射、C2人物卡/UI、C3产品接线与界面、A0b/A1–A4、C4/C5均未标完成。R3封存原样、无新模型请求或holdout读取；没有push/PR/main合并/部署。

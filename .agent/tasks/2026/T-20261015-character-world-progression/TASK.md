@@ -3,7 +3,7 @@ id: T-20261015-character-world-progression
 title: 世界对象档案、场景导演、写作副驾驶与世界推进设计
 status: active
 created: 2026-10-15T16:00:00+08:00
-updated: 2026-10-15T22:44:27+08:00
+updated: 2026-10-15T23:04:48+08:00
 ---
 
 # 世界对象档案、场景导演、写作副驾驶与世界推进设计
@@ -22,7 +22,7 @@ updated: 2026-10-15T22:44:27+08:00
 ADR-0039 旧接口写回规则、共用词表与锚点、档案发现按 ADR-0036 §1 契约登记。
 修订经用户授权在第三个本地提交 `20d6f1eff` 中提交，未推送。
 2026-10-15 用户采纳 ADR-0039 至 ADR-0041（Accepted / 未实施）；ADR-0005、0025 补充说明与索引同步。
-用户已明确三份计划全部实施，包括档案、导演和世界推进；本任务执行C0–C5。当前主树158cbe57b已集成C3a及Sol修复2a4be54b6/cd9162d41/158cbe57b、R3结构修复af89bcbf1，797项Story/Evolution/统一通知回归通过。C3 app接线/UI/G8a/editorial详细导航仍待交付。C0a原23e322e01（40目标测试）进入map-spatial-eval-review/codex/world-object-dossier-review，Sol/high直接审修；Luna/max在world-object-dossier-impl新分支codex/object-dossier-evidence-impl，以23e为基线做C0b/C2 Evidence聚合、参考维度和人物卡。GenericEntityProfile迁移与消费者切换仍是明确欠项，不能提前标全C0完成。A0b Luna独占共享composition，其他代理提供pure模块及接线清单；root仅集成验证和唯一TASK写入。C3前端/C4/C5继续推进；C1长期P4、势力阶段及RP评测依赖保持真实边界。
+用户已明确三份计划全部实施，包括档案、导演和世界推进；本任务执行C0–C5。主树1d503209b（代码b81ba6887）已集成C3a审修、R3严格解析修复、C0a审修，root跨域2978pass，Sol有空库/非空PG升级和独立CAS/回滚证据；新服务组合根仍待A0b。C0b/C2 Luna在world-object-dossier-impl新分支做三层聚合，WIP633293ee2接审修发生dossier_service冲突，现暂由Sol直接解决再恢复Luna。C3b Luna在simulation-v3-director-impl/codex/copilot-unified-ui做真实提醒与ReadingFlow待核候选展示、G8a/editorial来源。GenericEntityProfile迁移与消费者切换仍欠，C0/C2/C3不得提前标全完成。共享composition由A0b独占，root仅集成验证及唯一TASK写入；C4/C5继续待批次，C1长期P4/势力/RP门禁保留。
 
 ## 目标与验收
 
@@ -139,3 +139,11 @@ ADR-0039 旧接口写回规则、共用词表与锚点、档案发现按 ADR-003
 - R3封存停止，本批未重跑真实请求、未改实验DB/原始回执/种子或holdout。真实质量未通过、human_validated=false；本地工程绿色不等于作者验收。没有push/PR/main合并/部署。
 
 - 文档门禁：158cbe57b的inventory通过（12模块/158表/61任务/16路由/49ADR）；直接BASE_REF检查列出CLAUDE.md、模块总览html/drawio、05_memory.md四个未改文件，root已逐项核对并用脚本支持的no-change-reason通过影响检查，理由为稳定导航/现有12模块61方向未变，A0/C3/R3不改Memory事件与checkpoint写入所有权。C0 typed state尚未集成，后续须重核并更新相关文档；不把此理由沿用到未来实现。
+
+## 2026-10-15T23:04:48+08:00 C0a 审修集成与跨域回归
+
+- 主树实现为b81ba6887（C0原13a11cff0 + Sol直接修复），另1d503209b补05_memory类型化来源边界；当前干净。Sol修复非空旧资料created_at默认失败、C3 ORM/迁移FK索引/时间/comment漂移、恢复Scene锚与停用facet、结构化legacy值、demo拒写、typed状态与有向态度、分页unknown、静态trace白名单；动态Story字段不回填World稳定层。
+- Sol证据：58 unit；独立PG dossier_review_test_20261015 fresh升级、dossier_upgrade_test_20261015非空旧数据升级；1项独立session并发CAS/失败回滚/跨novel E2E通过。原map_enhancement_test仍map_node_merge未修改；C3两表metadata parity尚依赖A0b共享env/bootstrap notice_models显式导入。
+- root在b81ba6887代码上扩大World+Story+Evidence+container/registry：2978 passed、1 skipped、2 deselected（67.62s），已存在Pydantic schema warning无新增失败。1d503209b docs inventory通过：12模块/159表/61任务/16前端路由/49ADR。未完成全分支最终门禁、真实质量或作者验收。
+- 三层聚合Luna保存WIP633293ee2并接C3四提交后，cherry c99a702ae在dossier_service.py冲突；root暂时interrupt该子任务释放宿主并发槽，已交Sol直接解冲突，禁止root/Luna手改审修冲突。Luna恢复后继续Evidence聚合与C2。C3b新Luna/max在simulation-v3-director-impl/codex/copilot-unified-ui做真实提醒/ReadingFlow待核候选和缺失G8a/editorial薄来源；无UI假数据。A0b Luna继续trace与组合根，已要求本轮新C0写路由显式绑定op_id，不能放进历史豁免baseline。
+- 世界对象统一三层读取/GenericEntityProfile映射、C2人物卡/UI、C3产品接线与界面、A0b/A1–A4、C4/C5均未标完成。R3封存原样、无新模型请求或holdout读取；没有push/PR/main合并/部署。
