@@ -99,14 +99,14 @@ Evidence indexing/compilation 回归集中在 `backend/modules/evidence/`；
 ## Test execution layers
 
 下列自动化 backend 质量 Make 目标在进入 `backend/` 后自行使用 `uv run --locked --extra ci --`
-解析 Python `3.14.7` 与锁定 `ci` 工具链，不要求预先激活虚拟环境；首次运行仍要求 `uv` 与可用
+解析 Python `3.14.8` 与锁定 `ci` 工具链，不要求预先激活虚拟环境；首次运行仍要求 `uv` 与可用
 缓存或网络。该工具链约定不改变各层列出的数据库、凭据或浏览器等外部前提。
 
 | Command | Scope | External prerequisites |
 |---|---|---|
 | `make test` | Modules, infrastructure, deterministic eval toolkit tests, unit, SQLite integration, prompt contracts; narrow with `TESTS=<path>` or `ARGS=<pytest-args>` | None; excludes E2E, real LLM, external source data, and LLM-derived RAG metrics (unavailable until a maintained, calibrated adapter is connected) |
 | `make test-fast-coverage TEST_WORKERS=2` | Same fast layer with parallel production-code coverage and an 85% gate | None |
-| `make eval-fast` | The same locked deterministic eval toolkit tests without remote model calls | Locked backend CI dependencies and Python 3.14.7; no model calls |
+| `make eval-fast` | The same locked deterministic eval toolkit tests without remote model calls | Locked backend CI dependencies and Python 3.14.8; no model calls |
 | `make eval-ask-world` | Ask World project/API contracts, then retrieval, citation-fixture, refusal and integrity thresholds | None; targeted API tests plus deterministic synthetic evidence, not a semantic-answer quality claim |
 | `make eval-ask-world-model NOVEL_ID=<id> [PROBE_SPLIT=debug\|holdout] [LEDGER=<jsonl>] [DATASET=<jsonl>]` | 生产 `AskWorldService._generate` 的来源集合诊断（非主张忠实度）；教师模式暂停至 G6b 按 Sol/xhigh 合同重新校准，预检在项目访问、SUT 调用和一次性 holdout 占用前拒绝 | 无教师的 SUT 实测仍须单独授权并核验 owner/Project 的 Luna/max 连接；旧 DeepSeek reviewer 路径已删除并冻结为历史，不能凭本地登录重启；旧元数据/缓存离线回放不改标，不进 CI，真实稿件输入输出留仓库外 |
 | `make eval-context-planner NOVEL_ID=<id> OUTPUT=<path>` | 冻结 RAG 数据上对比 task-direct 与确定性 Planner，输出 split/purpose、MRR/P@5/R@10、结果数、source hash、stale/跨项目与延迟 | 已建立同一冻结语料索引的本地项目；不调 LLM |
@@ -115,7 +115,7 @@ Evidence indexing/compilation 回归集中在 `backend/modules/evidence/`；
 | `make docs-check` | Architecture registry, modules, ORM tables, API prefixes, AST-discovered `*tasks.py` handlers (including string constants), routes, Prompt/ADR inventory, links and Draw.io structure | Python 3.12 standard library only |
 | `make docs-check BASE_REF=origin/main` | Full inventory plus current-branch document-impact coverage | Local `origin/main` ref |
 | `make test-ci TEST_WORKERS=2` | Cross-stack local quality gate: docs, secrets, dependency audits, Ruff, deploy contracts, backend coverage/RuntimeWarning, and frontend Vitest | Locked backend/frontend dependencies; excludes PostgreSQL, browser, image, and paid/manual suites |
-| `make test-deploy` | Deployment static/CLI contract tests in `deploy/tests`, including committed Alembic graph and pre-checkout migration compatibility cases | Self-contained: `uv` resolves Python 3.14.7 from `backend/.python-version`, locked `backend/uv.lock` `ci` dependencies, and backend pytest config; no external service |
+| `make test-deploy` | Deployment static/CLI contract tests in `deploy/tests`, including committed Alembic graph and pre-checkout migration compatibility cases | Self-contained: `uv` resolves Python 3.14.8 from `backend/.python-version`, locked `backend/uv.lock` `ci` dependencies, and backend pytest config; no external service |
 | `make test-production-images` | Build the pinned backend/frontend production images; verify backend non-root/no-uv/no-pip/import and frontend nginx/assets | Docker daemon plus image registry access; intentionally outside `make test-ci` |
 | `make test-object-restore-drill-real` | Restore DB-paired synthetic images into two isolated private buckets; verify hashes, decoding, metadata, permissions, missing/interrupted controls and measured RPO/RTO | Docker daemon and cached pinned PG/MinIO/mc plus locked backend runtime image; no production data or network; outside `make test-ci` |
 | `make secret-hygiene` | Tracked/indexed runtime env, private-key, and high-confidence credential gate | Git working tree; no Python dependency install required |
@@ -267,7 +267,7 @@ workers=1、retries=0。完整功能套件在两个独立分片 runner 上执行
 
 它们与独立的 `Architecture docs` 分开运行，因此前端或镜像失败不会再以
 `Backend CI` 工作流失败呈现。后端快速 job checkout 后先用系统 Python 执行零依赖的 repository
-secret hygiene gate，再安装 uv `0.12.3` 与 Python `3.14.7`，
+secret hygiene gate，再安装 uv `0.13.1` 与 Python `3.14.8`，
 先运行 `make audit-backend-deps`，随后通过 `backend/uv.lock` 安装窄 `ci` 依赖
 （不安装本地 embedding 运行时），然后依次执行 `make lint`、`make test-deploy` 与
 `make test-fast-coverage TEST_WORKERS=2 ARGS="-W error::RuntimeWarning"`。

@@ -41,6 +41,9 @@ Deep Import 的 adoption-package receipt 只用于展示/回跳；它不改变 t
 业务 rollback 或 author confirmation 移交给基础设施。
 默认使用显式 HTTP transport，避免进程隐式继承系统代理；如需代理，配置
 `LLM_PROXY_URL`，如需读取系统代理，显式设置 `LLM_TRUST_ENV=true`。
+OpenAI 3.x 的文字、独立 embedding 和图片客户端均注入原生 `httpx2.AsyncClient`，
+不使用旧 HTTPX 兼容路径；公共出站守卫支持 HTTPX2 与现有 HTTPX 健康/余额探针，
+保留超时、代理、私网拒绝与显式重试所有权。
 
 ### 核心方法
 
