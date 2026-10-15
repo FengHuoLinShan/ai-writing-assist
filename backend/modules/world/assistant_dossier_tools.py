@@ -373,11 +373,13 @@ OPERATIONS_SPEC = {
         "schema": EditDossierTemplate,
         "prepare": _template_edit_preview,
         "apply": _template_edit_apply,
+        "revision": "2",
         **_write_metadata(
             ("profile_type", "update"),
             "预览并在作者确认后追加对象档案模板修订。",
             "world_dossier_template",
         ),
+        "op_version": "2",
     },
 }
 

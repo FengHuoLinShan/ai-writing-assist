@@ -44,7 +44,9 @@ R0–R4 风险、可能计费类别、可撤销性、前置条件、产出、目
 模型先用 `find_operations` 获取至多八项摘要，再用 `describe_operation` 读取单项完整说明；
 R0 目录读取经 `read_operation` 进入领域读取端口。已下线或改版的冻结项仍可查看原说明，
 但不能执行；其他未变化的项可以继续使用。v1–v6 运行仍按原两字段操作快照和
-`available_operations` 恢复，原批次确认与显式重试规则不变。目录元数据是声明；物化后的
+`available_operations` 恢复，原批次确认与显式重试规则不变。`world.dossier.template.edit`
+加入模板字段 `key` 后升为操作修订 2；修订 1 的冻结目录可查看，但不在旧运行中替换 schema
+执行，作者须发起新运行。目录元数据是声明；物化后的
 `prepare/apply` 回调通过 `ASSISTANT_OPERATION_TRACE` 记录提议、预览、确认、拒绝、执行、失败和
 多阶段结果未知。HTTP 写路由须绑定目录 `operation_id` 或给出明确豁免，C3 提醒和对象档案路由
 也经同一端口接入；静态 ratchet 禁止未绑定写路由增加。高频正文 autosave 豁免留痕，因为版本草稿

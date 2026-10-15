@@ -465,8 +465,8 @@ OPERATION_SNAPSHOT.update(
         "world.dossier.template.edit": (
             "修订对象档案模板",
             "confirm",
-            "1",
-            "db350f7f859917fd69288cfe848f3b66bfc3262bf1e121c0b34657b9f62e952c",
+            "2",
+            "c4ff8a3587de5a80460cbd51b7eb16cf63886b87133b467763b923ed56371d43",
         ),
         "world.dossier.template.read": (
             "读取对象档案模板",
