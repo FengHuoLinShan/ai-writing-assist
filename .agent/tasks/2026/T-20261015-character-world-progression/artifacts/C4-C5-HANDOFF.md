@@ -155,3 +155,26 @@ C0模板互通和C5推进仍独立写入，不能同时抢写其World/Story文�
 C5已获flows.py中world_progression_review v1注册与TOML Story prefix窄写权；
 root为后续C3/A1准备的旧C4 review路径现切到codex/chapter-order-timeline-impl/f5c6，
 原codex/scene-director-review/616e9d474与原证据保留，没有删除旧提交或数据。
+
+
+root另为C5审修复用已结束的map-clue-review旧C0c干净树，保留旧
+codex/world-object-validity-review/7b91006d4后，切到codex/world-progression-review/c482b0da9。
+当前只是准备，没有代理在此树写入；后续从当时最新primary核实后由Sol接C5候选。
+C5 Luna已确认未改director_*.py或SceneDirectorPanel.vue，但api/story.js由其窄写。
+其全前端3177/3178唯一失败为旧WorldEntityDetail fixture，root指定先checkpoint，
+只cherry已审Sol 8ca60ff805ad3bc45e6f04364201ecf5c4501995，不能另写弱化断言。
+PG world_progression_impl_test_20261016尚未创建（代理最近确认），暂无真实HTTP/browser。
+后续C4桥接、C5、C0不得同时写api/story.js或World facade；顶层装配顺序由root移交。
+
+
+## C5 PG不可变性边界的已确认待修
+
+Luna已创建world_progression_impl_test_20261016并升级至20261016_wp_cascade，数据保留。
+原step trigger一律阻止UPDATE/DELETE会误拦项目删除；新follow-up仅用
+DELETE + pg_trigger_depth()>1放行，root读迁移:25指出这也会放行存续项目下root/branch
+物理删除及其他嵌套trigger。Luna已明确承认，保留当前专库和parent-delete红例，停止改该
+触发器规则，交Sol按用户要求直接修。应按既有安全模式仅在真实schema限定的父Project
+已消失时放行项目清理；直接Step UPDATE/DELETE、仍存Project的父root/branch删除均拒绝，
+不要用TEMP同名表/宽泛深度条件绕过。当前门禁不合格、未合primary。
+C5没有director_*.py或SceneDirectorPanel.vue改动；api/story.js仍本域写权。
+五Vue组件用例不是浏览器，真实HTTP/browser尚未运行，后续Sol须验完整TaskWorker/预算/界面。

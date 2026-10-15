@@ -3,7 +3,7 @@ id: T-20261015-character-world-progression
 title: 世界对象档案、场景导演、写作副驾驶与世界推进设计
 status: active
 created: 2026-10-15T16:00:00+08:00
-updated: 2026-10-16T06:07:28+08:00
+updated: 2026-10-16T06:21:24+08:00
 ---
 
 # 世界对象档案、场景导演、写作副驾驶与世界推进设计
@@ -32,7 +32,7 @@ A3原Sol审修fb62已合eab：作者Interaction/Collaboration十二项真实SPEC
 
 A4 Luna候选`b55497379b377dc8a5f12d6aa57c687d0c879598`已固定（19文件、原树干净），交Sol在author-operations-review审修。原候选最终定向39后端/3PG/48前端，完整8896后端与3177前端是最终小调之前的源；没有浏览器证据。Sol已合PRIMARY与候选为f8b8423b5并单头接A3迁移，确认两项待直接修：raw截止向UTC午夜floor导致超过180天，以及report GET会触发archive写库；另补三新汇总表文档登记。Sol还确认并直接修普通成组执行partial retry重复记录全部confirmed/declined的问题；专库fresh迁移/head/parity与当前5PG自检通过，仍未最终交付。统计分母、归属用量、真实前向生命周期、覆盖缺口、匿名窗口与并发均需审修，不以合成样本假造数周数据或真实Top3。ordinary operations.py、goal_runs/service.py与顶层组合写权现属该Sol，A4 Luna已退出。
 
-C5 Luna在world-progression-impl/codex/world-progression-impl继续完整实现；checkpoint4c13f5df0合C0c的facade冲突由Sol直接解为9ed9426bef6d7a24ab5648a72af46b6076a34e94后归还Luna。自有迁移接dossier_story_field_key。新API/任务/GuidedFlow/Notice顶层未装配，不当完成。Luna独占TOML的Story api_prefixes和Assistant flows.py中world_progression_review v1派发表窄写入，其余app/keys/catalog/TaskRegistry/worker/env由Sol组合。world_progression_impl_test_20261016及18590/18591已分配，尚未报告创建。
+C5 Luna在world-progression-impl/codex/world-progression-impl继续完整实现；checkpoint4c13f5df0合C0c的facade冲突由Sol直接解为9ed9426bef6d7a24ab5648a72af46b6076a34e94后归还Luna。自有迁移接dossier_story_field_key。新API/任务/GuidedFlow/Notice顶层未装配，不当完成。Luna独占TOML的Story api_prefixes和Assistant flows.py中world_progression_review v1派发表窄写入，其余app/keys/catalog/TaskRegistry/worker/env由Sol组合。world_progression_impl_test_20261016已创建并升级至自有follow-up head 20261016_wp_cascade，合成数据保留；HTTP/browser仍未跑。当前step不可变触发器新补丁仅按pg_trigger_depth放行级联，会允许存续项目下root/branch硬删历史，Luna已确认并保留反例待Sol直接修，不当合格门禁。18590/18591未报告启服。
 
 C0模板互通Luna/max已启动：world-object-dossier-impl/codex/dossier-template-interchange-impl由旧干净978a树fast-forward到f5c6，保留旧分支。负责自定义类型显式借八类内核（含既有faction）、版本化五题材预设、真正CSV/XLSX/JSON预览采用/撤销与作者UI。新专库dossier_template_interchange_impl_test_20261016及18592/18593已分配，创建须回报；不得借其他专库。root独占TASK和共享任务artifacts。
 
