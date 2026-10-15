@@ -3,7 +3,7 @@ id: T-20261015-character-world-progression
 title: 世界对象档案、场景导演、写作副驾驶与世界推进设计
 status: active
 created: 2026-10-15T16:00:00+08:00
-updated: 2026-10-16T00:55:08+08:00
+updated: 2026-10-16T01:17:50+08:00
 ---
 
 # 世界对象档案、场景导演、写作副驾驶与世界推进设计
@@ -22,7 +22,7 @@ updated: 2026-10-16T00:55:08+08:00
 ADR-0039 旧接口写回规则、共用词表与锚点、档案发现按 ADR-0036 §1 契约登记。
 修订经用户授权在第三个本地提交 `20d6f1eff` 中提交，未推送。
 2026-10-15 用户采纳 ADR-0039 至 ADR-0041（Accepted / 未实施）；ADR-0005、0025 补充说明与索引同步。
-用户已明确三份计划全部实施，执行C0–C5。primary a18b80cd5 已无冲突集成 C3b/C2b 与 Sol 组合审修（435153599、80de1edab、97019b1e7、4dbbf6ef0、035671f98、a18b80cd5）。root 在该代码上验证86后端、3专用PG、248文件3134前端全部通过，ESLint及生产构建/资产校验通过；只有既有Pydantic schema warning，RuntimeWarning转error无失败。Sol真实浏览器390/1280已验证七来源/处置持久化/对象简报，root看图无横向溢出。C0b前批3030通过证据仍保留。C4a Luna固定提交4cbc97e35已交同一Sol/high独立审修，尚未集成；连续轮次409只属C4a过渡，C4b必须完成根预算后开放。Luna dossier_consumers已从5217f5310恢复C2及完整Generic桥接；A1 Luna继续纯插件。A2/A3/A4、C4b/C5及外部真实/势力/RP门禁仍未完成。
+用户已明确三份计划全部实施，执行C0–C5。primary b3182b2c5 已集成 C4a 共用simulation_v3及Sol身份/观察边界修复（50c0feb54、b4cd55c78、b3182b2c5），均无冲突；root扩大Story+Interaction+助手目录/路由验证1034 passed/2 deselected/1既有Pydantic warning（28.70s）、1专用PG、23Vue/ESLint/build通过，RuntimeWarning转error无失败。C3b/C2b前批86后端/3PG/3134前端与C0b3030证据保留。连续轮次409仍仅C4a过渡，C4b/C5未实施；C2/Generic由Luna dossier_consumers继续，ReactionV2与修订桥接已写但未固定点验收。A1 Luna首批15插件335349f08（307测试）已交Sol在map-clue-review组合审修/接线，尚未集成。新Luna goal_runs在map-assistant-review/codex/assistant-goal-run-impl从1656353fe实施A2独立目标引擎/前端，暂不并行写Sol的既有Assistant核心。C0c、A1剩余、A3/A4及外部真实/势力/RP门禁保留，全部TASK仍active。
 
 ## 目标与验收
 
@@ -238,3 +238,10 @@ ADR-0039 旧接口写回规则、共用词表与锚点、档案发现按 ADR-003
 - root后端日志 `/tmp/map-c3b-primary-combined-20261016.log`：86 passed/1既有Pydantic warning（18.27s）；PG `/tmp/map-c3b-primary-pg-20261016.log`：3 passed（2.47s），使用copilot_integration_review_test_20261016专用DB，未启动lifespan/模型/worker。前端全套3134 passed（31.28s），ESLint/build/生产资产校验通过。截图 `/tmp/copilot-real-390-20261016.png`、`/tmp/copilot-real-1280-20261016.png`由Sol真实联调生成，root已看图。
 - C4a Luna自有4cbc97e35（基线73cd5a74c），90后端及23最终定向、23Vue和build/lint/module/docs通过；尚待Sol独立审修，非C4b或C5交付。Sol在map-clue-review保留旧UI分支另开协议review分支，不碰primary。新Luna dossier_consumers在world-object-dossier-impl/5217f5310恢复Generic读写/类型迁移与C2真实任务链，保留全部C0安全修复。
 - 三份计划全部实施的授权和用户“Sol子代理直接修”保持；只本地提交，无push/PR/main合并/部署。未完成实现及真实质量/作者验收继续如实保留。
+
+## 2026-10-16T01:17:50+08:00 C4a审修集成与A1/A2交接
+
+- Luna实现4cbc97e35经Sol两笔净fix接入primary三提交50c0feb54/b4cd55c78/b3182b2c5。修复API/worker/模型后重复核验typed World/地图身份；seed participants须与选定人物完全一致；资源接收者不能伪造现有身份；demo不可读私有排演。未知origin/未知observer/双未知/同地/异地五态：只有本人及明示已知同地者收到公开事件，root补测的未知origin边界由Sol直接修。旧RP v1/v2和state_trial逐条件回归保留。
+- root `/tmp/map-c4a-primary-regression-20261016.log`：1034 passed/2 deselected/1既有Pydantic warning（28.70s）；`/tmp/map-c4a-primary-pg-20261016.log`专用simulation_v3_review_test_20261016中1 passed（0.16s）；frontend两文件23 passed（1.58s）、ESLint/build/生产资产校验通过。Sol另有79定向与真实页面选人/候选/确认→API验证，无模型调用，非完整导演验收。
+- C2新接口拟为story.reaction.v2：每人物2–4 performances，含动机/来源fact与pattern/动作/表情/肢体/声音台词/内心/注意力/变化。旧Reaction v1保持可读。Generic旧API可选expected_dossier_revision，提供时409保护；缺省旧client仅行锁串行、仍最后写者胜出，不宣称乐观并发；现代Dossier编辑仍须expected_revision。当前Luna尚在自检，不是已审交付。
+- 工程PG65202在root本批验证结束后分配Sol A1独占新a1_operations_review_test_20261016；其他review库/原库保留，C2与Goal待排队。默认dev DB/评测65302/R3/holdout不访问，无新付费请求、push/PR/main合并/部署。

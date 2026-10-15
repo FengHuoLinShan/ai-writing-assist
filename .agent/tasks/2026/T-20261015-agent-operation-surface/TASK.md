@@ -3,7 +3,7 @@ id: T-20261015-agent-operation-surface
 title: 全模块 AI 操作入口、目标运行与操作留痕设计
 status: active
 created: 2026-10-15T14:30:00+08:00
-updated: 2026-10-16T00:55:08+08:00
+updated: 2026-10-16T01:17:50+08:00
 ---
 
 # 全模块 AI 操作入口、目标运行与操作留痕设计
@@ -19,7 +19,7 @@ updated: 2026-10-16T00:55:08+08:00
 2026-10-15 技术评审后按推荐修订 ADR-0038：目录项事务形态、目标运行 `goal` 模式与每项目唯一索引、
 高频操作留痕合并或豁免。修订经用户授权在第三个本地提交 `20d6f1eff` 中提交，未推送。
 2026-10-15 用户采纳 ADR-0038（Accepted / 未实施）；ADR-0023 补充说明与索引同步。
-用户已明确三份计划全部实施，本任务执行A0–A4。primary a18b80cd5 已无冲突集成 C3b/C2b 与 Sol 组合审修（435153599、80de1edab、97019b1e7、4dbbf6ef0、035671f98、a18b80cd5）。root 在该代码上验证86后端、3专用PG、248文件3134前端全部通过，ESLint及生产构建/资产校验通过；只有既有Pydantic schema warning，RuntimeWarning转error无失败。Sol真实浏览器390/1280已验证七来源/处置持久化/对象简报，root看图无横向溢出。C0b前批3030通过证据仍保留。C4a Luna固定提交4cbc97e35已交同一Sol/high独立审修，尚未集成；连续轮次409只属C4a过渡，C4b必须完成根预算后开放。Luna dossier_consumers已从5217f5310恢复C2及完整Generic桥接；A1 Luna继续纯插件。A2/A3/A4、C4b/C5及外部真实/势力/RP门禁仍未完成。
+用户已明确三份计划全部实施，本任务执行A0–A4。primary b3182b2c5 已集成 C4a 共用simulation_v3及Sol身份/观察边界修复（50c0feb54、b4cd55c78、b3182b2c5），均无冲突；root扩大Story+Interaction+助手目录/路由验证1034 passed/2 deselected/1既有Pydantic warning（28.70s）、1专用PG、23Vue/ESLint/build通过，RuntimeWarning转error无失败。C3b/C2b前批86后端/3PG/3134前端与C0b3030证据保留。连续轮次409仍仅C4a过渡，C4b/C5未实施；C2/Generic由Luna dossier_consumers继续，ReactionV2与修订桥接已写但未固定点验收。A1 Luna首批15插件335349f08（307测试）已交Sol在map-clue-review组合审修/接线，尚未集成。新Luna goal_runs在map-assistant-review/codex/assistant-goal-run-impl从1656353fe实施A2独立目标引擎/前端，暂不并行写Sol的既有Assistant核心。C0c、A1剩余、A3/A4及外部真实/势力/RP门禁保留，全部TASK仍active。
 
 ## 目标与验收
 
@@ -203,3 +203,9 @@ updated: 2026-10-16T00:55:08+08:00
 - Assistant现有组合根在C3b集成后primary已稳定；下批A1注册/route binding/新冻结版本统一交Sol单写，不把新增route藏入历史baseline。目标运行A2尚未实施，A3/A4条件与真实数据要求不变。
 - 七来源提醒/对象简报本批验证见同轮character-world-progression任务，root86后端+3PG+3134前端及lint/build通过；不把UI留痕通过当作目标引擎已完成。
 - 三份计划全部实施的授权和用户“Sol子代理直接修”保持；只本地提交，无push/PR/main合并/部署。未完成实现及真实质量/作者验收继续如实保留。
+
+## 2026-10-16T01:17:50+08:00 C4a审修集成与A1/A2交接
+
+- A1首批为15条（先前root口误14已纠正）：World4、Story3、Writing4、Evidence3、Evolution1；固定335349f08、307测试，接线表A1-FIRST-WAVE-WIRING.md。Sol本批独占registry/bootstrap/config/既有Assistant核心与HTTP适配，完成真实路由/留痕/freeze后再审交，尚未集成。章节重排/一般事实时间线编辑不伪造已有服务，仍列剩余。
+- A2 Luna goal_runs 已启动于map-assistant-review/codex/assistant-goal-run-impl（1656353fe干净基线，旧operation-trace-regression-repair/696分支保留）。先独立goal模块/AssistantRun模型迁移/专属router/前端，Sol A1共享核心写锁结束后接线。要求完整根累计预算/30步DAG/审批/唯一索引/幂等/多阶段未知停点/真实R2恢复/CAS/PG/UI，不用helper代完成。
+- 工程PG65202在root本批验证结束后分配Sol A1独占新a1_operations_review_test_20261016；其他review库/原库保留，C2与Goal待排队。默认dev DB/评测65302/R3/holdout不访问，无新付费请求、push/PR/main合并/部署。
