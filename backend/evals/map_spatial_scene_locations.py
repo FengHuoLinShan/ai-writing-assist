@@ -184,7 +184,7 @@ async def _idle(client, common, evolution):
         "reading_sha256": digest(reading),
         "tasks_sha256": digest(tasks),
         "deferred_index_tasks": [
-            {key: item[key] for key in ("id", "task_type", "status", "attempt")}
+            {key: item[key] for key in ("task_id", "task_type", "status", "attempt")}
             for item in tasks.get("items", [])
             if item.get("status") == "pending"
             and item.get("task_type") in {"publish_chapter", "rag_index_chapter"}
@@ -371,6 +371,8 @@ async def apply_scene_locations(
         "elapsed_seconds": 0.0,
         "model_requests": 0,
         "atomic_cas": False,
+        "deferred_index_tasks_executed": 0,
+        "deferred_index_tasks_may_reanchor_or_embed_if_run": True,
     }
     path = ledger_path(root, family_id)
     with private_lock(root):
