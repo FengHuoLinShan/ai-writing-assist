@@ -14,7 +14,7 @@ from infrastructure.llm.agent_step_harness import (
 from infrastructure.llm.schemas import LLMCallRequest, LLMMessage
 from modules.story.schemas import (
     CardPreview,
-    CharacterCardContent,
+    CharacterCardContentV2,
     CharacterCardFact,
     CharacterCardInterpretation,
     CharacterCardPattern,
@@ -348,7 +348,7 @@ class StoryGenerationService:
         pattern_basis = [
             CharacterCardPattern.model_validate(item) for item in reference_patterns
         ]
-        content = CharacterCardContent(
+        content = CharacterCardContentV2(
             version="character_card.v2",
             fact_basis=fact_basis,
             pattern_basis=pattern_basis,

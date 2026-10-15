@@ -22,11 +22,17 @@ from modules.assistant.notice_disposition_operations import (
     OPERATIONS_SPEC as _NOTICE_DISPOSITIONS,
 )
 from modules.evidence.assistant_read_operations import OPERATIONS_SPEC as _EVIDENCE_READ
+from modules.evidence.compilation.assistant_dossier_tools import (
+    OPERATIONS_SPEC as _EVIDENCE_OBJECT_DOSSIER,
+)
 from modules.evidence.forecast import OPERATIONS_SPEC as _EVIDENCE_FORECAST
 from modules.evolution.assistant_tools import OPERATIONS_SPEC as _EVOLUTION
 from modules.imports.assistant_tools import OPERATIONS_SPEC as _IMPORTS
 from modules.project.assistant_dedup_tool import OPERATIONS_SPEC as _PROJECT_DEDUP
 from modules.project.assistant_tools import OPERATIONS_SPEC as _PROJECT
+from modules.story.assistant_generation_tools import (
+    OPERATIONS_SPEC as _STORY_GENERATION,
+)
 from modules.story.assistant_information_tools import (
     OPERATIONS_SPEC as _STORY_INFORMATION,
 )
@@ -346,11 +352,13 @@ story_operations = _materialize(_STORY)
 story_structure_operations = _materialize(_STORY_STRUCTURE)
 story_planning_operations = _materialize(_STORY_PLANNING)
 story_scene_operations = _materialize(_STORY_SCENE)
+story_generation_operations = _materialize(_STORY_GENERATION)
 world_opening_operations = _materialize(_WORLD_OPENING)
 world_map_operations = _materialize(_WORLD_MAP)
 world_vocabulary_operations = _materialize(_WORLD_VOCABULARY)
 evidence_forecast_operations = _materialize(_EVIDENCE_FORECAST)
 evidence_read_operations = _materialize(_EVIDENCE_READ)
+evidence_object_dossier_operations = _materialize(_EVIDENCE_OBJECT_DOSSIER)
 
 evolution_operations = _materialize(_EVOLUTION)
 imports_operations = _materialize(_IMPORTS)

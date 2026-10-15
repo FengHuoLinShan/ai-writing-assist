@@ -60,8 +60,12 @@ async def _prepare_generation(
     character_ids: list[str],
     viewpoint_character_id: str | None,
 ):
-    if context is None or not getattr(context, "operation_id", None):
-        raise ConflictError("Story 生成需要原助手执行回执")
+    if (
+        context is None
+        or not getattr(context, "run_id", None)
+        or not getattr(context, "owner_id", None)
+    ):
+        raise ConflictError("Story 生成需要当前助手运行的作者范围")
     work = getattr(context, "work", None)
     if work is None:
         raise ConflictError("Story 生成需要当前作者工作范围")
@@ -198,6 +202,14 @@ async def _prepare_reactions(db, novel_id, args, *, context=None):
 async def _submit_preview(
     db, novel_id, args, preview, *, context, prepare, action, task_type
 ):
+    internal_meta = getattr(context, "internal_meta", None) or {}
+    if (
+        not getattr(context, "operation_id", None)
+        or internal_meta.get("_execution_mode") != "inline_only"
+        or not internal_meta.get("_parent_task_id")
+    ):
+        raise ConflictError("Story 生成只能在当前助手任务预算内执行")
+    snapshot = _execution_snapshot(context)
     if await prepare(db, novel_id, args, context=context) != preview:
         raise ConflictError("场景或资料确认已变化，请重新查看预览")
     confirmation_id = preview["context_confirmation_id"]
@@ -236,14 +248,20 @@ async def _submit_preview(
             additional_notes=args.additional_notes,
             confirmed=True,
         )
-    return await enqueue_confirmed_story_task(
+    receipt = await enqueue_confirmed_story_task(
         db,
         request,
         action=action,
         task_type=task_type,
-        extra_meta=getattr(context, "internal_meta", None),
-        llm_execution_snapshot=_execution_snapshot(context),
+        extra_meta=internal_meta,
+        llm_execution_snapshot=snapshot,
     )
+    return {
+        "task_id": str(receipt.task_id),
+        "task_type": task_type,
+        "status": receipt.status,
+        "target": {"type": "outline_scene", "id": preview["scene_id"]},
+    }
 
 
 async def _submit_card(db, novel_id, args, preview, *, context=None):
@@ -314,7 +332,7 @@ async def _read_reaction_result(db, novel_id, reference):
     )
 
 
-def _metadata(schema, *, description, produces, target_type, op_version="1"):
+def _metadata(*, description, produces, target_type, trace_fields, op_version="1"):
     return {
         "op_version": op_version,
         "description": description,
@@ -331,7 +349,7 @@ def _metadata(schema, *, description, produces, target_type, op_version="1"):
         "ai_available": True,
         "transaction_mode": "multi_stage",
         "trace_rule": {
-            "parameter_fields": tuple(schema.model_fields),
+            "parameter_fields": trace_fields,
             "mode": "per_call",
             "parameter_policy": "schema_safe",
         },
@@ -347,13 +365,13 @@ OPERATIONS_SPEC = {
         "apply": _submit_card,
         "read_result": _read_card_result,
         **_metadata(
-            GenerateCharacterCard,
             description=(
                 "按该 POV 人物的确认资料生成可编辑的 v2 人物卡；"
                 "事实由服务端固定，模型仅输出带来源的解释。"
             ),
             produces="preview_only_character_card_v2",
             target_type="story_character_card",
+            trace_fields=("scene_id", "character_id", "additional_notes"),
         ),
     },
     "story.reaction.generate": {
@@ -363,7 +381,6 @@ OPERATIONS_SPEC = {
         "apply": _submit_reactions,
         "read_result": _read_reaction_result,
         **_metadata(
-            GenerateCharacterReactions,
             op_version="2",
             description=(
                 "按各人物独立 POV 资料生成 2–4 种不同动机与完整表演卡；"
@@ -371,6 +388,7 @@ OPERATIONS_SPEC = {
             ),
             produces="preview_only_sourced_character_reactions",
             target_type="story_character_reaction",
+            trace_fields=("scene_id", "character_ids", "additional_notes"),
         ),
     },
 }

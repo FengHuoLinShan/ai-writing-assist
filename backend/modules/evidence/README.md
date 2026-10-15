@@ -27,6 +27,10 @@ Assistant v8 的 `evidence.project.search`、`evidence.source.read`、
 截止回读；精确来源不扩前后窗口。独立 HTTP 窄入口不接受调用方指定 owner、visibility 或原文。
 原 confirmation 只选了对象/草稿某个片段时，`preview_scope` 拒绝展开整目标；仍可用
 `evidence.source.read` 精确回读 selected 且未排除/省略的来源。
+Assistant v9 增加 `evidence.object_dossier_brief.read` R0：窄入口只接受当前 Scene、
+目标对象、作者安全或角色视角及可选倾向开关；原确认/排除范围不能据此扩成整对象简报。
+对象简报与人物倾向分别由 `OBJECT_DOSSIER_ENABLED_CAPABILITIES`、
+`CHARACTER_PATTERN_ENABLED_CAPABILITIES` 按消费能力显式开启，缺省关闭。
 对象简报由 compilation 子域按 Scene 截止点汇总 World 档案、Story 时点投影和可选的
 Evolution 台账参考；三个跨域读取均经组合根只读端口，角色视角只投影 Story 可见事实。
 接口与未知/省略语义见 [compilation README](compilation/README.md)。

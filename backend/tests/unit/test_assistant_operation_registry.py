@@ -496,6 +496,12 @@ A1_FIRST_WAVE_OPERATIONS = {
     "evolution.prepare_reading",
 }
 
+C2_OBJECT_CONSUMER_OPERATIONS = {
+    "evidence.object_dossier_brief.read",
+    "story.character_card.generate",
+    "story.reaction.generate",
+}
+
 
 def test_bootstrap_operation_catalog_matches_snapshot():
     from app.bootstrap import register_container_services
@@ -503,7 +509,9 @@ def test_bootstrap_operation_catalog_matches_snapshot():
 
     register_container_services()
     catalog = get("assistant.operations")
-    assert set(catalog) == set(OPERATION_SNAPSHOT) | A1_FIRST_WAVE_OPERATIONS
+    assert set(catalog) == (
+        set(OPERATION_SNAPSHOT) | A1_FIRST_WAVE_OPERATIONS | C2_OBJECT_CONSUMER_OPERATIONS
+    )
     mismatches = {
         name: {
             "actual": (
@@ -560,7 +568,9 @@ def test_catalog_v2_metadata_and_trace_inventory_match_runtime_schemas():
     assert (
         len(operations)
         == len(manifest)
-        == len(OPERATION_SNAPSHOT) + len(A1_FIRST_WAVE_OPERATIONS)
+        == len(OPERATION_SNAPSHOT)
+        + len(A1_FIRST_WAVE_OPERATIONS)
+        + len(C2_OBJECT_CONSUMER_OPERATIONS)
     )
     assert set(operations) == set(manifest)
     for op_id, operation in operations.items():
@@ -588,11 +598,25 @@ def test_v8_additions_do_not_appear_in_a_frozen_v7_directory():
     frozen_v7 = {
         name: value
         for name, value in operation_manifest().items()
-        if name not in A1_FIRST_WAVE_OPERATIONS
+        if name not in A1_FIRST_WAVE_OPERATIONS | C2_OBJECT_CONSUMER_OPERATIONS
     }
     resolved = resolve_operations(frozen_v7, allow_stale=True)
     assert set(resolved) == set(OPERATION_SNAPSHOT)
     assert not (set(resolved) & A1_FIRST_WAVE_OPERATIONS)
+
+
+def test_v9_additions_do_not_appear_in_a_frozen_v8_directory():
+    from app.bootstrap import register_container_services
+    from modules.assistant.operations import operation_manifest, resolve_operations
+
+    register_container_services()
+    frozen_v8 = {
+        name: value
+        for name, value in operation_manifest().items()
+        if name not in C2_OBJECT_CONSUMER_OPERATIONS
+    }
+    resolved = resolve_operations(frozen_v8, allow_stale=True)
+    assert set(resolved) == set(OPERATION_SNAPSHOT) | A1_FIRST_WAVE_OPERATIONS
 
 
 def test_inline_operation_metadata_requires_an_explicit_schema_trace_policy():

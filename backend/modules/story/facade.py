@@ -19,7 +19,7 @@ from modules.story.generation import (
     STORY_SCRIPT_ACTION,
     STORY_SCRIPT_TASK,
 )
-from modules.story.schemas import CharacterCardContent, OneClickOutput
+from modules.story.schemas import OneClickOutput, VersionedCharacterCardContent
 from modules.story.service import (
     StoryConflictError,
     StoryNotFoundError,
@@ -41,9 +41,7 @@ async def read_object_dossier_state(
     include_checkpoints: bool,
 ) -> dict[str, Any]:
     """Read a Scene POV projection and optional author checkpoint set."""
-    state = await get_scene_state_view(
-        db, novel_id, scene_id, viewpoint=viewpoint
-    )
+    state = await get_scene_state_view(db, novel_id, scene_id, viewpoint=viewpoint)
     if viewpoint.get("kind") != "author" and include_checkpoints:
         raise ValueError("author checkpoints require author viewpoint")
     checkpoints = (
@@ -185,7 +183,7 @@ async def create_manual_character_card(
     novel_id: str,
     scene_id: str,
     character_id: str,
-    content: CharacterCardContent,
+    content: VersionedCharacterCardContent,
     expected_revision_id: uuid.UUID | None = None,
     source_manifest: dict[str, Any] | None = None,
     source_task_id: uuid.UUID | None = None,

@@ -44,9 +44,11 @@ function normalizeCharacter(item, index, worldById = new Map()) {
     id: characterId || `character-${index + 1}`,
     cardId,
     name: String(name),
-    content: item?.revision?.content || {},
+    content,
     status: content.current_state || item?.current_state || world.current_state || "当前状态待补充",
-    personality: content.personality || item?.personality || world.personality || world.description || "尚未填写人物卡",
+    personality: content.version === "character_card.v2"
+      ? (content.interpretations || []).map((entry) => entry.statement).join("；") || "暂无解释性建议"
+      : content.personality || item?.personality || world.personality || world.description || "尚未填写人物卡",
     currentGoal: content.current_goal || item?.current_goal || "",
     currentEmotion: content.current_emotion || item?.current_emotion || "",
     relationship: content.relationship_state || item?.relationship || "",
@@ -94,11 +96,11 @@ function normalizeSimulation(result, scene, characters = [], provenance = {}) {
     : Array.isArray(source?.proposals)
       ? source.proposals
       : []
-  const reactions = proposals.map((item, index) => {
+  const reactions = proposals.flatMap((item, index) => {
     const characterId = item?.character_id || item?.characterId || null
     const id = String(item?.id || characterId || `reaction-${index + 1}`)
     const character = characters.find((candidate) => candidate.id === String(characterId))
-    return {
+    const base = {
       id,
       characterId: characterId || character?.id || null,
       name: item?.name || character?.name || `本场人物 ${index + 1}`,
@@ -117,6 +119,27 @@ function normalizeSimulation(result, scene, characters = [], provenance = {}) {
       alternatives: Array.isArray(item?.alternatives) ? item.alternatives : Array.isArray(item?.alternative_actions) ? item.alternative_actions : [],
       status: ["kept", "rejected"].includes(item?.status) ? item.status : "candidate",
     }
+    if (item?.schema_version !== "story.reaction.v2" || !Array.isArray(item.performances)) return [base]
+    return item.performances.map((performance) => ({
+      ...base,
+      id: `${id}:${performance.option_id}`,
+      schemaVersion: "story.reaction.v2",
+      optionId: performance.option_id,
+      motivation: performance.motivation,
+      stance: item.internal_pressure,
+      fullInternalPressure: item.internal_pressure,
+      action: performance.action,
+      facialExpression: performance.facial_expression,
+      bodyLanguage: performance.body_language,
+      dialogueTendency: performance.voice_and_dialogue,
+      innerResponse: performance.inner_response,
+      attention: performance.attention,
+      change: performance.change,
+      confidence: Number(performance.confidence || 0),
+      sourceFactIds: performance.source_fact_ids || [],
+      sourcePatternIds: performance.source_pattern_ids || [],
+      selectedPerformance: performance,
+    }))
   })
   const beatsSource = Array.isArray(source?.beats)
     ? source.beats
@@ -191,7 +214,12 @@ function runtimeProvenance(progress, result, meta = {}) {
 function acceptedReactionPayload(simulation) {
   return (simulation?.reactions || [])
     .filter((item) => item.status === "kept" && item.characterId)
-    .map((item) => ({
+    .map((item) => item.schemaVersion === "story.reaction.v2" ? {
+      schema_version: "story.reaction.choice.v1",
+      character_id: item.characterId,
+      internal_pressure: item.fullInternalPressure || item.stance,
+      selected_performance: item.selectedPerformance,
+    } : ({
       character_id: item.characterId,
       known_information: item.knownInformation || [],
       subjective_judgment: item.subjectiveJudgment || null,
@@ -409,13 +437,14 @@ export function useStorySceneWorkspace({ projectId, selectedItem, selectedSceneI
   function applyGeneratedCard() {
     const content = generatedCard.value?.content || generatedCard.value?.preview?.content
     if (!content) return false
+    const versionTwo = content.version === "character_card.v2"
     Object.assign(cardDraft, {
-      fullContent: { ...cardDraft.fullContent, ...content },
-      personality: content.personality || cardDraft.personality,
-      currentGoal: content.current_goal || cardDraft.currentGoal,
-      currentState: content.current_state || cardDraft.currentState,
-      currentEmotion: content.current_emotion || cardDraft.currentEmotion,
-      authorNotes: content.author_notes || cardDraft.authorNotes,
+      fullContent: versionTwo ? { ...content } : { ...cardDraft.fullContent, ...content },
+      personality: versionTwo ? "" : content.personality || cardDraft.personality,
+      currentGoal: versionTwo ? "" : content.current_goal || cardDraft.currentGoal,
+      currentState: versionTwo ? "" : content.current_state || cardDraft.currentState,
+      currentEmotion: versionTwo ? "" : content.current_emotion || cardDraft.currentEmotion,
+      authorNotes: versionTwo ? cardDraft.authorNotes : content.author_notes || cardDraft.authorNotes,
       sourceTaskId: generatedCard.value.sourceTaskId || null,
       contextSnapshotId: generatedCard.value.contextSnapshotId || null,
     })
@@ -444,7 +473,8 @@ export function useStorySceneWorkspace({ projectId, selectedItem, selectedSceneI
   }
 
   async function saveCharacterCard() {
-    if (!sceneId.value || !cardDraft.characterId || !cardDraft.personality.trim()) {
+    const versionTwo = cardDraft.fullContent?.version === "character_card.v2"
+    if (!sceneId.value || !cardDraft.characterId || (!versionTwo && !cardDraft.personality.trim())) {
       loadError.value = "人物卡至少需要填写人物底色"
       return false
     }
@@ -464,7 +494,7 @@ export function useStorySceneWorkspace({ projectId, selectedItem, selectedSceneI
         } : {}),
         ...(cardDraft.sourceTaskId ? { source_task_id: cardDraft.sourceTaskId } : {}),
         ...(cardDraft.contextSnapshotId ? { context_snapshot_id: cardDraft.contextSnapshotId } : {}),
-        content: {
+        content: versionTwo ? { ...cardDraft.fullContent } : {
           ...cardDraft.fullContent,
           version: "character_card.v1",
           personality: cardDraft.personality,
@@ -1103,7 +1133,15 @@ export function useStorySceneWorkspace({ projectId, selectedItem, selectedSceneI
 
   function setReactionStatus(reactionId, status) {
     if (!simulation.value?.reactions) return
-    const next = simulation.value.reactions.map((item) => item.id === reactionId ? { ...item, status } : item)
+    const selected = simulation.value.reactions.find((item) => item.id === reactionId)
+    const next = simulation.value.reactions.map((item) => {
+      if (item.id === reactionId) return { ...item, status }
+      if (status === "kept" && selected?.schemaVersion === "story.reaction.v2"
+        && item.schemaVersion === "story.reaction.v2" && item.characterId === selected.characterId) {
+        return { ...item, status: "rejected" }
+      }
+      return item
+    })
     simulation.value = { ...simulation.value, reactions: next }
     persistDraft()
   }

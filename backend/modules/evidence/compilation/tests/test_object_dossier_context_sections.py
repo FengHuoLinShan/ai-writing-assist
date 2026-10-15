@@ -1,7 +1,9 @@
+from dataclasses import replace
 from types import SimpleNamespace
 
 import pytest
 
+from core.config import Settings
 from modules.evidence.compilation.contracts import CompileOptions, StructureContextBundle
 from modules.evidence.compilation.services.context_compiler import ContextCompiler
 from modules.evidence.compilation.services.loaders import object_dossier_loader
@@ -184,26 +186,35 @@ async def test_object_loader_is_off_by_default_and_keeps_capability_switches_sep
         consumer_action="writing.generate",
     )
     bundle = StructureContextBundle(novel_id="novel", task="write", scope="scene")
+    monkeypatch.delenv("OBJECT_DOSSIER_ENABLED_CAPABILITIES", raising=False)
+    monkeypatch.delenv("CHARACTER_PATTERN_ENABLED_CAPABILITIES", raising=False)
     monkeypatch.setattr(
         object_dossier_loader,
         "get_settings",
-        lambda: SimpleNamespace(),
+        Settings,
     )
 
     await loader.load(object(), options, bundle)
     assert reader.calls == []
     assert bundle.object_dossier_brief is None
 
-    monkeypatch.setattr(
-        object_dossier_loader,
-        "get_settings",
-        lambda: SimpleNamespace(
-            object_dossier_enabled_capabilities=("writing.generate",),
-            character_pattern_enabled_capabilities=(),
-        ),
-    )
+    monkeypatch.setenv("OBJECT_DOSSIER_ENABLED_CAPABILITIES", " writing.generate, ")
+    assert Settings().object_dossier_enabled_capabilities == ("writing.generate",)
     await loader.load(object(), options, bundle)
     assert reader.calls[-1][2] is False
     assert bundle.object_reference_dimensions == ["object_dossier"]
     assert bundle.object_dossier_brief["world_items"]
     assert bundle.object_dossier_brief["pattern_items"] == []
+
+    monkeypatch.setenv("OBJECT_DOSSIER_ENABLED_CAPABILITIES", "")
+    monkeypatch.setenv("CHARACTER_PATTERN_ENABLED_CAPABILITIES", "writing.generate")
+    pattern_only = StructureContextBundle(novel_id="novel", task="write", scope="scene")
+    await loader.load(object(), options, pattern_only)
+    assert reader.calls[-1][2] is True
+    assert pattern_only.object_reference_dimensions == ["character_pattern"]
+    assert pattern_only.object_dossier_brief["world_items"] == []
+    assert pattern_only.object_dossier_brief["pattern_items"]
+
+    other_action = replace(options, consumer_action="world.ask")
+    await loader.load(object(), other_action, pattern_only)
+    assert len(reader.calls) == 2

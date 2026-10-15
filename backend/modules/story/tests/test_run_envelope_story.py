@@ -175,10 +175,13 @@ def test_story_tasks_declare_deadline_with_code_source(
 def _card_payload() -> str:
     return json.dumps(
         {
-            "content": {
-                "version": "character_card.v1",
-                "personality": "沉静、克制",
-            },
+            "interpretations": [
+                {
+                    "category": "temperament",
+                    "statement": "沉静、克制",
+                    "source_fact_ids": ["story:known-goal"],
+                }
+            ],
             "warnings": [],
         },
         ensure_ascii=False,
@@ -242,6 +245,29 @@ async def test_story_character_card_chain_builds_envelope_through_worker(
         del db
         return SimpleNamespace(id=str(uuid.uuid4()))
 
+    async def stub_character_reveals(db, **_kwargs):
+        del db
+        return {
+            character_id: {
+                "markdown": "该人物可见的已确认场景事实",
+                "deterministic_facts": [
+                    {
+                        "fact_id": "story:known-goal",
+                        "kind": "story_state",
+                        "layer": "fact",
+                        "subject_id": character_id,
+                        "dimension": "entities",
+                        "field": "current_goal",
+                        "value": "守住码头",
+                        "checkpoint_id": "checkpoint-1",
+                    }
+                ],
+                "reference_patterns": [],
+                "reference_dimensions": (),
+                "hash": "confirmed-reveal-hash",
+            }
+        }
+
     async def stub_restore_settings(db, novel_id_arg, snapshot):
         del db, novel_id_arg, snapshot
         return {"llm": {"provider_id": "deepseek", "model": "deepseek-flash"}}
@@ -263,6 +289,7 @@ async def test_story_character_card_chain_builds_envelope_through_worker(
     monkeypatch.setattr(
         story_tasks, "create_context_snapshot", stub_create_context_snapshot
     )
+    monkeypatch.setattr(story_tasks, "_compile_character_reveals", stub_character_reveals)
     monkeypatch.setattr(
         story_tasks,
         "restore_project_llm_execution_settings",
@@ -304,9 +331,13 @@ async def test_story_character_card_chain_builds_envelope_through_worker(
             result = stored.result or {}
             assert result.get("preview_only") is True
             assert result.get("writes") == []
-            assert (result.get("preview") or {}).get("content", {}).get(
-                "personality"
-            ) == "沉静、克制"
+            content = (result.get("preview") or {}).get("content", {})
+            assert content.get("version") == "character_card.v2"
+            assert content["fact_basis"][0]["fact_id"] == "story:known-goal"
+            assert content["interpretations"][0]["statement"] == "沉静、克制"
+            assert content["interpretations"][0]["source_fact_ids"] == [
+                "story:known-goal"
+            ]
             envelope = read_ai_run_envelope((stored.meta or {}).get("_ai_run_envelope"))
             assert envelope is not None
             assert envelope.root_capability_id == "story.character_card"

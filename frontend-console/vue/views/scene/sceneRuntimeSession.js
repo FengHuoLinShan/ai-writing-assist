@@ -126,7 +126,7 @@ function asSerializableSimulation(simulation) {
     sourceTaskId: typeof simulation.sourceTaskId === "string" ? simulation.sourceTaskId.slice(0, 120) : null,
     contextSnapshotId: typeof simulation.contextSnapshotId === "string" ? simulation.contextSnapshotId.slice(0, 160) : null,
     reactions: Array.isArray(simulation.reactions)
-      ? simulation.reactions.slice(0, 24).map((item) => ({
+      ? simulation.reactions.slice(0, 96).map((item) => ({
         id: String(item?.id || "").slice(0, 120),
         characterId: String(item?.characterId || "").slice(0, 120),
         name: String(item?.name || "人物").slice(0, 120),
@@ -143,6 +143,33 @@ function asSerializableSimulation(simulation) {
         confidence: Number(item?.confidence || 0),
         knowledgeBasis: Array.isArray(item?.knowledgeBasis) ? item.knowledgeBasis.slice(0, 20).map((value) => String(value).slice(0, 240)) : [],
         alternatives: Array.isArray(item?.alternatives) ? item.alternatives.slice(0, 8).map((value) => String(value).slice(0, 240)) : [],
+        ...(item?.schemaVersion === "story.reaction.v2" && item?.selectedPerformance ? {
+          schemaVersion: "story.reaction.v2",
+          optionId: String(item.optionId || "").slice(0, 64),
+          fullInternalPressure: String(item.fullInternalPressure || "").slice(0, 12000),
+          motivation: String(item.motivation || "").slice(0, 12000),
+          facialExpression: String(item.facialExpression || "").slice(0, 12000),
+          bodyLanguage: String(item.bodyLanguage || "").slice(0, 12000),
+          innerResponse: String(item.innerResponse || "").slice(0, 12000),
+          attention: String(item.attention || "").slice(0, 12000),
+          change: String(item.change || "").slice(0, 12000),
+          sourceFactIds: (item.sourceFactIds || []).slice(0, 16).map((value) => String(value).slice(0, 200)),
+          sourcePatternIds: (item.sourcePatternIds || []).slice(0, 8).map((value) => String(value).slice(0, 200)),
+          selectedPerformance: {
+            option_id: String(item.selectedPerformance.option_id || "").slice(0, 64),
+            motivation: String(item.selectedPerformance.motivation || "").slice(0, 12000),
+            source_fact_ids: (item.selectedPerformance.source_fact_ids || []).slice(0, 16).map((value) => String(value).slice(0, 200)),
+            source_pattern_ids: (item.selectedPerformance.source_pattern_ids || []).slice(0, 8).map((value) => String(value).slice(0, 200)),
+            action: String(item.selectedPerformance.action || "").slice(0, 12000),
+            facial_expression: String(item.selectedPerformance.facial_expression || "").slice(0, 12000),
+            body_language: String(item.selectedPerformance.body_language || "").slice(0, 12000),
+            voice_and_dialogue: String(item.selectedPerformance.voice_and_dialogue || "").slice(0, 12000),
+            inner_response: String(item.selectedPerformance.inner_response || "").slice(0, 12000),
+            attention: String(item.selectedPerformance.attention || "").slice(0, 12000),
+            change: String(item.selectedPerformance.change || "").slice(0, 12000),
+            confidence: Number(item.selectedPerformance.confidence || 0),
+          },
+        } : {}),
         status: ["candidate", "kept", "rejected"].includes(item?.status) ? item.status : "candidate",
       }))
       : [],

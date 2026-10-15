@@ -29,14 +29,15 @@ def _story_view(*, character: bool = False, reader: bool = False) -> dict:
         {
             "subject_id": ENTITY_ID,
             "subject_label": "北门",
-            "field": "state",
+            "field": "condition",
             "value": "北门关闭",
             "layer": "fact",
             "occurred_at": {"scene_index": 2},
             "source": {
                 "checkpoint_id": CHECKPOINT_ID,
+                "dimension": "entities",
                 "provenance": {
-                    "field": "state",
+                    "field": "condition",
                     "event_id": str(uuid4()),
                     "status": "exact",
                     "source_refs": [
@@ -167,7 +168,7 @@ def _world_dossier() -> dict:
                 "profile_status": "canonical",
                 "template_id": str(uuid4()),
                 "template_version_number": 3,
-                "field_key": "origin_place",
+                "field_key": "condition",
                 "label": "所在区域",
                 "facing": {"kind": "core", "key": "geography"},
                 "value": "北门关闭",
@@ -443,6 +444,23 @@ async def test_current_legacy_value_cannot_fill_a_past_scene(facade_reads):
     assert any("目标 Scene 的时点事实" in item for item in response.omissions)
 
 
+async def test_legacy_field_cannot_borrow_another_fields_equal_value(facade_reads):
+    def wrong_field():
+        value = _world_dossier()
+        value["legacy_profile_fields"][0]["field_key"] = "origin_place"
+        return value
+
+    facade_reads["dossier"] = wrong_field
+    result = await ObjectDossierBriefService().load(
+        None,
+        _options(reveal_mode="author_full"),
+        entity_ids=[ENTITY_ID],
+        include_patterns=False,
+    )
+    assert all(item["kind"] != "legacy_profile_field" for item in result["world_items"])
+    assert any("时点事实证明" in item for item in result["omissions"])
+
+
 async def test_author_safe_secret_changes_do_not_leak_values_or_fingerprints(
     facade_reads,
 ):
@@ -502,7 +520,7 @@ async def test_author_safe_secret_changes_do_not_leak_values_or_fingerprints(
     assert all(item.field != "identity_position" for item in safe_first.continuity_items)
     assert any(item.field == "identity_position" for item in full.continuity_items)
     assert all(item.kind != "legacy_profile_field" for item in safe_first.world_items)
-    assert any(item.field_key == "hidden_truth" for item in full.world_items)
+    assert all(item.field_key != "hidden_truth" for item in full.world_items)
     assert safe_first.checkpoint_refs == []
     assert safe_first.omitted_count == 0
     secret["value"] = "第二版隐藏真相"
@@ -589,7 +607,7 @@ async def test_bridged_generic_revision_still_requires_story_cutoff_proof(facade
                 "legacy_value": value,
                 "evidence": [],
                 "source_metadata": {
-                    "generic_profile_field_key": "origin_place",
+                    "generic_profile_field_key": "condition",
                     "generic_profile_mapped": True,
                     "generic_profile_metadata": {
                         "profile_status": "canonical",
@@ -679,6 +697,23 @@ async def test_bridged_generic_revision_still_requires_story_cutoff_proof(facade
         for item in proved["world_items"]
     )
 
+    def wrong_generic_field():
+        value = generic_revision("北门关闭")
+        value["entries"][-1]["source_metadata"]["generic_profile_field_key"] = (
+            "origin_place"
+        )
+        return value
+
+    facade_reads["dossier"] = wrong_generic_field
+    wrong_key = await ObjectDossierBriefService().load(
+        None,
+        _options(reveal_mode="author_full"),
+        entity_ids=[ENTITY_ID],
+        include_patterns=False,
+    )
+    assert all(item.get("entry_id") != generic_entry_id for item in wrong_key["world_items"])
+    facade_reads["dossier"] = lambda: generic_revision("北门关闭")
+
     def earlier_fact_story(*, character=False, reader=False):
         view = _story_view(character=character, reader=reader)
         view["dimensions"][0]["facts"][0]["occurred_at"] = {"scene_index": 1}
@@ -703,6 +738,12 @@ async def test_bridged_generic_revision_still_requires_story_cutoff_proof(facade
         lambda view: view["dimensions"][0]["facts"][0].update(value="城门已打开"),
         lambda view: view["dimensions"][0]["facts"][0]["source"]["provenance"].update(
             status="unverified", source_refs=[]
+        ),
+        lambda view: view["dimensions"][0]["facts"][0]["source"].update(
+            dimension="locations"
+        ),
+        lambda view: view["dimensions"][0]["facts"][0]["source"].update(
+            checkpoint_id=str(uuid4())
         ),
     ):
         facade_reads["dossier"] = lambda: generic_revision("北门关闭")

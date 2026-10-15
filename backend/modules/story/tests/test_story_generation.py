@@ -196,12 +196,12 @@ async def test_card_rejects_unavailable_source_id():
 def test_card_v1_payload_remains_readable_and_v2_requires_source_references():
     from pydantic import ValidationError
 
-    from modules.story.schemas import CharacterCardContent
+    from modules.story.schemas import CharacterCardContent, CharacterCardContentV2
 
     legacy = CharacterCardContent.model_validate({"personality": "谨慎"})
     assert legacy.version == "character_card.v1"
     with pytest.raises(ValidationError, match="require at least one source id"):
-        CharacterCardContent(
+        CharacterCardContentV2(
             version="character_card.v2",
             interpretations=[{"category": "personality", "statement": "谨慎"}],
         )
@@ -268,6 +268,37 @@ def test_reaction_v1_history_stays_readable_and_v2_requires_distinct_performance
         ],
     )
     assert valid_v2.schema_version == "story.reaction.v2"
+    from modules.story.schemas import StoryTaskRequest
+
+    chosen = StoryTaskRequest(
+        novel_id=str(uuid.uuid4()),
+        scene_id=str(uuid.uuid4()),
+        character_ids=[str(character_id)],
+        context_confirmation_id="confirmed-scope",
+        confirmed=True,
+        accepted_reactions=[
+            {
+                "schema_version": "story.reaction.choice.v1",
+                "character_id": str(character_id),
+                "internal_pressure": valid_v2.internal_pressure,
+                "selected_performance": option,
+            }
+        ],
+    )
+    assert chosen.accepted_reactions[0].selected_performance.option_id == "goal_first"
+    with pytest.raises(ValidationError):
+        StoryTaskRequest(
+            **chosen.model_dump(exclude={"accepted_reactions"}),
+            accepted_reactions=[valid_v2.model_dump(mode="json")],
+        )
+    with pytest.raises(ValidationError, match="only one selected performance"):
+        StoryTaskRequest(
+            **chosen.model_dump(exclude={"accepted_reactions"}),
+            accepted_reactions=[
+                chosen.accepted_reactions[0].model_dump(),
+                chosen.accepted_reactions[0].model_dump(),
+            ],
+        )
     with pytest.raises(ValidationError, match="at least 2 items"):
         ReactionProposalV2(
             character_id=character_id,

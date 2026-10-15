@@ -56,6 +56,17 @@ A1_PREVIEW_ROUTES = {
         "writing.conflict_check.create"
     ),
 }
+C2_BOUND_ROUTES = {
+    "/api/assistant/operation-http/evidence/object-dossier-brief": (
+        "evidence.object_dossier_brief.read"
+    ),
+}
+C2_PREVIEW_ROUTES = {
+    "/api/assistant/operation-http/previews/story/character-card": (
+        "story.character_card.generate"
+    ),
+    "/api/assistant/operation-http/previews/story/reactions": ("story.reaction.generate"),
+}
 
 WRITE_METHODS = {"POST", "PUT", "PATCH", "DELETE"}
 BASELINE_PATH = (
@@ -126,6 +137,20 @@ def test_a1_http_routes_bind_each_catalog_operation_with_declared_trace_fields()
         assert extra.get("x-novelcraft-operation-id") == operation_id
         assert extra.get("x-novelcraft-operation-phase") == "prepare"
         assert "x-novelcraft-operation-confirmation-field" not in extra
+
+
+def test_c2_http_routes_bind_read_and_previews_without_enqueueing():
+    operations = get(ASSISTANT_OPERATIONS)
+    routes = dict(_route_entries(app.routes))
+    for path, operation_id in (C2_BOUND_ROUTES | C2_PREVIEW_ROUTES).items():
+        extra = routes[path].openapi_extra or {}
+        assert extra.get("x-novelcraft-operation-id") == operation_id
+        assert set(extra.get("x-novelcraft-operation-trace-fields") or {}) == set(
+            operations[operation_id].schema.model_fields
+        )
+        if path in C2_PREVIEW_ROUTES:
+            assert extra.get("x-novelcraft-operation-phase") == "prepare"
+            assert "x-novelcraft-operation-confirmation-field" not in extra
 
 
 def test_trace_extracts_declared_pydantic_request_fields_without_raw_request():

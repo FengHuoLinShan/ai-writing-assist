@@ -40,6 +40,7 @@ from modules.story.facade import (
 )
 from modules.story.generation import StoryGenerationService
 from modules.story.schemas import (
+    AcceptedReactionChoiceV1,
     OneClickOutput,
     OneClickTaskResult,
     ReactionPreviewV2,
@@ -381,7 +382,10 @@ async def _prepare_task_input(
         STORY_CHARACTER_CARD_ACTION,
         STORY_REACTION_ACTION,
         STORY_ONE_CLICK_ACTION,
-    }:
+    } or any(
+        isinstance(item, AcceptedReactionChoiceV1)
+        for item in getattr(data, "accepted_reactions", [])
+    ):
         character_reveals = await _compile_character_reveals(
             db,
             novel_id=data.novel_id,
@@ -391,6 +395,7 @@ async def _prepare_task_input(
             additional_notes=getattr(data, "additional_notes", None),
             selection_options=confirmed_compile_options,
         )
+    _validate_accepted_reaction_choices(data, selected_ids, character_reveals)
     section_metadata = {
         section.key: {
             "tier": int(section.tier),
@@ -536,6 +541,8 @@ async def _revalidate_character_generation_sources(
 
 
 def _validate_card_preview_sources(preview, reveal: dict[str, Any]) -> None:
+    if preview.content.version == "character_card.v1":
+        return
     fact_ids = {
         str(item.get("fact_id")) for item in reveal.get("deterministic_facts", [])
     }
@@ -547,6 +554,31 @@ def _validate_card_preview_sources(preview, reveal: dict[str, Any]) -> None:
             raise ValueError("character card interpretation references a stale fact")
         if not set(interpretation.source_pattern_ids).issubset(pattern_ids):
             raise ValueError("character card interpretation references a stale pattern")
+
+
+def _validate_accepted_reaction_choices(
+    data,
+    selected_ids: list[str],
+    character_reveals: dict[str, dict[str, Any]],
+) -> None:
+    for choice in getattr(data, "accepted_reactions", []):
+        if not isinstance(choice, AcceptedReactionChoiceV1):
+            continue
+        character_id = str(choice.character_id)
+        if character_id not in selected_ids:
+            raise ValueError("accepted reaction character is outside this Scene task")
+        reveal = _require_character_reveal(character_reveals, character_id)
+        option = choice.selected_performance
+        fact_ids = {
+            str(item.get("fact_id")) for item in reveal.get("deterministic_facts", [])
+        }
+        pattern_ids = {
+            str(item.get("pattern_id")) for item in reveal.get("reference_patterns", [])
+        }
+        if not set(option.source_fact_ids).issubset(fact_ids):
+            raise ValueError("accepted reaction references a fact outside its POV")
+        if not set(option.source_pattern_ids).issubset(pattern_ids):
+            raise ValueError("accepted reaction references a pattern outside its POV")
 
 
 def _validate_reaction_preview_sources(
