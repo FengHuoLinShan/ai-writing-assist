@@ -160,3 +160,7 @@ C5与C0独立Luna继续在各自领域，不借用其PG或共享文件写入权�
 ## 2026-10-16T06:39:58+08:00 执行检查点
 
 root已核实章节/时间线准备树干净并fast-forward至942c40746（产品3caf A4），仍未派发，无活动writer。后续开工仍须核最新primary与共享文件所有权。
+
+## 2026-10-16T07:12:34+08:00 当前执行检查点
+
+C0退出空槽已启动Luna/max luna_chapter_order_timeline：map-assistant-vocab-review/codex/chapter-order-timeline-impl从干净已审02faedbc98916499107e067c1b7885de297c309d实施真实Writing章节重排/CAS恢复与Story continuity一般事实时间线。Writing api/facade/draft_service及continuity/facade.py归其，总Story facade.py仍C5顺序组合，C3人物弧/OutlineFloat不抢。新专库chapter_order_timeline_impl_test_20261016与18602/18603已分配未建，和C3库一起hold C5最终线性head；当前两Luna独立实现+C5 Sol总装三路并行。重排不得篡改旧阅读receipt/计数，来源/稳定章身份无法保留时原standing授权应显式失效需重确认，跨域走公开端口。

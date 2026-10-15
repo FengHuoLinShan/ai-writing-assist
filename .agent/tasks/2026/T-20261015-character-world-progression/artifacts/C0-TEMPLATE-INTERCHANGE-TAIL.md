@@ -46,3 +46,7 @@ PG dossier_template_interchange_impl_test_20261016和18592/18593端口已分配�
 Luna最终b4381119fc032137575f68b72ff69aa4acca9412，world-object-dossier-impl树干净退出，18592/18593停。101后端/34Vue/1PG E2E/1browser（390/1280键盘借用与secret）及lint/build/docs通过；未新增migration，旧专库当前head20261016_interaction_summary_task_pointer。旧库保留，不重建。
 
 新Sol/high sol_review_dossier_interchange在map-spatial-eval-review/codex/dossier-template-interchange-review从primary10b4合b438无冲突，正独立review+直接修。World facade/dossier/template/Imports/world.js归该Sol，顶层不抢C4/C5；新专库dossier_template_interchange_review_test_20261016和18598/18599，尚未回报创建。root要求纠正Luna“无新op即无需接线”的缺口：新author PUT/manifest preview/apply须版本化pureSPEC/R3/真实HTTP trace，旧冻结与map.edit不改；手动export保留明确界面边界而非AI外部导出，不新增永久unsupported占位。当前api末尾return后两个无用tuple也由Sol审时清理。最终仍须并发/CAS/rollback/owner/secret/browser及共享顺序装配实证。
+
+## 2026-10-16T07:12:34+08:00 当前执行检查点
+
+C0 Sol独立审修已固定干净008d515a07aaa13f09cb69624ee897a068b2d8df并退出（map-spatial-eval-review/codex/dossier-template-interchange-review）。直接修同名facet重复/异值冲突、借用移除并发、manifest来源伪造/编辑后CAS/重复采用；四纯SPEC/HTTP bindings与真实JSON文件预览映射确认UI完成。独立专库2PG/44目标后端、253文件3184前端全套、lint/build、390/1280文件导出→预览→R3采用Playwright1和docs/repo gates通过；root已实际看/tmp/c0-dossier-import-{390,1280}.png，1280有采用1条反馈，390为可用的映射与确认界面。旧专库dossier_template_interchange_review_test_20261016当前真实head20261016_operation_trace_archive_days，无本域新migration，18598/18599停；现正式移交当前Sol C5在顺序合008d后增量升级和复验，不能重建。总目录版本/旧冻结与新物化仍pending并交C5负责，不把domain checkpoint当完整C0已合。World facade/dossier/Imports/world.js现也移交C5，独立C0代理已无写入。

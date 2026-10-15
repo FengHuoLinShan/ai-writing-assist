@@ -3,7 +3,7 @@ id: T-20261015-character-world-progression
 title: 世界对象档案、场景导演、写作副驾驶与世界推进设计
 status: active
 created: 2026-10-15T16:00:00+08:00
-updated: 2026-10-16T07:03:36+08:00
+updated: 2026-10-16T07:12:34+08:00
 ---
 
 # 世界对象档案、场景导演、写作副驾驶与世界推进设计
@@ -54,11 +54,13 @@ root在保留的operation_trace_report_primary_test_20261016正常从A4 upgrade�
 
 共享槽已正式移交Sol C5：其独占审修先固定并合c579为c6061dd77，只在数据库设计文档标题冲突由Sol保留C4+四C5表修正；首C5 migration父接C4，唯一head20261016_wp_cascade_guard，新world_progression_review_test_20261016已创建一次fresh upgrade成功，旧Luna库未动。现装配main/bootstrap/metadata/TaskRegistry/worker/9项目录/NOTICE/Flow/Writing真实commit触发/story.js并验PG/actualWorker/HTTP/browser。已直接修累计摘要泄角色、地图gap、钩子锁后重放、缺_task_meta import、同根R4 resume、原deadline80%检查、锁顺序、失败候选事件回灌、每步sum(a,b,c,d)必抛TypeError等；定向绿仍不替代实际Worker+PG。原root/start/deadline、所有已用/unknown计数不重置。
 
-C0 Sol独立审修继续：已安全创建dossier_template_interchange_review_test_20261016，fresh/head/parity与2PG/HTTP通过。发现并直接修同名dossier重复导入/异值不冲突、JSON来源修订及证据伪造、借用移除与条目创建并发；原JSON只有下载，现补作者文件预览/映射/确认UI。四新纯SPEC borrowed.read R0/borrowed.edit R3/manifest.preview R0/manifest.apply R3由该Sol实现，旧冻结不改，manual export独立明确边界，顶层冻结等C5后顺序组装。World facade/dossier/Imports/world.js仍该Sol独占。
+C0 Sol独立审修已固定干净008d515a07aaa13f09cb69624ee897a068b2d8df并退出（map-spatial-eval-review/codex/dossier-template-interchange-review）。直接修同名facet重复/异值冲突、借用移除并发、manifest来源伪造/编辑后CAS/重复采用；四纯SPEC/HTTP bindings与真实JSON文件预览映射确认UI完成。独立专库2PG/44目标后端、253文件3184前端全套、lint/build、390/1280文件导出→预览→R3采用Playwright1和docs/repo gates通过；root已实际看/tmp/c0-dossier-import-{390,1280}.png，1280有采用1条反馈，390为可用的映射与确认界面。旧专库dossier_template_interchange_review_test_20261016当前真实head20261016_operation_trace_archive_days，无本域新migration，18598/18599停；现正式移交当前Sol C5在顺序合008d后增量升级和复验，不能重建。总目录版本/旧冻结与新物化仍pending并交C5负责，不把domain checkpoint当完整C0已合。World facade/dossier/Imports/world.js现也移交C5，独立C0代理已无写入。
 
-C4退出的子槽已启动新Luna/max luna_copilot_alignment，simulation-v3-director-impl/codex/copilot-mechanism-alignment-impl从c579实现C3真正forecast v2/人物弧计划实际/Evolution阅读notice；禁止其写C5共享顶层/Story.js/Writing commit/flows/推进/导演及C0 World hub。专库copilot_alignment_impl_test_20261016与18600/18601已分配但hold CREATE/upgrade，待C5线性迁移固定再接后继。A1章节重排/一般事件时间线仍下一批，准备树未派。
+C4退出的子槽已启动新Luna/max luna_copilot_alignment，simulation-v3-director-impl/codex/copilot-mechanism-alignment-impl从c579实现C3真正forecast v2/人物弧计划实际/Evolution阅读notice；禁止其写C5共享顶层/Story.js/Writing commit/flows/推进/导演及C0 World hub。专库copilot_alignment_impl_test_20261016与18600/18601已分配但hold CREATE/upgrade，待C5线性迁移固定再接后继。C0退出空槽已启动Luna/max luna_chapter_order_timeline：map-assistant-vocab-review/codex/chapter-order-timeline-impl从干净已审02faedbc98916499107e067c1b7885de297c309d实施真实Writing章节重排/CAS恢复与Story continuity一般事实时间线。Writing api/facade/draft_service及continuity/facade.py归其，总Story facade.py仍C5顺序组合，C3人物弧/OutlineFloat不抢。新专库chapter_order_timeline_impl_test_20261016与18602/18603已分配未建，和C3库一起hold C5最终线性head；当前两Luna独立实现+C5 Sol总装三路并行。重排不得篡改旧阅读receipt/计数，来源/稳定章身份无法保留时原standing授权应显式失效需重确认，跨域走公开端口。
 
-下一步：C5 Sol完整装配/PG/Worker/browser、C0 Sol独立审修、C3 Luna实施继续并行。C5固定后顺序给C0共享槽，后续A1批次继续；条件门禁如实保留。
+C5持续推进额外审查：root发现MAX published/effective chapter差误代“每读入N章”，失败/未读/跳序号会误触发；Sol已撤销Writing发布触发，独占Evolution facade/store/tasks成功完成hook。新增纯只读真实阅读投影核live+succeeded+applied、完整计划Scene覆盖及冻结draft UUID/hash/offset匹配currentcanonical；PG证明同章第1/2 Scene为[]/[1]，第5章只使[1,5]新增一章，来源改版后旧run stale则当前投影空。Story授权改持久已见章身份/触发count/初始化门禁，后继20261016_wp_read_count在原专库增量upgrade/parity通过，未重写已应用DDL。成功保存回执同事务DI投递coalesced免费outbox；同章改版重读不额外算新章、真实store提交/rollback/N章触发/unknown恢复仍需实际PG验。原R4/root/start/deadline/预算和unknown不清零；GET无付费。Writing api/facade/draft_service已释放给A1 Luna，Evolution facade/store/tasks仍C5单写，C3只notice来源。
+
+下一步：C5 Sol完成真实阅读计数/PG/Worker/HTTP/browser与总装，再顺序合C0 checkpoint物化新目录及原库升级；C3/A1 Luna独立实现继续。两个新库待最终线性头，条件真实门禁如实保留。
 
 批次验收见[完整范围对账](artifacts/FULL-SCOPE-ACCEPTANCE.md)。
 
