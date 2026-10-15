@@ -86,6 +86,7 @@ _REFERENCE_FIELDS = frozenset(
         "revision_id",
         "node_id",
         "entity_id",
+        "world_candidate_id",
         "suggestion_id",
         "receipt_id",
         "result_id",

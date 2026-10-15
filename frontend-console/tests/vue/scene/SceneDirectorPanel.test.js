@@ -31,6 +31,7 @@ describe("SceneDirectorPanel", () => {
       story: {
         sceneDirectorHistory: vi.fn(async (_projectId, sceneId) => history(sceneId)),
         previewSceneDirectorBudget: vi.fn(),
+        transferDirectorCandidate: vi.fn(),
       },
     }
     setBridgeOverrides({ api })
@@ -166,5 +167,71 @@ describe("SceneDirectorPanel", () => {
     } finally {
       window.matchMedia = originalMatchMedia
     }
+  })
+
+  it("keeps the chosen World candidate type on 409 and restores saved transfer status", async () => {
+    const round = {
+      id: "round-a", branch_id: "branch-a", round_number: 1,
+      source_hash: "a".repeat(64), output_hash: "c".repeat(64),
+      basis_status: "current", candidate_events: [],
+      candidate_transfer_choices: [{
+        candidate_id: "visitor", source_kind: "reference", source_id: "visitor",
+        label: "陌生访客", description: "", conflict: false,
+      }],
+    }
+    api.story.sceneDirectorHistory.mockResolvedValue({
+      ...history("scene-a"), rounds: [round], candidate_transfers: [],
+    })
+    api.story.transferDirectorCandidate
+      .mockRejectedValueOnce(Object.assign(new Error("changed"), { status: 409 }))
+      .mockResolvedValueOnce({ world_candidate_id: "world-candidate-a", entity_type: "character" })
+    const wrapper = mountPanel("scene-a")
+    await flushPromises()
+    const candidate = wrapper.get(".scene-director__candidate-events article")
+    await candidate.get("select").setValue("character")
+    await candidate.get("button").trigger("click")
+    await flushPromises()
+    expect(wrapper.get('[role="alert"]').text()).toContain("原选择已保留")
+    expect(candidate.get("select").element.value).toBe("character")
+    expect(api.story.transferDirectorCandidate).toHaveBeenCalledWith("round-a", expect.objectContaining({
+      novel_id: "project-a", scene_id: "scene-a", confirmed: true,
+      candidate_id: "visitor", entity_type: "character",
+      expected_source_hash: "a".repeat(64), expected_output_hash: "c".repeat(64),
+    }))
+    await candidate.get("button").trigger("click")
+    await flushPromises()
+    expect(wrapper.text()).toContain("已转入 World 候选，仍待审核采用")
+    expect(candidate.find("button").exists()).toBe(false)
+  })
+
+  it("drops a late candidate transfer response after switching Scene", async () => {
+    const round = {
+      id: "round-old", branch_id: "branch-old", round_number: 1,
+      source_hash: "a".repeat(64), output_hash: "c".repeat(64), basis_status: "current",
+      candidate_events: [{ candidate_id: "arrival", label: "旧访客", description: "旧候选" }],
+      candidate_transfer_choices: [{
+        candidate_id: "arrival", source_kind: "event", source_id: "arrival",
+        label: "旧访客", description: "旧候选", conflict: false,
+      }],
+    }
+    api.story.sceneDirectorHistory.mockImplementation(async (_projectId, sceneId) => (
+      sceneId === "scene-a"
+        ? { ...history(sceneId), rounds: [round], candidate_transfers: [] }
+        : { ...history(sceneId), rounds: [], candidate_transfers: [] }
+    ))
+    let resolveTransfer
+    api.story.transferDirectorCandidate.mockImplementation(() => new Promise((resolve) => {
+      resolveTransfer = resolve
+    }))
+    const wrapper = mountPanel("scene-a")
+    await flushPromises()
+    await wrapper.get(".scene-director__candidate-events button").trigger("click")
+    await wrapper.setProps({ scene: { id: "scene-b", title: "新场景" } })
+    await flushPromises()
+    resolveTransfer({ world_candidate_id: "old-world", entity_type: "event" })
+    await flushPromises()
+    expect(wrapper.text()).not.toContain("旧访客")
+    expect(wrapper.text()).not.toContain("已转入 World 候选")
+    expect(wrapper.attributes("data-director-scene")).toBe("scene-b")
   })
 })

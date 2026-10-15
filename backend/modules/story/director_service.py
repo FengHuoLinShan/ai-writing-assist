@@ -9,8 +9,10 @@ from uuid import UUID
 from sqlalchemy import delete, select
 
 from core.errors import ConflictError, NotFoundError
+from modules.story.director_candidates import transfer_choices
 from modules.story.models import (
     StorySceneDirectorBranch,
+    StorySceneDirectorCandidateTransfer,
     StorySceneDirectorPreference,
     StorySceneDirectorReference,
     StorySceneDirectorRoot,
@@ -327,6 +329,23 @@ async def read_director_history_view(db, novel_id: str, scene_id: str) -> dict:
     from modules.story.director_context import read_director_source
 
     history = await list_director_history(db, novel_id, scene_id)
+    transfers = (
+        await db.scalars(
+            select(StorySceneDirectorCandidateTransfer).where(
+                StorySceneDirectorCandidateTransfer.novel_id == _uuid(novel_id),
+                StorySceneDirectorCandidateTransfer.scene_id == _uuid(scene_id),
+            )
+        )
+    ).all()
+    history["candidate_transfers"] = [
+        {
+            "round_id": str(row.round_id),
+            "candidate_id": row.candidate_ref,
+            "world_candidate_id": str(row.world_candidate_id),
+            "entity_type": row.entity_type,
+        }
+        for row in transfers
+    ]
     current_hash_by_root: dict[str, str | None] = {}
     for root_item in history.get("roots", []):
         root_id = str(root_item.get("id") or "")
@@ -418,6 +437,7 @@ def _round_summary(row, round_to_branch, round_ids):
         "recommended_angles": output.get("recommended_angles", []),
         "alternatives": output.get("alternatives", []),
         "candidate_events": output.get("candidate_events", []),
+        "candidate_transfer_choices": transfer_choices(output),
         "consistency": output.get("consistency", {}),
         "warnings": output.get("warnings", []),
         "state_delta": output.get("state_delta", []),
