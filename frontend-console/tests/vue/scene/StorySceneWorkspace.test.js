@@ -49,6 +49,8 @@ const payload = {
 describe("Story Scene workspace panels", () => {
   let wrapper
   let story
+  let world
+  let api
   let state
   let router
   let tasks
@@ -93,6 +95,19 @@ describe("Story Scene workspace panels", () => {
       startScriptTask: vi.fn(),
       startCharacterCardTask: vi.fn(),
       startSceneSimulation: vi.fn(),
+      sceneDirectorHistory: vi.fn().mockResolvedValue({ roots: [], branches: [], rounds: [], references: [], recoverable_branches: [], recoverable_references: [] }),
+      previewSceneDirectorBudget: vi.fn().mockResolvedValue({
+        preview_hash: "a".repeat(64),
+        request_count: { minimum: 4, maximum: 4 },
+        token_count: { minimum: 100, maximum: 300 },
+        time_seconds: { minimum: 8, maximum: 100 },
+        possible_charge: "开始模型请求后可能产生计费请求；不估算或显示金额",
+        rounds: 1,
+        participants: 1,
+        omitted: [],
+        warnings: [],
+      }),
+      startSceneDirector: vi.fn().mockResolvedValue({ task_id: "task-director", status: "pending" }),
       saveSceneScript: vi.fn().mockResolvedValue({ status: "saved" }),
       saveCharacterCard: vi.fn(),
       listCharacterCardRevisions: vi.fn().mockResolvedValue([]),
@@ -100,16 +115,17 @@ describe("Story Scene workspace panels", () => {
       adoptSceneScriptRevision: vi.fn(),
       unadoptSceneScriptFile: vi.fn(),
     }
-    tasks = { get: vi.fn(), cancel: vi.fn() }
+    tasks = { get: vi.fn().mockResolvedValue({ task_id: "task-director", task_type: "story_scene_director", status: "done", result: { status: "complete" } }), cancel: vi.fn() }
     toast = vi.fn()
     assistant = { capabilities: vi.fn().mockResolvedValue({ rehearsal: { available: false } }) }
-    const api = {
+    world = { listEntities: vi.fn().mockResolvedValue({ items: [], total: 0 }) }
+    api = {
       outline: {
         getSceneWorkbench: vi.fn().mockResolvedValue(payload),
         listFusionSuggestions: vi.fn().mockResolvedValue({ items: [], total: 0 }),
         updateScene: vi.fn().mockResolvedValue({ id: "s1" }),
       },
-      world: { listEntities: vi.fn().mockResolvedValue({ items: [], total: 0 }) },
+      world,
       story,
       assistant,
       tasks,
@@ -557,79 +573,74 @@ describe("Story Scene workspace panels", () => {
     expect(wrapper.get(".scene-character-cards").text()).not.toContain("晚到的人物")
   })
 
-  it("uses the authorized one-click Story task and never fabricates a local preview", async () => {
-    let resolveContext
-    story.getSceneContext.mockImplementation(() => new Promise((resolve) => { resolveContext = resolve }))
-    story.startOneClickTask.mockResolvedValue({
-      task_id: "task-one-click",
-      status: "pending",
-    })
-    createWrapper()
-    await wrapper.get('[data-action="select-workbench-scene"]').trigger("click")
-    await wrapper.get('[data-action="scene-runtime-tab-simulation"]').trigger("click")
-    expect(wrapper.get('[data-action="run-scene-simulation"]').attributes("disabled")).toBeDefined()
-    resolveContext({
-      character_cards: [{ character_id: "c1", name: "阿遥", content: { personality: "谨慎" } }],
-      script_files: [],
-    })
-    await flushPromises()
-    expect(wrapper.get('[data-action="run-scene-simulation"]').text()).toContain("推演并补齐人物卡")
-    expect(wrapper.get(".scene-simulation-panel").text()).toContain("人物反应与剧本仍只作为待确认预览，不会自动保存")
-    await wrapper.get('[data-action="run-scene-simulation"]').trigger("click")
-    await flushPromises()
-
-    expect(story.startOneClickTask).toHaveBeenCalledWith(expect.objectContaining({
-      submit_authorized: true,
-      scene_id: "s1",
-      character_ids: ["c1"],
-    }))
-    expect(wrapper.find(".scene-reaction-card").exists()).toBe(false)
-  })
-
-  it("submits the author's rehearsal through the typed v3 one-round route", async () => {
-    const characterCards = ["c1", "c2", "c3", "c4"].map((id, index) => ({
-      character_id: id,
-      name: `阿${index + 1}`,
-      content: { personality: "谨慎" },
-    }))
-    story.getSceneContext.mockResolvedValue({ character_cards: characterCards, script_files: [] })
-    story.startRehearsal.mockResolvedValue({ task_id: "task-rehearsal", status: "pending" })
-    assistant.capabilities.mockResolvedValue({ rehearsal: { available: true } })
+  it("opens the same budgeted Scene Director instead of the legacy one-click path", async () => {
+    story.getSceneContext.mockResolvedValue({ character_cards: [], script_files: [] })
     createWrapper({ selectedSceneId: "s1" })
     await wrapper.get('[data-action="scene-runtime-tab-simulation"]').trigger("click")
     await flushPromises()
-
-    const run = wrapper.find(".scene-rehearsal").findAll("button").find(button => button.text() === "排演一回合")
-    await run.trigger("click")
-    await flushPromises()
-
-    expect(story.startRehearsal).toHaveBeenCalledWith("s1", expect.objectContaining({
-      scene_id: "s1",
-      simulation_protocol: "simulation_v3",
-      rehearsal_rounds: 1,
-      character_ids: ["c1", "c2", "c3", "c4"],
-      simulation_seed: expect.objectContaining({
-        participants: ["c1", "c2", "c3", "c4"].map(id => ({ kind: "object", id })),
-      }),
-    }))
+    expect(wrapper.get(".scene-director").attributes("data-director-scene")).toBe("s1")
+    expect(wrapper.get(".scene-director__tag").text()).toBe("默认一轮")
+    expect(wrapper.text()).toContain("预算预览、逐人物隔离排演、候选历史与分支都由同一个导演运行管理")
+    expect(story.startOneClickTask).not.toHaveBeenCalled()
+    expect(story.startRehearsal).not.toHaveBeenCalled()
+    expect(wrapper.find(".scene-reaction-card").exists()).toBe(false)
   })
 
-  it("keeps a clear error and no fake reactions when the Story task is unavailable", async () => {
+  it("previews then starts one explicitly budgeted Scene Director run", async () => {
+    world.listEntities.mockResolvedValue({ items: [{ id: "c1", name: "阿遥", entity_type: "character", status: "canonical" }], total: 1 })
+    createWrapper({ selectedSceneId: "s1" })
+    await wrapper.get('[data-action="scene-runtime-tab-simulation"]').trigger("click")
+    await flushPromises()
+    const panel = wrapper.get(".scene-director")
+    await panel.find('.scene-director__participants input[type="checkbox"]').setValue(true)
+    const numberInputs = panel.findAll('input[type="number"]')
+    await numberInputs[1].setValue("12")
+    await numberInputs[2].setValue("5000")
+    await numberInputs[3].setValue("30")
+    await panel.findAll("button").find(button => button.text() === "预览请求与用量").trigger("click")
+    await flushPromises()
+    expect(story.previewSceneDirectorBudget).toHaveBeenCalledWith("p1", expect.objectContaining({
+      scene_id: "s1",
+      character_ids: ["c1"],
+      rounds: 1,
+    }))
+
+    await panel.findAll("button").find(button => button.text() === "确认资料并开始").trigger("click")
+    await flushPromises()
+
+    expect(confirmAiReference).toHaveBeenCalledWith(expect.objectContaining({
+      action: "story.one_click.simulate",
+      scene_id: "s1",
+      character_ids: ["c1"],
+    }))
+    expect(story.startSceneDirector).toHaveBeenCalledWith("p1", "s1", expect.objectContaining({
+      scene_id: "s1",
+      character_ids: ["c1"],
+      request_limit: 12,
+      token_limit: 5000,
+      time_budget_seconds: 1800,
+      context_confirmation_id: "confirm-default",
+      budget_preview_hash: "a".repeat(64),
+    }))
+    expect(story.startRehearsal).not.toHaveBeenCalled()
+    expect(story.startOneClickTask).not.toHaveBeenCalled()
+  })
+
+  it("shows a retryable history error without substituting a legacy run", async () => {
     story.getSceneContext.mockResolvedValue({
       character_cards: [{ character_id: "c1", name: "阿遥", content: { personality: "谨慎" } }],
       script_files: [],
     })
     const error = Object.assign(new Error("Story 服务暂不可用"), { status: 404 })
-    story.startOneClickTask.mockRejectedValue(error)
-    createWrapper()
-    await wrapper.get('[data-action="select-workbench-scene"]').trigger("click")
+    story.sceneDirectorHistory.mockRejectedValue(error)
+    createWrapper({ selectedSceneId: "s1" })
     await wrapper.get('[data-action="scene-runtime-tab-simulation"]').trigger("click")
     await flushPromises()
-    await wrapper.get('[data-action="run-scene-simulation"]').trigger("click")
-    await flushPromises()
 
-    expect(wrapper.get(".scene-runtime-error").text()).toContain("Story 服务暂不可用")
+    expect(wrapper.get('.scene-director__history [role="alert"]').text()).toContain("Story 服务暂不可用")
     expect(wrapper.find(".scene-reaction-card").exists()).toBe(false)
+    expect(story.startOneClickTask).not.toHaveBeenCalled()
+    expect(story.startRehearsal).not.toHaveBeenCalled()
   })
 
   it("does not turn a full-world character response into scene characters", async () => {

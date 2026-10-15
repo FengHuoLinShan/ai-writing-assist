@@ -29,9 +29,13 @@ from modules.evidence.compilation.services.compiled_context import (
     selection_ref_key,
 )
 from modules.evidence.compilation.services.constraint_engine import ConstraintEngine
+from modules.evidence.compilation.services.director_reference_sections import (
+    DirectorReferenceSectionBuilder,
+)
 from modules.evidence.compilation.services.loaders import (
     AuthorExamplesLoader,
     CharactersLoader,
+    DirectorReferenceLoader,
     EditorialBriefLoader,
     EventsLoader,
     MapSpatialLoader,
@@ -195,6 +199,7 @@ class ContextCompiler:
             MapSpatialLoader(),
             ObjectDossierLoader(),
             OutlineAnalysisLoader(),
+            DirectorReferenceLoader(),
         ]
 
     async def compile(
@@ -223,6 +228,12 @@ class ContextCompiler:
         )
 
         loader_names = list(SCOPE_LOADERS.get(options.scope, ["project"]))
+        if (
+            options.consumer_action in {"writing.generate", "writing.targeted_revision"}
+            and options.director_reference_ids
+            and "director_reference" not in loader_names
+        ):
+            loader_names.append("director_reference")
         from modules.evidence.compilation.services.loaders.map_spatial_loader import (
             map_spatial_capability,
         )
@@ -503,25 +514,54 @@ class ContextCompiler:
             excluded_items=excluded_items,
             blockers=pin_blockers,
         )
-        # Optional map detail cannot evict confirmed core sources from the budget.
-        map_sections = [
-            section
-            for section in ctx.sections
-            if section.key in {"map_spatial", "object_dossier", "character_pattern"}
+        director_brief = bundle.director_reference_brief or {}
+        for reference_id in director_brief.get("omitted") or []:
+            reference_id = str(reference_id or "")
+            if not reference_id:
+                continue
+            ctx.omitted_items.append(
+                ContextItem(
+                    key=f"director_reference:{reference_id}",
+                    content="",
+                    title="场景导演参考",
+                    status="omitted",
+                    source={
+                        "type": "director_reference",
+                        "id": reference_id,
+                        "label": "作者选择的导演参考副本",
+                        "advisory_only": True,
+                        "adoption_status": "not_adopted",
+                    },
+                    selection_state="omitted",
+                    omission_reason=(
+                        "参考副本缺失、未能用于当前 POV 或超出独立参考容量；"
+                        "不影响核心资料范围"
+                    ),
+                )
+            )
+        # Advisory references are fitted after the required context, so they
+        # cannot evict or shrink the confirmed core knowledge scope.
+        advisory_keys = {
+            "map_spatial",
+            "object_dossier",
+            "character_pattern",
+            "director_reference",
+        }
+        advisory_sections = [
+            section for section in ctx.sections if section.key in advisory_keys
         ]
         ctx.sections = [
-            section
-            for section in ctx.sections
-            if section.key not in {"map_spatial", "object_dossier", "character_pattern"}
+            section for section in ctx.sections if section.key not in advisory_keys
         ]
         ctx.total_tokens = sum(section.token_count for section in ctx.sections)
         compiled = ctx.enforce_budget()
-        for section in map_sections:
+        for section in advisory_sections:
             if compiled.total_tokens + section.token_count <= budget_tokens:
                 compiled.sections.append(section)
                 compiled.total_tokens += section.token_count
             else:
-                compiled.evicted_keys.append(section.key)
+                if section.key not in compiled.evicted_keys:
+                    compiled.evicted_keys.append(section.key)
                 compiled.omitted_items.extend(
                     item.model_copy(
                         update={
@@ -529,12 +569,20 @@ class ContextCompiler:
                             "omission_reason": (
                                 "空间参考超出剩余预算"
                                 if section.key == "map_spatial"
-                                else "对象或人物参考超出剩余预算"
+                                else (
+                                    "导演参考副本超出剩余预算；仅作为可选提醒省略"
+                                    if section.key == "director_reference"
+                                    else "对象或人物参考超出剩余预算"
+                                )
                             ),
                         }
                     )
                     for item in section.materialize_items().items
                 )
+                if section.key == "director_reference":
+                    compiled.warnings.append(
+                        "所选导演参考副本超出剩余上下文预算，已单独省略；核心资料范围保持不变。"
+                    )
         if activation_trace:
             self._apply_global_activation_budget_trace(compiled)
         return compiled
@@ -1012,6 +1060,7 @@ class ContextCompiler:
             sections.extend(self._build_character_reveal_sections(bundle, options))
             sections.extend(self._build_map_spatial_sections(bundle))
             sections.extend(self._build_object_dossier_sections(bundle, options))
+            sections.extend(DirectorReferenceSectionBuilder.build(bundle))
             return sections
 
         if options is not None and options.reveal_mode == "reader":
@@ -1093,6 +1142,8 @@ class ContextCompiler:
 
         sections.extend(self._build_map_spatial_sections(bundle))
         sections.extend(self._build_object_dossier_sections(bundle, options))
+        if options is None or options.reveal_mode != "reader":
+            sections.extend(DirectorReferenceSectionBuilder.build(bundle))
 
         if bundle.scene:
             content = json.dumps(bundle.scene, ensure_ascii=False, indent=2)

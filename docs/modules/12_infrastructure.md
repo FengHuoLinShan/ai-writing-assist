@@ -464,7 +464,7 @@ bucket。这不是分布式或全局 DDoS 防护，也不表示当前外部 Clou
 | world | `world_alias_relation_extraction`、`world_entity_fusion_suggestions`、`world_bible_projection_refresh`、`world_bible_synopsis_refresh`、`world_generation_suggestion`、`world_opening_skeleton`、`world_cocreation_turn`、`world_validation`、`map_atlas_generate`、`world_map_schematic_generate`、`world_object_image_generate`（ADR-0029，本机 CLI 对象图片候选，`never_retry`）、`map_atlas_storage_cleanup`、`world_object_image_cleanup` |
 
 `world_generation_suggestion` 的 task meta 可携带 `session_id` 与 `session_action`（ADR-0021）：任务成功后由 world 域把作者回合与成果引用追加进持久化共创会话，失败或重试不落半截记录；transport 幂等仍由 operation receipt 承担，会话写入不改变任务指纹语义。
-| story | `story_outline_generate`、`outline_analyze`、`outline_generate`、`scene_fusion_preview`、`story_character_card_generate`、`story_reaction_propose`、`story_scene_script_generate`、`story_one_click`；`plot_structure_generate`、`chapter_card_extraction`、`chapter_scene_generate` 仅为存量任务的 unsupported 兼容注册 |
+| story | `story_outline_generate`、`outline_analyze`、`outline_generate`、`scene_fusion_preview`、`story_character_card_generate`、`story_reaction_propose`、`story_scene_script_generate`、`story_one_click`、`story_scene_director`；`plot_structure_generate`、`chapter_card_extraction`、`chapter_scene_generate` 仅为存量任务的 unsupported 兼容注册 |
 | evidence | `rag_index_chapter`、`rag_reindex_novel`、`rag_retry_embeddings`、`rag_reannotate_entities`（持久化 task type 不改名） |
 | writing | `publish_chapter`、`writing_generate`、`writing_semantic_review`、`writing_targeted_revision`、`writing_comment_run`、`writing_conflict_ai_review`、`writing_conflict_item_ai_suggestion` |
 | imports | `deep_import`、`scene_auto_extraction`、`world_object_auto_extraction`、`plot_structure_auto_extraction` |
@@ -473,6 +473,9 @@ bucket。这不是分布式或全局 DDoS 防护，也不表示当前外部 Clou
 
 新建 `simulation_v3` Scene 排演复用 `story_one_click` 任务：Story 在确认入队前与 worker
 生成／落盘时核对当前项目的 World 身份引用；基础设施任务类型、lease 和队列语义不变。
+C4b Scene Director 使用 Story 自有的 `story_scene_director` handler 和历史记录，内部复用
+`simulation_v3`，并以持久化根 `AIRunEnvelope` 跨分支累计额度；task manifest、v10 操作目录、
+HTTP trace 与 Notice 来源已在应用组合根注册。
 
 `evolution_spatial_rescan_v1` 使用 `manual_resume` 恢复策略，根能力为
 `evolution.spatial_discover`，沿用 Evolution 的任务预算与请求额度计算；它不是新队列。

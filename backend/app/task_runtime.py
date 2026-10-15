@@ -19,6 +19,7 @@ _TASK_HANDLER_MODULES = (
     "modules.evolution.tasks",
     "modules.evidence.compilation.focused_tasks",
     "modules.story.tasks",
+    "modules.story.director_tasks",
     "modules.world.tasks",
     "modules.writing.tasks",
 )

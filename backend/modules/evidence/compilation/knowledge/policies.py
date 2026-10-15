@@ -100,6 +100,7 @@ KNOWLEDGE_DIMENSIONS: dict[str, str] = {
     "map_spatial": "空间结构与地理",
     "object_dossier": "有来源的稳定对象档案与 Scene 截止事实",
     "character_pattern": "Evolution 人物倾向解释（非事实）",
+    "director_reference": "作者显式选择的场景导演参考副本",
 }
 """知识维度词表；必查与参考维度都必须取自此处。"""
 
@@ -172,7 +173,11 @@ _WRITING_DIMENSIONS = (
 )
 _MAP_SPATIAL_ADVISORY = ("map_spatial",)
 _OBJECT_REFERENCE_ADVISORY = ("object_dossier", "character_pattern")
-_WRITING_REFERENCE_ADVISORY = (*_MAP_SPATIAL_ADVISORY, *_OBJECT_REFERENCE_ADVISORY)
+_WRITING_REFERENCE_ADVISORY = (
+    *_MAP_SPATIAL_ADVISORY,
+    *_OBJECT_REFERENCE_ADVISORY,
+    "director_reference",
+)
 
 CAPABILITY_REGISTRY: dict[str, CapabilityKnowledgePolicy] = {
     entry.capability_id: entry
@@ -200,7 +205,7 @@ CAPABILITY_REGISTRY: dict[str, CapabilityKnowledgePolicy] = {
             "正文独立语义审查（检查类）",
             subjects=("author",),
             dimensions=_WRITING_DIMENSIONS,
-            advisory_dimensions=_WRITING_REFERENCE_ADVISORY,
+            advisory_dimensions=(*_MAP_SPATIAL_ADVISORY, *_OBJECT_REFERENCE_ADVISORY),
             confirmation=CONFIRMATION_REQUIRED,
             snapshot=SNAPSHOT_REQUIRED,
             outputs=(OUTPUT_FINDING,),
@@ -244,7 +249,7 @@ CAPABILITY_REGISTRY: dict[str, CapabilityKnowledgePolicy] = {
                 "timeline",
                 "plot_threads",
             ),
-            advisory_dimensions=_WRITING_REFERENCE_ADVISORY,
+            advisory_dimensions=(*_MAP_SPATIAL_ADVISORY, *_OBJECT_REFERENCE_ADVISORY),
             confirmation=CONFIRMATION_REQUIRED,
             snapshot=SNAPSHOT_OPTIONAL,
             outputs=(OUTPUT_FINDING,),
@@ -619,6 +624,23 @@ CAPABILITY_REGISTRY: dict[str, CapabilityKnowledgePolicy] = {
             advisory_dimensions=(*_MAP_SPATIAL_ADVISORY, *_OBJECT_REFERENCE_ADVISORY),
             outputs=(OUTPUT_PROPOSAL,),
             notes="完成持久化前重验 context_hash 与 character_card_source_hashes。",
+        ),
+        _policy(
+            "story.scene_director",
+            DOMAIN_STORY,
+            "场景导演候选排演",
+            subjects=("author", "character"),
+            dimensions=(
+                "character_knowledge",
+                "world_entities",
+                "outline",
+                "scene_state",
+            ),
+            advisory_dimensions=_OBJECT_REFERENCE_ADVISORY,
+            confirmation=CONFIRMATION_REQUIRED,
+            outputs=(OUTPUT_PROPOSAL,),
+            gate=ADOPTION_DISPLAY_ONLY,
+            notes="逐人物可知资料与导演层分离；输出仅为冻结候选历史，不写正文或正史。",
         ),
         _policy(
             "story.scene_fusion",

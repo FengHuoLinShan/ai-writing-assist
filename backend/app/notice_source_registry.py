@@ -12,6 +12,7 @@ from modules.assistant.editorial_notice_source import NOTICE_SOURCE_SPEC as _EDI
 from modules.assistant.forecast_notice_source import NOTICE_SOURCE_SPEC as _FORECAST
 from modules.assistant.notice_sources import NOTICE_SOURCE_SPEC as _ASSISTANT
 from modules.evolution.notice_sources import NOTICE_SOURCE_SPEC as _MAP_SOURCE
+from modules.story.director_notice_sources import NOTICE_SOURCE_SPEC as _STORY_DIRECTOR
 from modules.story.notice_sources import NOTICE_SOURCE_SPEC as _STORY
 from modules.writing.notice_sources import NOTICE_SOURCE_SPECS as _WRITING
 
@@ -41,7 +42,15 @@ def _materialize(spec: dict[str, Any]) -> NoticeSourceSpec:
     return source
 
 
-_specs = [_ASSISTANT, _EDITORIAL, _FORECAST, _STORY, *_WRITING, _MAP_SOURCE]
+_specs = [
+    _ASSISTANT,
+    _EDITORIAL,
+    _FORECAST,
+    _STORY,
+    _STORY_DIRECTOR,
+    *_WRITING,
+    _MAP_SOURCE,
+]
 notice_sources: dict[str, NoticeSourceSpec] = {}
 for _raw in _specs:
     _source = _materialize(_raw)
