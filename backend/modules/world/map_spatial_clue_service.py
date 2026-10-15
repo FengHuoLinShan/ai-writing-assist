@@ -9,9 +9,12 @@ from typing import Any
 from uuid import UUID
 
 from sqlalchemy import and_, func, select
+from sqlalchemy.exc import DBAPIError
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from core.container import get
 from core.errors import ConflictError, NotFoundError, ValidationError
+from core.service_keys import STORY_SCENE_SOURCE
 from modules.project.facade import (
     require_active_project,
     require_active_project_exclusive,
@@ -50,6 +53,9 @@ from modules.world.project_vocabulary_schemas import (
     vocabulary_evidence_hash,
     vocabulary_proposal_hash,
 )
+from modules.world.project_vocabulary_service import (
+    persist_reviewed_model_vocabulary_proposal,
+)
 from modules.writing.facade import build_manuscript_range_ref, read_manuscript_range
 from shared.utils import parse_uuid
 
@@ -59,6 +65,18 @@ _VISIBLE_CLUE_STATUSES = {
     "pending_verification",
     "adopted",
 }
+
+
+async def _lock_project_for_spatial_write(db: AsyncSession, novel_id: str) -> None:
+    # A reading worker may already hold FOR SHARE. Two such workers must not
+    # deadlock while upgrading; keep a failed NOWAIT inside its own savepoint.
+    try:
+        async with db.begin_nested():
+            await require_active_project_exclusive(db, novel_id, nowait=True)
+    except DBAPIError as exc:
+        if getattr(exc.orig, "sqlstate", None) == "55P03":
+            raise ConflictError("作品正在更新，请稍后重新提交空间线索") from exc
+        raise
 
 
 def _digest(value: Any) -> str:
@@ -102,7 +120,15 @@ def _type_name_keys(fields: VocabularyTermFields) -> set[str]:
 
 
 def _semantic_signature(clue: MapSpatialClue) -> str:
-    payload = clue.model_dump(mode="json", exclude={"review", "quote", "clue_key"})
+    payload = clue.model_dump(
+        mode="json",
+        exclude={"review", "quote", "clue_key", "type_proposal", "type_proposal_draft"},
+    )
+    proposal = clue.type_proposal or clue.type_proposal_draft
+    if proposal is not None:
+        payload["proposed_type"] = proposal.model_dump(
+            mode="json", include={"kind", "name", "description", "aliases", "traits"}
+        )
     return _digest(payload)
 
 
@@ -160,9 +186,7 @@ def _result_ref(row: MapSpatialClueRecord) -> MapSpatialClueResultRef:
 
 
 async def _scene_contract(db, novel_id: str, scene_id: str, scene_index: int):
-    from modules.story.outline_state.scene_facade import get_scene_contract
-
-    scene = await get_scene_contract(db, novel_id, scene_id)
+    scene = await get(STORY_SCENE_SOURCE).get_scene_contract(db, novel_id, scene_id)
     if (
         scene is None
         or parse_uuid(scene.novel_id, "novel_id") != parse_uuid(novel_id, "novel_id")
@@ -181,13 +205,8 @@ async def _resolve_binding(
     binding,
 ) -> list[dict[str, Any]]:
     """Re-read exact current Scene spans and manuscript bytes in the bound mode."""
-    from modules.story.outline_state.scene_facade import (
-        get_scene_spans_for_scene,
-        validate_scene_source_ranges,
-    )
-
     await _scene_contract(db, novel_id, scene_id, scene_index)
-    spans = await get_scene_spans_for_scene(
+    spans = await get(STORY_SCENE_SOURCE).get_scene_spans_for_scene(
         db,
         novel_id,
         scene_id,
@@ -240,8 +259,13 @@ async def _resolve_binding(
             }
         )
 
-    await validate_scene_source_ranges(
-        db, novel_id, scene_id, scene_index, validation_sources
+    await get(STORY_SCENE_SOURCE).validate_scene_source_ranges(
+        db,
+        novel_id,
+        scene_id,
+        scene_index,
+        validation_sources,
+        content_mode=binding.content_mode,
     )
     for source, span, source_data in zip(
         ranges, ordered_spans, validation_sources, strict=True
@@ -259,67 +283,90 @@ async def _resolve_binding(
         if source.range_hash is not None and ref.range_hash != source.range_hash:
             raise ValidationError("Bound manuscript range hash is stale")
         read = await read_manuscript_range(db, novel_id, ref, before=0, after=0)
-        if read.text != read.text[read.highlight_start : read.highlight_end]:
+        exact_text = read.text[read.highlight_start : read.highlight_end]
+        if (
+            not 0 <= read.highlight_start < read.highlight_end <= len(read.text)
+            or len(exact_text) != ref.end_offset - ref.start_offset
+            or hashlib.sha256(exact_text.encode("utf-8")).hexdigest() != ref.range_hash
+        ):
             raise ValidationError("Manuscript range read is not exact")
         resolved.append(
             {
                 "binding": source,
                 "span": span,
                 "source_ref": ref,
-                "text": read.text,
+                "text": exact_text,
             }
         )
     return resolved
 
 
-async def _evidence_is_current(db, novel_id: str, evidence: VocabularyEvidence) -> bool:
+async def _evidence_is_current(
+    db,
+    novel_id: str,
+    evidence: VocabularyEvidence,
+    *,
+    through_scene_index: int | None = None,
+    content_mode: str | None = None,
+) -> bool:
     """Evidence snapshots are not trusted; bind every quote to a current Scene span."""
-    from modules.story.outline_state.scene_facade import (
-        get_scene_contract,
-        get_scene_spans_for_scene,
-    )
-
     scene_id = str(evidence.scene_id)
-    scene = await get_scene_contract(db, novel_id, scene_id)
+    scene = await get(STORY_SCENE_SOURCE).get_scene_contract(db, novel_id, scene_id)
     if (
         scene is None
         or parse_uuid(scene.novel_id, "novel_id") != parse_uuid(novel_id, "novel_id")
         or scene.status not in {"draft", "canonical"}
+        or (through_scene_index is not None and scene.scene_index > through_scene_index)
     ):
         return False
-    for mode in ("canonical", "working"):
-        spans = await get_scene_spans_for_scene(
+    for mode in (content_mode,) if content_mode else ("canonical", "working"):
+        spans = await get(STORY_SCENE_SOURCE).get_scene_spans_for_scene(
             db,
             novel_id,
             scene_id,
             status_filter=["draft", "canonical"],
             content_mode=mode,
         )
-        for span in spans:
-            if (
-                span.mapping_status not in {"exact", "reanchored"}
-                or not span.source_draft_id
-                or span.source_content_hash != evidence.source_hash
-                or span.start_offset is None
-                or span.end_offset is None
-            ):
-                continue
-            try:
-                ref = await build_manuscript_range_ref(
-                    db,
-                    novel_id,
-                    draft_id=str(span.source_draft_id),
-                    start_offset=span.start_offset,
-                    end_offset=span.end_offset,
-                    content_mode=mode,
-                )
-                if ref.source_hash != evidence.source_hash:
-                    continue
-                read = await read_manuscript_range(db, novel_id, ref, before=0, after=0)
-            except (ConflictError, NotFoundError, ValidationError, ValueError, TypeError):
-                continue
-            if evidence.quote in read.text:
-                return True
+        ordered = sorted(
+            spans, key=lambda span: (span.chapter_index, span.start_offset or 0, span.id)
+        )
+        if not ordered or any(
+            span.mapping_status not in {"exact", "reanchored"}
+            or not span.source_draft_id
+            or not span.source_content_hash
+            or span.start_offset is None
+            or span.end_offset is None
+            for span in ordered
+        ):
+            continue
+        try:
+            ranges = [
+                {
+                    "draft_id": str(span.source_draft_id),
+                    "chapter_index": span.chapter_index,
+                    "content_hash": span.source_content_hash,
+                    "start_offset": span.start_offset,
+                    "end_offset": span.end_offset,
+                }
+                for span in ordered
+            ]
+            resolved = await _resolve_binding(
+                db,
+                novel_id,
+                scene_id,
+                scene.scene_index,
+                MapSpatialClueSourceBinding(
+                    **ranges[0], content_mode=mode, additional_sources=ranges[1:]
+                ),
+            )
+        except (ConflictError, NotFoundError, ValidationError, ValueError, TypeError):
+            continue
+        if any(
+            item["binding"].content_hash == evidence.source_hash
+            and evidence.quote in item["text"]
+            for item in resolved
+        ):
+            return True
     return False
 
 
@@ -483,12 +530,16 @@ async def _revalidate_stored_clue(
         if row_type is None:
             raise ValidationError("Clue type identity or revision changed")
     if clue.type_proposal is not None:
-        await _validate_type_proposal(
+        reviewed = await _validate_type_proposal(
             db,
             novel_id,
             clue.type_proposal,
             current_scene_id=parse_uuid(row.scene_id, "scene_id"),
+            current_scene_index=row.scene_index,
+            content_mode=binding.content_mode,
         )
+        if not reviewed:
+            raise ValidationError("Clue type proposal has no passing independent review")
 
 
 async def _validate_type_proposal(
@@ -497,11 +548,23 @@ async def _validate_type_proposal(
     proposal: ModelVocabularyProposal,
     *,
     current_scene_id: UUID,
+    current_scene_index: int,
+    content_mode: str,
 ) -> bool:
     if proposal.kind not in _SPATIAL_KINDS:
         raise ValidationError("Type proposal is not a spatial vocabulary kind")
     for evidence in proposal.evidence:
-        if not await _evidence_is_current(db, novel_id, evidence):
+        if not await _evidence_is_current(
+            db,
+            novel_id,
+            evidence,
+            through_scene_index=(
+                current_scene_index
+                if evidence.scene_id == current_scene_id
+                else current_scene_index - 1
+            ),
+            content_mode=content_mode,
+        ):
             raise ValidationError(
                 "Type proposal contains stale or unverifiable Scene evidence"
             )
@@ -586,13 +649,11 @@ async def _persist_type_proposal(
     draft: MapSpatialClueTypeProposalDraft | None,
     proposal: ModelVocabularyProposal | None,
     current_evidence: VocabularyEvidence,
+    current_scene_index: int,
+    content_mode: str,
 ) -> None:
     if draft is None and proposal is None:
         return
-    from modules.world.project_vocabulary_service import (
-        persist_reviewed_model_vocabulary_proposal,
-    )
-
     if draft is not None:
         payload = ModelVocabularyProposal(
             kind=draft.kind,
@@ -612,6 +673,8 @@ async def _persist_type_proposal(
         novel_id,
         payload,
         current_scene_id=current_evidence.scene_id,
+        current_scene_index=current_scene_index,
+        content_mode=content_mode,
     )
     await persist_reviewed_model_vocabulary_proposal(db, novel_id, payload)
 
@@ -620,7 +683,7 @@ async def stage_spatial_discovery(
     db: AsyncSession, novel_id: str, batch: MapSpatialClueBatch | dict
 ) -> MapSpatialClueStageResult:
     """Persist independently reviewed clue candidates without changing map heads."""
-    await require_active_project_exclusive(db, novel_id)
+    await _lock_project_for_spatial_write(db, novel_id)
     batch = MapSpatialClueBatch.model_validate(batch)
     scene_id = str(parse_uuid(batch.scene_id, "scene_id"))
     try:
@@ -670,6 +733,8 @@ async def stage_spatial_discovery(
                     novel_id,
                     clue.type_proposal,
                     current_scene_id=scene_uuid,
+                    current_scene_index=batch.scene_index,
+                    content_mode=batch.source_binding.content_mode,
                 )
 
             fingerprint = _digest(
@@ -704,10 +769,7 @@ async def stage_spatial_discovery(
             else:
                 if clue.review.verdict == "supported" and (
                     clue.type_proposal_draft is not None
-                    or (
-                        clue.type_proposal is not None
-                        and clue.type_proposal.independent_review is not None
-                    )
+                    or (clue.type_proposal is not None and type_review_ok)
                 ):
                     await _persist_type_proposal(
                         db,
@@ -715,6 +777,8 @@ async def stage_spatial_discovery(
                         draft=clue.type_proposal_draft,
                         proposal=clue.type_proposal,
                         current_evidence=clue_evidence[0],
+                        current_scene_index=batch.scene_index,
+                        content_mode=batch.source_binding.content_mode,
                     )
                 pending_verification = (
                     clue.review.verdict != "supported" or not type_review_ok
@@ -897,22 +961,22 @@ async def read_spatial_discovery_context(
             .where(
                 ProjectVocabularyTerm.novel_id == nid,
                 ProjectVocabularyTerm.kind.in_(_SPATIAL_KINDS),
-                ProjectVocabularyTerm.status.in_(["active", "emerging"]),
+                ProjectVocabularyTerm.status.in_(
+                    ["active", "emerging", "archived", "merged"]
+                ),
             )
         )
     ).all()
     clue_type_refs = {clue.type_ref for _, _, clue in selected_clues if clue.type_ref}
     type_items = []
     filtered_types = 0
-    from modules.story.outline_state.scene_facade import get_scene_contract
-
     for term, revision in type_rows:
         snapshot = revision.snapshot_json
         evidence = []
         for raw in snapshot.get("evidence", []):
             try:
                 item = VocabularyEvidence.model_validate(raw)
-                evidence_scene = await get_scene_contract(
+                evidence_scene = await get(STORY_SCENE_SOURCE).get_scene_contract(
                     db, novel_id, str(item.scene_id)
                 )
                 if (
@@ -920,13 +984,19 @@ async def read_spatial_discovery_context(
                     and parse_uuid(evidence_scene.novel_id, "novel_id") == nid
                     and evidence_scene.scene_index < scene_index
                     and evidence_scene.status in {"draft", "canonical"}
-                    and await _evidence_is_current(db, novel_id, item)
+                    and await _evidence_is_current(
+                        db, novel_id, item, content_mode="canonical"
+                    )
                 ):
                     evidence.append(item)
             except (ValidationError, ValueError, TypeError):
                 continue
         projected_status = term.status
-        if term.source == "model":
+        if (
+            term.source == "model"
+            and not term.author_confirmed
+            and term.status in {"active", "emerging"}
+        ):
             if not evidence:
                 filtered_types += 1
                 continue
@@ -979,6 +1049,7 @@ async def read_spatial_discovery_context(
                 "traits": snapshot.get("traits", {}),
                 "evidence": evidence,
                 "proposal_run_id": snapshot.get("proposal_run_id"),
+                "redirect_to_id": term.redirect_to_id,
             }
         )
         surface_keys = {
@@ -1065,7 +1136,7 @@ async def review_spatial_clue(
     *,
     decided_by: str = "author",
 ) -> MapSpatialClueResponse:
-    await require_active_project_exclusive(db, novel_id)
+    await _lock_project_for_spatial_write(db, novel_id)
     nid = parse_uuid(novel_id, "novel_id")
     row = await db.scalar(
         select(MapSpatialClueRecord)
