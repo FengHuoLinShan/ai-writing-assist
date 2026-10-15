@@ -19,8 +19,14 @@ from modules.project.editorial_brief import EditorialBriefUpdate
 from modules.project.facade import (
     read_editorial_brief,
     read_editorial_brief_for_writing,
+    require_active_project,
     save_editorial_brief,
     set_editorial_brief_for_writing,
+)
+from modules.project.object_dossier_settings import (
+    ObjectDossierSettingsUpdate,
+    read_object_dossier_settings,
+    update_object_dossier_settings,
 )
 from modules.project.schemas import (
     AuthorTaskCreateRequest,
@@ -292,6 +298,35 @@ async def api_update_project_llm_settings(
 ) -> ProjectLLMSettingsResponse:
     """更新兼容的项目级非 secret 配置；任何 Key 写入都会被拒绝。"""
     return await _service.update_llm_settings(db, project_id, data)
+
+
+@router.get(
+    "/{project_id}/object-dossier-settings",
+    openapi_extra={
+        "x-novelcraft-operation-id": "project.object_validity_settings.read",
+        "x-novelcraft-operation-trace-fields": {},
+    },
+)
+async def api_get_object_dossier_settings(db: DbSession, project_id: str) -> dict:
+    await require_active_project(db, project_id)
+    return await read_object_dossier_settings(db, project_id)
+
+
+@router.put(
+    "/{project_id}/object-dossier-settings",
+    openapi_extra={
+        "x-novelcraft-operation-id": "project.object_validity_settings.edit",
+        "x-novelcraft-operation-trace-fields": {
+            "expected_version": "data.expected_version",
+            "allow_story_override": "data.allow_story_override",
+        },
+    },
+)
+async def api_update_object_dossier_settings(
+    db: DbSession, project_id: str, data: ObjectDossierSettingsUpdate
+) -> dict:
+    await require_active_project(db, project_id)
+    return await update_object_dossier_settings(db, project_id, data)
 
 
 @router.get(

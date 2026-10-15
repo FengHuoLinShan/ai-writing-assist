@@ -19,9 +19,12 @@ from core.logging_context import (
     novel_id_for_log,
 )
 from core.service_keys import (
+    STORY_SCENE_SOURCE,
     WORLD_WORLDBUILDING_MARK_SYNOPSIS_SOURCE_CHANGED,
     WORLD_WORLDBUILDING_REQUIRE_LEGACY_CANON_WRITE_ALLOWED,
 )
+from modules.project.facade import read_object_dossier_settings
+from modules.world.map_spatial_anchors import resolve_anchor, resolve_validity
 from modules.world.models import EntityRelation
 from modules.world.relation_schemas import (
     WorldRelationMembershipBatchRequest,
@@ -43,6 +46,7 @@ from modules.world.schemas import (
     ReviewBatchResponse,
     WorldEntityContext,
 )
+from modules.world.schemas.dossier import DossierAnchor, DossierValidity
 from modules.world.services.common import (
     entity_relation_execution_fingerprint,
     parse_uuid,
@@ -58,6 +62,8 @@ from modules.world.services.relation_group_views import (
     ResolvedGroupView,
     resolve_group_view,
 )
+from modules.world.validity import validate_scene_validity
+from modules.world.validity_policy import exact_story_relation_observation
 from shared.constants import MAX_PAGE_SIZE
 
 
@@ -147,6 +153,7 @@ class EntityRelationService(
             "relation_kind": rel.relation_kind,
             "description": rel.description,
             "strength": rel.strength,
+            "validity": rel.validity_json,
             "status": rel.status,
         }
 
@@ -353,6 +360,10 @@ class EntityRelationService(
         _validation_prechecked: bool = False,
     ) -> EntityRelationResponse:
         data = self._with_resolved_kind(data)
+        if data.validity is not None:
+            if data.status != "canonical":
+                raise ValidationError("待复核关系不能声明作者有效期")
+            await validate_scene_validity(db, novel_id, data.validity)
         if data.status == "canonical" and not _validation_prechecked:
             await self._require_legacy_canon_write_allowed(db, novel_id)
         nid = parse_uuid(novel_id, "novel_id")
@@ -400,6 +411,10 @@ class EntityRelationService(
         """Create a relation or merge evidence into an existing same edge."""
 
         data = self._with_resolved_kind(data)
+        if data.validity is not None:
+            if data.status != "canonical":
+                raise ValidationError("待复核关系不能声明作者有效期")
+            await validate_scene_validity(db, novel_id, data.validity)
 
         if data.status == "canonical" and not _validation_prechecked:
             await self._require_legacy_canon_write_allowed(db, novel_id)
@@ -462,6 +477,8 @@ class EntityRelationService(
 
         existing.description = _merge_text(existing.description, data.description)
         existing.quote = _merge_text(existing.quote, data.quote)
+        if data.validity is not None:
+            existing.validity_json = data.validity.model_dump(mode="json")
         existing.strength = max(
             float(existing.strength if existing.strength is not None else 0.0),
             float(data.strength),
@@ -883,6 +900,7 @@ class EntityRelationService(
         relation_kind: str | None,
         description: str | None,
         strength: float | None,
+        validity: Any | None,
         action: str,
     ) -> dict[str, object]:
         from modules.world.services.common import require_fresh_understanding_source
@@ -897,6 +915,7 @@ class EntityRelationService(
             relation_kind,
             "canonical",
         )
+        await validate_scene_validity(db, str(nid), validity)
         sid = parse_uuid(source_id, "source_id")
         tid = parse_uuid(target_id, "target_id")
         if sid == tid:
@@ -946,6 +965,8 @@ class EntityRelationService(
             target_relation.description = description
         if strength is not None:
             target_relation.strength = strength
+        if validity is not None:
+            target_relation.validity_json = validity.model_dump(mode="json")
         target_relation.quote = merged_quote
         target_relation.status = "canonical"
         after = self._relation_execution_snapshot(target_relation)
@@ -1101,6 +1122,7 @@ class EntityRelationService(
                     relation_kind=item.relation_kind,
                     description=item.description,
                     strength=item.strength,
+                    validity=item.validity,
                     action=decision.action,
                 )
                 canonical_id = str(accepted["canonical_relation_id"])
@@ -1124,6 +1146,7 @@ class EntityRelationService(
                 relation_kind=decision.relation_kind,
                 description=decision.description,
                 strength=decision.strength,
+                validity=decision.validity,
                 action=decision.action,
             )
             canonical_id = str(accepted["canonical_relation_id"])
@@ -1169,6 +1192,7 @@ class EntityRelationService(
         relation_kind: str | None = None,
         q: str | None = None,
         source_chapter_id: str | None = None,
+        as_of_scene_id: str | None = None,
         strength_min: float | None = None,
         strength_max: float | None = None,
         skip: int = 0,
@@ -1203,12 +1227,92 @@ class EntityRelationService(
         )
         endpoints = await self._entity_repo.get_by_ids(db, nid, endpoint_ids)
         endpoint_names = {str(entity.id): entity.name for entity in endpoints}
+        allow_story_override = False
+        cutoff_index = None
+        story_view = None
+        if as_of_scene_id:
+            scenes = await get(STORY_SCENE_SOURCE).read_temporal_anchor_scenes(
+                db, str(nid)
+            )
+            cutoff_index, anchor_error = resolve_anchor(
+                DossierAnchor(kind="scene", id=parse_uuid(as_of_scene_id, "scene_id")),
+                scenes,
+                endpoint="start",
+            )
+            if anchor_error or cutoff_index is None:
+                raise ValidationError("关系有效期读取的截止 Scene 锚点无效")
+            setting = await read_object_dossier_settings(db, str(nid))
+            allow_story_override = bool(setting["allow_story_override"])
+            story_view = await get(STORY_SCENE_SOURCE).get_scene_state_view(
+                db,
+                str(nid),
+                as_of_scene_id,
+                viewpoint={"kind": "author"},
+                include_dimensions=["relations"],
+            )
+
+        responses = []
+        for relation in relations:
+            response = self._response_with_endpoint_names(relation, endpoint_names)
+            if as_of_scene_id and relation.validity_json is not None:
+                validity = DossierValidity.model_validate(relation.validity_json)
+                resolved = resolve_validity(validity, scenes)
+                validity_gap = None
+                conflict = False
+                override = False
+                observation_data = None
+                effective = False
+                if not resolved.valid:
+                    validity_gap = resolved.reason or "author_interval_anchor_invalid"
+                else:
+                    effective = bool(
+                        (
+                            resolved.start_scene_index is None
+                            or resolved.start_scene_index <= cutoff_index
+                        )
+                        and (
+                            resolved.end_scene_index is None
+                            or cutoff_index <= resolved.end_scene_index
+                        )
+                    )
+                    if story_view is None:
+                        validity_gap = "story_state_unavailable"
+                    else:
+                        observation = exact_story_relation_observation(
+                            story_view,
+                            novel_id=str(nid),
+                            cutoff_scene_id=as_of_scene_id,
+                            relation_id=str(relation.id),
+                            cutoff_scene_index=int(cutoff_index),
+                        )
+                        validity_gap = observation.gap
+                        if observation.gap is None:
+                            story_active = observation.status == "active"
+                            if story_active != effective:
+                                conflict = True
+                                observation_data = {
+                                    "event_id": observation.event_id,
+                                    "scene_index": observation.scene_index,
+                                    "source_refs": observation.source_refs or [],
+                                }
+                                if allow_story_override:
+                                    override = True
+                                    effective = story_active
+                response = response.model_copy(
+                    update={
+                        "effective_at_cutoff": effective,
+                        "validity_conflict": conflict,
+                        "story_override_applied": override,
+                        "validity_gap": validity_gap,
+                        "story_observation": observation_data,
+                    }
+                )
+            responses.append(response)
         return EntityRelationListResponse(
-            items=[
-                self._response_with_endpoint_names(rel, endpoint_names)
-                for rel in relations
-            ],
+            items=responses,
             total=total,
+            as_of_scene_id=as_of_scene_id,
+            allow_story_override=allow_story_override,
         )
 
     async def list_between_entities(
@@ -1242,6 +1346,8 @@ class EntityRelationService(
             raise NotFoundError(f"EntityRelation {id} not found")
         if rel.status == "canonical" or data.status == "canonical":
             await self._require_legacy_canon_write_allowed(db, novel_id)
+        if "validity" in data.model_fields_set and data.validity is not None:
+            await validate_scene_validity(db, novel_id, data.validity)
         if data.status == "canonical" and rel.status != "canonical":
             from modules.world.services.common import require_fresh_understanding_source
 
@@ -1329,6 +1435,8 @@ class EntityRelationService(
             from modules.world.services.common import require_fresh_understanding_source
 
             await require_fresh_understanding_source(db, novel_id, rel.review_meta)
+        if "validity" in data.model_fields_set and data.validity is not None:
+            await validate_scene_validity(db, novel_id, data.validity)
         before = self._relation_snapshot(rel)
         sid = parse_uuid(data.source_id, "source_id") if data.source_id else rel.source_id
         tid = parse_uuid(data.target_id, "target_id") if data.target_id else rel.target_id
@@ -1368,6 +1476,12 @@ class EntityRelationService(
             rel.description = data.description
         if data.strength is not None:
             rel.strength = data.strength
+        if "validity" in data.model_fields_set:
+            rel.validity_json = (
+                data.validity.model_dump(mode="json")
+                if data.validity is not None
+                else None
+            )
         if data.confirm_review:
             rel.status = "canonical"
 

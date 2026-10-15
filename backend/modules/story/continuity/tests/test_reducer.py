@@ -142,6 +142,27 @@ def test_scene_dimension_projection_matches_chapter_core() -> None:
     assert dimensions["entities"]["changes"] == chapter["changes"]
 
 
+def test_ended_relation_keeps_structured_author_observation_after_removal() -> None:
+    state: dict = {}
+    relation = {
+        "id": "relation-1",
+        "source_id": "source-1",
+        "target_id": "target-1",
+        "relation_type": "alliance",
+    }
+    StoryStateReducer.apply_chapter_event(state, _Event("relation_established", relation))
+    StoryStateReducer.apply_chapter_event(
+        state, _Event("relation_ended", {"relation_id": "relation-1"})
+    )
+
+    assert state["relations"] == []
+    assert state["changes"][-1] == {
+        **relation,
+        "relation_id": "relation-1",
+        "relation_status": "ended",
+    }
+
+
 def test_scene_timeline_and_causality_append_facts() -> None:
     timeline: dict = {}
     StoryStateReducer.apply_scene_dimension_event(

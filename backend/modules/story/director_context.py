@@ -6,6 +6,8 @@ import json
 from collections.abc import Iterable
 from typing import Any
 
+from core.container import get
+from core.service_keys import WORLD_READ_OBJECT_VALIDITY_NOTICES
 from infrastructure.llm.collaboration import content_hash
 from modules.evidence.facade import read_object_dossier_brief
 from modules.project.facade import read_author_examples_for_writing
@@ -37,6 +39,7 @@ def _merge_briefs(items: list[dict]) -> dict:
         "pattern_items": [],
         "checkpoint_refs": [],
         "world_dossier_fingerprints": [],
+        "validity_notices": [],
         "omitted_count": 0,
         "omissions": [],
         "layers": [],
@@ -52,6 +55,7 @@ def _merge_briefs(items: list[dict]) -> dict:
         merged["world_dossier_fingerprints"].extend(
             item.get("world_dossier_fingerprints") or []
         )
+        merged["validity_notices"].extend(item.get("validity_notices") or [])
         merged["omitted_count"] += int(item.get("omitted_count") or 0)
         merged["omissions"].extend(item.get("omissions") or [])
         merged["layers"].extend(item.get("layers") or [])
@@ -62,6 +66,7 @@ def _merge_briefs(items: list[dict]) -> dict:
     for name in (
         "checkpoint_refs",
         "world_dossier_fingerprints",
+        "validity_notices",
         "omissions",
         "layers",
         "unknown_layers",
@@ -250,6 +255,9 @@ async def read_director_source(
             )
         )
     author_brief = _merge_briefs(author_parts)
+    object_validity_notices = await get(WORLD_READ_OBJECT_VALIDITY_NOTICES)(
+        db, novel_id, {"scene_id": scene_id}
+    )
     simulation_context = await build_scene_simulation_context(
         db,
         novel_id=novel_id,
@@ -303,6 +311,14 @@ async def read_director_source(
         {
             "scene_context_hash": scene_context.get("context_hash"),
             "author_brief_fingerprint": author_brief.get("fingerprint"),
+            "object_validity_notices": [
+                {
+                    "notice_key": item["notice_key"],
+                    "basis_fingerprint": item["basis_fingerprint"],
+                    "validity_decision": item["validity_decision"],
+                }
+                for item in object_validity_notices
+            ],
             "role_briefs": {
                 actor: {
                     "brief": value["brief"].get("fingerprint"),
@@ -321,6 +337,7 @@ async def read_director_source(
         "scene_id": scene_id,
         "scene_context": scene_context,
         "author_brief": author_brief,
+        "object_validity_notices": object_validity_notices,
         "role_briefs": role_briefs,
         "author_examples": examples,
         "simulation_context": simulation_context.model_dump(mode="json"),

@@ -90,6 +90,7 @@ it("新增条目携带明确面向、作者可见性和 Scene 有效范围，成
     content: "雾港旧账房的学徒。",
     tags: ["旧港", "账房"],
     visibility: "secret",
+    story_field_key: null,
     validity: { start: { kind: "scene", id: sceneId }, end: null },
   })
   expect(wrapper.text()).not.toContain("档案条目已保存")
@@ -146,6 +147,56 @@ it("编辑已保存条目可清除旧章节有效期并以当前修订保存", a
   wrapper.unmount()
 })
 
+it("按 Scene 重读作者有效期结果，并保存精确绑定的 Story 字段键", async () => {
+  const validity = { start: { kind: "scene", id: sceneId }, end: null }
+  const aligned = currentEntry({
+    story_field_key: "hull_condition",
+    validity,
+    validity_conflict: true,
+    validity_gap: "story_source_unverified",
+  })
+  const customEntity = { ...entity, entity_type: "airship" }
+  const api = baseApi({ world: {
+    getEntityDossier: vi.fn(async (_entityId, _projectId, options = {}) => dossier([aligned], {
+      as_of_scene_id: options.asOfSceneId || null,
+      allow_story_override: true,
+    })),
+    getEntityDossierTemplate: vi.fn(async () => ({
+      profile_type: "airship",
+      version_number: 4,
+      fields: [],
+      state_fields: [
+        { key: "hull_condition", label: "船体状况", value_kind: "text" },
+        { key: "drive_condition", label: "引擎状况", value_kind: "text" },
+      ],
+      display_schema: {},
+    })),
+    updateEntityDossierEntry: vi.fn(async () => aligned),
+  } })
+  const wrapper = mountEditor(api, { entity: customEntity })
+  await flushPromises()
+
+  expect(wrapper.text()).toContain("来源或截止点暂不可核实")
+  await wrapper.get(".object-dossier-editor__read-controls select").setValue(sceneId)
+  await wrapper.get(".object-dossier-editor__read-controls button").trigger("click")
+  await flushPromises()
+  expect(api.world.getEntityDossier).toHaveBeenLastCalledWith(entity.id, "project-a", expect.objectContaining({ asOfSceneId: sceneId }))
+  expect(wrapper.text()).toContain("剧情覆盖设置已开启")
+
+  await wrapper.get(".object-dossier-editor__entry > .object-dossier-editor__actions button").trigger("click")
+  const fieldSelect = wrapper.findAll(".object-dossier-editor__entry form select").at(1)
+  expect(fieldSelect.text()).toContain("船体状况")
+  await fieldSelect.setValue("drive_condition")
+  await wrapper.get(".object-dossier-editor__entry form").trigger("submit")
+  await flushPromises()
+
+  expect(api.world.updateEntityDossierEntry).toHaveBeenCalledWith(entity.id, aligned.id, "project-a", expect.objectContaining({
+    story_field_key: "drive_condition",
+    validity,
+  }))
+  wrapper.unmount()
+})
+
 it("历史恢复需要第二次明确确认，并携带当前修订 CAS", async () => {
   const old = currentEntry({ id: "revision-old", revision_number: 1, content: "更早的设定。", status: "superseded" })
   const active = currentEntry({ id: "revision-current", revision_number: 2, content: "当前设定。" })
@@ -190,6 +241,7 @@ it("读写模板时仅在成功后标记版本，409 保留本地字段", async 
   expect(api.world.saveEntityDossierTemplate).toHaveBeenCalledWith("character", "project-a", {
     expected_version_number: null,
     fields: [{ facing: { kind: "core", key: "identity" }, label: "人物身份", description: "身份与社会位置", required: false, value_kind: "text" }],
+    state_fields: [],
     display_schema: {},
   })
   expect(wrapper.text()).toContain("模板已保存为第 1 版")
@@ -233,7 +285,7 @@ it("模板 409 后保留本地字段草稿，并允许作者明确以服务器�
   const stale = Object.assign(new Error("模板已在别处更新"), { status: 409 })
   const serverTemplate = { profile_type: "character", version_number: 2, fields: [], display_schema: {} }
   const api = baseApi({ world: {
-    getEntityDossierTemplate: vi.fn().mockRejectedValueOnce(missing).mockResolvedValueOnce(serverTemplate),
+    getEntityDossierTemplate: vi.fn().mockRejectedValueOnce(missing).mockResolvedValueOnce(serverTemplate).mockResolvedValueOnce(serverTemplate),
     saveEntityDossierTemplate: vi.fn().mockRejectedValueOnce(stale).mockResolvedValueOnce({ ...serverTemplate, version_number: 3 }),
   } })
   const wrapper = mountEditor(api)
@@ -277,7 +329,7 @@ it("手动重读不能静默覆盖未保存的档案与模板草稿", async () =
   await wrapper.get("[aria-label='模板字段显示名称']").setValue("尚未保存的模板字段")
   await wrapper.get(".object-dossier-editor__templates > header button").trigger("click")
   await flushPromises()
-  expect(api.world.getEntityDossierTemplate).toHaveBeenCalledTimes(1)
+  expect(api.world.getEntityDossierTemplate).toHaveBeenCalledTimes(2)
   expect(wrapper.get("[aria-label='模板字段显示名称']").element.value).toBe("尚未保存的模板字段")
   wrapper.unmount()
 })

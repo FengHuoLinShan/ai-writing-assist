@@ -373,13 +373,62 @@ def build_consistency(
             )
         )
     unknown_checks = [
-        "作者设定有效期覆盖规则与项目开关尚未接入（C0c）；本轮不据此裁定冲突。",
         "人物生死与外观缺少本轮可用的结构化校验来源；本轮不据自然语言作真值判定。",
         "持有物、知情与位置只接受当前精确结构来源和模拟协议类型字段；没有覆盖的项目保持未知。",
         "导演文本中的语义性性格判断不参与确定性检查。",
     ]
     brief = source.get("author_brief") or {}
     unknown_checks.extend(brief.get("omissions") or [])
+    validity_notices = source.get("object_validity_notices") or []
+    if len(validity_notices) >= 100:
+        unknown_checks.append("作者有效期提醒达到本次读取上限，剩余结构声明尚未核对。")
+    for notice in validity_notices:
+        target = notice.get("target") or {}
+        decision = notice.get("validity_decision")
+        if decision not in {"gap", "author_priority", "story_override"}:
+            unknown_checks.append("对象有效期决定缺少可信结构化状态，未裁定。")
+            continue
+        kind = (
+            "地图声明"
+            if target.get("node_id")
+            else "关系"
+            if target.get("relation_id")
+            else "对象档案"
+        )
+        source_ref = {
+            "kind": "world_object_validity",
+            "id": notice.get("notice_key"),
+            "fingerprint": notice.get("basis_fingerprint"),
+        }
+        if decision == "gap":
+            unknown_checks.append(f"{kind}作者有效期或精确 Story 来源待核对。")
+        findings.append(
+            DirectorConsistencyFinding(
+                severity=(
+                    "unknown"
+                    if decision == "gap"
+                    else "conflict"
+                    if decision == "author_priority"
+                    else "notice"
+                ),
+                subject_id=str(
+                    target.get("entity_id")
+                    or target.get("relation_id")
+                    or target.get("node_id")
+                    or ""
+                )
+                or None,
+                field="author_validity",
+                statement=(
+                    f"{kind}的有效期或来源尚未核实，未据此裁定。"
+                    if decision == "gap"
+                    else f"{kind}与已确认 Story 状态冲突，当前按作者有效期读取。"
+                    if decision == "author_priority"
+                    else f"{kind}的可信 Story 状态已按项目开关覆盖作者有效期。"
+                ),
+                source_refs=[source_ref, *(notice.get("evidence") or [])],
+            )
+        )
     exact_values: dict[tuple[str, str, str], dict[str, set[str]]] = {}
     for item in brief.get("continuity_items") or []:
         provenance = item.get("provenance") or {}
@@ -419,6 +468,8 @@ def build_consistency(
         if (item.get("provenance") or {}).get("status") == "exact"
         and item.get("checkpoint_id")
     }
+    if validity_notices:
+        checked_fields.add("world:author_validity")
     return DirectorConsistency(
         coverage=coverage,
         checked_facts=[

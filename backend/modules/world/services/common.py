@@ -50,6 +50,7 @@ def entity_relation_execution_snapshot(relation) -> dict[str, object]:
         "source_chapter_id": str(source_chapter_id) if source_chapter_id else None,
         "caused_by_event_id": str(caused_by_event_id) if caused_by_event_id else None,
         "review_meta": relation.review_meta or {},
+        "validity": relation.validity_json,
         "updated_at": updated_at.astimezone(UTC).isoformat() if updated_at else None,
     }
 

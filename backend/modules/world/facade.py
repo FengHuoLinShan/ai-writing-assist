@@ -49,6 +49,7 @@ from modules.world.dossier_facade import (  # noqa: F401
     read_world_object_dossier,
     read_world_object_dossier_history,
     read_world_object_dossier_template_history,
+    require_custom_text_state_field,
     restore_world_object_dossier_entry,
     save_world_object_dossier_template,
 )
@@ -116,6 +117,7 @@ from modules.world.map_notification_service import (
 from modules.world.map_spatial_brief_service import (
     read_map_spatial_brief,
 )
+from modules.world.map_declaration_state import require_map_declaration_state
 from modules.world.map_spatial_clue_service import (  # noqa: F401
     read_spatial_discovery_context,
     stage_spatial_discovery,
@@ -181,6 +183,7 @@ __all__ = [
     "read_world_object_dossier",
     "read_world_object_dossier_history",
     "read_world_object_dossier_template_history",
+    "require_custom_text_state_field",
     "restore_world_object_dossier_entry",
     "save_world_object_dossier_template",
     "read_world_object_image",
@@ -253,6 +256,7 @@ __all__ = [
     "read_map_node_heads",
     "read_map_spatial_advisories",
     "read_map_spatial_brief",
+    "require_map_declaration_state",
     "prepare_map_demo_copy_rows",
     "read_spatial_discovery_context",
     "stage_spatial_discovery",

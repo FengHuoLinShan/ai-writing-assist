@@ -13,6 +13,7 @@ import {
   syncRelationsAliasesRegistry,
 } from "../../../vue/views/world/logic/worldRelationsAliasesOps.js"
 import { resetBridgeOverrides, setBridgeOverrides } from "../../../vue/bridge/index.js"
+import { invalidateEditorialReviewCache } from "../../../vue/composables/useEditorialGuard.js"
 
 const RELATIONS = [
   { id: "r1", source_name: "林澈", source_id: "e1", target_name: "沉钟港", target_id: "e2", relation_kind: "social", relation_type: "friend_of", description: "驻守旧港", status: "canonical", strength: 0.7 },
@@ -67,6 +68,11 @@ beforeEach(() => {
         total: 2,
       })),
     },
+    outline: {
+      listScenesOrdered: vi.fn(async () => [
+        { id: "00000000-0000-4000-8000-000000000001", scene_index: 1, title: "雾港来信" },
+      ]),
+    },
   }
   routerMock = { navigate: vi.fn(), refresh: vi.fn(async () => true) }
   setBridgeOverrides({
@@ -84,6 +90,7 @@ beforeEach(() => {
 })
 
 afterEach(() => {
+  invalidateEditorialReviewCache()
   resetBridgeOverrides()
   vi.unstubAllGlobals()
 })
@@ -236,7 +243,7 @@ describe("showAliasCreateForm", () => {
     const handler = modalCalls[0].buttons[0].handler
     await handler()
     expect(apiMock.world.createAlias).toHaveBeenCalledWith(
-      { entity_id: "e1", alias: "小名", alias_kind: "name", alias_type: "nickname" },
+      { entity_id: "e1", alias: "小名", alias_kind: "name", alias_type: "nickname", validity: null },
       "p-ra",
     )
   })
@@ -272,7 +279,7 @@ describe("showAliasCreateForm", () => {
 })
 
 describe("showRelationReviewEditForm", () => {
-  it("端点选择器可区分且挂载后刷新未保存基线", () => {
+  it("端点选择器可区分且挂载后刷新未保存基线", async () => {
     const refreshBaseline = vi.fn()
     vi.stubGlobal("refreshModalFormBaseline", refreshBaseline)
     setBridgeOverrides({
@@ -282,7 +289,7 @@ describe("showRelationReviewEditForm", () => {
       },
     })
 
-    showRelationReviewEditForm("r1")
+    await showRelationReviewEditForm("r1")
 
     const queries = Array.from(document.querySelectorAll("[data-reference-query]"))
     expect(queries.map((input) => input.placeholder)).toEqual([
@@ -299,7 +306,7 @@ describe("showRelationReviewEditForm", () => {
   })
 
   it("正式关系可编辑端点与两层类型", async () => {
-    showRelationReviewEditForm("r1")
+    await showRelationReviewEditForm("r1")
     expect(modalCalls[0].title).toBe("编辑关系")
     document.body.innerHTML = modalCalls[0].html
     document.getElementById("rel-review-source").value = "e2"
@@ -314,6 +321,7 @@ describe("showRelationReviewEditForm", () => {
       target_id: "e1",
       relation_kind: "social",
       relation_type: "friend_of",
+      validity: null,
       confirm_review: true,
     }), "p-ra")
   })
@@ -324,7 +332,7 @@ describe("showRelationReviewEditForm", () => {
     const closeModal = vi.fn()
     apiMock.world.reviewEditRelationship.mockReturnValue(request.promise)
     setBridgeOverrides({ state, closeModal })
-    showRelationReviewEditForm("r1")
+    await showRelationReviewEditForm("r1")
     document.body.innerHTML = modalCalls[0].html
 
     const pending = modalCalls[0].buttons[0].handler()
@@ -339,17 +347,35 @@ describe("showRelationReviewEditForm", () => {
 
   it("当前子视图内失败时保留模态供重试", async () => {
     apiMock.world.reviewEditRelationship.mockRejectedValue(new Error("采用失败"))
-    showRelationReviewEditForm("r1")
+    await showRelationReviewEditForm("r1")
     document.body.innerHTML = modalCalls[0].html
 
     await expect(modalCalls[0].buttons[0].handler()).resolves.toBe(false)
     expect(routerMock.refresh).not.toHaveBeenCalled()
     expect(toastCalls).toContainEqual(["采用失败", "error"])
   })
+
+  it("关系确认等待中切换项目不会采用旧项目关系", async () => {
+    const state = { currentProjectId: "p-ra", currentView: "world", currentSubView: "relations" }
+    const review = deferred()
+    apiMock.assistant = { editorialPolicy: vi.fn(() => review.promise) }
+    setBridgeOverrides({ api: apiMock, state })
+    invalidateEditorialReviewCache()
+    await showRelationReviewEditForm("r1")
+    installModalHost(modalCalls[0].html)
+
+    const pending = modalCalls[0].buttons[0].handler()
+    await vi.waitFor(() => expect(apiMock.assistant.editorialPolicy).toHaveBeenCalled())
+    state.currentProjectId = "p-other"
+    review.resolve({ feature_available: false })
+
+    await pending
+    expect(apiMock.world.reviewEditRelationship).not.toHaveBeenCalled()
+  })
 })
 
 describe("showAliasEditForm", () => {
-  it("目标选择器挂载后刷新未保存基线", () => {
+  it("目标选择器挂载后刷新未保存基线", async () => {
     const refreshBaseline = vi.fn()
     vi.stubGlobal("refreshModalFormBaseline", refreshBaseline)
     setBridgeOverrides({
@@ -359,7 +385,7 @@ describe("showAliasEditForm", () => {
       },
     })
 
-    showAliasEditForm("e1", "小名")
+    await showAliasEditForm("e1", "小名")
 
     const query = document.querySelector("[data-reference-query]")
     expect(query.getAttribute("aria-label")).toBe("搜索目标对象")
@@ -368,7 +394,7 @@ describe("showAliasEditForm", () => {
   })
 
   it("正式别名可改名、分类并移动对象", async () => {
-    showAliasEditForm("e1", "小名")
+    await showAliasEditForm("e1", "小名")
     expect(modalCalls[0].title).toBe("编辑别名")
     document.body.innerHTML = modalCalls[0].html
     document.getElementById("alias-edit-target").value = "e2"
@@ -383,8 +409,45 @@ describe("showAliasEditForm", () => {
       alias: "新小名",
       alias_kind: "name",
       alias_type: "nickname",
+      validity: null,
       confirm_review: true,
     }, { novel_id: "p-ra" })
+  })
+
+  it.each(["project", "modal"])("编辑确认等待中切换%s不会向旧项目写入", async (change) => {
+    const state = { currentProjectId: "p-ra", currentView: "world", currentSubView: "aliases" }
+    const review = deferred()
+    apiMock.assistant = { editorialPolicy: vi.fn(() => review.promise) }
+    setBridgeOverrides({ api: apiMock, state })
+    invalidateEditorialReviewCache()
+    await showAliasEditForm("e1", "小名")
+    const body = installModalHost(modalCalls[0].html)
+
+    const pending = modalCalls[0].buttons[0].handler()
+    await vi.waitFor(() => expect(apiMock.assistant.editorialPolicy).toHaveBeenCalled())
+    if (change === "project") state.currentProjectId = "p-other"
+    else body.innerHTML = "<p>另一份编辑表单</p>"
+    review.resolve({ feature_available: false })
+
+    await pending
+    expect(apiMock.world.editAlias).not.toHaveBeenCalled()
+  })
+
+  it("编辑确认等待中重复点击只提交一次", async () => {
+    const review = deferred()
+    apiMock.assistant = { editorialPolicy: vi.fn(() => review.promise) }
+    setBridgeOverrides({ api: apiMock })
+    invalidateEditorialReviewCache()
+    await showAliasEditForm("e1", "小名")
+    installModalHost(modalCalls[0].html)
+    const handler = modalCalls[0].buttons[0].handler
+
+    const pending = handler()
+    await vi.waitFor(() => expect(apiMock.assistant.editorialPolicy).toHaveBeenCalled())
+    await expect(handler()).resolves.toBe(false)
+    review.resolve({ feature_available: false })
+    await pending
+    expect(apiMock.world.editAlias).toHaveBeenCalledTimes(1)
   })
 })
 

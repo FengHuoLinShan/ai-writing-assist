@@ -165,6 +165,40 @@ describe("WorldEntityRevisionHistory 其他资料比较", () => {
     expect(wrapper.get("[data-restore-confirm='rev-1']").text()).toContain("其他资料")
     wrapper.unmount()
   })
+
+  it("只改了别名有效期时也显示前后区间并列入恢复确认", async () => {
+    const beforeValidity = { start: { kind: "scene", id: "scene-before-0001" }, end: null }
+    const currentEntity = {
+      ...entity,
+      content_json: {
+        ...entity.content_json,
+        aliases: [{ alias: "小林", status: "confirmed", source: "manual", validity: { start: { kind: "scene", id: "scene-after-0002" }, end: null } }],
+      },
+    }
+    const changed = revision({
+      changed_fields: ["aliases"],
+      snapshot: {
+        ...revision().snapshot,
+        aliases: ["小林"],
+        alias_details: [{ alias: "小林", validity: beforeValidity }],
+        summary: entity.summary,
+        hidden_truth: "",
+      },
+    })
+    api.world.getEntityRevisions.mockResolvedValueOnce({ items: [changed], total: 1, skip: 0, limit: 20 })
+    const wrapper = await openHistory({ entity: currentEntity })
+
+    await wrapper.get("[data-compare-toggle='rev-1']").trigger("click")
+    const panel = wrapper.get("[data-compare-panel='rev-1']")
+    expect(panel.text()).toContain("场景 scene-be")
+    expect(panel.text()).toContain("场景 scene-af")
+    expect(panel.text()).not.toContain("这份快照与当前内容一致")
+
+    await wrapper.get("[data-restore='rev-1']").trigger("click")
+    await flushPromises()
+    expect(wrapper.get("[data-restore-confirm='rev-1']").text()).toContain("别名")
+    wrapper.unmount()
+  })
 })
 
 describe("WorldEntityRevisionHistory 备注", () => {

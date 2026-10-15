@@ -420,6 +420,66 @@ class SceneStateViewRequest(BaseModel):
         return unique
 
 
+class CustomTextStateUpdateRequest(BaseModel):
+    """Author-confirmed write of one World-declared custom Story text field."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    scene_id: uuid.UUID
+    entity_id: uuid.UUID
+    field_key: str = Field(min_length=1, max_length=64, pattern=r"^[a-z][a-z0-9_]*$")
+    value: str = Field(max_length=4000)
+    expected_template_version_number: int = Field(ge=1)
+    idempotency_key: str = Field(min_length=8, max_length=128)
+    confirmed: Literal[True]
+
+    @field_validator("value")
+    @classmethod
+    def nonblank_value(cls, value: str) -> str:
+        normalized = value.strip()
+        if not normalized:
+            raise ValueError("状态内容不能为空")
+        return normalized
+
+
+class MapDeclarationStateUpdateRequest(BaseModel):
+    """Author-confirmed status for one exact, current World map declaration."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    scene_id: uuid.UUID
+    node_id: uuid.UUID
+    revision_id: uuid.UUID
+    declaration_kind: Literal["feature", "constraint", "journey"]
+    declaration_id: str = Field(
+        min_length=1,
+        max_length=96,
+        pattern=r"^[a-zA-Z0-9][a-zA-Z0-9:_.-]{0,95}$",
+    )
+    status: Literal["active", "inactive"]
+    idempotency_key: str = Field(min_length=8, max_length=128)
+    confirmed: Literal[True]
+
+
+class MapDeclarationStateBinding(BaseModel):
+    """Validated World identity returned through the registered DI port."""
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    novel_id: uuid.UUID
+    node_id: uuid.UUID
+    revision_id: uuid.UUID
+    declaration_kind: Literal["feature", "constraint", "journey"]
+    declaration_id: str = Field(
+        min_length=1,
+        max_length=96,
+        pattern=r"^[a-zA-Z0-9][a-zA-Z0-9:_.-]{0,95}$",
+    )
+    field_key: Literal["effective_status"]
+    subject_id: uuid.UUID
+    label: str = Field(min_length=1, max_length=80)
+
+
 class SceneStateViewResponse(BaseModel):
     novel_id: str
     scene_id: str

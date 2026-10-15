@@ -149,7 +149,7 @@
       <button v-if="reader && !externalTools" class="btn btn-sm" @click="exitReader">回到作者视图</button>
       <span v-if="reader">仅显示该章开始前可公开的内容，位置保持不变。</span>
     </div>
-    <MapSpatialMetadataPanel v-if="!readOnly && !focused" :project-id="projectId" :document="doc" :selected-feature-id="selectedId" :disabled="loading || saving || confirming" @change="applySpatialDocument" @state="metadataBusy = $event.busy" />
+    <MapSpatialMetadataPanel v-if="!readOnly && !focused" :project-id="projectId" :document="doc" :selected-feature-id="selectedId" :node-id="node.id" :revision-id="revision?.id || ''" :state-disabled="dirty || Boolean(recovery) || node.status !== 'adopted' || revision?.status !== 'saved' || revision?.id !== node.current_revision_id" :disabled="loading || saving || confirming || metadataBusy" @change="applySpatialDocument" @state="metadataBusy = $event.busy" />
     <div v-if="!readOnly" v-show="!focused" class="map-evidence-panel">
     <FocusedEvidencePanel
       :project-id="projectId" consumer="map" :scope-key="node.id"

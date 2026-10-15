@@ -15,7 +15,12 @@ from typing import Any
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from core.container import get
 from core.errors import ValidationError
+from core.service_keys import (
+    WORLD_REQUIRE_CUSTOM_TEXT_STATE_FIELD,
+    WORLD_REQUIRE_MAP_DECLARATION_STATE,
+)
 from modules.story.continuity.contracts import (
     SCENE_MEMORY_DIMENSIONS,
     ConfirmedContinuityEventIngest,
@@ -43,6 +48,7 @@ from modules.story.continuity.schemas import (
     EventListResponse,
     EventType,
     KnowledgeInPanorama,
+    MapDeclarationStateBinding,
     MemoryEventResponse,
     MemoryStatusResponse,
     RelationInPanorama,
@@ -432,6 +438,185 @@ class MemoryService:
                 include_start=True,
             )
         return MemoryEventResponse.model_validate(record), created
+
+    async def confirm_custom_text_state(
+        self,
+        db: AsyncSession,
+        novel_id: str,
+        *,
+        scene_id: str,
+        entity_id: str,
+        field_key: str,
+        value: str,
+        expected_template_version_number: int,
+        idempotency_key: str,
+    ) -> dict[str, Any]:
+        """Append one author-confirmed custom status after World revalidation."""
+        world_field = await get(WORLD_REQUIRE_CUSTOM_TEXT_STATE_FIELD)(
+            db,
+            novel_id,
+            entity_id,
+            field_key,
+            expected_template_version_number,
+        )
+        result = await self._append_author_confirmed_text_state(
+            db,
+            novel_id,
+            scene_id=scene_id,
+            entity_id=entity_id,
+            entity_type=world_field["entity_type"],
+            field_key=field_key,
+            value=value,
+            field_label=world_field["field"]["label"],
+            idempotency_key=idempotency_key,
+            state_metadata={
+                "custom_state_field": True,
+                "template_id": world_field["template_id"],
+                "template_version_number": world_field["template_version_number"],
+            },
+        )
+        result["template_version_number"] = world_field["template_version_number"]
+        return result
+
+    async def confirm_map_declaration_state(
+        self,
+        db: AsyncSession,
+        novel_id: str,
+        *,
+        scene_id: str,
+        node_id: str,
+        revision_id: str,
+        declaration_kind: str,
+        declaration_id: str,
+        status: str,
+        idempotency_key: str,
+    ) -> dict[str, Any]:
+        """Append an author-confirmed state bound to an exact current map item."""
+        raw_binding = await get(WORLD_REQUIRE_MAP_DECLARATION_STATE)(
+            db,
+            novel_id,
+            node_id=node_id,
+            revision_id=revision_id,
+            declaration_kind=declaration_kind,
+            declaration_id=declaration_id,
+        )
+        binding = MapDeclarationStateBinding.model_validate(raw_binding)
+        if (
+            str(binding.novel_id) != str(parse_uuid(novel_id, "novel_id"))
+            or str(binding.node_id) != str(parse_uuid(node_id, "node_id"))
+            or str(binding.revision_id) != str(parse_uuid(revision_id, "revision_id"))
+            or binding.declaration_kind != declaration_kind
+            or binding.declaration_id != declaration_id
+            or binding.field_key != "effective_status"
+        ):
+            raise ValidationError("World map declaration binding does not match request")
+        result = await self._append_author_confirmed_text_state(
+            db,
+            novel_id,
+            scene_id=scene_id,
+            entity_id=str(binding.subject_id),
+            entity_type="map_declaration",
+            field_key=binding.field_key,
+            value=status,
+            field_label=binding.label,
+            idempotency_key=idempotency_key,
+            state_metadata={
+                "map_declaration_state": {
+                    "contract_version": 1,
+                    "novel_id": str(binding.novel_id),
+                    "node_id": str(binding.node_id),
+                    "revision_id": str(binding.revision_id),
+                    "subject_id": str(binding.subject_id),
+                    "declaration_kind": binding.declaration_kind,
+                    "declaration_id": binding.declaration_id,
+                    "field_key": binding.field_key,
+                }
+            },
+        )
+        result["map_declaration"] = {
+            "node_id": str(binding.node_id),
+            "revision_id": str(binding.revision_id),
+            "declaration_kind": binding.declaration_kind,
+            "declaration_id": binding.declaration_id,
+        }
+        return result
+
+    async def _append_author_confirmed_text_state(
+        self,
+        db: AsyncSession,
+        novel_id: str,
+        *,
+        scene_id: str,
+        entity_id: str,
+        entity_type: str,
+        field_key: str,
+        value: str,
+        field_label: str,
+        idempotency_key: str,
+        state_metadata: dict[str, Any],
+    ) -> dict[str, Any]:
+        scene = await get("story.get_scene_contract")(db, novel_id, scene_id)
+        if scene is None or str(getattr(scene, "novel_id", "")) != str(novel_id):
+            raise ValidationError("Scene not found in this project")
+        scene_index = getattr(scene, "scene_index", None)
+        if isinstance(scene_index, bool) or not isinstance(scene_index, int):
+            raise ValidationError("Scene order is unavailable")
+        if getattr(scene, "status", None) not in {"candidate", "draft", "canonical"}:
+            raise ValidationError("Only an active Scene can receive state events")
+        chapter_ids = list(getattr(scene, "chapter_ids", None) or [])
+        chapter_indices = [
+            int(item) for item in chapter_ids if str(item).isdigit() and int(item) > 0
+        ]
+        chapter_index = min(chapter_indices) if chapter_indices else 0
+        metadata = {
+            "idempotency_key": idempotency_key,
+            "author_confirmed": True,
+            "field_label": field_label,
+        }
+        if "map_declaration_state" in state_metadata:
+            metadata["author_confirmed_state"] = True
+        metadata.update(state_metadata)
+        payload = {
+            field_key: value,
+            "meta": metadata,
+        }
+        if len(json.dumps(payload, ensure_ascii=False)) > MAX_MEMORY_EVENT_PAYLOAD_CHARS:
+            raise ValidationError("Memory event payload exceeds limit")
+        record, created = await self._event_repo.append_confirmed_scene_event(
+            db,
+            novel_id=parse_uuid(novel_id, "novel_id"),
+            scene_id=parse_uuid(scene_id, "scene_id"),
+            scene_index=scene_index,
+            chapter_index=chapter_index,
+            row={
+                "dimension": "entities",
+                "event_type": EventType.entity_created,
+                "entity_id": parse_uuid(entity_id, "entity_id"),
+                "entity_type": entity_type,
+                "snapshot_before": None,
+                "snapshot_after": payload,
+                "source": "author_confirmation",
+            },
+            idempotency_key=idempotency_key,
+        )
+        if created:
+            nid = parse_uuid(novel_id, "novel_id")
+            await self._scene_checkpoint_repo.supersede_system_from(
+                db, nid, scene_index, ["entities"], include_start=True
+            )
+            await self._scene_snapshot_repo.supersede_from(
+                db, nid, scene_index, include_start=True
+            )
+        return {
+            "event": MemoryEventResponse.model_validate(record),
+            "created": created,
+            "scene_id": str(scene_id),
+            "entity_id": str(entity_id),
+            "entity_type": entity_type,
+            "field_key": field_key,
+            "field_label": field_label,
+            "scene_index": scene_index,
+        }
 
     # ============================================================
     # 状态重放

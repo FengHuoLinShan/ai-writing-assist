@@ -127,3 +127,20 @@ A3 作者侧 Interaction / Collaboration、地图与势力后续能力仍需实�
 - Evidence有原confirmation时整目标inspect失败关闭，精确source.read保留；不能只凭资产ID重读已省略的字段或正文。A1剩余章节重排/一般事实时间线仍未落地，不修改chapter_index假装排序。
 - Goal Luna已无损接新基线（1d2c2f137+af3b00836），现有Assistant/core/config必要Goal接线由其单写；新AIRunEnvelope版本的跨域allowlist从审批冻结范围确定，不能全局放宽旧信封。World地图author decision当前绑定真实conversation/message，Goal不可伪造来源；map R2不在本批自动allowlist。
 - C2预审确认两个对象参考Settings字段尚缺以及generic legacy时点证明同值不同field误匹配，待固定点由Sol直接修；不要把原WIP已测说成已审投产。A4仍需live序列/接受与恢复分母/耗时用量/缺口覆盖，不造数周数据或真实top3。
+
+## 2026-10-16 剩余A1的实际领域起点
+
+- Writing 的正式对象是 `WritingDraft`，不存在可随意编号的独立 Chapter 行；唯一键为
+  `(novel_id, chapter_index, version_number)`，稳定正文来源还有 draft UUID/content_hash。
+  `services.py` 是兼容再出口，真正草稿实现为 `draft_service.py`；章节列表、最新有效章和
+  来源重验锁等已有 `writing.facade`，先追踪所有版本、批注、Story绑定和Evolution冻结读取。
+  章节排序须形成可预览、并发重验、原子执行与可恢复的领域方法，同步真实列表/写作调用者，
+  不能只在插件或前端重排列表、直接交换chapter_index或破坏旧来源身份。采用或影响已确认
+  故事语义时按R3确认，不能藉R2自动执行绕过。具体最小方案由Luna读完真实链后实施，Sol审修。
+- 一般事件时间线已有真实服务：`story/continuity/services.py::MemoryService.list_events`
+  与 `get_entity_timeline`；HTTP为 `/api/novels/{novel_id}/memories/events` 和
+  `/events/{entity_id}/timeline`，均先 active-project/owner 保护。Story facade当前未导出这两项。
+  可复用服务提供真正R0目录读取，保留范围、分页、来源、状态和未知语义，不把伏笔/揭示计划
+  当已发生事实，也不为补目录任意新增正史写操作。需要截止Scene的消费者必须过滤后续资料。
+- 新目录/HTTP留痕、幂等回执及恢复都要同批实际接线；不能把提供纯SPEC当完成。
+  当前共享组合由C0c Sol单写，后续实施树从已审primary开始，本域固定后Sol顺序组合。

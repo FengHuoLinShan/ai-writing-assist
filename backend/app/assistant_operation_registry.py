@@ -30,6 +30,7 @@ from modules.evolution.assistant_tools import OPERATIONS_SPEC as _EVOLUTION
 from modules.imports.assistant_tools import OPERATIONS_SPEC as _IMPORTS
 from modules.project.assistant_dedup_tool import OPERATIONS_SPEC as _PROJECT_DEDUP
 from modules.project.assistant_tools import OPERATIONS_SPEC as _PROJECT
+from modules.project.assistant_validity_tools import OPERATIONS_SPEC as _PROJECT_VALIDITY
 from modules.story.assistant_generation_tools import (
     OPERATIONS_SPEC as _STORY_GENERATION,
 )
@@ -38,6 +39,7 @@ from modules.story.assistant_information_tools import (
 )
 from modules.story.assistant_planning_tools import OPERATIONS_SPEC as _STORY_PLANNING
 from modules.story.assistant_scene_operations import OPERATIONS_SPEC as _STORY_SCENE
+from modules.story.assistant_state_operations import OPERATIONS_SPEC as _STORY_STATE
 from modules.story.assistant_structure_workflow import (
     OPERATIONS_SPEC as _STORY_STRUCTURE,
 )
@@ -54,6 +56,7 @@ from modules.world.assistant_outcome_tools import OPERATIONS_SPEC as _WORLD_OUTC
 from modules.world.assistant_page_tools import OPERATIONS_SPEC as _WORLD_PAGE
 from modules.world.assistant_review_tools import OPERATIONS_SPEC as _WORLD_REVIEW
 from modules.world.assistant_tools import OPERATIONS_SPEC as _WORLD
+from modules.world.assistant_validity_tools import OPERATIONS_SPEC as _WORLD_VALIDITY
 from modules.world.assistant_vocabulary_tools import (
     OPERATIONS_SPEC as _WORLD_VOCABULARY,
 )
@@ -349,15 +352,18 @@ writing_operations = _materialize(_WRITING)
 writing_generation_operations = _materialize(_WRITING_GENERATION)
 writing_candidate_operations = _materialize(_WRITING_CANDIDATE)
 project_operations = _materialize(_PROJECT)
+project_validity_operations = _materialize(_PROJECT_VALIDITY)
 story_operations = _materialize(_STORY)
 story_structure_operations = _materialize(_STORY_STRUCTURE)
 story_planning_operations = _materialize(_STORY_PLANNING)
 story_scene_operations = _materialize(_STORY_SCENE)
+story_state_operations = _materialize(_STORY_STATE)
 story_director_operations = _materialize(_STORY_DIRECTOR)
 story_generation_operations = _materialize(_STORY_GENERATION)
 world_opening_operations = _materialize(_WORLD_OPENING)
 world_map_operations = _materialize(_WORLD_MAP)
 world_vocabulary_operations = _materialize(_WORLD_VOCABULARY)
+world_validity_operations = _materialize(_WORLD_VALIDITY)
 evidence_forecast_operations = _materialize(_EVIDENCE_FORECAST)
 evidence_read_operations = _materialize(_EVIDENCE_READ)
 evidence_object_dossier_operations = _materialize(_EVIDENCE_OBJECT_DOSSIER)

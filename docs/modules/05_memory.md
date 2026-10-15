@@ -131,6 +131,7 @@ POST /api/novels/{novel_id}/memories/scene-checkpoints/ensure
 POST /api/novels/{novel_id}/memories/scene-checkpoints/rebuild
 POST /api/novels/{novel_id}/memories/scene-checkpoints/repair
 POST /api/novels/{novel_id}/memories/scene-state-view
+POST /api/novels/{novel_id}/memories/map-declaration-state
 ```
 
 查询参数要点：
@@ -139,6 +140,10 @@ POST /api/novels/{novel_id}/memories/scene-state-view
 - `events` 支持 `from_chapter` / `to_chapter`
 - `timeline` 支持 `skip` / `limit`
 - `rebuild` 需要 `from_chapter`
+
+`map-declaration-state` 由作者明确确认，写入绑定当前 adopted 地图节点、saved revision、声明 kind 与
+原始 FeatureKey 的 typed `effective_status` Story 事件；它不写回地图，也不把地图知识默认披露给人物或读者。
+事件投影由独立 `scene-checkpoints/ensure` 显式更新；Scene-state view 与地图 GET 保持只读。
 
 ## 设计要点
 

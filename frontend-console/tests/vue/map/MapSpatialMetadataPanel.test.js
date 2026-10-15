@@ -8,13 +8,20 @@ const document = () => ({ schema_version: 2, layout_version: 1, spaces: [{ id: '
 const terms = [{ id: 'feature-type', revision_id: 'r2', name: '传送阵', kind: 'feature', status: 'active' }, { id: 'inactive-type', revision_id: 'r1', name: '未确认新类型', kind: 'feature', status: 'emerging' }]
 let api, confirmAction
 beforeEach(() => {
-  api = { world: { listProjectVocabulary: vi.fn().mockResolvedValue({ items: terms, omitted_count: 0 }) }, outline: { listScenes: vi.fn().mockResolvedValue({ items: [{ id: 's1', scene_index: 0, title: '入城', status: 'draft' }], total: 1 }) } }
+  api = {
+    world: { listProjectVocabulary: vi.fn().mockResolvedValue({ items: terms, omitted_count: 0 }) },
+    outline: { listScenes: vi.fn().mockResolvedValue({ items: [{ id: 's1', scene_index: 0, title: '入城', status: 'draft' }], total: 1 }) },
+    story: {
+      confirmMapDeclarationState: vi.fn().mockResolvedValue({ created: true }),
+      ensureSceneCheckpoints: vi.fn().mockResolvedValue({}),
+    },
+  }
   confirmAction = vi.fn((message, confirm) => confirm())
   setBridgeOverrides({ api, confirmAction })
 })
 afterEach(resetBridgeOverrides)
 async function open(doc = document()) {
-  const wrapper = mount(MapSpatialMetadataPanel, { props: { projectId: 'p', document: doc, selectedFeatureId: 'f1' } })
+  const wrapper = mount(MapSpatialMetadataPanel, { props: { projectId: 'p', nodeId: 'node-1', revisionId: 'revision-1', document: doc, selectedFeatureId: 'f1' } })
   wrapper.get('details').element.open = true
   await wrapper.get('details').trigger('toggle'); await flushPromises()
   return wrapper
@@ -85,5 +92,58 @@ describe('地图空间元数据编辑', () => {
     await button(wrapper, '重新读取编辑选项').trigger('click'); await flushPromises()
     expect(wrapper.text()).toContain('部分编辑选项未读取')
     expect(wrapper.emitted('state').at(-1)[0].busy).toBe(false)
+  })
+  it('只对已保存地图声明显式写入Story状态，并更新所选Scene投影', async () => {
+    const doc = document(); doc.features[0].effective = { start: { kind: 'scene', id: 's1' } }
+    const wrapper = await open(doc)
+    await field(wrapper, '在哪个场景确认').setValue('s1')
+    const state = wrapper.findAll('label').find(item => item.text().startsWith('该声明在此场的状态')).find('select')
+    await state.setValue('inactive')
+    await button(wrapper, '确认并记录此场状态').trigger('click'); await flushPromises()
+
+    expect(api.story.confirmMapDeclarationState).toHaveBeenCalledWith('p', expect.objectContaining({
+      confirmed: true,
+      scene_id: 's1',
+      node_id: 'node-1',
+      revision_id: 'revision-1',
+      declaration_kind: 'feature',
+      declaration_id: 'f1',
+      status: 'inactive',
+      idempotency_key: expect.any(String),
+    }))
+    expect(api.story.ensureSceneCheckpoints).toHaveBeenCalledWith('p', 's1')
+    expect(wrapper.emitted('change')).toBeUndefined()
+    expect(wrapper.text()).toContain('当前场景投影已更新')
+  })
+  it('409保留状态草稿和幂等键以便重试', async () => {
+    const doc = document(); doc.features[0].effective = { start: { kind: 'scene', id: 's1' } }
+    api.story.confirmMapDeclarationState.mockRejectedValue(new Error('地图版本已变化，返回409'))
+    const wrapper = await open(doc)
+    await field(wrapper, '在哪个场景确认').setValue('s1')
+    const state = wrapper.findAll('label').find(item => item.text().startsWith('该声明在此场的状态')).find('select')
+    await state.setValue('inactive')
+    await button(wrapper, '确认并记录此场状态').trigger('click'); await flushPromises()
+    const firstKey = api.story.confirmMapDeclarationState.mock.calls[0][1].idempotency_key
+    expect(state.element.value).toBe('inactive')
+    expect(wrapper.get('[role="alert"]').text()).toContain('409')
+
+    await button(wrapper, '确认并记录此场状态').trigger('click'); await flushPromises()
+    expect(api.story.confirmMapDeclarationState).toHaveBeenCalledTimes(2)
+    expect(api.story.confirmMapDeclarationState.mock.calls[1][1].idempotency_key).toBe(firstKey)
+    expect(api.story.ensureSceneCheckpoints).not.toHaveBeenCalled()
+  })
+  it('投影更新失败保留Story已写草稿，并重试时不重复创建事件', async () => {
+    const doc = document(); doc.features[0].effective = { start: { kind: 'scene', id: 's1' } }
+    api.story.ensureSceneCheckpoints.mockRejectedValueOnce(new Error('投影暂不可用'))
+    const wrapper = await open(doc)
+    await field(wrapper, '在哪个场景确认').setValue('s1')
+    await button(wrapper, '确认并记录此场状态').trigger('click'); await flushPromises()
+    expect(wrapper.get('[role="alert"]').text()).toContain('投影暂不可用')
+    expect(button(wrapper, '重试更新场景投影')).toBeTruthy()
+
+    await button(wrapper, '重试更新场景投影').trigger('click'); await flushPromises()
+    expect(api.story.confirmMapDeclarationState).toHaveBeenCalledTimes(1)
+    expect(api.story.ensureSceneCheckpoints).toHaveBeenCalledTimes(2)
+    expect(wrapper.text()).toContain('当前场景投影已更新')
   })
 })

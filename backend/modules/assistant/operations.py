@@ -82,7 +82,18 @@ def operation_manifest(*, legacy: bool = False) -> dict:
 
 
 def runtime_protocol(payload: dict) -> dict:
-    if payload.get("runtime_version") in {"2", "3", "4", "5", "6", "7", "8", "9", "10"}:
+    if payload.get("runtime_version") in {
+        "2",
+        "3",
+        "4",
+        "5",
+        "6",
+        "7",
+        "8",
+        "9",
+        "10",
+        "11",
+    }:
         return payload
     if payload.get("runtime_version") == "1":
         frozen = json.loads(Path(__file__).with_name("runtime_v1.json").read_text())
@@ -758,7 +769,8 @@ async def decide_batch(db, batch_id: str, decision: BatchDecision, owner_id: str
     available = (
         resolve_operations(
             runtime_protocol(run.request_json)["operations"],
-            allow_stale=run.request_json.get("runtime_version") in {"7", "8", "9", "10"},
+            allow_stale=run.request_json.get("runtime_version")
+            in {"7", "8", "9", "10", "11"},
         )
         if run.request_json.get("runtime_version")
         else catalog()
