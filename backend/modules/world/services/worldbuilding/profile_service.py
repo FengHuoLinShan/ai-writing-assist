@@ -10,6 +10,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from core.errors import NotFoundError, ValidationError
 from modules.world.models import (
     CoreEntity,
+    EntityProfileTemplate,
     GenericEntityProfile,
 )
 from modules.world.schemas import (
@@ -236,6 +237,16 @@ class WorldProfileService:
             )
             db.add(profile)
         payload = data.model_dump(exclude_unset=True)
+        if "data_json" in payload:
+            template = await db.scalar(
+                select(EntityProfileTemplate).where(
+                    EntityProfileTemplate.novel_id == entity.novel_id,
+                    EntityProfileTemplate.profile_type == entity.entity_type,
+                    EntityProfileTemplate.status == "active",
+                )
+            )
+            if template is not None:
+                profile.template_id = template.id
         for field in (
             "status",
             "source",

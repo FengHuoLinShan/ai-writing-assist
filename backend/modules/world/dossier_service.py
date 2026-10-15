@@ -8,6 +8,7 @@ import uuid
 from datetime import UTC, datetime
 from typing import Any
 
+from pydantic import ValidationError as PydanticValidationError
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -21,6 +22,7 @@ from modules.world.models import (
     CoreEntity,
     EntityProfileTemplate,
     EntityProfileTemplateRevision,
+    GenericEntityProfile,
     ProjectVocabularyRevision,
     ProjectVocabularyTerm,
     WorldObjectDossierEntry,
@@ -36,6 +38,7 @@ from modules.world.schemas.dossier import (
     DossierFacetOption,
     DossierFacingRef,
     DossierHistoryResponse,
+    DossierLegacyProfileField,
     DossierReadResponse,
     DossierTemplateField,
     DossierTemplateHistoryResponse,
@@ -455,6 +458,7 @@ class WorldObjectDossierService:
         nid = parse_uuid(novel_id, "novel_id")
         entries = await self.repo.list_active_for_entity(db, nid, entity.id)
         labels = await self._labels(db, nid, entries)
+        legacy_profile_fields = await self._legacy_profile_fields(db, entity)
         cutoff_index = None
         cutoff_error = None
         if as_of_scene_id is not None:
@@ -505,7 +509,12 @@ class WorldObjectDossierService:
         page_offset = max(offset, 0)
         result = result[page_offset : page_offset + page_limit]
         omitted_count = max(0, total_count - len(result))
-        payload = [item.model_dump(mode="json") for item in result]
+        payload = {
+            "entries": [item.model_dump(mode="json") for item in result],
+            "legacy_profile_fields": [
+                item.model_dump(mode="json") for item in legacy_profile_fields
+            ],
+        }
         fingerprint = hashlib.sha256(
             _canonical_json(
                 {
@@ -527,13 +536,151 @@ class WorldObjectDossierService:
             offset=page_offset,
             limit=page_limit,
             entries=result,
+            legacy_profile_fields=legacy_profile_fields,
             total_count=total_count,
             omitted_count=omitted_count,
             dossier_fingerprint=fingerprint,
             layers=["world"],
             unavailable_layers=["continuity", "evolution"],
-            unknown=not result,
+            unknown=not result and not any(item.mapped for item in legacy_profile_fields),
         )
+
+    async def _legacy_profile_fields(
+        self, db: AsyncSession, entity: CoreEntity
+    ) -> list[DossierLegacyProfileField]:
+        """Project generic legacy data only through an explicitly linked template.
+
+        Unmapped keys stay in the response with their original JSON values. This is
+        a read projection; it never deletes or rewrites ``data_json``.
+        """
+        profile = await db.scalar(
+            select(GenericEntityProfile).where(
+                GenericEntityProfile.novel_id == entity.novel_id,
+                GenericEntityProfile.entity_id == entity.id,
+                GenericEntityProfile.profile_type == entity.entity_type,
+                GenericEntityProfile.status != "migrated",
+            )
+        )
+        if profile is None or not isinstance(profile.data_json, dict):
+            return []
+        template = None
+        if profile.template_id is not None:
+            template = await db.scalar(
+                select(EntityProfileTemplate).where(
+                    EntityProfileTemplate.novel_id == entity.novel_id,
+                    EntityProfileTemplate.id == profile.template_id,
+                    EntityProfileTemplate.profile_type == entity.entity_type,
+                )
+            )
+        template_fields = (
+            (template.template_schema_json or {}).get("fields", [])
+            if template is not None and template.status == "active"
+            else []
+        )
+        definitions: dict[str, list[dict[str, Any]]] = {}
+        for raw in template_fields:
+            if not isinstance(raw, dict) or not isinstance(raw.get("key"), str):
+                continue
+            definitions.setdefault(raw["key"], []).append(raw)
+
+        project_ids: set[uuid.UUID] = set()
+        for candidates in definitions.values():
+            if len(candidates) != 1:
+                continue
+            facing = candidates[0].get("facing")
+            if not isinstance(facing, dict) or facing.get("kind") != "project":
+                continue
+            try:
+                project_ids.add(uuid.UUID(str(facing.get("term_id"))))
+            except (TypeError, ValueError):
+                continue
+        active_project_facings: dict[uuid.UUID, str] = {}
+        if project_ids:
+            rows = await db.execute(
+                select(ProjectVocabularyTerm, ProjectVocabularyRevision)
+                .join(
+                    ProjectVocabularyRevision,
+                    ProjectVocabularyRevision.id
+                    == ProjectVocabularyTerm.current_revision_id,
+                )
+                .where(
+                    ProjectVocabularyTerm.novel_id == entity.novel_id,
+                    ProjectVocabularyTerm.id.in_(project_ids),
+                    ProjectVocabularyTerm.kind == "dossier_facing",
+                    ProjectVocabularyTerm.status == "active",
+                    ProjectVocabularyRevision.novel_id == entity.novel_id,
+                )
+            )
+            active_project_facings = {
+                term.id: str(revision.snapshot_json.get("name") or "未知面向")
+                for term, revision in rows
+            }
+
+        template_revision = None
+        if template is not None:
+            template_revision = await db.scalar(
+                select(EntityProfileTemplateRevision).where(
+                    EntityProfileTemplateRevision.novel_id == entity.novel_id,
+                    EntityProfileTemplateRevision.template_id == template.id,
+                    EntityProfileTemplateRevision.version_number
+                    == template.version_number,
+                )
+            )
+        metadata = {
+            "profile_source": profile.source,
+            "profile_confidence": profile.confidence,
+            "profile_evidence_refs": profile.evidence_refs_json or [],
+            "profile_extra": profile.extra_json or {},
+            "profile_updated_at": (
+                profile.updated_at.isoformat() if profile.updated_at else None
+            ),
+            "template_revision_id": (
+                str(template_revision.id) if template_revision is not None else None
+            ),
+        }
+        projected: list[DossierLegacyProfileField] = []
+        for key, value in sorted(
+            profile.data_json.items(), key=lambda item: str(item[0])
+        ):
+            field_definitions = definitions.get(str(key), [])
+            raw = field_definitions[0] if len(field_definitions) == 1 else {}
+            facing = None
+            label = str(raw.get("label") or key)
+            if raw:
+                try:
+                    candidate = DossierFacingRef.model_validate(raw.get("facing"))
+                except (PydanticValidationError, TypeError, ValueError):
+                    candidate = None
+                if candidate is not None:
+                    if candidate.kind == "core" and candidate.key in CORE_FACINGS.get(
+                        entity.entity_type, {}
+                    ):
+                        facing = candidate
+                        label = CORE_FACINGS[entity.entity_type][candidate.key]
+                    elif (
+                        candidate.kind == "project"
+                        and candidate.term_id in active_project_facings
+                    ):
+                        facing = candidate
+                        label = active_project_facings[candidate.term_id]
+            projected.append(
+                DossierLegacyProfileField(
+                    profile_id=profile.id,
+                    profile_type=profile.profile_type,
+                    profile_status=profile.status,
+                    template_id=profile.template_id,
+                    template_version_number=(
+                        template.version_number if template is not None else None
+                    ),
+                    field_key=str(key),
+                    label=label,
+                    facing=facing,
+                    value=value,
+                    mapped=facing is not None,
+                    source_metadata=metadata,
+                )
+            )
+        return projected
 
     async def history(
         self,
@@ -1178,6 +1325,8 @@ class WorldObjectDossierService:
         if not normalized_type or len(normalized_type) > 64:
             raise ValidationError("对象类型不能为空")
         seen = set()
+        seen_keys = set()
+        submitted_key_facings: dict[str, tuple[str, str]] = {}
         for item in data.fields:
             facing_key, _label = await self._validate_facing(
                 db, nid, normalized_type, item.facing
@@ -1186,6 +1335,11 @@ class WorldObjectDossierService:
             if identity in seen:
                 raise ValidationError("模板不能重复登记同一面向")
             seen.add(identity)
+            if item.key is not None:
+                if item.key in seen_keys:
+                    raise ValidationError("模板字段 key 不能重复")
+                seen_keys.add(item.key)
+                submitted_key_facings[item.key] = identity
         snapshot = {
             "format_version": 1,
             "fields": [field.model_dump(mode="json") for field in data.fields],
@@ -1201,6 +1355,45 @@ class WorldObjectDossierService:
                 .with_for_update()
             )
         ).scalar_one_or_none()
+        if template is not None and submitted_key_facings:
+            revisions = (
+                await db.scalars(
+                    select(EntityProfileTemplateRevision).where(
+                        EntityProfileTemplateRevision.novel_id == nid,
+                        EntityProfileTemplateRevision.template_id == template.id,
+                    )
+                )
+            ).all()
+            history_fields = [
+                *(template.template_schema_json or {}).get("fields", []),
+                *(
+                    field
+                    for revision in revisions
+                    for field in (revision.snapshot_json or {}).get("fields", [])
+                ),
+            ]
+            historical_key_facings: dict[str, tuple[str, str]] = {}
+            for raw in history_fields:
+                if not isinstance(raw, dict) or not isinstance(raw.get("key"), str):
+                    continue
+                try:
+                    previous_facing = DossierFacingRef.model_validate(raw.get("facing"))
+                except (PydanticValidationError, TypeError, ValueError):
+                    continue
+                previous_key = (
+                    previous_facing.key
+                    if previous_facing.kind == "core"
+                    else str(previous_facing.term_id)
+                )
+                historical_key_facings.setdefault(
+                    raw["key"], (previous_facing.kind, previous_key)
+                )
+            for field_key, identity in submitted_key_facings.items():
+                previous = historical_key_facings.get(field_key)
+                if previous is not None and previous != identity:
+                    raise ValidationError(
+                        "模板字段 key 已绑定其他面向；请使用新 key 保留旧数据映射"
+                    )
         if template is None:
             if data.expected_version_number is not None:
                 raise ConflictError("模板不存在，请刷新后重试")
