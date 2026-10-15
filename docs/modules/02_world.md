@@ -95,6 +95,28 @@ imports 可通过 `world.facade.dedupe_deep_import_workflow_candidates` 调用�
 - 作者可在新建、编辑后采用和已采用对象编辑中使用安全自定义 `entity_type`；AI 抽取和建议创建仍限系统目录。已有对象类型变化统一由 `EntityTypeTransitionService` 执行可逆 Profile snapshot 迁移，并在人物、事件等硬依赖存在时以结构化 409 阻止，详见 ADR-0005
 - `entity_type="character"` 的 CoreEntity 进入 canonical 时必须同步具备最小 `characters` 档案，保证人物、POV 与生成中心上下文可立即使用。作者显式创建人物档案会原位升级自动 scaffold；未被作者扩展的 scaffold 不视为类型纠正的硬依赖
 
+### 修订式对象档案（ADR-0039，C0 基础）
+
+`dossier_facade.py` 只拥有 World 稳定设定层。内核面向按对象类型定义，项目面向引用同项目
+`ProjectVocabularyTerm(kind='dossier_facing')`；模板复用 `EntityProfileTemplate` 的不可变修订。
+Scene 时点状态归 Story，演化理解归 Evolution；World 的读取结果显式披露尚未聚合的层，
+不能用当前设定或作者最新备注补出历史事实。统一三层读取与对象简报由 Evidence 聚合。
+
+`GET /api/world/entities/{id}/dossier` 支持当前设定或 `as_of_scene_id`，附条目来源、有效期、
+未知与省略、稳定指纹；分页空页不等于对象没有档案。`/dossier/history` 提供修订历史。
+新增、编辑、恢复分别使用 POST `/dossier/entries`、PATCH `/dossier/entries/{revision_id}`、
+POST `/dossier/groups/{entry_group_id}/restore`；编辑使用 `expected_revision_id`，恢复重新
+校验对象、面向与 Scene/章节锚点，追加修订而不覆盖旧内容。公开 demo 在服务入口拒写。
+模板 GET/PUT `/api/world/dossier-templates/{profile_type}` 使用版本 CAS；内容不变不增版本。
+
+同一面向或旧字段允许多个当前条目，每个条目组只有一个当前修订。旧 Character PUT 在值
+未变化时不增修订，改变时收拢该旧键下当前条目；显式 null 留下可恢复的清除修订。
+`desire` 与 `fear` 保留不同旧键，未标旧键的新条目不被猜测拼回字段。`current_goal`、
+`current_state`、`current_emotion` 仍是作者最新备注，不作为按章状态。字段映射与旧调用方
+边界见 [C0 映射表](../plans/2026-10-15-world-object-dossier-c0-mapping.md)。
+Generic profile 的修订桥接、旧消费方切换、三层聚合和完整界面仍按后续切片验收；这些基础
+API 不代表完整 C0/C2 产品闭环。目录插件声明三项 R0 读取和四项 R2 修订，组合根接线单独验证。
+
 ### 对象图片
 
 `core_entities.image_version` 与 `image_updated_at` 只标记可选图片的当前版本；列表和详情响应
@@ -129,6 +151,8 @@ CONFIRMED 数据（名称、类型、`summary` 与少量确认属性；未确认
 - `world_revision_notes` — 实体/页面/地图修订的事后补写备注（`(novel_id, target_kind, revision_id)` 唯一，无跨表外键，服务层校验归属；不进入快照/摘要/Canon receipt）
 - `world_object_image_candidates` — 本机 CLI 对象图片生成候选（ADR-0029）：冻结执行器、prompt、生成字节与采用/放弃状态；采用前不影响 `core_entities.image_version`
 - `characters` — 人物档案（entity_id PK+FK → core_entities.id）
+- `world_object_dossier_entries` — 稳定设定条目的修订历史；同项目对象、面向与前序修订关联，
+  保存内容、来源、可见性、有效期及旧字段结构化值，每组至多一个 active 修订
 - `character_knowledge` — 人物知识边界
 - `world_assertions` / `world_canon_revisions` / `world_canon_heads` — 封闭 Assert carrier、完整不可变 manifest/receipt 历史与每项目唯一 head
 - `species_profiles` / `faction_profiles` / `location_profiles` / `rule_profiles` / `item_profiles` / `secret_profiles` / `entity_profile_templates` / `entity_profile_template_revisions` / `generic_entity_profiles` — 世界对象的类型化 Profile、模板与可精确引用的模板修订
