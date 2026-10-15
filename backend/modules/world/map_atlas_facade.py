@@ -11,6 +11,9 @@ from modules.world.map_atlas_storage import project_object_prefix
 from modules.world.map_source_consumption import (
     read_map_chapter_consumers as read_map_chapter_consumers,
 )
+from modules.world.map_spatial_advisory_service import (
+    read_map_spatial_advisories as read_map_spatial_advisories,
+)
 from modules.world.map_structure_service import (
     inspect_map_node as inspect_map_node,
 )

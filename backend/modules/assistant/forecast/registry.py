@@ -18,6 +18,7 @@ SEMANTIC = frozenset(
         "story.character_response.v1",
         "story.scene_transition.v1",
         "story.information_window.v1",
+        "story.spatial_planning.v1",
         "world.rule_decision.v1",
         "world.relationship_effect.v1",
         "evidence.next_query.v1",

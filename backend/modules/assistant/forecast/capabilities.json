@@ -115,6 +115,20 @@
       "default_enabled": false
     },
     {
+      "capability_id": "story.spatial_planning.v1",
+      "owner_domain": "story",
+      "title": "地理视角",
+      "trigger": "规划场景明确标注地点且地图提供相关参考",
+      "required_inputs": "当前 Scene 显式地点、已采用且当前有效的地图与行程",
+      "expected_output": "只建议核对旅程分段、地点分布与转场，不重排剧情",
+      "controlled_action": "返回原场景规划，不写入或采用故事资料",
+      "boundary": "地图未覆盖不证明不存在；没有真实比例时不推算距离和耗时",
+      "phase": "M4",
+      "status": "implemented_gated",
+      "protocol": "forecast_v1",
+      "default_enabled": false
+    },
+    {
       "capability_id": "story.structure_impact.v1",
       "owner_domain": "story",
       "title": "结构变动影响",

@@ -547,6 +547,187 @@ async def test_conflict_check_uses_only_adopted_map_facts_for_route_coverage(
 
 
 @pytest.mark.asyncio
+async def test_conflict_check_adds_map_advisories_as_low_priority_reversible_items(
+    db_session: AsyncSession,
+    monkeypatch,
+) -> None:
+    from modules.writing.source_hashing import hash_text
+
+    novel_id = uuid.uuid4()
+    scene_id = uuid.uuid4()
+    db_session.add(Project(id=novel_id, title="Map advisories"))
+    await db_session.flush()
+    content = "甲城到乙城。"
+
+    async def fake_scene_loader(*_args):
+        return SimpleNamespace(
+            id=str(scene_id),
+            scene_index=2,
+            title="跨城",
+            must_happen=None,
+            must_not_happen=None,
+            pov_character_id=None,
+            structure_meta={},
+            scene_chunks=[
+                {
+                    "chapter_index": 1,
+                    "start_pos": 0,
+                    "end_pos": len(content),
+                    "source_content_hash": hash_text(content),
+                }
+            ],
+        )
+
+    async def fake_checkpoint_loader(*_args):
+        def ready(dimension: str, state: dict) -> dict:
+            return {
+                "id": dimension,
+                "dimension": dimension,
+                "status": "ready",
+                "source": "system_generated",
+                "state_json": state,
+            }
+
+        return {
+            "items": [
+                ready("locations", {"character_locations": {}, "changes": []}),
+                ready("timeline", {"facts": []}),
+                ready("causality", {"claims": []}),
+            ]
+        }
+
+    async def fake_advisory_loader(*_args):
+        return {
+            "scene_id": str(scene_id),
+            "items": [
+                {
+                    "rule_code": "journey_duration_conflict",
+                    "summary": "同一交通方式下的耗时区间互不重叠。",
+                    "node_id": str(uuid.uuid4()),
+                    "revision_id": str(uuid.uuid4()),
+                    "revision_hash": "a" * 64,
+                    "source_hashes": ["b" * 64],
+                    "feature_ids": ["north-gate", "river-town"],
+                    "fix_paths": ["writing", "map"],
+                    "dismissible": True,
+                    "unknowns": ["仅作提醒。"],
+                }
+            ],
+            "omitted_count": 0,
+        }
+
+    monkeypatch.setattr(
+        WritingConflictCheckService,
+        "_map_spatial_advisories_enabled",
+        staticmethod(lambda: True),
+    )
+    response = await WritingConflictCheckService(
+        scene_contract_loader=fake_scene_loader,
+        scene_checkpoint_loader=fake_checkpoint_loader,
+        map_spatial_advisory_loader=fake_advisory_loader,
+    ).create_check(
+        db_session,
+        WritingConflictCheckCreate(
+            novel_id=str(novel_id),
+            chapter_index=1,
+            scene_id=str(scene_id),
+            content=content,
+        ),
+    )
+
+    item = next(item for item in response.items if item.source_module == "world")
+    assert response.status == "completed"
+    assert response.scope["content_hash"] == hash_text(content)
+    assert item.severity == "low"
+    assert item.location_json["rule_code"] == "journey_duration_conflict"
+    assert item.location_json["fix_paths"] == ["writing", "map"]
+    assert item.location_json["dismissible"] is True
+    assert response.summary_json["map_spatial_advisory"] == {
+        "status": "checked",
+        "item_count": 1,
+        "omitted_count": 0,
+    }
+    assert item.location_json["map_revision"]["source_hashes"] == ["b" * 64]
+    assert response.summary_json["map_baseline"]["nodes"]
+
+
+@pytest.mark.asyncio
+async def test_map_advisory_failure_does_not_block_or_degrade_conflict_check(
+    db_session: AsyncSession,
+    monkeypatch,
+) -> None:
+    from modules.writing.source_hashing import hash_text
+
+    novel_id = uuid.uuid4()
+    scene_id = uuid.uuid4()
+    db_session.add(Project(id=novel_id, title="Map advisory failure"))
+    await db_session.flush()
+    content = "本场继续。"
+
+    async def fake_scene_loader(*_args):
+        return SimpleNamespace(
+            id=str(scene_id),
+            scene_index=2,
+            title="本场",
+            must_happen=None,
+            must_not_happen=None,
+            pov_character_id=None,
+            structure_meta={},
+            scene_chunks=[
+                {
+                    "chapter_index": 1,
+                    "start_pos": 0,
+                    "end_pos": len(content),
+                    "source_content_hash": hash_text(content),
+                }
+            ],
+        )
+
+    async def fake_checkpoint_loader(*_args):
+        def ready(dimension: str, state: dict) -> dict:
+            return {
+                "id": dimension,
+                "dimension": dimension,
+                "status": "ready",
+                "source": "system_generated",
+                "state_json": state,
+            }
+
+        return {
+            "items": [
+                ready("locations", {"character_locations": {}, "changes": []}),
+                ready("timeline", {"facts": []}),
+                ready("causality", {"claims": []}),
+            ]
+        }
+
+    async def fail_advisory_loader(*_args):
+        raise RuntimeError("map reader unavailable")
+
+    monkeypatch.setattr(
+        WritingConflictCheckService,
+        "_map_spatial_advisories_enabled",
+        staticmethod(lambda: True),
+    )
+    response = await WritingConflictCheckService(
+        scene_contract_loader=fake_scene_loader,
+        scene_checkpoint_loader=fake_checkpoint_loader,
+        map_spatial_advisory_loader=fail_advisory_loader,
+    ).create_check(
+        db_session,
+        WritingConflictCheckCreate(
+            novel_id=str(novel_id),
+            chapter_index=1,
+            scene_id=str(scene_id),
+            content=content,
+        ),
+    )
+
+    assert response.status == "completed"
+    assert response.summary_json["map_spatial_advisory"] == {"status": "not_checked"}
+
+
+@pytest.mark.asyncio
 async def test_author_confirms_continuity_fact_idempotently(
     async_client: AsyncClient,
     db_session: AsyncSession,

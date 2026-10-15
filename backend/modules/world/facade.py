@@ -82,6 +82,7 @@ from modules.world.event_facade import (  # noqa: F401
 from modules.world.map_atlas_facade import (  # noqa: F401
     list_adopted_map_continuity_facts,
     read_map_node_heads,
+    read_map_spatial_advisories,
 )
 from modules.world.map_auto_draft_service import build_map_auto_drafts  # noqa: F401
 from modules.world.map_spatial_brief_service import (
@@ -208,6 +209,7 @@ __all__ = [
     "list_auto_ingested_entities",
     "list_adopted_map_continuity_facts",
     "read_map_node_heads",
+    "read_map_spatial_advisories",
     "read_map_spatial_brief",
     "read_spatial_discovery_context",
     "stage_spatial_discovery",
