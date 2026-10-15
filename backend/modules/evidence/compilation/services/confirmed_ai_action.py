@@ -13,6 +13,7 @@ from modules.evidence.compilation.contracts import (
 from modules.evidence.compilation.markdown_renderer import render_compiled_context
 from modules.evidence.compilation.services.confirmation_service import (
     ContextConfirmationService,
+    execution_compile_options,
 )
 
 
@@ -55,7 +56,7 @@ class ConfirmedAIActionService:
             confirmation=confirmation,
             compiled=compiled,
             rendered_markdown=render_compiled_context(compiled),
-            compile_options=dict(confirmation.compile_options),
+            compile_options=execution_compile_options(confirmation.compile_options),
             result_refs=list(confirmation.result_refs),
         )
 

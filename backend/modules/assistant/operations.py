@@ -50,7 +50,7 @@ def operation_manifest() -> dict:
 
 
 def runtime_protocol(payload: dict) -> dict:
-    if payload.get("runtime_version") in {"2", "3", "4"}:
+    if payload.get("runtime_version") in {"2", "3", "4", "5"}:
         return payload
     if payload.get("runtime_version") == "1":
         frozen = json.loads(Path(__file__).with_name("runtime_v1.json").read_text())

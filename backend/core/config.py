@@ -347,6 +347,15 @@ class Settings:
     assistant_import_consult_enabled: bool = field(
         default_factory=lambda: _env_bool("ASSISTANT_IMPORT_CONSULT_ENABLED", False)
     )
+    # ADR-0037/0038: each first-wave consumer opts in independently after paired
+    # evaluation. Empty by default; accepted values are capability IDs.
+    map_spatial_enabled_capabilities: tuple[str, ...] = field(
+        default_factory=lambda: tuple(
+            value.strip()
+            for value in _env("MAP_SPATIAL_ENABLED_CAPABILITIES").split(",")
+            if value.strip()
+        )
+    )
     interaction_agent_enabled: bool = field(
         default_factory=lambda: _env_bool("INTERACTION_AGENT_ENABLED", False)
     )

@@ -238,10 +238,11 @@ async def test_author_turn_preview_confirm_and_replay(
     from modules.assistant.operations import catalog, resolve_operations
 
     run = await db_session.get(AssistantRun, uuid.UUID(operation))
-    assert run.request_json["runtime_version"] == "4"
+    assert run.request_json["runtime_version"] == "5"
     assert {"search_general_fact", "read_web_source"}.issubset(
         run.request_json["read_tools"]
     )
+    assert "map_spatial_brief" in run.request_json["read_tools"]
     if runtime_version == "1":
         frozen = json.loads(
             Path(__file__).parents[1].joinpath("runtime_v1.json").read_text()

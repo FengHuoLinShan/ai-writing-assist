@@ -7,6 +7,7 @@ import json
 import uuid
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
+from dataclasses import replace
 from datetime import UTC, datetime, timedelta
 from typing import Any
 
@@ -216,7 +217,79 @@ class ContextSnapshotService:
         nid = parse_uuid(novel_id, "novel_id")
         if str(snapshot.novel_id) != str(nid):
             raise ValueError("context_snapshot_id not found")
-        return self._to_contract(snapshot)
+        contract = self._to_contract(snapshot)
+        baseline = self._map_spatial_baseline(contract)
+        if not baseline:
+            return contract
+        node_ids = [str(item.get("node_id") or "") for item in baseline]
+        try:
+            from core.container import get
+            from core.service_keys import WORLD_READ_MAP_NODE_HEADS
+
+            heads = await get(WORLD_READ_MAP_NODE_HEADS)(db, novel_id, node_ids)
+        except Exception:
+            return replace(
+                contract,
+                map_staleness=[
+                    {
+                        "node_id": node_id,
+                        "status": "unavailable",
+                        "reason": "无法核对当前地图版本",
+                    }
+                    for node_id in node_ids
+                ],
+            )
+
+        staleness = []
+        for expected in baseline:
+            node_id = str(expected.get("node_id") or "")
+            current = heads.get(node_id)
+            if current is None:
+                status = "changed"
+                reason = "地图节点已删除或不再可见"
+            else:
+                expected_sources = {
+                    str(value) for value in expected.get("source_hashes") or []
+                }
+                current_sources = {
+                    str(value) for value in current.get("source_hashes") or []
+                }
+                unchanged = (
+                    current.get("status") == "adopted"
+                    and str(current.get("revision_id") or "")
+                    == str(expected.get("revision_id") or "")
+                    and str(current.get("title") or "")
+                    == str(expected.get("title") or "")
+                    and str(current.get("geometry_hash") or "")
+                    == str(expected.get("geometry_hash") or "")
+                    and expected_sources.issubset(current_sources)
+                )
+                status = "current" if unchanged else "changed"
+                reason = "" if unchanged else "地图 head 或来源集合已变化"
+            staleness.append(
+                {
+                    "node_id": node_id,
+                    "status": status,
+                    "reason": reason,
+                    "expected_revision_id": expected.get("revision_id"),
+                    "expected_revision_hash": expected.get("revision_hash"),
+                    "current_revision_id": (
+                        current.get("revision_id") if current is not None else None
+                    ),
+                    "current_geometry_hash": (
+                        current.get("geometry_hash") if current is not None else None
+                    ),
+                }
+            )
+        return replace(contract, map_staleness=staleness)
+
+    @staticmethod
+    def _map_spatial_baseline(snapshot: ContextSnapshotContract) -> list[dict]:
+        metadata = snapshot.section_metadata or {}
+        map_section = metadata.get("map_spatial") or {}
+        retrieval = map_section.get("retrieval_metadata") or {}
+        baseline = retrieval.get("map_baseline") or []
+        return [item for item in baseline if isinstance(item, dict)]
 
     async def list_context_snapshots(
         self,

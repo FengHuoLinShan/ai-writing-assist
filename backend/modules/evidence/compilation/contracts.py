@@ -268,6 +268,7 @@ class ContextSnapshotContract:
     created_at: str
     updated_at: str | None
     consumer_novel_id: str | None = None
+    map_staleness: list[dict] | None = None
 
 
 @dataclass
@@ -501,6 +502,8 @@ class StructureContextBundle:
     """人物列表"""
     geo_locations: list = field(default_factory=list)
     """地理地点列表"""
+    map_spatial_brief: dict | None = None
+    """来自 World adopted-map facade 的有界只读空间参考。"""
     memory_records: list = field(default_factory=list)
     """长期记忆记录列表"""
     scene_checkpoint_set: dict | None = None

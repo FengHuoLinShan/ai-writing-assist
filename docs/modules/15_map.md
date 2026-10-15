@@ -21,7 +21,8 @@
 
 Scene 锚点按当前顺序读取，退役替换链的起点取最早、终点取最晚；缺失、循环或倒置必须
 待核对。M0 仅保存、解析与报告时效问题：尚无可靠截止位置的全书静态布局和读者预览
-暂不消费带生效范围的内容，后续时点简报接入后再按真实 cutoff 筛选。
+暂不消费带生效范围的内容；M3 空间简报按当前 Scene 的实际 cutoff 筛选并解析替换锚点。
+稳定章节 UUID 与数字章节序号尚无映射，章节 UUID 锚点在简报中保持待核对。
 `vertical/directed/movable/independent_space/qualitative_distance` 当前保留声明，
 不代表完整移动、上下或度量计算已经实现。空间发现和自动草图另按 ADR-0036 分批接入。
 
@@ -502,3 +503,9 @@ G8a 在 `maps[]` 继续只报告已保存地图；另有 `auto_drafts[]` 单独�
 并返回 `auto_draft_unverified` 与 `auto_draft_truncated`。端口按 `content_mode` 精确分开核对：
 canonical 变化继续检查已保存地图与相同模式草图；working 变化只检查相同模式草图，不把 working
 来源当成已发布地图来源。来源查询失败仍按 G8a 的 Savepoint 降级语义回报覆盖不足。
+
+## 写作参考空间简报（M3 v1）
+
+Evidence 通过 World `read_map_spatial_brief` 只读 facade 消费已采用节点的 saved head，绝不直接查询地图表。简报包含已知当前地点的上级链、明示的邻接/通路/方位、相关行程与条件，以及本场移动对象有精确来源和明确 `scene_index` 的最新位置；没有显式 Scene 地点时不推断，只能返回本场移动对象位置。来源引文/hash、World `check_knowledge_visibility`、ReaderReveal 与角色知识边界均在投影时重验；`author_full` 不跳过这些检查。类型仅使用固定修订的名称/描述作为文字，计算特性只读当前 active 类型。
+
+七个 Evidence consumer 与 Assistant v5 的只读地图工具各有独立 `MAP_SPATIAL_ENABLED_CAPABILITIES` 开关，默认空集合。简报最多 20 个地图节点、每节点 3000 字符；作者排除、失效来源、超出预算或范围的参考写入 advisory 省略信息，不使必查知识范围阻断。Context confirmation 保存节点 revision/hash；地图变化时沿用 G8b `read_map_node_heads` 读时提示，不回写核对状态。五题材 paired eval 尚未运行，`human_validated=false`，因此所有消费开关保持关闭。

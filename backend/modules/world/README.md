@@ -1271,6 +1271,8 @@ Writing 连续性检查只通过 `facade.list_adopted_map_continuity_facts` 读�
 
 Writing 冲突检查的旧版地图核对（G8b）另经 `facade.read_map_node_heads`（组合根注册 DI 键 `world.read_map_node_heads`）按 node_ids 一次批量读取各节点当前 head 的采用状态、head revision id 与来源 hash 集合；节点删除即缺行。该出口只读、不重验来源有效性、不返回坐标或图片，也不保存任何核对结论——比较在 Writing 响应中完成。
 
+Evidence 的 M3 `read_map_spatial_brief` 只读当前已采用节点的 saved revision，经 World facade 加载；Scene 当前地点只由结构元数据中的显式身份决定，没有位置时不猜。图元、来源和读者/角色可见性逐项重验，`author_full` 不放宽揭示边界；移动位置只取当前 Scene 出场对象中有精确来源与明确时点的最新记录。此简报供创作参考，不写回 World；revision/hash 的后续核对复用 G8b head 读取。
+
 
 ### 助手页面维护
 
