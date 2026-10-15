@@ -368,9 +368,11 @@ async def decide_conflict_notice(
     novel_id: str,
     notice: dict[str, Any],
     action: str,
-    _wake_at: datetime | None,
+    wake_at: datetime | None,
 ) -> dict[str, Any] | None:
-    if action not in {"snooze", "ignore"}:
+    # Writing's "later" status has no deadline. Keep timed snooze in the
+    # unified disposition record so the open domain item can reappear.
+    if action != "ignore":
         return None
     reference = notice.get("disposition_ref") or {}
     if reference.get("kind") != "writing_conflict_item":
@@ -390,12 +392,11 @@ async def decide_conflict_notice(
         != reference.get("updated_at")
     ):
         raise ConflictError("检查项已变化，请重新读取", code="NOTICE_STALE")
-    status = "later" if action == "snooze" else "ignored"
     updated = await WritingConflictCheckService().update_item(
         db,
         novel_id=novel_id,
         item_id=str(row.id),
-        data=WritingConflictItemUpdate(status=status),
+        data=WritingConflictItemUpdate(status="ignored"),
     )
     return updated.model_dump(mode="json")
 
@@ -410,10 +411,8 @@ async def list_invalidation_notices(
     pending = await service.list_pending_notices(
         db, novel_id, chapter_index=chapter_index, limit=101
     )
-    if len(pending) > 100:
-        raise RuntimeError("待重算提醒超过单次读取上限")
     notices = []
-    for value in pending:
+    for value in pending[:100]:
         receipt_id = str(value.get("receipt_id") or "")
         if not receipt_id:
             continue
@@ -443,6 +442,35 @@ async def list_invalidation_notices(
                         "page": "writing",
                         "chapter_index": chapter_index,
                         "label": "查看重算选项",
+                    }
+                ],
+                "disposition_ref": None,
+            }
+        )
+    if len(pending) > 100:
+        notices.append(
+            {
+                "notice_key": f"{INVALIDATION_SOURCE_ID}:more:{chapter_index}",
+                "source_id": INVALIDATION_SOURCE_ID,
+                "category": "source_invalidation",
+                "severity": "info",
+                "target": {"chapter_index": chapter_index},
+                "summary": "还有更多待重算项，请到正文重算面板查看",
+                "evidence": [],
+                "basis_fingerprint": stable_hash(
+                    {
+                        "novel_id": novel_id,
+                        "chapter_index": chapter_index,
+                        "overflow": pending[100],
+                    }
+                ),
+                "stale": False,
+                "actions": [
+                    {
+                        "kind": "navigate",
+                        "page": "writing",
+                        "chapter_index": chapter_index,
+                        "label": "查看全部重算项",
                     }
                 ],
                 "disposition_ref": None,
