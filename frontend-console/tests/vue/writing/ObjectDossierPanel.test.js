@@ -84,6 +84,8 @@ it("只读取 Scene 明确的 UUID 关联，按每批 16 个调用作者管理 E
   }), { signal: expect.any(AbortSignal) })
   expect(wrapper.text()).toContain("稳定设定")
   expect(wrapper.text()).toContain("本场时点状态")
+  expect(wrapper.text()).toContain("沈砚 · 保管人")
+  expect(wrapper.text()).not.toContain("沈砚 · holder")
   expect(wrapper.text()).toContain("另有一项资料未纳入")
   expect(wrapper.text()).toContain("演化倾向未知")
   wrapper.unmount()

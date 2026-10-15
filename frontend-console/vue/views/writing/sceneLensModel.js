@@ -54,6 +54,12 @@ const OBJECT_FIELD_LABELS = Object.freeze({
   entity_type: "对象类型",
 })
 
+export function sceneStateFieldLabel(field, dimension = "") {
+  const key = typeof field === "string" ? field : ""
+  return OBJECT_FIELD_LABELS[`${dimension}_${key}`] || OBJECT_FIELD_LABELS[key]
+    || (/^[a-zA-Z_][a-zA-Z0-9_.]*$/.test(key) ? "其他状态记录" : key) || "状态"
+}
+
 const PROVENANCE_STATUS_LABELS = Object.freeze({
   exact: "有据",
   unverified: "来源待核实",
@@ -106,6 +112,10 @@ const HISTORY_DIMENSION_LABELS = Object.freeze({
   causality: "因果与前提",
 })
 
+export function sceneStateDimensionLabel(dimension) {
+  return HISTORY_DIMENSION_LABELS[dimension] || "时点状态"
+}
+
 /** 历史 checkpoint 行 → 按记录批次分组的作者侧列表（保留返回顺序，新批次在前）。 */
 export function sceneCheckpointHistoryGroups(items) {
   const groups = []
@@ -151,7 +161,7 @@ export function sceneObjectStates(value) {
       unknowns: (item.unknowns || []).map(readable).filter(Boolean),
       stale: item.stale === true,
       fields: (Array.isArray(item.fields) ? item.fields : []).map((field) => ({
-        label: OBJECT_FIELD_LABELS[field?.field] || (/^[a-zA-Z_][a-zA-Z0-9_.]*$/.test(field?.field || "") ? "其他状态记录" : field?.field) || "状态",
+        label: sceneStateFieldLabel(field?.field),
         display: readable(field?.display),
         confirmed: field?.confidence === "confirmed",
         source: field?.source,

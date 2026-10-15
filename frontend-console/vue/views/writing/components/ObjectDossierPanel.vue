@@ -133,7 +133,7 @@
                 <h6>本场时点状态 <small>Story</small></h6>
                 <article v-for="(item, index) in reportFor(choice.id).continuityItems" :key="`${item.checkpoint_id}:${item.dimension}:${item.field}:${index}`" class="object-dossier__entry">
                   <header>
-                    <strong>{{ item.subject_label || item.dimension }} · {{ item.field }}</strong>
+                    <strong>{{ item.subject_label || sceneStateDimensionLabel(item.dimension) }} · {{ sceneStateFieldLabel(item.field, item.dimension) }}</strong>
                     <span v-if="item.possibly_false" class="object-dossier__uncertain">可能不真实</span>
                   </header>
                   <p>{{ displayValue(item.value) }}</p>
@@ -176,6 +176,7 @@
 <script setup>
 import { computed, onBeforeUnmount, ref, watch } from "vue"
 import { getApi } from "../../../bridge/index.js"
+import { sceneStateDimensionLabel, sceneStateFieldLabel } from "../sceneLensModel.js"
 
 const props = defineProps({
   projectId: { type: String, default: null },
