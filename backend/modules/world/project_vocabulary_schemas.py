@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import unicodedata
 from typing import Annotated, Literal
 from uuid import UUID
 
@@ -37,6 +38,16 @@ VocabularyName = Annotated[str, Field(min_length=1, max_length=120)]
 VocabularyAlias = Annotated[str, Field(min_length=1, max_length=120)]
 
 
+def normalize_vocabulary_key(value: str) -> str:
+    """Deterministic identity key, shared by input validation and persistence."""
+    normalized = unicodedata.normalize("NFKC", value).casefold()
+    return "".join(
+        char
+        for char in normalized
+        if not unicodedata.category(char).startswith(("P", "Z")) and not char.isspace()
+    )
+
+
 class VocabularyTraits(BaseModel):
     """Closed ADR-0035 computation kernel; meanings remain open text."""
 
@@ -65,15 +76,15 @@ class VocabularyTermFields(BaseModel):
     @field_validator("name")
     @classmethod
     def nonblank_name(cls, value: str) -> str:
-        if not value.strip():
-            raise ValueError("词条名称不能为空")
+        if not normalize_vocabulary_key(value):
+            raise ValueError("词条名称至少需要一个可识别字符")
         return value.strip()
 
     @field_validator("aliases")
     @classmethod
     def nonblank_aliases(cls, values: list[str]) -> list[str]:
-        if any(not value.strip() for value in values):
-            raise ValueError("别名不能为空")
+        if any(not normalize_vocabulary_key(value) for value in values):
+            raise ValueError("别名至少需要一个可识别字符")
         return [value.strip() for value in values]
 
 
@@ -122,6 +133,7 @@ class VocabularyTermResponse(BaseModel):
     preset_version: int | None = None
     preset_item_key: str | None = None
     evidence: list[VocabularyEvidence] = Field(default_factory=list)
+    proposal_run_id: UUID | None = None
 
 
 class VocabularyReviewReceipt(BaseModel):
@@ -130,6 +142,8 @@ class VocabularyReviewReceipt(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     reviewer_run_id: UUID
+    proposal_run_id: UUID
+    proposal_hash: str = Field(pattern=r"^[a-f0-9]{64}$")
     evidence_hash: str = Field(pattern=r"^[a-f0-9]{64}$")
     verdict: Literal["passed", "failed"]
 
@@ -144,7 +158,8 @@ class ModelVocabularyProposal(VocabularyTermFields):
     def reviewer_is_independent(self):
         if (
             self.independent_review is not None
-            and self.independent_review.reviewer_run_id == self.proposal_run_id
+            and self.independent_review.reviewer_run_id
+            in {self.proposal_run_id, self.independent_review.proposal_run_id}
         ):
             raise ValueError("独立复核必须来自不同的运行")
         return self
@@ -153,11 +168,15 @@ class ModelVocabularyProposal(VocabularyTermFields):
 class VocabularyArchiveRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
+    confirmed: Literal[True]
+
     expected_revision_id: UUID
 
 
 class VocabularyMergeRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
+
+    confirmed: Literal[True]
 
     target_id: UUID
     source_ids: list[UUID] = Field(min_length=1, max_length=20)
@@ -267,4 +286,22 @@ def vocabulary_evidence_hash(evidence: list[VocabularyEvidence]) -> str:
     raw = json.dumps(
         normalized, ensure_ascii=False, sort_keys=True, separators=(",", ":")
     )
+    return hashlib.sha256(raw.encode("utf-8")).hexdigest()
+
+
+def vocabulary_proposal_hash(kind: str, fields: VocabularyTermFields) -> str:
+    """Bind review to the stored meaning, including its calculation traits."""
+    payload = fields.model_dump(
+        mode="json", include={"name", "description", "aliases", "traits"}
+    )
+    seen = {normalize_vocabulary_key(payload["name"])}
+    aliases = []
+    for alias in payload["aliases"]:
+        key = normalize_vocabulary_key(alias)
+        if key not in seen:
+            seen.add(key)
+            aliases.append(alias)
+    payload["aliases"] = aliases
+    payload["kind"] = kind
+    raw = json.dumps(payload, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
     return hashlib.sha256(raw.encode("utf-8")).hexdigest()

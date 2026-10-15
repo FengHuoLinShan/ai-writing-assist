@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import hashlib
 import json
-import unicodedata
 import uuid
 from typing import Any
 
@@ -34,22 +33,14 @@ from modules.world.project_vocabulary_schemas import (
     VocabularyTermFields,
     VocabularyTermResponse,
     VocabularyTermUpdate,
+    normalize_vocabulary_key,
     vocabulary_evidence_hash,
+    vocabulary_proposal_hash,
 )
 from shared.utils import parse_uuid
 
 _TOMBSTONE_STATUSES = frozenset({"archived", "merged"})
 _STATUS_ORDER = {"active": 0, "emerging": 1, "archived": 2, "merged": 3}
-
-
-def normalize_vocabulary_key(value: str) -> str:
-    """Normalize aliases deterministically without transliteration or fuzzy matching."""
-    normalized = unicodedata.normalize("NFKC", value).casefold()
-    return "".join(
-        char
-        for char in normalized
-        if not unicodedata.category(char).startswith(("P", "Z")) and not char.isspace()
-    )
 
 
 def _digest(value: dict[str, Any]) -> str:
@@ -166,6 +157,7 @@ def _term_response(
             "preset_version": term.preset_version,
             "preset_item_key": term.preset_item_key,
             "evidence": snapshot.get("evidence", []),
+            "proposal_run_id": snapshot.get("proposal_run_id"),
         }
     )
 
@@ -312,6 +304,23 @@ async def _append_revision(
     return term, revision
 
 
+def _resolve_redirect(
+    record: tuple[ProjectVocabularyTerm, ProjectVocabularyRevision],
+    records: dict[uuid.UUID, tuple[ProjectVocabularyTerm, ProjectVocabularyRevision]],
+) -> tuple[ProjectVocabularyTerm, ProjectVocabularyRevision]:
+    seen: set[uuid.UUID] = set()
+    kind = record[0].kind
+    while record[0].status == "merged":
+        term = record[0]
+        if term.id in seen or term.redirect_to_id not in records:
+            raise ConflictError("词条合并链无效，需由作者核对")
+        seen.add(term.id)
+        record = records[term.redirect_to_id]
+        if record[0].kind != kind:
+            raise ConflictError("词条合并链跨越词表种类")
+    return record
+
+
 async def _ensure_unique_keys(
     db: AsyncSession,
     novel_id: uuid.UUID,
@@ -324,8 +333,11 @@ async def _ensure_unique_keys(
     if not keys:
         raise ValidationError("名称和别名至少需要一个可识别字符")
     ignored_ids = ignored_ids or set()
-    for term, revision in await _current_records(db, novel_id, kind=kind, lock=True):
-        if term.id in ignored_ids or term.redirect_to_id in ignored_ids:
+    rows = await _current_records(db, novel_id, kind=kind, lock=True)
+    records = {term.id: (term, revision) for term, revision in rows}
+    for term, revision in rows:
+        resolved, _ = _resolve_redirect((term, revision), records)
+        if term.id in ignored_ids or resolved.id in ignored_ids:
             continue
         if keys & _keys_from_snapshot(revision.snapshot_json):
             raise ConflictError("同一词表种类中已存在同名或等价别名")
@@ -528,6 +540,8 @@ async def merge_project_vocabulary_terms(
                 {"name": snapshot["name"], "aliases": aliases}
             ):
                 aliases.append(alias)
+    if len(aliases) > 24:
+        raise ValidationError("合并后的别名超过 24 个，请先整理别名后重试")
     snapshot["aliases"] = aliases
     snapshot["status"] = "active"
     await _ensure_unique_keys(
@@ -592,6 +606,7 @@ async def split_project_vocabulary_term(
             candidate,
             ignored_ids={term.id},
         )
+    retained["reviewed_evidence"] = current.snapshot_json.get("reviewed_evidence", [])
     retained["evidence"] = current.snapshot_json.get("evidence", [])
     retained["independent_review"] = current.snapshot_json.get("independent_review")
     retained["proposal_run_id"] = current.snapshot_json.get("proposal_run_id")
@@ -636,14 +651,32 @@ def _union_evidence(
 
 
 def _review_matches(
-    evidence: list[VocabularyEvidence], review: VocabularyReviewReceipt | None
+    evidence: list[VocabularyEvidence],
+    review: VocabularyReviewReceipt | None,
+    *,
+    kind: str,
+    fields: VocabularyTermFields,
+    proposal_run_id: uuid.UUID,
 ) -> bool:
     if review is None:
         return False
+    if (
+        review.proposal_run_id != proposal_run_id
+        or review.reviewer_run_id == proposal_run_id
+    ):
+        raise ConflictError("独立复核未绑定原生成运行")
+    if review.proposal_hash != vocabulary_proposal_hash(kind, fields):
+        raise ConflictError("独立复核与当前词条含义或特性不匹配，请重新复核")
     expected_hash = vocabulary_evidence_hash(evidence)
     if review.evidence_hash != expected_hash:
         raise ConflictError("独立复核与当前证据不匹配，请重新复核")
     return review.verdict == "passed"
+
+
+def _stored_fields(snapshot: dict[str, Any]) -> VocabularyTermFields:
+    return VocabularyTermFields.model_validate(
+        {key: snapshot[key] for key in ("name", "description", "aliases", "traits")}
+    )
 
 
 def _proposal_fields(proposal: ModelVocabularyProposal) -> VocabularyTermFields:
@@ -670,80 +703,27 @@ async def persist_reviewed_model_vocabulary_proposal(
     fields = _proposal_fields(proposal)
     proposed_snapshot = _base_snapshot(fields, status="emerging")
     keys = _keys_from_snapshot(proposed_snapshot)
-    matches = [
-        (term, revision)
-        for term, revision in await _current_records(
-            db, novel_uuid, kind=proposal.kind, lock=True
-        )
-        if keys & _keys_from_snapshot(revision.snapshot_json)
-    ]
-    active_matches = [row for row in matches if row[0].status not in _TOMBSTONE_STATUSES]
-    if len(active_matches) > 1:
+    rows = await _current_records(db, novel_uuid, kind=proposal.kind, lock=True)
+    records = {term.id: (term, revision) for term, revision in rows}
+    matches = {}
+    for term, revision in rows:
+        if keys & _keys_from_snapshot(revision.snapshot_json):
+            resolved = _resolve_redirect((term, revision), records)
+            matches[resolved[0].id] = resolved
+    archived = next(
+        (row for row in matches.values() if row[0].status == "archived"), None
+    )
+    if archived is not None:
+        term, current = archived
+        return {
+            "action": "restore_suggested",
+            "item": _term_response(term, current),
+            "existing_type_ref": term.id,
+        }
+    if len(matches) > 1:
         raise ConflictError("模型提案匹配到多个同名词条，需由作者消歧")
-    if active_matches:
-        term, _ = active_matches[0]
-        stale_tombstones = [
-            row
-            for row in matches
-            if row[0].status == "archived"
-            or (row[0].status == "merged" and row[0].redirect_to_id != term.id)
-        ]
-        if stale_tombstones:
-            archived = next(
-                (row for row in stale_tombstones if row[0].status == "archived"),
-                None,
-            )
-            if archived is not None:
-                tombstone, revision = archived
-                return {
-                    "action": "restore_suggested",
-                    "item": _term_response(tombstone, revision),
-                    "existing_type_ref": tombstone.id,
-                }
-            raise ConflictError("合并墓碑指向另一个同名词条，需由作者消歧")
-        matches = active_matches
-    elif len(matches) > 1:
-        archived = next((row for row in matches if row[0].status == "archived"), None)
-        if archived is not None:
-            tombstone, revision = archived
-            return {
-                "action": "restore_suggested",
-                "item": _term_response(tombstone, revision),
-                "existing_type_ref": tombstone.id,
-            }
-        redirects = {row[0].redirect_to_id for row in matches}
-        if len(redirects) != 1 or None in redirects:
-            raise ConflictError("模型提案匹配到多个墓碑，需由作者消歧")
-        redirected, current = await _current_record(
-            db, novel_uuid, redirects.pop(), lock=True
-        )
-        if redirected.status in _TOMBSTONE_STATUSES:
-            return {
-                "action": "restore_suggested",
-                "item": _term_response(redirected, current),
-                "existing_type_ref": redirected.id,
-            }
-        matches = [(redirected, current)]
     if matches:
-        term, current = matches[0]
-        if term.status == "merged":
-            term, current = await _current_record(
-                db, novel_uuid, term.redirect_to_id, lock=True
-            )
-            if term.status not in _TOMBSTONE_STATUSES:
-                matches = [(term, current)]
-        if term.status == "archived":
-            return {
-                "action": "restore_suggested",
-                "item": _term_response(term, current),
-                "existing_type_ref": term.id,
-            }
-        if term.status == "merged":
-            return {
-                "action": "restore_suggested",
-                "item": _term_response(term, current),
-                "existing_type_ref": term.redirect_to_id,
-            }
+        term, current = next(iter(matches.values()))
         if term.source != "model" or term.author_confirmed:
             return {
                 "action": "reused",
@@ -755,7 +735,13 @@ async def persist_reviewed_model_vocabulary_proposal(
         )
         reviewed_evidence = current.snapshot_json.get("reviewed_evidence", [])
         if proposal.independent_review is not None:
-            review_passed = _review_matches(evidence, proposal.independent_review)
+            review_passed = _review_matches(
+                evidence,
+                proposal.independent_review,
+                kind=term.kind,
+                fields=_stored_fields(current.snapshot_json),
+                proposal_run_id=uuid.UUID(current.snapshot_json["proposal_run_id"]),
+            )
         else:
             review_passed = False
         new_status = term.status
@@ -809,11 +795,23 @@ async def persist_reviewed_model_vocabulary_proposal(
         }
 
     if proposal.independent_review is not None:
-        _review_matches(proposal.evidence, proposal.independent_review)
+        _review_matches(
+            proposal.evidence,
+            proposal.independent_review,
+            kind=proposal.kind,
+            fields=fields,
+            proposal_run_id=proposal.proposal_run_id,
+        )
     status = (
         "active"
         if len({str(item.scene_id) for item in proposal.evidence}) >= 2
-        and _review_matches(proposal.evidence, proposal.independent_review)
+        and _review_matches(
+            proposal.evidence,
+            proposal.independent_review,
+            kind=proposal.kind,
+            fields=fields,
+            proposal_run_id=proposal.proposal_run_id,
+        )
         else "emerging"
     )
     await _ensure_unique_keys(db, novel_uuid, proposal.kind, proposed_snapshot)
@@ -885,11 +883,23 @@ async def replace_model_vocabulary_evidence(
             reviewed = [
                 VocabularyEvidence.model_validate(item) for item in reviewed_evidence
             ]
-            _review_matches(reviewed, independent_review)
+            _review_matches(
+                reviewed,
+                independent_review,
+                kind=term.kind,
+                fields=_stored_fields(current.snapshot_json),
+                proposal_run_id=uuid.UUID(current.snapshot_json["proposal_run_id"]),
+            )
         status = term.status
     else:
         if independent_review is not None:
-            _review_matches(evidence, independent_review)
+            _review_matches(
+                evidence,
+                independent_review,
+                kind=term.kind,
+                fields=_stored_fields(current.snapshot_json),
+                proposal_run_id=uuid.UUID(current.snapshot_json["proposal_run_id"]),
+            )
         status = (
             "active"
             if independent_review is not None
@@ -957,9 +967,12 @@ async def invalidate_model_vocabulary_evidence(
         review_is_current = False
         if prior_review is not None:
             receipt = VocabularyReviewReceipt.model_validate(prior_review)
-            review_is_current = (
-                receipt.verdict == "passed"
-                and receipt.evidence_hash == vocabulary_evidence_hash(reviewed_evidence)
+            review_is_current = _review_matches(
+                reviewed_evidence,
+                receipt,
+                kind=term.kind,
+                fields=_stored_fields(current.snapshot_json),
+                proposal_run_id=uuid.UUID(current.snapshot_json["proposal_run_id"]),
             )
         valid_keys = {_evidence_key(item) for item in remaining}
         still_reviewed = [

@@ -3,6 +3,8 @@ from __future__ import annotations
 import uuid
 
 import pytest
+from pydantic import ValidationError as SchemaValidationError
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from core.errors import ConflictError, NotFoundError
@@ -13,8 +15,10 @@ from modules.world.project_vocabulary_schemas import (
     VocabularyReviewReceipt,
     VocabularySplitRequest,
     VocabularyTermCreate,
+    VocabularyTermFields,
     VocabularyTermUpdate,
     vocabulary_evidence_hash,
+    vocabulary_proposal_hash,
 )
 from modules.world.project_vocabulary_service import (
     apply_vocabulary_presets,
@@ -25,7 +29,9 @@ from modules.world.project_vocabulary_service import (
     merge_project_vocabulary_terms,
     persist_reviewed_model_vocabulary_proposal,
     read_project_vocabulary,
+    replace_model_vocabulary_evidence,
     resolve_vocabulary_type_revisions,
+    restore_project_vocabulary_term,
     split_project_vocabulary_term,
     update_project_vocabulary_term,
 )
@@ -147,6 +153,8 @@ async def test_model_type_requires_two_scenes_and_review_and_respects_tombstones
 
     review = VocabularyReviewReceipt(
         reviewer_run_id=uuid.uuid4(),
+        proposal_run_id=emerging["item"].proposal_run_id,
+        proposal_hash=vocabulary_proposal_hash("relation", _proposal("传送门", both)),
         evidence_hash=vocabulary_evidence_hash(both),
         verdict="passed",
     )
@@ -223,6 +231,7 @@ async def test_merge_split_keep_redirects_and_pin_type_revisions(
         db_session,
         project_novel_id,
         VocabularyMergeRequest(
+            confirmed=True,
             target_id=target.id,
             source_ids=[source.id],
             expected_revision_ids={
@@ -320,3 +329,329 @@ async def test_pinned_revision_resolver_fails_closed_across_novels(
             owner_novel,
             {(foreign_type.id, foreign_type.revision_id)},
         )
+
+
+@pytest.mark.parametrize(
+    "name,aliases", [("！…", ["星门"]), ("星门", ["！"]), ("　", [])]
+)
+def test_vocabulary_rejects_empty_identity_keys(name, aliases):
+    with pytest.raises(SchemaValidationError):
+        _term(name, aliases=aliases)
+
+
+def _review_for(item, evidence, **overrides):
+    fields = VocabularyTermFields(
+        name=item.name,
+        description=item.description,
+        aliases=item.aliases,
+        traits=item.traits,
+    )
+    return VocabularyReviewReceipt(
+        **{
+            "reviewer_run_id": uuid.uuid4(),
+            "proposal_run_id": item.proposal_run_id,
+            "proposal_hash": vocabulary_proposal_hash(item.kind, fields),
+            "evidence_hash": vocabulary_evidence_hash(evidence),
+            "verdict": "passed",
+            **overrides,
+        }
+    )
+
+
+@pytest.mark.asyncio
+async def test_review_binds_meaning_generation_and_exact_evidence(
+    db_session, project_novel_id
+):
+    evidence = [
+        _evidence(uuid.uuid4(), "此处存在传送。"),
+        _evidence(uuid.uuid4(), "两界可以传送。"),
+    ]
+    created = await persist_reviewed_model_vocabulary_proposal(
+        db_session, project_novel_id, _proposal("传送", evidence)
+    )
+    item = created["item"]
+    wrong_fields = VocabularyTermFields(name=item.name, traits={"geometry": ["area"]})
+    wrong_hash = vocabulary_proposal_hash(item.kind, wrong_fields)
+    for receipt in (
+        _review_for(item, evidence, proposal_hash=wrong_hash),
+        _review_for(item, evidence, proposal_run_id=uuid.uuid4()),
+        _review_for(item, evidence, reviewer_run_id=item.proposal_run_id),
+        _review_for(item, evidence[:1]),
+    ):
+        with pytest.raises(ConflictError):
+            await replace_model_vocabulary_evidence(
+                db_session,
+                project_novel_id,
+                str(item.id),
+                item.revision_id,
+                evidence,
+                receipt,
+            )
+    with pytest.raises(ConflictError):
+        await persist_reviewed_model_vocabulary_proposal(
+            db_session,
+            project_novel_id,
+            _proposal(
+                item.name,
+                evidence,
+                review=_review_for(item, evidence, proposal_hash=wrong_hash),
+            ),
+        )
+    active = await replace_model_vocabulary_evidence(
+        db_session,
+        project_novel_id,
+        str(item.id),
+        item.revision_id,
+        evidence,
+        _review_for(item, evidence),
+    )
+    assert active.status == "active"
+    assert active.proposal_run_id == item.proposal_run_id
+    assert active.traits.connection == ["traversable", "cross_space"]
+    changed = [evidence[0], evidence[1].model_copy(update={"source_hash": "a" * 64})]
+    with pytest.raises(ConflictError):
+        await replace_model_vocabulary_evidence(
+            db_session,
+            project_novel_id,
+            str(item.id),
+            active.revision_id,
+            changed,
+            _review_for(item, evidence),
+        )
+    emerging = await replace_model_vocabulary_evidence(
+        db_session, project_novel_id, str(item.id), active.revision_id, changed, None
+    )
+    assert emerging.status == "emerging"
+    assert emerging.revision_number == active.revision_number + 1
+
+
+@pytest.mark.asyncio
+async def test_merge_chain_edit_archive_restore_retains_history(
+    db_session, project_novel_id
+):
+    terms = [
+        await create_project_vocabulary_term(db_session, project_novel_id, _term(name))
+        for name in ("甲门", "乙门", "丙门")
+    ]
+    first, second, final = terms
+
+    async def merge(target, source):
+        return await merge_project_vocabulary_terms(
+            db_session,
+            project_novel_id,
+            VocabularyMergeRequest(
+                confirmed=True,
+                target_id=target.id,
+                source_ids=[source.id],
+                expected_revision_ids={
+                    target.id: target.revision_id,
+                    source.id: source.revision_id,
+                },
+            ),
+        )
+
+    second = await merge(second, first)
+    final = await merge(final, second)
+    edited = await update_project_vocabulary_term(
+        db_session,
+        project_novel_id,
+        str(final.id),
+        VocabularyTermUpdate(
+            expected_revision_id=final.revision_id,
+            name="终门",
+            aliases=["甲门", "乙门", "丙门"],
+        ),
+    )
+
+    async def propose():
+        return await persist_reviewed_model_vocabulary_proposal(
+            db_session,
+            project_novel_id,
+            _proposal("甲门", [_evidence(uuid.uuid4(), "甲门仍在。")], kind="feature"),
+        )
+
+    result = await propose()
+    assert result["action"] == "reused" and result["item"].id == final.id
+    archived = await archive_project_vocabulary_term(
+        db_session, project_novel_id, str(final.id), edited.revision_id
+    )
+    result = await propose()
+    assert (
+        result["action"] == "restore_suggested"
+        and result["existing_type_ref"] == final.id
+    )
+    restored = await restore_project_vocabulary_term(
+        db_session, project_novel_id, str(final.id), archived.revision_id
+    )
+    assert restored.status == "active"
+    pinned = await resolve_vocabulary_type_revisions(
+        db_session, project_novel_id, {(first.id, first.revision_id)}
+    )
+    assert pinned[(first.id, first.revision_id)]["status"] == "merged"
+    from modules.world.project_vocabulary_models import ProjectVocabularyRevision
+
+    original = await db_session.scalar(
+        select(ProjectVocabularyRevision).where(
+            ProjectVocabularyRevision.id == first.revision_id
+        )
+    )
+    assert (
+        original.snapshot_json["name"] == "甲门"
+        and original.snapshot_json["status"] == "active"
+    )
+
+
+@pytest.mark.asyncio
+async def test_merge_alias_overflow_is_rejected_before_writing(
+    db_session, project_novel_id
+):
+    from core.errors import ValidationError
+
+    target = await create_project_vocabulary_term(
+        db_session,
+        project_novel_id,
+        _term("目标", aliases=[f"原名{x}" for x in range(24)]),
+    )
+    source = await create_project_vocabulary_term(
+        db_session, project_novel_id, _term("来源")
+    )
+    with pytest.raises(ValidationError):
+        await merge_project_vocabulary_terms(
+            db_session,
+            project_novel_id,
+            VocabularyMergeRequest(
+                confirmed=True,
+                target_id=target.id,
+                source_ids=[source.id],
+                expected_revision_ids={
+                    target.id: target.revision_id,
+                    source.id: source.revision_id,
+                },
+            ),
+        )
+    unchanged = await get_project_vocabulary_term(
+        db_session, project_novel_id, str(target.id)
+    )
+    assert unchanged.revision_id == target.revision_id
+
+
+@pytest.mark.asyncio
+async def test_owner_guard_hides_vocabulary_reads_and_writes(
+    db_session, project_novel_id
+):
+    from modules.account.context import bind_principal, reset_principal
+    from modules.account.contracts import AccountPrincipal
+    from modules.account.models import Account
+
+    owner_term = await create_project_vocabulary_term(
+        db_session, project_novel_id, _term("私有词条")
+    )
+    stranger = Account(status="active", support_code="U-VOCAB-STRANGER")
+    db_session.add(stranger)
+    await db_session.flush()
+    token = bind_principal(
+        AccountPrincipal(
+            account_id=stranger.id,
+            status="active",
+            identity_type="email",
+            support_code=stranger.support_code,
+        )
+    )
+    try:
+        with pytest.raises(NotFoundError):
+            await read_project_vocabulary(db_session, project_novel_id)
+        with pytest.raises(NotFoundError):
+            await get_project_vocabulary_term(
+                db_session, project_novel_id, str(owner_term.id)
+            )
+        with pytest.raises(NotFoundError):
+            await create_project_vocabulary_term(
+                db_session, project_novel_id, _term("越权词条")
+            )
+    finally:
+        reset_principal(token)
+
+
+@pytest.mark.asyncio
+async def test_http_validates_confirmation_and_vocabulary_parameters(
+    db_session, project_novel_id
+):
+    from fastapi import FastAPI
+    from httpx import ASGITransport, AsyncClient
+
+    from core.dependencies import get_db
+    from modules.world.project_vocabulary_api import router
+
+    app = FastAPI()
+    app.include_router(router)
+
+    async def database():
+        yield db_session
+
+    app.dependency_overrides[get_db] = database
+    async with AsyncClient(
+        transport=ASGITransport(app=app), base_url="http://test"
+    ) as client:
+        base = f"/api/world/project-vocabulary/{project_novel_id}"
+        created = await client.post(
+            f"{base}/terms", json={"kind": "feature", "name": "已确认词条"}
+        )
+        assert created.status_code == 201
+        item = created.json()
+        for suffix in ("?limit=0", "?limit=501", "?kind=not-a-kind"):
+            assert (await client.get(base + suffix)).status_code == 422
+        for confirmation in ({}, {"confirmed": False}):
+            response = await client.post(
+                f"{base}/terms/{item['id']}/archive",
+                json={"expected_revision_id": item["revision_id"], **confirmation},
+            )
+            assert response.status_code == 422
+        merge = {
+            "target_id": item["id"],
+            "source_ids": [str(uuid.uuid4())],
+            "expected_revision_ids": {item["id"]: item["revision_id"]},
+        }
+        assert (await client.post(f"{base}/merge", json=merge)).status_code == 422
+        archived = await client.post(
+            f"{base}/terms/{item['id']}/archive",
+            json={"expected_revision_id": item["revision_id"], "confirmed": True},
+        )
+        assert archived.status_code == 200 and archived.json()["status"] == "archived"
+        page = await client.get(base + "?include_archived=false")
+        assert page.status_code == 200 and page.json()["total_count"] == 0
+
+
+@pytest.mark.asyncio
+async def test_merge_rejects_cross_kind_and_cross_project_without_history_changes(
+    db_session, two_projects
+):
+    from core.errors import ValidationError
+
+    first_novel, second_novel = two_projects
+    target = await create_project_vocabulary_term(
+        db_session, first_novel, _term("地点类型")
+    )
+    cross_kind = await create_project_vocabulary_term(
+        db_session, first_novel, _term("关系类型", kind="relation")
+    )
+    cross_project = await create_project_vocabulary_term(
+        db_session, second_novel, _term("外部类型")
+    )
+    for source, error in ((cross_kind, ValidationError), (cross_project, NotFoundError)):
+        with pytest.raises(error):
+            await merge_project_vocabulary_terms(
+                db_session,
+                first_novel,
+                VocabularyMergeRequest(
+                    confirmed=True,
+                    target_id=target.id,
+                    source_ids=[source.id],
+                    expected_revision_ids={
+                        target.id: target.revision_id,
+                        source.id: source.revision_id,
+                    },
+                ),
+            )
+    assert (
+        await get_project_vocabulary_term(db_session, first_novel, str(target.id))
+    ).revision_id == target.revision_id
