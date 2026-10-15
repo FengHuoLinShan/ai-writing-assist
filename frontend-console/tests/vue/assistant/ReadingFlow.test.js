@@ -396,3 +396,18 @@ it("从旧运行切换到新项目恢复新阅读的空间选项", async () => {
   expect(wrapper.get('[aria-label="同时发现空间线索"]').element.checked).toBe(true)
   wrapper.unmount()
 })
+
+it("主阅读完成仍披露可选步骤未执行、未知和来源变化覆盖", async () => {
+  const status = vi.fn().mockResolvedValue({ engine: { engine: "evolution", epoch: 1 }, run: {
+    run_key: "old", status: "completed", completed_scenes: 4, total_scenes: 4, end_chapter: 1,
+    optional_step_coverage: { spatial: { counts: { inspected: 1, not_run: 1, unknown: 1, stale: 1 }, gaps: [{ scene_index: 2, journal_key: "private-call-key" }] } },
+  } })
+  setBridgeOverrides({ api: { evolution: { status } } })
+  const wrapper = mount(ReadingFlow, { props: { projectId: "p", entry: true } })
+  await flushPromises()
+  const coverage = wrapper.get('.reading-optional-coverage')
+  expect(coverage.text()).toContain('已检查 1 场，未执行 1 场，结果未知 1 场，来源变化 1 场')
+  expect(coverage.text()).toContain('另有 1 条检查缺口')
+  expect(coverage.text()).not.toContain('private-call-key')
+  wrapper.unmount()
+})

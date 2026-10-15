@@ -18,6 +18,7 @@ const rescanActive = computed(() => run.value?.category_rescans?.some(item => ["
 const opened = ref(false)
 let generation = 0, timer = null
 const run = computed(() => state.value?.run)
+const optionalCoverage = computed(() => Object.entries(run.value?.optional_step_coverage || {}).filter(([name]) => ['spatial', 'details'].includes(name)))
 const scopeBudget = computed(() => (recomputeCompleted.value || ["failed", "source_changed"].includes(run.value?.status) ? state.value?.default_budget_mode : run.value?.budget_mode || state.value?.default_budget_mode) === "confirmed_scope")
 const enabled = computed(() => state.value?.engine?.engine === "evolution")
 const canStart = computed(() => enabled.value && (!run.value || ["completed", "stopped", "source_changed", "needs_budget"].includes(run.value.status) || (run.value.status === "failed" && run.value.total_scenes > 0 && !run.value.preparing_scenes)))
@@ -276,6 +277,11 @@ onBeforeUnmount(() => { generation++; clearTimeout(timer) })
       <p v-if="run" role="status">{{ statusText }} · {{ run.preparing_scenes ? "准备场景边界" : run.preparing_structure ? "整理剧情结构候选" : `${run.completed_scenes} / ${run.total_scenes} 场景` }}</p>
       <p v-if="run?.unchecked_discovery_gaps?.length" role="status">保留 {{ run.unchecked_discovery_gaps.length }} 处作者确认的未检查缺口；原请求结果未知，后续完成也不代表这部分已检查。</p>
       <progress v-if="run?.total_scenes" :value="run.completed_scenes" :max="run.total_scenes" aria-label="理解进度" />
+      <details v-if="optionalCoverage.length" class="reading-optional-coverage">
+        <summary>可选发现的检查覆盖</summary>
+        <p>主阅读完成不表示所有可选发现均已检查；未执行、结果未知或来源变化的部分需另行核对。</p>
+        <p v-for="[name, coverage] in optionalCoverage" :key="name">{{ name === 'spatial' ? '空间发现' : '细节发现' }}：已检查 {{ coverage.counts?.inspected || 0 }} 场，未执行 {{ coverage.counts?.not_run || 0 }} 场，结果未知 {{ coverage.counts?.unknown || 0 }} 场，来源变化 {{ coverage.counts?.stale || 0 }} 场。<span v-if="coverage.gaps?.length">另有 {{ coverage.gaps.length }} 条检查缺口。</span></p>
+      </details>
       <div class="reading-actions">
         <button class="btn btn-sm" type="button" :disabled="busy" @click="refresh">刷新进度</button>
         <button v-if="!enabled" class="btn btn-sm" type="button" :disabled="busy" @click="changeEngine('evolution')">启用逐场景理解…</button>
