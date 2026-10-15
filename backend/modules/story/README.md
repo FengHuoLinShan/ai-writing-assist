@@ -94,7 +94,8 @@ draft, check item, source checkpoint and Evidence confirmation. The append is Sc
 idempotent and invalidates only the affected downstream dimension.
 
 The existing public prefixes remain `/api/outline` and
-`/api/novels/{novel_id}/memories`, alongside `/api/story`.
+`/api/novels/{novel_id}/memories`, alongside `/api/story` and the isolated,
+default-off `/api/story/world-progression` router.
 
 Every repository query is novel-scoped. Heads and revisions also have
 composite `(id, novel_id)` constraints so a cross-project pointer cannot be
@@ -407,3 +408,19 @@ dependencies are unchanged. See `docs/modules/07_outline.md` for the covered bou
 `read_temporal_anchor_scenes()` 通过 Story facade 与既有 `story.scene_source` port 导出当前
 Scene 顺序、状态、章节引用和 `replaced_by_scene_ids`。查询按 `novel_id` 隔离，保留退役身份
 供消费方解析替换链；锚点解析不把历史顺序冻结为世界事实。
+
+## 世界推进候选（ADR-0041 / C5）
+
+`world_progression_api.router` 提供预算预览、独立根启动、同根 R1 一步推进、不可变历史/比较、
+作者分支元数据与 30 天软删除恢复、钩子 R3 采用及持续授权读写；开关
+`STORY_WORLD_PROGRESSION_ENABLED` 默认关闭。Task 类型 `story_world_progression` 使用
+`simulation_v3`、逐参与者可知资料、候选状态与滚动摘要；每次 provider 请求前 durable checkpoint，
+预算沿同一根开始时间、deadline 与累计账本。所有步骤带 input/output/parent hash，历史只读回放，
+不进入 Writing 检索、Evolution 阅读或 RP。
+
+`world_progression_operations.OPERATIONS_SPEC` 是纯目录数据：history/compare/budget preview 为 R0，
+沿已确认根推进一步为 R1，独立根预算启动为 R4，钩子采用为 R3。AI 没有历史删除或持续授权写操作；
+Assistant R1 必须证明普通作者回合、同一 Scene、参与者与资料确认。钩子先调用
+`story.plan_structure` 的 rolling-window prepare 只读预览，再按来源重验与 CAS 创建可编辑剧情线、
+篇章或计划 Scene。持续提醒的 `NOTICE_SOURCE_SPEC` 仅由合并器读取，不会从 GET 启动任务；
+章节提交触发器需由应用组合根注册到 Writing 的 post-commit 入口。

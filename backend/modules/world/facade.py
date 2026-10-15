@@ -113,6 +113,7 @@ from modules.world.map_evaluation_read_service import (
 from modules.world.map_notification_service import (
     read_map_notification_signals as read_map_notification_signals,
 )
+from modules.world.map_progression_state import read_map_progression_state
 from modules.world.map_spatial_brief_service import (
     read_map_spatial_brief,
 )
@@ -253,6 +254,7 @@ __all__ = [
     "read_map_node_heads",
     "read_map_spatial_advisories",
     "read_map_spatial_brief",
+    "read_map_progression_state",
     "prepare_map_demo_copy_rows",
     "read_spatial_discovery_context",
     "stage_spatial_discovery",

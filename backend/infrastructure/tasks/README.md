@@ -63,7 +63,7 @@ Goal 的确定 ID 父任务也通过 enqueuer 创建为 `inline_only` / `manual_
   world 域把回合与成果追加进持久化共创会话，见 ADR-0021；transport 合并与任务指纹不受影响）
 - story：`story_outline_generate`、`outline_analyze`、`outline_generate`、`scene_fusion_preview`、
   `story_character_card_generate`、`story_reaction_propose`、`story_scene_script_generate`、
-  `story_one_click`、`story_scene_director`。
+  `story_one_click`、`story_scene_director`、`story_world_progression`。
   `plot_structure_generate`、`chapter_card_extraction`、`chapter_scene_generate` 仅为存量任务返回
   `unsupported` 的兼容注册，不是当前生产生成入口
 
@@ -80,6 +80,11 @@ Goal 的确定 ID 父任务也通过 enqueuer 创建为 `inline_only` / `manual_
 `story_scene_director` 是独立的 Story handler，复用同一协议与有限结算，使用 `never_retry` 和同一根累计
 `AIRunEnvelope`；未知/可能计费结果需要作者显式续算。handler 在 Story 模块声明，最终 app task manifest
 和操作目录组合接线仍由集成者完成；此处的任务类型记录不代表完整应用接线或迁移链已通过。
+
+`story_world_progression` 是 Story 的独立候选推进 handler，使用 `simulation_v3` 与不可变步骤记录，
+`never_retry`/`max_attempts=1`；每次 provider 调用前先提交单调累计账本和分支检查点，可能计费结果未知时暂停。
+handler 在 Story 模块声明；TaskRegistry、root capability 和应用路由的组合注册由集成者完成，
+此处登记不代表应用已经装配或人工接受输出质量。
 
 `deep_import` 完成时可把 post-import adoption package 的 compact receipt 写入既有
 `result.phase_artifacts`；这不是新任务类型或队列状态。包组装失败不得覆盖已完成的
