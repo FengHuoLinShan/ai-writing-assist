@@ -102,6 +102,47 @@ class WritingDraft(Base, UUIDMixin, TimestampMixin, NovelMixin):
         )
 
 
+class WritingChapterOrderOperation(Base, UUIDMixin, TimestampMixin, NovelMixin):
+    """Durable preview, execution and recovery record for one chapter reorder."""
+
+    __tablename__ = "writing_chapter_order_operations"
+    __table_args__ = (
+        UniqueConstraint("novel_id", "id", name="uq_writing_chapter_order_novel_id"),
+        Index(
+            "ix_writing_chapter_order_novel_created",
+            "novel_id",
+            "created_at",
+        ),
+        CheckConstraint(
+            "status IN ('previewed', 'executed', 'restored')",
+            name="ck_writing_chapter_order_status",
+        ),
+        {"comment": "章节顺序操作预览、回执与恢复基线"},
+    )
+
+    status: Mapped[str] = mapped_column(String(16), nullable=False, default="previewed")
+    source_order_json: Mapped[list] = mapped_column(JSON, nullable=False, default=list)
+    target_order_json: Mapped[list] = mapped_column(JSON, nullable=False, default=list)
+    before_fingerprint: Mapped[str] = mapped_column(String(64), nullable=False)
+    preview_hash: Mapped[str] = mapped_column(String(64), nullable=False)
+    after_fingerprint: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    story_fingerprint: Mapped[str] = mapped_column(String(64), nullable=False)
+    story_receipt_id: Mapped[uuid.UUID] = mapped_column(
+        PG_UUID(as_uuid=True), nullable=False
+    )
+    impact_json: Mapped[dict] = mapped_column(JSON, nullable=False, default=dict)
+    preview_json: Mapped[dict] = mapped_column(JSON, nullable=False, default=dict)
+    restore_preview_hash: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    restore_preview_json: Mapped[dict | None] = mapped_column(JSON, nullable=True)
+    result_ref_json: Mapped[dict | None] = mapped_column(JSON, nullable=True)
+    executed_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+    restored_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+
+
 class WritingComment(Base, UUIDMixin, TimestampMixin, NovelMixin):
     """A comment anchored to one saved manuscript revision."""
 

@@ -75,6 +75,34 @@ export const writing = {
       return request(withQuery("/writing/chapters", { novel_id: novelId }))
     },
 
+    async previewChapterOrder(novelId, chapterIndices) {
+      return post(withQuery("/writing/chapters/order/preview", { novel_id: novelId }), {
+        chapter_indices: chapterIndices,
+      })
+    },
+
+    async confirmChapterOrder(novelId, receiptId, previewHash) {
+      return post(withQuery(`/writing/chapters/order/${encodeURIComponent(receiptId)}/confirm`, { novel_id: novelId }), {
+        expected_preview_hash: previewHash,
+        confirmed: true,
+      })
+    },
+
+    async listChapterOrderHistory(novelId, limit = 20) {
+      return request(withQuery("/writing/chapters/order/history", { novel_id: novelId, limit }), { cache: "no-store" })
+    },
+
+    async previewChapterOrderRestore(novelId, receiptId) {
+      return request(withQuery(`/writing/chapters/order/${encodeURIComponent(receiptId)}/restore-preview`, { novel_id: novelId }), { cache: "no-store" })
+    },
+
+    async restoreChapterOrder(novelId, receiptId, previewHash) {
+      return post(withQuery(`/writing/chapters/order/${encodeURIComponent(receiptId)}/restore`, { novel_id: novelId }), {
+        expected_preview_hash: previewHash,
+        confirmed: true,
+      })
+    },
+
     async getVersionHistory(chapterIndex, novelId) {
       return request(withQuery(`/writing/chapters/${chapterIndex}/versions`, { novel_id: novelId }))
     },

@@ -133,6 +133,13 @@
       aria-label="章节"
     >
       <div id="writing-tree-container">
+        <button
+          v-if="leftRailOpen"
+          type="button"
+          class="btn btn-sm writing-chapter-order-open"
+          :disabled="vm.editorState.readonly || vm.editorState.dirty || vm.editorState.saving || !vm.chapterList.value.length"
+          @click="chapterOrderOpen = true"
+        >调整章节顺序</button>
         <ChapterTree
           :chapter-list="vm.chapterList.value"
           :chapters="vm.chapters"
@@ -399,6 +406,16 @@
     @close="exampleDialogOpen = false"
     @saved="onExampleSaved"
   />
+  <ChapterOrderDialog
+    :open="chapterOrderOpen"
+    :project-id="props.projectId"
+    :chapter-list="vm.chapterList.value"
+    :chapters="vm.chapters"
+    :selected-chapter="vm.selectedChapter.value"
+    :blocked="vm.editorState.readonly || vm.editorState.dirty || vm.editorState.saving"
+    @close="chapterOrderOpen = false"
+    @completed="onChapterOrderCompleted"
+  />
   </template>
 </template>
 
@@ -407,6 +424,7 @@ import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from "vue"
 import AssistantReviewResult from "../../components/AssistantReviewResult.vue"
 import ForecastDock from "../../components/ForecastDock.vue"
 import ChapterTree from "./components/ChapterTree.vue"
+import ChapterOrderDialog from "./components/ChapterOrderDialog.vue"
 import ChapterMapDialog from "./components/ChapterMapDialog.vue"
 import AutoExtractionDialog from "./components/AutoExtractionDialog.vue"
 import ConflictDetailDialog from "./components/ConflictDetailDialog.vue"
@@ -478,6 +496,7 @@ function openWritingComment(focus) {
 /* 作者写作示例（B3 few-shot）：candidate 卡片与正文选区就地存例 */
 const exampleDialogOpen = ref(false)
 const exampleDraft = ref(null)
+const chapterOrderOpen = ref(false)
 function openExampleDialog(payload) {
   const origin = payload?.origin || "selection"
   const chapterTitle = String(vm.editorState.title || vm.chapters?.[vm.selectedChapter.value]?.title || "")
@@ -489,6 +508,20 @@ function openExampleDialog(payload) {
     contentLocked: false,
   }
   exampleDialogOpen.value = true
+}
+
+async function onChapterOrderCompleted({ result, restored, projectId, selectedChapter }) {
+  if (!projectId || projectId !== props.projectId) return
+  const currentChapter = Number(selectedChapter) || null
+  const chapterMap = result?.chapter_map || {}
+  const targetChapter = restored
+    ? Number(Object.entries(chapterMap).find(([, target]) => Number(target) === currentChapter)?.[0] || currentChapter)
+    : Number(chapterMap[currentChapter] || currentChapter)
+  const reloaded = await vm.reloadChapters()
+  if (reloaded && targetChapter && vm.chapterList.value.includes(targetChapter)) {
+    await vm.selectChapter(targetChapter)
+  }
+  getToast()(restored ? "章节顺序已恢复" : "章节顺序已更新", "success")
 }
 async function onExampleSaved() {
   try {

@@ -167,6 +167,9 @@ class WritingDraftRepository:
             raise ValueError("batch drafts must belong to one novel")
         novel_id = novel_ids.pop()
         chapter_indices = sorted({item.chapter_index for item in data_items})
+        existing_chapters = set(await self.list_all_chapter_indices(db, novel_id))
+        if set(chapter_indices) - existing_chapters:
+            await self.lock_chapter_catalog_for_reorder(db, novel_id)
         await self.lock_version_chapters_for_revalidation(
             db,
             novel_id,
@@ -474,6 +477,21 @@ class WritingDraftRepository:
         )
         result = await db.execute(stmt)
         return [row[0] for row in result.all()]
+
+    async def list_all_chapter_indices(
+        self,
+        db: AsyncSession,
+        novel_id: uuid.UUID,
+    ) -> list[int]:
+        """List every chapter slot that still has a retained draft version."""
+        stmt = (
+            select(WritingDraft.chapter_index)
+            .where(WritingDraft.novel_id == novel_id)
+            .distinct()
+            .order_by(WritingDraft.chapter_index)
+        )
+        result = await db.execute(stmt)
+        return [int(row[0]) for row in result.all()]
 
     async def list_effective_chapter_indices(
         self,
@@ -875,6 +893,16 @@ class WritingDraftRepository:
         chapter_index: int,
     ) -> int:
         """获取下一个版本号 = max(当前版本号) + 1"""
+        chapter_exists = await db.scalar(
+            select(WritingDraft.id)
+            .where(
+                WritingDraft.novel_id == novel_id,
+                WritingDraft.chapter_index == chapter_index,
+            )
+            .limit(1)
+        )
+        if chapter_exists is None:
+            await self.lock_chapter_catalog_for_reorder(db, novel_id)
         await self.lock_version_chapters_for_revalidation(
             db,
             novel_id,
@@ -893,6 +921,20 @@ class WritingDraftRepository:
         result = await db.execute(stmt)
         max_ver = result.scalar_one_or_none() or 0
         return int(max_ver) + 1
+
+    async def lock_chapter_catalog_for_reorder(
+        self,
+        db: AsyncSession,
+        novel_id: uuid.UUID,
+    ) -> None:
+        """Serialize chapter-set creation against a complete order operation."""
+        bind = db.get_bind()
+        if bind is None or bind.dialect.name != "postgresql":
+            return
+        await db.execute(
+            text("SELECT pg_advisory_xact_lock(hashtextextended(:key, 0))"),
+            {"key": f"writing_chapter_catalog:{novel_id}"},
+        )
 
     async def lock_version_chapters_for_revalidation(
         self,
