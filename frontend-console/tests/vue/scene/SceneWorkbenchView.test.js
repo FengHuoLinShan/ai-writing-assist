@@ -691,6 +691,43 @@ describe("SceneWorkbenchView", () => {
     expect(document.activeElement).toBe(opener.element)
   })
 
+  it("keeps the selected scene available to mobile runtime tabs after closing its detail", async () => {
+    window.innerWidth = 390
+    createWrapper()
+    const opener = wrapper.get('.scene-workbench-row[data-id="s1"] [data-action="select-workbench-scene"]')
+    opener.element.focus()
+    await opener.trigger("click")
+    await flushPromises()
+    expect(wrapper.find(".scene-workbench-drawer").exists()).toBe(true)
+    const charactersTab = wrapper.get('[data-action="scene-runtime-tab-characters"]')
+    expect(charactersTab.element.closest("[inert]")).not.toBeNull()
+
+    await wrapper.get('[data-action="close-scene-detail"]').trigger("click")
+    await flushPromises()
+    expect(wrapper.find(".scene-workbench-drawer").exists()).toBe(false)
+    expect(window.location.hash).toContain("scene_id=s1")
+    expect(opener.element.closest("[inert]")).toBeNull()
+    expect(document.activeElement).toBe(opener.element)
+
+    await charactersTab.trigger("click")
+    await flushPromises()
+    expect(wrapper.get(".scene-character-cards-panel h2").text()).toContain("<img src=x onerror=alert(1)>")
+    expect(wrapper.find('[data-role="scene-runtime-character-empty"]').exists()).toBe(false)
+    await wrapper.get('[data-action="scene-runtime-tab-simulation"]').trigger("click")
+    expect(wrapper.get(".scene-simulation-panel h2").text()).toContain("<img src=x onerror=alert(1)>")
+    await wrapper.get('[data-action="scene-runtime-tab-script"]').trigger("click")
+    expect(wrapper.get(".scene-scripts-panel h2").text()).toContain("<img src=x onerror=alert(1)>")
+    await wrapper.get('[data-action="scene-runtime-tab-management"]').trigger("click")
+    await opener.trigger("click")
+    expect(wrapper.find(".scene-workbench-drawer").exists()).toBe(true)
+    await wrapper.get('[data-action="close-scene-detail"]').trigger("click")
+    await wrapper.get('.scene-workbench-row[data-id="s2"] [data-action="select-workbench-scene"]').trigger("click")
+    await wrapper.get('[data-action="close-scene-detail"]').trigger("click")
+    await wrapper.get('[data-action="scene-runtime-tab-characters"]').trigger("click")
+    expect(wrapper.get(".scene-character-cards-panel h2").text()).toBe("撤离")
+    expect(window.location.hash).toContain("scene_id=s2")
+  })
+
   it("keeps an unsaved mobile detail draft until the author confirms leaving", async () => {
     window.innerWidth = 390
     let confirmDiscard
@@ -714,6 +751,9 @@ describe("SceneWorkbenchView", () => {
     await flushPromises()
     expect(wrapper.find(".scene-workbench-drawer").exists()).toBe(false)
     expect(document.activeElement).toBe(opener.element)
+    expect(window.location.hash).toContain("scene_id=s1")
+    await opener.trigger("click")
+    expect(wrapper.get("#scene-detail-title").element.value).toContain("<img src=x onerror=alert(1)>")
   })
 
   it("场景详情和剧本本地备份同时失败时只显示一次合并离开确认", async () => {

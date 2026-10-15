@@ -506,13 +506,17 @@ map / rag / outline / settings / project-settings`，其主 DOM 全部由 Vue SF
 
 ## 结构整理补充
 
+Scene 人物卡 V2 在已保存卡、编辑器和待确认建议中分别展示全部资料依据、已审阅倾向与本场解释；
+解释仅引用部分事实或为空时，其余依据仍可见。来源类型与可用的章节位置用作者语言显示，
+不把倾向写成确定事实，保存仍传完整版本内容。
+
 - `OutlineStoryTab.vue` 及 `useStoryOutline` 只管理 StoryOutline 聚合，不会因为采用总纲而创建 PlotThread、OutlineArc 或 Scene。当前版完整展示 title、creative core 四字段、`outline_markdown`、`major_storylines`、`macro_movements` 和 `open_decisions`。手工保存、AI preview apply 和历史采用都带 current `base_revision_id` 与 `idempotency_key` 创建新 revision；同一 payload 重试保持 key，内容或 base 改变后轮换。409 保留当前编辑草稿，显式重新加载后把它 rebase 到最新 current。
 - StoryOutline AI 请求只接受作者意图、计划尺度、覆盖描述、可为空的显式人物/世界对象选择和 `include_current_outline`，不提供起止章或强制模板/数量；显式选择为空时由后端自动使用 Top-K。返回内容保持 strict 完整 preview，并以带字段说明、排序和错误提示的作者可读表单编辑；导航数组是辅助摘要，不要求名称唯一或精确字符串引用；生成完成不自动采用。
 - 生成恢复复用通用 workflow 记录与 `/tasks/{id}` 轮询/取消，但只恢复同一 project、`task_type=story_outline_generate` 且 `action=outline.story_outline.generate` 的任务。完成结果允许服务端附带 `managed_llm_steps` provenance；已标记 adopted 的 task 不重复恢复为可采用 preview。路由离开或项目切换后丢弃晚到响应；取消、过期、任务上下文不匹配和短暂查询失败保持不同的作者可读状态。
 
 - `vue/views/scene/SceneWorkbenchView.vue` 是 Scene 管理主入口，支持按 status / source / workflow_id / needs_review / phase 等条件筛选深度导入结果。筛选默认收起为已启用条件数与未应用修改摘要，更多整理条件渐进展开；已应用条件和未应用输入均按作品保存在当前浏览器会话中，刷新、前后退和作品切换时不串用。
 - Scene 剧情进度与健康待办共用原生「场景概况」`<details>`；桌面端保持展开，窄屏默认收起为当前剧情段、主要待办与其他类别数摘要。摘要优先显示当前已应用筛选，完整八个筛选的语义与请求保持不变。
-- Scene 未选中时列表使用完整工作区，选中后才显示详情栏。详情用原生语义分组区分基本信息、创作要点与章节来源，顶部可返回列表，底部吸底操作栏区分已保存、待保存和保存中。当前待办保留为次操作，合并/拆分收入共享 ActionMenu 的「更多」菜单并向上展开；草稿未保存或保存中时，待办和结构操作原生禁用。未保存返回仍经既有放弃确认；窄屏模态详情打开时底部主导航不可见、关闭后恢复。
+- Scene 未选中时列表使用完整工作区，选中后才显示详情栏。详情用原生语义分组区分基本信息、创作要点与章节来源，顶部可返回列表，底部吸底操作栏区分已保存、待保存和保存中。当前待办保留为次操作，合并/拆分收入共享 ActionMenu 的「更多」菜单并向上展开；草稿未保存或保存中时，待办和结构操作原生禁用。未保存返回仍经既有放弃确认；窄屏模态详情打开时底部主导航不可见，关闭详情后保留当前 Scene 供人物卡、推演和剧本使用，再次选择该场景才重开详情。
 - Scene 工作台把机械合并和 AI 融合建议分成两个入口。AI 融合前必须在卡片中选择主 Scene，随后在大尺寸语义表格中并列展示 AI 建议、主 Scene 原值和其他来源 Scene 原值；拆分使用“原 Scene / 建议 A / 建议 B”对比。两类预览覆盖语义字段、叙事标签、POV 和章节映射，默认显示全部字段并可只看初始差异；AI 建议保持完整可编辑，长来源证据按需展开。融合预览是同步 LLM 请求，API contract 使用 90 秒生成窗口。叙事标签把空值规范为 `draft`（未标注），拆分字段支持显式清空。保存模式包括保留原 Scene、保存并废弃原 Scene、放弃结果、继续编辑后保存；废弃来源必须在预览内再次确认，所有融合保存入口共享单次请求锁，失败时恢复操作并保留当前编辑。手动融合输出使用 `source="manual_fusion"`。
 - 重复提取的 replacement suggestion 使用专用对比面板，展示受保护原 Scene、新候选、边界/章节重叠证据，并提供“保留原 Scene / 直接替换 / 编辑后替换”。历史列表区分“原已采用 · 重复提取替换”，替换后提示世界对象和剧情结构需按需刷新。
 - Scene 每行只展示当前最高优先级主操作：复核、查看跨章建议、确认章节定位、整理映射、关联章节、补全设定、编辑。完成一项后刷新为下一项；健康标签可直接执行对应操作。桌面端显示“上下文主按钮 + 编辑 + 更多”，窄屏只显示“主按钮 + 更多”，“更多”固定包含打开写作、合并和拆分。

@@ -7522,6 +7522,48 @@ kbd {
   margin: 12px 0;
 }
 
+.scene-character-card-v2 {
+  display: grid;
+  gap: 12px;
+  min-width: 0;
+}
+
+.scene-character-card-v2__group {
+  min-width: 0;
+}
+
+.scene-character-card-v2__group + .scene-character-card-v2__group {
+  border-top: 1px solid var(--border);
+  padding-top: 10px;
+}
+
+.scene-character-card-v2__group h4 {
+  margin: 0 0 6px;
+  font-size: 12px;
+}
+
+.scene-character-card-v2__group h4 small,
+.scene-character-card-v2__group li small,
+.scene-character-card-v2__group p {
+  color: var(--text-secondary);
+  font-size: 11px;
+}
+
+.scene-character-card-v2__group ul {
+  display: grid;
+  gap: 6px;
+  margin: 0;
+  padding-left: 18px;
+}
+
+.scene-character-card-v2__group li {
+  overflow-wrap: anywhere;
+}
+
+.scene-character-card-v2__group li small {
+  display: block;
+}
+
 .scene-character-card__facts div,
 .scene-runtime-constraints dl div {
   display: grid;

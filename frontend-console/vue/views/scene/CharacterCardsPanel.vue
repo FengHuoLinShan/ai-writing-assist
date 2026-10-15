@@ -34,13 +34,7 @@
               <button type="button" class="btn btn-sm" :data-action="`edit-scene-character-${character.id}`" @click="$emit('edit', character.id)">{{ selectedId === character.id ? "收起编辑" : character.cardId ? "编辑人物卡" : "新建人物卡" }}</button>
             </div>
           </div>
-          <div v-if="character.content?.version === 'character_card.v2'" class="scene-character-card__facts">
-            <p>本场解释性建议，所引事实仍以原资料为准。</p>
-            <div v-for="(interpretation, index) in character.content.interpretations || []" :key="index">
-              <strong>{{ interpretation.statement }}</strong>
-              <small>依据：{{ sourceSummary(character.content, interpretation) }}</small>
-            </div>
-          </div>
+          <CharacterCardV2Content v-if="character.content?.version === 'character_card.v2'" class="scene-character-card__facts" :content="character.content" />
           <dl v-else class="scene-character-card__facts">
             <div><dt>当前状态</dt><dd>{{ character.status || "待补充" }}</dd></div>
             <div v-if="character.currentGoal"><dt>当前目标</dt><dd>{{ character.currentGoal }}</dd></div>
@@ -65,7 +59,7 @@
             </div>
             <template v-if="cardDraft.fullContent?.version === 'character_card.v2'">
               <p>来源绑定人物卡只保存已生成的事实依据与解释。作者笔记继续保留在本机场景草稿。</p>
-              <p v-for="(interpretation, index) in cardDraft.fullContent.interpretations || []" :key="index">{{ interpretation.statement }} · 依据：{{ sourceSummary(cardDraft.fullContent, interpretation) }}</p>
+              <CharacterCardV2Content :content="cardDraft.fullContent" />
             </template>
             <template v-else>
               <label><span>人物底色</span><textarea class="form-textarea" rows="3" :value="cardDraft.personality || ''" @input="$emit('update-card', 'personality', $event.target.value)"></textarea></label>
@@ -82,7 +76,7 @@
             <div v-if="generatedCard" class="scene-character-card__generated">
               <strong>待确认的人物卡建议</strong>
               <template v-if="generatedCard.content?.version === 'character_card.v2'">
-                <p v-for="(interpretation, index) in generatedCard.content.interpretations || []" :key="index">{{ interpretation.statement }} · 依据：{{ sourceSummary(generatedCard.content, interpretation) }}</p>
+                <CharacterCardV2Content :content="generatedCard.content" />
               </template>
               <p v-else>{{ generatedCard.content?.personality || "生成结果暂未包含人物底色" }}</p>
               <button type="button" class="btn btn-sm" data-action="apply-generated-scene-character-card" @click="$emit('apply-generated')">放入编辑器</button>
@@ -102,6 +96,8 @@
 </template>
 
 <script setup>
+import CharacterCardV2Content from "./CharacterCardV2Content.vue"
+
 defineProps({
   scene: { type: Object, default: null },
   characters: { type: Array, default: () => [] },
@@ -126,13 +122,4 @@ function initials(name) {
   return String(name || "人").trim().slice(0, 1) || "人"
 }
 
-function sourceSummary(content, interpretation) {
-  const facts = (content?.fact_basis || [])
-    .filter((fact) => (interpretation.source_fact_ids || []).includes(fact.fact_id))
-    .map((fact) => fact.value)
-  const patterns = (content?.pattern_basis || [])
-    .filter((pattern) => (interpretation.source_pattern_ids || []).includes(pattern.pattern_id))
-    .map((pattern) => pattern.statement)
-  return [...facts, ...patterns].join("；") || "原资料待复核"
-}
 </script>
