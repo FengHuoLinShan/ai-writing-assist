@@ -294,3 +294,9 @@ records remain silent. Manual revisions inherit the base revision’s page basel
 restoring a historical revision preserves its original baselines. Extra pages inside Evidence confirmations and other World
 consumers remain explicitly outside this first slice; Scene checkpoint unsupported
 dependencies are unchanged. See `docs/modules/07_outline.md` for the covered boundary.
+
+### 生效锚点只读端口
+
+`read_temporal_anchor_scenes()` 通过 Story facade 与既有 `story.scene_source` port 导出当前
+Scene 顺序、状态、章节引用和 `replaced_by_scene_ids`。查询按 `novel_id` 隔离，保留退役身份
+供消费方解析替换链；锚点解析不把历史顺序冻结为世界事实。

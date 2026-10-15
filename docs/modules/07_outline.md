@@ -398,3 +398,10 @@ Story 总纲生成将实际进入 `world_bible_pages` 输入的页面 revision_i
 本片覆盖上述大纲直接页面输入；Evidence 确认资料内的额外页面、综合梗概、其他生成消费方、
 Story checkpoint 和 Evolution 台账未登记该基线，仍属于未覆盖依赖，不能据此声称全链正典追踪。
 SceneStateViewResponse 的 world_canon_revision unsupported 标记继续保留。
+
+### 跨模块生效锚点读取
+
+既有 `story.scene_source` 只读端口新增 `read_temporal_anchor_scenes(db, novel_id)`，
+由 Story facade 返回本作品 Scene 的当前顺序、状态、章节引用和替换链。退役 Scene 保留在结果中，
+供空间等消费方解析融合后的锚点；不把历史章节序号猜成稳定身份，也不保存当时的顺序副本。
+此接口只供证，具体生效区间和失效提醒由消费领域判断。
