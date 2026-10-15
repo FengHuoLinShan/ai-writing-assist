@@ -61,7 +61,7 @@ def configure(monkeypatch, report, receipts=()):
         assert str(novel_id) == NOVEL_ID
         assert kwargs == {"content_mode": "canonical", "chapter_from": 3, "chapter_to": 3}
         return [
-            {"draft_id": "draft-current", "chapter_index": 3, "content_hash": "b" * 64}
+            {"draft_id": "draft-current", "chapter_index": 3, "source_hash": "b" * 64}
         ]
 
     async def read_current(_db, novel_id, **kwargs):

@@ -214,7 +214,7 @@ async def list_map_source_notices(
         None,
     )
     current_draft_id = str(current["draft_id"]) if current else None
-    current_source_hash = str(current["content_hash"]) if current else None
+    current_source_hash = str(current["source_hash"]) if current else None
     report = await get(WORLD_READ_MAP_CHAPTER_CONSUMERS)(
         db,
         novel_id,
