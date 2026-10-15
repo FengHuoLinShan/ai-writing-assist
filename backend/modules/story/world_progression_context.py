@@ -168,8 +168,7 @@ def _life_state_checks(author_state: dict, participants: list[ProgressionPartici
             and fact.get("field") == "life_status"
             and fact.get("layer") == "fact"
             and fact.get("confidence") == "confirmed"
-            and (fact.get("source") or {}).get("provenance", {}).get("status")
-            == "exact"
+            and (fact.get("source") or {}).get("provenance", {}).get("status") == "exact"
         ]
         if len(exact) == 1:
             fact = exact[0]
@@ -178,9 +177,9 @@ def _life_state_checks(author_state: dict, participants: list[ProgressionPartici
                     "participant_id": participant.id,
                     "status": "verified_typed_fact",
                     "value": fact.get("value"),
-                    "event_id": (fact.get("source") or {}).get("provenance", {}).get(
-                        "event_id"
-                    ),
+                    "event_id": (fact.get("source") or {})
+                    .get("provenance", {})
+                    .get("event_id"),
                 }
             )
         else:
@@ -203,7 +202,12 @@ async def _latest_written_scene(db, novel_id: str) -> dict:
     if chapter_index < 1:
         raise ValueError("当前作品还没有可作为截止点的已写章节")
     scenes = await get_scenes_by_chapter(db, novel_id, chapter_index)
-    candidates = [item for item in scenes if item.get("status") != "deprecated"]
+    candidates = [
+        item
+        for item in scenes
+        if item.get("status") != "deprecated"
+        and (item.get("structure_meta") or {}).get("planning_state") != "planned"
+    ]
     if not candidates:
         raise ValueError("最新已写章节尚未关联可用 Scene，请先选择截止 Scene")
     return max(
@@ -323,6 +327,13 @@ async def read_progression_source(
         "source_fingerprint": author_state.get("state_fingerprint"),
     }
     life_state_checks = _life_state_checks(author_state, participants)
+    if any(
+        item.get("status") == "verified_typed_fact"
+        and str(item.get("value") or "").strip().lower()
+        in {"dead", "deceased", "死亡", "已死亡"}
+        for item in life_state_checks
+    ):
+        raise ValueError("已确认死亡的人物不能作为世界推进的行动参与者")
 
     target_assets = await _read_targets(db, novel_id, targets)
     author_parts = []
@@ -365,7 +376,12 @@ async def read_progression_source(
     role_briefs: dict[str, dict] = {}
     for participant in participants:
         parts = []
-        for group in _chunks(participant_ids):
+        # A group has no character-POV knowledge projection. Give it only its
+        # own reader-visible dossier until a typed group knowledge seam exists.
+        role_subjects = (
+            participant_ids if participant.kind == "character" else [participant.id]
+        )
+        for group in _chunks(role_subjects):
             result = await read_object_dossier_brief(
                 db,
                 novel_id=novel_id,
@@ -455,7 +471,7 @@ async def read_progression_source(
             novel_id=novel_id,
             scene_id=scene_id,
             scene_index=int(scene_context["scene_index"]),
-            actor_ids=participant_ids,
+            actor_ids=character_ids,
         )
         map_state = _dump(value)
         for actor_id, role in role_briefs.items():
@@ -537,9 +553,7 @@ async def read_progression_source(
             "group_packets": "reader_visible_only",
             "map_routes": map_state.get("coverage", "not_compared"),
             "object_validity": (
-                "limit_reached"
-                if len(object_validity_notices) >= 100
-                else "complete"
+                "limit_reached" if len(object_validity_notices) >= 100 else "complete"
             ),
         },
         "source_hash": source_hash,

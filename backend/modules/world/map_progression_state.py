@@ -145,7 +145,9 @@ def _declaration_active_at(
             and identity.get("field_key") == "effective_status"
             and subject_id
         ):
-            unknowns.append(f"map_validity_override_identity_mismatch:{node_id}:{kind}:{item.id}")
+            unknowns.append(
+                f"map_validity_override_identity_mismatch:{node_id}:{kind}:{item.id}"
+            )
             return False, notice
         dimension = next(
             (
@@ -162,8 +164,7 @@ def _declaration_active_at(
             and fact.get("field") == (identity or {}).get("field_key")
             and fact.get("layer") == "fact"
             and fact.get("confidence") == "confirmed"
-            and (fact.get("source") or {}).get("provenance", {}).get("status")
-            == "exact"
+            and (fact.get("source") or {}).get("provenance", {}).get("status") == "exact"
             and (fact.get("source") or {}).get("provenance", {}).get("identity_ref")
             == identity
         ]
@@ -174,10 +175,10 @@ def _declaration_active_at(
         return False, notice
     if decision == "gap":
         unknowns.append(f"map_validity_gap:{node_id}:{kind}:{item.id}")
-    elif decision != "author_priority":
+        return False, notice
+    if decision != "author_priority":
         unknowns.append(f"map_validity_decision_unknown:{node_id}:{kind}:{item.id}")
-    # author_priority and gap retain a valid author interval; the gap remains
-    # disclosed, while an invalid interval was already excluded by _active_at.
+        return False, notice
     return active, notice
 
 
@@ -213,9 +214,7 @@ async def _read_cutoff_state(db, novel_id: str, scene_id: str) -> dict:
     chapter = value.get("chapter_index")
     value["verified_chapter_index"] = (
         int(chapter)
-        if value.get("status") != "degraded"
-        and isinstance(chapter, int)
-        and chapter > 0
+        if value.get("status") != "degraded" and isinstance(chapter, int) and chapter > 0
         else None
     )
     return value
@@ -465,6 +464,21 @@ async def read_map_progression_state(
                     )
                     source_valid = False
                     break
+                if cutoff_chapter is None or not await service.reader_source_visible(
+                    db,
+                    novel_id,
+                    source,
+                    VisibilityContextContract(
+                        mode="author",
+                        cutoff_chapter=cutoff_chapter,
+                        cutoff_scene_id=scene_id,
+                    ),
+                ):
+                    unknowns.append(
+                        f"journey_source_after_cutoff_or_unreadable:{route.node_id}:{route.feature_key}"
+                    )
+                    source_valid = False
+                    break
             if not source_valid:
                 continue
         else:
@@ -497,14 +511,14 @@ async def read_map_progression_state(
                     {
                         "type_ref": str(type_ref),
                         "revision_id": str(revision_id),
-                        "computable": resolved_types.get(
-                            (type_ref, revision_id), {}
-                        ).get("computable")
+                        "computable": resolved_types.get((type_ref, revision_id), {}).get(
+                            "computable"
+                        )
                         is True,
                         "traits": (
-                            resolved_types[(type_ref, revision_id)][
-                                "traits"
-                            ].model_dump(mode="json")
+                            resolved_types[(type_ref, revision_id)]["traits"].model_dump(
+                                mode="json"
+                            )
                             if (type_ref, revision_id) in resolved_types
                             else None
                         ),

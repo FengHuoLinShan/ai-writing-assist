@@ -4,14 +4,15 @@ from __future__ import annotations
 
 import json
 from copy import deepcopy
+from datetime import UTC, datetime
 from uuid import UUID
 
-from sqlalchemy import select
+from sqlalchemy import func, select
 
 from infrastructure.llm.agent_step_harness import run_managed_structured
 from infrastructure.llm.capabilities import capability_from_execution_snapshot
 from infrastructure.llm.collaboration import content_hash
-from infrastructure.llm.schemas import LLMCallRequest, LLMMessage
+from infrastructure.llm.schemas import AI_RUN_ENVELOPE_KEY, LLMCallRequest, LLMMessage
 from infrastructure.llm.workflow_budget import current_ai_run_envelope
 from infrastructure.tasks.facade import (
     checkpoint_handler_session,
@@ -40,6 +41,7 @@ from modules.story.world_progression_engine import (
 from modules.story.world_progression_models import (
     StoryWorldProgressionAuthorization,
     StoryWorldProgressionRoot,
+    StoryWorldProgressionStep,
 )
 from modules.story.world_progression_schemas import (
     ProgressionActorDraft,
@@ -58,6 +60,37 @@ from modules.story.world_progression_service import (
 
 WORLD_PROGRESSION_TASK = "story_world_progression"
 WORLD_PROGRESSION_CAPABILITY = "story.world_progression"
+
+
+def _task_meta(
+    *,
+    request,
+    root_id,
+    branch_id,
+    execution_snapshot,
+    envelope,
+    acknowledged_unknown=0,
+):
+    frozen = envelope.snapshot()
+    snapshot = frozen.model_dump(mode="json")
+    return {
+        "meta_version": 1,
+        "request": request,
+        "world_progression_root_id": str(root_id),
+        "world_progression_branch_id": str(branch_id),
+        "world_progression_authorized_requests": int(snapshot["request_limit"]),
+        "world_progression_authorized_tokens": int(snapshot["token_limit"]),
+        "world_progression_deadline_seconds": max(
+            1,
+            int((frozen.deadline_at - frozen.started_at).total_seconds())
+            if frozen.deadline_at
+            else 3600,
+        ),
+        "world_progression_acknowledged_unknown_requests": acknowledged_unknown,
+        "world_progression_baseline_requests_started": snapshot["requests_started"],
+        "llm_execution_snapshot": execution_snapshot,
+        AI_RUN_ENVELOPE_KEY: snapshot,
+    }
 
 
 def _meta(task) -> dict:
@@ -144,6 +177,7 @@ async def _mirror_run_envelope(session, task, payload):
     run_deadline_seconds=_deadline_seconds,
     run_id=_stable_root_id,
     run_envelope_checkpoint=_mirror_run_envelope,
+    run_eighty_percent_stop=True,
 )
 async def handle_world_progression(db, task):
     """Run one or more explicitly authorized steps; no canon or manuscript writes."""
@@ -154,6 +188,15 @@ async def handle_world_progression(db, task):
     branch_id = str(meta.get("world_progression_branch_id") or "")
     if not root_id or not branch_id:
         raise ValueError("世界推进任务缺少持久根或分支")
+    continuous_revision = meta.get("continuous_authorization_revision")
+    if continuous_revision is not None:
+        # Chapter ingestion takes authorization before root. Match that order
+        # before the first durable checkpoint to avoid an authorization/root cycle.
+        await db.scalar(
+            select(StoryWorldProgressionAuthorization)
+            .where(StoryWorldProgressionAuthorization.novel_id == UUID(novel_id))
+            .with_for_update()
+        )
     root = await get_progression_root(db, novel_id, root_id, lock=True)
     branch = await get_progression_branch(db, novel_id, branch_id, lock=True)
     if str(branch.root_id) != root_id:
@@ -174,6 +217,14 @@ async def handle_world_progression(db, task):
         or envelope.snapshot().novel_id != novel_id
     ):
         raise ValueError("世界推进根预算信封身份不匹配")
+    budget_guard = {
+        "acknowledged_unknown": int(
+            meta.get("world_progression_acknowledged_unknown_requests") or 0
+        ),
+        "baseline_requests_started": int(
+            meta.get("world_progression_baseline_requests_started") or 0
+        ),
+    }
 
     root_request = dict(root.request_json or {})
     branch_overrides = dict(branch.request_json or {})
@@ -196,7 +247,6 @@ async def handle_world_progression(db, task):
         for item in root_request.get("participants") or []
     ]
     character_ids = [item.id for item in participants if item.kind == "character"]
-    continuous_revision = meta.get("continuous_authorization_revision")
     options = {}
     if continuous_revision is not None:
         authorization = await db.scalar(
@@ -249,14 +299,16 @@ async def handle_world_progression(db, task):
         raise ValueError("世界推进根缺少冻结来源快照")
     if branch.basis_choice == "current":
         source = current_source
-        basis_changed = current_source["source_hash"] != branch.source_hash
+        if current_source["source_hash"] != branch.source_hash:
+            branch.status = root.status = "failed"
+            branch.stop_reason = "source_changed_before_execution"
+            branch.current_task_id = root.current_task_id = None
+            await _checkpoint(db, root, branch, "来源漂移的失败状态未保存")
+            raise ValueError("已选当前来源在任务入队后变化；请刷新并明确选择新依据")
+        basis_changed = current_source["source_hash"] != root.source_hash
     else:
         source = frozen_source
         basis_changed = current_source["source_hash"] != frozen_source["source_hash"]
-    if branch.basis_choice == "current" and source["source_hash"] != branch.source_hash:
-        branch.source_hash = source["source_hash"]
-        branch.source_snapshot_json = source
-
     scene_id = str(source["scene_id"])
     if options.get("scene_id") and str(options["scene_id"]) != scene_id:
         raise ValueError("确认资料的 Scene 截止点已变化")
@@ -315,19 +367,35 @@ async def handle_world_progression(db, task):
         request_count = 1
     if root_request.get("run_policy") in {"until_goal", "until_budget"}:
         request_count = 0  # continue only while the author-authorized root budget permits
+    if request_count:
+        prior_count = int(
+            await db.scalar(
+                select(func.count())
+                .select_from(StoryWorldProgressionStep)
+                .where(
+                    StoryWorldProgressionStep.novel_id == UUID(novel_id),
+                    StoryWorldProgressionStep.branch_id == UUID(branch_id),
+                )
+            )
+            or 0
+        )
+        request_count -= prior_count
+        if request_count <= 0:
+            raise ValueError("本分支已完成作者选择的全部步数，不能重复续算")
     completed = 0
     last_step_id = str(branch.parent_step_id) if branch.parent_step_id else None
     while True:
-        stop = _budget_stop(envelope)
+        stop = _budget_stop(envelope, **budget_guard)
         if stop:
-            root.status = branch.status = "paused_budget"
+            paused = (
+                "paused_unknown" if stop == "provider_result_unknown" else "paused_budget"
+            )
+            root.status = branch.status = paused
             branch.stop_reason = stop
             root.current_task_id = branch.current_task_id = None
             root.run_envelope_json = envelope.snapshot().model_dump(mode="json")
             await _checkpoint(db, root, branch, "世界推进预算暂停状态未保存")
-            return _task_result(
-                "paused_budget", root_id, branch_id, completed, stop, last_step_id
-            )
+            return _task_result(paused, root_id, branch_id, completed, stop, last_step_id)
 
         state = deepcopy(pending["state_before"])
         parent_id = pending.get("parent_step_id") or None
@@ -344,15 +412,25 @@ async def handle_world_progression(db, task):
                 simulation_context,
                 input_limit=input_limit,
                 envelope=envelope,
+                budget_guard=budget_guard,
                 basis_changed=basis_changed,
             )
-        except Exception:
-            stop = _budget_stop(envelope)
+        except Exception as error:
+            stop = _budget_stop(envelope, **budget_guard)
             branch.status = (
-                "paused_unknown" if stop == "provider_result_unknown" else "failed"
+                "paused_unknown"
+                if stop == "provider_result_unknown"
+                else "paused_budget"
+                if stop
+                else "failed"
             )
             root.status = branch.status
-            branch.stop_reason = stop or "step_failed"
+            if stop:
+                branch.stop_reason = stop
+            elif isinstance(error, ValueError) and pending.get("resolution"):
+                branch.stop_reason = "invalid_resolution"
+            else:
+                branch.stop_reason = "step_failed"
             branch.current_task_id = root.current_task_id = None
             root.run_envelope_json = envelope.snapshot().model_dump(mode="json")
             await _checkpoint(db, root, branch, "世界推进失败或暂停状态未保存")
@@ -398,8 +476,9 @@ async def handle_world_progression(db, task):
             min(0.98, completed / max(1, request_count or completed + 1))
         )
 
-        if root_request.get("stop_at_goal", True) and any(
-            item.get("status") == "completed" for item in result.get("goal_outcomes", [])
+        if _goals_reached(result, source) and (
+            root_request.get("run_policy") == "until_goal"
+            or root_request.get("stop_at_goal", False)
         ):
             break
         if request_count and completed >= request_count:
@@ -410,7 +489,7 @@ async def handle_world_progression(db, task):
             outcomes = result.get("goal_outcomes") or []
             if outcomes and all(item.get("status") == "blocked" for item in outcomes):
                 break
-        if _budget_stop(envelope):
+        if _budget_stop(envelope, **budget_guard):
             break
         pending = _new_pending_step(
             source=source,
@@ -430,7 +509,7 @@ async def handle_world_progression(db, task):
         ):
             # Keep every step durable and stop before the next provider call if the
             # remaining budget cannot reach the 80% safety margin.
-            if _budget_stop(envelope):
+            if _budget_stop(envelope, **budget_guard):
                 break
 
     branch.pending_step_json = {}
@@ -466,33 +545,100 @@ def _task_result(status, root_id, branch_id, completed, stop_reason, step_id):
         "completed_steps": completed,
         "last_step_id": step_id,
         "budget_stop": stop_reason,
-        "needs_author_resume": status == "paused_budget",
+        "needs_author_resume": status in {"paused_budget", "paused_unknown"},
         "candidate_only": True,
     }
 
 
-def _budget_stop(envelope) -> str | None:
+def _goals_reached(result: dict, source: dict) -> bool:
+    statuses = {
+        str(item.get("target_id")): item.get("status")
+        for item in result.get("goal_outcomes", [])
+    }
+    required = {
+        str(item.get("id"))
+        for item in source.get("targets", [])
+        if item.get("must_reach")
+    }
+    if required:
+        return all(statuses.get(target_id) == "completed" for target_id in required)
+    return any(status == "completed" for status in statuses.values())
+
+
+def _actor_view_packet(role: dict, state: dict, actor_id: str, step_length: str) -> dict:
+    """Only project this actor's visible evidence; the author summary is private."""
+    actor_key = f"object:{actor_id}"
+    known_entities = set(role.get("known_entity_ids") or [])
+    holders = state.get("resource_holders", {})
+    return {
+        "viewpoint": role.get("viewpoint"),
+        "visible_brief": role.get("brief"),
+        "known_participant_ids": role.get("known_participant_ids", []),
+        "known_entity_ids": role.get("known_entity_ids", []),
+        "known_route_ids": role.get("known_route_ids", []),
+        "own_observations": state.get("observations", {}).get(actor_key, []),
+        "own_location": state.get("locations", {}).get(actor_key),
+        "own_candidate_status": {
+            key: value
+            for key, value in state.get("candidate_status", {}).items()
+            if key.startswith(f"{actor_id}:")
+        },
+        "own_candidate_knowledge": {
+            key: value
+            for key, value in state.get("candidate_knowledge", {}).items()
+            if key.startswith(f"{actor_id}:")
+            and value.get("modality") in {"direct_observation", "reported_claim"}
+        },
+        "own_candidate_attitudes": {
+            key: value
+            for key, value in state.get("candidate_attitudes", {}).items()
+            if key.startswith(f"{actor_id}:")
+        },
+        "held_resources": [key for key, holder in holders.items() if holder == actor_key],
+        "known_resource_keys": [
+            key
+            for key, holder in holders.items()
+            if key.partition(":")[2] in known_entities or holder == actor_key
+        ],
+        "step_length": step_length,
+    }
+
+
+def _budget_stop(
+    envelope,
+    *,
+    acknowledged_unknown: int = 0,
+    baseline_requests_started: int = 0,
+) -> str | None:
     snapshot = envelope.snapshot()
-    if snapshot.requests_unknown or not snapshot.usage_complete:
+    if snapshot.requests_unknown > acknowledged_unknown:
         return "provider_result_unknown"
-    for attempt in snapshot.recent_attempts:
-        if (
+    if any(
+        attempt.request_index > baseline_requests_started
+        and (
             attempt.outcome.value in {"unknown", "in_flight"}
             or attempt.charge_state.value == "possible"
-        ):
-            return "provider_result_unknown"
-    if snapshot.recent_attempts_overflow:
+        )
+        for attempt in snapshot.recent_attempts
+    ):
+        return "provider_result_unknown"
+    if not snapshot.usage_complete and (
+        not acknowledged_unknown or snapshot.legacy_untracked
+    ):
         return "usage_incomplete"
+    # The bounded attempt window may overflow during a long, fully settled run.
+    # Cumulative unknown and usage counters remain authoritative across eviction.
     if (
         snapshot.request_limit
-        and snapshot.requests_started / snapshot.request_limit >= 0.8
+        and snapshot.requests_started * 5 >= snapshot.request_limit * 4
     ):
         return "request_budget_80_percent"
-    if snapshot.token_limit and snapshot.usage.total_tokens / snapshot.token_limit >= 0.8:
+    if (
+        snapshot.token_limit
+        and snapshot.usage.total_tokens * 5 >= snapshot.token_limit * 4
+    ):
         return "token_budget_80_percent"
     if snapshot.deadline_at is not None:
-        from datetime import UTC, datetime
-
         started = snapshot.started_at
         deadline = snapshot.deadline_at
         if started.tzinfo is None:
@@ -500,7 +646,10 @@ def _budget_stop(envelope) -> str | None:
         if deadline.tzinfo is None:
             deadline = deadline.replace(tzinfo=UTC)
         duration = (deadline - started).total_seconds()
-        if duration and (datetime.now(UTC) - started).total_seconds() / duration >= 0.8:
+        if (
+            duration <= 0
+            or (datetime.now(UTC) - started).total_seconds() * 5 >= duration * 4
+        ):
             return "time_budget_80_percent"
     return None
 
@@ -518,6 +667,7 @@ async def _run_one_step(
     *,
     input_limit,
     envelope,
+    budget_guard,
     basis_changed,
 ):
     state = deepcopy(pending["state_before"])
@@ -546,34 +696,11 @@ async def _run_one_step(
             actor_id = participant.id
             if actor_id in role_drafts:
                 continue
-            stop = _budget_stop(envelope)
+            stop = _budget_stop(envelope, **budget_guard)
             if stop:
                 raise RuntimeError(f"预算已到停止边界：{stop}")
             role = source["role_briefs"][actor_id]
-            actor_key = actor_refs[actor_id].state_key
-            own_events = state.get("observations", {}).get(actor_key, [])
-            packet = {
-                "viewpoint": role.get("viewpoint"),
-                "reader_visible_packet": role.get("brief"),
-                "known_participant_ids": role.get("known_participant_ids", []),
-                "known_entity_ids": role.get("known_entity_ids", []),
-                "known_route_ids": role.get("known_route_ids", []),
-                "own_observations": own_events,
-                "own_location": state.get("locations", {}).get(actor_key),
-                "held_resources": [
-                    key
-                    for key, holder in state.get("resource_holders", {}).items()
-                    if holder == actor_key
-                ],
-                "known_resource_keys": [
-                    key
-                    for key in state.get("resource_holders", {})
-                    if key.partition(":")[2] in set(role.get("known_entity_ids") or [])
-                    or state.get("resource_holders", {}).get(key) == actor_key
-                ],
-                "rolling_summary": state.get("rolling_summary", ""),
-                "step_length": step_length,
-            }
+            packet = _actor_view_packet(role, state, actor_id, step_length)
             encoded = json.dumps(packet, ensure_ascii=False, separators=(",", ":"))
             if len(encoded) > role_limit:
                 # Grouping was already disclosed by the source reader. Here we do
@@ -589,8 +716,9 @@ async def _run_one_step(
                         LLMMessage(
                             role="system",
                             content=(
-                                "你只扮演当前参与者，只能依据 reader_visible_packet、"
-                                "本人已观察事件、当前状态与本人可见路线提出一步意图。"
+                                "你只扮演当前参与者，只能依据 visible_brief、"
+                                "本人已观察事件、本人候选状态/知识及本人可见路线提出一步意图。"
+                                "候选状态只属于本次模拟，不是 Story 正史。"
                                 "不要看到作者目标、秘密、保留项或其他人物私有意图。"
                                 "身份必须等于当前 actor_id。旧地名不能转成 ID；"
                                 "地点、对象、路线、资源与收信者只可引用输入的 typed ID。"
@@ -676,9 +804,7 @@ async def _run_one_step(
                 intent_id=intent_id, actor=actor_ref, mode="world_progression_step"
             )
             intents.append(intent)
-            action_rows.append(
-                {**draft.model_dump(mode="json"), "intent_id": intent_id}
-            )
+            action_rows.append({**draft.model_dump(mode="json"), "intent_id": intent_id})
 
         intersection_result = detect_progression_intersections(
             action_rows,
@@ -688,7 +814,7 @@ async def _run_one_step(
         )
         resolution_raw = pending.get("resolution")
         if resolution_raw is None:
-            stop = _budget_stop(envelope)
+            stop = _budget_stop(envelope, **budget_guard)
             if stop:
                 raise RuntimeError(f"预算已到停止边界：{stop}")
             director_packet = {
@@ -728,6 +854,9 @@ async def _run_one_step(
                             content=(
                                 "你是世界推进的有限裁决器。逐 intent_id 返回三态结果，"
                                 "只给状态、态度、知识、资源、目标路径、交汇结果与钩子候选，不写正文。"
+                                "narrative_summary 只概述本步；rolling_summary 要把"
+                                " state_before.rolling_summary 的前情与本步合并压缩成"
+                                "不超过 4000 字的累计摘要，保留未完成承诺和目标；"
                                 "候选变化须有真实来源或当前模拟事件；缺字段即 uncertain。"
                                 "传闻标为 reported_claim，不能当事实。"
                                 "不得写 World、continuity、正文或 RP 知识。"
@@ -782,14 +911,13 @@ async def _run_one_step(
             intents,
             finite,
             state,
-            observers={
-                f"object:{actor_id}"
-                for actor_id in active_participant_ids
-                if f"object:{actor_id}" not in set(state.get("departed", []))
-            },
+            observers={f"object:{actor_id}" for actor_id in active_participant_ids},
             rule_revision=content_hash("simulation_v3:world-progression:v1"),
         )
         state_after = replay_batch(state, batch)
+        settled_outcomes = {
+            str(event["intent_id"]): str(event["outcome"]) for event in batch.events
+        }
         expected_intersections = {
             item["intersection_id"]: set(item["actor_ids"])
             for item in intersection_result.get("items") or []
@@ -831,6 +959,7 @@ async def _run_one_step(
                 for item in (source.get("map_state") or {}).get("routes", [])
             },
             resource_keys=set(state.get("resource_holders", {})),
+            current_event_ids={str(event["event_id"]) for event in batch.events},
             targets={
                 str(item.get("id")): bool(item.get("must_reach"))
                 for item in source.get("targets", [])
@@ -868,7 +997,13 @@ async def _run_one_step(
             "basis_changed": basis_changed,
             "actor_intents": action_rows,
             "movement_feasibility": movement_checks,
-            "intent_outcomes": [item.model_dump(mode="json") for item in finite.outcomes],
+            "intent_outcomes": [
+                {
+                    "intent_id": intent.intent_id,
+                    "outcome": settled_outcomes[intent.intent_id],
+                }
+                for intent in intents
+            ],
             "simulated_events": batch.events,
             "state_delta": [item.model_dump(mode="json") for item in batch.state_patches],
             "intersections": intersection_result,
@@ -1135,14 +1270,34 @@ def _apply_candidate_updates(
     event_visibility,
     route_ids,
     resource_keys,
+    current_event_ids,
     targets,
     entity_ids,
 ):
     result = deepcopy(state)
     used_ids = source_ids | set(event_visibility) | route_ids | resource_keys
+    successful_current_events = {
+        event_id
+        for event_id in current_event_ids
+        if (event_visibility.get(event_id) or {}).get("event", {}).get("outcome")
+        == "succeeded"
+    }
+
+    def actor_observed_success(basis_ids, actor_id):
+        return any(
+            event_id in successful_current_events
+            and (
+                (event_visibility[event_id]["event"].get("actor_id") == actor_id)
+                or f"object:{actor_id}" in event_visibility[event_id]["observers"]
+            )
+            for event_id in basis_ids
+        )
+
     for update in resolution.status_updates:
         if update.actor_id not in participants or not set(update.basis_ids) <= used_ids:
             raise ValueError("候选状态变化超出参与者或来源范围")
+        if not actor_observed_success(update.basis_ids, update.actor_id):
+            raise ValueError("候选状态变化必须引用本步成功的模拟事件")
         result.setdefault("candidate_status", {})[f"{update.actor_id}:{update.field}"] = {
             "value": update.value,
             "basis_ids": list(update.basis_ids),
@@ -1154,6 +1309,8 @@ def _apply_candidate_updates(
             raise ValueError("候选态度端点不在本次参与者范围")
         if not set(update.basis_ids) <= used_ids:
             raise ValueError("候选态度引用了未知来源")
+        if not actor_observed_success(update.basis_ids, update.subject_id):
+            raise ValueError("候选态度变化必须引用本步成功的模拟事件")
         result.setdefault("candidate_attitudes", {})[
             f"{update.subject_id}:{update.target_id}"
         ] = update.model_dump(mode="json")
@@ -1186,6 +1343,8 @@ def _apply_candidate_updates(
             or not set(update.basis_ids) <= used_ids
         ):
             raise ValueError("候选资源变化缺少当前资源或来源依据")
+        if not set(update.basis_ids) & successful_current_events:
+            raise ValueError("候选资源变化必须引用本步成功的模拟事件")
         if update.holder_id and update.holder_id not in participants | entity_ids:
             raise ValueError("候选资源持有者没有已证明的身份")
         current_holder = str(
@@ -1199,9 +1358,26 @@ def _apply_candidate_updates(
             "holder_id": update.holder_id,
             "basis_ids": list(update.basis_ids),
         }
+    prior_completed_targets = {
+        str(item.get("target_id"))
+        for item in (state.get("rolling_summary") or {}).get(
+            "candidate_goal_statuses", []
+        )
+        if item.get("status") == "completed"
+    }
     for outcome in resolution.goal_outcomes:
         if outcome.target_id not in targets:
             raise ValueError("目标回执引用了非本次选择的结构节点")
+        newly_completed = (
+            outcome.status == "completed"
+            and outcome.target_id not in prior_completed_targets
+        )
+        if newly_completed and not any(
+            path.target_id == outcome.target_id
+            and set(path.basis_ids) & successful_current_events
+            for path in resolution.target_paths
+        ):
+            raise ValueError("目标完成必须由本步成功事件及目标路径共同证明")
     reported_targets = {item.target_id for item in resolution.goal_outcomes}
     if set(targets) != reported_targets:
         raise ValueError("每个本次选择的目标都必须保留明确的阶段状态")
@@ -1219,7 +1395,7 @@ def _apply_candidate_updates(
 def _rolling_summary(state, resolution, events):
     return {
         "candidate_state_revision": state.get("revision", 0),
-        "latest_resolution": resolution.narrative_summary,
+        "cumulative_summary": resolution.rolling_summary,
         "event_count": len(events),
         "event_ids": [item.get("event_id") for item in events],
         "candidate_goal_statuses": [

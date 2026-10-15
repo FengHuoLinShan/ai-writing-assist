@@ -3,7 +3,7 @@ from __future__ import annotations
 import uuid
 
 import pytest
-from sqlalchemy import delete, func, select
+from sqlalchemy import delete, func, select, text
 from sqlalchemy.exc import DBAPIError
 
 from modules.project.models import Project
@@ -120,3 +120,56 @@ async def test_project_delete_can_cascade_through_retained_progression_history(
         .where(StoryWorldProgressionStep.novel_id == novel_id)
     )
     assert remaining_steps == 0
+
+
+@pytest.mark.asyncio
+async def test_temp_project_shadow_cannot_authorize_live_parent_cascade(
+    db_session,
+) -> None:
+    project = await create_project(db_session)
+    root, _, _ = await _seed_progression(db_session, project["project_uuid"])
+    await db_session.execute(text("CREATE TEMP TABLE projects (id uuid) ON COMMIT DROP"))
+
+    with pytest.raises(DBAPIError, match="world progression steps are immutable"):
+        await db_session.execute(
+            delete(StoryWorldProgressionRoot).where(
+                StoryWorldProgressionRoot.id == root.id
+            )
+        )
+
+
+@pytest.mark.asyncio
+async def test_nested_trigger_cannot_delete_step_while_project_exists(
+    db_session,
+) -> None:
+    project = await create_project(db_session)
+    _, _, step = await _seed_progression(db_session, project["project_uuid"])
+    await db_session.execute(text("CREATE TEMP TABLE nested_step_delete (step_id uuid)"))
+    await db_session.execute(
+        text(
+            """
+            CREATE FUNCTION pg_temp.try_delete_progression_step() RETURNS trigger
+            LANGUAGE plpgsql AS $$
+            BEGIN
+                DELETE FROM story_world_progression_steps WHERE id = NEW.step_id;
+                RETURN NEW;
+            END;
+            $$
+            """
+        )
+    )
+    await db_session.execute(
+        text(
+            """
+            CREATE TRIGGER nested_step_delete_trigger AFTER INSERT
+            ON nested_step_delete FOR EACH ROW
+            EXECUTE FUNCTION pg_temp.try_delete_progression_step()
+            """
+        )
+    )
+
+    with pytest.raises(DBAPIError, match="world progression steps are immutable"):
+        await db_session.execute(
+            text("INSERT INTO nested_step_delete (step_id) VALUES (:step_id)"),
+            {"step_id": step.id},
+        )

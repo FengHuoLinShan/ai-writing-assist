@@ -99,24 +99,36 @@ def derive_progression_metrics(
     resources_before = before_state.get("candidate_resources", {})
     resources_after = after_state.get("candidate_resources", {})
     changed = sum(
-        sum(
-            statuses_before.get(key) != statuses_after.get(key)
-            for key in set(statuses_before) | set(statuses_after)
-        ),
-        sum(
-            attitudes_before.get(key) != attitudes_after.get(key)
-            for key in set(attitudes_before) | set(attitudes_after)
-        ),
-        sum(
-            knowledge_before.get(key) != knowledge_after.get(key)
-            for key in set(knowledge_before) | set(knowledge_after)
-        ),
-        sum(
-            resources_before.get(key) != resources_after.get(key)
-            for key in set(resources_before) | set(resources_after)
-        ),
+        [
+            sum(
+                statuses_before.get(key) != statuses_after.get(key)
+                for key in set(statuses_before) | set(statuses_after)
+            ),
+            sum(
+                attitudes_before.get(key) != attitudes_after.get(key)
+                for key in set(attitudes_before) | set(attitudes_after)
+            ),
+            sum(
+                knowledge_before.get(key) != knowledge_after.get(key)
+                for key in set(knowledge_before) | set(knowledge_after)
+            ),
+            sum(
+                resources_before.get(key) != resources_after.get(key)
+                for key in set(resources_before) | set(resources_after)
+            ),
+        ]
     )
-    goal_values = [item.get("status") for item in resolution.get("goal_outcomes", [])]
+    prior_goals = {
+        str(item.get("target_id")): item.get("status")
+        for item in (before_state.get("rolling_summary") or {}).get(
+            "candidate_goal_statuses", []
+        )
+    }
+    goal_values = [
+        item.get("status")
+        for item in resolution.get("goal_outcomes", [])
+        if prior_goals.get(str(item.get("target_id"))) != item.get("status")
+    ]
     return {
         "state_changes": changed,
         "intersections": len(intersections.get("items") or []),

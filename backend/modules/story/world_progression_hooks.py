@@ -40,6 +40,7 @@ from modules.story.world_progression_schemas import (
     ProgressionHookPreviewRequest,
 )
 from modules.story.world_progression_service import (
+    get_progression_branch,
     get_progression_root,
     get_progression_step,
 )
@@ -71,6 +72,7 @@ async def _resolve_hook(db, novel_id: str, root_id: str, step_id: str, hook_id: 
     step = await get_progression_step(db, novel_id, step_id)
     if str(step.root_id) != str(root.id):
         raise ConflictError("钩子来源步骤不属于该推进根")
+    await get_progression_branch(db, novel_id, str(step.branch_id))
     hooks = list((step.result_json or {}).get("plot_hooks") or [])
     for index, raw in enumerate(hooks):
         expected = content_hash(
@@ -181,24 +183,42 @@ async def _prepare_hook_preview(db, data, *, confirmed_context=None):
     if not actor_ids <= allowed_actors | allowed_entities:
         raise ConflictError("钩子关联身份不在当前规划确认来源中，请重新选择")
     if data.asset_type == "plot_thread":
-        draft["related_character_ids"] = list(
-            set(map(str, draft.get("related_character_ids") or [])) & allowed_actors
-        )
-        draft["related_entity_ids"] = list(
-            set(map(str, draft.get("related_entity_ids") or []))
-            | (actor_ids & allowed_entities)
-        )
+        if not data.draft:
+            draft["related_character_ids"] = sorted(actor_ids & allowed_actors)
+            draft["related_entity_ids"] = sorted(actor_ids & allowed_entities)
+        elif (
+            not set(map(str, draft.get("related_character_ids") or [])) <= allowed_actors
+            or not set(map(str, draft.get("related_entity_ids") or []))
+            <= allowed_entities
+        ):
+            raise ConflictError("采用草稿关联了确认范围外的身份")
         PlotThreadCreate.model_validate(draft)
     elif data.asset_type == "outline_arc":
-        draft["related_character_ids"] = list(
-            set(map(str, draft.get("related_character_ids") or [])) & allowed_actors
-        )
-        draft["related_entity_ids"] = list(
-            set(map(str, draft.get("related_entity_ids") or []))
-            | (actor_ids & allowed_entities)
-        )
+        if not data.draft:
+            draft["related_character_ids"] = sorted(actor_ids & allowed_actors)
+            draft["related_entity_ids"] = sorted(actor_ids & allowed_entities)
+        elif (
+            not set(map(str, draft.get("related_character_ids") or [])) <= allowed_actors
+            or not set(map(str, draft.get("related_entity_ids") or []))
+            <= allowed_entities
+        ):
+            raise ConflictError("采用草稿关联了确认范围外的身份")
         OutlineArcCreate.model_validate(draft)
     else:
+        if not data.draft:
+            draft["pov_character_id"] = next(
+                (
+                    actor
+                    for actor in hook.get("actor_ids") or []
+                    if actor in allowed_actors
+                ),
+                None,
+            )
+        elif (
+            draft.get("pov_character_id")
+            and str(draft["pov_character_id"]) not in allowed_actors
+        ):
+            raise ConflictError("计划场景视角人物不在确认范围内")
         SceneCreate.model_validate(draft)
     payload_hash = content_hash(
         {
@@ -274,18 +294,34 @@ async def api_progression_hook_preview(
         raise _raise_http(error) from error
 
 
-async def _find_adopted_operation(db, novel_id: str, asset_type: str, operation_id: str):
-    model = {
-        "plot_thread": PlotThread,
-        "outline_arc": OutlineArc,
-        "planned_scene": Scene,
-    }[asset_type]
-    rows = (await db.scalars(select(model).where(model.novel_id == UUID(novel_id)))).all()
-    for row in rows:
-        provenance = dict(getattr(row, "provenance_meta", None) or {})
-        if provenance.get("world_progression_operation_id") == operation_id:
+async def _find_adopted_operation(
+    db, novel_id: str, asset_type: str, operation_id: str, preview_hash: str
+):
+    for current_type, model in (
+        ("plot_thread", PlotThread),
+        ("outline_arc", OutlineArc),
+        ("planned_scene", Scene),
+    ):
+        rows = (
+            await db.scalars(select(model).where(model.novel_id == UUID(novel_id)))
+        ).all()
+        for row in rows:
+            provenance = (
+                dict((row.structure_meta or {}).get("provenance") or {})
+                if current_type == "planned_scene"
+                else dict(row.provenance_meta or {})
+            )
+            if provenance.get("world_progression_operation_id") != operation_id:
+                continue
+            if (
+                current_type != asset_type
+                or provenance.get("world_progression_preview_hash") != preview_hash
+            ):
+                raise ConflictError("同一采用操作已用于另一钩子或草稿")
             return {
-                "asset_type": asset_type,
+                "asset_type": (
+                    "scene" if current_type == "planned_scene" else current_type
+                ),
                 "asset_id": str(row.id),
                 "status": "adopted",
             }
@@ -298,7 +334,7 @@ async def _apply_hook_adoption(db, data):
     _enabled()
     await require_active_project(db, data.novel_id)
     prior = await _find_adopted_operation(
-        db, data.novel_id, data.asset_type, str(data.operation_id)
+        db, data.novel_id, data.asset_type, str(data.operation_id), data.preview_hash
     )
     if prior:
         return prior
@@ -308,6 +344,11 @@ async def _apply_hook_adoption(db, data):
     fresh_plan = preview["_plan"]
     fresh_source_fingerprint = preview["source_readset"]["fingerprint"]
     await require_active_project_exclusive(db, data.novel_id)
+    prior = await _find_adopted_operation(
+        db, data.novel_id, data.asset_type, str(data.operation_id), data.preview_hash
+    )
+    if prior:
+        return prior
     await require_fresh_confirmation(
         db,
         novel_id=data.novel_id,
@@ -330,6 +371,7 @@ async def _apply_hook_adoption(db, data):
         "world_progression_step_output_hash": step.output_hash,
         "world_progression_source_hash": step.source_hash,
         "world_progression_operation_id": str(data.operation_id),
+        "world_progression_preview_hash": data.preview_hash,
         "p20_source_fingerprint": locked_plan.source_fingerprint,
         "p20_story_outline_revision_id": locked_plan.context_provenance.get(
             "story_outline_revision_id"

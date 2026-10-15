@@ -20,6 +20,7 @@ from modules.story.world_progression_schemas import (
     ProgressionHookAdoptRequest,
     ProgressionHookPreviewRequest,
     ProgressionParticipant,
+    ProgressionResumeRequest,
     ProgressionStartRequest,
     ProgressionTarget,
 )
@@ -28,6 +29,7 @@ from modules.story.world_progression_service import (
     get_progression_branch,
     get_progression_root,
     list_root_metrics,
+    progression_resume_hash,
     read_progression_history,
 )
 
@@ -185,13 +187,11 @@ async def _prepare_advance(db, novel_id, args, *, context=None):
     envelope = read_ai_run_envelope(root.run_envelope_json)
     if envelope is None or envelope.run_id != str(root.id):
         raise ConflictError("原运行累计预算不可恢复")
-    if (
-        envelope.requests_unknown
-        or not envelope.usage_complete
-        or envelope.requests_started / max(1, envelope.request_limit) >= 0.8
-        or envelope.usage.total_tokens / max(1, envelope.token_limit) >= 0.8
-    ):
-        raise ConflictError("原运行已达到 80% 或包含未知计费请求，不能继续")
+    from infrastructure.llm.workflow_budget import AIRunEnvelope
+    from modules.story.world_progression_tasks import _budget_stop
+
+    if stop := _budget_stop(AIRunEnvelope(envelope)):
+        raise ConflictError(f"原运行预算已暂停，不能继续：{stop}")
     return {
         "root_id": str(root.id),
         "branch_id": str(branch.id),
@@ -216,6 +216,52 @@ async def _apply_advance(db, novel_id, args, preview, *, context=None):
     from modules.story.world_progression_api import api_advance_progression
 
     return dict(await api_advance_progression(str(args.root_id), args, db))
+
+
+async def _prepare_resume(db, novel_id, args, *, context=None):
+    _require_enabled()
+    _require_project(novel_id, args)
+    await require_active_project(db, novel_id)
+    root = await get_progression_root(db, novel_id, str(args.root_id))
+    branch = await get_progression_branch(db, novel_id, str(args.branch_id))
+    if str(branch.root_id) != str(root.id) or not branch.pending_step_json:
+        raise ConflictError("所选分支没有可恢复的半步检查点")
+    if progression_resume_hash(root, branch) != args.resume_hash:
+        raise ConflictError("预算或半步检查点已变化，请刷新历史")
+    from infrastructure.llm.schemas import read_ai_run_envelope
+
+    budget = read_ai_run_envelope(root.run_envelope_json)
+    if budget is None or budget.run_id != str(root.id):
+        raise ConflictError("原运行预算账本不可恢复")
+    if args.acknowledge_unknown_requests != budget.requests_unknown:
+        raise ConflictError("未知计费结果数量已变化，请刷新后重新确认")
+    if budget.requests_unknown and not args.allow_possible_duplicate_charge:
+        raise ConflictError("恢复前须明确确认当前未知请求可能重复计费")
+    return {
+        "root_id": str(root.id),
+        "branch_id": str(branch.id),
+        "resume_hash": args.resume_hash,
+        "cached_actor_count": len(
+            (branch.pending_step_json or {}).get("actor_drafts") or {}
+        ),
+        "requests_started": budget.requests_started,
+        "request_limit": budget.request_limit,
+        "tokens_used": budget.usage.total_tokens,
+        "token_limit": budget.token_limit,
+        "unknown_requests": budget.requests_unknown,
+        "started_at": budget.started_at.isoformat(),
+        "deadline_at": budget.deadline_at.isoformat() if budget.deadline_at else None,
+        "possible_duplicate_charge": bool(budget.requests_unknown),
+    }
+
+
+async def _apply_resume(db, novel_id, args, preview, *, context=None):
+    _require_project(novel_id, args)
+    from modules.story.world_progression_api import api_resume_progression
+
+    return dict(
+        await api_resume_progression(str(args.root_id), str(args.branch_id), args, db)
+    )
 
 
 async def _prepare_hook_preview(db, novel_id, args, *, context=None):
@@ -369,6 +415,27 @@ OPERATIONS_SPEC = {
             "真实普通作者助手回合",
             "同一 Scene 和资料确认",
             "原累计预算未到 80% 且无未知计费结果",
+        ),
+        transaction="multi_stage",
+        reversibility="history_restore_30_days",
+    ),
+    "story.world_progression.resume": _operation(
+        label="确认恢复中断的世界推进步骤",
+        schema=ProgressionResumeRequest,
+        prepare=_prepare_resume,
+        apply=_apply_resume,
+        permission="confirm",
+        description=(
+            "作者单独确认后沿原根和原分支的持久半步继续；"
+            "不清零已用或未知请求，不延长原截止时间，新增未知再次暂停。"
+        ),
+        risk="R4",
+        fee="possible_model_charge",
+        produces=("world_progression_candidate_step",),
+        preconditions=(
+            "作者确认原根剩余额度、时限和当前未知计费请求",
+            "半步来源与父步骤仍匹配当前已采用资料",
+            "原任务已终止，未有并发推进",
         ),
         transaction="multi_stage",
         reversibility="history_restore_30_days",

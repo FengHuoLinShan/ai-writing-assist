@@ -174,7 +174,7 @@ class ProgressionBudgetPreviewRequest(ProgressionModel):
     ] = "auto"
     run_policy: Literal["one_step", "n_steps", "until_goal", "until_budget"] = "one_step"
     steps: int | None = Field(default=None, ge=1)
-    stop_at_goal: bool = True
+    stop_at_goal: bool = False
     targets: list[ProgressionTarget] = Field(default_factory=list)
     instructions: str = Field(default="", max_length=6000)
     retained_constraints: list[str] = Field(default_factory=list)
@@ -219,6 +219,22 @@ class ProgressionAdvanceRequest(ProgressionModel):
         Literal["auto", "day", "week", "month", "season", "year", "next_beat"] | None
     ) = None
     operation_id: uuid.UUID
+
+    @field_validator("novel_id")
+    @classmethod
+    def valid_project(cls, value: str) -> str:
+        return _uuid(value)
+
+
+class ProgressionResumeRequest(ProgressionModel):
+    novel_id: str
+    root_id: uuid.UUID
+    branch_id: uuid.UUID
+    operation_id: uuid.UUID
+    context_confirmation_id: str = Field(min_length=1, max_length=128)
+    resume_hash: str = Field(pattern=r"^[a-f0-9]{64}$")
+    acknowledge_unknown_requests: int = Field(default=0, ge=0)
+    allow_possible_duplicate_charge: bool = False
 
     @field_validator("novel_id")
     @classmethod
@@ -379,6 +395,7 @@ class ProgressionActorDraft(ProgressionModel):
 class ProgressionStepResolution(ProgressionModel):
     story_time_text: str = Field(min_length=1, max_length=240)
     narrative_summary: str = Field(min_length=1, max_length=4000)
+    rolling_summary: str = Field(min_length=1, max_length=4000)
     outcomes: dict[str, Literal["succeeded", "failed", "uncertain"]]
     status_updates: list[ProgressionStatusUpdate] = Field(default_factory=list)
     attitude_updates: list[ProgressionAttitudeUpdate] = Field(default_factory=list)

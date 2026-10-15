@@ -1,5 +1,8 @@
 from types import SimpleNamespace
 
+import pytest
+
+from modules.story import world_progression_context
 from modules.story.world_progression_context import _life_state_checks
 from modules.story.world_progression_engine import (
     detect_progression_intersections,
@@ -119,6 +122,32 @@ def test_user_selected_steps_and_participant_count_have_no_product_ceiling() -> 
     assert request.steps == 500
 
 
+@pytest.mark.asyncio
+async def test_default_cutoff_skips_planned_scene_in_latest_written_chapter(
+    monkeypatch,
+) -> None:
+    async def latest(_db, _novel_id):
+        return 12
+
+    async def scenes(_db, _novel_id, _chapter_index):
+        return [
+            {"id": "written", "scene_index": 2, "status": "canonical"},
+            {
+                "id": "planned",
+                "scene_index": 3,
+                "status": "draft",
+                "structure_meta": {"planning_state": "planned"},
+            },
+        ]
+
+    monkeypatch.setattr(
+        world_progression_context, "get_latest_effective_chapter_index", latest
+    )
+    monkeypatch.setattr(world_progression_context, "get_scenes_by_chapter", scenes)
+    selected = await world_progression_context._latest_written_scene(None, "novel")
+    assert selected["id"] == "written"
+
+
 def test_actor_move_requires_a_typed_destination_id() -> None:
     try:
         ProgressionActorIntent(
@@ -228,9 +257,10 @@ def test_map_validity_override_uses_exact_story_identity() -> None:
     assert resolved is notice
     assert unknowns == []
 
-    author_state["dimensions"][0]["facts"][0]["source"]["provenance"][
-        "identity_ref"
-    ] = {**identity, "revision_id": "00000000-0000-0000-0000-000000000099"}
+    author_state["dimensions"][0]["facts"][0]["source"]["provenance"]["identity_ref"] = {
+        **identity,
+        "revision_id": "00000000-0000-0000-0000-000000000099",
+    }
     active, _ = _declaration_active_at(
         declaration,
         node_id=node_id,
@@ -290,7 +320,7 @@ def test_map_validity_author_priority_uses_interval_and_gap_is_disclosed() -> No
         notices_by_target={key: gap},
         unknowns=unknowns,
     )
-    assert active is True
+    assert active is False
     assert any(item.startswith("map_validity_gap") for item in unknowns)
 
 
@@ -339,9 +369,7 @@ def test_movement_requires_actor_visible_typed_direct_route() -> None:
                     "destination_kind": "map_node",
                     "destination_id": destination,
                     "duration": {"minimum": 1, "maximum": 2, "unit": "day"},
-                    "travel_type_evidence": [
-                        {"type_ref": "type-1", "computable": True}
-                    ],
+                    "travel_type_evidence": [{"type_ref": "type-1", "computable": True}],
                 }
             ],
         },

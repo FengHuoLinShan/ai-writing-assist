@@ -94,6 +94,10 @@
               <span>连续步数</span>
               <input v-model.number="form.steps" type="number" min="1" step="1" :disabled="busy" @input="onBudgetInputsChanged">
             </label>
+            <label v-if="form.runPolicy === 'n_steps' && form.targets.length" class="world-progression__must-reach">
+              <input v-model="form.stopAtGoal" type="checkbox" :disabled="busy" @change="invalidatePreview">
+              <span>目标达成后提前停止</span>
+            </label>
           </div>
 
           <label v-if="form.mode === 'directed'" class="world-progression__field">
@@ -239,7 +243,8 @@
                       <button v-if="branch.deleted_at" type="button" class="btn btn-sm" :disabled="busy" @click="restoreBranch(branch)">恢复</button>
                       <template v-else>
                         <button type="button" class="btn btn-sm" :aria-pressed="branch.starred" :disabled="busy" @click="saveBranch(branch, { starred: !branch.starred })">{{ branch.starred ? "★ 已星标" : "☆ 星标" }}</button>
-                        <button type="button" class="btn btn-sm btn-text" :disabled="busy || branch.current_task_id || branch.status === 'running' || branch.status === 'queued'" @click="deleteBranch(branch)">移入恢复区</button>
+                        <button v-if="branch.resume_hash && branch.pending_step?.pending" type="button" class="btn btn-sm" :disabled="busy" @click="resumeBranch(root, branch)">确认恢复中断步骤</button>
+                        <button type="button" class="btn btn-sm btn-text" :disabled="busy" @click="deleteBranch(branch)">移入恢复区</button>
                       </template>
                     </div>
                   </header>
@@ -253,7 +258,7 @@
                     <details v-for="step in branch.steps" :key="step.id" class="world-progression__history-step">
                       <summary>
                         <span>第 {{ step.step_number }} 步 · {{ step.result?.story_time_text || "时间估计待核" }}</span>
-                        <small>{{ step.basis_changed ? "依据已变化" : "查看结果" }} · {{ dateLabel(step.created_at) }}</small>
+                        <small>{{ step.source_current_status === "changed" || step.basis_changed ? "依据已变化" : step.source_current_status === "same" ? "当前依据一致" : "依据未核对" }} · {{ dateLabel(step.created_at) }}</small>
                       </summary>
                       <div class="world-progression__step-content">
                         <p class="world-progression__time-note">故事时间是模型估计，不代表产品日历已实现。</p>
@@ -472,7 +477,7 @@ const form = reactive({
   stepLength: "auto",
   runPolicy: "one_step",
   steps: 2,
-  stopAtGoal: true,
+  stopAtGoal: false,
   instructions: "",
   retainedConstraintsText: "",
   targets: [],
@@ -1164,6 +1169,58 @@ async function continueFromStep(root, branch, step) {
       error.value = Number(cause?.status) === 409
         ? "原预算、资料依据或分支状态已变化。选择仍保留，请刷新历史后再决定。"
         : cause?.message || "续跑失败；历史不会被覆盖。"
+    }
+  } finally {
+    if (owns(token, projectId)) busy.value = false
+  }
+}
+
+async function resumeBranch(root, branch) {
+  if (busy.value || branch.deleted_at || !branch.resume_hash) return
+  const projectId = String(props.projectId)
+  const token = generation
+  const unknown = Number(root.budget?.unknown_requests || 0)
+  const message = `沿原运行和原分支恢复已保存的半步？原根已用 ${root.budget?.requests_used || 0}/${root.budget?.requests_authorized || 0} 次请求、${root.budget?.tokens_used || 0}/${root.budget?.tokens_authorized || 0} Token，原时限至 ${dateLabel(root.budget?.deadline_at)}。${unknown ? `当前有 ${unknown} 个计费结果未知；确认可能重复计费后，仅确认这 ${unknown} 个，后来新增未知仍会暂停。` : "不会增加或重置预算。"}`
+  if (!getConfirm()(message)) return
+  busy.value = true
+  error.value = ""
+  notice.value = ""
+  try {
+    const selection = branch.request?.participants || root.request?.participants || []
+    const sceneId = branch.request?.scene_id || root.scene_id
+    const confirmation = await confirmAiReference({
+      novel_id: projectId,
+      action: "story.one_click.simulate",
+      task: "确认恢复已保存的世界推进半步与原根预算",
+      scope: "scene",
+      scene_id: sceneId,
+      visible_until_scene_id: sceneId,
+      character_ids: selection.filter((item) => item.kind === "character").map((item) => item.id),
+      entity_ids: selection.filter((item) => item.kind === "group").map((item) => item.id),
+      include_pending_objects: false,
+      budget_tokens: 0,
+    })
+    if (!owns(token, projectId) || !confirmation?.id) return
+    const result = await getApi().story.resumeWorldProgression(root.id, branch.id, {
+      novel_id: projectId,
+      root_id: root.id,
+      branch_id: branch.id,
+      operation_id: createOperationId(),
+      context_confirmation_id: confirmation.id,
+      resume_hash: branch.resume_hash,
+      acknowledge_unknown_requests: unknown,
+      allow_possible_duplicate_charge: unknown > 0,
+    })
+    if (!owns(token, projectId)) return
+    if (!result?.task_id) throw new Error("恢复未提交；请刷新历史核对状态。")
+    activeTaskId = result.task_id
+    notice.value = "已沿原分支恢复；用量继续计入原预算。"
+    startPolling(result.task_id, projectId, token)
+  } catch (cause) {
+    if (owns(token, projectId)) {
+      error.value = Number(cause?.status) === 409
+        ? "预算、来源或任务状态已变化。原半步仍保留，请刷新历史后重新确认。"
+        : cause?.message || "恢复失败；已保存的半步仍保留。"
     }
   } finally {
     if (owns(token, projectId)) busy.value = false

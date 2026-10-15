@@ -4,15 +4,17 @@ from __future__ import annotations
 
 import os
 from datetime import UTC, datetime, timedelta
+from types import SimpleNamespace
 from uuid import UUID, uuid4
 
 from fastapi import APIRouter, HTTPException, Query
 from fastapi import status as http_status
+from sqlalchemy import select
 
 from core.dependencies import DbSession
 from core.errors import ConflictError, NotFoundError
-from infrastructure.llm.schemas import AI_RUN_ENVELOPE_KEY, read_ai_run_envelope
-from infrastructure.llm.workflow_budget import new_ai_run_envelope
+from infrastructure.llm.schemas import read_ai_run_envelope
+from infrastructure.llm.workflow_budget import AIRunEnvelope, new_ai_run_envelope
 from infrastructure.tasks.facade import (
     enqueue_task_with_optional_operation,
     get_operation_task,
@@ -35,6 +37,7 @@ from modules.story.world_progression_continuous import (
 )
 from modules.story.world_progression_hooks import router as _hook_router
 from modules.story.world_progression_models import (
+    StoryWorldProgressionAuthorization,
     StoryWorldProgressionBranch,
     StoryWorldProgressionRoot,
 )
@@ -45,7 +48,10 @@ from modules.story.world_progression_schemas import (
     ProgressionContinuousAuthorizationRequest,
     ProgressionDeleteRequest,
     ProgressionMetadataRequest,
+    ProgressionParticipant,
+    ProgressionResumeRequest,
     ProgressionStartRequest,
+    ProgressionTarget,
 )
 from modules.story.world_progression_service import (
     compare_progression_steps,
@@ -54,6 +60,7 @@ from modules.story.world_progression_service import (
     get_progression_root,
     get_progression_step,
     list_root_metrics,
+    progression_resume_hash,
     read_progression_history,
     restore_progression_branch,
     update_branch_metadata,
@@ -61,6 +68,8 @@ from modules.story.world_progression_service import (
 from modules.story.world_progression_tasks import (
     WORLD_PROGRESSION_CAPABILITY,
     WORLD_PROGRESSION_TASK,
+    _budget_stop,
+    _task_meta,
 )
 
 router = APIRouter(
@@ -153,26 +162,6 @@ async def _existing_task(db, *, operation_id, novel_id, request_payload):
         novel_id=novel_id,
         request_payload=request_payload,
     )
-
-
-def _task_meta(*, request, root_id, branch_id, execution_snapshot, envelope):
-    snapshot = envelope.snapshot().model_dump(mode="json")
-    return {
-        "meta_version": 1,
-        "request": request,
-        "world_progression_root_id": str(root_id),
-        "world_progression_branch_id": str(branch_id),
-        "world_progression_authorized_requests": int(snapshot["request_limit"]),
-        "world_progression_authorized_tokens": int(snapshot["token_limit"]),
-        "world_progression_deadline_seconds": max(
-            1,
-            int((envelope.deadline_at - envelope.started_at).total_seconds())
-            if envelope.deadline_at
-            else 3600,
-        ),
-        "llm_execution_snapshot": execution_snapshot,
-        AI_RUN_ENVELOPE_KEY: snapshot,
-    }
 
 
 async def _enqueue_existing_root(
@@ -375,6 +364,8 @@ async def api_advance_progression(
 ):
     _enabled()
     await require_active_project(db, data.novel_id)
+    if str(data.root_id) != root_id:
+        raise HTTPException(status_code=409, detail="推进请求与所选运行不匹配")
     fingerprint_request = data.model_dump(mode="json", exclude={"operation_id"})
     try:
         existing = await _existing_task(
@@ -412,20 +403,11 @@ async def api_advance_progression(
             or raw_envelope.root_capability_id != WORLD_PROGRESSION_CAPABILITY
         ):
             raise ConflictError("累计预算账本不可恢复，已停止续算")
-        if raw_envelope.requests_unknown or not raw_envelope.usage_complete:
-            raise ConflictError("此前请求用量未知，不能在未核对账本时继续")
-        if raw_envelope.requests_started / max(1, raw_envelope.request_limit) >= 0.8:
-            raise ConflictError("原运行已达到 80% 请求额度，不能继续追加步骤")
-        if raw_envelope.usage.total_tokens / max(1, raw_envelope.token_limit) >= 0.8:
-            raise ConflictError("原运行已达到 80% Token 额度，不能继续追加步骤")
+        if stop := _budget_stop(AIRunEnvelope(raw_envelope)):
+            raise ConflictError(f"原运行预算已暂停，不能继续追加步骤：{stop}")
 
         root_request = dict(root.request_json or {})
         participants = [item for item in root_request.get("participants") or []]
-        from modules.story.world_progression_schemas import (
-            ProgressionParticipant,
-            ProgressionTarget,
-        )
-
         participant_models = [
             ProgressionParticipant.model_validate(item) for item in participants
         ]
@@ -465,9 +447,7 @@ async def api_advance_progression(
             source["scene_id"],
         )
         execution_snapshot = root.llm_execution_snapshot_json
-        envelope = __import__(
-            "infrastructure.llm.workflow_budget", fromlist=["AIRunEnvelope"]
-        ).AIRunEnvelope(raw_envelope)
+        envelope = AIRunEnvelope(raw_envelope)
         branch_id = uuid4()
         branch = StoryWorldProgressionBranch(
             id=branch_id,
@@ -487,7 +467,7 @@ async def api_advance_progression(
                 "targets": root_request.get("targets", []),
                 "instructions": root_request.get("instructions", ""),
                 "retained_constraints": root_request.get("retained_constraints", []),
-                "stop_at_goal": root_request.get("stop_at_goal", True),
+                "stop_at_goal": root_request.get("stop_at_goal", False),
             },
             source_snapshot_json=source,
             status="queued",
@@ -506,6 +486,178 @@ async def api_advance_progression(
             envelope=envelope,
             confirmation_id=data.context_confirmation_id,
         )
+    except Exception as error:
+        raise _raise_http(error) from error
+
+
+@router.post(
+    "/roots/{root_id}/branches/{branch_id}/resume",
+    status_code=http_status.HTTP_202_ACCEPTED,
+    openapi_extra={
+        "x-novelcraft-operation-id": "story.world_progression.resume",
+        "x-novelcraft-operation-trace-fields": _trace_fields(ProgressionResumeRequest),
+    },
+)
+async def api_resume_progression(
+    root_id: str, branch_id: str, data: ProgressionResumeRequest, db: DbSession
+):
+    _enabled()
+    await require_active_project(db, data.novel_id)
+    if str(data.root_id) != root_id or str(data.branch_id) != branch_id:
+        raise HTTPException(status_code=409, detail="恢复请求与所选历史分支不匹配")
+    request_payload = data.model_dump(mode="json", exclude={"operation_id"})
+    try:
+        existing = await _existing_task(
+            db,
+            operation_id=data.operation_id,
+            novel_id=data.novel_id,
+            request_payload=request_payload,
+        )
+        if existing is not None:
+            task = await db.get(AsyncTask, UUID(str(existing.task_id)))
+            meta = dict(task.meta or {}) if task is not None else {}
+            if (
+                str(meta.get("world_progression_root_id") or "") != root_id
+                or str(meta.get("world_progression_branch_id") or "") != branch_id
+            ):
+                raise ConflictError("重复恢复操作与原推进分支不匹配")
+            return _response(existing.task_id, existing.status, root_id, branch_id)
+
+        root = await get_progression_root(db, data.novel_id, root_id, lock=True)
+        branch = await get_progression_branch(db, data.novel_id, branch_id, lock=True)
+        if str(branch.root_id) != root_id:
+            raise ConflictError("恢复分支不属于所选推进根")
+        existing = await _existing_task(
+            db,
+            operation_id=data.operation_id,
+            novel_id=data.novel_id,
+            request_payload=request_payload,
+        )
+        if existing is not None:
+            task = await db.get(AsyncTask, UUID(str(existing.task_id)))
+            meta = dict(task.meta or {}) if task is not None else {}
+            if (
+                str(meta.get("world_progression_root_id") or "") != root_id
+                or str(meta.get("world_progression_branch_id") or "") != branch_id
+            ):
+                raise ConflictError("重复恢复操作与原推进分支不匹配")
+            return _response(existing.task_id, existing.status, root_id, branch_id)
+        if progression_resume_hash(root, branch) != data.resume_hash:
+            raise ConflictError("预算或半步检查点已变化，请刷新历史后重新确认")
+        if branch.stop_reason == "invalid_resolution":
+            raise ConflictError("无效裁决不能重放；请从上一完整步骤明确创建新分支")
+        if branch.status not in {
+            "failed",
+            "paused_unknown",
+            "paused_budget",
+            "running",
+            "queued",
+        }:
+            raise ConflictError("这个分支没有可恢复的中断步骤")
+        pending = dict(branch.pending_step_json or {})
+        if not pending or not pending.get("source_hash"):
+            raise ConflictError("分支缺少可恢复的持久检查点")
+        for task_id in {root.current_task_id, branch.current_task_id} - {None}:
+            prior = await db.get(AsyncTask, task_id)
+            if prior is not None and prior.status in {"pending", "running"}:
+                raise ConflictError("原世界推进任务仍在运行，不能并发恢复")
+
+        raw = read_ai_run_envelope(root.run_envelope_json)
+        if (
+            raw is None
+            or raw.run_id != root_id
+            or raw.root_capability_id != WORLD_PROGRESSION_CAPABILITY
+            or raw.novel_id != data.novel_id
+        ):
+            raise ConflictError("原根累计预算不可恢复")
+        unknown = int(raw.requests_unknown)
+        if data.acknowledge_unknown_requests != unknown:
+            raise ConflictError("未知计费结果数量已变化，请刷新后重新确认")
+        if unknown and not data.allow_possible_duplicate_charge:
+            raise ConflictError("恢复前须明确确认当前未知请求可能重复计费")
+        if not unknown and data.allow_possible_duplicate_charge:
+            raise ConflictError("当前没有待确认的未知计费请求")
+        envelope = AIRunEnvelope(raw)
+        stop = _budget_stop(
+            envelope,
+            acknowledged_unknown=unknown if data.allow_possible_duplicate_charge else 0,
+            baseline_requests_started=raw.requests_started,
+        )
+        if stop:
+            raise ConflictError(f"原根预算已暂停，不能在当前授权下恢复：{stop}")
+
+        request = {**dict(root.request_json or {}), **dict(branch.request_json or {})}
+        participants = [
+            ProgressionParticipant.model_validate(item)
+            for item in request.get("participants") or []
+        ]
+        targets = [
+            ProgressionTarget.model_validate(item)
+            for item in request.get("targets") or []
+        ]
+        source = await read_progression_source(
+            db,
+            novel_id=data.novel_id,
+            scene_id=request.get("scene_id"),
+            participants=participants,
+            targets=targets,
+        )
+        if (
+            (
+                branch.basis_choice == "current"
+                and source["source_hash"] != pending["source_hash"]
+            )
+            or pending.get("parent_step_id") != str(branch.parent_step_id or "")
+            or (branch.source_snapshot_json or {}).get("source_hash")
+            != pending["source_hash"]
+        ):
+            raise ConflictError("半步来源或父步骤已失效，请从历史明确选择新依据")
+        confirmation = await require_fresh_confirmation(
+            db,
+            novel_id=data.novel_id,
+            action=STORY_ONE_CLICK_ACTION,
+            confirmation_id=data.context_confirmation_id,
+        )
+        _validate_confirmation_scope(
+            dict(confirmation.compile_options or {}),
+            SimpleNamespace(participants=participants),
+            source["scene_id"],
+        )
+        root.current_task_id = branch.current_task_id = None
+        meta = _task_meta(
+            request={
+                "novel_id": data.novel_id,
+                "context_confirmation_id": data.context_confirmation_id,
+            },
+            root_id=root.id,
+            branch_id=branch.id,
+            execution_snapshot=root.llm_execution_snapshot_json,
+            envelope=envelope,
+            acknowledged_unknown=unknown if data.allow_possible_duplicate_charge else 0,
+        )
+        receipt = await enqueue_task_with_optional_operation(
+            db,
+            operation_id=str(data.operation_id),
+            task_type=WORLD_PROGRESSION_TASK,
+            novel_id=data.novel_id,
+            request_payload=request_payload,
+            meta=meta,
+        )
+        if receipt.reused:
+            raise ConflictError("并发恢复操作已登记，请刷新历史核对")
+        root.current_task_id = branch.current_task_id = UUID(str(receipt.task_id))
+        root.status = branch.status = "queued"
+        branch.stop_reason = None
+        await attach_result_ref(
+            db,
+            novel_id=data.novel_id,
+            confirmation_id=data.context_confirmation_id,
+            result_type="task",
+            result_id=str(receipt.task_id),
+            status="running",
+        )
+        await db.flush()
+        return _response(receipt.task_id, receipt.status, root_id, branch_id)
     except Exception as error:
         raise _raise_http(error) from error
 
@@ -585,12 +737,19 @@ async def api_delete_progression_branch(
         raise HTTPException(status_code=400, detail="请确认将该分支移入 30 天恢复区")
     try:
         branch = await get_progression_branch(db, data.novel_id, branch_id)
+        await db.scalar(
+            select(StoryWorldProgressionAuthorization)
+            .where(StoryWorldProgressionAuthorization.novel_id == UUID(data.novel_id))
+            .with_for_update()
+        )
         root = await get_progression_root(
             db, data.novel_id, str(branch.root_id), lock=True
         )
         branch = await get_progression_branch(db, data.novel_id, branch_id, lock=True)
-        if branch.current_task_id or root.current_task_id:
-            raise ConflictError("运行中的历史不能删除")
+        for task_id in {branch.current_task_id, root.current_task_id} - {None}:
+            active = await db.get(AsyncTask, task_id)
+            if active is not None and active.status in {"pending", "running"}:
+                raise ConflictError("运行中的历史不能删除")
         return await delete_progression_branch(
             db, novel_id=data.novel_id, branch_id=branch_id
         )
@@ -695,6 +854,11 @@ async def api_set_continuous_authorization(
     _enabled()
     await require_active_project(db, data.novel_id)
     try:
+        await db.scalar(
+            select(StoryWorldProgressionAuthorization)
+            .where(StoryWorldProgressionAuthorization.novel_id == UUID(data.novel_id))
+            .with_for_update()
+        )
         root = await get_progression_root(db, data.novel_id, root_id, lock=True)
         branch = await get_progression_branch(db, data.novel_id, branch_id, lock=True)
         return await set_continuous_authorization(db, root=root, branch=branch, data=data)

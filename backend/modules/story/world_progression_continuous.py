@@ -217,6 +217,18 @@ async def consider_progression_after_chapter_commit(
     interval = int(authorization.every_new_chapters or 1)
     if latest_effective_chapter - int(authorization.last_seen_chapter or 0) < interval:
         return {"status": "waiting_for_chapters", "task_id": None}
+    authorization = await db.scalar(
+        select(StoryWorldProgressionAuthorization)
+        .where(StoryWorldProgressionAuthorization.novel_id == UUID(novel_id))
+        .with_for_update()
+        .execution_options(populate_existing=True)
+    )
+    if authorization is None or not authorization.enabled:
+        return {"status": "authorization_changed", "task_id": None}
+    if latest_effective_chapter - int(authorization.last_seen_chapter or 0) < int(
+        authorization.every_new_chapters or 1
+    ):
+        return {"status": "waiting_for_chapters", "task_id": None}
     root = await db.scalar(
         select(StoryWorldProgressionRoot)
         .where(
@@ -233,23 +245,6 @@ async def consider_progression_after_chapter_commit(
         )
         .with_for_update()
     )
-    authorization_id = authorization.id
-    expected_revision = int(authorization.revision)
-    authorization = await db.scalar(
-        select(StoryWorldProgressionAuthorization)
-        .where(
-            StoryWorldProgressionAuthorization.id == authorization_id,
-            StoryWorldProgressionAuthorization.novel_id == UUID(novel_id),
-        )
-        .with_for_update()
-        .execution_options(populate_existing=True)
-    )
-    if (
-        authorization is None
-        or not authorization.enabled
-        or int(authorization.revision) != expected_revision
-    ):
-        return {"status": "authorization_changed", "task_id": None}
     if root is None or branch is None or branch.deleted_at is not None:
         authorization.enabled = False
         authorization.revision += 1
@@ -284,21 +279,8 @@ async def consider_progression_after_chapter_commit(
     )
     if parent is None:
         return {"status": "no_progression_step", "task_id": None}
-    goal_step = await db.scalar(
-        select(StoryWorldProgressionStep)
-        .join(
-            StoryWorldProgressionBranch,
-            StoryWorldProgressionBranch.id == StoryWorldProgressionStep.branch_id,
-        )
-        .where(
-            StoryWorldProgressionStep.novel_id == UUID(novel_id),
-            StoryWorldProgressionStep.root_id == root.id,
-            StoryWorldProgressionBranch.branch_kind != "continuous_light_step",
-        )
-        .order_by(StoryWorldProgressionStep.created_at.desc())
-        .limit(1)
-    )
-    result = dict((goal_step or parent).result_json or {})
+    goal_step = await _lineage_goal_step(db, root, parent)
+    result = dict(goal_step.result_json or {})
     pending_targets = {
         str(item.get("target_id"))
         for item in result.get("goal_outcomes") or []
@@ -488,6 +470,35 @@ async def _long_absent_actor_ids(db, root, latest, actor_ids: set[str]) -> set[s
     return found
 
 
+async def _lineage_goal_step(db, root, latest):
+    """Use this branch's author step, never an unrelated sibling's goals."""
+    steps = (
+        await db.scalars(
+            select(StoryWorldProgressionStep).where(
+                StoryWorldProgressionStep.novel_id == root.novel_id,
+                StoryWorldProgressionStep.root_id == root.id,
+            )
+        )
+    ).all()
+    branches = (
+        await db.scalars(
+            select(StoryWorldProgressionBranch).where(
+                StoryWorldProgressionBranch.novel_id == root.novel_id,
+                StoryWorldProgressionBranch.root_id == root.id,
+            )
+        )
+    ).all()
+    by_step = {str(item.id): item for item in steps}
+    by_branch = {str(item.id): item for item in branches}
+    current = latest
+    while current is not None:
+        branch = by_branch.get(str(current.branch_id))
+        if branch is None or branch.branch_kind != "continuous_light_step":
+            return current
+        current = by_step.get(str(current.parent_step_id))
+    return latest
+
+
 async def list_progression_notices(
     db, novel_id: str, scope: dict | None = None
 ) -> list[dict]:
@@ -531,11 +542,9 @@ async def list_progression_notices(
     )
     task_active = task is not None and task.status in {"pending", "running"}
     task_meta = dict(task.meta or {}) if task is not None else {}
-    task_matches = (
-        str(task_meta.get("world_progression_root_id") or "") == str(root.id)
-        and str(task_meta.get("world_progression_branch_id") or "")
-        == str(branch.id)
-    )
+    task_matches = str(task_meta.get("world_progression_root_id") or "") == str(
+        root.id
+    ) and str(task_meta.get("world_progression_branch_id") or "") == str(branch.id)
     if task_active and not task_matches:
         return []
     step = None

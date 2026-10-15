@@ -21,6 +21,19 @@ def _uuid(value: str | uuid.UUID) -> uuid.UUID:
     return value if isinstance(value, uuid.UUID) else uuid.UUID(str(value))
 
 
+def progression_resume_hash(root, branch) -> str:
+    return content_hash(
+        {
+            "root_id": str(root.id),
+            "branch_id": str(branch.id),
+            "root_budget": root.run_envelope_json,
+            "branch_status": branch.status,
+            "branch_source_hash": branch.source_hash,
+            "pending_step": branch.pending_step_json,
+        }
+    )
+
+
 async def get_progression_root(db, novel_id: str, root_id: str, *, lock=False):
     query = select(StoryWorldProgressionRoot).where(
         StoryWorldProgressionRoot.novel_id == _uuid(novel_id),
@@ -118,6 +131,10 @@ async def append_progression_step(
         parent = await get_progression_step(db, novel_id, parent_step_id)
         if str(parent.root_id) != str(root.id):
             raise ConflictError("续跑步骤不属于当前推进根")
+        if input_payload.get("parent_output_hash") != parent.output_hash:
+            raise ConflictError("父步骤哈希已变化，不能续写推进历史")
+    elif input_payload.get("parent_output_hash") is not None:
+        raise ConflictError("首步不能携带父步骤哈希")
     previous = await db.scalar(
         select(StoryWorldProgressionStep)
         .where(
@@ -286,8 +303,10 @@ async def read_progression_history(
             }
         )
     branches_by_root: dict[str, list[dict]] = {}
+    roots_by_id = {str(root.id): root for root in roots}
     for branch in branches:
         pending = dict(branch.pending_step_json or {})
+        owner_root = roots_by_id[str(branch.root_id)]
         branches_by_root.setdefault(str(branch.root_id), []).append(
             {
                 "id": str(branch.id),
@@ -305,6 +324,22 @@ async def read_progression_history(
                     "cached_participant_count": len(pending.get("actor_drafts") or {}),
                     "resolution_saved": pending.get("resolution") is not None,
                 },
+                "resume_hash": (
+                    progression_resume_hash(owner_root, branch)
+                    if pending
+                    and branch.deleted_at is None
+                    and branch.stop_reason != "invalid_resolution"
+                    and branch.status in {"failed", "paused_unknown", "paused_budget"}
+                    else None
+                ),
+                "current_task_id": (
+                    str(branch.current_task_id) if branch.current_task_id else None
+                ),
+                "request": {
+                    key: value
+                    for key, value in dict(branch.request_json or {}).items()
+                    if key not in {"context_confirmation_id", "operation_id"}
+                },
                 "name": branch.name,
                 "note": branch.note,
                 "starred": branch.starred,
@@ -320,13 +355,43 @@ async def read_progression_history(
                 "steps": steps_by_branch.get(str(branch.id), []),
             }
         )
-    return {
-        "roots": [
-            _root_history_view(root, branches_by_root.get(str(root.id), []))
-            for root in roots
-        ],
-        "basis_status": "not_checked",
-    }
+    views = [
+        _root_history_view(root, branches_by_root.get(str(root.id), [])) for root in roots
+    ]
+    from modules.story.world_progression_context import read_progression_source
+    from modules.story.world_progression_schemas import (
+        ProgressionParticipant,
+        ProgressionTarget,
+    )
+
+    for root, view in zip(roots, views, strict=True):
+        request = root.request_json or {}
+        try:
+            current = await read_progression_source(
+                db,
+                novel_id=novel_id,
+                scene_id=str(root.scene_id),
+                participants=[
+                    ProgressionParticipant.model_validate(item)
+                    for item in request.get("participants") or []
+                ],
+                targets=[
+                    ProgressionTarget.model_validate(item)
+                    for item in request.get("targets") or []
+                ],
+            )
+        except (ValueError, NotFoundError, ConflictError):
+            view["basis_status"] = "unknown"
+            view["basis_note"] = "当前资料无法重验"
+            continue
+        current_hash = current["source_hash"]
+        view["basis_status"] = "same" if current_hash == root.source_hash else "changed"
+        for branch in view["branches"]:
+            for step in branch["steps"]:
+                step["source_current_status"] = (
+                    "same" if step["source_hash"] == current_hash else "changed"
+                )
+    return {"roots": views, "basis_status": "checked"}
 
 
 def _root_history_view(root, branches: list[dict]) -> dict:
@@ -338,9 +403,9 @@ def _root_history_view(root, branches: list[dict]) -> dict:
     }
     envelope = dict(root.run_envelope_json or {})
     usage = envelope.get("usage") or {}
-    cutoff = (
-        ((root.source_snapshot_json or {}).get("time_basis") or {}).get("cutoff") or {}
-    )
+    cutoff = ((root.source_snapshot_json or {}).get("time_basis") or {}).get(
+        "cutoff"
+    ) or {}
     return {
         "id": str(root.id),
         "novel_id": str(root.novel_id),
@@ -446,6 +511,8 @@ async def compare_progression_steps(
     db, *, novel_id: str, first_step_id: str, second_step_id: str
 ) -> dict:
     left, right = await asyncio_gather_steps(db, novel_id, first_step_id, second_step_id)
+    await get_progression_branch(db, novel_id, str(left.branch_id))
+    await get_progression_branch(db, novel_id, str(right.branch_id))
     if str(left.root_id) != str(right.root_id):
         raise ConflictError("只能比较同一推进根中的两个步骤")
     return {
