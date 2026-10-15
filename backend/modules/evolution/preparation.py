@@ -318,6 +318,7 @@ async def finish_preparation(db, novel_id, run):
         selected,
         prep["start_scene_index"],
         [source["chapter_index"] for source in prep["sources"]],
+        include_source_content_mode=(run.reading_plan_json.get("spatial_version") == 1),
     )
     mandatory_scene_calls = run.reading_plan_json.get("mandatory_scene_calls", [])
     if run.reading_plan_json.get("spatial_version") == 1:

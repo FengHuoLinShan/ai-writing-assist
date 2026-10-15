@@ -106,12 +106,14 @@ def _mandatory_scene_call_specs(scenes, plan, *, from_scene_index=0):
     return specs
 
 
-def _configure_spatial_authorization(plan, request, scenes, *, append=False):
+def _configure_spatial_authorization(
+    plan, request, scenes, *, preserve_previous=False, add_quotas=True
+):
     if plan.get("spatial_version") != 1:
         return
     start = int(plan.get("recompute_from_scene_index", 0))
     specs = _mandatory_scene_call_specs(scenes, plan, from_scene_index=start)
-    previous = plan.get("mandatory_scene_calls", []) if append else []
+    previous = plan.get("mandatory_scene_calls", []) if preserve_previous else []
     indexed = {int(item["scene_index"]): item for item in previous}
     indexed.update({int(item["scene_index"]): item for item in specs})
     plan["mandatory_scene_calls"] = [indexed[key] for key in sorted(indexed)]
@@ -121,10 +123,11 @@ def _configure_spatial_authorization(plan, request, scenes, *, append=False):
     # Boundary preparation can create multiple Scenes per planned input window.
     # A finite quota is shown in preview; root-budget reserve is recomputed from
     # exact source-pinned Scenes once preparation materializes them.
-    quota_scenes = len(specs) + 16 * prep_windows
-    plan["optional_step_quotas"] = optional_quotas(
-        plan, additional_scenes=quota_scenes
-    )
+    quota_scenes = len(specs) + 16 * prep_windows if add_quotas else 0
+    if add_quotas:
+        plan["optional_step_quotas"] = optional_quotas(
+            plan, additional_scenes=quota_scenes
+        )
 
 
 def _planned_mandatory_request_count(plan, *, from_scene_index=0):
@@ -315,7 +318,12 @@ async def _plan(db, novel_id, request):
     if chapter_indices != expected_chapters[: len(chapter_indices)]:
         raise ConflictError("所选章节中间存在未整理的场景，不能跳过正文继续理解")
     plan["steps"] = await collect_scene_steps(
-        db, novel_id, selected, start_index, chapter_indices
+        db,
+        novel_id,
+        selected,
+        start_index,
+        chapter_indices,
+        include_source_content_mode=request.discover_spatial,
     )
     missing = expected_chapters[len(chapter_indices) :]
     if missing:
@@ -334,7 +342,11 @@ async def _plan(db, novel_id, request):
         raise ConflictError("所选场景超过本次调用上限，请缩小章节范围或调整上限")
     if request.discover_spatial:
         _configure_spatial_authorization(
-            plan, request, selected, append=bool(run)
+            plan,
+            request,
+            selected,
+            preserve_previous=bool(run),
+            add_quotas=request.mode != "continue",
         )
         mandatory_calls = _planned_mandatory_request_count(
             plan, from_scene_index=start_index
@@ -356,6 +368,10 @@ async def _plan_recompute(db, novel_id, request, run, store):
     if not run.llm_snapshot_json or not run.reading_plan_json.get("steps"):
         raise ConflictError("原理解缺少冻结的来源或模型，不能继承")
     await store.require_project_owner(run.run_key)
+    if bool(run.reading_plan_json.get("spatial_version", 0)) != request.discover_spatial:
+        raise ConflictError(
+            "重新核对不能改变原运行的空间发现授权；旧范围请使用空间补扫预览"
+        )
     pairs = await store.load_committed_pairs(run.run_key)
     requested_start = request.from_scene_index
     target = None
@@ -395,7 +411,14 @@ async def _plan_recompute(db, novel_id, request, run, store):
     chapter_indices = sorted({int(c) for scene in selected for c in scene["chapter_ids"]})
     if chapter_indices != expected_chapters[: len(chapter_indices)]:
         raise ConflictError("所选章节中间存在未整理的场景，不能跳过正文")
-    steps = await collect_scene_steps(db, novel_id, selected, 0, chapter_indices)
+    steps = await collect_scene_steps(
+        db,
+        novel_id,
+        selected,
+        0,
+        chapter_indices,
+        include_source_content_mode=request.discover_spatial,
+    )
     first_change = next(
         (index for index, (old, new) in enumerate(zip(old_steps, steps)) if old != new),
         min(len(old_steps), len(steps)),
@@ -500,9 +523,7 @@ async def _plan_recompute(db, novel_id, request, run, store):
         "world_version": 3 if native else 2,
         "structure_version": 1,
         "discovery_version": (
-            (2 if native else 1)
-            if optional_step_enabled(request, "details")
-            else 0
+            (2 if native else 1) if optional_step_enabled(request, "details") else 0
         ),
         "request": _request_payload(request),
         "steps": steps,
@@ -587,7 +608,15 @@ async def reading_targets(db, novel_id, run_key, *, kind, query="", offset=0, li
     return {"items": items[offset : offset + limit], "total": len(items)}
 
 
-async def collect_scene_steps(db, novel_id, selected, start_index, chapter_indices):
+async def collect_scene_steps(
+    db,
+    novel_id,
+    selected,
+    start_index,
+    chapter_indices,
+    *,
+    include_source_content_mode=False,
+):
     if [item["scene_index"] for item in selected] != list(
         range(start_index, start_index + len(selected))
     ):
@@ -604,11 +633,15 @@ async def collect_scene_steps(db, novel_id, selected, start_index, chapter_indic
     steps, coverage = [], {chapter: [] for chapter in chapter_indices}
     previous_end = (0, 0)
     for scene in selected:
+        source_content_mode = "working"
         spans = await get_scene_spans_for_scene(
             db, novel_id, scene["id"], content_mode="working"
         )
         if not spans:
-            spans = await get_scene_spans_for_scene(db, novel_id, scene["id"])
+            source_content_mode = "canonical"
+            spans = await get_scene_spans_for_scene(
+                db, novel_id, scene["id"], content_mode="canonical"
+            )
         parts = []
         for chapter in sorted(int(c) for c in scene["chapter_ids"]):
             draft = drafts.get(chapter)
@@ -649,6 +682,8 @@ async def collect_scene_steps(db, novel_id, selected, start_index, chapter_indic
             "scene_index": scene["scene_index"],
             "source_binding": binding.model_dump(mode="json"),
         }
+        if include_source_content_mode and spans:
+            step["source_content_mode"] = source_content_mode
         await _read_step(db, novel_id, step)
         steps.append(step)
     for chapter, ranges in coverage.items():
@@ -673,6 +708,11 @@ async def _read_step(db, novel_id, step):
         step["scene_id"],
         step["scene_index"],
         [part.model_dump(mode="json") for part in source[0].ranges()],
+        **(
+            {"content_mode": step["source_content_mode"]}
+            if step.get("source_content_mode")
+            else {}
+        ),
     )
     return source
 
@@ -917,7 +957,16 @@ async def advance_reading(db, novel_id, run_key):
         if plan.get("structure_version") == 1:
             from modules.evolution.structure import enqueue_structure
 
-            return await enqueue_structure(db, novel_id, run)
+            structure_result = await enqueue_structure(db, novel_id, run)
+            if not structure_result.get("reading_complete"):
+                return structure_result
+        if plan.get("spatial_version") == 1 and run.committed_scene_index >= 0:
+            await _build_spatial_auto_draft_batch(
+                db,
+                novel_id,
+                run,
+                build_key=(f"evolution-spatial-v1-through-{run.committed_scene_index}"),
+            )
         return {"reading_complete": True}
     if run.budget_remaining is not None and run.budget_remaining <= 0:
         run.reading_plan_json = {**plan, "pause_reason": "budget"}
@@ -947,6 +996,7 @@ async def advance_reading(db, novel_id, run_key):
             if plan.get("spatial_version") == 1
             else {}
         ),
+        source_content_mode=next_step.get("source_content_mode"),
         chapter_index=parts[0].chapter_index,
         start_offset=parts[0].start_offset,
         end_offset=parts[0].end_offset,
@@ -967,6 +1017,74 @@ async def advance_reading(db, novel_id, run_key):
     run.reading_plan_json = {**plan, "task_id": queued["task_id"]}
     await db.flush()
     return {"next_task_id": queued["task_id"], "reading_complete": False}
+
+
+async def _build_spatial_auto_draft_batch(
+    db, novel_id, run, *, build_key, through_scene_index=None
+):
+    """Build one deterministic sketch batch after a committed Scene prefix ends."""
+    plan = run.reading_plan_json or {}
+    through = int(
+        run.committed_scene_index if through_scene_index is None else through_scene_index
+    )
+    step = next(
+        (item for item in plan.get("steps", []) if int(item["scene_index"]) == through),
+        None,
+    )
+    if step is None:
+        return None
+    builds = list(plan.get("spatial_auto_draft_builds", []))
+    existing = next((item for item in builds if item.get("build_key") == build_key), None)
+    if existing is not None:
+        return existing
+
+    from core.container import get
+    from core.service_keys import WORLD_BUILD_MAP_AUTO_DRAFTS
+    from modules.evolution.spatial import request_spatial_auto_drafts
+
+    try:
+        port = get(WORLD_BUILD_MAP_AUTO_DRAFTS)
+    except KeyError:
+        return None
+    try:
+        async with db.begin_nested():
+            result = await request_spatial_auto_drafts(
+                db,
+                novel_id,
+                run_id=run.run_key,
+                build_key=build_key,
+                through_scene_id=step["scene_id"],
+                through_scene_index=through,
+                port=port,
+            )
+    except Exception as exc:
+        summary = {
+            "build_key": build_key,
+            "through_scene_id": step["scene_id"],
+            "through_scene_index": through,
+            "status": "failed",
+            "failure_kind": type(exc).__name__,
+        }
+    else:
+        summary = {
+            "build_key": build_key,
+            "through_scene_id": step["scene_id"],
+            "through_scene_index": through,
+            "batch_id": str(result.batch_id),
+            "status": result.status,
+            "cursor": result.cursor,
+            "total_chunks": result.total_chunks,
+            "completed_chunks": result.completed_chunks,
+            "revision_count": len(result.revisions),
+            "tray_count": len(result.tray_items),
+            "conflict_count": len(result.conflicts),
+        }
+    run.reading_plan_json = {
+        **plan,
+        "spatial_auto_draft_builds": [*builds, summary],
+    }
+    await db.flush()
+    return summary
 
 
 async def _inherit_recompute_suffix_if_stable(db, novel_id, store, run):
@@ -1146,7 +1264,10 @@ async def _inherit_recompute_suffix_if_stable(db, novel_id, store, run):
 async def _optional_coverage_summary(store, run, pending):
     plan = run.reading_plan_json or {}
     quotas = plan.get("optional_step_quotas") or {}
-    if not quotas:
+    spatial_visible = bool(
+        plan.get("spatial_version") == 1 or plan.get("spatial_rescans")
+    )
+    if not quotas and not spatial_visible:
         return {}
     pairs = await store.load_committed_pairs(run.run_key)
     frozen_by_index = {
@@ -1156,31 +1277,87 @@ async def _optional_coverage_summary(store, run, pending):
     }
     if pending and pending.payload.get("scene_index") is not None:
         frozen_by_index[int(pending.payload["scene_index"])] = pending.payload
+    if spatial_visible:
+        for operation in plan.get("spatial_rescans", []):
+            for attempt_id in operation.get("attempt_ids", []):
+                frozen = await store.load_frozen(run.run_key, attempt_id)
+                if frozen and frozen.payload.get("scene_index") is not None:
+                    frozen_by_index[int(frozen.payload["scene_index"])] = frozen.payload
     first = int(plan.get("recompute_from_scene_index", 0))
     scenes = [step for step in plan.get("steps", []) if step["scene_index"] >= first]
     result = {}
-    for step, quota in quotas.items():
-        counts = {key: 0 for key in ("inspected", "not_run", "unknown", "stale")}
+    optional_steps = dict(quotas)
+    if spatial_visible:
+        optional_steps.setdefault("spatial", {})
+    for step, quota in optional_steps.items():
+        count_keys = (
+            ("inspected", "density_skipped", "gap", "not_checked")
+            if step == "spatial"
+            else ("inspected", "not_run", "unknown", "stale")
+        )
+        counts = {key: 0 for key in count_keys}
         gaps = []
         for scene in scenes:
             index = int(scene["scene_index"])
             payload = frozen_by_index.get(index)
             state = (payload or {}).get("optional_step_coverage", {}).get(step, {})
-            status = state.get("status")
-            if status not in counts:
-                if run.status == "source_stale":
-                    status = "stale"
-                elif step == "details" and payload and payload.get("discovery_result"):
-                    status = "inspected"
-                elif step == "spatial" and payload and payload.get(
-                    "spatial_discovery_result"
+            state_gaps = list(state.get("gaps", []))
+            if step == "spatial":
+                discovery = (payload or {}).get("spatial_discovery_result") or {}
+                result_gaps = list(discovery.get("gaps", []))
+                combined_gaps = []
+                for gap in [*state_gaps, *result_gaps]:
+                    if gap not in combined_gaps:
+                        combined_gaps.append(gap)
+                if not payload or not discovery:
+                    status = "gap" if run.status == "source_stale" else "not_checked"
+                elif any(
+                    item.get("reason") == "low_spatial_density" for item in combined_gaps
+                ):
+                    status = "density_skipped" if len(combined_gaps) == 1 else "gap"
+                elif (
+                    state.get("status") in {"unknown", "not_run", "stale"}
+                    or combined_gaps
+                ):
+                    status = "gap"
+                elif (
+                    state.get("status") == "inspected"
+                    or discovery.get("status") == "inspected"
                 ):
                     status = "inspected"
                 else:
-                    status = "not_run"
+                    status = "not_checked"
+                state_gaps = combined_gaps
+            else:
+                status = state.get("status")
+                if status not in counts:
+                    if run.status == "source_stale":
+                        status = "stale"
+                    elif (
+                        step == "details" and payload and payload.get("discovery_result")
+                    ):
+                        status = "inspected"
+                    else:
+                        status = "not_run"
             counts[status] += 1
-            for gap in state.get("gaps", []):
-                gaps.append({"scene_index": index, **gap})
+            for gap in state_gaps:
+                if step == "spatial" and status != "gap":
+                    continue
+                if step == "spatial":
+                    public_gap = {
+                        key: value
+                        for key, value in gap.items()
+                        if key in {"reason", "code"}
+                    }
+                    public_gap["coverage"] = status
+                else:
+                    public_gap = dict(gap)
+                gaps.append(
+                    {
+                        "scene_index": index,
+                        **public_gap,
+                    }
+                )
             if step == "details" and payload:
                 discovery = payload.get("discovery_result") or {}
                 coverage = discovery.get("coverage") or {}
@@ -1293,6 +1470,7 @@ async def reading_status(db, novel_id, run_key=None):
     else:
         status = lifecycle.status if lifecycle else "interrupted"
     from modules.evolution.category_rescan import category_rescan_states
+    from modules.evolution.spatial_rescan import spatial_rescan_states
 
     return {
         "engine": engine,
@@ -1329,6 +1507,8 @@ async def reading_status(db, novel_id, run_key=None):
             ),
             "unchecked_discovery_gaps": plan.get("author_confirmed_discovery_gaps", []),
             "category_rescans": await category_rescan_states(db, novel_id, run),
+            "spatial_rescans": await spatial_rescan_states(db, novel_id, run),
+            "spatial_auto_draft_builds": plan.get("spatial_auto_draft_builds", []),
             "can_resume": run.status == "active"
             and not reconcile
             and status != "needs_budget"

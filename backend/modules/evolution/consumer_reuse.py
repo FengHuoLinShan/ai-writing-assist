@@ -162,6 +162,8 @@ def consumer_kind(key):
 async def find_reusable(store, run, scene_index, scene_id, proof, *, tokens=None):
     if not proof.get("reusable"):
         return None
+    if proof.get("consumer") in {"scene_spatial_discovery", "scene_spatial_review"}:
+        return None
     baseline = (run.reading_plan_json or {}).get("recompute_baseline") or {}
     reference = next(
         (

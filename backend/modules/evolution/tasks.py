@@ -77,6 +77,7 @@ class EvolutionSceneStepRequest(EvolutionSourceRange):
     world_version: Literal[0, 1, 2, 3] = 0
     discovery_version: Literal[0, 1, 2] = 0
     spatial_version: Literal[0, 1] = 0
+    source_content_mode: Literal["working", "canonical"] | None = None
 
 
 @task_handler(
@@ -399,6 +400,80 @@ async def _execute_scene_step(db: AsyncSession, task) -> dict[str, Any]:
                 )
             )
 
+        spatial_pending = []
+        if (frozen.payload.get("spatial_discovery_result") or {}).get("batch"):
+            from modules.evolution.spatial import apply_spatial_discovery
+
+            stage_result = None
+            stage_error = None
+            try:
+                async with db_session.begin_nested():
+                    stage_result = await apply_spatial_discovery(
+                        db_session, request.novel_id, frozen
+                    )
+            except Exception as error:
+                stage_error = error
+            latest = await store.load_frozen(frozen.run_id, frozen.attempt_id)
+            latest_payload = dict(latest.payload)
+            coverage = dict(latest_payload.get("optional_step_coverage") or {})
+            spatial_coverage = dict(coverage.get("spatial") or {})
+            if stage_error is not None:
+                spatial_coverage.update(
+                    status="inspected",
+                    gaps=[
+                        *spatial_coverage.get("gaps", []),
+                        {
+                            "reason": "world_stage_failed",
+                            "detail": str(stage_error)[:300],
+                        },
+                    ],
+                )
+                latest_payload["spatial_stage_result"] = {
+                    "status": "failed",
+                    "reason": f"{type(stage_error).__name__}: {stage_error}"[:500],
+                }
+                result = dict(latest_payload.get("spatial_discovery_result") or {})
+                result["gaps"] = [
+                    *result.get("gaps", []),
+                    {
+                        "reason": "world_stage_failed",
+                        "detail": str(stage_error)[:300],
+                    },
+                ]
+                latest_payload["spatial_discovery_result"] = result
+            elif stage_result is not None:
+                dumped = stage_result.model_dump(mode="json")
+                stale = any(
+                    item.get("code") == "source_binding_invalid"
+                    for item in dumped.get("rejected", [])
+                )
+                if dumped.get("rejected"):
+                    spatial_coverage["gaps"] = [
+                        *spatial_coverage.get("gaps", []),
+                        *(
+                            {
+                                "reason": "world_stage_rejected",
+                                "clue_key": item.get("clue_key"),
+                                "code": item.get("code"),
+                            }
+                            for item in dumped["rejected"]
+                        ),
+                    ]
+                if stale:
+                    spatial_coverage["status"] = "stale"
+                latest_payload["spatial_stage_result"] = dumped
+                spatial_pending = [
+                    "spatial_clue_requires_review" for _ in dumped.get("accepted", [])
+                ] + [
+                    "spatial_clue_requires_verification"
+                    for _ in dumped.get("pending", [])
+                ]
+            coverage["spatial"] = spatial_coverage
+            latest_payload["optional_step_coverage"] = coverage
+            await store.replace_frozen_payload(
+                latest.model_copy(update={"payload": latest_payload})
+            )
+
         events = [
             {**event, "source": "evolution"}
             for event in (frozen.payload or {}).get("scene_events") or []
@@ -442,6 +517,7 @@ async def _execute_scene_step(db: AsyncSession, task) -> dict[str, Any]:
             )
             + enrichment_pending
             + world_result["pending"]
+            + spatial_pending
             + [
                 "discovery_requires_decision"
                 for item in discovery_pending
@@ -510,6 +586,7 @@ async def _execute_scene_step(db: AsyncSession, task) -> dict[str, Any]:
         scene_index=request.scene_index,
         applier=applier,
         identity_candidates=exact_name_candidate_lookup(db),
+        content_mode=request.source_content_mode or "working",
         source_manifest_hash=request_hash,
         scene_id=request.scene_id,
         state_reviewer=review_states,
@@ -546,6 +623,8 @@ async def _execute_scene_step(db: AsyncSession, task) -> dict[str, Any]:
             sampler=sampler,
             applier=applier,
             identity_candidates=exact_name_candidate_lookup(db),
+            content_mode=request.source_content_mode or "working",
+            source_content_mode=request.source_content_mode,
             state_review_version=request.state_review_version,
             state_reviewer=review_states,
             enrichment_version=1 if enrich else 0,
@@ -583,7 +662,10 @@ async def enqueue_evolution_scene_step(
 
     meta = request.model_dump(
         mode="json",
-        exclude={"spatial_version"} if request.spatial_version == 0 else None,
+        exclude={
+            *({"spatial_version"} if request.spatial_version == 0 else set()),
+            *({"source_content_mode"} if request.source_content_mode is None else set()),
+        },
     )
     if request.execution_mode == "live":
         meta["_understanding_owner"] = await require_understanding_writer(
@@ -644,5 +726,18 @@ async def handle_world_audit_supplement(db, task):
 )
 async def handle_category_rescan(db, task):
     from modules.evolution.category_rescan import handle_category_rescan as execute
+
+    return await execute(db, task)
+
+
+@task_handler(
+    "evolution_spatial_rescan_v1",
+    recovery_policy="manual_resume",
+    root_capability_id="evolution.spatial_discover",
+    run_budget_policy=task_budget_policy,
+    run_request_limit=task_request_limit,
+)
+async def handle_spatial_rescan(db, task):
+    from modules.evolution.spatial_rescan import handle_spatial_rescan as execute
 
     return await execute(db, task)
