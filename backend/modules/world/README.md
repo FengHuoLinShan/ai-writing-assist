@@ -51,6 +51,31 @@ world 模块管理小说世界中的核心对象及其关系，是结构化创�
 - 对象分级：core / important / normal / temporary
 - 版本回滚基于 `TextArchive` 归档与 `EntityRevision` 兜底（活跃回滚路由优先查询 `TextArchive`，无归档时回退到最近 `EntityRevision` 快照）
 
+### 世界对象档案 C0（ADR-0039）
+
+`WorldObjectDossierEntry` 保存对象稳定设定的不可变修订；Scene 时点状态仍归 Story，派生理解仍归
+Evolution。内核面向按对象类型固定，项目面向复用 `ProjectVocabularyTerm(kind='dossier_facing')`，
+类型模板复用 `EntityProfileTemplate` 与 `EntityProfileTemplateRevision`。正式写入只接受本项目已采用的对象、
+有效面向和可解析 Scene/章节锚点；读口仅报告 World 层，并将 Story 与 Evolution 标为尚未聚合。
+
+- `GET /api/world/entities/{id}/dossier` 读取当前设定或指定 Scene 截止点；`GET .../dossier/history`
+  提供条目修订历史。
+- `POST /api/world/entities/{id}/dossier/entries` 新增条目；`PATCH .../dossier/entries/{revision_id}`
+  以 `expected_revision_id` 做 CAS；`POST .../dossier/groups/{entry_group_id}/restore` 将历史内容追加为新修订。
+- `GET/PUT /api/world/dossier-templates/{profile_type}` 管理每种对象的面向模板；PUT 带
+  `expected_version_number`，相同内容不新增版本。
+- 一个面向或显式 `legacy_field_key` 可以有多个当前条目；每个条目组只允许一个当前修订。旧
+  Character PUT 值不变时不新增条目；变更时收拢该旧字段下当前条目并保留完整历史，显式 `null`
+  追加清除修订。`desire` 与 `fear` 共用内核面向但保留不同旧字段键；未标记旧键的新条目不会被猜测
+  拼入任一字段。
+- Character 的 `current_goal`、`current_state`、`current_emotion` 保留为作者最新状态备注并标注
+  “不是按章状态”；按 Scene 的状态读取仍由 Story 提供。
+
+逐字段旧值映射和 22 个后端、6 个前端调用方处置见
+[C0 mapping](../../../docs/plans/2026-10-15-world-object-dossier-c0-mapping.md)。Evidence 的三层聚合、
+对象简报、Evolution 只读 DI 键以及 Story/Evidence/Writing/导演接入属于后续 C1/C2；本 World facade
+不代替统一接口。
+
 ### 对象图片
 
 CoreEntity 的 `image_version` 和 `image_updated_at` 只记录可选图片的版本；通用 API 响应派生

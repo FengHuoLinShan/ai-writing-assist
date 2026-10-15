@@ -109,6 +109,7 @@ from modules.story.continuity.facade import (  # noqa: E402,F401
     supersede_scene_projections_from,
 )
 from modules.story.continuity.schemas import (  # noqa: E402,F401
+    RelationAttitude,
     validate_machine_event_snapshot,
 )
 from modules.story.outline_state.facade import *  # noqa: E402,F401,F403
@@ -407,6 +408,7 @@ __all__ = [
     "STORY_SCRIPT_TASK",
     "StoryConflictError",
     "StoryNotFoundError",
+    "RelationAttitude",
     "archive_character_card_revision",
     "archive_scene_script_revision",
     "unadopt_scene_script_file",

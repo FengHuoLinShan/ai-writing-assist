@@ -28,6 +28,7 @@ from .core import (
     TextArchive,
     WorldRevisionNote,
 )
+from .dossier import WorldObjectDossierEntry
 from .image_candidate import WorldObjectImageCandidate
 from .image_request_reuse import ImageRequestReuse
 from .library import (
@@ -119,6 +120,7 @@ __all__ = [
     "WorldBibleSynopsisRevision",
     "WorldCocreationMessage",
     "WorldCocreationSession",
+    "WorldObjectDossierEntry",
     "WorldValidationRun",
     "WorldValidationReviewItem",
     "WorldAssertion",

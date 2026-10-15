@@ -36,6 +36,22 @@ from modules.world.character_facade import (  # noqa: F401
     list_characters,
     update_character_location,
 )
+from modules.world.dossier_facade import (  # noqa: F401
+    create_world_object_dossier_entry,
+    edit_world_object_dossier_entry,
+    get_world_object_dossier_template,
+    list_world_object_dossier_facets,
+    list_world_object_dossier_facets_for_entity,
+    preview_world_object_dossier_entry_create,
+    preview_world_object_dossier_entry_edit,
+    preview_world_object_dossier_entry_restore,
+    preview_world_object_dossier_template,
+    read_world_object_dossier,
+    read_world_object_dossier_history,
+    read_world_object_dossier_template_history,
+    restore_world_object_dossier_entry,
+    save_world_object_dossier_template,
+)
 from modules.world.entity_facade import (  # noqa: F401
     append_candidate_alias,
     apply_entity_fusion,
@@ -153,6 +169,20 @@ check_knowledge_visibility = _check_knowledge_visibility_impl
 # Frozen cross-module API. New names require a deletion test, contract/README
 # update, and an explicit change to the public-surface regression test.
 __all__ = [
+    "create_world_object_dossier_entry",
+    "edit_world_object_dossier_entry",
+    "get_world_object_dossier_template",
+    "list_world_object_dossier_facets",
+    "list_world_object_dossier_facets_for_entity",
+    "preview_world_object_dossier_entry_create",
+    "preview_world_object_dossier_entry_edit",
+    "preview_world_object_dossier_entry_restore",
+    "preview_world_object_dossier_template",
+    "read_world_object_dossier",
+    "read_world_object_dossier_history",
+    "read_world_object_dossier_template_history",
+    "restore_world_object_dossier_entry",
+    "save_world_object_dossier_template",
     "read_world_object_image",
     "review_team_stress",
     "plan_author_migration_world",

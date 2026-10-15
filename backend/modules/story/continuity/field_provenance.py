@@ -51,6 +51,18 @@ class RegisteredMotifField:
     value_kind: str
 
 
+@dataclass(frozen=True)
+class RegisteredStateField:
+    """A Story-time field that is meaningful only for one object type."""
+
+    object_type: str
+    field_key: str
+    dimension: str
+    label: str
+    value_kind: str
+    deterministic_check: bool = False
+
+
 _MOTIF_FIELDS: tuple[RegisteredMotifField, ...] = (
     # 母题一：人物位置（locations；对齐 CharacterLocationInPanorama 字段）
     RegisteredMotifField("location_id", "locations", "所在位置", "entity_ref"),
@@ -72,6 +84,41 @@ MOTIF_FIELD_REGISTRY: Mapping[str, RegisteredMotifField] = MappingProxyType(
     {item.field_key: item for item in _MOTIF_FIELDS}
 )
 
+# ADR-0039 §4. State values stay in Story and carry the same per-field source
+# chain as the original controlled motifs. These keys are deliberately typed:
+# the same word (for example ``condition``) can mean different things for a
+# location, item, or rule. Custom project types remain free-form until their
+# field declaration contract is implemented.
+_STATE_FIELDS: tuple[RegisteredStateField, ...] = (
+    RegisteredStateField("character", "body_condition", "entities", "身体状况", "text"),
+    RegisteredStateField("character", "emotion", "entities", "情绪", "text"),
+    RegisteredStateField("character", "attire", "entities", "装束与外观变化", "text"),
+    RegisteredStateField("character", "current_goal", "entities", "当前目标", "text"),
+    RegisteredStateField(
+        "character", "public_identity", "entities", "公开身份与伪装", "text"
+    ),
+    RegisteredStateField("character", "life_status", "entities", "生死与存续", "text"),
+    RegisteredStateField("character", "presence", "entities", "在场状态", "text"),
+    RegisteredStateField("location", "condition", "entities", "地点状况", "text"),
+    RegisteredStateField(
+        "location", "environment_change", "entities", "环境变化", "text"
+    ),
+    RegisteredStateField(
+        "location", "present_character_ids", "entities", "在场者", "entity_ref_list"
+    ),
+    RegisteredStateField("item", "condition", "entities", "物件状况", "text"),
+    RegisteredStateField(
+        "item", "revealed_to_reader", "entities", "读者显露状态", "text"
+    ),
+    RegisteredStateField("rule", "effective_status", "entities", "规则生效状态", "text"),
+    RegisteredStateField("rule", "known_by", "entities", "规则知情者", "entity_ref_list"),
+    RegisteredStateField("secret", "reveal_status", "entities", "秘密揭示状态", "text"),
+    RegisteredStateField("relation", "attitude", "relations", "有向关系态度", "attitude"),
+)
+STATE_FIELD_REGISTRY: Mapping[tuple[str, str], RegisteredStateField] = MappingProxyType(
+    {(item.object_type, item.field_key): item for item in _STATE_FIELDS}
+)
+
 
 def is_registered_motif_field(field_key: str, dimension: str | None = None) -> bool:
     """字段是否已登记；带 ``dimension`` 时要求所属维度也一致。"""
@@ -84,6 +131,28 @@ def is_registered_motif_field(field_key: str, dimension: str | None = None) -> b
 def motif_fields_for_dimension(dimension: str) -> tuple[RegisteredMotifField, ...]:
     """某维度下已登记的全部受控母题字段（按注册顺序）。"""
     return tuple(item for item in _MOTIF_FIELDS if item.dimension == dimension)
+
+
+def is_registered_state_field(
+    object_type: str, field_key: str, dimension: str | None = None
+) -> bool:
+    """Whether a typed Story-time field is registered for this object type."""
+    registered = STATE_FIELD_REGISTRY.get((object_type, field_key))
+    return registered is not None and (
+        dimension is None or registered.dimension == dimension
+    )
+
+
+def state_fields_for_dimension(
+    dimension: str, object_type: str | None = None
+) -> tuple[RegisteredStateField, ...]:
+    """Typed Story-time fields available in a dimension, optionally by type."""
+    return tuple(
+        item
+        for item in _STATE_FIELDS
+        if item.dimension == dimension
+        and (object_type is None or item.object_type == object_type)
+    )
 
 
 # ============================================================
@@ -127,8 +196,9 @@ class ProvenanceSourceRef(BaseModel):
 class FieldProvenance(BaseModel):
     """单个受控字段的一条赋值链记录。
 
-    - ``field_key``/``dimension``：必须已在 ``MOTIF_FIELD_REGISTRY`` 登记，
-      未登记字段构造即失败（登记是携带逐字段来源的前置条件）。
+    - ``field_key``/``dimension``：旧母题必须已在 ``MOTIF_FIELD_REGISTRY``
+      登记；ADR-0039 类型化状态字段还须携带匹配的 ``object_type``，未登记
+      字段构造即失败（登记是携带逐字段来源的前置条件）。
     - ``event_id``：造成该赋值的 MemoryEvent。
     - ``source_refs``：赋值依据的稿源区间（镜像 SourceRangeRefContract）。
       非空时所有区间的 ``version_number`` 必须一致并等于 ``version``。
@@ -142,6 +212,7 @@ class FieldProvenance(BaseModel):
 
     field_key: str = Field(min_length=1)
     dimension: str
+    object_type: str | None = Field(default=None, min_length=1)
     value_hash: str | None = Field(default=None, min_length=64, max_length=64)
     event_id: str = Field(min_length=1)
     # 实体锚：赋值落在哪个主体上（entities/locations 维度为实体 ID，
@@ -154,16 +225,27 @@ class FieldProvenance(BaseModel):
 
     @model_validator(mode="after")
     def _validate_chain(self) -> FieldProvenance:
-        registered = MOTIF_FIELD_REGISTRY.get(self.field_key)
-        if registered is None:
-            raise ValueError(
-                f"field {self.field_key!r} is not registered; "
-                "unregistered payload keys carry no field-level provenance"
+        if self.object_type is None:
+            registered = MOTIF_FIELD_REGISTRY.get(self.field_key)
+            if registered is None:
+                raise ValueError(
+                    f"field {self.field_key!r} is not registered; "
+                    "unregistered payload keys carry no field-level provenance"
+                )
+            expected_dimension = registered.dimension
+        else:
+            registered_state = STATE_FIELD_REGISTRY.get(
+                (self.object_type, self.field_key)
             )
-        if self.dimension != registered.dimension:
+            if registered_state is None:
+                raise ValueError(
+                    f"field {self.object_type}.{self.field_key} is not registered"
+                )
+            expected_dimension = registered_state.dimension
+        if self.dimension != expected_dimension:
             raise ValueError(
                 f"field {self.field_key!r} belongs to dimension "
-                f"{registered.dimension!r}, got {self.dimension!r}"
+                f"{expected_dimension!r}, got {self.dimension!r}"
             )
         if self.source_refs:
             ref_versions = {ref.version_number for ref in self.source_refs}
@@ -373,7 +455,9 @@ def extract_timeline_when(
 __all__ = [
     "FIELD_PROVENANCE_STATE_KEY",
     "MOTIF_FIELD_REGISTRY",
+    "STATE_FIELD_REGISTRY",
     "RegisteredMotifField",
+    "RegisteredStateField",
     "FieldProvenance",
     "ProvenanceSourceRef",
     "ProvenanceStatus",
@@ -381,7 +465,9 @@ __all__ = [
     "TimelineWhenClause",
     "extract_timeline_when",
     "is_registered_motif_field",
+    "is_registered_state_field",
     "motif_fields_for_dimension",
+    "state_fields_for_dimension",
     "provenance_status_for",
     "read_field_provenance",
     "resolve_field_status",

@@ -71,16 +71,16 @@ class CharacterCreate(BaseModel):
     )
     current_goal: str | None = Field(
         None,
-        description="当前短期目标",
+        description="作者备注的最新目标；不是按章状态，按 Scene 读取 Story continuity",
     )
     current_state: str | None = Field(
         None,
-        description="当前状态摘要",
+        description="作者备注的最新状态；不是按章状态，按 Scene 读取 Story continuity",
     )
     current_emotion: str | None = Field(
         None,
         max_length=64,
-        description="当前情绪",
+        description="作者备注的最新情绪；不是按章状态，按 Scene 读取 Story continuity",
     )
     stance: str | None = Field(
         None,
@@ -122,9 +122,18 @@ class CharacterUpdate(BaseModel):
     fear: Annotated[str | None, Field(None)]
     secret: Annotated[str | None, Field(None)]
     weakness: Annotated[str | None, Field(None)]
-    current_goal: Annotated[str | None, Field(None)]
-    current_state: Annotated[str | None, Field(None)]
-    current_emotion: Annotated[str | None, Field(None, max_length=64)]
+    current_goal: Annotated[
+        str | None,
+        Field(None, description="作者备注的最新目标；不是按章状态"),
+    ]
+    current_state: Annotated[
+        str | None,
+        Field(None, description="作者备注的最新状态；不是按章状态"),
+    ]
+    current_emotion: Annotated[
+        str | None,
+        Field(None, max_length=64, description="作者备注的最新情绪；不是按章状态"),
+    ]
     stance: Annotated[str | None, Field(None)]
     voice_style: Annotated[str | None, Field(None)]
     behavior_rules: Annotated[list[dict] | None, Field(None)]
@@ -162,9 +171,15 @@ class CharacterResponse(BaseModel):
     fear: str | None = None
     secret: str | None = None
     weakness: str | None = None
-    current_goal: str | None = None
-    current_state: str | None = None
-    current_emotion: str | None = None
+    current_goal: str | None = Field(
+        default=None, description="作者备注的最新目标；不是按章状态"
+    )
+    current_state: str | None = Field(
+        default=None, description="作者备注的最新状态；不是按章状态"
+    )
+    current_emotion: str | None = Field(
+        default=None, description="作者备注的最新情绪；不是按章状态"
+    )
     stance: str | None = None
     voice_style: str | None = None
     behavior_rules: list[dict] = []

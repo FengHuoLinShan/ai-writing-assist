@@ -9,9 +9,9 @@ from __future__ import annotations
 import uuid
 from datetime import datetime
 from enum import StrEnum
-from typing import Any
+from typing import Any, Literal
 
-from pydantic import BaseModel, ConfigDict, Field, field_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 from modules.story.continuity.contracts import (
     CURRENT_SCENE_MEMORY_CONTRACT_VERSION,
@@ -58,6 +58,24 @@ class EntityInPanorama(BaseModel):
     status: str = "canonical"
 
 
+class RelationAttitude(BaseModel):
+    """One directed, scene-time attitude carried by a relation event."""
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    source_entity_id: str = Field(min_length=1, max_length=64)
+    target_entity_id: str = Field(min_length=1, max_length=64)
+    label: str = Field(min_length=1, max_length=64)
+    degree: Literal["slight", "moderate", "strong"] = "moderate"
+    description: str | None = Field(default=None, max_length=500)
+
+    @model_validator(mode="after")
+    def require_direction(self) -> RelationAttitude:
+        if self.source_entity_id == self.target_entity_id:
+            raise ValueError("attitude must point from one object to another")
+        return self
+
+
 class RelationInPanorama(BaseModel):
     """全景中的单个关系"""
 
@@ -68,6 +86,7 @@ class RelationInPanorama(BaseModel):
     description: str | None = None
     strength: float = 0.5
     status: str = "canonical"
+    attitude: RelationAttitude | None = None
 
 
 class CharacterLocationInPanorama(BaseModel):

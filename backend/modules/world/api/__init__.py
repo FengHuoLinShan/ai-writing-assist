@@ -12,6 +12,7 @@ from modules.world.api import (  # noqa: F401
     canon,
     characters,
     cocreation,
+    dossier,
     entities,
     events,
     export,
