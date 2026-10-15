@@ -813,6 +813,7 @@ async def run_scene_step(
     enrichment_version: int = 0,
     world_version: int = 0,
     discovery_version: int = 0,
+    spatial_version: int = 0,
     scene_card: dict[str, Any] | None = None,
     scene_method_caller: Callable[..., Awaitable[dict[str, Any]]] | None = None,
 ) -> PipelineStepResult:
@@ -938,6 +939,7 @@ async def run_scene_step(
             "enrichment_version": enrichment_version,
             "world_version": world_version,
             "discovery_version": discovery_version,
+            **({"spatial_version": spatial_version} if spatial_version == 1 else {}),
             "scene_card": scene_card,
             "input_manifest": input_manifest.model_dump(mode="json"),
         },
@@ -1004,6 +1006,7 @@ async def run_scene_step(
             "enrichment_version": enrichment_version,
             "world_version": world_version,
             "discovery_version": discovery_version,
+            **({"spatial_version": spatial_version} if spatial_version == 1 else {}),
             "scene_card": scene_card,
             "input_manifest": input_manifest.model_dump(mode="json"),
         }
@@ -1284,6 +1287,33 @@ async def _run_scene_call(
             await store.replace_frozen_payload(frozen)
             await db.commit()
             return frozen
+        from modules.evolution.optional_step_budget import (
+            OptionalStepQuotaExhaustedError,
+            adjust_optional_quota,
+            optional_call_block_reason,
+            optional_step_for_journal,
+            record_optional_gap,
+        )
+
+        optional_step = optional_step_for_journal(journal_key)
+        plan = run.reading_plan_json or {}
+        if (
+            optional_step
+            and plan.get("spatial_version") == 1
+            and not payload.get("category_rescan_operation_id")
+            and not payload.get("spatial_rescan_operation_id")
+        ):
+            reason = optional_call_block_reason(run, payload, optional_step)
+            if reason:
+                record_optional_gap(payload, optional_step, journal_key, reason)
+                await store.replace_frozen_payload(
+                    frozen.model_copy(update={"payload": payload})
+                )
+                await db.commit()
+                raise OptionalStepQuotaExhaustedError(
+                    optional_step, journal_key, reason
+                )
+            run.reading_plan_json = adjust_optional_quota(plan, optional_step, 1)
         if payload.get("category_rescan_operation_id"):
             operation_id = payload["category_rescan_operation_id"]
             operations = list(run.reading_plan_json.get("category_rescans", []))
@@ -1381,6 +1411,22 @@ async def _return_unissued_scene_call(
             )
         if run.budget_remaining is not None:
             run.budget_remaining += 1
+        from modules.evolution.optional_step_budget import (
+            adjust_optional_quota,
+            optional_step_for_journal,
+        )
+
+        optional_step = optional_step_for_journal(journal_key)
+        plan = run.reading_plan_json or {}
+        quotas = dict(plan.get("optional_step_quotas") or {})
+        if (
+            optional_step
+            and plan.get("spatial_version") == 1
+            and optional_step in quotas
+            and not payload.get("category_rescan_operation_id")
+            and not payload.get("spatial_rescan_operation_id")
+        ):
+            run.reading_plan_json = adjust_optional_quota(plan, optional_step, -1)
         operation_id = payload.get("category_rescan_operation_id")
         if operation_id:
             run.reading_plan_json = {
