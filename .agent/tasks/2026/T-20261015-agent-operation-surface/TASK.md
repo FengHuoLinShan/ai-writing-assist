@@ -16,7 +16,9 @@ updated: 2026-10-15T23:00:00+08:00
 （见“关键决定”），修正与裁定经用户授权在第二个本地提交中提交，未推送。
 与地图增强设计（T-20261015-map-enhancement-design）同在工作树 `.worktrees/map-enhancement-plan`、分支
 `codex/map-enhancement-plan`（基于 main `d2ab2dbf3`；最后核对时 origin/main 为 `00d861283`）。
-下一步：技术评审 ADR-0038 后转 Accepted；推送与 PR 按用户授权。实施由用户另行安排执行者，本任务只负责设计与文档。
+2026-10-15 技术评审后按推荐修订 ADR-0038：目录项事务形态、目标运行 `goal` 模式与每项目唯一索引、
+高频操作留痕合并或豁免。修订经用户授权在第三个本地提交中提交，未推送。
+下一步：ADR 转 Accepted、推送与 PR 按用户授权。实施由用户另行安排执行者，本任务只负责设计与文档。
 
 ## 目标与验收
 
@@ -55,6 +57,14 @@ updated: 2026-10-15T23:00:00+08:00
 - 外部 Agent（MCP）接入不在本轮范围。
 - 用户裁定（2026-10-15 评审后）：目标运行允许作者按目标开启 R2 自动执行，开关默认关闭；
   本机单用户默认记录界面操作，公开账户默认关闭。
+- 技术评审（2026-10-15，用户同意按推荐处理）：
+  - 事务形态：助手用 `begin_nested()` + `flush()`（`assistant/operations.py:502`），请求结束统一提交
+    （`core/database.py:148`）；但 `world/map_atlas_service.py`、`world/entity_fusion.py` 内部多处提交，
+    ADR-0013 只覆盖长任务。所以目录项声明单事务或多阶段，多阶段按领域回执对账，结果未知时停下。
+  - 目标运行存储：`assistant_runs.mode` 只有 `author`/`background`，活动唯一性按 `session_id`
+    （`uq_assistant_session_active`）。新增 `goal` 模式、不绑定会话、停点用 `waiting_approval`、
+    按项目的部分唯一索引。
+  - 高频写入（`writing/api.py:395` autosave）按会话加时间窗合并或豁免留痕。
 
 ## 交付
 
@@ -69,6 +79,7 @@ updated: 2026-10-15T23:00:00+08:00
   `git diff --cached --check` 通过；旧文件名残留扫描为零。
 
 - 2026-10-15（写入两项裁定后）：`make docs-check BASE_REF=origin/main` 与 `git diff --cached --check` 通过。
+- 2026-10-15（技术评审修订后，未提交）：`make docs-check BASE_REF=origin/main` 与 `git diff --cached --check` 通过。
 
 ## 风险与待决
 

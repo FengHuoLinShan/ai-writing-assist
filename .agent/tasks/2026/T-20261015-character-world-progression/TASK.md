@@ -17,7 +17,11 @@ updated: 2026-10-15T23:00:00+08:00
 与地图增强（T-20261015-map-enhancement-design）、操作目录（T-20261015-agent-operation-surface）同在工作树
 `.worktrees/map-enhancement-plan`、分支 `codex/map-enhancement-plan`（基于 main `d2ab2dbf3`；
 最后核对时 origin/main 为 `00d861283`，未占用 0035–0041 编号）。
-下一步：技术评审 ADR-0039 至 ADR-0041 后转 Accepted；推送与 PR 按用户授权。
+2026-10-15 技术评审后按用户裁定修订：ADR-0040 统一推演协议 `simulation_v3` 并下线原协议、
+导演剧本改为只作参考的“参考剧本”、提醒聚合只经登记表；ADR-0041 改为 `simulation_v3` 的世界推进模式；
+ADR-0039 旧接口写回规则、共用词表与锚点、档案发现按 ADR-0036 §1 契约登记。
+修订经用户授权在第三个本地提交中提交，未推送。
+下一步：ADR 转 Accepted、推送与 PR 按用户授权。
 实施由用户另行安排执行者，本任务只负责设计与文档。
 
 ## 目标与验收
@@ -45,6 +49,8 @@ updated: 2026-10-15T23:00:00+08:00
   4. 作者设定的有效期在剧情自然覆盖时提醒；默认不被覆盖，提供开关（默认关）。
 - 第四轮：再确认一份 33 条评审清单，并合并可合并的 ADR。
 - 第五轮确认默认值：导演发散度“平衡”；导演与推进历史保留到作者删除；统一提醒聚合放在 Assistant。
+- 第六轮（技术评审后）：参考维度省略只提醒不阻断；统一原排演协议和新协议并下线原协议；草图尽量增量、
+  必要时才重做；导演剧本被选用后只给作者思路，正文另写（AI 或手写）；做“可选阅读步骤”契约；其他按推荐。
 
 ## 已核实现状（main `a5a5e5d61`，评审核对时复查）
 
@@ -53,10 +59,17 @@ updated: 2026-10-15T23:00:00+08:00
   前端 6 个文件读取；`EntityRelation` 无生效区间。
 - continuity 实体维度对 `entity_updated` 只做字典合并；`field_provenance` 只覆盖位置、保管、锁。
 - 台账五类闭集；Story、Evidence、Writing 都不读取台账；ADR-0031 依赖表没有 evidence / evolution 行。
-- 生成上下文中非 POV 人物只有外观和语言风格；`KnowledgeScopeReceipt` 已有 omitted 与原因；
+- 生成上下文中非 POV 人物只有外观和语言风格；`KnowledgeScopeReceipt` 有 omitted 与原因，但任何 omitted
+  都使 `scope_complete` 为假（`evidence/compilation/knowledge/scope.py:459`），`require_scope_complete` 流程会停下；
   `ReactionProposal` 无神态、肢体、潜台词；`ScriptBeat` 无环境与感官细节。
 - 排演每轮 1–3 人、1–3 回合，`story/rehearsals.py:232` 强制生成剧本预览；交汇只有
-  `story/simulation.py` 的 `resource_key` 争夺。
+  `story/simulation.py` 的 `resource_key` 争夺。`observation_v2` 还被状态试验（`story/continuity/state_trial.py`）
+  和 RP 多角色演绎（`interaction/ensemble_v2.py`、`ensemble.py` 经 `story.facade.rehearse_round`）使用；
+  `SimulationSeed.locations` ≤4、`audience` ≤3、目的地是文本。
+- `get_scene_story_basis_hash`（`story/service.py:1160`）只统计 Scene、大纲、人物卡和已采用剧本；
+  `SceneScriptFile` 没有文件类别字段。
+- Assistant 冻结出边只有 account、evidence、project、story、writing（`scripts/check_module_imports.py:102`）。
+- 人物更新 `CharacterUpdate.expected_updated_at` 不一致返回 409；服务按 `exclude_unset` 只处理传入字段。
 - 副驾驶 `SceneCockpit.vue` 四标签；`sceneAlerts.js` 前端组合，不持久化、不能处置；
   `assistant_notices` 已有 `fingerprint` 唯一、四种状态与 `row_version`。
 - 费用口径：`AIChargeState`（none / recorded / possible）只记计费状态，不估算金额。
@@ -68,10 +81,16 @@ updated: 2026-10-15T23:00:00+08:00
 - 面向沿用 ADR-0035 的“内核 + 项目扩展/涌现”，接入 `EntityProfileTemplate`，与势力模板共用。
 - 统一读取接口由 Evidence 汇总三层，台账经只读 DI 键，避免 L2 依赖 L3；实施时 ADR-0031 补登记一行。
 - 作者有效期默认优先，剧情覆盖只提醒；确定性检测只针对有对齐键的结构化项，文字条目走演化提案。
-- 导演归 Story 新协议 `director_v1`，界面在副驾驶；不设产品上限，用量靠一次一轮和预算预览控制；
-  素材→剧本（保存内容副本）→单章生成复用现有已采用剧本路径；历史只由作者删除，30 天可恢复。
-- 统一提醒由各领域注册只读来源、Assistant（L4）聚合；已有处置只转发，其余用独立处置记录，
-  不复制进 `assistant_notices`；来源区分“已有/待接入”，结构缺项改由 Story 计算。
+- 推演协议统一为 `simulation_v3`（用户裁定统一并下线原协议）：导演轮次、世界推进步、状态试验、RP 观察者回合
+  是模式，基于 ID，协议不设上限、入口可有运行策略；Story 停止新建 `rehearsal_v1`/`observation_v2`，
+  RP 过评测门禁后迁移，旧运行只读。
+- 导演界面在副驾驶；不设产品上限，用量靠一次一轮和预算预览控制。素材→参考剧本（保存内容副本，存在导演
+  自己的存储中、不写 `SceneScriptFile`）只给思路：不进 story 依据 hash、不作已采用剧本约束；正文另写，
+  AI 生成经 `director_reference` 参考维度读取或手写（用户裁定）。存为参考剧本为 R2。历史只由作者删除，30 天可恢复。
+- 统一提醒由各领域注册只读来源、Assistant（L4）只经 `app/notice_source_registry` 聚合（不直接导入 world/evolution）；
+  已有处置只转发，其余用独立处置记录，不复制进 `assistant_notices`；来源区分“已有/待接入”，结构缺项改由 Story 计算。
+- 档案旧接口写回：与当前拼接相同不改；不同则收拢为该面向（该旧字段下）唯一作者条目，其他标已过时可恢复；保留 409。
+- 对象档案发现是 ADR-0036 §1 可选阅读步骤契约的第二个新增实例；项目面向存于 ADR-0035 统一项目词表。
 - 导演与副驾驶对齐合并为一份 ADR：两者共用简报、一致性检查、提醒，分开维护会反复交叉引用。
 - 世界推进步数不设低上限，改为步长与推进量；交汇检测要求意图带结构化字段。
 
@@ -91,6 +110,8 @@ updated: 2026-10-15T23:00:00+08:00
   （仅保留一处说明 G8c 与地图无关的文字）。
 
 - 2026-10-15（写入默认值确认后）：`make docs-check BASE_REF=origin/main` 与 `git diff --cached --check` 通过。
+- 2026-10-15（技术评审修订后，未提交）：`make docs-check BASE_REF=origin/main` 与 `git diff --cached --check` 通过；
+  `director_v1`、“存为剧本并采用”、“复用 observations.py”残留扫描为零。
 
 ## 风险与待决
 

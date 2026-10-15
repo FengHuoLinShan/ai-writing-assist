@@ -16,7 +16,11 @@ API 默认值措辞、层级来源优先级、Scene 无位置身份等）；原 
 （操作目录，见 T-20261015-agent-operation-surface）。修正经用户授权在第二个本地提交中提交，未推送。工作树
 `.worktrees/map-enhancement-plan`，分支 `codex/map-enhancement-plan`，基于 main `d2ab2dbf3`，无 upstream。
 世界演化第四阶段计划 §6 已加承接说明，指向 ADR-0036。
-下一步：技术评审 ADR-0035 至 ADR-0038 后转 Accepted；推送与 PR 按用户授权。实施（M0 起）由用户另行安排执行者。
+2026-10-15 技术评审后按用户裁定修订：ADR-0036 改名为
+`0036-evolution-optional-reading-steps-and-spatial-discovery.md`，新增可选阅读步骤契约与增量草图；
+ADR-0035 加锚点规则、统一项目词表、指纹只进 `consumer_read_set`；ADR-0037 参考维度省略单独记录。
+修订经用户授权在第三个本地提交中提交，未推送。
+下一步：ADR 评审转 Accepted、推送与 PR 按用户授权。实施（M0 起）由用户另行安排执行者。
 
 ## 目标与验收
 
@@ -35,6 +39,8 @@ API 默认值措辞、层级来源优先级、Scene 无位置身份等）；原 
 - 未列举的情况预留用户自定义；首批验收题材：修仙、西幻、都市、科幻、悬疑。
 - 第二轮：深度导入即将被世界演化替代并下线；允许模型在演化中总结常用类型，按项目维护。
 - 第三轮：同步增强助手，帮助作者使用地图修改、势力控制等功能（不限于这两项）。
+- 技术评审后：参考维度省略只提醒不阻断；草图尽量在原有版本上做增量候选、必要时才重做；
+  为演化可选步骤建立统一契约；其余评审项按推荐处理。
 
 ## 关键决定与理由
 
@@ -51,12 +57,23 @@ API 默认值措辞、层级来源优先级、Scene 无位置身份等）；原 
   Scene 无位置身份时不猜；v1 地图即可做最小切片；`check_knowledge_visibility()` 将是首个生产接入。
 - G8c（第三批）是正典修订基线（main #248 已落地），与地图无关；地图设计只依赖已实现的 G8a、G8b。
 - 现有 `territory_refs_json`、`controlling_faction_ids_json` 保留原样，迁移由势力路线图阶段 1 决定。
+- 技术评审核实：任何 `omitted` 都使 `scope_complete` 为假（`evidence/compilation/knowledge/scope.py:459`），
+  所以参考维度省略须单独记录，否则照样阻断（ADR-0037 §1）。
+- 演化可选步骤契约（ADR-0036 §1）：`discover_details` 为第一个实例、空间发现与对象档案发现按此登记；
+  并行生成、顺序写入、只与严格更早的提议去重（`evolution/discovery.py:1810`）；项目数据指纹只进
+  `consumer_read_set`，方法指纹只含方法本身，避免续读时方法版本对不上。
+- 草图增量（ADR-0036 §7）：`map_atlas_revisions` 只追加、整份文档、`uq_map_revision_task_node`；
+  因此每节点至多一条待审 `auto_draft` 候选，以待审候选或已保存版本为基础增量，旧候选标 `superseded`，
+  按批次合并生成，五种情形才整片重做。
+- 锚点规则（ADR-0035 §2）：Scene 会重排（`scene_order` 锁）和被融合替换（`replaced_by_scene_ids`），
+  所以锚点按当前顺序解析、不存序号；档案与势力账本共用。
 
 ## 交付
 
 - `docs/plans/2026-10-15-map-system-enhancement.md`（设计稿）
 - `docs/adr/0035-genre-neutral-spatial-model-and-custom-vocabulary.md`
-- `docs/adr/0036-evolution-spatial-discovery-map-cold-start.md`
+- `docs/adr/0036-evolution-optional-reading-steps-and-spatial-discovery.md`（技术评审后由
+  `0036-evolution-spatial-discovery-map-cold-start.md` 改名）
 - `docs/adr/0037-map-spatial-advisory-dimension.md`
 - 助手地图与势力操作：`docs/adr/0038-ai-operation-catalog-goal-runs-and-trace.md` §10
 - `docs/adr/README.md` 与 `docs/README.md` 索引
@@ -68,6 +85,8 @@ API 默认值措辞、层级来源优先级、Scene 无位置身份等）；原 
   0035–0041 编号）；`make docs-check BASE_REF=origin/main` 通过（49 个 ADR 文件）；
   `git diff --cached --check` 通过。
 - 2026-10-15 写入用户裁定与第四阶段承接说明后：上述两项检查再次通过。
+- 2026-10-15 技术评审修订后（未提交）：`make docs-check BASE_REF=origin/main` 通过（49 个 ADR 文件）、
+  `git diff --cached --check` 通过；旧 0036 文件名只在本记录的改名说明中保留；跨 ADR 章节引用逐一核对有效。
 
 ## 风险与待决
 

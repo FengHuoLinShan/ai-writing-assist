@@ -3,9 +3,10 @@
 - **状态**: Proposed（产品方向由用户 2026-10-15 裁定；技术方案待评审）
 - **日期**: 2026-10-15
 - **关联追踪**: ADR-0025（知识治理，本 ADR 修订其第 4 条的适用范围）、ADR-0017（事实权威）、
-  ADR-0035（空间模型 v2 与涌现类型）、ADR-0036（演化空间发现与地图自动冷启动）、
+  ADR-0035（空间模型 v2 与涌现类型）、ADR-0036（演化可选阅读步骤与空间发现）、
   ADR-0038（助手操作与 `assistant.turn` 参考维度）、
-  ADR-0040（参考维度追加 `object_dossier`、`character_pattern`；空间提醒进入写作副驾驶统一提醒）、
+  ADR-0040（参考维度追加 `object_dossier`、`character_pattern`、`director_reference`；
+  空间提醒进入写作副驾驶统一提醒）、
   [地图系统增强设计](../plans/2026-10-15-map-system-enhancement.md) §7
 
 ## 背景
@@ -20,6 +21,11 @@ ADR-0025 的必查维度（`required_dimensions`）要求审查者逐项检查�
 必查维度，没有地图或地图不完整的作品会被阻断，空间分歧也会被当作阻断问题。
 这与用户裁定冲突：地图只是示意与提醒，不是写作必须遵守的约束。
 
+省略的阻断不止发生在必查维度上。范围解析时 `scope_complete = not omitted and not truncated`
+（`evidence/compilation/knowledge/scope.py:459`），不区分维度；声明了 `require_scope_complete` 的流程
+（`workflow.py:489`）遇到范围不完整就停下，`KnowledgeScopeReceipt` 里有省略项时也不能签署 PASS。
+所以只要参考维度的来源被写进 `omitted`，就会和必查维度的省略一样阻断。
+
 ## 决策
 
 ### 1. 新增参考维度 `advisory_dimensions`
@@ -29,10 +35,16 @@ ADR-0025 的必查维度（`required_dimensions`）要求审查者逐项检查�
 - 参考维度可选，不必查。其来源可以进入 `KnowledgeScopeReceipt` 和导演计划
   （归为“生成可用”或“仅审查可见”）。
 - 参考维度缺失、为空、被作者排除或因预算被省略，都不会使裁决降为 `unverifiable` 或 `blocked`。
-  预算省略仍记入回执，并向作者披露。
+- **省略单独记录**：参考维度的省略写入回执中单独的参考维度省略记录（拟名 `advisory_omitted`），
+  不写入 `omitted`，不参与 `scope_complete` 的计算，也不触发 `require_scope_complete`。
+  这些省略只提醒、不阻断：回执和审计中照常可见，并向作者披露“参考信息因预算未全部使用”。
 - 审查者对参考维度的发现只能是提示（advisory note），服务端裁决不采纳其阻断请求。
+- **版本**：回执结构和范围计算规则变化，相关能力的知识策略 `policy_version` 随之升级；
+  旧回执按旧版本读取，不重算。
 - 本条只修订 ADR-0025 第 4 条（预算型 omission 不得签署 PASS）对参考维度的适用；
-  必查维度的规则不变。
+  必查维度的规则不变，必查维度的省略仍写入 `omitted` 并照常阻断。
+- 其他需要“可选、只提醒”的维度（ADR-0038 `assistant.turn`、ADR-0040 的 `object_dossier`、
+  `character_pattern`、`director_reference`）一律使用本条机制，不另设省略规则。
 
 ### 2. 首批能力
 
@@ -105,8 +117,11 @@ Sol/xhigh 评分，按题材分别报告。证明空间一致性提升、正文�
 
 ## 后果
 
-- 知识治理新增一类维度语义，需要更新注册表、回执、审计收口
+- 知识治理新增一类维度语义，需要更新注册表、回执（新增参考维度省略记录）、范围完整性计算
+  （`scope.py` 只用必查维度的省略和截断判断 `scope_complete`）、审计收口
   （`_build_audit_coverage` 只对必查维度要求 `checked`）、`make prompt-contracts` 门禁和相关测试。
+  需要回归测试证明：参考维度被预算省略时，`scope_complete` 仍为真，`require_scope_complete` 流程不停下。
+- 相关能力的 `policy_version` 升级，旧回执按旧版本解释。
 - 写作 Prompt 会多出空间内容，成本和噪声都可能上升，必须由对比评测证明有益后才能开启。
 - 地图从“只出不进”变成写作的输入；冷启动（ADR-0036）决定有多少地图可以喂给写作。
 
