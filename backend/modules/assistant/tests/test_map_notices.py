@@ -162,6 +162,7 @@ async def test_map_notice_rechecks_exclusions_and_preserves_dismissal(
         db_session, test_project_id, "map_auto_draft_batch", str(result.batch_id)
     )
     assert (await proactive.list_notices(db_session, test_project_id))["items"] == []
+
     await _authorize(
         db_session,
         test_project_id,
@@ -172,13 +173,49 @@ async def test_map_notice_rechecks_exclusions_and_preserves_dismissal(
 
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize("mode", ["canonical", "working"])
+async def test_excluded_candidate_revision_hides_both_pending_and_tray_signals(
+    db_session, test_project_id, map_settings
+):
+    scene, _a, _b, clue = await _stage_bound_clue(
+        db_session, test_project_id, modality="character_statement"
+    )
+    result = await build_map_auto_drafts(
+        db_session, test_project_id, _build_request(scene, clue)
+    )
+    await _authorize(
+        db_session,
+        test_project_id,
+        excluded_targets=[
+            f"map_atlas_revision:{item.revision_id}" for item in result.revisions
+        ],
+    )
+    await proactive.mark_changed(
+        db_session, test_project_id, "map_auto_draft_batch", str(result.batch_id)
+    )
+    assert (await proactive.list_notices(db_session, test_project_id))["items"] == []
+    assert await db_session.scalar(select(func.count()).select_from(AssistantNotice)) == 0
+    # A different candidate is still eligible; excluding a revision is not a
+    # blanket ban on future revisions of this node.
+    next_result = await build_map_auto_drafts(
+        db_session, test_project_id, _build_request(scene, clue)
+    )
+    assert next_result.revisions[0].revision_id != result.revisions[0].revision_id
+    visible = (await proactive.list_notices(db_session, test_project_id))["items"]
+    assert len(visible) == 1
+    assert "待放置地点" in visible[0]["summary"]
+    assert "待审核草图" in visible[0]["summary"]
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("mode", ["canonical", "working", "excluded_revision"])
 async def test_product_model_type_emergence_is_source_bound(
     db_session, test_project_id, map_settings, mode
 ):
     await _authorize(db_session, test_project_id)
     scene, draft, _span, binding, evidence = await _source(
-        db_session, test_project_id, mode=mode
+        db_session,
+        test_project_id,
+        mode="canonical" if mode == "excluded_revision" else mode,
     )
     clue = _clue(
         scene_id=str(scene.id),
@@ -200,6 +237,20 @@ async def test_product_model_type_emergence_is_source_bound(
     result = await stage_spatial_discovery(db_session, test_project_id, batch)
     assert result.accepted
     if mode == "working":
+        assert (await proactive.list_notices(db_session, test_project_id))["items"] == []
+        return
+    if mode == "excluded_revision":
+        from modules.world.project_vocabulary_models import ProjectVocabularyTerm
+
+        term = await db_session.scalar(select(ProjectVocabularyTerm))
+        await _authorize(
+            db_session,
+            test_project_id,
+            excluded_targets=[f"project_vocabulary_revision:{term.current_revision_id}"],
+        )
+        await proactive.mark_changed(
+            db_session, test_project_id, "project_vocabulary_term", str(term.id)
+        )
         assert (await proactive.list_notices(db_session, test_project_id))["items"] == []
         return
     visible = (await proactive.list_notices(db_session, test_project_id))["items"]

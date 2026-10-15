@@ -125,7 +125,7 @@ async def read_map_notification_signals(db, novel_id, request):
             )
         candidate_nodes = set()
         for ref in (batch.result_refs or [])[:20]:
-            if str(ref.get("node_id")) in excluded:
+            if {str(ref.get("node_id")), str(ref.get("revision_id"))} & excluded:
                 continue
             revision = await db.scalar(
                 select(MapAtlasRevision).where(
@@ -169,7 +169,8 @@ async def read_map_notification_signals(db, novel_id, request):
             return None
         term, revision = row
         if (
-            term.kind not in _SPATIAL_KINDS
+            str(revision.id) in excluded
+            or term.kind not in _SPATIAL_KINDS
             or term.source != "model"
             or term.status not in {"emerging", "active"}
             or term.author_confirmed
