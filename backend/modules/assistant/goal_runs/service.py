@@ -88,6 +88,8 @@ PROTOCOL = "goal_run_v1"
 GOAL_ROOT_CAPABILITY = "assistant.goal.run"
 GOAL_PLAN_STEP = "assistant.goal.plan"
 GOAL_PLAN_TEMPERATURE = 0.15
+GOAL_SELECT_MINIMUM_OUTPUT = 64
+GOAL_PLAN_MINIMUM_OUTPUT = 512
 _ACTIVE_STATUSES = ("pending", "running", "waiting_approval")
 
 
@@ -1033,21 +1035,23 @@ async def _select_plan(
     selectable = {
         key: value for key, value in catalog.items() if key not in unavailable_ids
     }
-    menu = [
-        {
-            "id": operation_id,
-            "label": operation.label,
-            "risk": operation.risk_level,
-            "fee": operation.fee_category,
-        }
+    # Keep every eligible ID and its meaning, while sharing field names and
+    # the common free fee once rather than paying for them on every row.
+    menu = {
+        operation_id: [
+            operation.label,
+            operation.risk_level,
+            *([operation.fee_category] if operation.fee_category != "free" else []),
+        ]
         for operation_id, operation in sorted(selectable.items())
-    ]
+    }
     selection_messages = [
         LLMMessage(
             role="system",
             content=(
                 "只从给定目录挑出完成作者目标所需的操作 ID，"
                 "最多三十类，不要漏掉所需种类。"
+                "目录对象的键是操作 ID；值依次是标签、风险、可选费用，未写费用即 free。"
                 "这里只做目录发现，不执行、不规划参数、不补充目录外操作。"
                 "若所选操作的参数超出本目标额度，系统会请作者缩小范围或增额。"
             ),
@@ -1058,11 +1062,22 @@ async def _select_plan(
                 {
                     "goal": run.request_json.get("goal", ""),
                     "project": goal.get("project_summary"),
+                    "catalog_value_fields": ["label", "risk", "fee_if_nonfree"],
+                    "catalog_fee_default": "free",
                     "catalog": menu,
                 }
             ),
         ),
     ]
+    # A discovery call is pointless if the same frozen budget cannot even
+    # supply the plan phase's minimum output, before its input is counted.
+    if (
+        math.ceil(budget.tokens * 0.8) - envelope.snapshot().usage.total_tokens
+        < GOAL_SELECT_MINIMUM_OUTPUT + GOAL_PLAN_MINIMUM_OUTPUT
+    ):
+        raise GoalPlanningScopeError(
+            "目录或参数超过本次目标的模型额度；请取消本次目标，缩小范围或增加预算后新建"
+        )
     selection_request = LLMCallRequest(
         messages=selection_messages,
         temperature=GOAL_PLAN_TEMPERATURE,
@@ -1071,7 +1086,7 @@ async def _select_plan(
             envelope,
             budget,
             llm_snapshot,
-            minimum_output=64,
+            minimum_output=GOAL_SELECT_MINIMUM_OUTPUT,
             maximum_output=1_024,
         ),
     )
@@ -1149,7 +1164,7 @@ async def _select_plan(
                     envelope,
                     budget,
                     llm_snapshot,
-                    minimum_output=512,
+                    minimum_output=GOAL_PLAN_MINIMUM_OUTPUT,
                     maximum_output=8_000,
                 ),
             )
