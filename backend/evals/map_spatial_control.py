@@ -530,7 +530,9 @@ def _validate_evolution_preview(preview: dict, request: dict) -> dict:
     remaining = spatial.get("remaining") if isinstance(spatial, dict) else None
     request_range = spatial.get("request_range") if isinstance(spatial, dict) else None
     if (
-        preview.get("spatial_discovery_enabled") is not True
+        type(request.get("request_limit")) is not int
+        or not 1 <= request["request_limit"] <= 1000
+        or preview.get("spatial_discovery_enabled") is not True
         or preview.get("scene_count") != 5
         or preview.get("end_chapter") != request["end_chapter"]
         or preview.get("request_limit") != request["request_limit"]
@@ -551,14 +553,24 @@ def _validate_evolution_preview(preview: dict, request: dict) -> dict:
     ):
         raise MapSpatialEvalError("Evolution预览未覆盖五个Scene的完整空间子额度")
     required = reserve + quota
+    # Seed 1 + judges 5 + Writing 10*14 + Assistant 5*30; no verification here.
+    other_stage_calls = 1 + 5 + 10 * 14 + 5 * 30
     return {
         "fingerprint": preview["fingerprint"],
         "scene_count": preview["scene_count"],
         "mandatory_request_reserve": reserve,
+        "mandatory_reserve_kind": "static_minimum",
         "spatial_quota": quota,
+        "spatial_quota_kind": "child_maximum",
         "spatial_per_scene_limit": per_scene,
         "required_root_limit": required,
         "request_limit": request["request_limit"],
+        "extra_headroom": max(0, request["request_limit"] - required),
+        "completion_guaranteed": False,
+        "total_call_upper_bound": other_stage_calls + request["request_limit"],
+        "total_call_upper_bound_with_connection_verification": other_stage_calls
+        + 1
+        + request["request_limit"],
         "within_root_limit": request["request_limit"] >= required,
     }
 
@@ -637,8 +649,16 @@ async def preview_evolution(
         "operation_id": operation_id,
         "request_limit": request_limit,
         "mandatory_request_reserve": facts["mandatory_request_reserve"],
+        "mandatory_reserve_kind": facts["mandatory_reserve_kind"],
         "spatial_quota": facts["spatial_quota"],
+        "spatial_quota_kind": facts["spatial_quota_kind"],
         "required_root_limit": facts["required_root_limit"],
+        "extra_headroom": facts["extra_headroom"],
+        "completion_guaranteed": facts["completion_guaranteed"],
+        "total_call_upper_bound": facts["total_call_upper_bound"],
+        "total_call_upper_bound_with_connection_verification": facts[
+            "total_call_upper_bound_with_connection_verification"
+        ],
         "within_root_limit": facts["within_root_limit"],
         "preview_fingerprint": facts["fingerprint"],
         "start_command": (
@@ -681,8 +701,10 @@ async def start_evolution(
         or preview_record.get("common_binding_sha256") != digest(common)
         or preview_record.get("request_sha256") != digest(preview_record.get("request"))
         or preview_record.get("preview", {}).get("within_root_limit") is not True
+        or type(preview_record.get("request", {}).get("request_limit")) is not int
+        or type(preview_record.get("preview", {}).get("required_root_limit")) is not int
         or preview_record.get("request", {}).get("request_limit")
-        != preview_record.get("preview", {}).get("required_root_limit")
+        < preview_record.get("preview", {}).get("required_root_limit")
         or preview_record.get("human_validated") is not False
     ):
         raise MapSpatialEvalError("Evolution preview未通过或已占用；不得重发")
@@ -799,6 +821,12 @@ async def start_evolution(
         "scene_count": 5,
         "mandatory_request_reserve": current_facts["mandatory_request_reserve"],
         "spatial_quota": current_facts["spatial_quota"],
+        "extra_headroom": current_facts["extra_headroom"],
+        "completion_guaranteed": False,
+        "total_call_upper_bound": current_facts["total_call_upper_bound"],
+        "total_call_upper_bound_with_connection_verification": current_facts[
+            "total_call_upper_bound_with_connection_verification"
+        ],
         "first_task_id": task_id,
         "human_validated": False,
     }
@@ -1899,6 +1927,7 @@ async def freeze_binding(
         "source_snapshot_hash",
         "source_refs",
         "map_revision_count",
+        "map_brief_eligibility",
     )
     case_globals = {
         key: value
@@ -1910,6 +1939,47 @@ async def freeze_binding(
         for case in cases.values()
     ):
         raise MapSpatialEvalError("案例间项目或冻结版本漂移")
+    from evals.map_spatial_guard import writing_eligibility_path
+
+    unavailable = {
+        case_id: case["map_brief_eligibility"]
+        for case_id, case in cases.items()
+        if case.get("map_brief_eligibility", {}).get("status") == "unavailable"
+    }
+    if unavailable:
+        report = {
+            "family_id": family_id,
+            "status": "not_run",
+            "reason": "map_brief_unavailable",
+            "common_binding_sha256": digest(common),
+            "pipeline_hash": common["pipeline_hash"],
+            "cases": {
+                case_id: {
+                    **{
+                        key: case[key]
+                        for key in (
+                            "scene_id",
+                            "scene_hash",
+                            "source_snapshot_hash",
+                            "map_snapshot_hash",
+                            "map_revision_count",
+                        )
+                    },
+                    **case["map_brief_eligibility"],
+                    "writing_pair_status": "not_run",
+                    "reason": case["map_brief_eligibility"]["reason"]
+                    or "family_binding_unavailable",
+                }
+                for case_id, case in cases.items()
+            },
+            "human_validated": False,
+        }
+        with private_lock(root):
+            path = writing_eligibility_path(root, family_id)
+            if path.exists() or binding_path(root, family_id).exists():
+                raise MapSpatialEvalError("配对绑定或eligibility诊断已冻结，不能覆盖")
+            _write_private_json(path, report)
+        return report
     binding = {
         **{key: value for key, value in common.items() if key != "case_bindings"},
         **case_globals,
@@ -1936,7 +2006,7 @@ async def freeze_binding(
     binding["case_bindings"] = cases
     with private_lock(root):
         path = binding_path(root, family_id)
-        if path.exists():
+        if path.exists() or writing_eligibility_path(root, family_id).exists():
             raise MapSpatialEvalError("隔离绑定已冻结，不能覆盖或复用")
         _write_private_json(path, binding)
     return {

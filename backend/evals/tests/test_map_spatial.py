@@ -188,10 +188,16 @@ def test_evolution_preview_requires_complete_spatial_quota_and_root_cap():
         "fingerprint": "product-preview-fingerprint",
         "scene_count": 5,
         "mandatory_request_reserve": 5,
+        "mandatory_reserve_kind": "static_minimum",
         "spatial_quota": 10,
+        "spatial_quota_kind": "child_maximum",
         "spatial_per_scene_limit": 2,
         "required_root_limit": 15,
         "request_limit": 15,
+        "extra_headroom": 0,
+        "completion_guaranteed": False,
+        "total_call_upper_bound": 311,
+        "total_call_upper_bound_with_connection_verification": 312,
         "within_root_limit": True,
     }
     assert not _validate_evolution_preview(

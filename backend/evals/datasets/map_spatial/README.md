@@ -1,6 +1,6 @@
 # 地图空间题材评测
 
-冻结矩阵覆盖修仙、西幻、都市、科幻、悬疑：10 资料族、每族 5 case，development / holdout 各 25 case。正文、gold、prompt、输出及操作账本仅保存在仓库外私有目录 `/Users/tywww/.codex/private/map-spatial-evaluation-20261015-r2/`（目录 0700，文件 0600）。原无 `-r2` 目录只封存 d8 诊断，禁止复用其 binding/请求。Git 仅保留 hash、契约和脱敏结果；`human_validated=false`。
+冻结矩阵覆盖修仙、西幻、都市、科幻、悬疑：10 资料族、每族 5 case，development / holdout 各 25 case。正文、gold、prompt、输出及操作账本仅保存在仓库外私有目录 `/Users/tywww/.codex/private/map-spatial-evaluation-20261015-r2/`（目录 0700，文件 0600）。该 R2 和原无 `-r2` 的 d8 目录都已停止并封存诊断，禁止复用其 binding/请求。本次方法修改后的运行必须由 root 另选全新 private root/Project/请求身份，仅逐字节复制原冻结 source/expected；下述命令要求先设置 `MAP_EVAL_PRIVATE_ROOT` 指向新目录。Git 仅保留 hash、契约和脱敏结果；`human_validated=false`。
 
 ## 证据与质量门
 
@@ -18,7 +18,7 @@ owner 必须正常 active，Project 标题以 `MAP-EVAL:<family-id>:` 开头，�
 
 `setup-family` 经 Project、词表预设、Writing draft 与 Scene API 建立一个项目、一个 canonical draft、同章五个不同 Scene 与精确 spans。创建 Project 后先正常 GET `/api/evolution/reading` 读取 epoch、确认没有 run，再 POST `/api/evolution/engine` 切到 Evolution（`expected_epoch`、`stop_active=false`、`authorization_confirmed=true`）；私有 setup 保存实际切换回执，已有流程或不符回执直接停止。`freeze-common` 冻结空地图、owner、snapshot、Scene 身份与来源，随后每族一次四 seed Sol/xhigh 校准。Evolution 正常 enrichment 可以改变 Scene card，不得改变来源。演化完成后，代理作者只通过原 clue review、World promote（正式 can_adopt/source hash/来源前缀门）、auto-draft 与独立地图 preview/CAS 做合成项目决定。World 地点采用与地图采用分别记账，不采用真实作者数据。
 
-最终 `freeze-binding` 冻结 post-Evolution Scene/card 和地图 head。Writing 两臂通过正常 Evidence `pinned_refs` 共同选择已验证的同一 canonical `source_range`，先同时入队并固定相同 source、Project、Scene、指令和非地图 context，再各运行精确 task，候选不采用。每次只接管 `pending/attempt=0` 的同项目 task，不 drain 队列；started/unknown/已执行 task 永不重发。方法 fingerprint 覆盖实际 Evolution、auto-draft、Assistant prompt/tool schema 和 Writing/Evidence；项目动态词表按状态冻结，不混入方法 hash。
+最终 `freeze-binding` 回读实际无query地图brief，记录每Scene的 eligibility。无可信Scene地点且brief为空时报告 `unavailable/scene_location_unavailable`；已有地点但仍无brief时报告 `no_usable_map_brief`。任一case不可达只冻结独立的私有 `bindings/<family>-writing-eligibility.json` 诊断，Writing pair 为 `not_run`，不创建可执行最终binding/两臂任务，开发质量门仍阻断；report显示具体原因。这是覆盖/可达性缺口，不当作模型质量下降。不得猜选地点、改gold或把空图配对算通过。全部可达才冻结 post-Evolution Scene/card 和地图 head。Writing 两臂通过正常 Evidence `pinned_refs` 共同选择已验证的同一 canonical `source_range`，先同时入队并固定相同 source、Project、Scene、指令和非地图 context，再各运行精确 task，候选不采用。每次只接管 `pending/attempt=0` 的同项目 task，不 drain 队列；started/unknown/已执行 task 永不重发。方法 fingerprint 覆盖实际 Evolution、auto-draft、Assistant prompt/tool schema 和 Writing/Evidence；项目动态词表按状态冻结，不混入方法 hash。
 
 管线 hash 也覆盖实际 Scene pipeline/task、主提交后的 optional stage、World 候选物化、最终结构 task 与可选额度实现。attempt 保存原计划授权的空间方法指纹；证据读取重新验证 canonical 切片。Writing 的 `range_hash` 是原文切片 hash，Evolution 的可选同名字段是整稿 hash 与 offsets 的身份 hash，两者按正式契约分别验证；draft、章节、整稿 hash、精确 offsets 和 content mode 必须全部一致。
 
@@ -28,14 +28,15 @@ owner 必须正常 active，Project 标题以 `MAP-EVAL:<family-id>:` 开头，�
 
 ```bash
 # backend，使用现有锁定 Python，不 uv sync。
-.venv/bin/python -m evals.map_spatial verify --private-root /Users/tywww/.codex/private/map-spatial-evaluation-20261015-r2
-.venv/bin/python -m evals.map_spatial report --private-root /Users/tywww/.codex/private/map-spatial-evaluation-20261015-r2 \
-  --output /Users/tywww/.codex/private/map-spatial-evaluation-20261015-r2/reports/template.json
+: "${MAP_EVAL_PRIVATE_ROOT:?请先由root指定新的私有目录，不可复用R1/R2}"
+.venv/bin/python -m evals.map_spatial verify --private-root "$MAP_EVAL_PRIVATE_ROOT"
+.venv/bin/python -m evals.map_spatial report --private-root "$MAP_EVAL_PRIVATE_ROOT" \
+  --output "$MAP_EVAL_PRIVATE_ROOT/reports/template.json"
 ```
 
-所有 live 命令只运行一个选定 development family。顺序：setup → freeze-common → seeded score → preview（先读 M、Q，再冻结精确 M+Q）→ root 检查后 start → run-evolution（2、2、2 个串行 task）→ review-map → freeze-binding → 五 case 各 pair-writing / assistant-turn / judge。五个 Scene 完成后只接管同 run/operation 正式回执返回的一个结构 task；该 task 完成后同次读取正式完成状态。
+所有 live 命令只运行一个选定 development family。顺序：setup → freeze-common → seeded score → preview（先读 M、Q，再由操作者冻结有限 root_limit≥M+Q）→ root 检查后 start → run-evolution（2、2、2 个串行 task）→ review-map → freeze-binding → 五 case 各 pair-writing / assistant-turn / judge。五个 Scene 完成后只接管同 run/operation 正式回执返回的一个结构 task；该 task 完成后同次读取正式完成状态。
 
-单族包括正常连接验证的调用硬上界为 **297+M+Q**：1 验证 + 1 seeded + 5 judge + Evolution 的 M+Q + 10 Writing task 各至多 14 + 5 Assistant task 各至多 30。Writing 上限按真实 registry `6*ceil(K/64)+8` 解析，超过 14 在模型前停止；不把 task 数当请求数。World review / auto-draft 是确定性 DB、来源验证及几何代码，0 模型请求。隔离进程必须显式 `ASSISTANT_ENABLED=true`，业务模型并发≤2；common freeze 先检查两者，driver 串行处理任务。各 task 900 秒；教师/裁判单次 300 秒、attempts=1。
+单族不重复连接验证时调用硬上界为 **296+root_limit**：1 seeded + 5 judge + Evolution 实际授权的 root_limit + 10 Writing task 各至多 14 + 5 Assistant task 各至多 30；若包含独立连接验证，再加1，为 **297+root_limit**。M是静态最低保留估计，未包含未来模型输出才确定的World独立审查组；Q是空间子额度上限。`extra_headroom=root_limit-(M+Q)`单列，完整quota与原preview指纹不变。headroom不能保证完成；动态mandatory可使可选步骤留gap或主流程needs_budget。start仅执行同一原preview的有限cap，不对已启动run自动topup。Writing 上限按真实 registry `6*ceil(K/64)+8` 解析，超过 14 在模型前停止；不把 task 数当请求数。代理作者 `review-map` / auto-draft 是确定性 DB、来源验证及几何代码，0 模型请求；Evolution World独立审查组的模型请求计入其root_limit。隔离进程必须显式 `ASSISTANT_ENABLED=true`，业务模型并发≤2；common freeze 先检查两者，driver 串行处理任务。各 task 900 秒；教师/裁判单次 300 秒、attempts=1。
 
 CLI 另有包含 DB/准备的整阶段 deadline：setup 300s、common/final freeze 各 120s、preview 60s、start 90s、Evolution `max_tasks*900+120s`、review-map 1440s、Writing pair 1920s、Assistant 1020s、score 360s。一次 setup、两次 preview、一次 start、2/2/2 Evolution、一次 review、五 Writing pairs/Assistant/judge 的 deadline 总和 **24810s**；额外已检查的 review 续批每次另加 1440s。账户验证的产品 60s timeout 另计，总 **24870s（6h54m30s）**。这是取消式 wall deadline，取消清理和进程启动耗时另计；unknown 不重发。
 

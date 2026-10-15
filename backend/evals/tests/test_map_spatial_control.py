@@ -18,6 +18,162 @@ from evals.tests.test_map_spatial_guard import URL, binding_fixture, completed_c
 
 
 @pytest.mark.parametrize(
+    "scene,brief,status,reason",
+    [
+        (
+            {"source": "manual"},
+            {"items": []},
+            "unavailable",
+            "scene_location_unavailable",
+        ),
+        (
+            {"structure_meta": {"location_entity_id": "trusted"}},
+            {"items": []},
+            "unavailable",
+            "no_usable_map_brief",
+        ),
+        ({}, {"items": [{}]}, "available", None),
+    ],
+)
+def test_writing_eligibility_requires_actual_brief_items(scene, brief, status, reason):
+    assert map_spatial.writing_brief_eligibility(scene, brief) == {
+        "status": status,
+        "reason": reason,
+        "writing_pair_status": "not_run",
+    }
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("limit", [30, 31, 50])
+async def test_evolution_start_preserves_explicit_finite_headroom_without_topup(
+    tmp_path, monkeypatch, limit
+):
+    import uuid
+
+    import httpx
+
+    root, binding, _ = binding_fixture(tmp_path, monkeypatch)
+    family_id = binding["family_id"]
+    common = control.read_common_binding(root, family_id)
+    completed_calibration(root, binding)
+    monkeypatch.setenv("MAP_SPATIAL_EVAL_ALLOW_LIVE", "1")
+    monkeypatch.setenv("APP_ENV", "test")
+    monkeypatch.setenv("AUTH_MODE", "local")
+    monkeypatch.setenv("DATABASE_URL", URL)
+    operation_id = str(uuid.uuid4())
+    request = control._evolution_request(common, operation_id, limit)
+    preview = {
+        "spatial_discovery_enabled": True,
+        "scene_count": 5,
+        "end_chapter": request["end_chapter"],
+        "request_limit": limit,
+        "budget_mode": "bounded",
+        "model": "gpt-6-luna",
+        "fingerprint": "a" * 64,
+        "mandatory_request_reserve": 21,
+        "optional_steps": {
+            "spatial": {
+                "quota": 10,
+                "per_scene_limit": 2,
+                "used": 0,
+                "remaining": 10,
+                "request_range": {"minimum": 0, "maximum": 10},
+            }
+        },
+    }
+    facts = control._validate_evolution_preview(preview, request)
+    for invalid_limit in (True, 0, 1001):
+        with pytest.raises(MapSpatialEvalError, match="完整空间子额度"):
+            control._validate_evolution_preview(
+                {**preview, "request_limit": invalid_limit},
+                {**request, "request_limit": invalid_limit},
+            )
+    control._write_private_json(
+        control._evolution_preview_path(root, family_id, operation_id),
+        {
+            "suite": "map_spatial",
+            "family_id": family_id,
+            "split": "development",
+            "operation_id": operation_id,
+            "common_binding_sha256": control.digest(common),
+            "request_sha256": control.digest(request),
+            "request": request,
+            "preview": facts,
+            "preview_sha256": control.digest(preview),
+            "status": "previewed",
+            "human_validated": False,
+        },
+    )
+    posts = []
+
+    async def post(path, *, json):
+        posts.append((path, json))
+        if path.startswith("/api/evolution/reading/preview?"):
+            assert json == request
+            return httpx.Response(200, json=preview)
+        assert json == {
+            **request,
+            "expected_fingerprint": preview["fingerprint"],
+            "authorization_confirmed": True,
+        }
+        return httpx.Response(
+            200,
+            json={
+                "run": {
+                    "run_key": f"reading-{operation_id}",
+                    "status": "pending",
+                    "task_id": str(uuid.uuid4()),
+                    "total_scenes": 5,
+                    "spatial_discovery_enabled": True,
+                }
+            },
+        )
+
+    @asynccontextmanager
+    async def client(*args):
+        yield SimpleNamespace(post=post, timeout=SimpleNamespace(read=30))
+
+    @asynccontextmanager
+    async def session():
+        yield None
+
+    async def verify(*args):
+        pass
+
+    monkeypatch.setattr(control, "_product_client", client)
+    monkeypatch.setattr(control, "verify_runtime", verify)
+    monkeypatch.setattr(
+        "core.database.get_manager", lambda: SimpleNamespace(session=session)
+    )
+    options = {
+        "private_root": root,
+        "family_id": family_id,
+        "operation_id": operation_id,
+        "api_base_url": "http://map-spatial-eval.internal",
+        "execute": True,
+    }
+    if limit < 31:
+        with pytest.raises(MapSpatialEvalError, match="不得重发"):
+            await control.start_evolution(**options)
+        assert posts == []
+        assert not control._evolution_record_path(root, family_id).exists()
+        return
+    result = await control.start_evolution(**options)
+    assert result["request_limit"] == limit
+    assert result["extra_headroom"] == limit - 31
+    assert result["completion_guaranteed"] is False
+    assert result["total_call_upper_bound"] == 1 + 5 + 10 * 14 + 5 * 30 + limit
+    assert result["total_call_upper_bound_with_connection_verification"] == 297 + limit
+    saved = map_spatial._read_private_json(
+        control._evolution_record_path(root, family_id)
+    )
+    assert saved["preview"] == facts
+    with pytest.raises(MapSpatialEvalError, match="不得重发"):
+        await control.start_evolution(**options)
+    assert len(posts) == 2
+
+
+@pytest.mark.parametrize(
     "name",
     [
         "pipeline.py",
@@ -303,7 +459,10 @@ def test_paired_baseline_weights_same_opportunities_and_requires_gain():
 
 
 @pytest.mark.asyncio
-async def test_final_freeze_keeps_distinct_scene_source_spans(tmp_path, monkeypatch):
+@pytest.mark.parametrize("unavailable", [False, True])
+async def test_final_freeze_keeps_distinct_scene_source_spans(
+    tmp_path, monkeypatch, unavailable
+):
     root, binding, _ = binding_fixture(tmp_path, monkeypatch)
     family_id = binding["family_id"]
     common = control.read_common_binding(root, family_id)
@@ -343,6 +502,11 @@ async def test_final_freeze_keeps_distinct_scene_source_spans(tmp_path, monkeypa
                 not in {"case_bindings", "common_binding_sha256", "map_heads_sha256"}
             },
             **case,
+            "map_revision_count": 0 if unavailable else 1,
+            "map_brief_eligibility": map_spatial.writing_brief_eligibility(
+                {"source": "manual", "structure_meta": {}},
+                {"items": [] if unavailable else [{}]},
+            ),
         }
 
     monkeypatch.setattr(control, "preflight_project", preflight)
@@ -352,6 +516,56 @@ async def test_final_freeze_keeps_distinct_scene_source_spans(tmp_path, monkeypa
         scopes=root / "scopes" / f"{family_id}.json",
         execute=True,
     )
+    if unavailable:
+        from evals.map_spatial_guard import (
+            binding_path,
+            evaluate_development,
+            read_writing_eligibility,
+        )
+
+        assert result["status"] == "not_run"
+        assert not binding_path(root, family_id).exists()
+        assert read_writing_eligibility(root, family_id) == result
+        assert all(
+            {key: case[key] for key in ("status", "reason", "writing_pair_status")}
+            == {
+                "status": "unavailable",
+                "reason": "scene_location_unavailable",
+                "writing_pair_status": "not_run",
+            }
+            for case in result["cases"].values()
+        )
+        with pytest.raises(MapSpatialEvalError, match="writing_pair_not_run"):
+            first_id, first = next(iter(binding["case_bindings"].items()))
+            await map_spatial.run_writing_pair(
+                private_root=root,
+                family_id=family_id,
+                case_id=first_id,
+                novel_id=first["novel_id"],
+                scene_id=first["scene_id"],
+                chapter_index=first["chapter_index"],
+                execute=True,
+            )
+        with pytest.raises(MapSpatialEvalError, match="不能覆盖"):
+            await control.freeze_binding(
+                private_root=root,
+                family_id=family_id,
+                scopes=root / "scopes" / f"{family_id}.json",
+                execute=True,
+            )
+        assert read_writing_eligibility(root, family_id) == result
+        report_path = root / "report.json"
+        map_spatial.build_report(root, report_path)
+        report = map_spatial._read_private_json(report_path)
+        assert report["writing_eligibility"][family_id] == result
+        gate = evaluate_development(root, map_spatial.load_matrix())
+        assert gate["passed"] is False
+        assert any(
+            row["reason"] == "writing_pair_not_run_map_brief_unavailable"
+            for row in gate["blockers"]
+        )
+        assert not map_spatial._read_ledger(root)["runs"]
+        return
     assert result["status"] == "frozen"
     frozen = control.read_binding(root, family_id)
     assert (

@@ -66,7 +66,10 @@ async def test_setup_family_uses_real_project_draft_and_scene_apis(
     }
     assert len(setup["scenes"]) == 5
     assert len({scope["scene_id"] for scope in scopes.values()}) == 5
-    from evals.map_spatial import scene_source_refs
+    from evals.map_spatial import scene_source_refs, writing_brief_eligibility
+    from modules.story.facade import get_scene_contract
+    from modules.world.contracts import MapSpatialBriefRequest
+    from modules.world.facade import read_map_spatial_brief
 
     for case in source["cases"]:
         scope = scopes[case["case_id"]]
@@ -81,6 +84,18 @@ async def test_setup_family_uses_real_project_draft_and_scene_apis(
         assert refs[0]["content_mode"] == "canonical"
         assert refs[0]["start_offset"] < refs[0]["end_offset"]
         assert refs[0]["source_hash"] == setup["scenes"][case["case_id"]]["source_hash"]
+        scene = await get_scene_contract(db_session, scope["novel_id"], scope["scene_id"])
+        brief = await read_map_spatial_brief(
+            db_session,
+            MapSpatialBriefRequest(**scope, reveal_mode="author_safe"),
+        )
+        from evals.map_spatial import _as_plain
+
+        assert writing_brief_eligibility(_as_plain(scene), _as_plain(brief)) == {
+            "status": "unavailable",
+            "reason": "scene_location_unavailable",
+            "writing_pair_status": "not_run",
+        }
 
     status = await async_client.get(
         f"/api/evolution/reading?novel_id={result['novel_id']}"

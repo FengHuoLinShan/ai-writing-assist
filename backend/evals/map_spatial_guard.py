@@ -302,6 +302,34 @@ def read_common_binding(root: Path, family_id: str) -> dict:
     return value
 
 
+def writing_eligibility_path(root: Path, family_id: str) -> Path:
+    return private_ref(root, f"bindings/{family_id}-writing-eligibility.json")
+
+
+def read_writing_eligibility(root: Path, family_id: str) -> dict | None:
+    """Read a diagnostic denial; it never substitutes for a runnable map binding."""
+    from evals.map_spatial import MapSpatialEvalError, _read_private_json
+
+    path = writing_eligibility_path(root, family_id)
+    if not path.exists():
+        return None
+    report = _read_private_json(path)
+    common = read_common_binding(root, family_id)
+    if any(
+        report.get(key) != expected
+        for key, expected in {
+            "family_id": family_id,
+            "status": "not_run",
+            "reason": "map_brief_unavailable",
+            "common_binding_sha256": digest(common),
+            "pipeline_hash": common["pipeline_hash"],
+            "human_validated": False,
+        }.items()
+    ):
+        raise MapSpatialEvalError("Writing eligibility诊断或共同来源已漂移")
+    return report
+
+
 def read_binding(root: Path, family_id: str) -> dict:
     from evals.map_spatial import (
         MATRIX_PATH,
@@ -1526,11 +1554,14 @@ def evaluate_development(root: Path, matrix: dict) -> dict:
                 binding = read_binding(root, family_id)
             except Exception as exc:
                 binding = None
+                eligibility = read_writing_eligibility(root, family_id)
                 blockers.append(
                     {
                         "genre": genre,
                         "family_id": family_id,
-                        "reason": "final_binding_missing_or_drifted",
+                        "reason": "writing_pair_not_run_map_brief_unavailable"
+                        if eligibility is not None
+                        else "final_binding_missing_or_drifted",
                         "detail": type(exc).__name__,
                     }
                 )

@@ -431,8 +431,18 @@ def _require_live_scope_approval(
         )
     if not family_id:
         raise MapSpatialEvalError("not_ready_for_live: 缺少隔离绑定与真实校准证据")
-    from evals.map_spatial_guard import read_binding, require_calibration
+    from evals.map_spatial_guard import (
+        read_binding,
+        read_writing_eligibility,
+        require_calibration,
+    )
 
+    eligibility = read_writing_eligibility(private_root, family_id)
+    if eligibility is not None:
+        raise MapSpatialEvalError(
+            "writing_pair_not_run: map_brief_unavailable; "
+            "详见私有writing eligibility报告，未创建最终配对绑定或任务"
+        )
     binding = read_binding(private_root, family_id)
     if binding["split"] == "holdout":
         _require_development_gate(private_root, matrix)
@@ -706,6 +716,22 @@ async def scene_source_refs(
     return matched_refs
 
 
+def writing_brief_eligibility(scene: dict, brief: dict) -> dict:
+    """Classify actual Brief availability without inferring a Scene location."""
+    available = bool(brief.get("items"))
+    metadata = scene.get("structure_meta") or {}
+    has_location = bool(metadata.get("location_id") or metadata.get("location_entity_id"))
+    return {
+        "status": "available" if available else "unavailable",
+        "reason": None
+        if available
+        else "scene_location_unavailable"
+        if not has_location
+        else "no_usable_map_brief",
+        "writing_pair_status": "not_run",
+    }
+
+
 async def preflight_project(
     *,
     private_root: Path,
@@ -723,7 +749,7 @@ async def preflight_project(
         scene_id=scene_id,
         chapter_index=chapter_index,
         source_excerpt=source_excerpt,
-        expected_map_state="present",
+        expected_map_state="reviewed",
     )
     return result
 
@@ -841,8 +867,6 @@ async def _preflight_project_state(
         has_map = bool(brief_data.get("items"))
         if expected_map_state == "empty" and has_map:
             raise MapSpatialEvalError("cold-start基线必须来自空地图项目")
-        if expected_map_state == "present" and not has_map:
-            raise MapSpatialEvalError("Writing配对需要作者审核后已采用的地图简报")
         result = {
             "schema_version": 1,
             "suite": "map_spatial",
@@ -873,6 +897,10 @@ async def _preflight_project_state(
             "human_validated": False,
             "private_root_sha256": _canonical_hash(str(private_root.resolve())),
         }
+        if expected_map_state == "reviewed":
+            result["map_brief_eligibility"] = writing_brief_eligibility(
+                scene_data, brief_data
+            )
         await db.rollback()
         return result
 
@@ -1238,6 +1266,14 @@ def build_report(private_root: Path, output: Path) -> dict[str, Any]:
         raise MapSpatialEvalError("评测报告必须写入仓库外私有目录")
     matrix = load_matrix()
     report = report_template(matrix, _read_ledger(private_root))
+    from evals.map_spatial_guard import read_writing_eligibility
+
+    report["writing_eligibility"] = {
+        family["family_id"]: eligibility
+        for family in matrix["families"]
+        if (eligibility := read_writing_eligibility(private_root, family["family_id"]))
+        is not None
+    }
     report["status"] = "prepared"
     report["output_written_at"] = datetime.now(UTC).isoformat()
     _write_private_json(output, report)
