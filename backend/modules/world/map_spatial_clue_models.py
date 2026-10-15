@@ -26,6 +26,7 @@ class MapSpatialClueRecord(Base, UUIDMixin, TimestampMixin, NovelMixin):
 
     __tablename__ = "map_spatial_clues"
     __table_args__ = (
+        UniqueConstraint("novel_id", "id", name="uq_map_spatial_clues_novel_id"),
         CheckConstraint(
             "status IN ('pending_review', 'pending_verification', 'adopted', "
             "'rejected', 'superseded')",
