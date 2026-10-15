@@ -83,6 +83,7 @@ import modules.story.continuity.models  # noqa: F401
 import modules.story.models  # noqa: F401
 import modules.story.outline_state.models  # noqa: F401
 import modules.world.map_atlas_models  # noqa: F401
+import modules.world.map_spatial_clue_models  # noqa: F401
 import modules.world.models  # noqa: F401
 import modules.writing.models  # noqa: F401
 from app.bootstrap import register_container_services
