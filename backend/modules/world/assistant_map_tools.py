@@ -637,7 +637,7 @@ async def _auto_draft_group_preview(db, novel_id, args, *, context=None):
             await db.scalars(
                 select(MapAtlasNode).where(
                     MapAtlasNode.novel_id == UUID(novel_id),
-                    MapAtlasNode.status == "adopted",
+                    MapAtlasNode.status.in_(("adopted", "provisional")),
                     MapAtlasNode.merged_into_node_id.is_(None),
                 )
             )

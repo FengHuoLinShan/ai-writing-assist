@@ -1,3 +1,4 @@
+from types import SimpleNamespace
 from uuid import UUID, uuid4
 
 import pytest
@@ -6,21 +7,105 @@ from app.assistant_operation_registry import world_map_operations
 from core.errors import ConflictError
 from modules.account.facade import current_account_id
 from modules.assistant.contracts import AssistantOperationContext, WorkContext
+from modules.world import assistant_map_tools
 from modules.world.assistant_map_tools import (
     AddKnownLocation,
     AssistantSpaceArrangement,
     EditFeatureLabel,
     EditMapStructure,
     MapStructureEdit,
+    ReviewAutoDraftGroup,
     ReviewSpatialClues,
     SpatialClueDecisionSelector,
     UpdateMapNode,
 )
+from modules.world.map_atlas_models import MapAtlasNode
 from modules.world.map_atlas_schemas import MapAtlasNodeUpdate
 from modules.world.map_structure_schemas import MapNodeCreate, MapSaveRequest
 from modules.world.map_structure_service import MapStructureService
 from modules.world.models import CoreEntity
 from modules.world.tests.test_map_structure import document
+
+
+@pytest.mark.asyncio
+async def test_hierarchy_review_includes_provisional_descendants_but_not_merged_nodes(
+    db_session, test_project_id, monkeypatch
+):
+    db, nid = db_session, test_project_id
+    parent, child, merged = [
+        MapAtlasNode(
+            novel_id=UUID(nid),
+            semantic_key=f"draft-{index}",
+            title=f"草图 {index}",
+            level="region" if index == 0 else "city",
+            status="provisional",
+        )
+        for index in range(3)
+    ]
+    db.add_all([parent, child, merged])
+    await db.flush()
+    child.parent_id = parent.id
+    merged.parent_id = parent.id
+    merged.merged_into_node_id = parent.id
+    await db.flush()
+
+    batch_id = uuid4()
+
+    def candidate(node):
+        return SimpleNamespace(
+            node_id=node.id,
+            revision_id=uuid4(),
+            review_base_revision_id=None,
+            batch_id=batch_id,
+            fingerprint="a" * 64,
+            source_clue_ids=[],
+            status="candidate",
+            stale=False,
+            batch_status="completed",
+            node_title=node.title,
+            document={
+                "features": [
+                    {
+                        "id": f"feature-{node.semantic_key}",
+                        "kind": "location",
+                        "label": node.title,
+                    }
+                ]
+            },
+        )
+
+    async def list_drafts(*args, **kwargs):
+        return SimpleNamespace(
+            items=[candidate(parent), candidate(child), candidate(merged)],
+            truncated=False,
+            batches_truncated=False,
+        )
+
+    async def allowed(*args, **kwargs):
+        return None
+
+    async def review_preview(*args, **kwargs):
+        return SimpleNamespace(applied_change_keys=["feature"], expanded_change_keys=[])
+
+    monkeypatch.setattr(assistant_map_tools, "list_map_auto_drafts", list_drafts)
+    monkeypatch.setattr(assistant_map_tools, "_require_aggregate_scope", allowed)
+    monkeypatch.setattr(assistant_map_tools, "get", lambda key: allowed)
+    monkeypatch.setattr(MapStructureService, "review_preview", review_preview)
+    context = AssistantOperationContext(
+        str(uuid4()), str(current_account_id()), WorkContext(page="map", scope="project")
+    )
+    preview = await assistant_map_tools._auto_draft_group_preview(
+        db,
+        nid,
+        ReviewAutoDraftGroup(
+            scope_kind="hierarchy", scope_id=str(parent.id), action="adopt"
+        ),
+        context=context,
+    )
+    assert {item["node_id"] for item in preview["decisions"]} == {
+        str(parent.id),
+        str(child.id),
+    }
 
 
 @pytest.mark.asyncio
