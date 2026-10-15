@@ -155,3 +155,8 @@ root核实map-assistant-vocab-review旧scene-director-review/616e9d474树干净�
 接入目录/HTTP/来源CAS及恢复须由Sol审修组合，不以只改列表或篇章计划冒称完成。
 A4候选b554已交Sol；ordinary operations.py、goal_runs/service.py及顶层组合归该Sol。
 C5与C0独立Luna继续在各自领域，不借用其PG或共享文件写入权。
+
+
+## 2026-10-16T06:39:58+08:00 执行检查点
+
+root已核实章节/时间线准备树干净并fast-forward至942c40746（产品3caf A4），仍未派发，无活动writer。后续开工仍须核最新primary与共享文件所有权。

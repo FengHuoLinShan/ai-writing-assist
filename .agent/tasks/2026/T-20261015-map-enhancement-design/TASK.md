@@ -3,7 +3,7 @@ id: T-20261015-map-enhancement-design
 title: 地图系统增强设计与分批实施（自动冷启动、参与创作决策、题材鲁棒性）
 status: active
 created: 2026-10-15T10:54:00+08:00
-updated: 2026-10-16T06:32:52+08:00
+updated: 2026-10-16T06:40:37+08:00
 ---
 
 # 地图系统增强设计
@@ -23,7 +23,7 @@ A3原Sol审修fb62已合eab：作者Interaction/Collaboration十二项真实SPEC
 
 A4已按Sol固定`bb6d27a46b9bb94d970dc4f22ce0791b313e7871`无冲突合primary `3caf1288b9f3e4432fbc1924dc2b272116636506`，22文件4630+/149-。Sol直接修exact now-180d、首到期整UTC日无ID快照/旧碎片缺口、report GET只读及读归档并发、批次partial retry确认重复计数、跨日同call执行→恢复关联与多次恢复/重复执行去重分母、JSON/CSV/UI比例与中文标签。没有永久groupID/HMAC。至少数周真实数据与真实Top3仍缺，不能以合成数据冒充。Sol最终源门禁有8913后端/3179前端及最终相关21后端/4Vue文件复验、30PG和追加rate/replay/idle PG；fresh专库迁移/head/parity通过，已停止18588/18589并释放operation_trace_report_review专库使用权、保留数据。
 
-root已看两张390/1280截图，并读/tmp/map-a4-browser-review-final-20261016.log确认真实HTTP偏好PUT/GET、owner A、筛选/键盘/all、CSV无projectID/私有hash、B空隔离/失败反馈，390无溢出。当前3caf root另新建operation_trace_report_primary_test_20261016，fresh upgrade/head/parity与Goal/Director/C0c/A3/原Trace/Report共43PG全通过（11.69s）；docs/repo-gates通过。全后端普通仍在session37413、/tmp/map-a4-primary-backend-all-20261016.log。前端全套首轮3179通过/1超时、252files/3180tests：既有GenerateView的bounded World Core三轮用例超过5秒（5.436s），不是assert差异；原断言单例重跑通过（1pass/96skip），lint/build通过。待后端结束后再复验整套，不提前标全绿，也未为此改代码或超时。A4原fresh CREATE脚本/tmp/map-a4-root-primary-run-pg-20261016.py已执行，不能盲重跑重建库。
+root已看两张390/1280截图，并读/tmp/map-a4-browser-review-final-20261016.log确认真实HTTP偏好PUT/GET、owner A、筛选/键盘/all、CSV无projectID/私有hash、B空隔离/失败反馈，390无溢出。当前3caf root另新建operation_trace_report_primary_test_20261016，fresh upgrade/head/parity与Goal/Director/C0c/A3/原Trace/Report共43PG全通过（11.69s）；docs/repo-gates通过。全后端普通已完成8914通过/9跳过/1 deselected/1既有Pydantic warning，337.54s，RuntimeWarning转error（/tmp/map-a4-primary-backend-all-20261016.log）。前端全套首轮3179通过/1超时、252files/3180tests：既有GenerateView的bounded World Core三轮用例超过5秒（5.436s），不是assert差异；原断言单例重跑通过（1pass/96skip），lint/build通过。后端结束后以maxWorkers=2完整前端复跑通过252文件/3180项（77.73s，/tmp/map-a4-primary-frontend-repeat-20261016.log）；未改代码或放宽超时。当前3caf A4工程整体验证已通过。A4原fresh CREATE脚本/tmp/map-a4-root-primary-run-pg-20261016.py已执行，不能盲重跑重建库。
 
 C5 Luna已固定实现0f2dfa692，随后只cherry已审Sol8ca fixture为`ac4e08a4abce923210372a0adbd24aac779b9557`，树干净并退出。47定向后端、3178前端/lint/build/docs通过；world_progression_impl_test_20261016已创建并升级20261016_wp_cascade。PG persistence为3通过/2失败：直接Step UPDATE/DELETE拒绝、Project删除通过，但项目仍存时删除branch/root级联硬删immutable step。深度-only放行不合格，Luna停止改guard并保留红例。无真实HTTP/worker/provider/browser，不能当C5完成。
 
@@ -33,14 +33,18 @@ C0模板互通Luna/max已启动：world-object-dossier-impl/codex/dossier-templa
 
 剩余C3前瞻表演格式/人物弧计划实际/演化阅读提醒、A1真实章节重排/一般Story时间线将继续分批Luna实施、Sol直接审修；root又核对C4新引入对象一键转World候选尚缺闭环，已列Sol直接补的尾项，不能用已通过的部分测试替代。C1长篇、M5势力、RP迁移、A4数周数据条件门禁如实保留。C0c/C4已审工程证据保留各handoff；真实地图R3仍诊断封存，holdout不解码，后续采用“模拟作者显式指定Scene地点”评测口径。零新真实模型请求，未push/PR/main合并/部署。
 
-- 下一步：root收齐3caf A4全后端与重新调度的全前端复验；Sol先固定C4候选桥接，再将共享槽移交C5 Sol完成装配与审修，C0 Luna继续模板互通。之后C3/A1实施与C0审修继续分批；条件门禁如实保留。
+
+
+本轮审查更新：C4 Sol首版8PG/真实浏览器已通过，但root发现只从candidate_events转实体不足以覆盖表演/素材中的新人物和地点refs，现由Sol直接补event-free结构化对象转入及R3纯SPEC/真实trace；旧路径证据不当最终。C5 Sol已修角色收到作者累计摘要、地图有效期断档仍参与路线、钩子读取错回执与锁后未复核导致重复采用；52项定向后端通过。实际app导入又发现continuous从tasks导入不存在_task_meta，正在归位修复。root已明确要求第9项独立R4 resume与UI，保持同Root/start/deadline及所有累计计数、当前unknown确认集合和持久半步checkpoint，新unknown再次停点，不能重置或换根。C0 Luna作者专用模板接口与旧AI schema分离，省略借用继承旧值；101后端/34Vue/lint/build及1专库E2E通过，继续CSV/XLSX/JSON与真实UI验证，尚未交Sol。其专库已创建，当前head待最终回报。
+
+下一步：Sol先固定C4候选桥接，再将共享槽移交C5 Sol完成装配与审修，C0 Luna继续模板互通。之后C3/A1实施与C0审修继续分批；条件门禁如实保留。
 - 批次验收：[完整范围对账](../T-20261015-character-world-progression/artifacts/FULL-SCOPE-ACCEPTANCE.md)，区分已合入、进行中、未实施与外部条件门禁。
 - 范围：用户已明确“该分支三份计划全部实施，包括操作目录、对象档案、导演和世界推进”。执行地图M0–M5及两个配套完整计划；既有计划的条件依赖和真实质量门禁仍有效，不能冒称完成。
 - 依赖：M5 依赖独立势力路线图阶段 1，现有计划明确阶段 1 前不提供领地图层；不得读取旧无时效势力字段冒充完成。
 - 已落地共享前置：`6fcce3bfd` 把7种ObservationModality上移shared并保持Evolution兼容再出口（16测）；`16f64570a` 在既有Story scene-source port提供按当前顺序的锚点/替换链只读数据（5测）。两者ruff通过，后续纳入Sol审查。
 - 验证环境：唯一primary/backend/.venv（Python3.14.8/Pydantic2.14），Node24.15/npm11.12；PG只65202明确专库。root新增operation_trace_report_primary并保留author_operations_primary等旧库；A4 review/impl库释放保留。C4 Sol仅director_candidate_review，C5 Sol仅world_progression_review（尚未升级），C0 Luna仅dossier_template_interchange_impl，C5 Luna已释放world_progression_impl保留。默认库不探测，早期A0是否写入无证据不推断。依赖不安装，子树在目录/链接均不存在时才能链接一次，避免既往嵌套自链。
 - 验证：实现前 `make docs-check` 已通过（152 ORM表、49ADR）；没有真实模型/真实稿件验证。
-- 最后核实：2026-10-16T06:32:52+08:00
+- 最后核实：2026-10-16T06:40:37+08:00
 
 ## 批次与分工
 

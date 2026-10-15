@@ -14,7 +14,7 @@ A3及追加Sol修复、A4独立审修均已合入；C4尾项/C5/C0新批次仍�
 | 操作A1 | 第一波89项目录及主要真实领域入口已交付 | Writing真实章节重排、一般Story时间线仍需独立实施，见A1-A2-HANDOFF |
 | 操作A2 | 目标DAG、范围冻结、分级确认、同根计量、恢复/漂移与真实PG已集成并审修 | 后续新目录扩展须保持旧冻结与真实父根约束 |
 | 操作A3 | Sol fb62a4c66已合eab，十二项作者操作/真实摘要worker/Collab原子R3/浏览器完成独立审修 | root新库组合30项全部通过，旧目录预算停点与三普通回归均由Sol直接修；扩大普通后端8258项已通过 |
-| 操作A4 | Luna b554经Sol bb6直接审修已合primary3caf，统计报表/边界序列/前向真实测量已装配 | root新库43PG/迁移/head/parity与门禁通过，扩大后端和前端超时复验进行中；至少数周真实数据、真实前三高频模式选择和代码化不能用合成样本代替 |
+| 操作A4 | Luna b554经Sol bb6直接审修已合primary3caf，统计报表/边界序列/前向真实测量已装配 | root新库43PG/迁移/head/parity与门禁通过，扩大后端8914项与前端3180项、lint/build均通过；至少数周真实数据、真实前三高频模式选择和代码化不能用合成样本代替 |
 | 档案C0 | 条目/兼容层/时点接口与有效期C0c已集成并审修 | 自定义类型借用内核、五题材档案预设、表格和JSON互通新Luna批次已启动，见C0-TEMPLATE-INTERCHANGE-TAIL |
 | 档案C1 | 还未启动整批 | 原计划前置为C0与演化第四阶段长篇跑通；该真实长篇门禁尚未通过，不能冒称已满足 |
 | 副驾驶C2 | 对象简报、参考维度、人物卡与反应v2及真实HTTP/PG/界面已集成并审修 | 默认关闭能力仍需真实质量验收后再决定启用 |
@@ -29,8 +29,8 @@ eab普通后端8255通过/3失败，30项PG为29通过/1 Goal失败。Sol净bf78
 日志/tmp/map-a3-primary-fixed-{head,metadata,pg}-20261016.log；docs/repo-gates通过。
 扩大普通回归已完成8258通过/7跳过/1 deselected/1既有warning，295.54s；
 /tmp/map-a3-primary-combined-fixed-20261016.log，-W error::RuntimeWarning。本固定点工程回归通过。
-A4现合3caf：root新库43PG（11.69s）、fresh迁移/head/parity、docs/repo-gates通过；全后端尚运行。
-全前端首轮3179pass/1旧GenerateView测试5秒超时，单例原断言通过，lint/build通过，待整套复验。
+A4现合3caf：root新库43PG（11.69s）、fresh迁移/head/parity、docs/repo-gates通过；完整普通后端8914通过/9跳过/1 deselected/1既有warning（337.54s），RuntimeWarning转error。
+全前端首轮3179pass/1旧GenerateView测试5秒超时，单例原断言通过；后端结束后以maxWorkers=2整套复验252文件3180项全通过（77.73s），lint/build通过，未改代码或超时。当前3caf A4工程固定点全绿，未验证数周真实使用。
 C4 Sol与新C5 Sol按共享写权先后组合，C0模板互通Luna独立实现，三批代码均未合3caf。
 C4此前Sol普通扩大8299项以及真实TaskWorker/HTTP/390与1280浏览器证据保留在C4-C5-HANDOFF。
 

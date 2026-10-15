@@ -178,3 +178,8 @@ DELETE + pg_trigger_depth()>1放行，root读迁移:25指出这也会放行存�
 不要用TEMP同名表/宽泛深度条件绕过。当前门禁不合格、未合primary。
 C5没有director_*.py或SceneDirectorPanel.vue改动；api/story.js仍本域写权。
 五Vue组件用例不是浏览器，真实HTTP/browser尚未运行，后续Sol须验完整TaskWorker/预算/界面。
+
+
+## 2026-10-16T06:39:58+08:00 执行检查点
+
+C4对象候选桥接首版已跑8PG/真实浏览器，但root指出仅candidate_events不覆盖表演/素材的kind=candidate新人物/地点refs，Sol正直接补真实结构化对象选择/去重和纯SPEC R3/HTTP trace。C5 Sol已直接修演员作者摘要泄漏、地图有效期gap、钩子重放回执与锁后重复采用，并发现实际app import的_task_meta缺失，继续修复；52定向通过仍不替代完整装配。第9项独立R4 resume由root按完整预算契约明确推进，同Root与未知累计不得重置。
