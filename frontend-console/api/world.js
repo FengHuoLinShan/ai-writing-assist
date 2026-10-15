@@ -27,6 +27,30 @@ import {
   // ============================================================
 
 export const world = {
+    async listProjectVocabulary(novelId, options = {}) {
+      return contractFetch("world.listProjectVocabulary", { novelId }, { limit: 500, ...options }, { cache: "no-store" })
+    },
+    async createVocabularyTerm(novelId, payload) {
+      return contractJson("world.createVocabularyTerm", { novelId }, {}, payload)
+    },
+    async updateVocabularyTerm(novelId, typeRef, payload) {
+      return contractJson("world.updateVocabularyTerm", { novelId, typeRef }, {}, payload)
+    },
+    async archiveVocabularyTerm(novelId, typeRef, payload) {
+      return contractJson("world.archiveVocabularyTerm", { novelId, typeRef }, {}, payload)
+    },
+    async restoreVocabularyTerm(novelId, typeRef, payload) {
+      return contractJson("world.restoreVocabularyTerm", { novelId, typeRef }, {}, payload)
+    },
+    async mergeVocabularyTerms(novelId, payload) {
+      return contractJson("world.mergeVocabularyTerms", { novelId }, {}, payload)
+    },
+    async splitVocabularyTerm(novelId, typeRef, payload) {
+      return contractJson("world.splitVocabularyTerm", { novelId, typeRef }, {}, payload)
+    },
+    async applyVocabularyPresets(novelId, payload) {
+      return contractJson("world.applyVocabularyPresets", { novelId }, {}, payload)
+    },
     async listEntities(params = {}) {
       return contractFetch("world.listEntities", {}, params)
     },

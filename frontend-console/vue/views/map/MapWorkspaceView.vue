@@ -12,6 +12,7 @@
       </div>
 
     </header>
+    <ProjectVocabularyPanel v-if="projectId" v-show="!structureState.reader && !structureState.focused" :key="projectId" :project-id="projectId" :disabled="busy || loading || structureState.dirty" @state="vocabularyState = $event" @changed="vocabularyRevision++" />
     <p v-if="mapCapabilities?.upload?.available === false" class="atlas-alert" role="status">{{ mapCapabilities.upload.reason }} 空间示意仍可编辑，画面说明可复制后在外部使用。</p>
 
 
@@ -119,7 +120,7 @@
         </header>
 
         <button v-if="!structureEnabled && structureLevels.includes(activeNode.level)" class="btn btn-sm" @click="editStructureNodeId = activeNode.id">补建空间示意</button>
-        <MapStructureEditor v-if="structureEnabled" :key="projectId + ':' + activeNode.id" ref="structureEditor" external-tools :project-id="projectId" :node="activeNode" :known-nodes="adoptedNodes" :images="nodeImages" :has-reference="Boolean(activePage)" :initial-feature-id="initialFeatureId" :initial-revision-id="initialRevisionId" :review-image-id="tab === 'review' && activePage?.review_status === 'candidate' ? activePage.id : ''" :evidence-refs="focusedSelection.refs.value" @pin-evidence="focusedSelection.add" @clear-evidence="focusedSelection.clear" @saved="refreshAtlasOnly" @open-node="openMapNode" @select-feature="persistFeatureFocus" @reference-visible="referenceVisible = $event" @state="updateStructureState" />
+        <MapStructureEditor v-if="structureEnabled" :key="projectId + ':' + activeNode.id + ':' + vocabularyRevision" ref="structureEditor" external-tools :project-id="projectId" :node="activeNode" :known-nodes="adoptedNodes" :images="nodeImages" :has-reference="Boolean(activePage)" :initial-feature-id="initialFeatureId" :initial-revision-id="initialRevisionId" :review-image-id="tab === 'review' && activePage?.review_status === 'candidate' ? activePage.id : ''" :evidence-refs="focusedSelection.refs.value" @pin-evidence="focusedSelection.add" @clear-evidence="focusedSelection.clear" @saved="refreshAtlasOnly" @open-node="openMapNode" @select-feature="persistFeatureFocus" @reference-visible="referenceVisible = $event" @state="updateStructureState" />
         <template v-if="activePage && !structureState.reader">
         <label v-if="tab === 'atlas' && oldPages.length && (!structureEnabled || referenceVisible)" class="atlas-compare-toggle"><input v-model="compareAdopted" :disabled="Boolean(annotationEdit)" type="checkbox" />对比已有图片</label>
         <div v-if="!structureEnabled || referenceVisible" :class="['atlas-images', { compare: comparingImages }]">
@@ -314,6 +315,7 @@ import WorkspaceToolCard from "../../components/WorkspaceToolCard.vue"
 import LocalRunApproval from "../../components/LocalRunApproval.vue"
 import { focusWorkspaceTool } from "../../components/workspaceTools.js"
 import MapStructureEditor from "./MapStructureEditor.vue"
+import ProjectVocabularyPanel from "./ProjectVocabularyPanel.vue"
 import { useEvidenceSelection } from "../../composables/useEvidenceSelection.js"
 import { useModalDialog } from "../../composables/useModalDialog.js"
 import { confirmAiReference } from "../../../shared/aiReferenceModal.js"
@@ -328,6 +330,8 @@ const creatingMap = ref(false)
 const newMap = reactive({ title: "", level: "region", parent_id: "" })
 const structureEditor = ref(null)
 const structureState = ref({ dirty: false, revision: null })
+const vocabularyState = ref({ dirty: false, busy: false })
+const vocabularyRevision = ref(0)
 const editStructureNodeId = ref(null)
 const toolsRoot = ref(null)
 const referenceVisible = ref(false)
@@ -1011,12 +1015,14 @@ watch(activeNode, (node, previous) => {
   nodeEdit.title = node.title; nodeEdit.parent_id = node.parent_id || null; nodeEdit.level = node.level; nodeEdit.before_node_id = "__keep__"
 })
 useLeaveGuard(async () => {
+  if (vocabularyState.value.busy) return false
+  if (vocabularyState.value.dirty && !await confirmAsync("项目类型尚未保存，确认放弃编辑并离开吗？", "确认离开", { confirmAction: getConfirmAction() })) return false
   if (!await canLeaveStructure()) return false
   if (uploading.value) return false
   if (promptDirty.value && !await confirmAsync("画面说明还没有保存，确定离开吗？", "确认离开", { confirmAction: getConfirmAction() })) return false
   return !uploadDraftDirty.value || await confirmAsync("放弃未上传的地图？", "确认放弃", { confirmAction: getConfirmAction() })
 })
-function warnBeforeUnload(event) { if (!annotationDirty.value && !promptDirty.value && !uploadDraftDirty.value && !uploading.value) return; event.preventDefault(); event.returnValue = "" }
+function warnBeforeUnload(event) { if (!vocabularyState.value.dirty && !vocabularyState.value.busy && !annotationDirty.value && !promptDirty.value && !uploadDraftDirty.value && !uploading.value) return; event.preventDefault(); event.returnValue = "" }
 onMounted(() => loadAll(getRouteQuery().get('run_id')))
 onMounted(() => globalThis.addEventListener("beforeunload", warnBeforeUnload))
 onBeforeUnmount(() => { mounted = false; clearTimeout(pollTimer); clearTimeout(promptTimer); uploadController?.abort(); globalThis.removeEventListener("beforeunload", warnBeforeUnload); globalThis.removeEventListener("pointermove", dragAnnotation); globalThis.removeEventListener("pointerup", endAnnotationDrag); if (uploadPreview.value) URL.revokeObjectURL(uploadPreview.value); for (const pageId of Object.keys(imageUrls)) releaseImage(pageId) })
