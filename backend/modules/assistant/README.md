@@ -65,6 +65,9 @@ registry；每个并行来源各自打开和关闭 AsyncSession，超时或异�
 按项目、来源、稳定键和依据指纹独立 CAS；稍后到期回到未读，忽略只绑定原指纹。类别静默由
 独立 `assistant_notice_category_mutes` 保存，不混入 `assistant_notices`。已有处置入口仍由来源
 adapter 转发。
+Writing 冲突项的领域 `later` 没有唤醒时间，统一入口的定时“稍后”使用上述展示处置记录；
+到期后原 open 项重新出现，领域忽略仍走原条目状态。前瞻卡超过 10 条或单章待重算项超过
+100 条时，已读取条目继续显示，并附“还有更多”导航提醒，不把整个来源报为不可用。
 
 首批注册 `story.structure`、`writing.conflict`、`writing.invalidation`、
 `assistant.proactive` 和 `assistant.forecast`。`story.structure` 迁移原前端结构缺项规则，

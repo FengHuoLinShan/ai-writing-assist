@@ -16,9 +16,9 @@ from modules.assistant.notice_service import (
 )
 
 
-def _trace(schema):
+def _trace(parameter_fields):
     return {
-        "parameter_fields": tuple(schema.model_fields),
+        "parameter_fields": parameter_fields,
         "mode": "per_call",
         "parameter_policy": "schema_safe",
     }
@@ -52,7 +52,17 @@ OPERATIONS_SPEC = {
             preconditions=("作者已确认本项目操作", "提醒依据指纹和版本仍为最新"),
             produces=("提醒展示处置",),
         ),
-        "trace_rule": _trace(NoticeOperationDisposition),
+        "trace_rule": _trace(
+            (
+                "source_id",
+                "notice_key",
+                "basis_fingerprint",
+                "scope",
+                "expected_row_version",
+                "action",
+                "duration_hours",
+            )
+        ),
     },
     "assistant.notice.mute_category": {
         "label": "静默这一类提醒",
@@ -64,7 +74,7 @@ OPERATIONS_SPEC = {
             preconditions=("作者已确认本项目操作", "提醒来源已注册", "设置版本仍为最新"),
             produces=("来源类别静默设置",),
         ),
-        "trace_rule": _trace(NoticeOperationCategoryMute),
+        "trace_rule": _trace(("source_id", "category", "expected_row_version")),
     },
     "assistant.notice.unmute_category": {
         "label": "恢复这一类提醒",
@@ -76,6 +86,6 @@ OPERATIONS_SPEC = {
             preconditions=("作者已确认本项目操作", "静默设置存在且版本仍为最新"),
             produces=("来源类别静默设置",),
         ),
-        "trace_rule": _trace(NoticeOperationCategoryMute),
+        "trace_rule": _trace(("source_id", "category", "expected_row_version")),
     },
 }

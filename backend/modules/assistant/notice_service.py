@@ -156,6 +156,12 @@ async def list_notices(
         if generic is not None:
             if generic.status == "ignored":
                 continue
+            if (
+                generic.status == "snoozed"
+                and generic.wake_at is not None
+                and _aware(generic.wake_at) > now
+            ):
+                continue
             item = item.model_copy(
                 update={
                     "status": "unread"
@@ -173,6 +179,12 @@ async def list_notices(
             and _aware(item.wake_at) <= now
         ):
             item = item.model_copy(update={"status": "unread"})
+        elif (
+            item.status == "snoozed"
+            and item.wake_at is not None
+            and _aware(item.wake_at) > now
+        ):
+            continue
         visible.append(item)
     visible.sort(
         key=lambda item: (
@@ -220,7 +232,10 @@ async def _find_current_item(
     if source is None:
         raise NotFoundError("提醒来源不存在")
     try:
-        values = await source.list_notices(db, novel_id, scope.model_dump(mode="json"))
+        values = await asyncio.wait_for(
+            source.list_notices(db, novel_id, scope.model_dump(mode="json")),
+            timeout=source.timeout_seconds,
+        )
     except Exception as error:
         raise ConflictError(
             "提醒来源暂不可读取，请刷新后重试", code="NOTICE_UNAVAILABLE"
@@ -251,7 +266,7 @@ async def apply_disposition(
         sources=sources,
     )
     reference = item.get("disposition_ref") or {}
-    expected_version = reference.get("row_version")
+    expected_version = reference.get("row_version", reference.get("notice_version"))
     if not isinstance(expected_version, int):
         current = await db.scalar(
             select(AssistantNoticeDisposition).where(
@@ -446,7 +461,7 @@ async def prepare_disposition(
         args.basis_fingerprint,
     )
     domain_ref = item.get("disposition_ref") or {}
-    current = domain_ref.get("row_version")
+    current = domain_ref.get("row_version", domain_ref.get("notice_version"))
     if not isinstance(current, int):
         row = await db.scalar(
             select(AssistantNoticeDisposition).where(

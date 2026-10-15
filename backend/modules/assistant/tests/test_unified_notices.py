@@ -2,9 +2,10 @@ from __future__ import annotations
 
 import asyncio
 import importlib.util
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from types import SimpleNamespace
+from unittest.mock import patch
 from uuid import UUID
 
 import pytest
@@ -18,6 +19,8 @@ from modules.assistant import notice_service
 from modules.assistant.notice_contracts import NoticeDispositionRequest, NoticeScope
 from modules.assistant.notice_models import AssistantNoticeDisposition
 from modules.story.notice_sources import _scene_issues
+from modules.writing.notice_sources import decide_conflict_notice
+from modules.writing.recompute import WritingRecomputeService
 
 
 def test_notice_disposition_migration_creates_and_drops_only_its_tables():
@@ -190,8 +193,20 @@ async def test_disposition_is_basis_bound_and_mute_can_be_reversed(
     response = await notice_service.list_notices(
         db_session, test_project_id, scope, sources=sources
     )
-    assert response.items[0].status == "snoozed"
-    assert response.items[0].row_version == 1
+    assert response.items == []
+
+    saved_row = await db_session.scalar(
+        select(AssistantNoticeDisposition).where(
+            AssistantNoticeDisposition.novel_id == novel_id
+        )
+    )
+    saved_row.wake_at = datetime.now(UTC)
+    await db_session.flush()
+    awake = await notice_service.list_notices(
+        db_session, test_project_id, scope, sources=sources
+    )
+    assert awake.items[0].status == "unread"
+    assert awake.items[0].row_version == 1
 
     changed = _item("test.notice", basis="b" * 64)
     source.list_notices = lambda *_args: asyncio.sleep(0, result=[changed])
@@ -233,6 +248,193 @@ async def test_disposition_is_basis_bound_and_mute_can_be_reversed(
         db_session, test_project_id, scope, sources=sources
     )
     assert shown.items[0].basis_fingerprint == "b" * 64
+
+
+@pytest.mark.asyncio
+async def test_writing_snooze_uses_timed_unified_record_and_wakes(
+    db_session, test_project_id
+):
+    scope = NoticeScope(chapter_index=1)
+    current = {
+        **_item("writing.conflict"),
+        "disposition_ref": {"kind": "writing_conflict_item", "item_id": str(UUID(int=1))},
+    }
+    source = SimpleNamespace(
+        source_id="writing.conflict",
+        label="规则检查",
+        list_notices=lambda *_args: asyncio.sleep(0, result=[current]),
+        decide=decide_conflict_notice,
+        timeout_seconds=1,
+    )
+    sources = {"writing.conflict": source}
+    saved = await notice_service.apply_disposition(
+        db_session,
+        NoticeDispositionRequest(
+            novel_id=UUID(test_project_id),
+            source_id="writing.conflict",
+            notice_key=current["notice_key"],
+            basis_fingerprint=current["basis_fingerprint"],
+            scope=scope,
+            expected_row_version=0,
+            action="snooze",
+            duration_hours=1,
+        ),
+        sources=sources,
+    )
+    assert saved["status"] == "snoozed"
+    assert (
+        await notice_service.list_notices(
+            db_session, test_project_id, scope, sources=sources
+        )
+    ).items == []
+    row = await db_session.scalar(select(AssistantNoticeDisposition))
+    row.wake_at = datetime.now(UTC)
+    await db_session.flush()
+    awake = await notice_service.list_notices(
+        db_session, test_project_id, scope, sources=sources
+    )
+    assert [item.status for item in awake.items] == ["unread"]
+
+
+@pytest.mark.asyncio
+async def test_forwarded_forecast_uses_domain_notice_version(db_session, test_project_id):
+    item = {**_item("assistant.forecast"), "disposition_ref": {"notice_version": 3}}
+
+    async def decide(*_args):
+        return {"status": "read"}
+
+    source = SimpleNamespace(
+        source_id="assistant.forecast",
+        label="下一步建议",
+        list_notices=lambda *_args: asyncio.sleep(0, result=[item]),
+        decide=decide,
+        timeout_seconds=1,
+    )
+    result = await notice_service.apply_disposition(
+        db_session,
+        NoticeDispositionRequest(
+            novel_id=UUID(test_project_id),
+            source_id="assistant.forecast",
+            notice_key=item["notice_key"],
+            basis_fingerprint=item["basis_fingerprint"],
+            scope=NoticeScope(chapter_index=1),
+            expected_row_version=3,
+            action="read",
+        ),
+        sources={"assistant.forecast": source},
+    )
+    assert result["status"] == "read"
+
+
+@pytest.mark.asyncio
+async def test_forwarded_snooze_hides_until_wake(db_session, test_project_id):
+    item = {
+        **_item("assistant.proactive"),
+        "status": "snoozed",
+        "wake_at": datetime.now(UTC),
+        "row_version": 2,
+        "disposition_ref": {"row_version": 2},
+    }
+    source = SimpleNamespace(
+        source_id="assistant.proactive",
+        label="助手提醒",
+        list_notices=lambda *_args: asyncio.sleep(0, result=[item]),
+        timeout_seconds=1,
+    )
+    sources = {"assistant.proactive": source}
+    scope = NoticeScope(chapter_index=1)
+    awake = await notice_service.list_notices(
+        db_session, test_project_id, scope, sources=sources
+    )
+    assert [value.status for value in awake.items] == ["unread"]
+    item["wake_at"] = datetime.now(UTC) + timedelta(hours=1)
+    hidden = await notice_service.list_notices(
+        db_session, test_project_id, scope, sources=sources
+    )
+    assert hidden.items == []
+
+
+@pytest.mark.asyncio
+async def test_disposition_provider_timeout_is_bounded(db_session, test_project_id):
+    async def hanging(*_args):
+        await asyncio.Event().wait()
+
+    source = SimpleNamespace(list_notices=hanging, timeout_seconds=0.01)
+    with pytest.raises(ConflictError) as error:
+        await notice_service.apply_disposition(
+            db_session,
+            NoticeDispositionRequest(
+                novel_id=UUID(test_project_id),
+                source_id="test.slow",
+                notice_key="test.slow:one",
+                basis_fingerprint="a" * 64,
+                scope=NoticeScope(chapter_index=1),
+                expected_row_version=0,
+                action="read",
+            ),
+            sources={"test.slow": source},
+        )
+    assert error.value.code == "NOTICE_UNAVAILABLE"
+
+
+@pytest.mark.asyncio
+async def test_forecast_backlog_keeps_source_available(db_session, test_project_id):
+    from modules.assistant.forecast_notice_source import list_forecast_notices
+
+    with (
+        patch(
+            "modules.assistant.forecast_notice_source.get_latest_draft_for_chapter",
+            autospec=True,
+        ) as latest_draft,
+        patch("modules.assistant.forecast_notice_source.feed", autospec=True) as feed,
+    ):
+        latest_draft.return_value = None
+        candidate = SimpleNamespace(
+            model_dump=lambda **_kwargs: {},
+            candidate_id=UUID(int=1),
+            assessment_hash="b" * 64,
+            context_hash="a" * 64,
+            expires_at=datetime.now(UTC) + timedelta(days=1),
+            notice_version=3,
+            tier="next",
+            navigation=None,
+            title="下一步",
+            why_now="继续写",
+            evidence=[],
+            freshness="valid",
+            notice_status="snoozed",
+            actions=[],
+        )
+        feed.return_value = SimpleNamespace(
+            items=[candidate], next_cursor="10", context_hash="a" * 64
+        )
+        notices = await list_forecast_notices(
+            db_session, test_project_id, {"scene_id": None, "chapter_index": 1}
+        )
+    assert len(notices) == 2
+    assert notices[0]["status"] == "unread"
+    assert notices[0]["row_version"] == 3
+    assert notices[1]["summary"] == "还有更多下一步建议，请到前瞻列表查看"
+    assert notices[1]["actions"][0]["page"] == "writing"
+
+
+@pytest.mark.asyncio
+async def test_recompute_backlog_keeps_first_hundred_visible(db_session, test_project_id):
+    from modules.writing.notice_sources import list_invalidation_notices
+
+    with patch.object(
+        WritingRecomputeService, "list_pending_notices", autospec=True
+    ) as pending:
+        pending.return_value = [
+            {"receipt_id": f"receipt-{index}", "summary": f"待重算 {index}"}
+            for index in range(101)
+        ]
+        notices = await list_invalidation_notices(
+            db_session, test_project_id, {"chapter_index": 1}
+        )
+    assert len(notices) == 101
+    assert notices[0]["summary"] == "待重算 0"
+    assert notices[-1]["summary"] == "还有更多待重算项，请到正文重算面板查看"
 
 
 def test_story_structure_notice_trust_and_chapter_mapping_rules():
@@ -297,7 +499,7 @@ def test_notice_operation_contract_has_complete_trace_metadata():
         "assistant.notice.unmute_category",
     }
     for spec in OPERATIONS_SPEC.values():
-        assert spec["trace_rule"]["parameter_fields"] == tuple(
+        assert set(spec["trace_rule"]["parameter_fields"]) == set(
             spec["schema"].model_fields
         )
         assert spec["trace_rule"]["parameter_policy"] == "schema_safe"

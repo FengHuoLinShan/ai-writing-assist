@@ -48,8 +48,6 @@ async def list_forecast_notices(
         novel_id,
         FeedRequest(context=focus, max_items=10, include_deferred=False),
     )
-    if response.next_cursor is not None:
-        raise RuntimeError("前瞻提醒数量超过单次读取上限")
     items = []
     for candidate in response.items:
         raw = candidate.model_dump(mode="json")
@@ -88,7 +86,9 @@ async def list_forecast_notices(
                 "status": {
                     "unread": "unread",
                     "read": "read",
-                    "snoozed": "snoozed",
+                    # Feed excludes deferred cards. A snoozed card returned by
+                    # feed has already met its wake condition.
+                    "snoozed": "unread",
                     "dismissed": "ignored",
                 }.get(candidate.notice_status, "unread"),
                 "row_version": int(candidate.notice_version),
@@ -99,6 +99,38 @@ async def list_forecast_notices(
                     "notice_version": candidate.notice_version,
                 },
                 "domain_item": raw,
+            }
+        )
+    if response.next_cursor is not None:
+        # The forecast feed is intentionally capped at ten cards. Keep those
+        # cards visible and disclose the remainder instead of degrading the
+        # entire source as unavailable.
+        items.append(
+            {
+                "notice_key": f"{SOURCE_ID}:more:{scene_id}:{chapter_index}",
+                "source_id": SOURCE_ID,
+                "category": "short_term_forecast",
+                "severity": "info",
+                "target": {
+                    key: str(value)
+                    for key, value in (
+                        ("scene_id", scene_id),
+                        ("chapter_index", chapter_index),
+                    )
+                    if value is not None
+                },
+                "summary": "还有更多下一步建议，请到前瞻列表查看",
+                "evidence": [],
+                "basis_fingerprint": stable_hash(
+                    {
+                        "context_hash": response.context_hash,
+                        "next_cursor": response.next_cursor,
+                    }
+                ),
+                "stale": False,
+                "actions": [
+                    {"kind": "navigate", "page": "writing", "label": "查看全部建议"}
+                ],
             }
         )
     return items
