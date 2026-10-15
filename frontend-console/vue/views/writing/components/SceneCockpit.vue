@@ -40,66 +40,39 @@
     <div v-if="!railCollapsed && !chapter" class="empty-state writing-scene-panel-empty">
       <p>请先从左侧选择章节，再查看对应场景、人物和设定。</p>
     </div>
-    <div v-else-if="!railCollapsed && scene" class="scene-alert-summary" :class="`scene-alert-summary--${alertSummary.highest}`" aria-live="polite">
-      <span v-if="loading">警报加载中…</span>
-      <span v-else-if="alertSummary.actionable">
-        {{ alertSummary.actionable }} 项警报 · {{ severityLabel(alertSummary.highest) }}{{ alertSummary.stale ? ' · 最近校验已过期' : '' }}
-      </span>
-      <span v-else>✓ 当前未发现确定性警报</span>
-    </div>
-    <div v-if="!railCollapsed && chapter && !scene" class="scene-cockpit-empty">关联场景 后，可在这里查看本次写作的人物、设定和检查结果。</div>
+    <div v-if="!railCollapsed && chapter && !scene" class="scene-cockpit-empty">关联场景后，可在这里查看本场摘要与统一提醒。</div>
 
     <template v-if="!railCollapsed && chapter && scene">
-      <div class="cockpit-tabs" role="tablist" aria-label="场景参考">
+      <div class="cockpit-tabs" role="tablist" aria-label="本章资料">
         <button v-for="tab in tabs" :key="tab.key" class="cockpit-tab" :class="{ active: activeTab === tab.key }" role="tab" :aria-selected="activeTab === tab.key" @click="activeTab = tab.key">{{ tab.label }}</button>
       </div>
       <div class="cockpit-body">
-        <section v-if="activeTab === 'alerts'" class="cockpit-panel" data-panel="alerts">
-          <div v-if="alertError" class="scene-alert-load-error">{{ alertError }}</div>
-          <template v-for="severity in severities" :key="severity">
-            <section v-if="alertsBySeverity[severity].length" class="scene-alert-group" :class="`scene-alert-group--${severity}`">
-              <div class="scene-alert-group__title">{{ severityLabel(severity) }} · {{ alertsBySeverity[severity].length }}</div>
-              <article v-for="(alert, index) in alertsBySeverity[severity]" :key="alert.code || index" class="scene-alert-card" :class="`scene-alert-card--${severity}`">
-                <div class="scene-alert-card__head"><span>{{ alert.source || '现场' }}<template v-if="alert.stale"> · 已过期</template></span><button type="button" class="scene-alert-card__action" @click="openAlert(alert)">查看 →</button></div>
-                <div class="scene-alert-card__message">{{ alert.message || alert.label || alert.code }}</div>
-                <div v-if="alert.detail" class="scene-alert-card__detail">{{ alert.detail }}</div>
-              </article>
-            </section>
-          </template>
-          <div v-if="!loading && !alerts.length" class="cockpit-empty">当前未发现确定性警报</div>
-          <p class="scene-alert-disclaimer">现场警报只做字面和状态检查，不代表正文没有其他问题，也不会自动运行 AI。</p>
-          <div class="scene-alert-actions">
-            <button v-if="conflict?.latest" class="btn btn-sm" @click="$emit('open-conflict')">查看最近校验</button>
-            <button class="btn btn-sm btn-primary" @click="$emit('run-conflict')">运行规则检查</button>
-          </div>
-        </section>
-
-        <section v-else-if="activeTab === 'people'" class="cockpit-panel" data-panel="people">
-          <div v-if="!people.length" class="cockpit-empty">暂无关联人物</div>
-          <div v-else class="cockpit-people-list">
-            <article v-for="person in people" :key="person.id || person.entity_id || person.name" class="cockpit-person-card">
-              <div class="person-avatar">{{ personName(person).slice(0, 1) || '?' }}</div>
-              <div class="person-info"><div class="person-name">{{ personName(person) }}</div><div class="person-status">{{ person.role || person.summary || person.status || '暂无摘要' }}</div></div>
-              <button class="btn btn-sm btn-insert" @click="$emit('insert-text', personName(person))">插入</button>
-              <button class="btn btn-sm" :aria-label="`查证${personName(person)}的资料`" @click="focusObject(person)">查证</button>
-            </article>
-          </div>
-        </section>
-
-        <section v-else-if="activeTab === 'place'" class="cockpit-panel" data-panel="place">
-          <div v-if="!location" class="cockpit-empty">暂无地点信息</div>
-          <div v-else class="cockpit-place-card">
-            <div class="place-name">{{ typeof location === 'string' ? location : (location.name || location.title || '未知地点') }}</div>
-            <div v-if="typeof location === 'object'" class="place-desc">{{ location.description || location.summary || '' }}</div>
-            <button class="btn btn-sm" @click="focusObject(location)">查证地点资料</button>
-            <button v-if="locationEntityId" type="button" class="btn btn-sm" @click="$emit('open-map', locationEntityId)">在地图中查看</button>
-          </div>
-        </section>
-
-        <section v-else-if="activeTab === 'lore'" class="cockpit-panel" data-panel="lore">
+        <section v-if="activeTab === 'main'" class="cockpit-panel" data-panel="main">
           <SceneLensSummary :scene="scene" :lens="lens" :project-id="projectId" @load="$emit('load-lens')" @start-trial="$emit('start-trial', $event)" />
         </section>
 
+        <section v-else-if="activeTab === 'objects'" class="cockpit-panel cockpit-panel--unavailable" data-panel="objects">
+          <h3>对象档案暂不可用</h3>
+          <p>这里不会把场景引用或单层资料拼成完整档案。你仍可从下方“查证”面板按来源查找对象资料。</p>
+          <button type="button" class="btn btn-sm" @click="openEvidenceSearch">打开查证资料</button>
+        </section>
+
+        <section v-else-if="activeTab === 'notices'" class="cockpit-panel" data-panel="notices">
+          <UnifiedNoticesPanel
+            :project-id="projectId"
+            :scene-id="scene?.id || null"
+            :chapter-index="Number(chapter)"
+            :unsaved="unsaved"
+            :read-only="readOnly"
+            @open-notice="$emit('open-notice', $event)"
+          />
+        </section>
+
+        <section v-else-if="activeTab === 'director'" class="cockpit-panel cockpit-panel--unavailable" data-panel="director">
+          <h3>场景导演暂未开放</h3>
+          <p>当前页面不会生成剧本或导演建议。需要调整场景结构时，可打开现有场景工作台。</p>
+          <button type="button" class="btn btn-sm" @click="$emit('organize')">打开场景工作台</button>
+        </section>
       </div>
       <FocusedEvidencePanel
         ref="focusedPanel"
@@ -170,6 +143,7 @@
 import { computed, nextTick, reactive, ref } from "vue"
 import { useModalDialog } from "../../../composables/useModalDialog.js"
 import SceneLensSummary from "./SceneLensSummary.vue"
+import UnifiedNoticesPanel from "./UnifiedNoticesPanel.vue"
 import FocusedEvidencePanel from "../../../components/FocusedEvidencePanel.vue"
 
 const props = defineProps({
@@ -180,37 +154,24 @@ const props = defineProps({
   allScenes: { type: Array, default: () => [] },
   associateScene: { type: Function, default: async () => null },
   createScene: { type: Function, default: async () => null },
-  loading: { type: Boolean, default: false },
-  alertError: { type: String, default: null },
-  alerts: { type: Array, default: () => [] },
-  people: { type: Array, default: () => [] },
-  location: { type: [Object, String], default: null },
-  conflict: { type: Object, default: () => ({ latest: null }) },
+  unsaved: { type: Boolean, default: false },
+  readOnly: { type: Boolean, default: false },
   railCollapsed: { type: Boolean, default: false },
   lens: { type: Object, default: () => ({ loading: false, data: null, error: null }) },
   evidenceRefs: { type: Array, default: () => [] },
 })
-function openAlert(alert) {
-  if (String(alert.id || alert.code || "").startsWith("structure-")) emit("organize", alert.id || alert.code)
-  else if (props.conflict?.latest) emit("open-conflict")
-  else emit("run-conflict")
-}
-const emit = defineEmits(["run-conflict", "open-conflict", "insert-text", "organize", "toggle-collapse", "select-scene", "load-lens", "start-trial", "pin-evidence", "clear-evidence", "open-map"])
-const locationEntityId = computed(() => typeof props.location === "object"
-  ? props.location?.entity_id || props.location?.id || null : null)
+const emit = defineEmits(["organize", "toggle-collapse", "select-scene", "load-lens", "start-trial", "pin-evidence", "clear-evidence", "open-notice"])
 
 const tabs = [
-  { key: "alerts", label: "警报" }, { key: "people", label: "人物" }, { key: "place", label: "地点" },
-  { key: "lore", label: "本场" },
+  { key: "main", label: "本场" }, { key: "objects", label: "对象" },
+  { key: "notices", label: "提醒" }, { key: "director", label: "导演" },
 ]
-const severities = ["high", "medium", "low", "info"]
-const activeTab = ref("lore")
+const activeTab = ref("main")
 const focus = reactive({ name: "", roots: [] })
 const focusedPanel = ref(null)
-async function focusObject(value) {
-  const entityId = value?.entity_id || (value?.entity_type ? value.id : null)
-  focus.name = typeof value === "string" ? value : value?.name || value?.title || ""
-  focus.roots = entityId ? [{ target_ref: { target_type: "core_entity", target_id: entityId, target_path: "" } }] : []
+async function openEvidenceSearch() {
+  focus.name = ""
+  focus.roots = []
   await nextTick()
   await focusedPanel.value?.open()
 }
@@ -281,16 +242,4 @@ function openWorkbench() {
 }
 const { overlayRef, dialogRef, onKeydown, onFocusin } = useModalDialog({ isOpen: () => associateOpen.value, requestClose })
 
-const alertsBySeverity = computed(() => Object.fromEntries(severities.map((severity) => [severity, props.alerts.filter((item) => item?.severity === severity)])))
-const alertSummary = computed(() => {
-  const actionable = props.alerts.filter((item) => ["high", "medium", "low"].includes(item?.severity)).length
-  return {
-    actionable,
-    highest: severities.find((severity) => alertsBySeverity.value[severity].length) || "info",
-    stale: props.alerts.some((item) => item?.stale),
-  }
-})
-
-const severityLabel = (severity) => ({ high: "需优先处理", medium: "需要核对", low: "提示", info: "信息" }[severity] || severity)
-const personName = (person) => person?.name || person?.title || "未命名"
 </script>

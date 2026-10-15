@@ -177,6 +177,36 @@ it("按页回看世界提案，转义模型内容并丢弃跨项目迟到结果"
   wrapper.unmount()
 })
 
+it("完成场景阅读后仍明示结构候选待独立复核与逐场景来源", async () => {
+  const status = vi.fn().mockResolvedValue({ engine: { engine: "evolution" }, run: {
+    run_key: "run-structure", status: "completed", completed_scenes: 2, total_scenes: 2,
+    structure_review: { unresolved_reveal_count: 1, unresolved_reveals: [{
+      batch_key: "batch-1", title: "桥下旧约", summary: "旧桥誓约可能影响人物选择。",
+      review_reason: "需要确认它是否来自当前正文而非早期推断。",
+      supporting_scene_ids: ["scene-a"],
+      source_refs: [{ scene_id: "scene-a", run_key: "run-structure", attempt_id: "attempt-1" }],
+    }] },
+  } })
+  const listScenesOrdered = vi.fn().mockResolvedValue([{ id: "scene-a", title: "桥下重逢" }])
+  const start = vi.fn()
+  setBridgeOverrides({ api: { evolution: { status, start }, outline: { listScenesOrdered } } })
+  const wrapper = mount(ReadingFlow, { props: { projectId: "a" } })
+  await open(wrapper)
+  await flushPromises()
+
+  expect(status).toHaveBeenCalledTimes(1)
+  expect(start).not.toHaveBeenCalled()
+  expect(wrapper.text()).toContain("场景理解已完成；1 条剧情结构候选仍待独立复核")
+  const review = wrapper.get('[aria-label="待独立复核的剧情结构候选"]')
+  expect(review.text()).toContain("桥下旧约")
+  expect(review.text()).toContain("旧桥誓约可能影响人物选择")
+  expect(review.text()).toContain("需要确认它是否来自当前正文")
+  expect(review.text()).toContain("桥下重逢")
+  expect(review.text()).toContain("来源回执")
+  expect(review.find("button").exists()).toBe(false)
+  wrapper.unmount()
+})
+
 it("旧版整场延后先预览组数与调用额度，再经作者确认补审", async () => {
   const state = {
     engine: { engine: "evolution" },

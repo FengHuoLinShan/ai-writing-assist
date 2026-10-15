@@ -125,7 +125,7 @@ const removeOpener = registerProjectAssistantOpener(async request => {
   if (request.editorial) {
     if (activeTab.value === "creative" && creativeRef.value?.canLeave?.() === false) throw new Error("试改区还有未保存的内容，请先处理。")
     editorialFocusChapter.value = Number(request.chapterIndex) || null
-    editorialFocusIssueId.value = null
+    editorialFocusIssueId.value = request.issueId || null
     activeTab.value = "editorial"
     emit("open")
     return

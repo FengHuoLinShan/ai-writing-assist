@@ -18,7 +18,6 @@ import {
 } from "../../bridge/index.js"
 import { useLeaveGuard } from "../../composables/useLeaveGuard.js"
 import { activeEditorialReviews, confirmEditorialImpact } from "../../composables/useEditorialGuard.js"
-import { buildSceneAlerts } from "./sceneAlerts.js"
 import { buildVersionDiff } from "../../../shared/versionDiff.js"
 import { isVersionActive } from "./versionState.js"
 import { applyToolsResult } from "../../../shared/writingToolsResult.js"
@@ -217,7 +216,6 @@ export function useWritingWorkspace(props) {
   const conflictOptions = reactive({ open: false, includeCandidates: false })
   const conflictDialog = reactive({ open: false, check: null, busy: false, error: null, sourcePreview: null, focusItemId: null })
   const conflictTask = reactive({ taskId: null, progress: null })
-  const sceneState = reactive({ loading: false, alerts: [], people: [], location: null })
   const sceneLens = reactive({ sceneId: null, loading: false, data: null, error: null })
   const deepImportState = reactive({ taskId: null, projectId: null, progress: null })
   const deepImportHasScenes = computed(() => scenes.value.length > 0)
@@ -319,10 +317,7 @@ export function useWritingWorkspace(props) {
       }
       syncLegacyState({ persistLocation: !hot })
       if (hot) scheduleInputDerivedUpdate()
-      else {
-        dispatchDashboardUpdate()
-        refreshSceneAlerts()
-      }
+      else dispatchDashboardUpdate()
     },
     onVersionChanged: async () => {
       if (!selectedChapter.value || getAppState()?.currentProjectId !== projectId) return
@@ -362,7 +357,6 @@ export function useWritingWorkspace(props) {
       if (!checkMatchesSelection(check)) return
       conflictDialog.check = check
       conflictState.latest = check
-      refreshSceneAlerts()
     },
     onProgress: (value) => Object.assign(conflictTask, value),
   })
@@ -508,7 +502,6 @@ export function useWritingWorkspace(props) {
     inputDerivedFrame = requestAnimationFrame(() => {
       inputDerivedFrame = null
       dispatchDashboardUpdate()
-      refreshSceneAlerts()
     })
   }
 
@@ -1205,7 +1198,6 @@ export function useWritingWorkspace(props) {
       })
       if (!ownsRequest()) return
       conflictState.latest = check
-      refreshSceneAlerts()
       toast("冲突检查已完成", "success")
       openConflictDialog(check)
     } catch (err) {
@@ -1271,7 +1263,6 @@ export function useWritingWorkspace(props) {
       if (conflictDialog.open && (!conflictDialog.check?.id || conflictDialog.check.id === updated?.id)) {
         conflictDialog.check = updated
       }
-      refreshSceneAlerts()
       return updated
     } catch (err) {
       toast(err?.message || "刷新检查记录失败", "error")
@@ -1374,20 +1365,6 @@ export function useWritingWorkspace(props) {
     toast("AI 建议已采用到当前工作稿", "success")
   }
 
-  function refreshSceneAlerts() {
-    sceneState.alerts = buildSceneAlerts({
-      scene: currentScene.value,
-      chapterIndex: selectedChapter.value,
-      content: editorState.content,
-      latestCheck: conflictState.latest,
-      checkError: conflictState.error,
-      checkLoading: conflictState.loading,
-      draftId: editorState.draftId,
-      versionNumber: editorState.versionNumber,
-      isDirty: editorState.dirty,
-    })
-  }
-
   async function loadSceneContext() {
     const scene = currentScene.value
     const chapter = selectedChapter.value
@@ -1405,10 +1382,6 @@ export function useWritingWorkspace(props) {
     conflictDialog.sourcePreview = null
     conflictDialog.busy = false
     Object.assign(conflictTask, { taskId: null, progress: null })
-    sceneState.people = []
-    sceneState.location = null
-    sceneState.loading = Boolean(scene?.id)
-    refreshSceneAlerts()
     if (!scene?.id) return
     const ownsRequest = () => (
       generation === sceneGeneration
@@ -1418,51 +1391,24 @@ export function useWritingWorkspace(props) {
       && getAppState()?.currentProjectId === projectId
     )
     try {
-      const entityQuery = (entityType) => api.world.listEntities({
+      const checks = await api.writing.listConflictChecks({
         novel_id: projectId,
+        chapter_index: chapter,
         scene_id: scene.id,
-        entity_type: entityType,
-        display_state: "active",
-        skip: 0,
-        limit: 12,
+        limit: 1,
       })
-      const [checkResult, peopleResult, locationResult] = await Promise.allSettled([
-        api.writing.listConflictChecks({ novel_id: projectId, chapter_index: chapter, scene_id: scene.id, limit: 1 }),
-        entityQuery("character"),
-        entityQuery("location"),
-      ])
       if (!ownsRequest()) return
-      if (checkResult.status === "fulfilled") {
-        const candidate = checkResult.value?.items?.[0] || null
-        const mismatch = candidate && (
-          (candidate.novel_id && candidate.novel_id !== projectId)
-          || (candidate.chapter_index != null && Number(candidate.chapter_index) !== Number(chapter))
-          || (candidate.scene_id && candidate.scene_id !== scene.id)
-        )
-        conflictState.latest = mismatch ? null : candidate
-        conflictState.error = mismatch ? "最近校验身份不匹配，已安全忽略" : null
-      } else conflictState.error = checkResult.reason?.message || "最近检查加载失败"
-      const listItems = (value) => Array.isArray(value) ? value : (value?.items || [])
-      const dedupe = (items) => {
-        const seen = new Set()
-        return items.filter((item) => {
-          const key = item?.id || item?.entity_id || item?.name || item?.title
-          if (!key || seen.has(key)) return false
-          seen.add(key)
-          return true
-        })
-      }
-      sceneState.people = dedupe([
-        ...(Array.isArray(scene.scene_characters) ? scene.scene_characters : []),
-        ...(peopleResult.status === "fulfilled" ? listItems(peopleResult.value) : []),
-      ])
-      sceneState.location = scene.primary_location || scene.location
-        || (locationResult.status === "fulfilled" ? listItems(locationResult.value)[0] : null)
-    } finally {
-      if (ownsRequest()) {
-        sceneState.loading = false
-        refreshSceneAlerts()
-      }
+      const candidate = checks?.items?.[0] || null
+      const mismatch = candidate && (
+        (candidate.novel_id && candidate.novel_id !== projectId)
+        || (candidate.chapter_index != null && Number(candidate.chapter_index) !== Number(chapter))
+        || (candidate.scene_id && candidate.scene_id !== scene.id)
+      )
+      conflictState.latest = mismatch ? null : candidate
+      conflictState.error = mismatch ? "最近校验身份不匹配，已安全忽略" : null
+    } catch (error) {
+      if (!ownsRequest()) return
+      conflictState.error = error?.message || "最近检查加载失败"
     }
   }
 
@@ -1767,7 +1713,6 @@ export function useWritingWorkspace(props) {
     conflictOptions,
     conflictDialog,
     conflictTask,
-    sceneState,
     sceneLens,
     focusedSelection,
     deepImportState,

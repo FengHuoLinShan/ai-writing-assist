@@ -98,12 +98,33 @@ Writing 冲突项的领域 `later` 没有唤醒时间，统一入口的定时“
 `assistant.proactive` 和 `assistant.forecast`。`story.structure` 迁移原前端结构缺项规则，
 冲突检查读取已保存正文基线并包括 G8b 地图基线；短期前瞻仍走原 forecast CAS。Assistant
 主动提醒适配器只投影现有 active AssistantNotice（含当前可见的 map_changes 与 editorial_issue），
-不改变审读队列的作者裁定。Evolution 的 G8a 地图册来源核对、地图空间提醒、档案/状态、演化阅读、
-对象一致性和世界推进提醒仍由各自后续来源接入；本切片不把它们伪装为已支持。
+不另立审读结论。除本节记录的编辑意见及 G8a SPEC 外，地图空间提醒、档案/状态、演化阅读、
+对象一致性和世界推进提醒仍由各自来源接入；本切片不把它们伪装为已支持。
 
 组合根必须注册 `ASSISTANT_NOTICE_SOURCES`，挂载上述 router，并把
 `modules.assistant.notice_models` 的两张 ORM 表纳入 bootstrap/Alembic 元数据；来源/操作仍是
 纯 spec。离线 provider 测试通过不代表共享 app 装配或提醒前端标签已上线。
+
+## 写作副驾驶提醒界面
+
+`SceneCockpit.vue` 读取 `/assistant/unified-notices`，按来源和类别分组；中/高优先级默认展开，低/信息折叠。
+来源失败以独立占位显示，`partial=true` 时明确说明成功来源之外仍未知。已读、稍后 24 小时、忽略和类别静音
+使用响应里的 `basis_fingerprint` 与 `row_version`；409 保留当前内容并重新读取，不乐观地移除提醒。公开演示及
+只读版本不显示写操作。未保存正文只在本地显示提示，不进入服务器请求或提醒依据。
+
+本场、对象、提醒、导演四个标签分别显示 Scene Lens、对象档案入口、统一提醒和场景导演入口。对象档案尚不可用时
+保留下方 Evidence 查证；场景导演暂未开放时只提供现有场景工作台入口，不生成模拟建议。提醒动作直达既有规则检查、
+重算选项、前瞻面板、编辑台具体意见或地图节点。
+
+`modules.assistant.editorial_notice_source.NOTICE_SOURCE_SPEC` 将现有 EditorialIssue 队列作为独立来源；已读和暂缓
+只影响统一提醒显示，忽略映射现有 `IssueDecision(disposition="closed")` 与意见行版本 CAS。旧 `assistant.proactive`
+编辑意见提醒仅在同一意见也能由新来源读取时于界面去重；新来源不可用时旧提醒仍可见，旧提醒的关闭也转发给同一领域决定。
+`modules.evolution.notice_sources.NOTICE_SOURCE_SPEC` 提供 G8a 地图来源提醒：当前地图 head 与最新正式正文来源的只读核对
+决定是否提醒，历史失效回执只在 node/revision 完全匹配时补充证据；历史回执本身不维持已解决提示。地图/来源扫描截断
+或无法验证时保留已核实条目并追加覆盖提示。
+
+这两个 provider 是纯 SPEC；只有 `app.notice_source_registry` 注册后才会进入生产聚合。其加入不改变领域事实、失效窗口、
+地图内容或重算范围；处置依然沿原领域决定或独立展示状态保存。
 
 ## 成组执行与恢复
 

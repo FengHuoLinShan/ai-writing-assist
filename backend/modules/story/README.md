@@ -58,6 +58,15 @@ through its stable facade and never writes World, Memory, or Writing records.
 - `api.py`: author routes under `/api/story`; Scene-centric aliases are under
   `/api/story/scenes/{scene_id}`.
 
+## Writing scene-structure notices
+
+`notice_sources.py` exports the read-only `story.structure` spec for the unified author-notice registry.
+It derives goal, core conflict, emotional beat, POV, review/organize flags, and chapter linkage from the
+authorized Scene workbench. Trusted imported/fused semantics preserve `semantic_field_statuses`:
+`not_applicable` is not reported missing, while `uncertain` is reported as awaiting review. Chapter
+linkage follows the existing many-to-many Scene mapping. The provider writes nothing; the writing client
+does not calculate structural gaps from Scene fields.
+
 ## Persistence
 
 The original Scene asset migration creates four Story tables; ADR-0027 adds the two rehearsal tables below:

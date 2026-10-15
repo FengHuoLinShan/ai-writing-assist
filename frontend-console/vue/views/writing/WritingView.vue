@@ -275,6 +275,7 @@
         />
         <ForecastDock
           v-if="vm.editorState.draftId && !vm.editorState.readonly && !vm.editorState.loading && !vm.editorState.loadError"
+          data-writing-forecast-dock
           :project-id="props.projectId"
           :context="{ page: 'writing', draft_id: vm.editorState.draftId, ...(forecastFocus?.draft_id === vm.editorState.draftId ? forecastFocus : {}), scene_id: vm.currentScene.value?.id || null }"
           :editor="vm.editorState"
@@ -289,26 +290,19 @@
           :all-scenes="vm.activeScenes.value"
           :associate-scene="vm.associateScene"
           :create-scene="vm.createSceneForChapter"
-          :loading="vm.sceneState.loading"
-          :alert-error="vm.conflictState.error"
-          :alerts="vm.sceneState.alerts"
-          :people="vm.sceneState.people"
-          :location="vm.sceneState.location"
+          :unsaved="vm.editorState.dirty || vm.editorState.saving"
+          :read-only="props.publicDemo || vm.editorState.readonly"
           :lens="vm.sceneLens"
           :evidence-refs="vm.focusedSelection.refs.value"
-          :conflict="vm.conflictState"
           :rail-collapsed="!rightRailOpen"
-          @run-conflict="vm.requestConflictCheck"
-          @open-conflict="vm.openConflictDialog"
-          @insert-text="vm.insertText"
           @select-scene="vm.selectScene"
           @load-lens="vm.loadSceneLens"
           @start-trial="startStateTrial"
           @pin-evidence="vm.focusedSelection.add"
           @clear-evidence="vm.focusedSelection.clear"
           @organize="vm.navigateSceneWorkbench"
+          @open-notice="openCockpitNotice"
           @toggle-collapse="toggleRail('reference')"
-          @open-map="openChapterMap"
         />
       </div>
     </aside>
@@ -431,6 +425,7 @@ import OwnerAiDrawer from "../../components/OwnerAiDrawer.vue"
 import { getRouter, getApi, getToast, getRouteQuery, openProjectAssistant, setForecastComposing } from "../../bridge/index.js"
 import { useWritingWorkspace } from "./useWritingWorkspace.js"
 import { useWritingComments } from "./useWritingComments.js"
+import { normalizeInvalidationNotice } from "./invalidationModel.js"
 import "./writing-desk.css"
 
 const props = defineProps({
@@ -549,9 +544,128 @@ watch(() => props.projectId, async projectId => {
     }
   } catch { /* ordinary writing remains available */ }
 }, { immediate: true })
-async function openEditorialDesk() {
-  try { await openProjectAssistant({ projectId: props.projectId, editorial: true, chapterIndex: vm.selectedChapter.value }) }
+async function openEditorialDesk({ issueId = null, chapterIndex = null } = {}) {
+  try {
+    await openProjectAssistant({
+      projectId: props.projectId,
+      editorial: true,
+      issueId,
+      chapterIndex: Number(chapterIndex) || vm.selectedChapter.value,
+    })
+  }
   catch (error) { getToast()(error.message || "暂时无法打开编辑台。", "error") }
+}
+
+async function openRecomputePanel(action) {
+  if (props.publicDemo || vm.editorState.readonly) {
+    getToast()("当前为只读视图，不能打开重算处置。", "info")
+    return
+  }
+  const targetChapter = Number(action?.chapter_index) || vm.selectedChapter.value
+  if (!targetChapter) return
+  const projectId = props.projectId
+  if (Number(targetChapter) !== Number(vm.selectedChapter.value)) {
+    await vm.selectChapter(targetChapter)
+  }
+  if (projectId !== props.projectId || Number(targetChapter) !== Number(vm.selectedChapter.value)) return
+  const existingNotice = vm.editorState.invalidationNotice
+  if (!existingNotice || (action?.receipt_id && existingNotice.receiptId !== action.receipt_id)) {
+    try {
+      const result = await getApi().evolution.pendingInvalidations(projectId, {
+        chapterIndex: Number(targetChapter),
+        limit: 100,
+      })
+      if (projectId !== props.projectId || Number(targetChapter) !== Number(vm.selectedChapter.value)) return
+      const raw = (result?.items || []).find((item) => (
+        action?.receipt_id ? item?.receipt_id === action.receipt_id : true
+      ))
+      const notice = normalizeInvalidationNotice(raw, { chapterIndex: Number(targetChapter) })
+      if (!notice) {
+        getToast()("这项重算提示已消解；请重新读取提醒。", "info")
+        return
+      }
+      vm.editorState.invalidationNotice = notice
+    } catch (error) {
+      getToast()(error?.message || "重算选项暂时无法读取。", "error")
+      return
+    }
+  }
+  await nextTick()
+  writingEditorRef.value?.openInvalidationPanel?.()
+}
+
+async function focusForecastDock() {
+  await nextTick()
+  const dock = document.querySelector("[data-writing-forecast-dock]")
+  if (!dock) {
+    getToast()("当前没有可打开的前瞻面板；请切换到可编辑的工作稿。", "info")
+    return
+  }
+  dock.scrollIntoView?.({ block: "nearest", behavior: "smooth" })
+  dock.querySelector("button:not([disabled])")?.focus({ preventScroll: true })
+}
+
+async function openCockpitNotice(item) {
+  const action = (item?.actions || []).find((value) => value?.kind === "navigate") || {}
+  const projectId = props.projectId
+  const chapterIndex = Number(action.chapter_index || item?.target?.chapter_index) || null
+  if (chapterIndex && Number(chapterIndex) !== Number(vm.selectedChapter.value)) {
+    await vm.selectChapter(chapterIndex)
+  }
+  if (projectId !== props.projectId) return
+  const targetSceneId = action.scene_id || item?.target?.scene_id
+  if (targetSceneId && vm.currentScene.value?.id !== targetSceneId) {
+    const selected = await vm.selectScene(targetSceneId)
+    if (!selected || projectId !== props.projectId) return
+  }
+  if (item?.source_id === "assistant.forecast") {
+    await focusForecastDock()
+    return
+  }
+  if (item?.source_id === "assistant.editorial") {
+    await openEditorialDesk({
+      issueId: action.issue_id || null,
+      chapterIndex: chapterIndex || vm.selectedChapter.value,
+    })
+    return
+  }
+  if (item?.source_id === "assistant.proactive" && action.editorial === true) {
+    await openEditorialDesk({
+      issueId: action.issue_id || null,
+      chapterIndex: chapterIndex || vm.selectedChapter.value,
+    })
+    return
+  }
+  if (item?.source_id === "writing.invalidation") {
+    await openRecomputePanel(action)
+    return
+  }
+  if (item?.source_id === "writing.conflict") {
+    const checkId = action.check_id || item?.target?.check_id
+    const itemId = action.item_id || item?.target?.item_id || null
+    if (checkId) await vm.openConflictDialog({ id: checkId }, itemId)
+    else if (vm.conflictState.latest) await vm.openConflictDialog(vm.conflictState.latest, itemId)
+    else vm.requestConflictCheck()
+    return
+  }
+  if (item?.source_id === "world.map_source" || action.page === "map") {
+    const query = new URLSearchParams()
+    if (action.node_id) query.set("node_id", action.node_id)
+    router?.navigate("map", null, true, query)
+    return
+  }
+  if (item?.source_id === "story.structure" || action.page === "outline") {
+    const query = new URLSearchParams()
+    if (action.scene_id || item?.target?.scene_id) query.set("scene_id", action.scene_id || item.target.scene_id)
+    if (action.scene_field) query.set("scene_field", action.scene_field)
+    router?.navigate("outline", "scenes", true, query)
+    return
+  }
+  if (action.page === "writing" && action.scene_id) {
+    router?.navigate("writing", null, true, new URLSearchParams({ scene_id: action.scene_id }))
+    return
+  }
+  getToast()("该来源没有可直接打开的详细入口。", "info")
 }
 async function markEditorialReady() {
   const state = vm.editorState

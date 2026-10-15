@@ -601,3 +601,11 @@ World v3 审查准备含冻结 `context_snapshot`，即使分组相同，上下�
 已发布正文的正式地图、以及工作稿/正式稿的自动草图来源核对由 World 只读 DI port 推导，作为写作回执建议；不改变 Scene
 登记、失效窗口或重算选项。来源身份、上限、降级与残余覆盖见
 [权威合同](../../../docs/modules/22_evolution.md#已发布正文变化与地图核对g8a)。
+
+`notice_sources.py` exposes the pure `world.map_source` provider spec for the unified author-notice
+registry. Each read compares the latest published chapter source with the current saved map revision
+through `WORLD_READ_MAP_CHAPTER_CONSUMERS`; a historical invalidation receipt is evidence only when
+its node and revision exactly match that current head. An old receipt alone cannot keep a resolved
+notice visible. Map/source read limits retain verified map rows and add an explicit coverage notice for
+unverified or truncated results. The composition root must register the spec before the unified API
+can return it.

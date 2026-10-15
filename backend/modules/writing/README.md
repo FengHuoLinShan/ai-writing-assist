@@ -25,6 +25,11 @@ invalidation ledger. Existing item decisions continue through `WritingConflictCh
 state uses the separate unified presentation disposition. Neither provider includes an unsaved editor
 buffer in the server's saved-body basis; the editor retains its local dirty/stale indicator.
 
+The writing cockpit reads these sources through Assistant's unified-notice API, groups by source/category,
+and routes rule checks to the existing detail dialog and invalidation notices to the existing
+`RecomputePanel`. Its unsaved-buffer message is local status only. Scene structure is calculated by the
+Story provider; the client no longer derives structural missing-field notices from the current Scene card.
+
 ## 职责
 
 - 手写正文草稿的存储与管理
@@ -450,7 +455,7 @@ confirmation、正文、finding、Scene bundle 校验。恢复历史版本创建
 
 ### 审阅与导航体验约定
 
-检查弹窗按稿件ID、版本、内容hash及是否包含候选复用当前检查，作者可显式重跑规则检查。AI复核任务提交成功后立即显示运行状态，完成零问题与尚未复核分别呈现；结构警报直接指向场景编辑，不能依赖检查记录存在。
+检查弹窗按稿件ID、版本、内容hash及是否包含候选复用当前检查，作者可显式重跑规则检查。AI复核任务提交成功后立即显示运行状态，完成零问题与尚未复核分别呈现。Story 结构提醒直接打开对应场景字段，不依赖检查记录存在。
 
 ## 知识治理与采用
 

@@ -441,6 +441,7 @@ async def list_invalidation_notices(
                         "kind": "navigate",
                         "page": "writing",
                         "chapter_index": chapter_index,
+                        "receipt_id": receipt_id,
                         "label": "查看重算选项",
                     }
                 ],

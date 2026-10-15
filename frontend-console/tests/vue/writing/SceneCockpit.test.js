@@ -24,10 +24,6 @@ function mountCockpit(overrides = {}) {
       scene,
       scenes: [scene],
       allScenes: [scene],
-      alerts: [{ code: "a1", severity: "high", source: "现场", message: "高风险 <img>" }],
-      people: [{ id: "c1", name: "阿青 <script>", role: "POV" }],
-      location: { id: "l1", name: "黑塔", description: "顶层" },
-      conflict: { latest: { id: "check-1" } },
       ...overrides,
     },
   })
@@ -36,32 +32,20 @@ function mountCockpit(overrides = {}) {
 describe("SceneCockpit", () => {
   beforeEach(() => localStorage.clear())
 
-  it("在 Vue tabs 中渲染人物、地点、设定和警报操作", async () => {
+  it("显示本场、对象、提醒、导演四个标签，并对未上线能力如实说明", async () => {
     const wrapper = mountCockpit()
     expect(wrapper.find("script").exists()).toBe(false)
     expect(wrapper.text()).toContain("Scene <script>")
+    expect(wrapper.findAll('[role="tab"]').map((tab) => tab.text())).toEqual(["本场", "对象", "提醒", "导演"])
 
-    await wrapper.findAll('[role="tab"]').find((tab) => tab.text() === "人物").trigger("click")
-    expect(wrapper.text()).toContain("阿青 <script>")
-    await wrapper.findAll("button").find((button) => button.text() === "插入").trigger("click")
-    expect(wrapper.emitted("insert-text")[0]).toEqual(["阿青 <script>"])
+    await wrapper.findAll('[role="tab"]').find((tab) => tab.text() === "对象").trigger("click")
+    expect(wrapper.text()).toContain("对象档案暂不可用")
+    expect(wrapper.text()).not.toContain("阿青")
+    expect(wrapper.findAll("button").some((button) => button.text() === "打开查证资料")).toBe(true)
 
-    await wrapper.findAll('[role="tab"]').find((tab) => tab.text() === "警报").trigger("click")
-    await wrapper.findAll("button").find((button) => button.text() === "运行规则检查").trigger("click")
-    await wrapper.findAll("button").find((button) => button.text() === "查看最近校验").trigger("click")
-    expect(wrapper.emitted("run-conflict")).toHaveLength(1)
-    expect(wrapper.emitted("open-conflict")).toHaveLength(1)
-  })
-
-  it("结构警报直达场景，没有检查记录时可开始规则检查", async () => {
-    const wrapper = mountCockpit({ conflict: {}, alerts: [{ id: "structure-pov", severity: "low", message: "缺少视角人物" }] })
-    await wrapper.findAll('[role="tab"]').find(tab => tab.text() === "警报").trigger("click")
-    await wrapper.get(".scene-alert-card__action").trigger("click")
-    expect(wrapper.emitted("organize")).toHaveLength(1)
-    expect(wrapper.emitted("open-conflict")).toBeUndefined()
-    await wrapper.setProps({ alerts: [{ id: "check-missing", severity: "info", message: "尚无检查" }] })
-    await wrapper.get(".scene-alert-card__action").trigger("click")
-    expect(wrapper.emitted("run-conflict")).toHaveLength(1)
+    await wrapper.findAll('[role="tab"]').find((tab) => tab.text() === "导演").trigger("click")
+    expect(wrapper.text()).toContain("场景导演暂未开放")
+    expect(wrapper.findAll("button").some((button) => button.text() === "打开场景工作台")).toBe(true)
   })
 
   it("默认显示白名单本场摘要，扩展资料需显式点击", async () => {
@@ -76,16 +60,6 @@ describe("SceneCockpit", () => {
     expect(wrapper.emitted("load-lens")).toBeUndefined()
     await wrapper.get(".scene-lens__load button").trigger("click")
     expect(wrapper.emitted("load-lens")).toHaveLength(1)
-  })
-
-  it("地图定位只发送明确地点引用，不按名称猜测绑定", async () => {
-    const wrapper = mountCockpit()
-    await wrapper.findAll('[role="tab"]').find((tab) => tab.text() === "地点").trigger("click")
-    await wrapper.findAll("button").find((button) => button.text() === "在地图中查看").trigger("click")
-    expect(wrapper.emitted("open-map")).toEqual([["l1"]])
-    await wrapper.setProps({ location: "黑塔" })
-    expect(wrapper.findAll("button").some((button) => button.text() === "在地图中查看")).toBe(false)
-    wrapper.unmount()
   })
 
   it("扩展资料失败时保留静态摘要并可重试", async () => {

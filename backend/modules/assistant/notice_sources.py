@@ -63,6 +63,50 @@ async def list_assistant_notices(
             continue
         reference = row.result_ref_json or {}
         category = str(reference.get("type") or row.kind)
+        navigation = []
+        disposition_ref = {
+            "notice_id": str(row.id),
+            "row_version": int(row.row_version),
+        }
+        if reference.get("type") == "editorial_issue":
+            from modules.assistant.editorial_models import EditorialIssue
+
+            issue = await db.scalar(
+                select(EditorialIssue).where(
+                    EditorialIssue.novel_id == UUID(str(novel_id)),
+                    EditorialIssue.id == UUID(str(reference["id"])),
+                )
+            )
+            if issue is not None and issue.disposition == "closed":
+                continue
+            if issue is not None:
+                disposition_ref.update(
+                    {
+                        "issue_id": str(issue.id),
+                        "issue_row_version": int(issue.row_version),
+                    }
+                )
+            source_evidence = row.sources_json or []
+            chapter = next(
+                (
+                    int(value["chapter_index"])
+                    for value in source_evidence
+                    if isinstance(value, dict) and value.get("chapter_index") is not None
+                ),
+                None,
+            )
+            navigation.append(
+                {
+                    "kind": "navigate",
+                    "page": "assistant",
+                    "editorial": True,
+                    "issue_id": str(reference.get("id") or ""),
+                    "chapter_index": chapter,
+                    "label": "查看编辑意见",
+                }
+            )
+        elif reference.get("type") == "map_changes":
+            navigation.append({"kind": "navigate", "page": "map", "label": "去地图核对"})
         basis = stable_hash(
             {
                 "notice_id": str(row.id),
@@ -108,16 +152,14 @@ async def list_assistant_notices(
                 "row_version": int(row.row_version),
                 "wake_at": row.wake_at,
                 "actions": [
+                    *navigation,
                     {
                         "op_id": "assistant.notice.set_disposition",
                         "label": "处理提醒",
                         "notice_key": f"{SOURCE_ID}:{row.id}",
-                    }
+                    },
                 ],
-                "disposition_ref": {
-                    "notice_id": str(row.id),
-                    "row_version": int(row.row_version),
-                },
+                "disposition_ref": disposition_ref,
             }
         )
     return notices
@@ -134,6 +176,25 @@ async def decide_assistant_notice(
     from modules.assistant.schemas import NoticeDecision
 
     reference = item.get("disposition_ref") or {}
+    if item.get("category") == "editorial_issue" and action == "ignore":
+        from modules.assistant.editorial import decide_issue
+        from modules.assistant.editorial_contracts import IssueDecision
+
+        if not reference.get("issue_id") or not isinstance(
+            reference.get("issue_row_version"), int
+        ):
+            raise ConflictError("编辑意见已变化，请从编辑台重新读取", code="NOTICE_STALE")
+        result = await decide_issue(
+            db,
+            UUID(str(reference["issue_id"])),
+            IssueDecision(
+                novel_id=UUID(str(novel_id)),
+                expected_version=reference["issue_row_version"],
+                disposition="closed",
+                note="",
+            ),
+        )
+        return {"status": "ignored", "domain": result}
     notice_id = str(reference.get("notice_id") or "")
     row = await db.scalar(
         select(AssistantNotice)

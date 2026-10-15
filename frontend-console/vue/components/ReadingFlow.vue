@@ -62,6 +62,21 @@ const authorizationLocked = computed(() => Boolean(pending.value || rescanPendin
 const opened = ref(false)
 let generation = 0, timer = null
 const run = computed(() => state.value?.run)
+const unresolvedReveals = computed(() => run.value?.structure_review?.unresolved_reveals || [])
+const structureReviewCount = computed(() => Math.max(
+  Number(run.value?.structure_review?.unresolved_reveal_count || 0),
+  unresolvedReveals.value.length,
+))
+const runStatusLabel = computed(() => (
+  run.value?.status === "completed" && structureReviewCount.value
+    ? `场景理解已完成；${structureReviewCount.value} 条剧情结构候选仍待独立复核`
+    : statusText.value
+))
+const structureSceneLabels = ref({})
+let structureLabelsGeneration = 0
+function sourceSceneLabel(sceneId) {
+  return structureSceneLabels.value[sceneId] || "来源 Scene（标题暂不可用）"
+}
 const optionalCoverage = computed(() => Object.entries(run.value?.optional_step_coverage || {}).filter(([name]) => ['spatial', 'details'].includes(name)))
 const scopeBudget = computed(() => (recomputeCompleted.value || ["failed", "source_changed"].includes(run.value?.status) ? state.value?.default_budget_mode : run.value?.budget_mode || state.value?.default_budget_mode) === "confirmed_scope")
 const enabled = computed(() => state.value?.engine?.engine === "evolution")
@@ -76,6 +91,29 @@ const statusText = computed(() => ({
   needs_scene_review: "场景边界需要确认，请在故事大纲处理后恢复理解",
 })[run.value?.status] || "")
 const api = () => getApi().evolution
+
+watch(() => [
+  props.projectId,
+  run.value?.run_key,
+  JSON.stringify(unresolvedReveals.value.flatMap((item) => item.source_refs || []).map((item) => item.scene_id)),
+], async ([projectId, runKey, sourceKey]) => {
+  const token = ++structureLabelsGeneration
+  structureSceneLabels.value = {}
+  if (!projectId || !runKey || !sourceKey || sourceKey === "[]") return
+  try {
+    const rows = await getApi().outline.listScenesOrdered(projectId)
+    if (token !== structureLabelsGeneration || projectId !== props.projectId || runKey !== run.value?.run_key) return
+    const scenes = Array.isArray(rows) ? rows : rows?.items || []
+    structureSceneLabels.value = Object.fromEntries(scenes
+      .filter((scene) => scene?.id)
+      .map((scene) => [
+        String(scene.id),
+        scene.title || (scene.scene_index != null ? `场景 ${scene.scene_index}` : "未命名场景"),
+      ]))
+  } catch {
+    // Keep candidate content visible when the optional Scene-title lookup fails.
+  }
+})
 
 async function perform(action) {
   if (busy.value) return
@@ -338,6 +376,8 @@ async function loadTargets(offset = 0) {
 watch(scopeKind, () => { targets.value = []; targetId.value = ""; targetTotal.value = 0; targetOffset.value = 0 })
 watch([endChapter, requestLimit, recomputeCompleted, fromScene, scopeKind, targetId, discoverDetails, discoverSpatial], () => { if (!pending.value) preview.value = null })
 watch(() => props.projectId, () => {
+  structureLabelsGeneration++
+  structureSceneLabels.value = {}
   generation++; clearTimeout(timer)
   state.value = preview.value = pending.value = proposals.value = null
   worldAuditSupplementPreview.value = null
@@ -378,7 +418,29 @@ onBeforeUnmount(() => { generation++; clearTimeout(timer) })
     <p v-if="busy" role="status">正在处理…</p>
     <p v-if="error" role="alert">{{ error }}</p>
     <template v-if="state">
-      <p v-if="run" role="status">{{ statusText }} · {{ run.preparing_scenes ? "准备场景边界" : run.preparing_structure ? "整理剧情结构候选" : `${run.completed_scenes} / ${run.total_scenes} 场景` }}</p>
+      <p v-if="run" role="status">{{ runStatusLabel }} · {{ run.preparing_scenes ? "准备场景边界" : run.preparing_structure ? "整理剧情结构候选" : `${run.completed_scenes} / ${run.total_scenes} 场景` }}</p>
+      <section v-if="structureReviewCount" class="reading-structure-review" aria-label="待独立复核的剧情结构候选">
+        <h4>剧情结构候选待独立复核 · {{ structureReviewCount }} 项</h4>
+        <p>场景理解完成不代表故事结构已经写入。以下内容仍是候选，不会自动采用或重试。</p>
+        <article v-for="(candidate, index) in unresolvedReveals" :key="candidate.batch_key || `${candidate.title}-${index}`">
+          <h5>{{ candidate.title || "未命名候选" }}</h5>
+          <p>{{ candidate.summary || "候选摘要暂不可用。" }}</p>
+          <p><strong>待复核原因：</strong>{{ candidate.review_reason || "需要结合来源场景核对。" }}</p>
+          <div v-if="candidate.source_refs?.length" class="reading-structure-review__sources">
+            <strong>来源场景</strong>
+            <ul>
+              <li v-for="source in candidate.source_refs" :key="`${source.scene_id}:${source.attempt_id}`">
+                <span>{{ sourceSceneLabel(source.scene_id) }}</span>
+                <details>
+                  <summary>查看来源回执</summary>
+                  <span>运行 {{ source.run_key || "未记录" }} · 尝试 {{ source.attempt_id || "未记录" }}</span>
+                </details>
+              </li>
+            </ul>
+          </div>
+          <p v-else class="reading-structure-review__source-missing">此候选没有返回可显示的 Scene 来源。</p>
+        </article>
+      </section>
       <p v-if="run?.unchecked_discovery_gaps?.length" role="status">保留 {{ run.unchecked_discovery_gaps.length }} 处作者确认的未检查缺口；原请求结果未知，后续完成也不代表这部分已检查。</p>
       <progress v-if="run?.total_scenes" :value="run.completed_scenes" :max="run.total_scenes" aria-label="理解进度" />
       <details v-if="optionalCoverage.length" class="reading-optional-coverage">
@@ -539,6 +601,15 @@ onBeforeUnmount(() => { generation++; clearTimeout(timer) })
 
 <style scoped>
 .reading-flow { margin-block: 1.5rem; padding: 1rem; border: 1px solid var(--border-color, #ddd); border-radius: .7rem; }
+.reading-structure-review { display: grid; gap: .7rem; margin-block: 1rem; padding: .85rem; border: 1px solid var(--border-color, #ddd); border-left: 3px solid var(--warning, #a66a00); border-radius: .55rem; background: var(--bg-muted, rgba(176, 132, 32, .06)); }
+.reading-structure-review h4, .reading-structure-review h5 { margin: 0; }
+.reading-structure-review > p, .reading-structure-review article > p { margin: 0; }
+.reading-structure-review article { display: grid; gap: .45rem; padding: .7rem; border: 1px solid var(--border-color, #ddd); border-radius: .45rem; background: var(--bg-primary, white); }
+.reading-structure-review__sources ul { display: grid; gap: .35rem; margin: .4rem 0 0; padding-left: 1.2rem; }
+.reading-structure-review__sources li { overflow-wrap: anywhere; }
+.reading-structure-review__sources details { margin-top: .25rem; color: var(--text-secondary); font-size: .85em; }
+.reading-structure-review__sources summary { cursor: pointer; }
+.reading-structure-review__source-missing { color: var(--text-secondary); }
 .reading-proposals article { margin-block: 1rem; padding-inline-start: .75rem; border-inline-start: 2px solid var(--border-color, #ddd); }
 blockquote { margin: .5rem 0; overflow-wrap: anywhere; color: var(--text-secondary); }
 summary { cursor: pointer; font-weight: 600; }

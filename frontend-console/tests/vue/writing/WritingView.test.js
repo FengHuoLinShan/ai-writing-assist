@@ -813,9 +813,7 @@ describe("WritingView", () => {
     globalThis.api.writing.listConflictChecks.mockImplementation(({ scene_id: sceneId }) => (
       sceneId === "s1" ? oldCheck.promise : Promise.resolve({ items: [{ id: "check-s2", scene_id: "s2", chapter_index: 1 }] })
     ))
-    globalThis.api.world.listEntities.mockImplementation(async ({ scene_id: sceneId, entity_type: type }) => (
-      type === "character" ? [{ id: `${sceneId}-person`, name: `${sceneId} 人物` }] : []
-    ))
+    globalThis.api.world.listEntities.mockClear()
     const wrapper = mount(WritingView, {
       props: props({ scenes: [
         { id: "s1", title: "入口", scene_index: 1, status: "draft", chapter_ids: ["1"] },
@@ -829,15 +827,15 @@ describe("WritingView", () => {
     vm.conflictDialog.check = { id: "dialog-s1", scene_id: "s1" }
     Object.assign(vm.conflictTask, { taskId: "task-s1", progress: { status: "running" } })
     await vm.selectScene("s2")
-    expect(vm.sceneState.people.map((person) => person.name)).toEqual(["s2 人物"])
     expect(vm.conflictState.latest?.id).toBe("check-s2")
     expect(vm.conflictDialog).toMatchObject({ open: false, check: null })
     expect(vm.conflictTask).toMatchObject({ taskId: null, progress: null })
+    expect(globalThis.api.world.listEntities).not.toHaveBeenCalled()
 
     oldCheck.resolve({ items: [{ id: "check-s1", scene_id: "s1", chapter_index: 1 }] })
     await flushPromises()
-    expect(vm.sceneState.people.map((person) => person.name)).toEqual(["s2 人物"])
     expect(vm.conflictState.latest?.id).toBe("check-s2")
+    expect(globalThis.api.world.listEntities).not.toHaveBeenCalled()
     wrapper.unmount()
   })
 
@@ -1389,18 +1387,48 @@ describe("WritingView", () => {
     reloaded.unmount()
   })
 
-  it("从 Vue 警报页打开由 Vue 托管的完整冲突详情", async () => {
+  it("从统一提醒打开由 Vue 托管的完整冲突详情", async () => {
     const check = { id: "check-1", chapter_index: 1, items: [{ id: "i1", severity: "high", status: "open", evidence_summary: "证据" }] }
     globalThis.api.writing.listConflictChecks.mockResolvedValue({ items: [check] })
+    globalThis.api.writing.getConflictCheck.mockResolvedValue(check)
+    const originalAssistantApi = globalThis.api.assistant
+    globalThis.api.assistant = {
+      unifiedNotices: vi.fn().mockResolvedValue({
+        items: [{
+          notice_key: "writing.conflict:i1",
+          source_id: "writing.conflict",
+          category: "conflict_check",
+          severity: "high",
+          target: { chapter_index: 1, scene_id: "s1" },
+          summary: "请复核设定冲突。",
+          evidence: [{ note: "证据" }],
+          basis_fingerprint: "a".repeat(64),
+          stale: false,
+          status: "unread",
+          row_version: 1,
+          actions: [{ kind: "navigate", page: "writing", check_id: "check-1", item_id: "i1", chapter_index: 1 }],
+        }],
+        unavailable_sources: [],
+        muted_categories: [],
+        partial: false,
+      }),
+    }
     const wrapper = mount(WritingView, { props: props(), attachTo: document.body })
-    await flushPromises()
-    await expandWritingCopilot(wrapper)
-    await wrapper.findAll("button").find((button) => button.text() === "警报").trigger("click")
-    await wrapper.findAll("button").find((button) => button.text() === "查看最近校验").trigger("click")
-    const dialog = wrapper.get('[aria-label="剧情设定冲突检查"]')
-    expect(dialog.text()).toContain("证据")
-    expect(globalThis.showModalHtml).not.toHaveBeenCalled()
-    wrapper.unmount()
+    try {
+      await flushPromises()
+      await expandWritingCopilot(wrapper)
+      await wrapper.findAll('[role="tab"]').find((tab) => tab.text() === "提醒").trigger("click")
+      await flushPromises()
+      await wrapper.findAll("button").find((button) => button.text() === "查看检查").trigger("click")
+      const dialog = wrapper.get('[aria-label="剧情设定冲突检查"]')
+      expect(dialog.text()).toContain("证据")
+      expect(globalThis.api.writing.getConflictCheck).toHaveBeenCalledWith("check-1", "p1")
+      expect(globalThis.showModalHtml).not.toHaveBeenCalled()
+    } finally {
+      wrapper.unmount()
+      if (originalAssistantApi === undefined) delete globalThis.api.assistant
+      else globalThis.api.assistant = originalAssistantApi
+    }
   })
 
   it("从 Vue 选项对话框提交带当前版本与待处理范围的冲突检查", async () => {

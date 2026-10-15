@@ -40,6 +40,22 @@ export const assistant = {
     careNotices: (novelId) => request(withQuery("/assistant/notices", { novel_id: novelId }), { cache: "no-store" }),
     recheckCareNotice: (novelId, noticeId, operationId) => post(withQuery(`/assistant/notices/${encodeURIComponent(noticeId)}/recheck`, { novel_id: novelId }), { operation_id: operationId }),
     decideCareNotice: (novelId, noticeId, disposition) => post(`/assistant/notices/${encodeURIComponent(noticeId)}/decide`, { novel_id: novelId, ...disposition }),
+    unifiedNotices: (novelId, { sceneId = null, chapterIndex = null, signal } = {}) => request(
+      withQuery("/assistant/unified-notices", {
+        novel_id: novelId,
+        scene_id: sceneId,
+        chapter_index: Number.isInteger(chapterIndex) ? chapterIndex : null,
+      }),
+      { cache: "no-store", signal },
+    ),
+    setUnifiedNoticeDisposition: (body) => post("/assistant/unified-notices/dispositions", body),
+    setUnifiedNoticeCategoryMute: (novelId, sourceId, category, expectedRowVersion, muted) => request(
+      `/assistant/unified-notices/category-mutes/${encodeURIComponent(sourceId)}/${encodeURIComponent(category)}`,
+      {
+        method: muted ? "PUT" : "DELETE",
+        body: JSON.stringify({ novel_id: novelId, expected_row_version: expectedRowVersion }),
+      },
+    ),
     // ============================================================
     // 引导流程（ADR-0032）：服务端确定性编排；前端只渲染停点与推进。
     // ============================================================

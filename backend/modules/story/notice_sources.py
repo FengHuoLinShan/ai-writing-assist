@@ -86,6 +86,17 @@ def _scene_issues(item: Any, chapter_index: int | None) -> list[tuple[str, str, 
     return issues
 
 
+def _scene_field(code: str) -> str | None:
+    return {
+        "structure-pov": "pov-character",
+        "structure-review": "review",
+        "structure-goal": "goal",
+        "structure-core_conflict": "core_conflict",
+        "structure-emotional_beat": "emotional_beat",
+        "structure-chapter-map": "context",
+    }.get(code)
+
+
 async def list_scene_structure_notices(
     db, novel_id: str, scope: dict[str, object]
 ) -> list[dict[str, Any]]:
@@ -146,8 +157,9 @@ async def list_scene_structure_notices(
                     "actions": [
                         {
                             "kind": "navigate",
-                            "page": "writing",
+                            "page": "outline",
                             "scene_id": str(scene.id),
+                            "scene_field": _scene_field(code),
                             "label": "打开场景",
                         }
                     ],
