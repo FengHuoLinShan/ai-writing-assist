@@ -13,6 +13,15 @@ from typing import TYPE_CHECKING, Any, Literal, Protocol
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
+from modules.world.map_spatial_brief_schemas import (
+    MapSpatialBriefItem as MapSpatialBriefItem,
+)
+from modules.world.map_spatial_brief_schemas import (
+    MapSpatialBriefRequest as MapSpatialBriefRequest,
+)
+from modules.world.map_spatial_brief_schemas import (
+    MapSpatialBriefResponse as MapSpatialBriefResponse,
+)
 from modules.world.map_spatial_clue_schemas import (
     MapSpatialClue as MapSpatialClue,
 )
@@ -92,6 +101,16 @@ class TemporalAnchorScenePort(Protocol):
     async def read_temporal_anchor_scenes(
         self, db: AsyncSession, novel_id: str
     ) -> list[dict]: ...
+
+
+class WorldReadMapSpatialBriefPort(Protocol):
+    """Owner-checked, read-only projection of adopted spatial declarations."""
+
+    async def __call__(
+        self,
+        db: AsyncSession,
+        request: MapSpatialBriefRequest,
+    ) -> MapSpatialBriefResponse: ...
 
 
 ENTITY_FUSION_CHECKPOINT_PAIR_BATCH_SIZE = 12
@@ -690,6 +709,9 @@ __all__ = [
     "GenerationBackgroundProvider",
     "KnowledgeVisibilityDecision",
     "KnowledgeVisibilityRequest",
+    "MapSpatialBriefItem",
+    "MapSpatialBriefRequest",
+    "MapSpatialBriefResponse",
     "MergeResult",
     "ResolveResult",
     "WorldBackgroundBundleContract",
@@ -700,6 +722,7 @@ __all__ = [
     "WorldBibleActivationTargetContract",
     "WorldBibleSynopsisContextContract",
     "WorldAliasRelationTaskPort",
+    "WorldReadMapSpatialBriefPort",
     "normalize_author_entity_type",
 ]
 
