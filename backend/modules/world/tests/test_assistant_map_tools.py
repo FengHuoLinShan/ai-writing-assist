@@ -78,3 +78,62 @@ async def test_known_place_stays_unpositioned_and_label_edit_preserves_locked_ge
     assert edited.document["features"][0]["note"] == "作者补充的说明"
     with pytest.raises(ConflictError):
         await op.apply(db, nid, edit, preview, context=context)
+
+
+async def test_create_node_preview_names_the_exact_pinned_level_type(
+    db_session, test_project_id
+):
+    from core.errors import ValidationError
+    from modules.world.project_vocabulary_schemas import (
+        VocabularyTermCreate,
+        VocabularyTermUpdate,
+    )
+    from modules.world.project_vocabulary_service import (
+        create_project_vocabulary_term,
+        update_project_vocabulary_term,
+    )
+
+    db, nid = db_session, test_project_id
+    term = await create_project_vocabulary_term(
+        db,
+        nid,
+        VocabularyTermCreate(kind="level", name="舱段", description="原有空间层级"),
+    )
+    await update_project_vocabulary_term(
+        db,
+        nid,
+        str(term.id),
+        VocabularyTermUpdate(expected_revision_id=term.revision_id, name="甲板"),
+    )
+    args = MapNodeCreate(
+        title="第一舱段",
+        level="interior",
+        level_type_ref=term.id,
+        level_type_revision_id=term.revision_id,
+    )
+    context = AssistantOperationContext(
+        str(uuid4()), str(current_account_id()), WorkContext(page="map", scope="project")
+    )
+    operation = world_map_operations["map.create_node"]
+    preview = await operation.prepare(db, nid, args, context=context)
+    assert preview["after"]["level_type"] == {
+        "type_ref": str(term.id),
+        "type_revision_id": str(term.revision_id),
+        "name": "舱段",
+        "description": "原有空间层级",
+        "status": "active",
+    }
+    wrong_kind = await create_project_vocabulary_term(
+        db, nid, VocabularyTermCreate(kind="feature", name="空间标记")
+    )
+    with pytest.raises(ValidationError, match="层级类型"):
+        await operation.prepare(
+            db,
+            nid,
+            MapNodeCreate(
+                title="非法层级",
+                level_type_ref=wrong_kind.id,
+                level_type_revision_id=wrong_kind.revision_id,
+            ),
+            context=context,
+        )

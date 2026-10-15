@@ -1123,6 +1123,8 @@ async def resolve_vocabulary_type_revisions(
             "kind": term.kind,
             "status": term.status,
             "revision_id": revision.id,
+            "name": revision.snapshot_json.get("name", ""),
+            "description": revision.snapshot_json.get("description", ""),
             "traits": revision.snapshot_json.get("traits", {}),
         }
     if resolved.keys() != refs:
