@@ -14,13 +14,19 @@ from core.config import get_settings
 from modules.account.contracts import BOOTSTRAP_ACCOUNT_ID
 from modules.project.models import Project
 from modules.world.map_auto_draft_service import build_map_auto_drafts
+from modules.world.models import CoreEntity
 from modules.world.tests.test_map_auto_draft_service import (
     _build_request,
     _stage_bound_clue,
 )
 
 
-async def seed(novel_id: str) -> None:
+async def seed(
+    novel_id: str,
+    *,
+    candidate_locations: bool = False,
+    mutate_entity_id: str | None = None,
+) -> None:
     settings = get_settings()
     url = make_url(settings.database_url)
     if (
@@ -41,8 +47,22 @@ async def seed(novel_id: str) -> None:
                 or not project.title.startswith("E2E map auto draft ")
             ):
                 raise RuntimeError("Requires a synthetic map browser project")
+            if mutate_entity_id:
+                entity = await db.get(CoreEntity, uuid.UUID(mutate_entity_id))
+                if (
+                    not entity
+                    or entity.novel_id != project.id
+                    or entity.status != "candidate"
+                ):
+                    raise RuntimeError("Requires a candidate in this synthetic project")
+                entity.summary = "浏览器确认期间由另一处修订的合成地点说明。"
+                return
             scene, _start, _end, clue = await _stage_bound_clue(
-                db, novel_id, modality="character_statement", effective=True
+                db,
+                novel_id,
+                modality="character_statement",
+                effective=True,
+                entity_status="candidate" if candidate_locations else "canonical",
             )
             built = await build_map_auto_drafts(db, novel_id, _build_request(scene, clue))
             result = {"batch_id": str(built.batch_id)}
@@ -52,4 +72,10 @@ async def seed(novel_id: str) -> None:
 
 
 if __name__ == "__main__":
-    asyncio.run(seed(sys.argv[1]))
+    asyncio.run(
+        seed(
+            sys.argv[1],
+            candidate_locations=sys.argv[2:] == ["candidate-locations"],
+            mutate_entity_id=sys.argv[3] if sys.argv[2:3] == ["mutate-entity"] else None,
+        )
+    )

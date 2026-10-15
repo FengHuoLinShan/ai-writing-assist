@@ -698,6 +698,28 @@ describe("统一地图编辑器", () => {
     expect(api.world.saveMapRevision).not.toHaveBeenCalled()
   })
 
+  it('地图采用可勾选候选地点，先独立World确认，再重新核对地图并二次确认', async () => {
+    const changed = document(); changed.features[0].note = '新说明'
+    const proposed = { ...record(changed, nextId), status: 'candidate', base_revision_id: revisionId }
+    api.world.getNodeMap.mockResolvedValue({ ...state(record()), candidates: [proposed] })
+    api.world.previewMapRevision.mockResolvedValue({ ...proposed, image_layers: [], problems: [] })
+    const preview = payload => ({ candidate_revision_id: nextId, base_revision_id: revisionId, applied_change_keys: payload.change_keys, expanded_change_keys: [], candidate_locations: [{ entity_id: 'location-1', name: '临江城', status: 'candidate', source_hash: 'a'.repeat(64) }] })
+    api.world.previewMapReview.mockImplementation(async (_p, _n, _c, payload) => preview(payload))
+    api.world.promoteEntity = vi.fn(async () => ({}))
+    const wrapper = await render(); await flushPromises()
+    await wrapper.get('.map-candidates button').trigger('click'); await flushPromises()
+    await button(wrapper, '核对所选 1 项修改').trigger('click'); await flushPromises()
+    expect(button(wrapper, '确认采用共 1 项修改').element.disabled).toBe(false)
+    await wrapper.get('.map-candidate-locations input').setValue(true)
+    expect(button(wrapper, '确认采用共 1 项修改').element.disabled).toBe(true)
+    await button(wrapper, '先确认采用所选 1 个地点').trigger('click'); await flushPromises()
+    expect(api.world.promoteEntity).toHaveBeenCalledExactlyOnceWith('location-1', projectId, { expected_source_hash: 'a'.repeat(64) })
+    expect(api.world.previewMapReview).toHaveBeenCalledTimes(2)
+    expect(api.world.reviewMapRevision).not.toHaveBeenCalled()
+    expect(button(wrapper, '确认采用共 1 项修改').element.disabled).toBe(false)
+    expect(confirm).toHaveBeenCalledTimes(1)
+  })
+
   it('返回或刷新恢复选中地点、缩放与专注状态，地图文档不改变', async () => {
     const wrapper = await render({ initialFeatureId: 'b' }); await flushPromises()
     expect(wrapper.get('.map-feature.selected').attributes('data-feature-id')).toBe('b')

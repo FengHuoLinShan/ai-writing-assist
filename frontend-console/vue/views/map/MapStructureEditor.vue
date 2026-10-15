@@ -64,11 +64,12 @@
         <strong>将采用 {{ adoptionPreview.applied_change_keys.length }} 项修改</strong>
         <p>请核对实际生效范围；标有“关联修改”的内容会一并采用，未列出的修改继续保留为候选。</p>
         <ul><li v-for="change in adoptionChanges" :key="change.key">{{ change.action }}：{{ change.label }}<strong v-if="adoptionPreview.expanded_change_keys.includes(change.key)">（关联修改）</strong></li></ul>
-        <button class="btn btn-primary" :disabled="busy || dirty || Boolean(recovery)" @click="review(candidateView, 'adopt', selectedChangeKeys)">确认采用共 {{ adoptionPreview.applied_change_keys.length }} 项修改</button>
+        <MapCandidateLocations :project-id="projectId" :locations="adoptionPreview.candidate_locations || []" :truncated="adoptionPreview.candidate_locations_truncated" :disabled="loading || saving || metadataBusy || confirming || dirty || Boolean(recovery)" @state="candidateLocationState = $event" @adopted="previewAdoption" @stale="refreshLocationPreview" />
+        <button class="btn btn-primary" :disabled="busy || candidateLocationState.selected || dirty || Boolean(recovery)" @click="review(candidateView, 'adopt', selectedChangeKeys)">确认采用共 {{ adoptionPreview.applied_change_keys.length }} 项修改</button>
       </div>
       <button v-if="candidateView.status === 'saved'" class="btn btn-primary" :disabled="busy || dirty || Boolean(recovery) || candidateView.id === revision?.id" @click="review(candidateView, 'restore')">恢复为新版本</button>
-      <button class="btn btn-sm" @click="compareCandidateCurrent = !compareCandidateCurrent">{{ compareCandidateCurrent ? '查看候选地图' : '对照已保存地图' }}</button>
-      <button class="btn btn-sm" @click="exitCandidate">返回当前地图</button>
+      <button class="btn btn-sm" :disabled="busy" @click="compareCandidateCurrent = !compareCandidateCurrent">{{ compareCandidateCurrent ? '查看候选地图' : '对照已保存地图' }}</button>
+      <button class="btn btn-sm" :disabled="busy" @click="exitCandidate">返回当前地图</button>
     </section>
     <template v-if="!referenceOnly">
       <div class="map-navigation">
@@ -252,6 +253,7 @@ import MapBindAcrossMaps from "./MapBindAcrossMaps.vue"
 import MapSourcePicker from './MapSourcePicker.vue'
 import MapScenePanel from './MapScenePanel.vue'
 import MapSpatialMetadataPanel from './MapSpatialMetadataPanel.vue'
+import MapCandidateLocations from './MapCandidateLocations.vue'
 
 const props = defineProps({ projectId: { type: String, required: true }, node: { type: Object, required: true }, images: { type: Array, default: () => [] }, knownNodes: { type: Array, default: () => [] }, hasReference: Boolean, externalTools: Boolean, reviewImageId: { type: String, default: "" }, initialFeatureId: { type: String, default: '' }, initialRevisionId: { type: String, default: '' }, evidenceRefs: { type: Array, default: () => [] } })
 const emit = defineEmits(["saved", "open-node", "reference-visible", "state", "select-feature", "pin-evidence", "clear-evidence"])
@@ -275,6 +277,7 @@ const activeSpaceId = ref("main")
 const focused = ref(false), mapQuery = ref(""), locatorMessage = ref(""), compareCandidateCurrent = ref(false)
 const selectedChangeKeys = ref([]), selectedFeatureIds = ref([]), comparisonLayers = ref([]), reviewNotice = ref(''), rehearsalStops = ref([]), scrollArea = ref(null)
 const adoptionPreview = ref(null), previewing = ref(false), imageBaseline = ref(null), imageBaselineStatus = ref('unknown'), panning = ref(false)
+const candidateLocationState = ref({ selected: false, busy: false })
 const generationSummary = ref(null), cancelling = ref(false), generationTools = ref(null)
 const bindingQuery = ref(''), bindingLocations = ref([]), bindingLoading = ref(false), bindingError = ref(''), boundName = ref(''), imageControls = ref(null)
 let bindingEpoch = 0
@@ -309,7 +312,7 @@ let resizeObserver = null
 let epoch = 0, alive = true, installing = false, backupTimer = null, pollTimer = null, drag = null, reviewEpoch = 0, imageBaselineEpoch = 0, comparisonEpoch = 0, lastLoadError = '', pan = null
 const dirty = computed(() => JSON.stringify(doc.value) !== baseline.value)
 const metadataBusy = ref(false), confirming = ref(false)
-const busy = computed(() => loading.value || saving.value || metadataBusy.value || confirming.value)
+const busy = computed(() => loading.value || saving.value || metadataBusy.value || confirming.value || previewing.value || candidateLocationState.value.busy)
 const taskRunning = computed(() => ["pending", "running"].includes(taskStatus.value))
 const generationCounters = computed(() => {
   const summary = generationSummary.value
@@ -766,8 +769,9 @@ async function viewCandidate(value, existingPreview = null) {
     await Promise.all(comparisonLayers.value.filter(layer => layer.state === 'ready').map(layer => loadImage(layer.page_id)))
   } catch (err) { if (alive && token === comparisonEpoch && candidateView.value?.id === value.id) error.value = err.message || '版本图片读取失败，结构仍可比较' }
 }
-function exitCandidate() { comparisonReturn?.focus?.(); comparisonReturn?.scrollIntoView?.({ block: 'nearest' }); ++comparisonEpoch; candidateView.value = null; compareCandidateCurrent.value = false; problems.value = serverRevision.value?.problems || revision.value?.problems || [] }
+function exitCandidate() { if (busy.value) return; comparisonReturn?.focus?.(); comparisonReturn?.scrollIntoView?.({ block: 'nearest' }); ++comparisonEpoch; candidateView.value = null; compareCandidateCurrent.value = false; problems.value = serverRevision.value?.problems || revision.value?.problems || [] }
 function reviewBase(value) { return value.is_auto_draft ? value.review_base_revision_id : value.base_revision_id }
+async function refreshLocationPreview(message) { await previewAdoption(); if (alive) error.value = message }
 async function previewAdoption() {
   const value = candidateView.value, baseId = revision.value?.id || null, keys = [...selectedChangeKeys.value]
   if (!value || value.status !== 'candidate' || reviewBase(value) !== baseId || busy.value || dirty.value || recovery.value || !keys.length) return
@@ -789,7 +793,7 @@ function explainRequiredChanges(err) {
   if (required.length) reviewNotice.value = '请明确勾选关联修改后再采用：' + candidateChanges.value.filter(change => required.includes(change.key)).map(change => change.label).join('、')
 }
 async function review(value, action, changeKeys = null) {
-  if (busy.value || dirty.value || recovery.value) return
+  if (busy.value || dirty.value || recovery.value || (action === 'adopt' && candidateLocationState.value.selected)) return
   if (action === 'adopt' && (!adoptionPreview.value || adoptionPreview.value.candidate_revision_id !== value.id || adoptionPreview.value.base_revision_id !== (revision.value?.id || null))) return
   if (action === "restore" && !await confirm("将历史地图恢复为新版本？当前版本仍保留在历史中。")) return
   if (action === "reject" && !await confirm("不使用这个空间候选？已保存地图不会受到影响。")) return
@@ -1036,10 +1040,10 @@ async function runToolbarAction(key) {
 }
 watch(spaceChoices, choices => { if (!choices.some(space => space.id === activeSpaceId.value)) activeSpaceId.value = choices[0].id }, { immediate: true })
 watch(activeSpaceId, () => { selectedId.value = ''; placing.value = false; rehearsalStops.value = []; dragBounds.value = null; drag = null; if (scrollArea.value) { scrollArea.value.scrollLeft = 0; scrollArea.value.scrollTop = 0 } }, { flush: 'sync' })
-watch([dirty, revision, reader, focused, toolbar, metadataBusy, loading, saving, confirming], () => emit("state", { nodeId: props.node.id, dirty: dirty.value, busy: busy.value, revision: revision.value, reader: Boolean(reader.value), focused: focused.value, toolbar: toolbar.value }), { immediate: true })
+watch([dirty, revision, reader, focused, toolbar, metadataBusy, loading, saving, confirming, previewing, candidateLocationState], () => emit("state", { nodeId: props.node.id, dirty: dirty.value, busy: busy.value, revision: revision.value, reader: Boolean(reader.value), focused: focused.value, toolbar: toolbar.value }), { immediate: true })
 watch([selectedId, activeSpaceId, zoom, focused, rehearsalStops], rememberView, { deep: true })
 watch([selectedId, busy, focused, readOnly], () => { sourcePickerOpen.value = false }, { flush: 'sync' })
-watch([candidateView, () => revision.value?.id, () => serverRevision.value?.id, selectedChangeKeys], () => { ++reviewEpoch; adoptionPreview.value = null; previewing.value = false }, { deep: true, flush: 'sync' })
+watch([candidateView, () => revision.value?.id, () => serverRevision.value?.id, selectedChangeKeys], () => { ++reviewEpoch; adoptionPreview.value = null; previewing.value = false; candidateLocationState.value = { selected: false, busy: false } }, { deep: true, flush: 'sync' })
 watch([() => imageForm.page_id, imageBaselineRevision, imageBaselineKind], loadImageBaseline)
 watch([() => imageForm.page_id, selectedImageRevision, selectedCalibrationRevision], () => { ++comparisonEpoch }, { flush: 'sync' })
 watch(reader, value => { if (value) ++comparisonEpoch }, { flush: 'sync' })

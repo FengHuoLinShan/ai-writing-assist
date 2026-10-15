@@ -23,7 +23,8 @@
       正在按流程推进，完成或需要你决定时会停下来说明原因。
     </p>
 
-    <div v-if="visibleActions.length" class="writing-flow-host__actions">
+    <slot />
+    <div v-if="!customActions && visibleActions.length" class="writing-flow-host__actions">
       <button
         v-for="action in visibleActions"
         :key="action.action"
@@ -36,7 +37,7 @@
       >{{ action.label }}</button>
     </div>
 
-    <div v-if="settingsEditable" class="writing-flow-host__settings">
+    <div v-if="!customActions && settingsEditable" class="writing-flow-host__settings">
       <label>
         <input
           type="checkbox"
@@ -68,6 +69,7 @@ import { getRouter } from "../../../bridge/index.js"
 
 const props = defineProps({
   controller: { type: Object, required: true },
+  customActions: { type: Boolean, default: false },
 })
 
 const router = getRouter()

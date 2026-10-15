@@ -2,9 +2,49 @@
 import { computed, onBeforeUnmount, onMounted, ref, watch } from "vue"
 import { getApi, getConfirm } from "../bridge/index.js"
 
-const props = defineProps({ projectId: { type: String, required: true }, entry: { type: Boolean, default: false } })
-const emit = defineEmits(["state"])
+const props = defineProps({ projectId: { type: String, required: true }, entry: { type: Boolean, default: false }, preparedAuthorization: { type: Object, default: null }, authorizationDisabled: Boolean })
+const emit = defineEmits(["state", "authorized", "authorization-state"])
 const state = ref(null), busy = ref(false), error = ref(""), preview = ref(null), pending = ref(null)
+// Frozen assistant previews use this Evolution-owned confirmation surface.
+// Persist before sending so reloads and lost responses can only reconcile, never resend.
+const preparedAttempted = ref(false), preparedRejected = ref(false)
+const prepared = computed(() => props.preparedAuthorization)
+const preparedPreview = computed(() => prepared.value?.preview?.authorization_preview || {})
+const preparedKey = () => 'map-authorization:' + props.projectId + ':' + prepared.value?.arguments?.operation_id
+function authorizationRunKey(value) {
+  const args = value.arguments
+  return value.capability === 'evolution.prepare_spatial_reading' && ['revise', 'scoped_recompute'].includes(args.mode)
+    ? 'reading-' + args.operation_id : args.run_key || 'reading-' + args.operation_id
+}
+const preparedRunKey = () => authorizationRunKey(prepared.value)
+watch(() => [props.projectId, prepared.value?.arguments?.operation_id], () => {
+  try { preparedAttempted.value = !!sessionStorage.getItem(preparedKey()) }
+  catch { preparedAttempted.value = true }
+  preparedRejected.value = false
+}, { immediate: true })
+async function authorizePrepared() {
+  if (!prepared.value || preparedAttempted.value || busy.value || props.authorizationDisabled) return
+  const frozen = JSON.parse(JSON.stringify(prepared.value)), projectId = props.projectId, token = generation
+  const { run_key: runKey, ...args } = frozen.arguments
+  let authorizedRunKey = null
+  const body = { ...args, ...(frozen.capability === 'evolution.prepare_spatial_reading' ? { run_key: runKey } : {}), expected_fingerprint: frozen.preview.authorization_preview.fingerprint, authorization_confirmed: true }
+  busy.value = true; error.value = ''; emit('authorization-state', { busy: true })
+  try {
+    sessionStorage.setItem(preparedKey(), 'sent')
+    preparedAttempted.value = true
+    if (frozen.capability === 'evolution.prepare_spatial_rescan') await api().spatialRescanStart(projectId, runKey, body)
+    else if (frozen.capability === 'evolution.prepare_spatial_reading') await api().start(projectId, body)
+    else throw new Error('未知的演化授权类型，请重新核对。')
+    if (token === generation) authorizedRunKey = authorizationRunKey(frozen)
+  } catch (failure) {
+    if (token === generation) {
+      preparedRejected.value = [400, 403, 404, 409, 422].includes(failure.status)
+      error.value = preparedRejected.value ? (failure.message || '冻结范围已变化，请结束引导后重新预览。') : '本次授权结果尚待核对。保留原操作编号，请核对原授权结果；不会重新发送。'
+    }
+  } finally {
+    if (token === generation) { busy.value = false; emit('authorization-state', { busy: false }); if (authorizedRunKey) emit('authorized', authorizedRunKey) }
+  }
+}
 const endChapter = ref(1), requestLimit = ref(20), discoverDetails = ref(false)
 const discoverSpatial = ref(true)
 const recomputeCompleted = ref(false), fromScene = ref(1)
@@ -311,12 +351,28 @@ watch(() => props.projectId, () => {
   scopeKind.value = "scene"; targetId.value = ""; targets.value = []; targetQuery.value = ""; targetTotal.value = 0; targetOffset.value = 0
   if (opened.value || props.entry) void refresh()
 })
-onMounted(() => { if (props.entry) void refresh() })
+onMounted(() => { if (props.entry && !prepared.value) void refresh() })
 onBeforeUnmount(() => { generation++; clearTimeout(timer) })
 </script>
 
 <template>
-  <details class="reading-flow" :open="opened" @toggle="toggle">
+  <section v-if="prepared" class="reading-flow reading-frozen-authorization" aria-label="演化范围与费用确认">
+    <h4>演化 · 范围与费用确认</h4>
+    <p>这份范围已冻结。只有你点击下方确认后才会启动演化并可能产生模型费用，空间结果仍须审核。</p>
+    <p v-if="prepared.capability === 'evolution.prepare_spatial_rescan'">已读第 {{ prepared.arguments.from_scene_index + 1 }}—{{ prepared.arguments.through_scene_index + 1 }} 场的空间补扫。</p>
+    <p v-else>读取到第 {{ prepared.arguments.end_chapter }} 章，同时发现空间线索。</p>
+    <p v-if="preparedPreview.budget_mode === 'confirmed_scope'">按本次确认范围执行，保留模型调用与费用记录。</p>
+    <p v-else>总调用上限 {{ preparedPreview.request_limit ?? prepared.arguments.request_limit }} 次；需增加 {{ preparedPreview.additional_budget || 0 }} 次调用额度。</p>
+    <p v-if="preparedPreview.request_range">空间发现预计 {{ preparedPreview.request_range.minimum }}—{{ preparedPreview.request_range.maximum }} 次调用，独立额度 {{ preparedPreview.quota }} 次。</p>
+    <p v-for="(item, name) in preparedPreview.optional_steps || {}" :key="name">{{ name === 'spatial' ? '空间发现' : '细节发现' }}：预计 {{ item.request_range?.minimum || 0 }}—{{ item.request_range?.maximum ?? item.quota }} 次调用，独立额度 {{ item.quota }} 次。</p>
+    <p>冻结模型：{{ preparedPreview.model || '请先核对演化配置' }}。</p>
+    <p v-if="error" role="alert">{{ error }}</p>
+    <p v-if="preparedAttempted && !preparedRejected" role="status">已发送过原授权请求；这里只核对回执，不重新发送。结果未知不代表未计费。</p>
+    <button v-if="!preparedAttempted" type="button" class="btn btn-primary" :disabled="busy || authorizationDisabled" @click="authorizePrepared">确认此范围与费用并启动演化</button>
+    <button v-else-if="!preparedRejected" type="button" class="btn" :disabled="busy || authorizationDisabled" @click="emit('authorized', preparedRunKey())">核对原授权结果</button>
+    <p v-else>请结束当前引导，再准备新的冻结预览。</p>
+  </section>
+  <details v-else class="reading-flow" :open="opened" @toggle="toggle">
     <summary>逐场景理解 · 试用</summary>
     <p>按保存的正文逐步理解，下一场会读到前面的理解。没有场景时先准备边界；有疑问时留待确认。</p>
     <p v-if="busy" role="status">正在处理…</p>

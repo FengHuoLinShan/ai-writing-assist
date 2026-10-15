@@ -470,3 +470,84 @@ it('空间覆盖分开显示密度跳过、缺口与未检查，细节旧四态�
   expect(wrapper.text()).toContain('细节发现：已检查 1 场，未执行 1 场，结果未知 1 场，来源变化 1 场')
   wrapper.unmount()
 })
+
+const frozenAuthorization = (overrides = {}) => ({
+  capability: 'evolution.prepare_spatial_reading',
+  arguments: { operation_id: 'frozen-reading', run_key: null, mode: 'bootstrap', end_chapter: 2, discover_spatial: true, request_limit: 20 },
+  preview: { authorization_preview: { fingerprint: 'a'.repeat(64), model: 'synthetic-model', request_limit: 20 } },
+  ...overrides,
+})
+
+it('引导冻结授权原样交给演化，作者点击前不预览也不启动，成功回传原运行', async () => {
+  sessionStorage.clear()
+  const start = vi.fn(async () => ({ run: { run_key: 'reading-frozen-reading' } })), preview = vi.fn()
+  setBridgeOverrides({ api: { evolution: { start, preview } } })
+  const preparedAuthorization = frozenAuthorization()
+  const wrapper = mount(ReadingFlow, { props: { projectId: 'frozen-project', preparedAuthorization } })
+  await flushPromises()
+  expect(start).not.toHaveBeenCalled(); expect(preview).not.toHaveBeenCalled()
+  await button(wrapper, '确认此范围与费用并启动演化').trigger('click'); await flushPromises()
+  expect(start).toHaveBeenCalledExactlyOnceWith('frozen-project', { ...preparedAuthorization.arguments, expected_fingerprint: 'a'.repeat(64), authorization_confirmed: true })
+  expect(wrapper.emitted('authorized')).toEqual([['reading-frozen-reading']])
+  expect(wrapper.emitted('authorization-state')).toEqual([[{ busy: true }], [{ busy: false }]])
+  wrapper.unmount()
+})
+
+it('空间补扫回执丢失与刷新都只核对原运行，保留编号指纹且不重发', async () => {
+  sessionStorage.clear()
+  const spatialRescanStart = vi.fn().mockRejectedValue(new TypeError('network'))
+  const preparedAuthorization = frozenAuthorization({ capability: 'evolution.prepare_spatial_rescan', arguments: { run_key: 'old-reading', operation_id: 'frozen-rescan', from_scene_index: 2, through_scene_index: 4, request_limit: null } })
+  setBridgeOverrides({ api: { evolution: { spatialRescanStart } } })
+  let wrapper = mount(ReadingFlow, { props: { projectId: 'frozen-project', preparedAuthorization } })
+  await button(wrapper, '确认此范围与费用并启动演化').trigger('click'); await flushPromises()
+  expect(spatialRescanStart).toHaveBeenCalledExactlyOnceWith('frozen-project', 'old-reading', { operation_id: 'frozen-rescan', from_scene_index: 2, through_scene_index: 4, request_limit: null, expected_fingerprint: 'a'.repeat(64), authorization_confirmed: true })
+  expect(wrapper.text()).toContain('结果尚待核对')
+  expect(button(wrapper, '确认此范围与费用并启动演化')).toBeUndefined()
+  wrapper.unmount()
+  wrapper = mount(ReadingFlow, { props: { projectId: 'frozen-project', preparedAuthorization } })
+  await button(wrapper, '核对原授权结果').trigger('click'); await flushPromises()
+  expect(wrapper.emitted('authorized')).toEqual([['old-reading']])
+  expect(spatialRescanStart).toHaveBeenCalledTimes(1)
+  wrapper.unmount()
+})
+
+it('冻结授权来源冲突不重新预览或恢复费用按钮', async () => {
+  sessionStorage.clear()
+  const start = vi.fn().mockRejectedValueOnce(Object.assign(new Error('来源已变化'), { status: 409 }))
+  const preview = vi.fn()
+  setBridgeOverrides({ api: { evolution: { start, preview } } })
+  const wrapper = mount(ReadingFlow, { props: { projectId: 'frozen-project', preparedAuthorization: frozenAuthorization() } })
+  await button(wrapper, '确认此范围与费用并启动演化').trigger('click'); await flushPromises()
+  expect(wrapper.text()).toContain('请结束当前引导')
+  expect(button(wrapper, '确认此范围与费用并启动演化')).toBeUndefined()
+  expect(preview).not.toHaveBeenCalled()
+  wrapper.unmount()
+})
+
+it('重新核对保留旧范围输入，但绑定本次操作的新阅读运行', async () => {
+  sessionStorage.clear()
+  const start = vi.fn(async () => ({}))
+  setBridgeOverrides({ api: { evolution: { start } } })
+  const preparedAuthorization = frozenAuthorization({ arguments: { operation_id: 'repair', run_key: 'old-reading', mode: 'scoped_recompute', from_scene_index: 2, end_chapter: 4, discover_spatial: true, request_limit: 20 } })
+  const wrapper = mount(ReadingFlow, { props: { projectId: 'frozen-project', preparedAuthorization } })
+  await button(wrapper, '确认此范围与费用并启动演化').trigger('click'); await flushPromises()
+  expect(start.mock.calls[0][1]).toMatchObject({ run_key: 'old-reading', operation_id: 'repair' })
+  expect(wrapper.emitted('authorized')).toEqual([['reading-repair']])
+  wrapper.unmount()
+})
+
+it('冻结授权响应晚于换项目时不绑定旧运行，确认在途受互斥状态保护', async () => {
+  sessionStorage.clear()
+  let resolve
+  const start = vi.fn(() => new Promise(done => { resolve = done }))
+  setBridgeOverrides({ api: { evolution: { start } } })
+  const wrapper = mount(ReadingFlow, { props: { projectId: 'old', preparedAuthorization: frozenAuthorization(), authorizationDisabled: true } })
+  expect(button(wrapper, '确认此范围与费用并启动演化').element.disabled).toBe(true)
+  await wrapper.setProps({ authorizationDisabled: false })
+  await button(wrapper, '确认此范围与费用并启动演化').trigger('click')
+  await wrapper.setProps({ projectId: 'new' })
+  resolve({}); await flushPromises()
+  expect(wrapper.emitted('authorized')).toBeUndefined()
+  expect(start).toHaveBeenCalledTimes(1)
+  wrapper.unmount()
+})
