@@ -66,6 +66,7 @@ from modules.world.map_atlas_storage import (
     require_owned_page_object_key,
 )
 from modules.world.map_structure_schemas import STRUCTURE_LEVELS
+from modules.world.services.common import assert_edit_baseline
 from shared.utils import parse_uuid
 
 MAP_ATLAS_TASK_TYPE = "map_atlas_generate"
@@ -592,6 +593,22 @@ class MapAtlasService:
             db, novel_id, list(nodes_by_id.values())
         )
 
+        merged_sources: dict[uuid.UUID, list[dict[str, str]]] = {}
+        if nodes_by_id:
+            for source in (
+                await db.scalars(
+                    select(MapAtlasNode)
+                    .where(
+                        MapAtlasNode.novel_id == nid,
+                        MapAtlasNode.merged_into_node_id.in_(nodes_by_id),
+                    )
+                    .order_by(MapAtlasNode.title, MapAtlasNode.id)
+                )
+            ).all():
+                merged_sources.setdefault(source.merged_into_node_id, []).append(
+                    {"id": str(source.id), "title": source.title}
+                )
+
         def project(node: MapAtlasNode) -> dict[str, Any]:
             return self._node_dict(
                 node,
@@ -604,7 +621,7 @@ class MapAtlasService:
                     )
                 ],
                 level_type=level_types.get(node.id),
-            )
+            ) | {"merged_sources": merged_sources.get(node.id, [])}
 
         roots = [
             project(node)
@@ -1024,6 +1041,7 @@ class MapAtlasService:
                     .where(MapAtlasNode.novel_id == nid)
                     .order_by(MapAtlasNode.id)
                     .with_for_update()
+                    .execution_options(populate_existing=True)
                 )
             ).scalars()
         )
@@ -1035,8 +1053,7 @@ class MapAtlasService:
             from modules.world.map_structure_service import MapStructureService
 
             await MapStructureService().node(db, novel_id, node_id)
-        if node.updated_at != data.expected_updated_at:
-            raise ConflictError("地图层级已在别处更新，请刷新后重试")
+        assert_edit_baseline(data.expected_updated_at, node.updated_at, label="地图层级")
         if "level_type_ref" in data.model_fields_set and data.level_type_ref is not None:
             from modules.world.map_structure_service import (
                 resolve_spatial_vocabulary_references,

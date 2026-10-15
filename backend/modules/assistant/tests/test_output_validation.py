@@ -206,3 +206,31 @@ async def test_invalid_domain_arguments_are_corrected_once_inside_sdk_budget():
     assert client.calls == budget.requests == 2
     assert result.output.actions[0].arguments["due_date"] == "2026-09-11"
     assert budget.usage_complete
+
+
+def test_new_merge_operation_does_not_widen_frozen_v6_runs():
+    from app.assistant_operation_registry import world_map_operations
+
+    old = {
+        name: operation
+        for name, operation in world_map_operations.items()
+        if name != "map.merge_nodes"
+    }
+    with container_scope({"assistant.operations": old}):
+        frozen = {
+            "runtime_version": "6",
+            "operations": operation_manifest(),
+            "read_tools": {},
+        }
+    with container_scope({"assistant.operations": dict(world_map_operations)}):
+        restored = resolve_operations(runtime_protocol(frozen)["operations"])
+        fresh = operation_manifest()
+    assert "map.merge_nodes" not in restored
+    assert "map.preview_node_merge" in restored
+    assert fresh["map.merge_nodes"] == {
+        "revision": "2",
+        "schema_hash": "2c04c4b212a0dda6e4c71a0dd64688599bd566b9c9e3cdad9d8922c088cecce9",
+    }
+    assert (
+        fresh["map.preview_node_merge"] == frozen["operations"]["map.preview_node_merge"]
+    )

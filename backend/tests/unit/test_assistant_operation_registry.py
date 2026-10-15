@@ -384,6 +384,12 @@ OPERATION_SNAPSHOT.update(
             "1",
             "90aa2b611611e07cc436ad1d5a736996b911fc1088e306d2685059535fa0cf95",
         ),
+        "map.merge_nodes": (
+            "合并两个已保存的地图节点",
+            "confirm",
+            "2",
+            "2c04c4b212a0dda6e4c71a0dd64688599bd566b9c9e3cdad9d8922c088cecce9",
+        ),
         "map.preview_node_merge": (
             "准备地图节点合并候选",
             "confirm",

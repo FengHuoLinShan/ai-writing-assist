@@ -349,6 +349,7 @@ class MapAtlasNodeResponse(BaseModel):
     novel_id: str
     parent_id: str | None = None
     merged_into_node_id: str | None = None
+    merged_sources: list[dict[str, str]] = Field(default_factory=list)
     location_entity_id: str | None = None
     current_revision_id: str | None = None
     title: str

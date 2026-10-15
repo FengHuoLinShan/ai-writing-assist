@@ -137,7 +137,20 @@ async def read_map_spatial_evaluation_artifacts(db, novel_id, run_id, scene_ids)
                 )
                 nodes[str(row.node_id)] = {
                     "id": str(row.node_id),
-                    "status": node.status if node else None,
+                    "status": "merged"
+                    if node and node.merged_into_node_id
+                    else node.status
+                    if node
+                    else None,
+                    "merged_into_node_id": str(node.merged_into_node_id)
+                    if node and node.merged_into_node_id
+                    else None,
+                    "official": bool(
+                        node
+                        and node.status == "adopted"
+                        and node.merged_into_node_id is None
+                    ),
+                    "merge_metadata": deepcopy(node.merge_metadata) if node else None,
                     "current_revision_id": str(node.current_revision_id)
                     if node and node.current_revision_id
                     else None,

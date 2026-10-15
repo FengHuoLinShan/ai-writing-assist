@@ -128,7 +128,14 @@ async def read_map_notification_signals(db, novel_id, request):
             if {str(ref.get("node_id")), str(ref.get("revision_id"))} & excluded:
                 continue
             revision = await db.scalar(
-                select(MapAtlasRevision).where(
+                select(MapAtlasRevision)
+                .join(
+                    MapAtlasNode,
+                    (MapAtlasNode.id == MapAtlasRevision.node_id)
+                    & (MapAtlasNode.novel_id == MapAtlasRevision.novel_id),
+                )
+                .where(
+                    MapAtlasNode.merged_into_node_id.is_(None),
                     MapAtlasRevision.novel_id == nid,
                     MapAtlasRevision.id == UUID(ref["revision_id"]),
                     MapAtlasRevision.node_id == UUID(ref["node_id"]),
@@ -207,7 +214,12 @@ async def read_map_notification_signals(db, novel_id, request):
                 MapAtlasNode.novel_id == nid, MapAtlasNode.id == UUID(asset_id)
             )
         )
-        if node is None or node.status != "adopted":
+        if (
+            node is None
+            or node.status != "adopted"
+            or node.merged_into_node_id is not None
+            or str(node.current_revision_id) in excluded
+        ):
             return None
         original = await db.scalar(
             select(MapAtlasRevision)
@@ -219,7 +231,7 @@ async def read_map_notification_signals(db, novel_id, request):
             .order_by(MapAtlasRevision.created_at.desc())
             .limit(1)
         )
-        if original is not None:
+        if original is not None and str(original.id) not in excluded:
             batch_id = _marker_batch_id(original.context_fingerprint)
             batch = await db.scalar(
                 select(MapAutoDraftBatchRecord).where(

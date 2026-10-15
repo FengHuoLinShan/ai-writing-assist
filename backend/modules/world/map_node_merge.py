@@ -581,6 +581,21 @@ class MapNodeMergeService:
             ):
                 blockers.append("共同上级已变化，请先整理地图层级")
 
+        incoming_merges = list(
+            (
+                await db.scalars(
+                    select(MapAtlasNode.id)
+                    .where(
+                        MapAtlasNode.novel_id == source.novel_id,
+                        MapAtlasNode.merged_into_node_id == source.id,
+                    )
+                    .order_by(MapAtlasNode.id)
+                )
+            ).all()
+        )
+        if incoming_merges:
+            blockers.append("来源地图仍接收其他节点的合并，请先撤回这些合并")
+
         resource_state, resource_blockers = await self._resource_state(
             db, novel_id, source, target
         )
@@ -664,6 +679,7 @@ class MapNodeMergeService:
             if parent is not None
             else None,
             "resources": resource_state,
+            "incoming_merges": [str(value) for value in incoming_merges],
             "merged_document": (
                 merged_document.model_dump(mode="json") if merged_document else None
             ),
@@ -734,11 +750,11 @@ class MapNodeMergeService:
             target.id,
             lock=True,
         )
+        if preview.fingerprint != data.preview_fingerprint:
+            raise ConflictError("地图节点或来源已变化，请重新预览合并")
         if not preview.can_execute:
             reason = "；".join(preview.blockers)
             raise ValidationError("此节点组合并暂不可执行：" + reason)
-        if preview.fingerprint != data.preview_fingerprint:
-            raise ConflictError("地图节点或来源已变化，请重新预览合并")
         if not data.confirmed_source_disposition:
             raise ValidationError("需要明确确认来源节点将保留为合并跳转")
         assert preview.merged_document is not None
@@ -860,6 +876,8 @@ class MapNodeMergeService:
             db, novel_id, source_node_id, target_node_id, lock=lock
         )
         blockers: list[str] = []
+        if target.merged_into_node_id is not None:
+            blockers.append("目标地图也已合并，请先处理后续合并，不能跨目标撤回")
         receipt = source.merge_metadata or {}
         merged_revision_id = receipt.get("target_merged_revision_id")
         restored_revision_id = receipt.get("target_previous_revision_id")
@@ -909,8 +927,20 @@ class MapNodeMergeService:
         ):
             blockers.append("目标合并版本与来源节点不匹配，不能自动撤回")
         source_revision = await self._head(db, source)
-        if source_revision is None or source_revision.geometry_hash != receipt.get(
-            "source_geometry_hash"
+        from modules.world.map_structure_geometry import geometry_hash
+
+        try:
+            source_hash = (
+                geometry_hash(MapDocument.model_validate(source_revision.document))
+                if source_revision
+                else None
+            )
+        except SchemaValidationError:
+            source_hash = None
+        if (
+            source_revision is None
+            or source_revision.geometry_hash != receipt.get("source_geometry_hash")
+            or source_hash != source_revision.geometry_hash
         ):
             blockers.append("来源节点历史版本已变化，不能自动撤回")
         resource_state, resource_blockers = await self._resource_state(

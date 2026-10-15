@@ -791,6 +791,18 @@ export const world = {
 
     // ============================================================
     // AI 地图册
+    async previewMapNodeMerge(novelId, payload) {
+      return contractJson("world.previewMapNodeMerge", { novelId }, {}, payload)
+    },
+    async mergeMapNodes(novelId, payload) {
+      return contractJson("world.mergeMapNodes", { novelId }, {}, payload)
+    },
+    async previewMapNodeMergeUndo(novelId, payload) {
+      return contractJson("world.previewMapNodeMergeUndo", { novelId }, {}, payload)
+    },
+    async undoMapNodeMerge(novelId, payload) {
+      return contractJson("world.undoMapNodeMerge", { novelId }, {}, payload)
+    },
     async createMapNode(novelId, payload) {
       return contractJson("world.createMapNode", { novelId }, {}, payload)
     },

@@ -94,9 +94,12 @@
       <p>图片已保留在拒绝历史中，原地图册没有改变。</p>
     </section>
 
+    <section v-if="mergedLink" class="card atlas-merged-link" role="status"><h2>此地图已合并</h2><p>旧地图保留为只读历史。请明确打开目标地图后继续编辑。</p><button class="btn btn-primary" @click="openMergedTarget">打开目标地图</button></section>
+    <MapNodeMergePanel v-if="projectId && !mergedLink" v-show="!structureState.reader && !structureState.focused" :project-id="projectId" :node="activeNode" :nodes="adoptedNodes" :disabled="writeLocked || annotationDirty || promptDirty || uploadDraftDirty || uploading || nodeTypeDirty" @state="mergeState = $event" @changed="onNodeMerged" />
+
     <section v-if="selectedAutoDraft && !structureState.focused" class="card atlas-auto-context" aria-label="自动草图审核上下文"><strong>自动草图 · {{ selectedAutoDraft.node.title }}</strong><p>此节点在草图审核后才会进入正式地图目录。</p><button class="btn btn-sm" :disabled="vocabularyLocked || busy || structureState.busy" @click="closeAutoDraft">返回地图目录</button></section>
     <section v-if="loading" class="card atlas-empty" aria-live="polite">正在读取地图册…</section>
-    <section v-else-if="!visibleNodes.length && !selectedAutoDraft" class="card atlas-empty">
+    <section v-else-if="!mergedLink && !visibleNodes.length && !selectedAutoDraft" class="card atlas-empty">
       <h2>{{ emptyTitle }}</h2>
       <p>{{ emptyText }}</p>
     </section>
@@ -326,6 +329,7 @@ import ProjectVocabularyPanel from "./ProjectVocabularyPanel.vue"
 import MapSpatialCluePanel from "./MapSpatialCluePanel.vue"
 import MapColdStartPanel from "./MapColdStartPanel.vue"
 import MapAutoDraftPanel from "./MapAutoDraftPanel.vue"
+import MapNodeMergePanel from "./MapNodeMergePanel.vue"
 import { useEvidenceSelection } from "../../composables/useEvidenceSelection.js"
 import { useModalDialog } from "../../composables/useModalDialog.js"
 import { confirmAiReference } from "../../../shared/aiReferenceModal.js"
@@ -345,8 +349,9 @@ const spatialClueState = ref({ dirty: false, busy: false })
 const autoDraftState = ref({ dirty: false, busy: false })
 const selectedAutoDraft = ref(null)
 const autoDraftPanel = ref(null)
+const mergedLink = ref(null), mergeState = ref({ busy: false })
 const coldStartState = ref({ dirty: false, busy: false })
-const vocabularyLocked = computed(() => coldStartState.value.dirty || coldStartState.value.busy || vocabularyState.value.dirty || vocabularyState.value.busy || spatialClueState.value.dirty || spatialClueState.value.busy || autoDraftState.value.dirty || autoDraftState.value.busy)
+const vocabularyLocked = computed(() => mergeState.value.busy || coldStartState.value.dirty || coldStartState.value.busy || vocabularyState.value.dirty || vocabularyState.value.busy || spatialClueState.value.dirty || spatialClueState.value.busy || autoDraftState.value.dirty || autoDraftState.value.busy)
 const vocabularyRevision = ref(0)
 const editStructureNodeId = ref(null)
 const toolsRoot = ref(null)
@@ -499,7 +504,7 @@ const referenceChoices = computed(() => flattenNodes(atlas.value.nodes || []).fl
 )))
 
 async function canLeaveStructure(skipNodeType = false) {
-  if (nodeTypesLoading.value) return false
+  if (nodeTypesLoading.value || mergeState.value.busy) return false
   if (!skipNodeType && nodeTypeDirty.value && !await confirmAsync("项目层级类型尚未保存，放弃这次选择吗？", "确认离开", { confirmAction: getConfirmAction() })) return false
   if (annotationEdit.value && busy.value) return false
   if (annotationDirty.value && !await confirmAsync('标注位置尚未保存，放弃这次调整吗？', '确认离开', { confirmAction: getConfirmAction() })) return false
@@ -540,6 +545,19 @@ async function onAutoDraftChanged() {
     await refreshAtlasOnly()
     if (selectedAutoDraft.value) { selectedAutoDraft.value = null; initialRevisionId.value = ''; syncSelection() }
   } catch (failure) { if (mounted) setError(failure) }
+}
+async function onNodeMerged(result) {
+  if (!mounted) return
+  activeNodeId.value = result.target_node_id; activePageId.value = null; selectedAutoDraft.value = null
+  initialRevisionId.value = ''; initialFeatureId.value = ''; tab.value = 'atlas'; vocabularyRevision.value++
+  try { await refreshAtlasOnly(); persistMapFocus() } catch (failure) { setError(failure) }
+}
+async function openMergedTarget() {
+  if (!mergedLink.value) return
+  const targetId = mergedLink.value
+  const target = adoptedNodes.value.find(node => node.id === targetId)
+  if (!target) { error.value = '目标地图暂不可用，请重新读取地图目录。'; return }
+  mergedLink.value = null; selectedAutoDraft.value = null; initialRevisionId.value = ''; activeNodeId.value = targetId; tab.value = 'atlas'; syncSelection(); persistMapFocus()
 }
 async function openMapNode(nodeId) {
   if (!await canLeaveStructure()) return
@@ -589,7 +607,7 @@ function historyStatusLabel(page) {
   if (page.generation_status === "retry_requires_confirmation") return "需确认费用后重试"
   return "等待决定"
 }
-async function selectNode(node) { if (node.id === activeNodeId.value && !selectedAutoDraft.value) return; if (!await canLeaveStructure()) return; selectedAutoDraft.value = null; initialRevisionId.value = ''; referenceVisible.value = false; if (currentRun.value?.status === "prompt_review" && !await savePrompt()) return; activeNodeId.value = node.id; const page = node.pages?.find(item => item.review_status === "candidate") || node.pages?.[0]; activePageId.value = page?.id || null }
+async function selectNode(node) { if (node.id === activeNodeId.value && !selectedAutoDraft.value) return; if (!await canLeaveStructure()) return; mergedLink.value = null; selectedAutoDraft.value = null; initialRevisionId.value = ''; referenceVisible.value = false; if (currentRun.value?.status === "prompt_review" && !await savePrompt()) return; activeNodeId.value = node.id; const page = node.pages?.find(item => item.review_status === "candidate") || node.pages?.[0]; activePageId.value = page?.id || null }
 function annotationStyle(item) {
   const position = annotationEdit.value?.id === item.id ? annotationEdit.value : item
   return { left: `${position.position_x * 100}%`, top: `${position.position_y * 100}%` }
@@ -712,7 +730,16 @@ async function loadAll(preferredRunId = null) {
     currentRun.value = selectedRun
     review.value = selectedReview
     if (preferredRunId || (!activeNodeId.value && selectedRun && (selectedRun.status === "failed" || selectedReview.nodes.some(node => node.pages?.some(page => page.review_status !== "adopted"))))) tab.value = "review"
-    if (!selectedAutoDraft.value && activeNodeId.value && !flattenNodes(savedAtlas.nodes).some(({ node }) => node.id === activeNodeId.value) && api.world.listMapAutoDrafts) {
+    if (!selectedAutoDraft.value && activeNodeId.value && !flattenNodes(savedAtlas.nodes).some(({ node }) => node.id === activeNodeId.value) && api.world.getNodeMap) {
+      try { await api.world.getNodeMap(projectId, activeNodeId.value) }
+      catch (failure) {
+        if (!mounted || epoch !== dataEpoch || projectId !== props.projectId) return
+        const detail = typeof failure.body?.detail === 'object' ? failure.body.detail : failure.body || {}
+        if (failure.status === 409 && (detail.code || detail.error) === 'map_node_merged' && detail.context?.redirect_node_id) mergedLink.value = detail.context.redirect_node_id
+        else if (failure.status !== 404) throw failure
+      }
+    }
+    if (!mergedLink.value && !selectedAutoDraft.value && activeNodeId.value && !flattenNodes(savedAtlas.nodes).some(({ node }) => node.id === activeNodeId.value) && api.world.listMapAutoDrafts) {
       const drafts = await api.world.listMapAutoDrafts(projectId, { node_id: activeNodeId.value, limit: 200, offset: 0 })
       if (!mounted || epoch !== dataEpoch || projectId !== props.projectId) return
       const draft = drafts.items.find(item => initialRevisionId.value ? item.revision_id === initialRevisionId.value : item.status === 'candidate')
@@ -725,7 +752,7 @@ async function loadAll(preferredRunId = null) {
   } catch (err) { if (epoch === dataEpoch) setError(err) } finally { if (epoch === dataEpoch) loading.value = false }
 }
 function syncSelection() {
-  if (selectedAutoDraft.value) return
+  if (selectedAutoDraft.value || mergedLink.value) return
   if (!visibleNodes.value.some(({ node }) => node.id === activeNodeId.value)) activeNodeId.value = visibleNodes.value[0]?.node.id || null
   const pages = activeNode.value?.pages || []
   if (!pages.some(page => page.id === activePageId.value)) activePageId.value = pages[0]?.id || null
@@ -1056,7 +1083,7 @@ async function selectTab(value) {
 }
 
 function persistMapFocus() {
-  if (loading.value) return
+  if (loading.value || mergedLink.value) return
   const query = getRouteQuery()
   if (query.get('node_id') !== activeNodeId.value) { query.delete('feature_id'); initialFeatureId.value = ''; query.delete('revision_id'); initialRevisionId.value = '' }
   if (selectedAutoDraft.value) query.set('revision_id', selectedAutoDraft.value.revision_id)
@@ -1074,7 +1101,7 @@ function returnToWriting() {
   if (fromChapter) getRouter()?.navigate('writing', null, true, new URLSearchParams({ novel_id: props.projectId, chapter_index: String(fromChapter) }))
 }
 watch([activeNodeId, tab], persistMapFocus)
-watch(() => props.projectId, () => { nodeTypesEpoch++; nodeLevelTypes.value = []; nodeTypesLoading.value = false; nodeTypesError.value = ''; nodeTypesOmitted.value = 0; nodeTypeBaseline.value = nodeEdit.level_type = ''; coldStartState.value = { dirty: false, busy: false }; selectedAutoDraft.value = null; autoDraftState.value = { dirty: false, busy: false } })
+watch(() => props.projectId, () => { mergedLink.value = null; nodeTypesEpoch++; nodeLevelTypes.value = []; nodeTypesLoading.value = false; nodeTypesError.value = ''; nodeTypesOmitted.value = 0; nodeTypeBaseline.value = nodeEdit.level_type = ''; coldStartState.value = { dirty: false, busy: false }; selectedAutoDraft.value = null; autoDraftState.value = { dirty: false, busy: false } })
 watch([() => props.projectId, activePageId, tab, compareAdopted], () => { annotationEdit.value = null; annotationEditError.value = '' })
 watch(tab, () => { compareAdopted.value = false; syncSelection(); nextTick(loadImages) })
 watch(activePageId, () => { activeNodeId.value = activePage.value?.node_id || activeNodeId.value; nextTick(loadImages) })

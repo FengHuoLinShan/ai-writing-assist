@@ -88,6 +88,9 @@ from modules.world.map_atlas_facade import (  # noqa: F401
     read_map_spatial_advisories,
 )
 from modules.world.map_auto_draft_service import build_map_auto_drafts  # noqa: F401
+from modules.world.map_demo_copy import (
+    prepare_map_demo_copy_rows as prepare_map_demo_copy_rows,
+)
 from modules.world.map_evaluation_read_service import (
     read_map_spatial_evaluation_artifacts as read_map_spatial_evaluation_artifacts,
 )

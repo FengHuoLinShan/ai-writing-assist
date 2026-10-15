@@ -1,7 +1,7 @@
 """Evaluation exports consume persisted evidence without domain writes."""
 
 import json
-from uuid import uuid4
+from uuid import UUID, uuid4
 
 import pytest
 from sqlalchemy import event
@@ -81,3 +81,37 @@ async def test_artifacts_owner_gate_precedes_reading_project_evidence(
             )
     finally:
         reset_principal(token)
+
+
+@pytest.mark.asyncio
+async def test_evaluation_discloses_merged_source_as_historical_only(
+    db_session, test_project_id
+):
+    from sqlalchemy import select
+
+    from modules.world.map_atlas_models import MapAtlasNode
+    from modules.world.map_structure_schemas import MapNodeCreate
+    from modules.world.map_structure_service import MapStructureService
+
+    scene, _a, _b, clue = await _stage_bound_clue(db_session, test_project_id)
+    built = await build_map_auto_drafts(
+        db_session, test_project_id, _build_request(scene, clue)
+    )
+    target = await MapStructureService().create_node(
+        db_session, test_project_id, MapNodeCreate(title="目标地图")
+    )
+    source = await db_session.scalar(
+        select(MapAtlasNode).where(MapAtlasNode.id == built.revisions[0].node_id)
+    )
+    source.status = "adopted"
+    source.merged_into_node_id = UUID(target["id"])
+    await db_session.flush()
+    result = await read_map_spatial_evaluation_artifacts(
+        db_session, test_project_id, clue.run_id, [str(scene.id)]
+    )
+    exported = result["nodes"][0]
+    assert exported["id"] == str(source.id)
+    assert exported["status"] == "merged"
+    assert exported["merged_into_node_id"] == target["id"]
+    assert exported["official"] is False
+    assert result["revisions"][0]["node_id"] == str(source.id)

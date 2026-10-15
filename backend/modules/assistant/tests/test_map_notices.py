@@ -439,3 +439,64 @@ async def test_real_two_scene_activation_still_notifies_until_author_takes_owner
     assert term.author_confirmed
     assert (await proactive.list_notices(db_session, test_project_id))["items"] == []
     assert await db_session.scalar(select(func.count()).select_from(AssistantNotice)) == 1
+
+
+@pytest.mark.asyncio
+async def test_merged_nodes_never_supply_candidate_or_saved_notification_signals(
+    db_session, test_project_id
+):
+    from modules.world.facade import read_map_notification_signals
+    from modules.world.map_structure_schemas import MapNodeCreate
+
+    scene, _a, _b, clue = await _stage_bound_clue(
+        db_session, test_project_id, modality="character_statement"
+    )
+    built = await build_map_auto_drafts(
+        db_session, test_project_id, _build_request(scene, clue)
+    )
+    target = await MapStructureService().create_node(
+        db_session, test_project_id, MapNodeCreate(title="保留地图")
+    )
+    source = await db_session.get(MapAtlasNode, built.revisions[0].node_id)
+    request = {"asset_type": "map_auto_draft_batch", "asset_id": str(built.batch_id)}
+    visible = await read_map_notification_signals(db_session, test_project_id, request)
+    assert visible["counts"]["pending"] and visible["counts"]["tray"]
+    for ref in built.revisions:
+        item = await db_session.get(MapAtlasNode, ref.node_id)
+        item.merged_into_node_id = UUID(target["id"])
+        item.status = "adopted"
+    await db_session.flush()
+    assert (
+        await read_map_notification_signals(db_session, test_project_id, request) is None
+    )
+    assert (
+        await read_map_notification_signals(
+            db_session,
+            test_project_id,
+            {"asset_type": "map_atlas_node", "asset_id": str(source.id)},
+        )
+        is None
+    )
+
+
+@pytest.mark.asyncio
+async def test_saved_node_notifications_respect_exact_current_revision_exclusion(
+    db_session, test_project_id
+):
+    from modules.world.facade import read_map_notification_signals
+
+    scene, node, revision, _places, _ = await seed(db_session, test_project_id)
+    request = {
+        "asset_type": "map_atlas_node",
+        "asset_id": str(node.id),
+        "scene_ids": [str(scene.id)],
+    }
+    assert await read_map_notification_signals(db_session, test_project_id, request)
+    assert (
+        await read_map_notification_signals(
+            db_session,
+            test_project_id,
+            {**request, "excluded_ids": [f"map_atlas_revision:{revision.id}"]},
+        )
+        is None
+    )

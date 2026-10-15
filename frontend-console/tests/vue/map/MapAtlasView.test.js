@@ -1303,3 +1303,23 @@ describe("地图图片复用提示", () => {
     expect(vocabulary.props('disabled')).toBe(true)
   })
 })
+
+it('旧合并链接保留只读提示，由作者显式打开目标', async () => {
+  const api = globalThis.api
+  const query = new URLSearchParams({ node_id: 'old-source' })
+  const target = { id: 'target', title: '保留地图', level: 'region', status: 'adopted', pages: [], children: [] }
+  api.world.getMapAtlas.mockResolvedValue({ mode: 'atlas', nodes: [target], total_pages: 0 })
+  api.world.getLatestMapAtlasRun.mockResolvedValue(null)
+  api.world.getMapAtlasPageHistory.mockResolvedValue([])
+  api.world.getNodeMap.mockRejectedValueOnce(Object.assign(new Error('已合并'), { status: 409, body: { error: 'map_node_merged', detail: '此地图已合并', context: { redirect_node_id: 'target' } } }))
+  const router = { getCurrentQuery: () => query, commitCurrentQuery: vi.fn() }
+  setBridgeOverrides({ api, router })
+  const wrapper = mount(MapWorkspaceView, { props: { projectId: 'novel' } })
+  await flushPromises()
+  expect(wrapper.get('.atlas-merged-link').text()).toContain('只读历史')
+  expect(wrapper.findComponent({ name: 'MapStructureEditor' }).exists()).toBe(false)
+  await wrapper.get('.atlas-merged-link button').trigger('click'); await flushPromises()
+  expect(wrapper.find('.atlas-merged-link').exists()).toBe(false)
+  expect(wrapper.text()).toContain('保留地图')
+  resetBridgeOverrides()
+})

@@ -336,12 +336,6 @@ class DemoProjectCopyService:
             for table_rewrites in rewrites.values()
             for source, replacement in table_rewrites.items()
         }
-        digest_rewrites = self._revision_digest_rewrites(
-            destination_id,
-            rows_by_table,
-            rewrites,
-            global_rewrites,
-        )
         position = {table.name: index for index, table in enumerate(tables)}
         forward_pointer_pairs = {
             (parent_table, target_table)
@@ -350,6 +344,7 @@ class DemoProjectCopyService:
             if position[target_table] > position[parent_table]
         }
         tables_by_name = {table.name: table for table in tables}
+        prepared_rows = {table.name: [] for table in tables}
         for table in tables:
             for row in self._order_rows_for_insert(table, rows_by_table[table.name]):
                 values = self._row_values(
@@ -358,11 +353,16 @@ class DemoProjectCopyService:
                     destination_id=destination_id,
                     rewrites=rewrites,
                     global_rewrites=global_rewrites,
-                    digest_rewrites=digest_rewrites,
                     forward_pointer_pairs=forward_pointer_pairs,
                 )
                 if values is not None:
-                    await db.execute(table.insert().values(**values))
+                    prepared_rows[table.name].append(values)
+        digest_rewrites = self._prepare_copy_fingerprints(
+            destination_id, rows_by_table, rewrites, global_rewrites, prepared_rows
+        )
+        for table in tables:
+            for values in prepared_rows[table.name]:
+                await db.execute(table.insert().values(**values))
         await self._move_pointer_references(
             db,
             rows_by_table=rows_by_table,
@@ -414,9 +414,7 @@ class DemoProjectCopyService:
                 if not updates:
                     continue
                 await db.execute(
-                    update(parent)
-                    .where(parent.c.id == new_parent_id)
-                    .values(**updates)
+                    update(parent).where(parent.c.id == new_parent_id).values(**updates)
                 )
 
     async def _append_canon_import(
@@ -438,9 +436,7 @@ class DemoProjectCopyService:
         """
         from modules.world import facade as world_facade
 
-        import_source = await world_facade.load_demo_import_source(
-            db, str(source.id)
-        )
+        import_source = await world_facade.load_demo_import_source(db, str(source.id))
         if import_source is None:
             return
         maps = world_facade.CanonImportResourceMaps(
@@ -452,9 +448,7 @@ class DemoProjectCopyService:
                 "entity_profile_template_revisions", {}
             ),
         )
-        manifest = world_facade.rewrite_demo_import_manifest(
-            import_source.manifest, maps
-        )
+        manifest = world_facade.rewrite_demo_import_manifest(import_source.manifest, maps)
         if manifest is None:
             return
         await world_facade.append_demo_import_revision(
@@ -470,11 +464,12 @@ class DemoProjectCopyService:
         )
 
     @staticmethod
-    def _revision_digest_rewrites(
+    def _prepare_copy_fingerprints(
         destination_id: uuid.UUID,
         rows_by_table: dict[str, list[dict[str, Any]]],
         rewrites: dict[str, dict[Any, uuid.UUID]],
         global_rewrites: dict[str, uuid.UUID],
+        prepared_rows: dict[str, list[dict[str, Any]]],
     ) -> dict[str, dict[Any, tuple[uuid.UUID, str]]]:
         """Recompute identity-bound revision digests for the destination.
 
@@ -522,6 +517,17 @@ class DemoProjectCopyService:
                 )
                 computed[row["id"]] = (new_revision_id, digest)
             digest_rewrites[table_name] = computed
+            by_copied_id = {str(new_id): digest for new_id, digest in computed.values()}
+            for copied in prepared_rows.get(table_name, []):
+                if str(copied["id"]) in by_copied_id:
+                    copied["revision_digest"] = by_copied_id[str(copied["id"])]
+        world_facade.prepare_map_demo_copy_rows(
+            prepared_rows,
+            {
+                str(rewrites["map_atlas_revisions"][row["id"]]): row["document"]
+                for row in rows_by_table.get("map_atlas_revisions", [])
+            },
+        )
         return digest_rewrites
 
     @staticmethod
@@ -593,7 +599,6 @@ class DemoProjectCopyService:
         destination_id: uuid.UUID,
         rewrites: dict[str, dict[Any, uuid.UUID]],
         global_rewrites: dict[str, uuid.UUID],
-        digest_rewrites: dict[str, dict[Any, tuple[uuid.UUID, str]]],
         forward_pointer_pairs: set[tuple[str, str]],
     ) -> dict[str, Any] | None:
         values = {
@@ -609,9 +614,6 @@ class DemoProjectCopyService:
             values["novel_id"] = destination_id
         if "id" in values and table.name in rewrites:
             values["id"] = rewrites[table.name][row["id"]]
-        recomputed = digest_rewrites.get(table.name, {}).get(row.get("id"))
-        if recomputed is not None and "revision_digest" in values:
-            values["revision_digest"] = recomputed[1]
         if table.name == "core_entities" and values.get("image_version") is not None:
             values["image_version"] = uuid.uuid4()
         if table.name == "map_atlas_pages":

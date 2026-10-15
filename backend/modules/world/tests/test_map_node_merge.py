@@ -458,7 +458,7 @@ async def test_node_merge_revalidates_source_hash_and_both_heads(
     assert preview.can_execute
     entity.summary = "已经变化的来源记载"
     await db_session.flush()
-    with pytest.raises(ValidationError, match="暂不可执行"):
+    with pytest.raises(ConflictError, match="重新预览合并"):
         await service.apply(
             db_session,
             test_project_id,
@@ -896,3 +896,161 @@ def test_node_merge_request_schemas_reject_unknown_or_malformed_fingerprints():
             preview_fingerprint="stale",
             confirmed_source_disposition=True,
         )
+
+
+@pytest.mark.parametrize("calibration_current", [True, False])
+def test_demo_copy_rebinds_only_current_calibration_and_guidance_hashes(
+    calibration_current,
+):
+    from modules.world.map_demo_copy import prepare_map_demo_copy_rows
+
+    document = MapDocument.model_validate(
+        {
+            "features": [
+                {
+                    "id": key,
+                    "kind": "location",
+                    "label": key,
+                    "entity_id": str(uuid.uuid4()),
+                    "points": [{"x": x, "y": y}],
+                }
+                for key, x, y in [("a", 0, 0), ("b", 100, 0), ("c", 0, 100)]
+            ],
+            "images": [
+                {
+                    "page_id": str(uuid.uuid4()),
+                    "role": "background",
+                    "geometry_hash": old_hash,
+                    "anchors": [
+                        {"feature_id": key, "image_x": x, "image_y": y}
+                        for key, x, y in [("a", 0, 0), ("b", 1, 0), ("c", 0, 1)]
+                    ],
+                }
+                for old_hash in ["b" * 64]
+            ],
+        }
+    )
+    original_hash = geometry_hash(document)
+    calibration_hash = original_hash if calibration_current else "b" * 64
+    document.images[0].geometry_hash = calibration_hash
+    source_document = document.model_dump(mode="json")
+    document.features[0].entity_id = uuid.uuid4()
+    revision_id = uuid.uuid4()
+    rows = {
+        "map_atlas_revisions": [
+            {
+                "id": revision_id,
+                "document": document.model_dump(mode="json"),
+                "geometry_hash": "a"
+                * 64,  # Even an old stored hash is not calibration evidence.
+            }
+        ],
+        "map_atlas_pages": [
+            {"source_map_revision_id": revision_id, "source_geometry_hash": value}
+            for value in [original_hash, "b" * 64]
+        ],
+    }
+    prepare_map_demo_copy_rows(rows, {str(revision_id): source_document})
+    copied = MapDocument.model_validate(rows["map_atlas_revisions"][0]["document"])
+    new_hash = geometry_hash(copied)
+    assert rows["map_atlas_revisions"][0]["geometry_hash"] == new_hash
+    assert copied.images[0].geometry_hash == (
+        new_hash if calibration_current else calibration_hash
+    )
+    assert [item["source_geometry_hash"] for item in rows["map_atlas_pages"]] == [
+        new_hash,
+        "b" * 64,
+    ]
+
+
+@pytest.mark.asyncio
+async def test_merge_chain_is_blocked_and_legacy_target_tombstone_cannot_be_undone(
+    db_session, test_project_id
+):
+    first_doc, second_doc = await _merge_documents(db_session, test_project_id)
+    a, _ = await _saved_node(db_session, test_project_id, "A", first_doc)
+    b, _ = await _saved_node(db_session, test_project_id, "B", second_doc)
+    c, _ = await _saved_node(db_session, test_project_id, "C", MapDocument())
+    service = MapNodeMergeService()
+    preview = await service.preview(db_session, test_project_id, a, b)
+    await service.apply(
+        db_session,
+        test_project_id,
+        MapNodeMergeApplyRequest(
+            source_node_id=a,
+            target_node_id=b,
+            preview_fingerprint=preview.fingerprint,
+            confirmed_source_disposition=True,
+        ),
+    )
+    chain = await service.preview(db_session, test_project_id, b, c)
+    assert not chain.can_execute
+    assert any("仍接收其他节点" in value for value in chain.blockers)
+    # Pre-existing/corrupt chains still cannot alter a tombstone's head via undo.
+    target = await db_session.get(MapAtlasNode, uuid.UUID(b))
+    target.merged_into_node_id = uuid.UUID(c)
+    await db_session.flush()
+    old_head = target.current_revision_id
+    undo_preview = await service.preview_undo(db_session, test_project_id, a, b)
+    assert not undo_preview.can_undo
+    assert any("目标地图也已合并" in value for value in undo_preview.blockers)
+    with pytest.raises(ConflictError):
+        await service.undo(
+            db_session,
+            test_project_id,
+            MapNodeMergeUndoRequest(
+                source_node_id=a,
+                target_node_id=b,
+                preview_fingerprint=undo_preview.fingerprint,
+                confirmed=True,
+            ),
+        )
+    assert target.current_revision_id == old_head
+    target.merged_into_node_id = None
+    await db_session.flush()
+    safe = await service.preview_undo(db_session, test_project_id, a, b)
+    assert safe.can_undo, safe.blockers
+
+
+@pytest.mark.asyncio
+async def test_assistant_batch_enforces_twenty_actual_merge_changes(
+    db_session, test_project_id
+):
+    from modules.assistant.operations import prepare_actions
+    from modules.assistant.schemas import ProposedAction
+
+    proposals = []
+    target_document, source_document = await _merge_documents(db_session, test_project_id)
+    for index in range(3):
+        target, _ = await _saved_node(
+            db_session, test_project_id, f"目标{index}", target_document
+        )
+        source, _ = await _saved_node(
+            db_session, test_project_id, f"来源{index}", source_document
+        )
+        proposals.append(
+            ProposedAction(
+                key=f"merge-{index}",
+                capability="map.merge_nodes",
+                title="合并重复地图",
+                arguments={"source_node_id": source, "target_node_id": target},
+            )
+        )
+    context = AssistantOperationContext(
+        str(uuid.uuid4()),
+        str(current_account_id()),
+        WorkContext(page="map", scope="project"),
+    )
+    with pytest.raises(ValidationError, match="最多涉及 20 项"):
+        await prepare_actions(
+            db_session,
+            test_project_id,
+            proposals,
+            context=context,
+            operations=world_map_operations,
+        )
+    for proposal in proposals:
+        node = await db_session.get(
+            MapAtlasNode, uuid.UUID(proposal.arguments["source_node_id"])
+        )
+        assert node.merged_into_node_id is None
