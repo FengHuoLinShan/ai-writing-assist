@@ -756,7 +756,7 @@ from modules.account.oidc import (  # noqa: E402
 from modules.account.oidc import router as account_oidc_router  # noqa: E402
 from modules.assistant import api as assistant_api  # noqa: E402
 from modules.assistant.notices_api import router as assistant_notices_router  # noqa: E402
-from modules.assistant.operation_http import router as assistant_operation_http_router  # noqa: E402
+from modules.assistant.operation_api import router as assistant_operation_http_router  # noqa: E402
 from modules.collaboration import api as collaboration_api  # noqa: E402
 from modules.evidence import api as evidence_api  # noqa: E402
 from modules.evolution import api as evolution_api  # noqa: E402
