@@ -36,3 +36,15 @@ C0 独立 Sol 干净 `008d515a07aaa13f09cb69624ee897a068b2d8df` 已在 C5 无冲
 先由C5 Sol完成最终backend/frontend/HTTP/browser/Goal预算/gates并固定干净提交；root核证预算预览修复与C0 v15组合后无冲突集成并验组合。其后安排C3/A1迁移顺序、Sol独立直接审修和集成。两个未建库仍hold，不猜父头。
 
 C1 长篇、M5 势力路线图、RP Interaction 质量、A4 数周真实用量和真人作者验收未满足，不用合成测试规避。真实地图 R3 诊断封存，holdout 不解码/运行；本批无新真实模型请求。后续只在最终固定代码重检 pipeline/owner/范围预算，沿用“模拟作者显式指定 Scene 地点”口径，不盲续旧 51 次额度。
+
+## 2026-10-16T07:34:15+08:00 增量恢复
+
+primary笔记已本地提交 `3d89440d5cdb2c5f8850a1bd2fa990bbbc676624`，产品仍为已验710/C4。C5+C0组合首次完整普通后端为8944通过/14失败/2跳过/8 deselected/1既有warning（343.37s），`/tmp/world-progression-c0-c5-full-backend-20261016.log`；旧`world-progression-backend-full`曾中断，仅1667项通过，不当完整证据。Sol正直接修目录/任务/能力/HTTP登记、旧版本预期、模板预览与实际采用差异及测试隔离。依赖function_level_imports为518>517，必须消除而不能抬基线。最终组合全量尚未通过，禁止提前集成。前端组合3191/lint/build已通过；组合PG12与v15原12000预算Goal PG1通过，原始`/tmp/world-progression-c0-c5-pg-combined-20261016.log`及`/tmp/world-progression-goal-catalog-v15-pg-20261016.log`已由root读取。
+
+root已实际看1280推进历史及390加载后历史/备注截图：`/tmp/world-progression-browser-history-visible-1280-20261016.png`、`/tmp/world-progression-browser-stale-409-390-20261016.png`。原始`/tmp/world-progression-browser-history-check-20261016.log`证明两宽度各1root/1step、键盘聚焦保存、stale409保留输入、errors=[]；页顶loading截图不当加载完成证据。带可见409及unknown恢复控件的补图尚待Sol。
+
+Sol已确认最终schema头固定`20261016_wp_read_count`，后续C0/v15/预算修补无DDL。root因此正式释放C3的新库一次CREATE/升级；线性次序为C5 → `20261016_story_character_arc_plan`（heads+immutable revisions两表）→ A1 `20261016_chapter_order`（Writing operation+Story receipt两表）。C3先提交自有恢复checkpoint `3b494b91d`，无冲突合10db为`c8f1a5dc8d06390428e656891177f8362912cf30`，已开始迁移源码；尚未回报库创建。A1库仍hold，等C3迁移真实提交再释放。不能把C5 schema释放等同其最终工程全绿。
+
+已知C3独立Sol待修：root读取其checkpoint发现`character_arcs/service.py:_trace`直接依赖`modules.assistant.contracts`并复制AssistantOperation物化，违反纯域装配方向；已告知Luna留给Sol直接审修、不扩大该依赖。C3及A1手工恢复都需真实restored trace并关联原`(op_id,call_id)`；当前HTTP adapter只支持prepare/execute，Goal已有自己的restored生产者。只生成新restore操作随机call_id会成为报表unmatched，不能据此声称原操作已恢复。两Luna交精确trace/DI/hub清单，后续Sol顺序处理共享装配。
+
+root已准备仅复用脚本`/tmp/map-c5-c0-primary-reuse-pg-20261016.py`（0600），**尚未执行**；仅允许原root库C4或wp_read_count头，不含CREATE，待最终C5+C0集成后升级/parity并在原45PG基础增加C0互通和C5持久/阅读测试。后端唯一解释器仍primary/backend/.venv/bin/python，秘密env不输出。所有旧库/封存R3/holdout保留。
