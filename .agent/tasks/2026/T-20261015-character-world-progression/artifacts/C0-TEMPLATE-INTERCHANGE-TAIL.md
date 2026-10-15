@@ -1,0 +1,29 @@
+# C0 模板与互通的剩余实施
+
+2026-10-16 root 按主计划 §4.2–4.4、§4.9 核对 primary `6ad6b94df` 后确认。
+本文件是原三份计划中的实施交接，不新增产品范围，不替代当前源码或授权。
+仍按 Luna/max 实施、Sol/high 独立审查并直接修复；root 独占三份 TASK。
+
+- 自定义类型借用内置内核面向：当前 `WorldObjectDossierService._validate_facing` 只认
+  `CORE_FACINGS[entity_type]`，`list_facets` 同样只给该类型内核与全项目词表面向。
+  自定义类型虽能使用项目面向，尚不能显式借用人物、种族等内核。复用版本化
+  `EntityProfileTemplate`，明确作者选择、来源类型和键，处理重复键与类型转换；不能仅放宽校验
+  就让模型任意声明内核。角色视角、证据来源及确定性检查的注册字段边界保持。
+- 五题材档案面向预设：`project_vocabulary_presets.py` 当前五包只覆盖空间种类，没有
+  `dossier_facing`。按修仙、西幻、都市、科幻、悬疑覆盖受支持对象类型，复用同一项目词表、
+  模板与 copy-on-apply 语义；预设版本、作者修改、重复应用和撤销依据可验证。
+  势力专属字段仍等独立路线图阶段 1，不用旧字段假装接入。
+- 表格与 JSON 互通：Imports 的 `spreadsheet_migration.ColumnTarget` 仍是旧固定字段，
+  当前目录无 Dossier/facet 映射；World dossier HTTP 只有条目/历史/模板接口，尚无按模板导出。
+  复用现有上传/映射预览/显式采用和来源修订，不另建导入基础设施；任意列不得直接成为
+  确定性状态字段，未知/失效面向、跨项目 term、过期模板及冲突须明确停下。
+  JSON 的具体模式先核对既有领域导入导出入口，保证导出可回读、身份/来源/可见性清楚。
+  导出仅作者 HTTP；ADR-0038 禁止对 AI 开放向系统外公开发布或导出，不能将作者导出误作新 AI 工具。
+- 可发现与可操作：沿用 WorldObjectDossierEditor、ProjectVocabularyPanel 与现有表格映射界面，
+  保留草稿、409、键盘和窄屏。每个新增 AI 可用操作提供纯 SPEC、真实 HTTP/trace 与版本冻结；
+  仅导出文件或接线清单不能算闭环。
+
+当前 C0c Sol 独占有效期、keys/bootstrap/目录冻结及迁移祖先；上述尾项尚未派发。
+后续从最新已审 primary 创建独立树，不抢写该批共享文件；最终由 Sol 顺序组合。
+唯一后端环境为 primary/backend/.venv，Node24，无安装依赖、默认开发库、真实模型、R3或holdout访问。
+PostgreSQL 只用 root 明确分配的新专库，不能借用其他代理的库。保持旧目录与 map.edit 哈希冻结。
