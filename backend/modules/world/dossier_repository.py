@@ -18,8 +18,10 @@ class WorldObjectDossierRepository:
         db: AsyncSession,
         novel_id: uuid.UUID,
         entity_id: uuid.UUID,
+        *,
+        visibility_filter: str | None = None,
     ) -> list[WorldObjectDossierEntry]:
-        rows = await db.scalars(
+        statement = (
             select(WorldObjectDossierEntry)
             .where(
                 WorldObjectDossierEntry.novel_id == novel_id,
@@ -33,6 +35,11 @@ class WorldObjectDossierRepository:
                 WorldObjectDossierEntry.id,
             )
         )
+        if visibility_filter is not None:
+            statement = statement.where(
+                WorldObjectDossierEntry.visibility == visibility_filter
+            )
+        rows = await db.scalars(statement)
         return list(rows.all())
 
     async def list_history(

@@ -205,6 +205,7 @@ class DossierReadResponse(BaseModel):
     entity_id: uuid.UUID
     entity_type: str
     entity_status: str
+    visibility_filter: Literal["public"] | None = None
     as_of_scene_id: uuid.UUID | None = None
     offset: int = Field(default=0, ge=0)
     limit: int = Field(default=100, ge=1, le=250)

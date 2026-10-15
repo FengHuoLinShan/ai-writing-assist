@@ -57,6 +57,8 @@ class WorldObjectDossierReadPort(Protocol):
         as_of_scene_id: str,
         limit: int,
         offset: int,
+        visibility_filter: str | None,
+        visible_contents: list[str] | None,
     ) -> object: ...
 
 

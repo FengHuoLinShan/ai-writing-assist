@@ -7,6 +7,7 @@ from uuid import UUID, uuid4
 
 import pytest
 
+from infrastructure.stable_hash import stable_hash
 from modules.evidence.compilation.contracts import CompileOptions
 from modules.evidence.compilation.object_dossier_schemas import (
     ObjectDossierBriefRequest,
@@ -23,7 +24,7 @@ POV_ID = str(uuid4())
 CHECKPOINT_ID = str(uuid4())
 
 
-def _story_view(*, character: bool = False) -> dict:
+def _story_view(*, character: bool = False, reader: bool = False) -> dict:
     facts = [
         {
             "subject_id": ENTITY_ID,
@@ -85,6 +86,8 @@ def _story_view(*, character: bool = False) -> dict:
         "viewpoint": (
             {"kind": "character", "target_id": POV_ID}
             if character
+            else {"kind": "reader"}
+            if reader
             else {"kind": "author"}
         ),
         "state_fingerprint": "story-fingerprint",
@@ -242,14 +245,18 @@ def _options(*, reveal_mode: str = "author_safe") -> CompileOptions:
 def facade_reads(monkeypatch):
     calls = {"checkpoints": 0, "story": _story_view, "dossier": _world_dossier}
 
-    async def active_project(_db, _novel_id):
+    async def active_project(_db, _novel_id, *, allow_demo_readonly):
+        assert allow_demo_readonly is False
         return None
 
     async def scene_state(_db, *, novel_id, scene_id, viewpoint, include_checkpoints):
         assert novel_id == NOVEL_ID
         assert scene_id == SCENE_ID
         return {
-            "state": calls["story"](character=viewpoint["kind"] == "character"),
+            "state": calls["story"](
+                character=viewpoint["kind"] == "character",
+                reader=viewpoint["kind"] == "reader",
+            ),
             "checkpoints": (
                 await checkpoints(_db, novel_id, scene_id)
                 if include_checkpoints
@@ -275,17 +282,44 @@ def facade_reads(monkeypatch):
             ],
         }
 
-    async def dossier(_db, novel_id, entity_id, *, as_of_scene_id, limit, offset):
+    async def dossier(
+        _db,
+        novel_id,
+        entity_id,
+        *,
+        as_of_scene_id,
+        limit,
+        offset,
+        visibility_filter,
+        visible_contents,
+    ):
         assert novel_id == NOVEL_ID
         assert entity_id == ENTITY_ID
         assert as_of_scene_id == SCENE_ID
         assert (limit, offset) == (250, 0)
-        return calls["dossier"]()
+        value = calls["dossier"]()
+        value["visibility_filter"] = visibility_filter
+        if visibility_filter == "public":
+            entries = [
+                item
+                for item in value["entries"]
+                if item.get("visibility") == "public"
+                and (visible_contents is None or item.get("content") in visible_contents)
+            ]
+            value["entries"] = entries[offset : offset + limit]
+            value["total_count"] = len(entries)
+            value["omitted_count"] = max(0, len(entries) - len(value["entries"]))
+            value["legacy_profile_fields"] = []
+            value["dossier_fingerprint"] = stable_hash(
+                {"entries": value["entries"], "total_count": value["total_count"]}
+            )
+        return value
 
     monkeypatch.setattr(
         "modules.evidence.compilation.services.object_dossier_brief.require_active_project",
         active_project,
     )
+
     def service(key):
         return {
             "evidence.read_story_object_state": scene_state,
@@ -416,21 +450,23 @@ async def test_author_safe_secret_changes_do_not_leak_values_or_fingerprints(
     base_story = _story_view()
     base_dossier = _world_dossier()
 
-    def story(*, character=False):
+    def story(*, character=False, reader=False):
         value = deepcopy(base_story)
-        value["state_fingerprint"] = f"author-{secret['value']}"
-        value["dimensions"][0]["facts"].append(
-            {
-                "subject_id": ENTITY_ID,
-                "subject_label": "北门",
-                "field": "hidden_truth",
-                "value": secret["value"],
-                "layer": "fact",
-                "source": {"checkpoint_id": CHECKPOINT_ID},
-                "confidence": "confirmed",
-                "possibly_false": False,
-            }
-        )
+        value["viewpoint"] = {"kind": "reader"} if reader else {"kind": "author"}
+        if not reader:
+            value["state_fingerprint"] = f"author-{secret['value']}"
+            value["dimensions"][0]["facts"].append(
+                {
+                    "subject_id": ENTITY_ID,
+                    "subject_label": "北门",
+                    "field": "identity_position",
+                    "value": secret["value"],
+                    "layer": "fact",
+                    "source": {"checkpoint_id": CHECKPOINT_ID},
+                    "confidence": "confirmed",
+                    "possibly_false": False,
+                }
+            )
         return value
 
     def dossier():

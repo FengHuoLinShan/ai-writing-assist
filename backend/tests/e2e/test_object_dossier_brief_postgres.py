@@ -6,8 +6,11 @@ from uuid import uuid4
 import pytest
 from sqlalchemy import func, select
 
-from modules.account.contracts import BOOTSTRAP_ACCOUNT_ID
+from core.errors import NotFoundError
+from modules.account.context import bind_principal, reset_principal
+from modules.account.contracts import BOOTSTRAP_ACCOUNT_ID, AccountPrincipal
 from modules.account.models import Account
+from modules.evidence.compilation.facade import read_object_dossier_brief
 from modules.evolution.contracts import SourceRevisionRef
 from modules.evolution.evidence_read import read_evolution_object_patterns
 from modules.evolution.ledger import _claim_ranges_current
@@ -24,9 +27,7 @@ from modules.writing.models import WritingDraft
 pytestmark = [pytest.mark.asyncio, pytest.mark.e2e]
 
 
-async def test_object_brief_http_is_owner_scoped_and_read_only(
-    db_session, async_client
-):
+async def test_object_brief_http_is_owner_scoped_and_read_only(db_session, async_client):
     owner_two, novel_id, other_novel_id = uuid4(), uuid4(), uuid4()
     scene_id, entity_id, other_entity_id = uuid4(), uuid4(), uuid4()
     if await db_session.get(Account, BOOTSTRAP_ACCOUNT_ID) is None:
@@ -70,6 +71,16 @@ async def test_object_brief_http_is_owner_scoped_and_read_only(
             visibility="secret",
         ),
     )
+    await WorldObjectDossierService().create_entry(
+        db_session,
+        str(novel_id),
+        str(entity_id),
+        DossierEntryCreate(
+            facing=DossierFacingRef(kind="core", key="history"),
+            content="北门已封",
+            visibility="public",
+        ),
+    )
     await db_session.flush()
 
     models = (
@@ -111,6 +122,90 @@ async def test_object_brief_http_is_owner_scoped_and_read_only(
     assert safe.json()["pattern_items"] == []
     assert await row_counts() == before
 
+    demo_token = bind_principal(
+        AccountPrincipal(
+            account_id=BOOTSTRAP_ACCOUNT_ID,
+            status="active",
+            identity_type="demo_readonly",
+            support_code="brief-demo",
+            access_scope="demo_readonly",
+            demo_project_id=novel_id,
+        )
+    )
+    try:
+        for mode in ("author_full", "author_safe"):
+            denied = await async_client.post(url, json={**request, "reveal_mode": mode})
+            assert denied.status_code in {403, 404}
+            assert "北门下有密道" not in denied.text
+            assert body["fingerprint"] not in denied.text
+        with pytest.raises(NotFoundError):
+            await read_object_dossier_brief(
+                db_session,
+                novel_id=str(novel_id),
+                scene_id=str(scene_id),
+                entity_ids=[str(entity_id)],
+                reveal_mode="author_full",
+                include_patterns=True,
+            )
+    finally:
+        reset_principal(demo_token)
+    assert await row_counts() == before
+
+    db_session.add_all(
+        [
+            WorldObjectDossierEntry(
+                novel_id=novel_id,
+                entity_id=entity_id,
+                entry_group_id=uuid4(),
+                revision_number=1,
+                facing_kind="core",
+                facing_key="history",
+                content=f"隐藏资料{i:03d}",
+                source="author",
+                visibility="secret",
+                status="active",
+            )
+            for i in range(251)
+        ]
+    )
+    await db_session.flush()
+    after_seed = await row_counts()
+    safe_after = await async_client.post(
+        url,
+        json={**request, "reveal_mode": "author_safe", "include_patterns": False},
+    )
+    assert safe_after.status_code == 200, safe_after.text
+    for key in (
+        "world_items",
+        "world_fingerprint",
+        "fingerprint",
+        "coverage",
+        "omissions",
+        "omitted_count",
+    ):
+        assert safe_after.json()[key] == safe.json()[key], key
+    world_reader = WorldObjectDossierService()
+    proven = await world_reader.read(
+        db_session,
+        str(novel_id),
+        str(entity_id),
+        as_of_scene_id=str(scene_id),
+        visibility_filter="public",
+        visible_contents=["北门已封"],
+    )
+    unproven = await world_reader.read(
+        db_session,
+        str(novel_id),
+        str(entity_id),
+        as_of_scene_id=str(scene_id),
+        visibility_filter="public",
+        visible_contents=[],
+    )
+    assert proven.total_count == 1
+    assert [item.content for item in proven.entries] == ["北门已封"]
+    assert unproven.total_count == 0
+    assert await row_counts() == after_seed
+
     foreign_entity = await async_client.post(
         url, json={**request, "entity_ids": [str(other_entity_id)]}
     )
@@ -123,7 +218,7 @@ async def test_object_brief_http_is_owner_scoped_and_read_only(
         url, json={**request, "scene_id": str(uuid4())}
     )
     assert missing_cutoff.status_code == 404
-    assert await row_counts() == before
+    assert await row_counts() == after_seed
 
 
 async def test_pattern_reader_rejects_future_and_stale_source_on_postgres(db_session):
