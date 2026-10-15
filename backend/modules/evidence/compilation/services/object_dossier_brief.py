@@ -5,7 +5,10 @@ from __future__ import annotations
 from typing import Any
 
 from infrastructure.stable_hash import stable_hash
-from modules.evidence.compilation.contracts import CompileOptions
+from modules.evidence.compilation.contracts import (
+    CompileOptions,
+    EvolutionObjectPatternReadPort,
+)
 
 MAX_OBJECTS = 16
 MAX_DOSSIER_ENTRIES = 48
@@ -77,26 +80,60 @@ def _dossier_entry_visible(
     entry: dict[str, Any],
     facts: list[dict[str, Any]],
 ) -> bool:
-    value_hash = (
-        _hashable(entry.get("legacy_value"))
-        if entry.get("legacy_value") is not None
-        else None
-    )
     content_hash = _hashable(entry.get("content"))
     return any(
         str(fact.get("subject_id") or "") == entity_id
         and fact.get("layer") == "fact"
-        and (
-            _hashable(fact.get("value")) == content_hash
-            or value_hash is not None
-            and _hashable(fact.get("value")) == value_hash
-        )
+        and _hashable(fact.get("value")) == content_hash
         for fact in facts
     )
 
 
+def _pattern_refs_visible(refs: Any, content_mode: str) -> bool:
+    if not isinstance(refs, list) or not refs:
+        return False
+    allowed_visibility = (
+        {"canonical"} if content_mode == "canonical" else {"canonical", "working"}
+    )
+    for item in refs:
+        if not isinstance(item, dict):
+            return False
+        source = item.get("source")
+        if not isinstance(source, dict):
+            return False
+        if source.get("source_visibility") not in allowed_visibility:
+            return False
+        if not source.get("draft_id") or not source.get("content_hash"):
+            return False
+        start = source.get("start_offset")
+        end = source.get("end_offset")
+        if (
+            isinstance(start, bool)
+            or not isinstance(start, int)
+            or isinstance(end, bool)
+            or not isinstance(end, int)
+            or start < 0
+            or end <= start
+        ):
+            return False
+        scene_index = item.get("scene_index")
+        if (
+            not item.get("scene_id")
+            or isinstance(scene_index, bool)
+            or not isinstance(scene_index, int)
+        ):
+            return False
+    return True
+
+
 class ObjectDossierBriefService:
     """Materialize stable facts, cutoff state and optional derived patterns."""
+
+    def __init__(
+        self,
+        evolution_pattern_reader: EvolutionObjectPatternReadPort | None = None,
+    ) -> None:
+        self._evolution_pattern_reader = evolution_pattern_reader
 
     async def load(
         self,
@@ -112,7 +149,11 @@ class ObjectDossierBriefService:
         await require_active_project(db, options.novel_id)
         scene_id = options.scene_id
         if not scene_id:
-            return self._empty(options, ["缺少 Scene 截止点，未读取对象时点或台账"])
+            return self._empty(
+                options,
+                ["缺少 Scene 截止点，未读取对象时点或台账"],
+                unknown_layers=["world", "continuity"],
+            )
 
         novel_id = str(options.novel_id)
         scene_id = str(scene_id)
@@ -138,36 +179,75 @@ class ObjectDossierBriefService:
             viewpoint=viewpoint,
         )
         state_view = _data(state_value)
+        state_index = state_view.get("scene_index")
         if (
             str(state_view.get("scene_id") or "") != scene_id
-            or state_view.get("scene_index") is None
+            or isinstance(state_index, bool)
+            or not isinstance(state_index, int)
+            or str(state_view.get("novel_id") or "") != novel_id
+            or not str(state_view.get("state_fingerprint") or "").strip()
         ):
-            return self._empty(options, ["Story cutoff 无法核对，未读取档案或台账"])
-        scene_index = int(state_view["scene_index"])
-        if str(state_view.get("novel_id") or "") != novel_id:
-            return self._empty(options, ["Story cutoff 不属于当前作品"])
+            return self._empty(
+                options,
+                ["Story cutoff 无法核对，未读取档案或台账"],
+                unknown_layers=["world", "continuity"],
+            )
+        scene_index = state_index
+        if role_view and (
+            str((state_view.get("viewpoint") or {}).get("kind") or "") != "character"
+            or str((state_view.get("viewpoint") or {}).get("target_id") or "")
+            != str(options.viewpoint_character_id)
+        ):
+            return self._empty(options, ["Story POV 与请求人物不匹配，已排除对象参考"])
 
         checkpoint_refs: list[dict[str, Any]] = []
         checkpoint_omissions: list[str] = []
-        try:
-            checkpoint_value = await get_scene_checkpoints(db, novel_id, scene_id)
-            checkpoint_set = _data(checkpoint_value)
-            checkpoint_refs = [
-                {
-                    "checkpoint_id": str(item.get("id")),
-                    "dimension": str(item.get("dimension")),
-                    "source_hash": item.get("source_hash"),
-                    "status": item.get("status"),
-                    "stage_index": item.get("stage_index"),
-                }
-                for item in checkpoint_set.get("items") or []
-                if isinstance(item, dict) and item.get("is_current") and item.get("id")
-            ]
-        except (TypeError, ValueError):
-            checkpoint_omissions.append("Story checkpoint 引用暂时无法读取")
+        if not role_view:
+            try:
+                checkpoint_value = await get_scene_checkpoints(db, novel_id, scene_id)
+                checkpoint_set = _data(checkpoint_value)
+                if (
+                    str(checkpoint_set.get("novel_id") or "") != novel_id
+                    or str(checkpoint_set.get("scene_id") or "") != scene_id
+                    or checkpoint_set.get("scene_index") != scene_index
+                ):
+                    checkpoint_omissions.append(
+                        "Story checkpoint 身份或顺序与 cutoff 不一致"
+                    )
+                    checkpoint_set = {}
+                checkpoint_refs = [
+                    {
+                        "checkpoint_id": str(item.get("id")),
+                        "dimension": str(item.get("dimension")),
+                        "source_hash": item.get("source_hash"),
+                        "status": item.get("status"),
+                        "stage_index": item.get("stage_index"),
+                    }
+                    for item in checkpoint_set.get("items") or []
+                    if isinstance(item, dict)
+                    and item.get("is_current")
+                    and item.get("id")
+                ]
+            except (TypeError, ValueError):
+                checkpoint_omissions.append("Story checkpoint 引用暂时无法读取")
 
         facts = _visible_facts(state_view)
         omissions = [*state_view.get("omissions", []), *checkpoint_omissions]
+        unknown_layers = list(
+            dict.fromkeys(
+                "continuity"
+                for dimension in state_view.get("dimensions") or []
+                if isinstance(dimension, dict)
+                and dimension.get("status") in {"missing", "degraded", "unsupported"}
+            )
+        )
+        if checkpoint_omissions:
+            unknown_layers.append("continuity")
+        if any(
+            isinstance(dimension, dict) and dimension.get("status") == "missing"
+            for dimension in state_view.get("dimensions") or []
+        ):
+            omissions.append("部分 Story 维度没有可用时点事实")
         if role_view:
             degraded = [
                 str(item.get("dimension"))
@@ -184,6 +264,8 @@ class ObjectDossierBriefService:
         world_items: list[dict[str, Any]] = []
         dossier_fingerprints: list[dict[str, str]] = []
         unmapped_legacy_count = 0
+        if omitted_count:
+            omissions.append("部分关联对象未进入本次有界读取")
         for entity_id in selected_ids:
             dossier = _data(
                 await read_world_object_dossier(
@@ -202,82 +284,137 @@ class ObjectDossierBriefService:
                 omitted_count += 1
                 omissions.append("World 档案对象或截止点不匹配")
                 continue
-            dossier_fingerprints.append(
-                {
-                    "entity_id": entity_id,
-                    "fingerprint": str(dossier.get("dossier_fingerprint") or ""),
-                }
+            dossier_fingerprint = str(dossier.get("dossier_fingerprint") or "").strip()
+            if not dossier_fingerprint:
+                omitted_count += 1
+                unknown_layers.append("world")
+                omissions.append("World 档案缺少稳定指纹，未使用该结果")
+                continue
+            dossier_omitted = max(
+                int(dossier.get("omitted_count") or 0),
+                max(
+                    0,
+                    int(dossier.get("total_count") or 0)
+                    - len(dossier.get("entries") or []),
+                ),
             )
+            if dossier_omitted:
+                if not role_view:
+                    omitted_count += dossier_omitted
+                    omissions.append("World 档案分页未覆盖全部当前条目")
+            if dossier.get("unknown") is True and not role_view:
+                unknown_layers.append("world")
+            entity_item_start = len(world_items)
             for raw in dossier.get("entries") or []:
                 if not isinstance(raw, dict):
                     continue
-                if raw.get("effective_at_cutoff") is False or raw.get("anchor_problem"):
-                    omitted_count += 1
-                    omissions.append("存在无效或待核对的档案锚点")
+                if raw.get("effective_at_cutoff") is not True or raw.get(
+                    "anchor_problem"
+                ):
+                    if not role_view:
+                        omitted_count += 1
+                        omissions.append("存在无效或待核对的档案锚点")
+                    continue
+                if role_view and raw.get("visibility") != "public":
                     continue
                 if role_view and not _dossier_entry_visible(
                     entity_id=entity_id, entry=raw, facts=facts
                 ):
-                    omitted_count += 1
                     continue
                 source_refs = _evidence_refs(raw.get("evidence") or [])
-                world_items.append(
-                    {
+                item = {
+                    "kind": "world_dossier",
+                    "entity_id": entity_id,
+                    "entity_type": dossier.get("entity_type"),
+                    "entry_id": str(raw.get("id") or ""),
+                    "entry_group_id": str(raw.get("entry_group_id") or ""),
+                    "revision_id": str(raw.get("id") or ""),
+                    "revision_number": raw.get("revision_number"),
+                    "facing": raw.get("facing"),
+                    "facing_label": raw.get("facing_label"),
+                    "legacy_field_key": raw.get("legacy_field_key"),
+                    "content": str(raw.get("content") or ""),
+                    "tags": list(raw.get("tags") or []),
+                    "visibility": raw.get("visibility"),
+                    "source": raw.get("source"),
+                    "source_refs": source_refs,
+                    "validity": raw.get("validity"),
+                    "dossier_fingerprint": dossier.get("dossier_fingerprint"),
+                }
+                if role_view:
+                    item = {
                         "kind": "world_dossier",
                         "entity_id": entity_id,
                         "entity_type": dossier.get("entity_type"),
                         "entry_id": str(raw.get("id") or ""),
-                        "entry_group_id": str(raw.get("entry_group_id") or ""),
                         "revision_id": str(raw.get("id") or ""),
-                        "revision_number": raw.get("revision_number"),
-                        "facing": raw.get("facing"),
-                        "facing_label": raw.get("facing_label"),
-                        "legacy_field_key": raw.get("legacy_field_key"),
                         "content": str(raw.get("content") or ""),
-                        "tags": list(raw.get("tags") or []),
-                        "visibility": raw.get("visibility"),
-                        "source": raw.get("source"),
-                        "source_refs": source_refs,
-                        "validity": raw.get("validity"),
-                        "dossier_fingerprint": dossier.get("dossier_fingerprint"),
+                        "visibility": "public",
                     }
-                )
+                world_items.append(item)
             for raw in dossier.get("legacy_profile_fields") or []:
                 if not isinstance(raw, dict):
                     continue
                 if not raw.get("mapped") or not raw.get("facing"):
-                    unmapped_legacy_count += 1
+                    if not role_view:
+                        unmapped_legacy_count += 1
                     continue
                 if role_view and not _legacy_value_visible(
                     entity_id=entity_id,
                     value=raw.get("value"),
                     facts=facts,
                 ):
-                    omitted_count += 1
                     continue
-                world_items.append(
-                    {
+                item = {
+                    "kind": "legacy_profile_field",
+                    "entity_id": entity_id,
+                    "entity_type": dossier.get("entity_type"),
+                    "profile_id": str(raw.get("profile_id") or ""),
+                    "template_id": str(raw.get("template_id") or ""),
+                    "template_version_number": raw.get("template_version_number"),
+                    "field_key": str(raw.get("field_key") or ""),
+                    "facing": raw.get("facing"),
+                    "facing_label": raw.get("label"),
+                    "value": raw.get("value"),
+                    "source_metadata": {
+                        key: value
+                        for key, value in (raw.get("source_metadata") or {}).items()
+                        if key
+                        in {
+                            "profile_source",
+                            "profile_confidence",
+                            "template_revision_id",
+                        }
+                    },
+                }
+                if role_view:
+                    item = {
                         "kind": "legacy_profile_field",
                         "entity_id": entity_id,
                         "entity_type": dossier.get("entity_type"),
-                        "profile_id": str(raw.get("profile_id") or ""),
-                        "template_id": str(raw.get("template_id") or ""),
-                        "template_version_number": raw.get("template_version_number"),
-                        "field_key": str(raw.get("field_key") or ""),
-                        "facing": raw.get("facing"),
-                        "facing_label": raw.get("label"),
                         "value": raw.get("value"),
-                        "source_metadata": {
-                            key: value
-                            for key, value in (raw.get("source_metadata") or {}).items()
-                            if key
-                            in {
-                                "profile_source",
-                                "profile_confidence",
-                                "template_revision_id",
-                            }
-                        },
                     }
+                world_items.append(item)
+            if role_view:
+                safe_items = [
+                    {
+                        "kind": item.get("kind"),
+                        "entity_id": item.get("entity_id"),
+                        "entity_type": item.get("entity_type"),
+                        "content": item.get("content"),
+                        "value": item.get("value"),
+                    }
+                    for item in world_items[entity_item_start:]
+                ]
+                dossier_fingerprints.append(
+                    {
+                        "entity_id": entity_id,
+                        "fingerprint": stable_hash(safe_items),
+                    }
+                )
+            else:
+                dossier_fingerprints.append(
+                    {"entity_id": entity_id, "fingerprint": dossier_fingerprint}
                 )
 
         world_items.sort(
@@ -288,10 +425,14 @@ class ObjectDossierBriefService:
             )
         )
         if len(world_items) > MAX_DOSSIER_ENTRIES:
-            omitted_count += len(world_items) - MAX_DOSSIER_ENTRIES
+            if not role_view:
+                omitted_count += len(world_items) - MAX_DOSSIER_ENTRIES
             world_items = world_items[:MAX_DOSSIER_ENTRIES]
-            omissions.append("档案参考超过条数上限")
+            if not role_view:
+                omissions.append("档案参考超过条数上限")
         if unmapped_legacy_count:
+            omitted_count += unmapped_legacy_count
+            unknown_layers.append("world")
             omissions.append(
                 f"{unmapped_legacy_count} 个旧档案字段未绑定模板面向，"
                 "保留在 World 原始档案"
@@ -314,7 +455,7 @@ class ObjectDossierBriefService:
                     continue
                 source = _data(raw.get("source"))
                 checkpoint_id = str(source.get("checkpoint_id") or "")
-                source_refs = _data(source.get("provenance"))
+                provenance = _data(source.get("provenance"))
                 refs = [
                     {
                         key: value
@@ -331,7 +472,7 @@ class ObjectDossierBriefService:
                             "range_hash",
                         }
                     }
-                    for item in source_refs.get("source_refs") or []
+                    for item in provenance.get("source_refs") or []
                     if isinstance(item, dict)
                 ]
                 fact = {
@@ -354,16 +495,28 @@ class ObjectDossierBriefService:
                         ),
                         None,
                     ),
-                    "provenance": source_refs.get("provenance"),
+                    "provenance": {
+                        key: provenance[key]
+                        for key in ("field", "event_id", "status", "object_type")
+                        if key in provenance
+                    }
+                    or None,
                     "source_refs": refs,
                 }
                 if role_view and raw.get("layer") == "observation":
                     continue
                 continuity_items.append(fact)
         if len(continuity_items) > MAX_CONTINUITY_FACTS:
-            omitted_count += len(continuity_items) - MAX_CONTINUITY_FACTS
+            if not role_view:
+                omitted_count += len(continuity_items) - MAX_CONTINUITY_FACTS
             continuity_items = continuity_items[:MAX_CONTINUITY_FACTS]
-            omissions.append("Scene 时点事实超过条数上限")
+            if role_view:
+                omissions.append("部分 Story 时点事实超过有界读取上限")
+            else:
+                omissions.append("Scene 时点事实超过条数上限")
+
+        if role_view:
+            omissions.append("角色视角只使用已有可见事实证明的对象资料")
 
         pattern_items: list[dict[str, Any]] = []
         pattern_fingerprint = None
@@ -375,14 +528,15 @@ class ObjectDossierBriefService:
                 omitted_count += 1
             else:
                 try:
-                    from core.service_keys import EVIDENCE_READ_EVOLUTION_OBJECT_PATTERNS
+                    provider = self._evolution_pattern_reader
+                    if provider is None:
+                        from core.container import get
 
-                    provider = __import__("core.container", fromlist=["get"]).get(
-                        EVIDENCE_READ_EVOLUTION_OBJECT_PATTERNS
-                    )
-                except (ImportError, AttributeError, KeyError):
+                        provider = get("evidence.read_evolution_object_patterns")
+                except KeyError:
                     omissions.append("Evolution 台账只读 DI 尚未接线，未回退读取其他数据")
                     omitted_count += 1
+                    unknown_layers.append("evolution")
                 else:
                     ledger = _data(
                         await provider(
@@ -406,6 +560,8 @@ class ObjectDossierBriefService:
                         omissions.extend(
                             str(item) for item in ledger.get("omissions") or []
                         )
+                        if ledger.get("coverage") == "unknown":
+                            unknown_layers.append("evolution")
                         for raw in ledger.get("items") or []:
                             if (
                                 not isinstance(raw, dict)
@@ -413,16 +569,29 @@ class ObjectDossierBriefService:
                             ):
                                 omitted_count += 1
                                 continue
-                            if not set(raw.get("entity_ids") or []) & set(selected_ids):
+                            decision = str(raw.get("author_decision") or "")
+                            if decision in {"reject", "unreviewed"}:
+                                omitted_count += 1
+                                continue
+                            if (
+                                raw.get("review_verdict") != "supported"
+                                and decision not in {"keep", "corrected"}
+                            ) or (
+                                only_adopted_patterns
+                                and decision not in {"keep", "corrected"}
+                            ):
+                                omitted_count += 1
+                                continue
+                            pattern_entity_ids = {
+                                str(value) for value in raw.get("entity_ids") or []
+                            }
+                            if not pattern_entity_ids or not pattern_entity_ids.issubset(
+                                set(selected_ids)
+                            ):
                                 omitted_count += 1
                                 continue
                             refs = raw.get("evidence_refs") or []
-                            if not refs or any(
-                                (item.get("source") or {}).get("source_visibility")
-                                != options.content_mode
-                                for item in refs
-                                if isinstance(item, dict)
-                            ):
+                            if not _pattern_refs_visible(refs, options.content_mode):
                                 omitted_count += 1
                                 omissions.append("人物倾向与本次正文来源范围不一致")
                                 continue
@@ -447,6 +616,13 @@ class ObjectDossierBriefService:
                                     )
                                 }
                             )
+        if include_patterns and not role_view and not pattern_fingerprint:
+            if "evolution" not in unknown_layers:
+                omitted_count += 1
+                omissions.append("Evolution 台账缺少稳定指纹，未使用该结果")
+            unknown_layers.append("evolution")
+            pattern_items = []
+            pattern_fingerprint = None
         if len(pattern_items) > MAX_CHARACTER_PATTERNS:
             omitted_count += len(pattern_items) - MAX_CHARACTER_PATTERNS
             pattern_items = pattern_items[:MAX_CHARACTER_PATTERNS]
@@ -492,11 +668,24 @@ class ObjectDossierBriefService:
                 "continuity",
                 *(["evolution"] if pattern_fingerprint else []),
             ],
+            "unknown_layers": list(dict.fromkeys(unknown_layers)),
+            "coverage": (
+                "unknown"
+                if unknown_layers
+                else "partial"
+                if omitted_count
+                else "complete"
+            ),
             "fingerprint": fingerprint,
         }
 
     @staticmethod
-    def _empty(options: CompileOptions, omissions: list[str]) -> dict[str, Any]:
+    def _empty(
+        options: CompileOptions,
+        omissions: list[str],
+        *,
+        unknown_layers: list[str] | None = None,
+    ) -> dict[str, Any]:
         return {
             "novel_id": options.novel_id,
             "scene_id": options.scene_id,
@@ -514,5 +703,7 @@ class ObjectDossierBriefService:
             "omitted_count": len(omissions),
             "omissions": omissions,
             "layers": [],
+            "unknown_layers": list(unknown_layers or []),
+            "coverage": "unknown" if unknown_layers else "partial",
             "fingerprint": stable_hash([options.novel_id, options.scene_id, omissions]),
         }

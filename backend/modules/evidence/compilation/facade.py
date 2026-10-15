@@ -158,6 +158,42 @@ async def load_scene_lens(
     )
 
 
+async def read_object_dossier_brief(
+    db: AsyncSession,
+    *,
+    novel_id: str,
+    scene_id: str,
+    entity_ids: list[str],
+    reveal_mode: str = "author_safe",
+    viewpoint_character_id: str | None = None,
+    content_mode: str = "canonical",
+    include_patterns: bool = False,
+    only_adopted_patterns: bool = False,
+) -> dict[str, Any]:
+    """Read bounded World, Scene-state and optional Evolution references."""
+    from modules.evidence.compilation.services.object_dossier_brief import (
+        ObjectDossierBriefService,
+    )
+
+    options = CompileOptions(
+        novel_id=novel_id,
+        task="object_dossier_brief",
+        scope="scene",
+        scene_id=scene_id,
+        reveal_mode=reveal_mode,
+        viewpoint_character_id=viewpoint_character_id,
+        content_mode=content_mode,
+        visible_until_scene_id=scene_id,
+    )
+    return await ObjectDossierBriefService().load(
+        db,
+        options,
+        entity_ids=entity_ids,
+        include_patterns=include_patterns,
+        only_adopted_patterns=only_adopted_patterns,
+    )
+
+
 async def compile_structure_context(
     db: AsyncSession,
     novel_id: str,

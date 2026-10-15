@@ -734,6 +734,31 @@ Evidence 为 Collaboration 收集授权的冻结资源集合，manifest 同时�
 引用和 omission。Assistant 另验正文/资料版本，不把这个只读包当正式审稿或采用确认。
 
 
+## Scene 对象简报（C0b）
+
+`POST /api/evidence/compilation/object-dossier-brief` 返回一个严格绑定 Scene 截止点的只读聚合。
+请求字段为 `novel_id`、`scene_id`、1–16 个 `entity_ids`、`reveal_mode`、可选
+`viewpoint_character_id`、`content_mode`、`include_patterns` 和 `only_adopted_patterns`。
+服务端从 Story Scene 契约解析当前顺序，不接受客户端传入的 `through_scene_index`。
+
+响应含 `world_items`（World 档案条目或由显式模板 key/facing 映射的旧 profile 字段）、
+`continuity_items`（保留 fact/belief/observation 模态、字段来源与 checkpoint 引用）、
+`pattern_items`（可选 Evolution 历史解释及其来源坐标）、三层 fingerprint、当前 checkpoint 引用、
+`layers`、`unknown_layers`、`omitted_count`、`omissions`、`coverage` 和总体 `fingerprint`。
+档案证据和人物倾向只带稳定 source coordinates，不带引用原文或 `quote_text`。
+Evolution 通过 `evidence.read_evolution_object_patterns` 只读 DI 键提供；缺键、截止不符、
+身份失效或来源不新鲜会显式省略，不回退到直接读取其他台账表。
+
+角色视角先使用 Story 的 POV 可见投影，再只接受 `visibility=public` 且值与同一主体的可见 Story
+fact 精确相等的 World 条目；secret、belief-only 匹配、观察和 Evolution 倾向都不进入角色材料。
+角色模式不会调用 Evolution port。reader 模式不返回对象档案与台账。作者接口默认
+`include_patterns=false`；该选项是本次读取授权，和写作 capability 的默认关闭开关分开。
+
+旧 `GenericEntityProfile.data_json` 目前只经显式关联的活动 `EntityProfileTemplate` key/facing
+只读映射；未知 key 原样留在 World 旧读取 API，聚合响应只记录未映射数量，不把它们当作正史，
+也不删除或重写旧 JSON。此切片尚未把旧 Character/profile 写入口桥接到档案 revision/CAS，
+也未迁移全部旧读取消费者；后续 C0 必须逐个完成该兼容闭环。
+
 ## 逐源证据与预算状态（B8）
 
 scope 构建按 ContextItem 级 token 与 section 级 evicted/truncated 状态填充

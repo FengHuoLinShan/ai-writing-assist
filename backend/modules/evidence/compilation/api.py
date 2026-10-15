@@ -60,6 +60,9 @@ from modules.evidence.compilation.facade import (
     read_novel_evidence as _read_novel_evidence,
 )
 from modules.evidence.compilation.facade import (
+    read_object_dossier_brief as _read_object_dossier_brief,
+)
+from modules.evidence.compilation.facade import (
     restore_activation_profile_revision as _restore_activation_profile_revision,
 )
 from modules.evidence.compilation.facade import (
@@ -75,6 +78,10 @@ from modules.evidence.compilation.facade import (
     update_activation_profile as _update_activation_profile,
 )
 from modules.evidence.compilation.markdown_renderer import render_compiled_context
+from modules.evidence.compilation.object_dossier_schemas import (
+    ObjectDossierBriefRequest,
+    ObjectDossierBriefResponse,
+)
 from modules.evidence.compilation.schemas import (
     ContextActivationPreviewRequest,
     ContextActivationPreviewResponse,
@@ -150,6 +157,30 @@ async def scene_lens(
         chapter_index=request.chapter_index,
     )
     return SceneLensResponse(**result)
+
+
+@router.post(
+    "/object-dossier-brief",
+    response_model=ObjectDossierBriefResponse,
+)
+async def object_dossier_brief(
+    db: DbSession,
+    request: ObjectDossierBriefRequest,
+) -> ObjectDossierBriefResponse:
+    """Read one Scene-bounded, visibility-filtered object reference projection."""
+    await require_active_project(db, request.novel_id)
+    result = await _read_object_dossier_brief(
+        db,
+        novel_id=request.novel_id,
+        scene_id=request.scene_id,
+        entity_ids=request.entity_ids,
+        reveal_mode=request.reveal_mode,
+        viewpoint_character_id=request.viewpoint_character_id,
+        content_mode=request.content_mode,
+        include_patterns=request.include_patterns,
+        only_adopted_patterns=request.only_adopted_patterns,
+    )
+    return ObjectDossierBriefResponse.model_validate(result)
 
 
 def _build_tier_compile_response(
