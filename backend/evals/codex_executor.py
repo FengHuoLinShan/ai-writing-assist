@@ -314,8 +314,11 @@ class CodexStructuredExecutor:
             self.model != EVAL_TEACHER_MODEL
             or self.reasoning_effort != EVAL_TEACHER_REASONING_EFFORT
             or self.command != "codex"
+            or self.timeout_seconds != 300
         ):
-            raise CodexExecutionError("Map evaluation requires Sol/xhigh")
+            raise CodexExecutionError(
+                "Map evaluation requires Sol/xhigh and 300s timeout"
+            )
         scope = self.calibration
         await scope.authorize(prompt, response_model, step_name)
         executable = shutil.which(self.command)

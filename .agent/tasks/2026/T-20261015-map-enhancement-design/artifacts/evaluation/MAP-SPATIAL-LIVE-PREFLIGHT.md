@@ -1,90 +1,84 @@
-# 地图评测隔离预检与交接
+# 地图评测隔离预检与执行交接
 
-状态仍为 `not_ready_for_live`：本批没有连接隔离 PostgreSQL、启动产品 API、验证账户连接或调用业务/教师模型。产品 setup、共同基线、Evolution / World / Writing / Assistant driver、真实领域 evidence adapter 和完整开发 gate 已实现待审，但 Sol/high 与 root 尚未审修并集成。本地行为测试不代表产品运行成功，代理作者审核保持 `human_validated=false`。
+Sol 工程审修使用受控替身/SQLite/ASGI，不连接评测 PG、不验证账户、不调用真实模型。实际 pilot 由 root 在最终集成版本上执行；当前没有任何质量通过或作者验收结论。`human_validated=false`，holdout 在五开发族 25 case 质量门通过前只核权限/hash。
 
-Holdout 在 25 个开发 case 的四组实际产品 evidence 和逐题材 gate 全部完成并通过前始终关闭。留出资料只核哈希/权限，不解码、不导入、不执行、不评分。Git 只记录 hash 与脱敏结论；私有原文、期望、prompt、输出和 request journal 留在仓库外 `0700/0600` 目录。
+## 环境和正常账户连接
 
-## 当前隔离环境
+root 独占专用容器 `map-spatial-eval-20261015`、loopback PostgreSQL 65302、数据库 `map_spatial_eval_20261015`。root 已正常升级至 `20261015_map_node_merge`；正常 bootstrap owner 存在，尚无 Project/连接/模型请求。私有环境文件实际为 `/tmp/map-spatial-eval-runtime-20261015/app.env`（0600）；不要打印、提交或复制内容。禁止连接工程 65202、真实作品、Guimi 或其他运行账本。
 
-root 已准备专用容器 `map-spatial-eval-20261015`，loopback PostgreSQL 端口 `65302`，数据库 `map_spatial_eval_20261015`，migration head 为 `head_map_auto_drafts`。环境文件 `/tmp/map-spatial-eval-runtime-20261015/app.env0600` 权限 `0600`，不得输出、提交或复制其内容。空库不等于已创建账户/项目，也不等于 verified Codex 连接。禁止连接工程测试库 `65202`、G6/G7 或真实作品数据库。
-
-仅在 root 审过代码和执行范围后，可在本地私有终端加载环境并运行迁移、材料哈希校验和 API。不要启动后台 worker 或共享 queue drain；API 由隔离 driver 通过正式 facade/HTTP 与精确 `TaskWorker.run_once(task_id, novel_id)` 调用。
+所有 API 通过同进程真实 app + ASGITransport，配置/实际 manager 在首写前校验。**不启动 uvicorn、lifespan、embedding、后台 worker 或 drain**。任何网络 `--api-base-url` 会被拒绝。CLI 正常 import composition 后才调用 facade，避免先注册 DI 再 import app 的 duplicate。不同 CLI 进程都重新绑定同一环境的隔离 DB。
 
 ```bash
 cd backend
 set -a
-source /tmp/map-spatial-eval-runtime-20261015/app.env0600
+source /tmp/map-spatial-eval-runtime-20261015/app.env
 set +a
-.venv/bin/python -m alembic upgrade head
+export APP_ENV=test AUTH_MODE=local MAP_SPATIAL_EVAL_ALLOW_LIVE=1
+export ASSISTANT_ENABLED=true
+export LLM_MODEL_LIMITS_JSON='{"subscription/codex/gpt-6-luna":{"concurrency":2}}'
 .venv/bin/python -m evals.map_spatial verify
-.venv/bin/python -m uvicorn app.main:app --host 127.0.0.1 --port 65303
 ```
 
-进程必须显式 `AUTH_MODE=local`、`APP_ENV=development`。driver 同时验证环境及实际 engine 的本机地址、端口、数据库、用户名。只有正常 active owner 的 `author` Project 可进入执行；标题必须以 `MAP-EVAL:<family-id>:` 开头，题材符合冻结矩阵。owner 必须在正常 Project facade 下使用已验证 Codex `gpt-6-luna/max`；需要新连接时只走产品账户设置流程，不能直接写 verified 标记、创建自建 client/provider/profile 或提供 Key 给 driver。未验证/模型不符停止，不自动回退。
+root 仅在明确开始 pilot 后，通过正常 `PUT /api/account/settings/llm-connections/codex`（JSON `{}`，无需 API Key）连接并验证当前本地 Codex。使用 `evals.map_spatial_control._product_client("http://map-spatial-eval.internal", 30)`，请求包一层 `asyncio.wait_for(..., timeout=60)`；保存私有结果/hash，只输出 connected/verified 状态。该步骤是独立 **1 次实际验证请求**，先检查现有正常连接，已 verified 时不重复验证。任何 unknown/失败停止，不手写 verified 标记，不回退别的 provider。Project facade / snapshot 必须验证 active owner、Codex `gpt-6-luna/max`，后续每个 task 前重验并释放读事务。`ASSISTANT_ENABLED=true` 与 Codex 并发≤2
+只设在该隔离进程，common freeze 在首个教师/业务模型调用前检查两者，禁止改全局生产默认。
 
-## 正常 setup 和共同基线
+## 一个开发族，五 Scene
 
-`setup-family` 通过正常产品 HTTP API 建一个该族专用项目、应用题材空间词表预设、发布五段冻结开发合成文本并建立五个彼此不同 Scene 和精确 canonical span。它不会写数据库表、地图 clue、adopted map、任务状态或 fake receipt。期望和材料哈希不进入 Project 或业务 prompt。一个 pilot 只选一个 development family，不能平行批跑五题材。
-
-共同基线顺序是 setup → `freeze-common` → seeded calibration。`freeze-common` 验 owner、当前 Project snapshot、五个 Scene identity、正文精确 source draft/content/range hashes 与空地图事实；后续 Evolution 正常 enrichment 可改变 Scene card/summary，不因此判源漂移。Scene 身份、canonical span、source hash 和 offsets 仍严格比较。共同 baseline 不要求 adopted map，因此支持 cold start。
+用同一终端环境运行；不要并行创建其他族。
 
 ```bash
-export MAP_SPATIAL_EVAL_ALLOW_LIVE=1
-.venv/bin/python -m evals.map_spatial setup-family \
-  --family-id map-xianxia-development-v1 --execute
-.venv/bin/python -m evals.map_spatial freeze-common \
-  --family-id map-xianxia-development-v1 --execute
-.venv/bin/python -m evals.map_spatial score \
-  --family-id map-xianxia-development-v1 \
+.venv/bin/python -m evals.map_spatial setup-family --family-id map-xianxia-development-v1 --execute
+.venv/bin/python -m evals.map_spatial freeze-common --family-id map-xianxia-development-v1 --execute
+.venv/bin/python -m evals.map_spatial score --family-id map-xianxia-development-v1 \
   --phase teacher_calibration --case-id seeded-v1 --execute
+# 只读 preview，先获得实际 mandatory reserve M 与完整空间 quota Q。
+.venv/bin/python -m evals.map_spatial preview-evolution --family-id map-xianxia-development-v1 \
+  --request-limit 30 --execute
+# 若 30 != M+Q，使用精确整数重新 preview；start 拒绝超出/不足 M+Q 的版本。
+.venv/bin/python -m evals.map_spatial preview-evolution --family-id map-xianxia-development-v1 \
+  --request-limit '<M+Q>' --execute
+# root 检查实际 response/fingerprint 和总请求硬上界 297+M+Q 后只启动该 operation。
+.venv/bin/python -m evals.map_spatial start-evolution --family-id map-xianxia-development-v1 \
+  --operation-id '<精确preview UUID>' --execute
+.venv/bin/python -m evals.map_spatial run-evolution --family-id map-xianxia-development-v1 --max-tasks 2 --execute
+.venv/bin/python -m evals.map_spatial run-evolution --family-id map-xianxia-development-v1 --max-tasks 2 --execute
+.venv/bin/python -m evals.map_spatial run-evolution --family-id map-xianxia-development-v1 --max-tasks 1 --execute
+.venv/bin/python -m evals.map_spatial review-map --family-id map-xianxia-development-v1 --max-actions 20 --execute
+.venv/bin/python -m evals.map_spatial freeze-binding --family-id map-xianxia-development-v1 \
+  --scopes /Users/tywww/.codex/private/map-spatial-evaluation-20261015/scopes/map-xianxia-development-v1.json --execute
 ```
 
-`setup-family` 正常产品 HTTP timeout 为 30 秒；创建上限是 1 Project、1 正文 draft 和 5 Scene。项目创建/API失败后 setup 状态不会被覆盖重建。seed 是每 family 一条 Sol/xhigh request、固定 4 个代码 seed、`attempts=1`、executor timeout 300 秒；错答为完成但校准失败，timeout/unknown 不自动重发。teacher scope 和 judge scope 独立，不借 Ask World/G7 权限。
+共同基线必须空地图、同章五个独立 Scene/真实 canonical spans。正常 Evolution enrichment 允许，源身份/精确 offsets/hash 不能变。完成必须同 task 的可选阶段收尾；details disabled 及 spatial coverage/gaps 如实报告。attempt→operation 关系缺持久证明仍为 unknown，不造已知。每次只执行正式回执指出的同项目 `pending/attempt=0` 精确 task；全族最多五 task，unknown/超时不重发。World 代理作者最多 20 个决定/批，地点采用走原 promote/source-hash/source-prefix 校验，地图另外 preview/CAS；0 模型请求。pending 续批先由 root 检查并显式计入额外 wall 预算，unknown/stale 不重试。
 
-## Evolution 冷启动和完整空间子额度
-
-必须先用只读产品 preview 查明 `mandatory_request_reserve=M`、五个 Scene 的 `spatial_quota=Q` 与 fingerprint。`preview-evolution` 本身不创建 run/Task、不调用模型；它将每个 operation id 和 response hash 写进不可覆盖 preview journal。要求 `Q=per_scene_limit×5` 且为未使用完整额度；预算不足只留 `budget_insufficient` preview。root 应使用精确 root 上限 `M+Q` 建立一个新的 preview，再查看 response/fingerprint 后，只启动该 operation id。不能给到只有 mandatory reserve 的 root quota，随后把全部 spatial quota gap 报成 pilot 完成。
+每个 case 从 setup scopes 读真实 novel_id、scene_id、chapter_index，分别运行下面三个命令；p1 至 p5 串行，不采用任何 Writing 候选：
 
 ```bash
-# provisional bounded preview，用于读取真实 M、Q；例如暂定 cap 30，不会启动 run。
-.venv/bin/python -m evals.map_spatial preview-evolution \
-  --family-id map-xianxia-development-v1 --request-limit 30 --execute
-# root 读取 M+Q 后，用精确 request_limit 再做 preview；若 30 已恰好等于 M+Q 可直接用其 operation_id。
-.venv/bin/python -m evals.map_spatial preview-evolution \
-  --family-id map-xianxia-development-v1 --request-limit '<M+Q整数>' --execute
-# root 检查精确 preview 与 operation id 后，单次启动。
-.venv/bin/python -m evals.map_spatial start-evolution \
-  --family-id map-xianxia-development-v1 --operation-id '<精确preview的UUID>' --execute
+.venv/bin/python -m evals.map_spatial pair-writing --family-id map-xianxia-development-v1 \
+  --case-id map-xianxia-development-v1-p1 --novel-id '<setup ID>' --scene-id '<scope ID>' \
+  --chapter-index 1 --timeout-seconds 900 --execute
+.venv/bin/python -m evals.map_spatial assistant-turn --family-id map-xianxia-development-v1 \
+  --case-id map-xianxia-development-v1-p1 --timeout-seconds 900 --execute
+.venv/bin/python -m evals.map_spatial score --family-id map-xianxia-development-v1 \
+  --phase development_judge --case-id map-xianxia-development-v1-p1 --execute
 ```
 
-启动前重新向正式 preview endpoint 查询同一 request 并比较完整 response hash/fingerprint；任何变化停止，不发 start。start API timeout 30 秒；request id/operation id 不复用。worker 只查该 Project 的精确 pending 且 `attempt=0` 的 `evolution_scene_step_v2`，逐项运行 `run_once(task_id, novel_id)`，不 drain queue。每次命令 `--max-tasks` 上限 2、每 task timeout 最大 900 秒，串行；最多 5 个 Scene task。连续调用只处理持久回执指出的下一精确任务。非 pending/running/completed，owner/source/runtime 漂移或 timeout 后一律停止，unknown 不重发。
+Writing 两臂先共同冻结非地图 context 后精确执行；每臂 root registry ≤14（K≤64），不足/超出在模型前停止。Assistant 提交与 worker 同时临时启用 `assistant.turn`，只传真实原请求、Scene 位置与 task_hint=unknown，退出恢复默认。工具历史 unknown 是辅助限制，答复/计划/action/权限实际证据必须保留。
 
-Evolution 请求根额度必须覆盖 preview 的 mandatory reserve 与完整空间 child quota；child quota 当前由产品 preview 给出，driver 不把 task 数当模型请求数。每次精确 task 的真实 request/usage/cost 以实际持久回执为准；无法观察的 usage/cost 保留 unknown。正式读口明确 `operation_attempt_membership=unknown`，driver 不造 attempt→operation 关系。完成主理解后还必须等同一 task 的可选空间阶段收尾，再查 `optional_scene_stage`、`optional_step_coverage`、`spatial_discovery_result`、`spatial_stage_result` 与所有 gaps；`complete` 不等于没有 gap 或真人已验收。
+## 冻结预算与门禁
 
-## 代理作者审核与 map/head 冻结
+含首次验证的模型调用上界 **297+M+Q**：验证 1、seed 1、judge 5、Evolution M+Q、Writing 10×14、Assistant 5×30。现有生产运行信封计入 initial、agent/tool 子调用与重试；不将 task 数当模型请求数。并发 ≤2，任务串行；所有精确 task timeout 900s；教师/裁判固定 Sol/xhigh、attempts=1、模型 timeout 300s。World review/auto-draft 经源码确认是确定性查询、来源验证、几何布局，0 模型调用。
 
-`review-map` 读取同 run 的正式 Evolution 和 World facade，只通过正常 clue review、auto-draft build/resume、candidate preview 与 CAS review API 做隔离项目的明确代理作者决定。不会手写 clue、草图、adopted map、version head 或 task receipt。每次最多 `--max-actions 20` 个 clue/revision 决定，普通产品 API timeout 30 秒；候选 adoption 的 review preview+review 仍需真实 API。超出上限且状态可验证为 pending 时，root 先检查待办再显式继续；unknown/stale/source conflict 不重试或手工补状态。费用不从请求数猜测。
+CLI 整命令 deadline 包含数据库及准备：setup300、共同/最终freeze各120、preview60、start90、Evolution每批`max_tasks×900+120`、review1440、Writingpair1920、Assistant1020、score360（秒）。上述一次 setup、两 preview、2/2/1 Evolution、一次 review 和五 case 总 **23910s**；正常验证另60s，合计 **23970s / 6h39m30s**，额外 review 续批每次另1440s。取消清理及进程启动另计，unknown 不续发。
 
-```bash
-.venv/bin/python -m evals.map_spatial review-map \
-  --family-id map-xianxia-development-v1 --max-actions 20 \
-  --timeout-seconds 30 --execute
-.venv/bin/python -m evals.map_spatial freeze-binding \
-  --family-id map-xianxia-development-v1 \
-  --scopes /Users/tywww/.codex/private/map-spatial-evaluation-20261015/scopes/map-xianxia-development-v1.json \
-  --execute
-```
+实际 snapshot context ceiling、hard input、输出 target 和每 task registry 限额进入私有账本。Codex `output_token_limit_enforced=False`，硬 token budget unsupported、token_limit=null；不伪造硬 token 限额或费用。`total_cost=unknown` 仍报告，不作为无计划阈值的质量准入；单 case 0机会可 n/a，整题材质量缺 coverage/unknown 仍失败。完整 25 开发 case 通过后才可冻结 gate 并单次独立 holdout。
 
-`review-map` 只是测试用代理作者，不是人类审核。最终绑定冻结实际 post-Evolution Scene/card、地图 head/revision、Project snapshot、exact source span、词表状态和方法/管线 fingerprints。source drift、旧 snapshot、方法或 prompt/code/schema 变化失败关闭。pair 阶段用它重验实际 map/head；不要回写 common baseline，也不得将预置 adopted map 当 cold-start 成果。
+生产代码/方法/schema 在 root 集成后才冻结，后续漂移停止。原始输入/输出只留私有目录；Git 仅 hash 与去原文结果。本工程审修不代表真实 Codex 可用、五题材质量或真人作者验收。
 
-## Writing、Assistant、Judge 与 gate
+## Sol 工程审修证据
 
-每 case Writing 通过正式 Evidence 确认与 WritingGenerationService 入队两臂，再只对精确 `writing_generate` task 调 `run_once(task_id, novel_id)`；source/Scene/Project/non-map context 必须一致，第一候选保持不采用。每 development family 最多 10 个 Writing task。当前 driver 尚无 Writing worker timeout 参数，需 Sol 直接补齐前，不得声称 stage timeout 有界或启动真实 Writing pilot。
-
-Assistant 每 case 最多一条正常 `assistant_turn` task、等待上限 900 秒。当前正式 run facade 持久保存的仅有 answer/actions/evidence refs 等，不含工具调用历史，实际答复指标不得从 tool catalog 推断。另当前 driver 尚需 Sol 修正提交和 worker 两进程 `assistant.turn` 临时 capability、恢复隔离，以及按冻结 case 设置准确 task context（不能统一硬编码 `task_hint=retrieve`）；修复/审查前禁止把助手回合计为有效评分证据。
-
-每 case 独立运行一个 Sol/xhigh judge request；只读相应正式产品 receipts，并冻结原始 prompt/response/hash。judge `attempts=1`、默认 timeout 300 秒；题材分别报告分子/分母，task IDs 只能引用真实同组 task。找不到实际 cost 时必须 `unknown`，不得估 0。每族单独请求的上限为 1 seeded teacher + M+Q Evolution root cap + 10 Writing task + 5 Assistant turn + 5 judge request；其中 Writing/Assistant 的内部模型请求数和费用目前没有统一可观测上限，必须以产品真实回执为准，不能将 task 数等同模型 request。代理 review 最多 20 个决定/调用，不能把它写成零成本。
-
-现 gate 实现仍待 Sol review：未知货币费用不应成为计划外的质量准入阈值；单 case 无观察机会的 `not_applicable` 应参与题材聚合，但若整题材缺必要 coverage 或质量 metric unknown，不能当作通过。不要把 unknown 填成 0 求绿。review item 修复并集成后，仍需所有五个开发族、25 case 的四组实际输出和所有原定题材阈值真实通过，方可一次性冻结 development gate。该五 Scene pilot 仅验证一个开发族，不会解锁留出。
-
-所有原始文章、期望、模型输入输出、费用与审阅明细留在仓库外私有目录；Git 只保留 hashes 和脱敏结果。任何 started/pending/unknown/completed ledger、task id、run id、case id 或 holdout material 不可覆盖、重试或续发。
+- 已修实际失败：错网络 API 可首写错误库；fresh-process DI 重复/未初始化；Assistant submit/worker 能力未同时启用及错误 retrieve hint；Writing 无 task timeout；五个不同 source spans 被误当全族同值；Evolution 最后 task 完成未在同次收尾；费用 unknown 额外硬阻断与配对分母权重。
+- 增补正式 World promote 与独立地图重新预览/CAS，费用、工具历史与 token 硬限保持诚实。生产默认开关未改。
+- 最终本地 `evals/tests`：373 passed / 2 skipped；其中地图相关 59 项。Ruff check/format、docs impact（七份既有 authority 逐项说明 no-change）、`git diff --check`、模块导入门均通过；导入棘轮61/9/0/517不增长。
+- SQLite/真实 ASGI 验证 Project/draft/五 Scene spans，以及 clue review→auto-draft→candidate-location 原 promote（hash stale/跨项目/缺理解来源拒绝）→独立地图重新 preview→旧 head CAS 拒绝→正常保存。模型入口在该链被显式禁止；仅产生正常 pending 派生任务，没有伪造 done Task。
+- fresh Python 进程验证正常 app composition 和 ASGI 只读路由，禁止真实数据库连接且不启动 lifespan。控制器测试另覆盖 exact task IDs、2/2/1 Evolution、timeout/已尝试 task 拒绝、unknown 禁止重发、能力恢复、未校准/无权限/错误 owner 和冻结指纹漂移。
+- 未运行：真实 PG 并发/CAS、真实四域 TaskWorker 的整链与 Codex/teacher/judge。工程 orchestration 的 task 替身只证明调度边界；真实模型产物、语义质量、费用、真实 owner 连接和人类作者验收仍须 root pilot，不能以本节工程绿色替代。

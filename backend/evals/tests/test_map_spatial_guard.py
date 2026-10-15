@@ -22,7 +22,9 @@ from evals.map_spatial import (
     _sha256_file,
     _write_private_json,
     claim_case,
+    domain_method_fingerprints,
     pipeline_hash,
+    runtime_limits,
     scene_source_refs,
     update_run,
     writing_arm,
@@ -36,6 +38,7 @@ from evals.map_spatial_guard import (
     evaluate_development,
     finish_request,
     read_binding,
+    read_common_binding,
     request_path,
     require_calibration,
     require_development_gate,
@@ -53,21 +56,37 @@ def binding_fixture(tmp_path, monkeypatch):
     root, manifest, matrix = _fixture(tmp_path, monkeypatch)
     family = matrix["families"][0]
     owner, novel = str(uuid.uuid4()), str(uuid.uuid4())
+    from core.config import get_settings
+    from infrastructure.llm.capabilities import resolve_llm_capability_profile
+
+    monkeypatch.setenv("ASSISTANT_ENABLED", "true")
+    monkeypatch.setenv(
+        "LLM_MODEL_LIMITS_JSON", '{"subscription/codex/gpt-6-luna":{"concurrency":2}}'
+    )
+    get_settings.cache_clear()
     snapshot = {
         "profile": {
             "provider_id": "codex",
             "model": "gpt-6-luna",
             "connection_verified": True,
-        }
+        },
+        "llm_capability_profile": resolve_llm_capability_profile(
+            "codex", "gpt-6-luna"
+        ).to_snapshot(),
     }
     binding = {
         **family,
+        "schema_version": 1,
+        "stage": "reviewed_map_head",
+        "human_validated": False,
+        "domain_method_fingerprints": domain_method_fingerprints(),
         "suite": "map_spatial",
         "owner_id": owner,
         "novel_id": novel,
         "database_target": _database_identity(URL),
         "project_snapshot": snapshot,
         "project_snapshot_hash": digest(snapshot),
+        "runtime_limits": runtime_limits(snapshot),
         "manifest_sha256": _sha256_file(manifest),
         "rubric_sha256": rubric_hash(),
         "private_root_sha256": digest(str(root.resolve())),
@@ -77,9 +96,80 @@ def binding_fixture(tmp_path, monkeypatch):
     for index in range(1, 6):
         binding["case_bindings"][f"{family['family_id']}-p{index}"] = {
             "novel_id": novel,
+            "owner_id": owner,
+            "database_target": _database_identity(URL),
+            "project_snapshot_hash": digest(snapshot),
             "scene_id": str(uuid.uuid4()),
-            "chapter_index": index,
+            "chapter_index": 1,
+            "scene_hash": digest(index),
+            "source_refs": [
+                {
+                    "draft_id": str(uuid.uuid4()),
+                    "chapter_index": 1,
+                    "source_hash": digest(index),
+                    "start_offset": index * 100,
+                    "end_offset": index * 100 + 10,
+                    "range_hash": digest(index),
+                    "content_mode": "canonical",
+                }
+            ],
+            "vocabulary_snapshot": [],
+            "vocabulary_snapshot_hash": digest([]),
+            "map_revision_count": 1,
+            "map_snapshot_hash": digest(index),
         }
+    for case in binding["case_bindings"].values():
+        case.update(
+            {
+                key: binding[key]
+                for key in (
+                    "source_sha256",
+                    "expected_sha256",
+                    "pipeline_hash",
+                    "domain_method_fingerprints",
+                )
+            }
+        )
+        case["source_snapshot_hash"] = digest(case["source_refs"])
+    scopes = {
+        key: {field: value[field] for field in ("novel_id", "scene_id", "chapter_index")}
+        for key, value in binding["case_bindings"].items()
+    }
+    scopes_path = root / "scopes" / f"{family['family_id']}.json"
+    setup_path = root / "setups" / f"{family['family_id']}.json"
+    _write_private_json(scopes_path, scopes)
+    _write_private_json(
+        setup_path,
+        {
+            "status": "completed",
+            "project_id": novel,
+            "source_sha256": family["source_sha256"],
+            "scopes_sha256": _sha256_file(scopes_path),
+        },
+    )
+    binding.update(
+        setup_record_sha256=_sha256_file(setup_path),
+        scopes_sha256=_sha256_file(scopes_path),
+    )
+    common = deepcopy(binding)
+    common.update(
+        stage="common_source_scene_baseline",
+        vocabulary_snapshot=[],
+        vocabulary_snapshot_hash=digest([]),
+    )
+    for case in common["case_bindings"].values():
+        case["map_revision_count"] = 0
+    _write_private_json(root / "common-bindings" / f"{family['family_id']}.json", common)
+    binding["common_binding_sha256"] = digest(common)
+    binding["map_heads_sha256"] = digest(
+        {
+            key: {
+                field: case[field]
+                for field in ("map_snapshot_hash", "map_revision_count")
+            }
+            for key, case in binding["case_bindings"].items()
+        }
+    )
     _write_private_json(root / "bindings" / f"{family['family_id']}.json", binding)
     monkeypatch.setenv("AUTH_MODE", "local")
     monkeypatch.setenv("DATABASE_URL", URL)
@@ -87,6 +177,7 @@ def binding_fixture(tmp_path, monkeypatch):
 
 
 def completed_calibration(root, binding, *, wrong=False):
+    binding = read_common_binding(root, binding["family_id"])
     executor = CodexStructuredExecutor(attempts=1)
     prompt = calibration_prompt(binding)
     path = start_request(
@@ -148,7 +239,7 @@ def test_binding_rejects_material_or_pipeline_drift(tmp_path, monkeypatch):
     root, binding, _ = binding_fixture(tmp_path, monkeypatch)
     assert read_binding(root, binding["family_id"]) == binding
     monkeypatch.setattr("evals.map_spatial.pipeline_hash", lambda: "changed")
-    with pytest.raises(MapSpatialEvalError, match="管线代码版本"):
+    with pytest.raises(MapSpatialEvalError, match="管线.*版本"):
         read_binding(root, binding["family_id"])
 
 
@@ -159,8 +250,11 @@ def test_handwritten_gate_cannot_substitute_real_development_records(
     _write_private_json(root / "gates/development-gate.json", {"passed": True})
     with pytest.raises(MapSpatialEvalError):
         require_development_gate(root, matrix)
-    with pytest.raises(MapSpatialEvalError):
-        evaluate_development(root, matrix)
+    report = evaluate_development(root, matrix)
+    assert report["status"] == "blocked"
+    assert report["passed"] is False
+    assert report["blockers"]
+    assert not report["proofs"]
     assert not (root / "run-ledger.json").exists()
 
 
@@ -282,6 +376,7 @@ async def test_map_scope_accepts_only_exact_seeded_role_and_journals_one_call(
     tmp_path, monkeypatch
 ):
     root, binding, _ = binding_fixture(tmp_path, monkeypatch)
+    binding = read_common_binding(root, binding["family_id"])
     monkeypatch.setenv("MAP_SPATIAL_EVAL_ALLOW_LIVE", "1")
     events = []
 
@@ -337,6 +432,7 @@ async def test_map_scope_accepts_only_exact_seeded_role_and_journals_one_call(
 @pytest.mark.asyncio
 async def test_unknown_scoring_request_never_retries(tmp_path, monkeypatch):
     root, binding, _ = binding_fixture(tmp_path, monkeypatch)
+    binding = read_common_binding(root, binding["family_id"])
     monkeypatch.setenv("MAP_SPATIAL_EVAL_ALLOW_LIVE", "1")
 
     async def verify(*args):
@@ -478,9 +574,12 @@ async def test_lifecycle_default_refuses_before_manager_or_binding(tmp_path, mon
 
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize("drift", [False, True])
+@pytest.mark.parametrize(
+    "drift,outcome",
+    [(False, "done"), (True, "done"), (False, "timeout"), (False, "attempted")],
+)
 async def test_pair_freezes_both_confirmations_before_exact_worker_claim(
-    tmp_path, monkeypatch, drift
+    tmp_path, monkeypatch, drift, outcome
 ):
     from contextlib import asynccontextmanager
 
@@ -519,7 +618,8 @@ async def test_pair_freezes_both_confirmations_before_exact_worker_claim(
     active_task = None
 
     async def scalar(query):
-        return tasks[active_task]
+        task_id = str(next(iter(query.compile().params.values())))
+        return tasks.get(task_id)
 
     db = SimpleNamespace(scalar=scalar)
 
@@ -554,9 +654,14 @@ async def test_pair_freezes_both_confirmations_before_exact_worker_claim(
         return SimpleNamespace(rendered_markdown=source["cases"][0]["source_excerpt"])
 
     async def submit(self, db, request, **kwargs):
+        nonlocal active_task
         task_id, draft_id = str(uuid.uuid4()), str(uuid.uuid4())
         tasks[task_id] = SimpleNamespace(
-            status="pending", attempt=0, result={"draft_id": draft_id}
+            task_type="writing_generate",
+            meta={"included_sources_upper_bound": 2},
+            status="pending",
+            attempt=1 if outcome == "attempted" else 0,
+            result={"draft_id": draft_id},
         )
         drafts[draft_id] = SimpleNamespace(
             id=draft_id, content="synthetic prose", content_hash="draft-hash"
@@ -570,6 +675,8 @@ async def test_pair_freezes_both_confirmations_before_exact_worker_claim(
         assert len(tasks) == 2 and len(confirmations) == 2
         assert task_id in tasks
         active_task = task_id
+        if outcome == "timeout":
+            raise TimeoutError("synthetic provider hangs")
         tasks[task_id].status = "done"
         calls.append(("run_exact", task_id))
 
@@ -603,7 +710,18 @@ async def test_pair_freezes_both_confirmations_before_exact_worker_claim(
         chapter_index=case_scope["chapter_index"],
         execute=True,
     )
-    if drift:
+    if outcome == "attempted":
+        with pytest.raises(MapSpatialEvalError, match="未尝试"):
+            await map_spatial.run_writing_pair(**args)
+        assert not any(name == "run_exact" for name, _ in calls)
+    elif outcome == "timeout":
+        with pytest.raises(TimeoutError):
+            await map_spatial.run_writing_pair(**args)
+        ledger = map_spatial._read_ledger(root)
+        assert ledger["runs"][f"{family['family_id']}/{case_id}"]["status"] == "unknown"
+        with pytest.raises(MapSpatialEvalError, match="不自动重发"):
+            await map_spatial.run_writing_pair(**args)
+    elif drift:
         with pytest.raises(MapSpatialEvalError, match="core_context_hash"):
             await map_spatial.run_writing_pair(**args)
         assert not any(name == "run_exact" for name, _ in calls)

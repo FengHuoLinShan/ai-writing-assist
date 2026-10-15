@@ -7,9 +7,9 @@ import os
 import re
 import time
 import uuid
+from contextlib import asynccontextmanager
 from datetime import UTC, datetime
 from pathlib import Path
-from urllib.parse import urlsplit
 
 from evals.map_spatial import (
     LIVE_ENV,
@@ -27,6 +27,7 @@ from evals.map_spatial import (
     preflight_common_project,
     preflight_project,
     require_private_directory,
+    task_execution_budget,
     verify_materials,
 )
 from evals.map_spatial_guard import (
@@ -59,33 +60,47 @@ from evals.map_spatial_guard import (
 def explicit_execution(execute: bool) -> None:
     if not execute or os.environ.get(LIVE_ENV) != "1":
         raise MapSpatialEvalError("默认关闭：需要--execute和地图专用live开关")
+    from app.main import app  # noqa: F401 — before any facade/container use
 
 
 def _validate_live_api_target(api_base_url: str, timeout_seconds: int) -> None:
-    if (
-        os.environ.get("APP_ENV") != "development"
-        or os.environ.get("AUTH_MODE") != "local"
-    ):
-        raise MapSpatialEvalError("产品评测要求APP_ENV=development与AUTH_MODE=local")
+    if os.environ.get("APP_ENV") != "test" or os.environ.get("AUTH_MODE") != "local":
+        raise MapSpatialEvalError("产品评测要求APP_ENV=test与AUTH_MODE=local")
     _database_target(os.environ.get("DATABASE_URL", ""))
-    try:
-        parsed = urlsplit(api_base_url)
-        port = parsed.port
-    except ValueError as exc:
-        raise MapSpatialEvalError("隔离API地址无效") from exc
-    if (
-        parsed.scheme != "http"
-        or parsed.hostname not in {"127.0.0.1", "localhost", "::1"}
-        or port != 65303
-        or parsed.path not in {"", "/"}
-        or parsed.query
-        or parsed.fragment
-        or parsed.username
-        or parsed.password
-    ):
-        raise MapSpatialEvalError("产品API只接受本机隔离服务127.0.0.1:65303")
+    # No network server can prove it uses this process's isolated database.
+    if api_base_url != "http://map-spatial-eval.internal":
+        raise MapSpatialEvalError(
+            "产品评测只接受同进程ASGI API；拒绝网络地址以避免错库写入"
+        )
     if not 1 <= timeout_seconds <= 3600:
         raise MapSpatialEvalError("产品请求超时必须在1到3600秒")
+
+
+@asynccontextmanager
+async def _product_client(api_base_url: str, timeout_seconds: int):
+    """Run the real product app against the verified process-local manager."""
+    _validate_live_api_target(api_base_url, timeout_seconds)
+    from core.database import get_manager
+
+    manager = get_manager()
+    if _database_identity(str(manager.engine.url)) != _database_identity(
+        os.environ["DATABASE_URL"]
+    ):
+        raise MapSpatialEvalError("产品API实际数据库与隔离配置不同")
+    import httpx
+
+    from app.main import app
+
+    if app.dependency_overrides:
+        raise MapSpatialEvalError("评测产品API不得使用未验证的dependency overrides")
+    # ASGITransport deliberately skips startup workers/embedding prewarming.
+    async with httpx.AsyncClient(
+        transport=httpx.ASGITransport(app=app),
+        base_url=api_base_url,
+        timeout=min(timeout_seconds, 30),
+        headers={"X-Requested-With": "XMLHttpRequest"},
+    ) as client:
+        yield client
 
 
 def _setup_record_path(root: Path, family_id: str) -> Path:
@@ -151,7 +166,9 @@ def _validated_setup(root: Path, family: dict, source: dict) -> tuple[dict, dict
 
 async def _post_product_json(client, path: str, payload: dict) -> dict:
     try:
-        response = await client.post(path, json=payload)
+        response = await asyncio.wait_for(
+            client.post(path, json=payload), timeout=client.timeout.read
+        )
     except BaseException as exc:
         raise MapSpatialEvalError("产品API请求中断；setup状态保持unknown") from exc
     if not 200 <= response.status_code < 300:
@@ -390,11 +407,7 @@ async def setup_family(
         os.environ["DATABASE_URL"]
     ):
         raise MapSpatialEvalError("setup进程实际数据库与配置不同")
-    import httpx
-
-    async with httpx.AsyncClient(
-        base_url=api_base_url, timeout=timeout_seconds
-    ) as client:
+    async with _product_client(api_base_url, timeout_seconds) as client:
         return await _setup_family_via_client(
             private_root=private_root,
             family_id=family_id,
@@ -553,12 +566,8 @@ async def preview_evolution(
         if path.exists():
             raise MapSpatialEvalError("Evolution preview身份已占用")
         _write_private_json(path, preview_record)
-    import httpx
-
     try:
-        async with httpx.AsyncClient(
-            base_url=api_base_url, timeout=timeout_seconds
-        ) as client:
+        async with _product_client(api_base_url, timeout_seconds) as client:
             preview = await _post_product_json(
                 client,
                 f"/api/evolution/reading/preview?novel_id={common['novel_id']}",
@@ -627,6 +636,8 @@ async def start_evolution(
         or preview_record.get("common_binding_sha256") != digest(common)
         or preview_record.get("request_sha256") != digest(preview_record.get("request"))
         or preview_record.get("preview", {}).get("within_root_limit") is not True
+        or preview_record.get("request", {}).get("request_limit")
+        != preview_record.get("preview", {}).get("required_root_limit")
         or preview_record.get("human_validated") is not False
     ):
         raise MapSpatialEvalError("Evolution preview未通过或已占用；不得重发")
@@ -638,12 +649,8 @@ async def start_evolution(
     manager = get_manager()
     async with manager.session() as db:
         await verify_runtime(db, common)
-    import httpx
-
     try:
-        async with httpx.AsyncClient(
-            base_url=api_base_url, timeout=timeout_seconds
-        ) as client:
+        async with _product_client(api_base_url, timeout_seconds) as client:
             current_preview = await _post_product_json(
                 client,
                 f"/api/evolution/reading/preview?novel_id={common['novel_id']}",
@@ -764,12 +771,16 @@ async def run_evolution(
     """Run only the exact pending Evolution task ids recorded for this run."""
     explicit_execution(execute)
     _validate_live_api_target(api_base_url, min(timeout_seconds, 3600))
-    if not 1 <= max_tasks <= 6:
-        raise MapSpatialEvalError("单次Evolution最多精确执行6个任务")
-    if not 1 <= timeout_seconds <= 3600:
-        raise MapSpatialEvalError("Evolution task timeout必须在1到3600秒")
+    if not 1 <= max_tasks <= 2:
+        raise MapSpatialEvalError("单次Evolution最多精确执行2个任务")
+    if not 1 <= timeout_seconds <= 900:
+        raise MapSpatialEvalError("Evolution task timeout必须在1到900秒")
     root = require_private_directory(private_root)
     common = read_common_binding(root, family_id)
+    if common["split"] == "development":
+        require_calibration(root, common)
+    else:
+        require_development_gate(root, load_matrix())
     path = _evolution_record_path(root, family_id)
     record = _read_private_json(path)
     if (
@@ -803,7 +814,7 @@ async def run_evolution(
         _write_private_json(path, record)
     started_this_call = 0
     try:
-        while started_this_call < max_tasks:
+        while True:
             async with manager.session() as db:
                 await verify_runtime(db, common)
                 state = await read_map_cold_start_status(
@@ -841,6 +852,21 @@ async def run_evolution(
             task_id = str(evidence.get("task_id") or "")
             if not task_id:
                 raise MapSpatialEvalError("Evolution没有可验证的下一精确task id")
+            if started_this_call >= max_tasks:
+                record.update(status="pending", current_task_id=task_id)
+                _write_private_json(path, record)
+                return {
+                    "status": "pending",
+                    "family_id": family_id,
+                    "run_key": record["run_key"],
+                    "tasks_completed": record["tasks_completed"],
+                    "next_task_id": task_id,
+                    "request_limit": record["request_limit"],
+                    "usage": "unknown",
+                    "human_validated": False,
+                }
+            if record.get("tasks_completed", 0) >= 5:
+                raise MapSpatialEvalError("五Scene pilot已耗尽5个精确Evolution task上限")
             task_path = _evolution_task_path(
                 root, family_id, record["operation_id"], task_id
             )
@@ -913,16 +939,7 @@ async def run_evolution(
             record["task_ids"] = [*record["task_ids"], task_id]
             record["status"] = "pending"
             _write_private_json(path, record)
-        return {
-            "status": "pending",
-            "family_id": family_id,
-            "run_key": record["run_key"],
-            "tasks_completed": record["tasks_completed"],
-            "next_task_id": record.get("current_task_id"),
-            "request_limit": record["request_limit"],
-            "usage": "unknown",
-            "human_validated": False,
-        }
+
     except BaseException:
         if record.get("status") == "running":
             record["status"] = "unknown"
@@ -930,7 +947,14 @@ async def run_evolution(
         raise
 
 
-async def run_assistant_turn(
+async def run_assistant_turn(**kwargs) -> dict:
+    from evals.map_spatial import map_capability
+
+    with map_capability("assistant.turn", True):
+        return await _run_assistant_turn(**kwargs)
+
+
+async def _run_assistant_turn(
     *,
     private_root: Path,
     family_id: str,
@@ -942,8 +966,8 @@ async def run_assistant_turn(
     """Submit one normal Assistant turn and run only its exact pending task."""
     explicit_execution(execute)
     _validate_live_api_target(api_base_url, min(timeout_seconds, 3600))
-    if not 1 <= timeout_seconds <= 3600:
-        raise MapSpatialEvalError("Assistant task timeout必须在1到3600秒")
+    if not 1 <= timeout_seconds <= 900:
+        raise MapSpatialEvalError("Assistant task timeout必须在1到900秒")
     root = require_private_directory(private_root)
     matrix = load_matrix()
     family = _family_for(matrix, family_id)
@@ -971,7 +995,7 @@ async def run_assistant_turn(
             "page": "map",
             "chapter_index": scope["chapter_index"],
             "scene_id": scope["scene_id"],
-            "task_hint": "retrieve",
+            "task_hint": "unknown",
             "scope": "current",
         },
         "allow_web": False,
@@ -1001,11 +1025,7 @@ async def run_assistant_turn(
 
     manager = get_manager()
     try:
-        import httpx
-
-        async with httpx.AsyncClient(
-            base_url=api_base_url, timeout=timeout_seconds
-        ) as client:
+        async with _product_client(api_base_url, timeout_seconds) as client:
             async with manager.session() as db:
                 await verify_runtime(db, binding)
             session = await _post_product_json(
@@ -1068,6 +1088,10 @@ async def run_assistant_turn(
                     "Assistant worker只能接管同Project、同run且pending未尝试的task"
                 )
             await verify_runtime(db, binding)
+            task_record["execution_budget"] = task_execution_budget(
+                task, binding["project_snapshot"], timeout_seconds
+            )
+            _write_private_json(task_path, task_record)
         _configure_worker_process()
         worker = _build_task_worker()
         try:
@@ -1154,8 +1178,8 @@ async def review_map_family(
     """Apply bounded proxy-author decisions through the normal World APIs."""
     explicit_execution(execute)
     _validate_live_api_target(api_base_url, timeout_seconds)
-    if not 1 <= max_actions <= 200:
-        raise MapSpatialEvalError("单次代理作者审核最多200个明确决定")
+    if not 1 <= max_actions <= 20:
+        raise MapSpatialEvalError("单次代理作者审核最多20个明确决定")
     root = require_private_directory(private_root)
     matrix = load_matrix()
     family = _family_for(matrix, family_id)
@@ -1234,11 +1258,7 @@ async def review_map_family(
         reviewed = set(record.get("reviewed_clue_ids", []))
         adopted = set(record.get("adopted_clue_ids", []))
         rejected = set(record.get("rejected_clue_ids", []))
-        import httpx
-
-        async with httpx.AsyncClient(
-            base_url=api_base_url, timeout=timeout_seconds
-        ) as client:
+        async with _product_client(api_base_url, timeout_seconds) as client:
             for clue in evidence["world"].get("clues", []):
                 clue_id = str(clue.get("id") or "")
                 if not clue_id or clue_id in reviewed:
@@ -1490,6 +1510,79 @@ async def review_map_family(
                         or not isinstance(keys, list)
                     ):
                         raise MapSpatialEvalError("World候选审核预览与实际修订不符")
+                    promoted_now = False
+                    for location in preview.get("candidate_locations", []):
+                        entity_id = str(location.get("entity_id") or "")
+                        endpoint = f"/api/world/entities/{entity_id}/promote"
+                        if location.get("can_adopt") is not True:
+                            continue
+                        if (
+                            location.get("promotion_endpoint") != endpoint
+                            or not location.get("source_hash")
+                            or not location.get("name")
+                            or not any(
+                                location["name"] in source_by_scene[scene_id]
+                                for scene_id in source_scene_ids
+                            )
+                        ):
+                            raise MapSpatialEvalError(
+                                "代理作者采用地点缺少同Scene原文与正式来源预览"
+                            )
+                        if action_count >= max_actions:
+                            break
+                        async with manager.session() as db:
+                            await verify_runtime(db, common)
+                        promotion_started = time.monotonic()
+                        promoted = await _post_product_json(
+                            client,
+                            f"{endpoint}?novel_id={common['novel_id']}",
+                            {"expected_source_hash": location["source_hash"]},
+                        )
+                        if (
+                            promoted.get("entity_id") != entity_id
+                            or promoted.get("status") != "canonical"
+                        ):
+                            raise MapSpatialEvalError(
+                                "原World promote未返回同地点的canonical回执"
+                            )
+                        record.setdefault("review_events", []).append(
+                            {
+                                "kind": "world_location_promote",
+                                "case_id": decision_case_id,
+                                "scene_id": source_scene_ids[0],
+                                "entity_id": entity_id,
+                                "source_hash": location["source_hash"],
+                                "response_sha256": digest(promoted),
+                                "elapsed_seconds": round(
+                                    max(0.0, time.monotonic() - promotion_started), 3
+                                ),
+                                "human_validated": False,
+                            }
+                        )
+                        record["review_steps"] += 1
+                        record.setdefault("promoted_entity_ids", []).append(entity_id)
+                        action_count += 1
+                        promoted_now = True
+                        _write_private_json(path, record)
+                    if action_count >= max_actions:
+                        break
+                    if promoted_now:
+                        # World adoption and map adoption are separate author decisions.
+                        preview = await _post_product_json(
+                            client,
+                            f"/api/world/map-atlas/{common['novel_id']}/nodes/{node_id}/revisions/{revision_id}/review-preview",
+                            {"base_revision_id": base_id, "action": "adopt"},
+                        )
+                        if (
+                            preview.get("candidate_revision_id") != revision_id
+                            or preview.get("base_revision_id") != base_id
+                            or preview.get("candidate_locations_truncated") is True
+                        ):
+                            raise MapSpatialEvalError("地点采用后地图CAS预览漂移")
+                        keys = preview.get("applied_change_keys")
+                        if not isinstance(keys, list):
+                            raise MapSpatialEvalError("地点采用后缺少独立地图审核keys")
+                    decision_started = time.monotonic()
                     if not keys:
                         action = "reject"
                     else:
@@ -1632,6 +1725,7 @@ async def freeze_common_binding(
         "expected_sha256",
         "project_snapshot",
         "project_snapshot_hash",
+        "runtime_limits",
         "vocabulary_snapshot",
         "vocabulary_snapshot_hash",
         "pipeline_hash",
@@ -1734,6 +1828,7 @@ async def freeze_binding(
         "scene_hash",
         "map_snapshot_hash",
         "source_snapshot_hash",
+        "source_refs",
         "map_revision_count",
     )
     case_globals = {

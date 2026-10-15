@@ -403,7 +403,12 @@ async def verify_runtime(db, binding: dict) -> None:
     """Use normal owner gates and the actual DB connection, then release reads."""
     from sqlalchemy import select
 
-    from evals.map_spatial import MapSpatialEvalError, _canonical_hash, _database_identity
+    from evals.map_spatial import (
+        MapSpatialEvalError,
+        _canonical_hash,
+        _database_identity,
+        runtime_limits,
+    )
     from modules.account.facade import current_account_id, require_account_active
     from modules.project.facade import (
         build_project_llm_execution_snapshot,
@@ -450,6 +455,8 @@ async def verify_runtime(db, binding: dict) -> None:
             or restored.get("llm", {}).get("extra", {}).get("reasoning_effort") != "max"
         ):
             raise MapSpatialEvalError("owner已验证Codex Luna/max snapshot漂移")
+        if binding.get("runtime_limits") != runtime_limits(current):
+            raise MapSpatialEvalError("模型并发或token上下文/输出目标配置漂移")
     finally:
         await db.rollback()
 
@@ -1318,6 +1325,69 @@ def judge_prompt(root: Path, binding: dict, case_id: str, evidence: dict) -> str
     return json.dumps(payload, ensure_ascii=False, sort_keys=True)
 
 
+def summarize_metric(group: str, name: str, rows: list[Metric | None]) -> dict:
+    """Sum real opportunities per genre; telemetry never becomes a quality gate."""
+    present = [item for item in rows if item is not None]
+    unknown = [item for item in present if item.status == "unknown"]
+    applicable = [item for item in present if item.status == "observed"]
+    if unknown or len(present) != len(rows):
+        status = "unknown"
+        numerator = denominator = value = without_map = None
+        reason = "至少一个开发案例缺少可验证度量"
+    elif not applicable:
+        status = "not_applicable"
+        numerator = denominator = 0.0
+        value = without_map = None
+        reason = "全部案例均无该指标观察机会"
+    else:
+        status = "observed"
+        numerator = sum(item.numerator for item in applicable)
+        denominator = sum(item.denominator for item in applicable)
+        value = numerator / denominator if denominator else None
+        without_values = [item for item in applicable if item.without_map is not None]
+        without_map = (
+            sum(item.without_map * item.denominator for item in without_values)
+            / sum(item.denominator for item in without_values)
+            if len(without_values) == len(applicable)
+            else None
+        )
+        reason = "逐案例真实指标按题材分子/分母聚合"
+    threshold = BOUNDS.get(name)
+    passed = status == "observed" and value is not None
+    if threshold is not None:
+        passed = passed and threshold[0] <= value <= threshold[1]
+    if name in {"spatial_consistency", "prose_quality"}:
+        if without_map is None:
+            passed = False
+            reason += "；配对无地图分数缺失"
+        elif name == "spatial_consistency":
+            passed = passed and value > without_map
+            reason += "；要求严格优于无地图"
+        else:
+            passed = passed and value >= without_map
+            reason += "；要求不低于无地图"
+    required_for_gate = name in BOUNDS
+    if not required_for_gate:
+        reason += "；辅助报告度量，无预设质量阈值，缺失保持unknown"
+
+    return {
+        "group": group,
+        "name": name,
+        "status": status,
+        "numerator": numerator,
+        "denominator": denominator,
+        "value": value,
+        "without_map": without_map,
+        "threshold": list(threshold) if threshold is not None else None,
+        "passed": bool(passed) if required_for_gate else None,
+        "required_for_gate": required_for_gate,
+        "case_count": len(rows),
+        "applicable_case_count": len(applicable),
+        "unknown_case_count": len(unknown) + sum(item is None for item in rows),
+        "reason": reason,
+    }
+
+
 def evaluate_development(root: Path, matrix: dict) -> dict:
     """Recompute every genre gate from frozen product evidence and raw judge output."""
     from evals.map_spatial import (
@@ -1545,72 +1615,12 @@ def evaluate_development(root: Path, matrix: dict) -> dict:
                     )
                     for case_id in sorted(source_cases)
                 ]
-                present = [item for item in rows if item is not None]
-                unknown = [item for item in present if item.status == "unknown"]
-                applicable = [item for item in present if item.status == "observed"]
-                if unknown or len(present) != len(rows):
-                    status = "unknown"
-                    numerator = denominator = value = without_map = None
-                    reason = "至少一个开发案例缺少可验证度量"
-                elif not applicable:
-                    status = "not_applicable"
-                    numerator = denominator = 0.0
-                    value = without_map = None
-                    reason = "全部案例均无该指标观察机会"
-                else:
-                    status = "observed"
-                    numerator = sum(item.numerator for item in applicable)
-                    denominator = sum(item.denominator for item in applicable)
-                    value = numerator / denominator if denominator else None
-                    without_values = [
-                        item for item in applicable if item.without_map is not None
-                    ]
-                    without_map = (
-                        sum(item.without_map for item in without_values)
-                        / len(without_values)
-                        if len(without_values) == len(applicable)
-                        else None
-                    )
-                    reason = "逐案例真实指标按题材分子/分母聚合"
-                threshold = BOUNDS.get(name)
-                passed = status == "observed" and value is not None
-                if threshold is not None:
-                    passed = passed and threshold[0] <= value <= threshold[1]
-                if name in {"spatial_consistency", "prose_quality"}:
-                    if without_map is None:
-                        passed = False
-                        reason += "；配对无地图分数缺失"
-                    elif name == "spatial_consistency":
-                        passed = passed and value > without_map
-                        reason += "；要求严格优于无地图"
-                    else:
-                        passed = passed and value >= without_map
-                        reason += "；要求不低于无地图"
-                if name == "total_cost" and status != "observed":
-                    passed = False
-                    reason += "；未观测实际费用不能按零通过"
-                metrics[f"{group}.{name}"] = {
-                    "group": group,
-                    "name": name,
-                    "status": status,
-                    "numerator": numerator,
-                    "denominator": denominator,
-                    "value": value,
-                    "without_map": without_map,
-                    "threshold": list(threshold) if threshold is not None else None,
-                    "passed": bool(passed),
-                    "case_count": len(rows),
-                    "applicable_case_count": len(applicable),
-                    "unknown_case_count": len(unknown)
-                    + sum(item is None for item in rows),
-                    "reason": reason,
-                    "evidence_request_hashes": [
-                        proof["request_sha256"]
-                        for proof in proofs
-                        if proof["genre"] == genre
-                    ],
-                }
-                if not passed:
+                summary = summarize_metric(group, name, rows)
+                summary["evidence_request_hashes"] = [
+                    proof["request_sha256"] for proof in proofs if proof["genre"] == genre
+                ]
+                metrics[f"{group}.{name}"] = summary
+                if summary["required_for_gate"] and not summary["passed"]:
                     genre_passed = False
         if not genre_passed:
             blockers.append(

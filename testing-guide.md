@@ -712,10 +712,15 @@ quota，root 检查后只启动同一 operation id，并用精确 Scene task `ru
 或产品 `result.eval_observations`。来源、owner、Scene scope、method/prompt/schema fingerprint 与
 真实 raw hash 不匹配时失败关闭。`started/pending/unknown/completed` 不重发；费用缺失为 unknown。
 
-本批尚无真实连接验证、模型或业务数据库请求。驱动进入 Sol/high review，Assistant turn capability /
-case context、Writing worker timeout 与 gate 的 cost/零机会聚合仍需直接修复并集成；因此现有
-工程测试不能解锁 live pilot，当前 holdout 仍受完整 25 开发 case、四组所有既定门槛的实际 gate
-保护。代理作者审核始终 `human_validated=false`。
+评测产品 API 使用同进程真实 FastAPI + ASGITransport，先绑定实际隔离 manager，拒绝所有网络 API
+地址，避免首个写入落错库；正常 composition 先 import，不启动 lifespan/后台 worker。环境为
+`APP_ENV=test`、`AUTH_MODE=local`。Assistant 提交/worker 同时临时启用地图能力并恢复，task_hint
+保持 unknown；Writing/Assistant/Evolution 精确 task timeout 900 秒。整 CLI 阶段也有 deadline。
+费用无实际遥测仍报告 unknown，不作为没有既定阈值的质量准入；单案例无机会可 n/a，整题材
+缺质量 coverage 或真实证据仍失败。一个开发族 pilot 不开放 holdout，仍需全部25开发案例门槛。
+每 Writing 臂真实registry根请求≤14、Assistant≤30，含正常首次账户验证的全族上界297+M+Q；
+并发≤2。Codex 输出 token 只是目标，硬token额度不支持，费用不估零。代理审核始终
+`human_validated=false`。本批工程检查不调用真实模型，不代表质量或作者验收。
 
 执行命令、专用隔离 setup、逐阶段预算和未完成接口见
 [地图预检交接](.agent/tasks/2026/T-20261015-map-enhancement-design/artifacts/evaluation/MAP-SPATIAL-LIVE-PREFLIGHT.md)。

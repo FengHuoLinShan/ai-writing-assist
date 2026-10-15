@@ -478,7 +478,7 @@ def _as_plain(value: Any) -> Any:
 
 
 @contextmanager
-def writing_arm(enabled: bool):
+def map_capability(capability: str, enabled: bool):
     """A process-only override; immutable Settings and database flags stay untouched."""
     from core.config import get_settings
 
@@ -486,10 +486,10 @@ def writing_arm(enabled: bool):
     capabilities = tuple(
         value
         for value in get_settings().map_spatial_enabled_capabilities
-        if value != "writing.generate"
+        if value != capability
     )
     os.environ["MAP_SPATIAL_ENABLED_CAPABILITIES"] = ",".join(
-        (*capabilities, *(("writing.generate",) if enabled else ()))
+        (*capabilities, *((capability,) if enabled else ()))
     )
     get_settings.cache_clear()
     try:
@@ -500,6 +500,10 @@ def writing_arm(enabled: bool):
         else:
             os.environ["MAP_SPATIAL_ENABLED_CAPABILITIES"] = old_env
         get_settings.cache_clear()
+
+
+def writing_arm(enabled: bool):
+    return map_capability("writing.generate", enabled)
 
 
 def pipeline_hash() -> str:
@@ -528,6 +532,11 @@ def pipeline_hash() -> str:
             "backend/modules/evolution/spatial_rescan.py",
             "backend/modules/world/map_spatial_clue_schemas.py",
             "backend/modules/world/map_spatial_clue_service.py",
+            "backend/modules/world/map_spatial_advisory_service.py",
+            "backend/modules/world/assistant_map_tools.py",
+            "backend/modules/world/map_candidate_locations.py",
+            "backend/modules/world/services/core/entity_service.py",
+            "backend/modules/world/services/common.py",
             "backend/modules/world/project_vocabulary_service.py",
             "backend/modules/world/project_vocabulary_presets.py",
             "backend/modules/world/map_auto_draft_service.py",
@@ -540,10 +549,20 @@ def pipeline_hash() -> str:
             "backend/modules/assistant/map_spatial_advisories.py",
             "backend/modules/assistant/operations.py",
             "backend/modules/assistant/service.py",
+            "backend/infrastructure/llm/agent_runtime.py",
             "backend/modules/assistant/schemas.py",
             "backend/modules/writing/generation_service.py",
+            "backend/modules/writing/tasks.py",
+            "backend/modules/assistant/tasks.py",
+            "backend/infrastructure/tasks/registry.py",
+            "backend/infrastructure/llm/capabilities.py",
+            "backend/infrastructure/llm/codex_provider.py",
+            "backend/infrastructure/llm/model_limits.py",
         )
     )
+    lineage = REPO_ROOT / "backend/modules/world/map_merge_lineage.py"
+    if lineage.is_file():
+        paths.add(lineage)
     return _canonical_hash(
         {str(path.relative_to(REPO_ROOT)): _sha256_file(path) for path in paths}
     )
@@ -552,11 +571,12 @@ def pipeline_hash() -> str:
 def domain_method_fingerprints() -> dict[str, str]:
     """Reuse the domain's own frozen method IDs and pin the Assistant map tools."""
     from modules.assistant.evidence_tools import author_read_tools
+    from modules.assistant.service import _INSTRUCTIONS
     from modules.evolution.spatial import spatial_method_fingerprint
     from modules.world.map_auto_draft_service import _method_fingerprint
 
-    assistant_tools = sorted(
-        tool.name
+    assistant_tools = {
+        tool.name: tool.function_schema.json_schema
         for tool in author_read_tools(allow_web=False, version="6")
         if tool.name
         in {
@@ -565,15 +585,66 @@ def domain_method_fingerprints() -> dict[str, str]:
             "map_journey",
             "map_object_position",
         }
-    )
+    }
     if not assistant_tools:
         raise MapSpatialEvalError("Assistant没有注册地图参考工具")
     return {
         "evolution_spatial": spatial_method_fingerprint(),
         "map_auto_draft": _method_fingerprint(),
         "assistant_map_tools": _canonical_hash(
-            {"runtime_version": "6", "tools": assistant_tools}
+            {
+                "runtime_version": "6",
+                "tools": assistant_tools,
+                "instructions": _INSTRUCTIONS,
+            }
         ),
+    }
+
+
+def runtime_limits(snapshot: dict) -> dict:
+    from core.config import get_settings
+    from infrastructure.llm.capabilities import capability_from_execution_snapshot
+    from infrastructure.llm.model_limits import get_model_limits
+
+    limits = get_model_limits("codex", "gpt-6-luna")
+    if limits.concurrency > 2:
+        raise MapSpatialEvalError("隔离评测Codex模型并发必须显式限制为不大于2")
+    if not get_settings().assistant_enabled:
+        raise MapSpatialEvalError("隔离评测必须显式启用ASSISTANT_ENABLED，再冻结共同基线")
+    capability = capability_from_execution_snapshot(snapshot)
+    return {
+        "model_limits": asdict(limits),
+        "context_limit_tokens": capability.context_limit_tokens,
+        "hard_input_tokens": capability.hard_input_tokens,
+        "output_target_tokens": (snapshot.get("profile") or {}).get("max_tokens"),
+        "capability_story_output_tokens": capability.story_output_tokens,
+        "assistant_enabled": True,
+        "output_token_limit_enforced": False,
+        "currency_cost": "unknown",
+        "hard_token_budget_status": "unsupported",
+    }
+
+
+def task_execution_budget(task, snapshot: dict, timeout_seconds: int) -> dict:
+    """Freeze the same registry limits the exact TaskWorker will enforce."""
+    from infrastructure.tasks.registry import get_registry
+
+    registry = get_registry()
+    request_limit = registry.resolve_run_request_limit(task.task_type, task)
+    policy = registry.resolve_run_budget_policy(task.task_type, task)
+    if not request_limit or not policy or policy["budget_mode"] != "bounded":
+        raise MapSpatialEvalError("评测task没有可验证的有界root调用额度")
+    cap = {"writing_generate": 14, "assistant_turn": 30}.get(task.task_type)
+    if cap is not None and request_limit > cap:
+        raise MapSpatialEvalError("pilot精确task的registry额度超过冻结的阶段调用上限")
+    return {
+        "request_limit": request_limit,
+        "token_limit": registry.resolve_run_token_limit(task.task_type, task),
+        "task_timeout_seconds": timeout_seconds,
+        "registry_deadline_seconds": registry.resolve_run_deadline_seconds(
+            task.task_type, task
+        ),
+        "runtime": runtime_limits(snapshot),
     }
 
 
@@ -690,7 +761,7 @@ async def _preflight_project_state(
         _require_development_gate(private_root, load_matrix())
     from sqlalchemy import select
 
-    from app.bootstrap import register_container_services
+    from app.main import app  # noqa: F401 — initialize the normal composition once
     from core.database import get_manager
     from evals.map_spatial_guard import rubric_hash
     from modules.account.facade import current_account_id, require_account_active
@@ -704,7 +775,6 @@ async def _preflight_project_state(
     from modules.world.contracts import MapSpatialBriefRequest
     from modules.world.facade import read_map_spatial_brief, read_project_vocabulary
 
-    register_container_services(ignore_existing=True)
     manager = get_manager()
     target = _database_identity(str(manager.engine.url))
     if target != _database_identity(os.environ["DATABASE_URL"]):
@@ -784,6 +854,7 @@ async def _preflight_project_state(
             "expected_sha256": family["expected_sha256"],
             "project_snapshot": snapshot,
             "project_snapshot_hash": _canonical_hash(snapshot),
+            "runtime_limits": runtime_limits(snapshot),
             "scene_hash": _canonical_hash(scene_data),
             "map_snapshot_hash": _canonical_hash(brief_data),
             "source_snapshot_hash": _canonical_hash(matched_refs),
@@ -809,8 +880,11 @@ async def run_writing_pair(
     scene_id: str,
     chapter_index: int,
     execute: bool,
+    timeout_seconds: int = 900,
 ) -> dict[str, Any]:
     """Use actual Evidence confirmation, Writing queue and TaskWorker for both arms."""
+    if not 1 <= timeout_seconds <= 900:
+        raise MapSpatialEvalError("Writing task timeout必须在1到900秒")
     private_root = require_private_directory(private_root)
     matrix = load_matrix()
     binding = _require_live_scope_approval(
@@ -922,8 +996,26 @@ async def run_writing_pair(
                         ),
                         llm_execution_snapshot=snapshot,
                     )
+                task = await db.scalar(
+                    select(AsyncTask).where(
+                        AsyncTask.id == uuid.UUID(response["task_id"]),
+                        AsyncTask.novel_id == uuid.UUID(novel_id),
+                    )
+                )
+                if (
+                    task is None
+                    or task.task_type != "writing_generate"
+                    or task.status != "pending"
+                    or task.attempt != 0
+                ):
+                    raise MapSpatialEvalError(
+                        "Writing只能接管同Project未尝试的精确pending task"
+                    )
+                budget = task_execution_budget(task, snapshot, timeout_seconds)
                 arms[arm_name] = {
+                    "execution_budget": budget,
                     "status": "pending",
+                    "timeout_seconds": timeout_seconds,
                     "task_id": response["task_id"],
                     "confirmation_id": confirmation.id,
                     "source_hash": family["source_sha256"],
@@ -988,7 +1080,30 @@ async def run_writing_pair(
 
                     async with manager.session() as runtime_db:
                         await verify_runtime(runtime_db, binding)
-                    await worker.run_once(task_id=arm["task_id"], novel_id=novel_id)
+                        task = await runtime_db.scalar(
+                            select(AsyncTask).where(
+                                AsyncTask.id == uuid.UUID(arm["task_id"]),
+                                AsyncTask.novel_id == uuid.UUID(novel_id),
+                            )
+                        )
+                        if (
+                            task is None
+                            or task.task_type != "writing_generate"
+                            or task.status != "pending"
+                            or task.attempt != 0
+                        ):
+                            raise MapSpatialEvalError(
+                                "Writing精确task已被执行或状态未知；不重发"
+                            )
+                        if (
+                            task_execution_budget(task, snapshot, timeout_seconds)
+                            != arm["execution_budget"]
+                        ):
+                            raise MapSpatialEvalError("Writing执行预算漂移")
+                    await asyncio.wait_for(
+                        worker.run_once(task_id=arm["task_id"], novel_id=novel_id),
+                        timeout=timeout_seconds,
+                    )
             except BaseException:
                 current_ledger = _read_ledger(private_root)
                 current = current_ledger["runs"][_run_key(family_id, case_id)]
@@ -1123,6 +1238,30 @@ def build_report(private_root: Path, output: Path) -> dict[str, Any]:
     }
 
 
+async def execute_command(action, options: dict) -> dict:
+    """Bound the whole CLI command, including setup/database work and task IO."""
+    name = action.__name__
+    task_timeout = options.get("timeout_seconds", 900)
+    deadline = {
+        "setup_family": 300,
+        "freeze_common_binding": 120,
+        "preview_evolution": 60,
+        "start_evolution": 90,
+        "run_evolution": options.get("max_tasks", 2) * task_timeout + 120,
+        "review_map_family": 1440,
+        "freeze_binding": 120,
+        "run_writing_pair": 2 * task_timeout + 120,
+        "run_assistant_turn": task_timeout + 120,
+        "score": 360,
+    }[name]
+    try:
+        return await asyncio.wait_for(action(**options), timeout=deadline)
+    except TimeoutError as exc:
+        raise MapSpatialEvalError(
+            "评测命令达到整阶段deadline；检查unknown账本，不重发"
+        ) from exc
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(prog="python -m evals.map_spatial")
     commands = parser.add_subparsers(dest="command", required=True)
@@ -1141,7 +1280,7 @@ def main() -> None:
     )
     setup.add_argument("--private-root", type=Path, default=DEFAULT_PRIVATE_ROOT)
     setup.add_argument("--family-id", required=True)
-    setup.add_argument("--api-base-url", default="http://127.0.0.1:65303")
+    setup.add_argument("--api-base-url", default="http://map-spatial-eval.internal")
     setup.add_argument("--timeout-seconds", type=int, default=30)
     setup.add_argument("--execute", action="store_true")
     common = commands.add_parser(
@@ -1157,7 +1296,9 @@ def main() -> None:
         "--private-root", type=Path, default=DEFAULT_PRIVATE_ROOT
     )
     evolution_preview.add_argument("--family-id", required=True)
-    evolution_preview.add_argument("--api-base-url", default="http://127.0.0.1:65303")
+    evolution_preview.add_argument(
+        "--api-base-url", default="http://map-spatial-eval.internal"
+    )
     evolution_preview.add_argument("--request-limit", type=int, required=True)
     evolution_preview.add_argument("--timeout-seconds", type=int, default=30)
     evolution_preview.add_argument("--execute", action="store_true")
@@ -1169,7 +1310,9 @@ def main() -> None:
     )
     evolution_start.add_argument("--family-id", required=True)
     evolution_start.add_argument("--operation-id", required=True)
-    evolution_start.add_argument("--api-base-url", default="http://127.0.0.1:65303")
+    evolution_start.add_argument(
+        "--api-base-url", default="http://map-spatial-eval.internal"
+    )
     evolution_start.add_argument("--timeout-seconds", type=int, default=30)
     evolution_start.add_argument("--execute", action="store_true")
     run_evolution_parser = commands.add_parser(
@@ -1179,7 +1322,9 @@ def main() -> None:
         "--private-root", type=Path, default=DEFAULT_PRIVATE_ROOT
     )
     run_evolution_parser.add_argument("--family-id", required=True)
-    run_evolution_parser.add_argument("--api-base-url", default="http://127.0.0.1:65303")
+    run_evolution_parser.add_argument(
+        "--api-base-url", default="http://map-spatial-eval.internal"
+    )
     run_evolution_parser.add_argument("--max-tasks", type=int, default=2)
     run_evolution_parser.add_argument("--timeout-seconds", type=int, default=900)
     run_evolution_parser.add_argument("--execute", action="store_true")
@@ -1188,7 +1333,7 @@ def main() -> None:
     )
     review_map.add_argument("--private-root", type=Path, default=DEFAULT_PRIVATE_ROOT)
     review_map.add_argument("--family-id", required=True)
-    review_map.add_argument("--api-base-url", default="http://127.0.0.1:65303")
+    review_map.add_argument("--api-base-url", default="http://map-spatial-eval.internal")
     review_map.add_argument("--max-actions", type=int, default=20)
     review_map.add_argument("--timeout-seconds", type=int, default=30)
     review_map.add_argument("--execute", action="store_true")
@@ -1201,6 +1346,7 @@ def main() -> None:
     pair.add_argument("--novel-id", required=True)
     pair.add_argument("--scene-id", required=True)
     pair.add_argument("--chapter-index", type=int, default=2)
+    pair.add_argument("--timeout-seconds", type=int, default=900)
     pair.add_argument(
         "--execute",
         action="store_true",
@@ -1212,7 +1358,7 @@ def main() -> None:
     assistant.add_argument("--private-root", type=Path, default=DEFAULT_PRIVATE_ROOT)
     assistant.add_argument("--family-id", required=True)
     assistant.add_argument("--case-id", required=True)
-    assistant.add_argument("--api-base-url", default="http://127.0.0.1:65303")
+    assistant.add_argument("--api-base-url", default="http://map-spatial-eval.internal")
     assistant.add_argument("--timeout-seconds", type=int, default=900)
     assistant.add_argument("--execute", action="store_true")
     freeze = commands.add_parser(
@@ -1299,21 +1445,25 @@ def main() -> None:
                     "freeze-binding": freeze_binding,
                     "score": score_request,
                 }[args.command]
-                result = asyncio.run(action(**options))
+                result = asyncio.run(execute_command(action, options))
         except MapSpatialEvalError as exc:
             parser.error(str(exc))
         print(json.dumps(result, ensure_ascii=False))
         return
     try:
         result = asyncio.run(
-            run_writing_pair(
-                private_root=args.private_root,
-                family_id=args.family_id,
-                case_id=args.case_id,
-                novel_id=args.novel_id,
-                scene_id=args.scene_id,
-                chapter_index=args.chapter_index,
-                execute=args.execute,
+            execute_command(
+                run_writing_pair,
+                {
+                    "private_root": args.private_root,
+                    "family_id": args.family_id,
+                    "case_id": args.case_id,
+                    "novel_id": args.novel_id,
+                    "scene_id": args.scene_id,
+                    "chapter_index": args.chapter_index,
+                    "execute": args.execute,
+                    "timeout_seconds": args.timeout_seconds,
+                },
             )
         )
     except MapSpatialEvalError as exc:
