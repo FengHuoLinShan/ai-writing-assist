@@ -129,6 +129,7 @@ class TestLoaderProtocol:
             "outline_arc",
             "scene",
             "map_spatial",
+            "object_dossier",
             "outline_analysis",
         ]
 
@@ -299,8 +300,12 @@ class TestContextCompilerDispatch:
     def test_default_loaders_created(self) -> None:
         """默认 loaders 应覆盖各 scope 声明的全部 loader"""
         compiler = ContextCompiler()
-        assert set(compiler._loaders) == set(_ALL_SCOPE_LOADER_NAMES) | {"map_spatial"}
+        assert set(compiler._loaders) == set(_ALL_SCOPE_LOADER_NAMES) | {
+            "map_spatial",
+            "object_dossier",
+        }
         assert "map_spatial" not in _ALL_SCOPE_LOADER_NAMES
+        assert "object_dossier" not in _ALL_SCOPE_LOADER_NAMES
 
 
 class TestCompileWithTiers:
@@ -1974,8 +1979,8 @@ class TestContextApi:
         assert "viewpoint_character_id" in exc_info.value.detail
 
     @pytest.mark.asyncio
-    async def test_compile_context_reader_reveal_requires_chapter_cutoff(self) -> None:
-        """reader reveal must fail closed when no chapter cursor is available."""
+    async def test_compile_context_reader_reveal_requires_visibility_cutoff(self) -> None:
+        """reader reveal must fail closed without a chapter or Scene cursor."""
         from modules.evidence.compilation.api import compile_context
 
         request = ContextCompileRequest(
@@ -1988,7 +1993,7 @@ class TestContextApi:
             await compile_context(db=MagicMock(), request=request)
 
         assert exc_info.value.status_code == 400
-        assert "截止章" in exc_info.value.detail
+        assert "章节或 Scene 可见截止点" in exc_info.value.detail
 
     @pytest.mark.asyncio
     async def test_compile_context_invalid_scope_raises_400(self) -> None:

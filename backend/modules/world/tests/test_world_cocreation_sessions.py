@@ -766,6 +766,7 @@ async def test_enabled_cocreation_reuses_identity_and_queues_only_one_agent(
     assert messages["items"][1]["action"] == "pressure"
     assert messages["items"][1]["context_confirmation_id"] == confirmation_id
     assert stored.request_json["cocreation_intent"]["template"]["instruction"]
+    from infrastructure.llm.workflow_budget import ai_run_scope, new_ai_run_envelope
     from infrastructure.tasks.models import AsyncTask
     from modules.assistant.service import AssistantService
     from modules.assistant.tests.test_assistant import FakeClient
@@ -790,7 +791,18 @@ async def test_enabled_cocreation_reuses_identity_and_queues_only_one_agent(
     task = await db_session.get(AsyncTask, stored.task_id)
     task.status = "running"
     await db_session.flush()
-    result = await AssistantService().execute(db_session, task)
+    with ai_run_scope(
+        new_ai_run_envelope(
+            operation_id=str(task.id),
+            run_id=str(task.id),
+            root_capability_id="assistant.turn",
+            novel_id=novel_id,
+            request_limit=30,
+            budget_mode="assistant_catalog",
+            **task.meta["_assistant_catalog_budget_v1"],
+        )
+    ):
+        result = await AssistantService().execute(db_session, task)
     assert result["status"] == "waiting_approval"
     assert len(client.requests) == 1
     if quality_mode == "pro":
