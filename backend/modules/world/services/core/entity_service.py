@@ -552,7 +552,6 @@ class WorldEntityService(
                 db,
                 novel_id,
                 submitted.get("aliases") or [],
-                previous_aliases=original.get("aliases") or [],
             )
             original_ref = (original.get("_meta") or {}).get("evolution_ref")
             if original_ref:

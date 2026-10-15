@@ -1,7 +1,33 @@
+from unittest.mock import AsyncMock, patch
+
+import pytest
+
+from core.errors import ValidationError
 from modules.world.services.core.entity_revision_service import (
     _snapshot_view,
     diff_revision_snapshots,
 )
+from modules.world.validity import validate_changed_alias_intervals
+
+
+@pytest.mark.asyncio
+async def test_retained_alias_interval_rechecks_a_removed_scene_anchor() -> None:
+    alias = {
+        "alias": "灰鸦",
+        "validity": {
+            "start": {
+                "kind": "scene",
+                "id": "d58a3a56-9d6b-45d8-85d6-854c1132b042",
+            }
+        },
+    }
+    with patch(
+        "modules.world.validity.validate_scene_validity",
+        new=AsyncMock(side_effect=ValidationError("Scene anchor removed")),
+    ) as validate:
+        with pytest.raises(ValidationError, match="Scene anchor removed"):
+            await validate_changed_alias_intervals(None, "novel-id", [alias])
+    validate.assert_awaited_once()
 
 
 def test_alias_validity_change_is_visible_in_entity_revision_diff() -> None:

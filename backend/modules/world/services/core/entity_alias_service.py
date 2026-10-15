@@ -996,15 +996,17 @@ class EntityAliasService:
 
                 await require_fresh_understanding_source(db, novel_id, alias_item)
 
-            if "validity" in changes and changes["validity"] is not None:
+            retained_validity = changes.get(
+                "validity",
+                alias_item.get("validity") if isinstance(alias_item, dict) else None,
+            )
+            if retained_validity is not None:
                 if changes.get("status", current_status) not in ACTIVE_ALIAS_STATUSES:
                     raise DomainValidationError("待复核别名不能声明作者有效期")
-                normalized_validity = DossierValidity.model_validate(changes["validity"])
-                changes["validity"] = normalized_validity.model_dump(mode="json")
-                if changes["validity"] != (
-                    alias_item.get("validity") if isinstance(alias_item, dict) else None
-                ):
-                    await validate_scene_validity(db, novel_id, normalized_validity)
+                normalized_validity = DossierValidity.model_validate(retained_validity)
+                await validate_scene_validity(db, novel_id, normalized_validity)
+                if "validity" in changes:
+                    changes["validity"] = normalized_validity.model_dump(mode="json")
 
             updated = (
                 dict(alias_item)
@@ -1133,14 +1135,20 @@ class EntityAliasService:
             alias_kind or (old_item.get("kind") if isinstance(old_item, dict) else None),
             next_status,
         )
-        if update_validity and validity is not None:
+        retained_validity = (
+            validity
+            if update_validity
+            else old_item.get("validity")
+            if isinstance(old_item, dict)
+            else None
+        )
+        if retained_validity is not None:
             if next_status not in ACTIVE_ALIAS_STATUSES:
                 raise DomainValidationError("待复核别名不能声明作者有效期")
-            validity = DossierValidity.model_validate(validity)
-            if validity.model_dump(mode="json") != (
-                old_item.get("validity") if isinstance(old_item, dict) else None
-            ):
-                await validate_scene_validity(db, novel_id, validity)
+            normalized_validity = DossierValidity.model_validate(retained_validity)
+            await validate_scene_validity(db, novel_id, normalized_validity)
+            if update_validity:
+                validity = normalized_validity
 
         updated = (
             dict(old_item)
@@ -1317,6 +1325,13 @@ class EntityAliasService:
             target_aliases.append(alias_payload)
         else:
             existing = target_aliases[existing_index]
+            retained_validity = (
+                existing.get("validity") if isinstance(existing, dict) else None
+            )
+            if validity is None and retained_validity is not None:
+                await validate_scene_validity(
+                    db, novel_id, DossierValidity.model_validate(retained_validity)
+                )
             target_aliases[existing_index] = {
                 **(existing if isinstance(existing, dict) else {}),
                 **alias_payload,

@@ -22,33 +22,15 @@ async def validate_scene_validity(
         raise ValidationError("生效范围的 Scene 或章节锚点无效，请核对后重试")
 
 
-def _alias_key(value: object) -> str | None:
-    if isinstance(value, str):
-        return value.strip().casefold()
-    if isinstance(value, dict):
-        alias = value.get("alias", value.get("name"))
-        return str(alias).strip().casefold() if alias else None
-    return None
-
-
 async def validate_changed_alias_intervals(
     db,
     novel_id: str,
     aliases: list,
-    *,
-    previous_aliases: list | None = None,
 ) -> None:
-    previous = {
-        key: item.get("validity")
-        for item in (previous_aliases or [])
-        if (key := _alias_key(item)) is not None and isinstance(item, dict)
-    }
+    # A previously valid Scene anchor can disappear after an outline edit.
+    # Recheck every retained interval whenever an alias payload is saved.
     for item in aliases:
         if not isinstance(item, dict) or item.get("validity") is None:
             continue
-        key = _alias_key(item)
         validity = DossierValidity.model_validate(item["validity"])
-        normalized = validity.model_dump(mode="json")
-        if key is not None and previous.get(key) == normalized:
-            continue
         await validate_scene_validity(db, novel_id, validity)
