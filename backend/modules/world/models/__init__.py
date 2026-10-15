@@ -6,6 +6,11 @@ and preserves the historical ``modules.world.models`` import path.
 
 from __future__ import annotations
 
+from modules.world.project_vocabulary_models import (
+    ProjectVocabularyRevision,
+    ProjectVocabularyTerm,
+)
+
 from .authority import (
     EntityProfileTemplateRevision,
     WorldAssertion,
@@ -128,5 +133,7 @@ __all__ = [
     "WorldRevisionNote",
     "ImageRequestReuse",
     "WorldObjectImageCandidate",
+    "ProjectVocabularyRevision",
+    "ProjectVocabularyTerm",
     "_ProfileMixin",
 ]

@@ -1,0 +1,68 @@
+# 项目词表 M0
+
+项目词表为每个 `novel_id` 保存稳定词条身份和只追加的修订快照。名称、别名、说明和
+ADR-0035 计算特性都属于快照；地图以 `type_ref`（词条 UUID）和
+`type_revision_id`（修订 UUID）固定引用。作者改名或调整特性会新增修订，不会改变历史引用。
+
+## 种类与特性
+
+统一种类为 `space`、`level`、`feature`、`relation`、`transport`、`traveler`、
+`access_condition`、`dossier_facing`、`faction_form`、`territory_control`。
+空间与地图计算使用同一组有界 trait：
+
+- `geometry`: `point`, `line`, `area`, `none`
+- `containment`: `can_contain`, `independent_space`
+- `connection`: `traversable`, `directed`, `cross_space`, `distance_constrained`
+- `orientation`: `compass`, `vertical`
+- `other`: `movable`, `qualitative_distance`
+
+未声明特性使用空列表。开放的名称与说明用于显示和模型上下文；未知特性不参与确定性计算。
+
+## 来源与生命周期
+
+作者创建的词条和作者采用的预设词条优先于模型输入。模型写入只能经
+`persist_reviewed_model_vocabulary_proposal` 接受带 Scene 引文及正文 `source_hash` 的提案；至少两个
+不同 Scene，且独立复核收据通过并绑定当前证据 hash，词条才会启用。否则状态为 `emerging`。
+该服务只验证收据与引文/正文 hash 的绑定，不会读取 Scene 原文，也不能证明引文逐字或复核语义独立；
+M1 调用方必须先从 fresh Scene 回读中验证引文和来源，再运行独立复核，之后才可调用此写入窄口。
+模型会按名称和别名的 NFKC、大小写折叠及标点/空白归一结果复用同种类身份。归档与合并词条
+保留为墓碑；同名模型提案只返回 `restore_suggested`，不会重建新 UUID。
+
+证据变化经 `replace_model_vocabulary_evidence` 更新；旧 Scene 被撤销时，
+`invalidate_model_vocabulary_evidence` 新增修订、移除对应引文并清除过期复核。作者已确认的词条
+不会被模型写入或证据失效降级。作者操作均需当前修订 ID，冲突时返回 409。
+
+预设为版本化的 `xianxia`、`fantasy`、`urban`、`science_fiction`、`mystery`；应用操作复制条目，
+按预设版本和条目键幂等。预设更新不改动已经复制的词条。
+
+## API 与调用接线
+
+新路由定义于 `project_vocabulary_api.router`，由 World API 聚合处接入：
+
+- `GET /api/world/project-vocabulary/{novel_id}`：有界读取，返回精确 `total_count` 与
+  `omitted_count`，默认包含归档墓碑。
+- `POST /{novel_id}/terms`、`GET /{novel_id}/terms/{type_ref}`、
+  `PATCH /{novel_id}/terms/{type_ref}`：作者 CRUD；PATCH 使用 `expected_revision_id`。
+- `POST /{novel_id}/terms/{type_ref}/archive|restore`：归档墓碑与作者恢复。
+- `POST /{novel_id}/merge`、`POST /{novel_id}/terms/{type_ref}/split`：作者合并、拆分，均逐词条 CAS。
+- `POST /{novel_id}/presets`：复制一个或多个题材预设。
+
+HTTP 与服务写路径均经过 Project owner/活动状态门禁，所有读取和写入都同时按 `novel_id` 过滤。
+World API 和 `facade.py` 的聚合注册由 M0 集成者完成。跨模块窄出口为：
+
+```python
+read_project_vocabulary(db, novel_id, *, kind=None, limit=100, include_archived=True)
+resolve_vocabulary_type_revisions(db, novel_id, refs)
+persist_reviewed_model_vocabulary_proposal(db, novel_id, proposal)
+replace_model_vocabulary_evidence(db, novel_id, type_ref, expected_revision_id, evidence, independent_review)
+invalidate_model_vocabulary_evidence(db, novel_id, invalid_scene_ids)
+```
+
+`resolve_vocabulary_type_revisions` 仅回传精确同项目 `(type_ref, type_revision_id)` 配对，traits 来自
+固定修订快照，状态来自词条当前生命周期；缺失或跨项目引用 fail-closed。作者、数据库迁移与 API 聚合之外，
+本模块不执行模型调用或正典写入。
+
+## 存储集成
+
+ORM 注册于 `modules.world.models`。`project_vocabulary_revisions` 由服务只插入；数据库级不可变
+trigger、同项目外键和表结构 migration 由集成批次添加。实现本身不编辑历史修订，也不自动迁移已有地图。
