@@ -7,12 +7,14 @@
       </div>
       <div class="object-dossier-editor__read-controls">
         <label><span>按 Scene 截止读取</span><select v-model="readCutoffSceneId" :disabled="loading || Boolean(busyKey)"><option value="">不限定 Scene</option><option v-for="scene in scenes" :key="scene.id" :value="scene.id">{{ sceneLabel(scene) }}</option></select></label>
-        <button type="button" class="btn btn-sm" :disabled="loading || Boolean(busyKey)" @click="loadAll({ confirmDiscard: true })">重新读取</button>
+        <button v-if="!readOnly" type="button" class="btn btn-sm" data-action="dossier-export-manifest" :disabled="exportBusy || loading || Boolean(busyKey)" @click="exportManifest">{{ exportBusy ? '正在准备…' : '下载档案清单 JSON' }}</button>
+        <button type="button" class="btn btn-sm" data-action="dossier-reload" :disabled="loading || Boolean(busyKey)" @click="loadAll({ confirmDiscard: true })">重新读取</button>
       </div>
     </header>
 
     <p v-if="loading" role="status">正在读取对象档案…</p>
     <p v-if="loadError" class="error-card" role="alert">{{ loadError }}</p>
+    <p v-if="actionError" class="field-error" role="alert">{{ actionError }}</p>
     <p v-if="notice" class="object-dossier-editor__notice" role="status">{{ notice }}</p>
 
     <template v-if="dossier">
@@ -142,6 +144,18 @@
             </label>
             <label v-if="!readOnly"><span>添加已有面向</span><select v-model="templateFacingToAdd"><option value="">选择面向</option><option v-for="facet in availableTemplateFacets" :key="facingKey(facet.facing)" :value="facingKey(facet.facing)">{{ facet.label }}</option></select></label>
             <button v-if="!readOnly" type="button" class="btn btn-sm" :disabled="Boolean(busyKey) || !templateFacingToAdd" @click="addTemplateField">添加字段</button>
+            <details v-if="!readOnly && customStateFieldsAllowed" class="object-dossier-editor__borrowed-facings">
+              <summary>借用其他对象类型的内核面向</summary>
+              <p class="object-dossier-editor__meta">只为当前类型显式添加已选来源的字段。内容仍属于当前对象，不会创建或转换为来源类型对象。</p>
+              <div v-for="(facing, index) in templateBorrowedFacings" :key="facingKey(facing)" class="object-dossier-editor__borrowed-facing">
+                <span>{{ facetLabel(facing) }}</span>
+                <button type="button" class="btn btn-sm btn-ghost" :disabled="Boolean(busyKey) || templateFields.some(field => facingKey(field.facing) === facingKey(facing))" @click="removeBorrowedFacing(index)">移除</button>
+              </div>
+              <label><span>来源对象类型</span><select v-model="borrowSourceType" @change="loadBorrowSourceFacets"><option value="">选择来源类型</option><option v-for="[key, label] in coreTypeOptions" :key="key" :value="key" :disabled="key === props.entity.entity_type">{{ label }}</option></select></label>
+              <label><span>来源面向</span><select v-model="borrowFacingKey" :disabled="!borrowSourceType || borrowSourceLoading"><option value="">选择面向</option><option v-for="facet in borrowSourceFacets" :key="facet.facing.key" :value="facet.facing.key">{{ facet.label }}</option></select></label>
+              <p v-if="borrowSourceError" class="field-error" role="alert">{{ borrowSourceError }}</p>
+              <button type="button" class="btn btn-sm" :disabled="Boolean(busyKey) || borrowSourceLoading || !borrowSourceType || !borrowFacingKey || borrowedFacingExists" @click="addBorrowedFacing">添加借用</button>
+            </details>
             <details v-if="!readOnly"><summary>高级显示规则</summary><label><span>显示规则 JSON</span><textarea v-model="templateDisplaySchemaText" rows="3" aria-label="显示规则 JSON" /></label></details>
           </fieldset>
           <fieldset class="object-dossier-editor__template-fields" :disabled="readOnly || Boolean(busyKey) || !customStateFieldsAllowed">
@@ -185,6 +199,7 @@ const props = defineProps({
   readOnly: { type: Boolean, default: false },
 })
 const SYSTEM_ENTITY_TYPES = new Set(["character", "location", "faction", "organization", "species", "group", "item", "object", "event", "rule", "power_system", "secret", "legend", "resource", "concept", "creature", "skill", "ability", "artifact", "other"])
+const coreTypeOptions = [["character", "人物"], ["location", "地点"], ["item", "物件"], ["faction", "势力"], ["species", "种族"], ["rule", "规则"], ["secret", "秘密"], ["event", "事件"]]
 const emit = defineEmits(["dirty", "saved"])
 const entityId = computed(() => props.entity?.id || props.entity?.entity_id || "")
 const typeLabel = computed(() => ({ character: "人物", location: "地点", item: "物件", faction: "势力", organization: "组织", rule: "规则", secret: "秘密" })[props.entity?.entity_type] || props.entity?.entity_type || "对象")
@@ -198,6 +213,7 @@ const loadError = ref("")
 const facetError = ref("")
 const actionError = ref("")
 const notice = ref("")
+const exportBusy = ref(false)
 const busyKey = ref("")
 const editingId = ref("")
 const editExpectedRevisionId = ref("")
@@ -217,10 +233,16 @@ const templateError = ref("")
 const templateSaved = ref(null)
 const templateConflict = ref(null)
 const templateFields = ref([])
+const templateBorrowedFacings = ref([])
 const templateStateFields = ref([])
 const templateDisplaySchemaText = ref("{}")
 const templateBaseline = ref("")
 const templateFacingToAdd = ref("")
+const borrowSourceType = ref("")
+const borrowSourceFacets = ref([])
+const borrowSourceLoading = ref(false)
+const borrowSourceError = ref("")
+const borrowFacingKey = ref("")
 const newStateField = reactive({ key: "", label: "" })
 const templateHistory = ref([])
 const templateHistoryLoading = ref(false)
@@ -238,10 +260,32 @@ const editDirty = computed(() => {
 const newDraftDirty = computed(() => Boolean(newDraft.facingKey || newDraft.content.trim() || newDraft.tagsText.trim() || newDraft.startSceneId || newDraft.endSceneId || newDraft.visibility !== "public" || newDraft.storyFieldKey))
 const editingOriginal = computed(() => entries.value.find((item) => item.id === editingId.value) || null)
 const templateVersion = computed(() => template.value?.version_number ?? null)
+const borrowedFacingExists = computed(() => templateBorrowedFacings.value.some((item) => {
+  const borrowed = parseBorrowedFacing(item)
+  return borrowed?.sourceType === borrowSourceType.value && borrowed.key === borrowFacingKey.value
+}))
 const templateDirty = computed(() => templateLoaded.value && templateSnapshot() !== templateBaseline.value)
 const availableTemplateFacets = computed(() => facets.value.filter((item) => !templateFields.value.some((field) => facingKey(field.facing) === facingKey(item.facing))))
 
 function current(token, projectId, id) { return token === generation && props.projectId === projectId && entityId.value === id }
+
+async function exportManifest() {
+  if (readOnly.value || exportBusy.value || !entityId.value) return
+  const projectId = props.projectId; const id = entityId.value; const token = generation
+  exportBusy.value = true; actionError.value = ""
+  try {
+    const blob = await getApi().world.exportEntityDossierManifest(id, projectId)
+    if (!current(token, projectId, id)) return
+    const url = URL.createObjectURL(blob)
+    const link = document.createElement("a")
+    link.href = url; link.download = "world-dossier.json"; link.click()
+    URL.revokeObjectURL(url)
+    notice.value = "档案清单已下载，可在作者 HTTP 导入预览中回读。"
+  } catch (error) {
+    if (current(token, projectId, id)) actionError.value = error?.message || "档案清单导出失败。"
+  } finally { if (current(token, projectId, id)) exportBusy.value = false }
+}
+
 function resetData({ preserveCutoff = false } = {}) {
   generation += 1
   loadSequence += 1
@@ -249,9 +293,11 @@ function resetData({ preserveCutoff = false } = {}) {
   dossier.value = null; facets.value = []; scenes.value = []
   loading.value = false; loadError.value = ""; facetError.value = ""; actionError.value = ""; notice.value = ""
   busyKey.value = ""; editingId.value = ""; editExpectedRevisionId.value = ""; conflict.value = null
+  exportBusy.value = false
   restoreTarget.value = null; restoreError.value = ""; historyByGroup.value = {}; historyErrors.value = {}; historyLoadingId.value = ""
   template.value = null; templateLoaded.value = false; templateLoading.value = false; templateError.value = ""; templateSaved.value = null; templateConflict.value = null
-  templateFields.value = []; templateStateFields.value = []; templateDisplaySchemaText.value = "{}"; templateBaseline.value = ""; templateFacingToAdd.value = ""
+  templateFields.value = []; templateBorrowedFacings.value = []; templateStateFields.value = []; templateDisplaySchemaText.value = "{}"; templateBaseline.value = ""; templateFacingToAdd.value = ""
+  borrowSourceType.value = ""; borrowSourceFacets.value = []; borrowSourceLoading.value = false; borrowSourceError.value = ""; borrowFacingKey.value = ""
   newStateField.key = ""; newStateField.label = ""
   templateHistory.value = []; templateHistoryLoading.value = false; templateHistoryError.value = ""
   if (!preserveCutoff) readCutoffSceneId.value = ""
@@ -426,6 +472,7 @@ async function loadTemplate() {
     if (!current(token, projectId, id)) return
     template.value = value
     templateFields.value = (value?.fields || []).map((field) => ({ ...field, facing: { ...field.facing } }))
+    templateBorrowedFacings.value = (value?.borrowed_facings || []).map((facing) => ({ ...facing }))
     templateStateFields.value = (value?.state_fields || []).map((field) => ({ ...field }))
     templateDisplaySchemaText.value = JSON.stringify(value?.display_schema || {}, null, 2)
     templateLoaded.value = true; templateConflict.value = null; templateBaseline.value = templateSnapshot()
@@ -440,6 +487,37 @@ function addTemplateField() {
   templateFacingToAdd.value = ""; templateSaved.value = null
 }
 function removeTemplateField(index) { templateFields.value = templateFields.value.filter((_, itemIndex) => itemIndex !== index); templateSaved.value = null }
+
+async function loadBorrowSourceFacets() {
+  borrowSourceFacets.value = []; borrowFacingKey.value = ""; borrowSourceError.value = ""
+  const sourceType = borrowSourceType.value
+  if (!sourceType) return
+  const projectId = props.projectId; const id = entityId.value; const token = generation
+  borrowSourceLoading.value = true
+  try {
+    const result = await getApi().world.listDossierFacetsForType(sourceType, projectId, { cache: "no-store" })
+    if (!current(token, projectId, id) || borrowSourceType.value !== sourceType) return
+    borrowSourceFacets.value = (result.items || []).filter((facet) => facet.source === "core" && !String(facet.facing?.key || "").startsWith("borrowed:"))
+  } catch (error) {
+    if (current(token, projectId, id) && borrowSourceType.value === sourceType) borrowSourceError.value = error?.message || "来源面向暂时无法读取。"
+  } finally { if (current(token, projectId, id) && borrowSourceType.value === sourceType) borrowSourceLoading.value = false }
+}
+
+function addBorrowedFacing() {
+  const facet = borrowSourceFacets.value.find((item) => item.facing.key === borrowFacingKey.value)
+  if (!facet || borrowedFacingExists.value) return
+  const facing = { kind: "core", key: `borrowed:${borrowSourceType.value}:${facet.facing.key}` }
+  templateBorrowedFacings.value = [...templateBorrowedFacings.value, facing]
+  facets.value = [...facets.value, { facing, label: `${facet.label} · 借用${coreTypeOptions.find(([key]) => key === borrowSourceType.value)?.[1] || borrowSourceType.value}`, description: facet.description || "", source: "core" }]
+  borrowFacingKey.value = ""; templateSaved.value = null
+}
+
+function removeBorrowedFacing(index) {
+  const facing = templateBorrowedFacings.value[index]
+  if (!facing || templateFields.value.some((field) => facingKey(field.facing) === facingKey(facing))) return
+  templateBorrowedFacings.value = templateBorrowedFacings.value.filter((_item, itemIndex) => itemIndex !== index)
+  templateSaved.value = null
+}
 
 function addStateField() {
   const key = String(newStateField.key || "").trim()
@@ -474,12 +552,13 @@ async function saveTemplate() {
   try {
     const value = await getApi().world.saveEntityDossierTemplate(props.entity.entity_type, projectId, {
       expected_version_number: templateVersion.value,
+      borrowed_facings: templateBorrowedFacings.value.map((facing) => ({ ...facing })),
       fields: templateFields.value.map(({ facing, label, description, required, value_kind }) => ({ facing, label, description, required, value_kind })),
       state_fields: templateStateFields.value.map(({ key, label }) => ({ key, label, value_kind: "text" })),
       display_schema: displaySchema,
     })
     if (!current(token, projectId, id)) return
-    template.value = value; templateStateFields.value = (value.state_fields || []).map((field) => ({ ...field })); templateBaseline.value = templateSnapshot(); templateSaved.value = value; templateConflict.value = null
+    template.value = value; templateBorrowedFacings.value = (value.borrowed_facings || []).map((facing) => ({ ...facing })); templateStateFields.value = (value.state_fields || []).map((field) => ({ ...field })); templateBaseline.value = templateSnapshot(); templateSaved.value = value; templateConflict.value = null
   } catch (error) {
     if (!current(token, projectId, id)) return
     if (error?.status === 409) {
@@ -494,9 +573,9 @@ async function saveTemplate() {
 function resolveTemplateConflict(choice) {
   const server = templateConflict.value?.server
   if (choice === "reload" && server) {
-    template.value = server; templateFields.value = (server.fields || []).map((field) => ({ ...field, facing: { ...field.facing } })); templateStateFields.value = (server.state_fields || []).map((field) => ({ ...field })); templateDisplaySchemaText.value = JSON.stringify(server.display_schema || {}, null, 2); templateBaseline.value = templateSnapshot(); templateConflict.value = null
+    template.value = server; templateFields.value = (server.fields || []).map((field) => ({ ...field, facing: { ...field.facing } })); templateBorrowedFacings.value = (server.borrowed_facings || []).map((facing) => ({ ...facing })); templateStateFields.value = (server.state_fields || []).map((field) => ({ ...field })); templateDisplaySchemaText.value = JSON.stringify(server.display_schema || {}, null, 2); templateBaseline.value = templateSnapshot(); templateConflict.value = null
   } else if (choice === "keep" && server) {
-    template.value = server; templateConflict.value = null; templateError.value = "模板草稿已保留；再次保存会以服务器版本为基线。"; templateBaseline.value = JSON.stringify({ fields: server.fields || [], state_fields: server.state_fields || [], display_schema: server.display_schema || {} })
+    template.value = server; templateBorrowedFacings.value = (server.borrowed_facings || []).map((facing) => ({ ...facing })); templateConflict.value = null; templateError.value = "模板草稿已保留；再次保存会以服务器版本为基线。"; templateBaseline.value = JSON.stringify({ fields: server.fields || [], borrowed_facings: server.borrowed_facings || [], state_fields: server.state_fields || [], display_schema: server.display_schema || {} })
   } else templateError.value = "服务器模板仍不可读，请重试读取后再保存。"
 }
 
@@ -515,12 +594,16 @@ async function loadTemplateHistory() {
 function templateSnapshot() {
   let displaySchema = {}
   try { displaySchema = JSON.parse(templateDisplaySchemaText.value || "{}") } catch { displaySchema = templateDisplaySchemaText.value }
-  return JSON.stringify({ fields: templateFields.value, state_fields: templateStateFields.value, display_schema: displaySchema })
+  return JSON.stringify({ fields: templateFields.value, borrowed_facings: templateBorrowedFacings.value, state_fields: templateStateFields.value, display_schema: displaySchema })
 }
 function emitDirty() { emit("dirty", Boolean(editingId.value && editDirty.value || conflict.value || newDraftDirty.value || templateDirty.value)) }
 function tagsText(tags) { return Array.isArray(tags) ? tags.join(", ") : "" }
 function parseTags(value) { return [...new Set(String(value || "").split(",").map((item) => item.trim()).filter(Boolean))].slice(0, 24) }
 function facingKey(facing) { return facing?.kind === "project" ? `project:${facing.term_id}` : `core:${facing?.key || ""}` }
+function parseBorrowedFacing(facing) {
+  const match = /^borrowed:([^:]+):(.+)$/.exec(String(facing?.key || ""))
+  return match ? { sourceType: match[1], key: match[2] } : null
+}
 function facetLabel(facing) { return facets.value.find((item) => facingKey(item.facing) === facingKey(facing))?.label || facing?.key || "项目面向" }
 function fieldKey(field, index) { return `${facingKey(field.facing)}:${index}` }
 function sceneLabel(scene) { return scene.title || (scene.scene_index != null ? `第 ${scene.scene_index} 场` : "未命名场景") }

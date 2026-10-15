@@ -3,14 +3,20 @@
 from __future__ import annotations
 
 from fastapi import Query
+from fastapi.responses import JSONResponse
 
 from core.dependencies import DbSession
 from modules.world.api._shared import ActiveNovelIdQuery, router
 from modules.world.dossier_facade import (
+    apply_world_dossier_manifest,
     create_world_object_dossier_entry,
     edit_world_object_dossier_entry,
+    export_world_dossier_manifest,
+    get_author_world_object_dossier_template,
     get_world_object_dossier_template,
+    list_world_object_dossier_facets,
     list_world_object_dossier_facets_for_entity,
+    preview_world_dossier_manifest,
     read_world_object_dossier,
     read_world_object_dossier_history,
     read_world_object_dossier_template_history,
@@ -25,10 +31,76 @@ from modules.world.schemas.dossier import (
     DossierFacetCatalog,
     DossierHistoryResponse,
     DossierReadResponse,
+    DossierTemplateAuthorResponse,
+    DossierTemplateAuthorUpsert,
     DossierTemplateHistoryResponse,
     DossierTemplateResponse,
     DossierTemplateUpsert,
 )
+from modules.world.schemas.dossier_manifest import (
+    DossierManifestApplyRequest,
+    DossierManifestApplyResponse,
+    DossierManifestPreviewRequest,
+    DossierManifestPreviewResponse,
+)
+
+
+@router.get(
+    "/dossier-facets/{profile_type}",
+    response_model=DossierFacetCatalog,
+)
+async def list_dossier_facets_for_type(
+    db: DbSession,
+    profile_type: str,
+    *,
+    novel_id: ActiveNovelIdQuery,
+) -> DossierFacetCatalog:
+    return await list_world_object_dossier_facets(db, novel_id, profile_type)
+
+
+@router.get("/entities/{entity_id}/dossier/manifest")
+async def export_dossier_manifest(
+    db: DbSession,
+    entity_id: str,
+    *,
+    novel_id: ActiveNovelIdQuery,
+) -> JSONResponse:
+    manifest = await export_world_dossier_manifest(db, novel_id, entity_id)
+    return JSONResponse(
+        content=manifest.model_dump(mode="json"),
+        headers={
+            "Cache-Control": "no-store",
+            "Content-Disposition": 'attachment; filename="world-dossier.json"',
+        },
+    )
+
+
+@router.post(
+    "/entities/{entity_id}/dossier/manifest/preview",
+    response_model=DossierManifestPreviewResponse,
+)
+async def preview_dossier_manifest(
+    db: DbSession,
+    entity_id: str,
+    data: DossierManifestPreviewRequest,
+    *,
+    novel_id: ActiveNovelIdQuery,
+) -> DossierManifestPreviewResponse:
+    return await preview_world_dossier_manifest(db, novel_id, entity_id, data)
+
+
+@router.post(
+    "/entities/{entity_id}/dossier/manifest/apply",
+    response_model=DossierManifestApplyResponse,
+)
+async def apply_dossier_manifest(
+    db: DbSession,
+    entity_id: str,
+    data: DossierManifestApplyRequest,
+    *,
+    novel_id: ActiveNovelIdQuery,
+) -> DossierManifestApplyResponse:
+    return await apply_world_dossier_manifest(db, novel_id, entity_id, data)
 
 
 @router.get(
@@ -168,6 +240,19 @@ async def read_dossier_template(
 
 
 @router.get(
+    "/dossier-templates/{profile_type}/author",
+    response_model=DossierTemplateAuthorResponse,
+)
+async def read_author_dossier_template(
+    db: DbSession,
+    profile_type: str,
+    *,
+    novel_id: ActiveNovelIdQuery,
+) -> DossierTemplateAuthorResponse:
+    return await get_author_world_object_dossier_template(db, novel_id, profile_type)
+
+
+@router.get(
     "/dossier-templates/{profile_type}/history",
     response_model=DossierTemplateHistoryResponse,
 )
@@ -196,3 +281,19 @@ async def upsert_dossier_template(
     novel_id: ActiveNovelIdQuery,
 ) -> DossierTemplateResponse:
     return await save_world_object_dossier_template(db, novel_id, profile_type, data)
+
+
+@router.put(
+    "/dossier-templates/{profile_type}/author",
+    response_model=DossierTemplateAuthorResponse,
+)
+async def upsert_author_dossier_template(
+    db: DbSession,
+    profile_type: str,
+    data: DossierTemplateAuthorUpsert,
+    *,
+    novel_id: ActiveNovelIdQuery,
+) -> DossierTemplateAuthorResponse:
+    return await save_world_object_dossier_template(db, novel_id, profile_type, data)
+    (export_world_dossier_manifest,)
+    (preview_world_dossier_manifest,)

@@ -140,6 +140,13 @@ export const world = {
       )
     },
 
+    async listDossierFacetsForType(profileType, novelId, options = {}) {
+      return request(
+        withQuery(`/world/dossier-facets/${encodeURIComponent(profileType)}`, { novel_id: novelId }),
+        { cache: "no-store", ...options },
+      )
+    },
+
     async listEntityDossierHistory(entityId, novelId, options = {}) {
       const { entryGroupId = null, limit = 100, offset = 0, ...requestOptions } = options
       return request(withQuery(`/world/entities/${encodeURIComponent(entityId)}/dossier/history`, {
@@ -148,6 +155,13 @@ export const world = {
         limit,
         offset,
       }), { cache: "no-store", ...requestOptions })
+    },
+
+    async exportEntityDossierManifest(entityId, novelId, options = {}) {
+      return request(
+        withQuery(`/world/entities/${encodeURIComponent(entityId)}/dossier/manifest`, { novel_id: novelId }),
+        { cache: "no-store", _responseType: "blob", ...options },
+      )
     },
 
     async createEntityDossierEntry(entityId, novelId, payload, options = {}) {
@@ -164,7 +178,7 @@ export const world = {
 
     async getEntityDossierTemplate(profileType, novelId, options = {}) {
       return request(
-        withQuery(`/world/dossier-templates/${encodeURIComponent(profileType)}`, { novel_id: novelId }),
+        withQuery(`/world/dossier-templates/${encodeURIComponent(profileType)}/author`, { novel_id: novelId }),
         { cache: "no-store", ...options },
       )
     },
@@ -177,7 +191,7 @@ export const world = {
     },
 
     async saveEntityDossierTemplate(profileType, novelId, payload, options = {}) {
-      return put(withQuery(`/world/dossier-templates/${encodeURIComponent(profileType)}`, { novel_id: novelId }), payload, options)
+      return put(withQuery(`/world/dossier-templates/${encodeURIComponent(profileType)}/author`, { novel_id: novelId }), payload, options)
     },
 
     async getCharacter(id, novelId) {

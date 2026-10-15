@@ -10,6 +10,7 @@ from __future__ import annotations
 import copy
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
+from typing import Any
 
 from sqlalchemy import or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -17,6 +18,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from core.errors import ConflictError
 from infrastructure.stable_hash import stable_hash
 from modules.world.contracts import (
+    AuthorMigrationDossierFacing,
+    AuthorMigrationDossierField,
     AuthorMigrationEntityInput,
     AuthorMigrationRelationInput,
     AuthorMigrationWorldRequest,
@@ -27,7 +30,13 @@ from modules.world.contracts import (
     WorldMigrationPlan,
     WorldMigrationReceipt,
 )
-from modules.world.models import Character, CoreEntity, EntityRelation
+from modules.world.dossier_service import WorldObjectDossierService
+from modules.world.models import (
+    Character,
+    CoreEntity,
+    EntityRelation,
+    WorldObjectDossierEntry,
+)
 from modules.world.schemas import (
     CharacterUpdate,
     CoreEntityCreate,
@@ -35,6 +44,11 @@ from modules.world.schemas import (
     EntityPromoteRequest,
     EntityRelationCreate,
     EntityRelationUpdate,
+)
+from modules.world.schemas.dossier import (
+    DossierEntryCreate,
+    DossierEntryUpdate,
+    DossierFacingRef,
 )
 from modules.world.services.common import (
     current_writing_chapter_index,
@@ -51,6 +65,7 @@ from modules.world.services.core.review_queue import (
     suggest_relation_type,
 )
 from modules.world.services.worldbuilding.applied_change_reversal import (
+    ReversalOutcome,
     character_state,
     entity_state,
     relation_state,
@@ -153,6 +168,7 @@ class _PlannedEntity:
     entity_fills: dict[str, str] = field(default_factory=dict)
     hidden_append: str | None = None
     character_fills: dict[str, str] = field(default_factory=dict)
+    dossier_labels: list[str] = field(default_factory=list)
     aliases_to_add: list[str] = field(default_factory=list)
     conflicts: list[FieldConflict] = field(default_factory=list)
     similar: list[dict] = field(default_factory=list)
@@ -208,9 +224,7 @@ class _Resolver:
         if not entity_id:
             return None
         if entity_id not in self._entities:
-            obj = await self._db.get(
-                CoreEntity, parse_uuid(entity_id, "entity_id")
-            )
+            obj = await self._db.get(CoreEntity, parse_uuid(entity_id, "entity_id"))
             self._entities[entity_id] = (
                 obj if obj is not None and obj.novel_id == self._nid else None
             )
@@ -267,9 +281,7 @@ class _Resolver:
         return self._similar_cache[key]
 
 
-async def _shadow_index(
-    db: AsyncSession, novel_id: str
-) -> dict[str, CoreEntity]:
+async def _shadow_index(db: AsyncSession, novel_id: str) -> dict[str, CoreEntity]:
     rows = (
         (
             await db.execute(
@@ -334,8 +346,10 @@ def _plan_entity_fields(
     if _is_empty(target.hidden_truth):
         parts = [
             part
-            for part in (str(explicit).strip() if not _is_empty(explicit) else None,
-                         notes or None)
+            for part in (
+                str(explicit).strip() if not _is_empty(explicit) else None,
+                notes or None,
+            )
             if part
         ]
         if parts:
@@ -349,9 +363,7 @@ def _plan_entity_fields(
             if _is_empty(incoming):
                 continue
             current = (
-                getattr(character, field_name, None)
-                if character is not None
-                else None
+                getattr(character, field_name, None) if character is not None else None
             )
             if _is_empty(current):
                 planned.character_fills[field_name] = str(incoming)
@@ -376,9 +388,7 @@ def _plan_aliases(
     if planned.target is not None:
         for alias_item in (planned.target.content_json or {}).get("aliases") or []:
             text = (
-                alias_item
-                if isinstance(alias_item, str)
-                else alias_item.get("alias", "")
+                alias_item if isinstance(alias_item, str) else alias_item.get("alias", "")
             )
             if text:
                 existing_alias_texts.add(_norm_name(text))
@@ -397,6 +407,42 @@ def _plan_aliases(
             planned.alias_collision = True
             continue
         planned.aliases_to_add.append(alias)
+
+
+async def _validate_dossier_fields(
+    db: AsyncSession,
+    novel_id: str,
+    entity_type: str,
+    fields: list[AuthorMigrationDossierField],
+) -> list[str]:
+    service = WorldObjectDossierService()
+    labels = []
+    for item in fields:
+        facing = _author_migration_dossier_facing(item.facing, entity_type)
+        _stored_key, label = await service._validate_facing(
+            db, parse_uuid(novel_id, "novel_id"), entity_type, facing
+        )
+        DossierEntryCreate(
+            facing=facing,
+            content=item.content,
+            visibility=item.visibility,
+        )
+        labels.append(f"档案：{label}")
+    return labels
+
+
+def _author_migration_dossier_facing(
+    facing: AuthorMigrationDossierFacing, entity_type: str
+) -> DossierFacingRef:
+    payload = facing.model_dump(mode="json", exclude_none=True)
+    source_entity_type = payload.pop("source_entity_type", None)
+    if (
+        payload.get("kind") == "core"
+        and source_entity_type
+        and source_entity_type != entity_type
+    ):
+        payload["key"] = f"borrowed:{source_entity_type}:{payload['key']}"
+    return DossierFacingRef.model_validate(payload)
 
 
 async def _compose_plan(
@@ -503,6 +549,12 @@ async def _compose_plan(
                 continue
 
         if planned.target is not None:
+            planned.dossier_labels = await _validate_dossier_fields(
+                db,
+                novel_id,
+                planned.target.entity_type,
+                item.dossier_fields,
+            )
             character = (
                 await resolver.character(str(planned.target.id))
                 if planned.target.entity_type == "character"
@@ -519,12 +571,16 @@ async def _compose_plan(
                 planned.entity_fills
                 or planned.hidden_append
                 or planned.character_fills
+                or planned.dossier_labels
                 or planned.aliases_to_add
             ):
                 planned.action = "fill_empty"
             else:
                 planned.action = "existing_ref"
         else:
+            planned.dossier_labels = await _validate_dossier_fields(
+                db, novel_id, item.entity_type, item.dossier_fields
+            )
             _plan_aliases(planned, name_to_first=name_to_first, working=working)
             # 新建人物的人物字段直接进入自动 scaffold 后的填空，不存在冲突。
             if item.entity_type == "character":
@@ -564,10 +620,7 @@ async def _compose_plan(
             return None, "endpoint_item_unknown"
         if planned.action == "create":
             return f"{_ITEM_REF_PREFIX}{item_key}", None
-        if (
-            planned.action in _WRITABLE_ENTITY_ACTIONS
-            and planned.target is not None
-        ):
+        if planned.action in _WRITABLE_ENTITY_ACTIONS and planned.target is not None:
             return str(planned.target.id), None
         return None, "endpoint_item_blocked"
 
@@ -647,10 +700,8 @@ async def _compose_plan(
                 both_characters = await _ref_is_character(
                     source_ref
                 ) and await _ref_is_character(target_ref)
-                planned.relation_kind, planned.kind_guessed = (
-                    _guess_relation_kind_local(
-                        relation.relation_type, both_characters=both_characters
-                    )
+                planned.relation_kind, planned.kind_guessed = _guess_relation_kind_local(
+                    relation.relation_type, both_characters=both_characters
                 )
         planned.relation_type = relation_type
         planned.source_ref = source_ref
@@ -701,9 +752,9 @@ async def _compose_plan(
             continue
         seen_edges.add(edge)
 
-    items = [
-        _entity_plan_item(planned) for planned in planned_entities
-    ] + [_relation_plan_item(planned) for planned in planned_relations]
+    items = [_entity_plan_item(planned) for planned in planned_entities] + [
+        _relation_plan_item(planned) for planned in planned_relations
+    ]
 
     fingerprint_targets: dict[str, CoreEntity] = {}
     for planned in planned_entities:
@@ -722,6 +773,7 @@ async def _compose_plan(
     fingerprint = stable_hash(
         {
             "targets": target_stamps,
+            "request": request.model_dump(mode="json"),
             "items": [item.model_dump(mode="json") for item in items],
         }
     )
@@ -762,6 +814,7 @@ def _entity_plan_item(planned: _PlannedEntity) -> WorldMigrationItemPlan:
     if planned.hidden_append:
         fills.append("hidden_truth")
     fills.extend(planned.character_fills)
+    fills.extend(planned.dossier_labels)
     if planned.aliases_to_add:
         fills.append("aliases")
     return WorldMigrationItemPlan(
@@ -840,9 +893,7 @@ async def plan_author_migration_world(
     )
 
     composed = await _compose_plan(db, novel_id, request)
-    policy_active = (
-        await WorldValidationService().active_policy(db, novel_id) is not None
-    )
+    policy_active = await WorldValidationService().active_policy(db, novel_id) is not None
     return WorldMigrationPlan(
         items=composed.items,
         validation_policy_active=policy_active,
@@ -862,10 +913,49 @@ async def _locked_entity(db: AsyncSession, novel_id: str, entity_id: str) -> Cor
     )
     obj = (await db.execute(stmt)).scalar_one_or_none()
     if obj is None:
-        raise ConflictError(
-            "迁移目标已变化，请重新预览", code="migration_preview_stale"
-        )
+        raise ConflictError("迁移目标已变化，请重新预览", code="migration_preview_stale")
     return obj
+
+
+async def _locked_dossier_entry(
+    db: AsyncSession, novel_id: str, revision_id: str
+) -> WorldObjectDossierEntry:
+    row = await db.scalar(
+        select(WorldObjectDossierEntry)
+        .where(
+            WorldObjectDossierEntry.novel_id == parse_uuid(novel_id, "novel_id"),
+            WorldObjectDossierEntry.id == parse_uuid(revision_id, "revision_id"),
+        )
+        .with_for_update()
+        .execution_options(populate_existing=True)
+    )
+    if row is None:
+        raise ConflictError(
+            "迁移档案条目已变化，请重新预览", code="migration_preview_stale"
+        )
+    return row
+
+
+def _dossier_entry_state(row: WorldObjectDossierEntry) -> dict[str, Any]:
+    return {
+        "entity_id": str(row.entity_id),
+        "entry_group_id": str(row.entry_group_id),
+        "facing_kind": row.facing_kind,
+        "facing_key": row.facing_key,
+        "vocabulary_term_id": str(row.vocabulary_term_id)
+        if row.vocabulary_term_id
+        else None,
+        "content": row.content,
+        "tags": row.tags_json or [],
+        "metadata": row.metadata_json or {},
+        "source": row.source,
+        "visibility": row.visibility,
+        "status": row.status,
+        "start_anchor_kind": row.start_anchor_kind,
+        "start_anchor_id": str(row.start_anchor_id) if row.start_anchor_id else None,
+        "end_anchor_kind": row.end_anchor_kind,
+        "end_anchor_id": str(row.end_anchor_id) if row.end_anchor_id else None,
+    }
 
 
 async def _locked_relation(
@@ -882,9 +972,7 @@ async def _locked_relation(
     )
     obj = (await db.execute(stmt)).scalar_one_or_none()
     if obj is None:
-        raise ConflictError(
-            "迁移目标已变化，请重新预览", code="migration_preview_stale"
-        )
+        raise ConflictError("迁移目标已变化，请重新预览", code="migration_preview_stale")
     return obj
 
 
@@ -997,14 +1085,11 @@ async def _execute_plan(
                     row = await _locked_entity(db, novel_id, target_id)
                     existing_hidden = str(row.hidden_truth or "").strip()
                     update_fields["hidden_truth"] = "\n\n".join(
-                        part
-                        for part in (existing_hidden, planned.hidden_append)
-                        if part
+                        part for part in (existing_hidden, planned.hidden_append) if part
                     )
                 row = await _locked_entity(db, novel_id, target_id)
                 before = {
-                    field_name: getattr(row, field_name)
-                    for field_name in update_fields
+                    field_name: getattr(row, field_name) for field_name in update_fields
                 }
                 await entities_service.update(
                     db,
@@ -1087,6 +1172,47 @@ async def _execute_plan(
                 )
             )
 
+        for dossier_index, dossier_field in enumerate(item.dossier_fields):
+            facing = _author_migration_dossier_facing(
+                dossier_field.facing, item.entity_type
+            )
+            row = await WorldObjectDossierService().create_entry(
+                db,
+                novel_id,
+                target_id,
+                DossierEntryCreate(
+                    facing=facing,
+                    content=dossier_field.content,
+                    visibility=dossier_field.visibility,
+                ),
+                source=MIGRATION_SOURCE,
+                reason="spreadsheet_migration",
+                source_metadata={
+                    "source": MIGRATION_SOURCE,
+                    "spreadsheet_migration": {
+                        "migration_id": request.migration_id,
+                        "source_ref": dossier_field.source_ref,
+                        "source_hash": dossier_field.source_hash,
+                        "authorized_by": authorized_by,
+                        "applied_at": applied_at,
+                    },
+                },
+            )
+            stored = await _locked_dossier_entry(db, novel_id, str(row.id))
+            applied.append(
+                MigrationAppliedChange(
+                    item_key=f"{item.item_key}#dossier{dossier_index}",
+                    kind="dossier_entry",
+                    target_id=str(stored.id),
+                    operation="dossier_create",
+                    before={
+                        "entity_id": target_id,
+                        "entry_group_id": str(stored.entry_group_id),
+                    },
+                    after_hash=stable_hash(_dossier_entry_state(stored)),
+                )
+            )
+
     def _resolve(ref: str) -> str:
         if ref.startswith(_ITEM_REF_PREFIX):
             entity_id = entity_ids.get(ref[len(_ITEM_REF_PREFIX) :])
@@ -1116,9 +1242,7 @@ async def _execute_plan(
                     relation_kind=planned.relation_kind,
                     description=relation.description,
                     status="canonical",
-                    review_meta=_provenance(
-                        relation.source_ref, relation.source_hash
-                    ),
+                    review_meta=_provenance(relation.source_ref, relation.source_hash),
                 ),
                 _validation_prechecked=True,
             )
@@ -1190,6 +1314,78 @@ async def apply_author_migration_world(
     )
 
 
+async def _rollback_dossier_entries(
+    db: AsyncSession,
+    novel_id: str,
+    changes: list[MigrationAppliedChange],
+    *,
+    dry_run: bool,
+) -> ReversalOutcome:
+    outcome = ReversalOutcome()
+    service = WorldObjectDossierService()
+    for change in reversed(changes):
+        row_statement = select(WorldObjectDossierEntry).where(
+            WorldObjectDossierEntry.novel_id == parse_uuid(novel_id, "novel_id"),
+            WorldObjectDossierEntry.id == parse_uuid(change.target_id, "revision_id"),
+        )
+        if not dry_run:
+            row_statement = row_statement.with_for_update()
+        row = await db.scalar(row_statement.execution_options(populate_existing=True))
+        if row is None:
+            outcome.kept.append({"item_key": change.item_key, "reason_code": "missing"})
+            continue
+        current_statement = (
+            select(WorldObjectDossierEntry)
+            .where(
+                WorldObjectDossierEntry.novel_id == row.novel_id,
+                WorldObjectDossierEntry.entity_id == row.entity_id,
+                WorldObjectDossierEntry.entry_group_id == row.entry_group_id,
+                WorldObjectDossierEntry.status == "active",
+            )
+            .order_by(WorldObjectDossierEntry.revision_number.desc())
+            .limit(1)
+        )
+        if not dry_run:
+            current_statement = current_statement.with_for_update()
+        current = await db.scalar(
+            current_statement.execution_options(populate_existing=True)
+        )
+        if (
+            row.status != "active"
+            or current is None
+            or current.id != row.id
+            or stable_hash(_dossier_entry_state(row)) != change.after_hash
+        ):
+            outcome.kept.append(
+                {
+                    "item_key": change.item_key,
+                    "reason_code": "modified_after_migration",
+                }
+            )
+            continue
+        if not dry_run:
+            try:
+                await service.update_entry(
+                    db,
+                    novel_id,
+                    str(row.entity_id),
+                    str(row.id),
+                    DossierEntryUpdate(expected_revision_id=row.id, content=""),
+                    source=MIGRATION_SOURCE,
+                )
+            except ConflictError:
+                outcome.kept.append(
+                    {
+                        "item_key": change.item_key,
+                        "reason_code": "modified_after_migration",
+                    }
+                )
+                continue
+            outcome.changed.add(str(row.entity_id))
+        outcome.reverted.append(change.item_key)
+    return outcome
+
+
 async def rollback_author_migration_world(
     db: AsyncSession,
     novel_id: str,
@@ -1206,14 +1402,27 @@ async def rollback_author_migration_world(
         payload = change.model_dump(mode="json")
         payload["id"] = payload.pop("target_id")
         changes.append(payload)
-    reversal = await reverse_applied_changes(
+    dossier_changes = [
+        item for item in receipt.applied_changes if item.kind == "dossier_entry"
+    ]
+    generic_changes = [item for item in changes if item["kind"] != "dossier_entry"]
+    dossier_reversal = await _rollback_dossier_entries(
+        db, novel_id, dossier_changes, dry_run=dry_run
+    )
+    generic_reversal = await reverse_applied_changes(
         db,
         novel_id,
-        changes,
+        generic_changes,
         dry_run=dry_run,
         modified_reason="modified_after_migration",
         referenced_reason="referenced",
         revision_reason="spreadsheet_migration_rollback",
+    )
+    reversal = ReversalOutcome(
+        outcomes=[*dossier_reversal.outcomes, *generic_reversal.outcomes],
+        changed=dossier_reversal.changed | generic_reversal.changed,
+        reverted=[*dossier_reversal.reverted, *generic_reversal.reverted],
+        kept=[*dossier_reversal.kept, *generic_reversal.kept],
     )
     if not dry_run and reversal.changed:
         from modules.evidence.facade import mark_asset_context_changed
@@ -1241,6 +1450,4 @@ async def rollback_author_migration_world(
             source_type="spreadsheet_migration_rollback",
             source_id="migration_receipt",
         )
-    return MigrationRollbackResult(
-        reverted=reversal.reverted, kept=reversal.kept
-    )
+    return MigrationRollbackResult(reverted=reversal.reverted, kept=reversal.kept)

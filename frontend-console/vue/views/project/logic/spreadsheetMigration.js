@@ -24,6 +24,7 @@ export const COLUMN_TARGET_LABELS = {
   public_info: "公开信息",
   hidden_truth: "秘密",
   author_note: "作者备注",
+  dossier_facing: "档案面向",
   ignore: "不导入",
   role: "身份",
   appearance: "外貌",
@@ -63,7 +64,7 @@ export const COLUMN_TARGET_LABELS = {
   next_hook: "下一卷钩子",
 }
 
-const WORLD_TARGETS = ["name", "aliases", "entity_type", "summary", "public_info", "hidden_truth", "author_note", "ignore"]
+const WORLD_TARGETS = ["name", "aliases", "entity_type", "summary", "public_info", "hidden_truth", "author_note", "dossier_facing", "ignore"]
 const CHARACTER_TARGETS = ["role", "appearance", "personality", "desire", "fear", "weakness", "current_goal", "current_state", "stance", "voice_style", "relationship_summary"]
 const RELATION_TARGETS = ["source_name", "target_name", "relation_type", "relation_description", "direction", "ignore"]
 const STORY_TARGETS = ["chapter_ref", "title", "content", "core_conflict", "emotional_beat", "must_not_happen", "pov_name", "chapter_start", "chapter_end", "thread_type", "seed_chapter", "payoff_chapter", "reinforce_chapters", "surface_meaning", "hidden_meaning", "related_names", "arc_goal", "climax", "result", "next_hook", "author_note", "ignore"]
@@ -190,6 +191,8 @@ export function mappingPayload(session, sheets, options) {
       kind: sheet.kind,
       header_row: sheet.header_row,
       ...(sheet.default_entity_type ? { default_entity_type: sheet.default_entity_type } : {}),
+      ...(sheet.dossier_profile_type ? { dossier_profile_type: sheet.dossier_profile_type } : {}),
+      ...(sheet.facing_mappings && Object.keys(sheet.facing_mappings).length ? { facing_mappings: { ...sheet.facing_mappings } } : {}),
       columns: { ...(sheet.columns || {}) },
     })),
     options: {

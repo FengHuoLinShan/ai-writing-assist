@@ -8,6 +8,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from core.errors import ConflictError, NotFoundError
+from modules.world.project_vocabulary_presets import preset_item_profile_type
 from modules.world.project_vocabulary_schemas import (
     ModelVocabularyProposal,
     VocabularyEvidence,
@@ -313,6 +314,56 @@ async def test_versioned_presets_are_mixable_idempotent_and_report_omissions(
     )
     assert capped.total_count == first.applied
     assert capped.omitted_count == capped.total_count - len(capped.items)
+
+
+@pytest.mark.asyncio
+async def test_genre_preset_keeps_spatial_v1_and_adds_scoped_dossier_v2(
+    db_session: AsyncSession, project_novel_id: str
+) -> None:
+    result = await apply_vocabulary_presets(
+        db_session, project_novel_id, ["science_fiction"]
+    )
+    assert result.applied == 13
+    versions = {item.preset_version for item in result.items}
+    assert versions == {1, 2}
+    dossier_items = [item for item in result.items if item.preset_version == 2]
+    assert len(dossier_items) == 8
+    assert {
+        preset_item_profile_type(
+            item.preset_id, item.preset_version, item.preset_item_key
+        )
+        for item in dossier_items
+    } == {
+        "character",
+        "location",
+        "item",
+        "faction",
+        "species",
+        "rule",
+        "secret",
+        "event",
+    }
+
+    repeated = await apply_vocabulary_presets(
+        db_session, project_novel_id, ["science_fiction"]
+    )
+    assert repeated.applied == 0
+    assert repeated.already_applied == 13
+
+    from modules.world.project_vocabulary_models import ProjectVocabularyTerm
+
+    terms = list(
+        (
+            await db_session.scalars(
+                select(ProjectVocabularyTerm).where(
+                    ProjectVocabularyTerm.novel_id == uuid.UUID(project_novel_id),
+                    ProjectVocabularyTerm.preset_id == "science_fiction",
+                )
+            )
+        ).all()
+    )
+    assert sorted(term.preset_version for term in terms).count(1) == 5
+    assert sorted(term.preset_version for term in terms).count(2) == 8
 
 
 @pytest.mark.asyncio

@@ -9,7 +9,7 @@ from datetime import UTC, datetime
 from typing import Any
 
 from pydantic import ValidationError as PydanticValidationError
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from core.container import get
@@ -28,6 +28,7 @@ from modules.world.models import (
     ProjectVocabularyTerm,
     WorldObjectDossierEntry,
 )
+from modules.world.project_vocabulary_presets import preset_item_profile_type
 from modules.world.schemas.dossier import (
     DossierAnchor,
     DossierEntryCreate,
@@ -42,6 +43,8 @@ from modules.world.schemas.dossier import (
     DossierLegacyProfileField,
     DossierReadResponse,
     DossierStateField,
+    DossierTemplateAuthorResponse,
+    DossierTemplateAuthorUpsert,
     DossierTemplateField,
     DossierTemplateHistoryResponse,
     DossierTemplateResponse,
@@ -146,6 +149,74 @@ CORE_FACING_LABELS = {
 CORE_FACING_LABELS.update(
     {value[0]: value[1] for value in LEGACY_CORE_ENTITY_FACINGS.values()}
 )
+_BORROWED_FACING_PREFIX = "borrowed:"
+_ENTITY_TYPE_LABELS = {
+    "character": "人物",
+    "location": "地点",
+    "item": "物件",
+    "faction": "势力",
+    "species": "种族",
+    "rule": "规则",
+    "secret": "秘密",
+    "event": "事件",
+}
+
+
+def _stored_core_facing_key(source_entity_type: str, key: str) -> str:
+    return f"{_BORROWED_FACING_PREFIX}{source_entity_type}:{key}"
+
+
+def _borrowed_core_facing_parts(key: str) -> tuple[str, str] | None:
+    if not key.startswith(_BORROWED_FACING_PREFIX):
+        return None
+    source_type, separator, core_key = key[len(_BORROWED_FACING_PREFIX) :].partition(":")
+    if not separator or not source_type or not core_key:
+        return None
+    return source_type, core_key
+
+
+def _core_facing_from_storage(key: str) -> tuple[DossierFacingRef, str]:
+    borrowed = _borrowed_core_facing_parts(key)
+    if borrowed is not None:
+        source_type, core_key = borrowed
+        if core_key in CORE_FACINGS.get(source_type, {}):
+            label = CORE_FACINGS[source_type][core_key]
+            return DossierFacingRef(kind="core", key=key), (
+                f"{label} · 借用{_ENTITY_TYPE_LABELS.get(source_type, source_type)}"
+            )
+    return (
+        DossierFacingRef(kind="core", key=key),
+        CORE_FACING_LABELS.get(key, key),
+    )
+
+
+def _facing_identity(facing: DossierFacingRef, _entity_type: str) -> tuple[str, str]:
+    if facing.kind == "project":
+        return "project", str(facing.term_id)
+    return "core", str(facing.key)
+
+
+def _validate_borrowed_facing_refs(
+    profile_type: str, facings: list[DossierFacingRef]
+) -> set[tuple[str, str]]:
+    identities: set[tuple[str, str]] = set()
+    if facings and (profile_type in SUPPORTED_ENTITY_TYPES):
+        raise ValidationError("内置对象类型不能声明借用内核面向")
+    for facing in facings:
+        borrowed = _borrowed_core_facing_parts(str(facing.key or ""))
+        if facing.kind != "core" or borrowed is None:
+            raise ValidationError("借用面向必须使用明确的内置来源类型与内核键")
+        source_type, core_key = borrowed
+        if source_type == profile_type or core_key not in CORE_FACINGS.get(
+            source_type, {}
+        ):
+            raise ValidationError("借用面向必须明确选择其他内置类型的有效内核面向")
+        if borrowed in identities:
+            raise ValidationError("模板不能重复登记同一借用面向")
+        identities.add(borrowed)
+    return identities
+
+
 DOSSIER_SOURCES = frozenset(
     {
         "author",
@@ -233,10 +304,10 @@ def _entry_response(
     validity_gap: str | None = None,
     story_observation: dict[str, Any] | None = None,
 ) -> DossierEntryResponse:
-    facing = DossierFacingRef(
-        kind=row.facing_kind,
-        key=row.facing_key if row.facing_kind == "core" else None,
-        term_id=row.vocabulary_term_id,
+    facing = (
+        _core_facing_from_storage(row.facing_key)[0]
+        if row.facing_kind == "core"
+        else DossierFacingRef(kind="project", term_id=row.vocabulary_term_id)
     )
     evidence = [
         DossierEvidenceRef.model_validate(item) for item in row.source_refs_json or []
@@ -312,16 +383,91 @@ class WorldObjectDossierService:
         novel_id: uuid.UUID,
         entity_type: str,
         facing: DossierFacingRef,
+        *,
+        declared_borrowed: set[tuple[str, str]] | None = None,
     ) -> tuple[str, str]:
         if facing.kind == "core":
-            if facing.key not in CORE_FACINGS.get(entity_type, {}):
-                raise ValidationError("该对象类型不支持此内核面向")
-            return facing.key, CORE_FACINGS[entity_type][facing.key]
+            key = str(facing.key)
+            borrowed_facing = _borrowed_core_facing_parts(key)
+            if borrowed_facing is None:
+                if key not in CORE_FACINGS.get(entity_type, {}):
+                    raise ValidationError("该对象类型不支持此内核面向")
+                return key, CORE_FACINGS[entity_type][key]
+            source_type, core_key = borrowed_facing
+            if (
+                core_key not in CORE_FACINGS.get(source_type, {})
+                or source_type == entity_type
+                or entity_type in SUPPORTED_ENTITY_TYPES
+            ):
+                raise ValidationError("借用面向的来源类型或内核键无效")
+            borrowed = (
+                declared_borrowed
+                if declared_borrowed is not None
+                else await self._template_borrowed_facings(db, novel_id, entity_type)
+            )
+            if (source_type, core_key) not in borrowed:
+                raise ValidationError("请先在当前对象类型模板中明确借用该内核面向")
+            label = CORE_FACINGS[source_type][core_key]
+            return key, (
+                f"{label} · 借用{_ENTITY_TYPE_LABELS.get(source_type, source_type)}"
+            )
         record = await self._vocabulary_record(db, novel_id, facing.term_id)
         term, revision = record
         if term.kind != "dossier_facing" or term.status != "active":
             raise ValidationError("档案面向未启用，不能用于正式档案")
+        preset_profile_type = preset_item_profile_type(
+            term.preset_id, term.preset_version, term.preset_item_key
+        )
+        if preset_profile_type and preset_profile_type != entity_type:
+            raise ValidationError("该题材面向只适用于对应对象类型")
         return str(term.id), str(revision.snapshot_json["name"])
+
+    async def _template_borrowed_facings(
+        self, db: AsyncSession, novel_id: uuid.UUID, profile_type: str
+    ) -> set[tuple[str, str]]:
+        template = await db.scalar(
+            select(EntityProfileTemplate).where(
+                EntityProfileTemplate.novel_id == novel_id,
+                EntityProfileTemplate.profile_type == profile_type,
+                EntityProfileTemplate.status == "active",
+            )
+        )
+        if template is None:
+            return set()
+        revision = await db.scalar(
+            select(EntityProfileTemplateRevision).where(
+                EntityProfileTemplateRevision.novel_id == novel_id,
+                EntityProfileTemplateRevision.template_id == template.id,
+                EntityProfileTemplateRevision.version_number == template.version_number,
+            )
+        )
+        if revision is None:
+            return set()
+        result = set()
+        for raw in (revision.snapshot_json or {}).get("borrowed_facings", []):
+            try:
+                if isinstance(raw, dict) and raw.get("source_entity_type"):
+                    if raw.get("kind") != "core":
+                        continue
+                    source_type = str(raw["source_entity_type"])
+                    key = _stored_core_facing_key(source_type, str(raw.get("key", "")))
+                else:
+                    facing = DossierFacingRef.model_validate(raw)
+                    key = str(facing.key)
+                    parsed = _borrowed_core_facing_parts(key)
+                    source_type = parsed[0] if parsed else ""
+            except (PydanticValidationError, TypeError, ValueError):
+                continue
+            parsed = _borrowed_core_facing_parts(key)
+            if (
+                parsed is not None
+                and parsed[0] == source_type
+                and parsed[1] in CORE_FACINGS.get(source_type, {})
+                and source_type != profile_type
+                and profile_type not in SUPPORTED_ENTITY_TYPES
+            ):
+                result.add(parsed)
+        return result
 
     @staticmethod
     def _validate_legacy_field(
@@ -452,6 +598,21 @@ class WorldObjectDossierService:
             )
             for key, label in CORE_FACINGS.get(entity_type, {}).items()
         ]
+        options.extend(
+            DossierFacetOption(
+                facing=DossierFacingRef(
+                    kind="core", key=_stored_core_facing_key(source_type, key)
+                ),
+                label=(
+                    f"{CORE_FACINGS[source_type][key]} · 借用"
+                    f"{_ENTITY_TYPE_LABELS.get(source_type, source_type)}"
+                ),
+                source="core",
+            )
+            for source_type, key in sorted(
+                await self._template_borrowed_facings(db, nid, entity_type)
+            )
+        )
         rows = await db.execute(
             select(ProjectVocabularyTerm, ProjectVocabularyRevision)
             .join(
@@ -468,6 +629,11 @@ class WorldObjectDossierService:
         project_options = []
         for term, revision in rows:
             snapshot = revision.snapshot_json
+            preset_profile_type = preset_item_profile_type(
+                term.preset_id, term.preset_version, term.preset_item_key
+            )
+            if preset_profile_type and preset_profile_type != entity_type:
+                continue
             project_options.append(
                 DossierFacetOption(
                     facing=DossierFacingRef(kind="project", term_id=term.id),
@@ -653,7 +819,7 @@ class WorldObjectDossierService:
                 _entry_response(
                     row,
                     facing_label=(
-                        CORE_FACING_LABELS.get(row.facing_key, row.facing_key)
+                        _core_facing_from_storage(row.facing_key)[1]
                         if row.facing_kind == "core"
                         else labels.get(row.vocabulary_term_id, "未知面向")
                     ),
@@ -801,6 +967,20 @@ class WorldObjectDossierService:
                 for term, revision in rows
             }
 
+        borrowed_core_keys = (
+            {
+                _facing_identity(
+                    DossierFacingRef.model_validate(raw), entity.entity_type
+                )[1]
+                for raw in (template.template_schema_json or {}).get(
+                    "borrowed_facings", []
+                )
+                if isinstance(raw, dict)
+            }
+            if template is not None
+            else set()
+        )
+
         template_revision = None
         if template is not None:
             template_revision = await db.scalar(
@@ -846,11 +1026,15 @@ class WorldObjectDossierService:
                 except (PydanticValidationError, TypeError, ValueError):
                     candidate = None
                 if candidate is not None:
-                    if candidate.kind == "core" and candidate.key in CORE_FACINGS.get(
-                        entity.entity_type, {}
+                    if candidate.kind == "core" and (
+                        candidate.key in CORE_FACINGS.get(entity.entity_type, {})
+                        or _facing_identity(candidate, entity.entity_type)[1]
+                        in borrowed_core_keys
                     ):
                         facing = candidate
-                        label = CORE_FACINGS[entity.entity_type][candidate.key]
+                        label = _core_facing_from_storage(
+                            _facing_identity(candidate, entity.entity_type)[1]
+                        )[1]
                     elif (
                         candidate.kind == "project"
                         and candidate.term_id in active_project_facings
@@ -988,12 +1172,12 @@ class WorldObjectDossierService:
                     template_id=profile.template_id,
                     field_key=key,
                     label=(
-                        CORE_FACING_LABELS.get(row.facing_key, row.facing_key)
+                        _core_facing_from_storage(row.facing_key)[1]
                         if row.facing_kind == "core"
                         else "项目档案面向"
                     ),
                     facing=(
-                        DossierFacingRef(kind="core", key=row.facing_key)
+                        _core_facing_from_storage(row.facing_key)[0]
                         if row.facing_kind == "core"
                         and row.facing_key != GENERIC_UNKNOWN_FACING_KEY
                         else DossierFacingRef(
@@ -1253,7 +1437,7 @@ class WorldObjectDossierService:
             _entry_response(
                 row,
                 facing_label=(
-                    CORE_FACING_LABELS.get(row.facing_key, row.facing_key)
+                    _core_facing_from_storage(row.facing_key)[1]
                     if row.facing_kind == "core"
                     else labels.get(row.vocabulary_term_id, "未知面向")
                 ),
@@ -1345,6 +1529,9 @@ class WorldObjectDossierService:
         data: DossierEntryCreate,
         *,
         source: str = "author",
+        source_metadata: dict[str, Any] | None = None,
+        reason: str = "author_created",
+        entry_group_id: uuid.UUID | None = None,
     ) -> DossierEntryResponse:
         entity = await self._entity(
             db, novel_id, entity_id, lock=True, require_canonical=True
@@ -1363,7 +1550,7 @@ class WorldObjectDossierService:
             None,
             novel_id=nid,
             entity_id=entity.id,
-            entry_group_id=uuid.uuid4(),
+            entry_group_id=entry_group_id or uuid.uuid4(),
             revision_number=1,
             facing_kind=data.facing.kind,
             facing_key=facing_key,
@@ -1377,7 +1564,8 @@ class WorldObjectDossierService:
             visibility=data.visibility,
             validity=data.validity,
             source=source,
-            reason="author_created",
+            reason=reason,
+            metadata_json=source_metadata,
         )
         if data.facing.kind == "project":
             term, revision = await self._vocabulary_record(db, nid, data.facing.term_id)
@@ -1447,6 +1635,13 @@ class WorldObjectDossierService:
         row = await self._active_entry(db, entity, revision_id)
         if row.id != data.expected_revision_id:
             raise ConflictError("档案已变化，请刷新后重试", code="dossier_revision_stale")
+        if row.facing_kind == "core":
+            await self._validate_facing(
+                db,
+                entity.novel_id,
+                entity.entity_type,
+                DossierFacingRef(kind="core", key=row.facing_key),
+            )
         values = self._updated_values(row, data)
         await self._validate_validity(db, entity.novel_id, values["validity"])
         await self._validate_story_field_key(db, entity, values["story_field_key"])
@@ -1514,6 +1709,8 @@ class WorldObjectDossierService:
         data: DossierEntryUpdate,
         *,
         source: str = "author",
+        source_metadata: dict[str, Any] | None = None,
+        reason: str | None = None,
     ) -> DossierEntryResponse:
         entity = await self._entity(
             db, novel_id, entity_id, lock=True, require_canonical=True
@@ -1522,6 +1719,13 @@ class WorldObjectDossierService:
         row = await self._active_entry(db, entity, revision_id, lock=True)
         if row.id != data.expected_revision_id:
             raise ConflictError("档案已变化，请刷新后重试", code="dossier_revision_stale")
+        if row.facing_kind == "core":
+            await self._validate_facing(
+                db,
+                entity.novel_id,
+                entity.entity_type,
+                DossierFacingRef(kind="core", key=row.facing_key),
+            )
         values = self._updated_values(row, data)
         clearing = not values["content"].strip()
         if clearing:
@@ -1546,7 +1750,7 @@ class WorldObjectDossierService:
                 )
                 label = revision.snapshot_json.get("name", "未知面向")
             else:
-                label = CORE_FACING_LABELS.get(row.facing_key, row.facing_key)
+                label = _core_facing_from_storage(row.facing_key)[1]
             return _entry_response(row, facing_label=label)
         await self._validate_validity(db, nid, values["validity"])
         await self._validate_story_field_key(db, entity, values["story_field_key"])
@@ -1560,7 +1764,7 @@ class WorldObjectDossierService:
                 raise ConflictError("档案面向已停用，请刷新后重试")
             facing_label = vocabulary_revision.snapshot_json["name"]
         else:
-            facing_label = CORE_FACING_LABELS.get(row.facing_key, row.facing_key)
+            facing_label = _core_facing_from_storage(row.facing_key)[1]
         row.status = "superseded"
         new_row = await self._make_revision(
             db,
@@ -1581,11 +1785,12 @@ class WorldObjectDossierService:
             visibility=values["visibility"],
             validity=values["validity"],
             source=source,
-            reason="author_cleared" if clearing else "author_edit",
+            reason=reason or ("author_cleared" if clearing else "author_edit"),
             status="cleared" if clearing else "active",
             legacy_value_json=(
                 row.legacy_value_json if values["content"] == row.content else None
             ),
+            metadata_json=source_metadata,
         )
         await self._sync_legacy_storage(
             db,
@@ -1612,6 +1817,13 @@ class WorldObjectDossierService:
             raise NotFoundError("档案历史版本不存在")
         if not selected.content.strip() or selected.status == "cleared":
             raise ValidationError("清除版本没有可恢复的档案内容")
+        if selected.facing_kind == "core":
+            await self._validate_facing(
+                db,
+                entity.novel_id,
+                entity.entity_type,
+                DossierFacingRef(kind="core", key=selected.facing_key),
+            )
         if selected.facing_kind == "project":
             term, _revision = await self._vocabulary_record(
                 db, entity.novel_id, selected.vocabulary_term_id
@@ -1657,6 +1869,13 @@ class WorldObjectDossierService:
             raise NotFoundError("档案历史版本不存在")
         if not selected.content.strip() or selected.status == "cleared":
             raise ValidationError("清除版本没有可恢复的档案内容")
+        if selected.facing_kind == "core":
+            await self._validate_facing(
+                db,
+                nid,
+                entity.entity_type,
+                DossierFacingRef(kind="core", key=selected.facing_key),
+            )
         await self._validate_validity(db, nid, _validity_from_row(selected))
         if selected.facing_kind == "project":
             term, _revision = await self._vocabulary_record(
@@ -1708,7 +1927,7 @@ class WorldObjectDossierService:
             )
             label = revision.snapshot_json["name"]
         else:
-            label = CORE_FACING_LABELS.get(restored.facing_key, restored.facing_key)
+            label = _core_facing_from_storage(restored.facing_key)[1]
         return _entry_response(restored, facing_label=label)
 
     async def sync_character_legacy_field(
@@ -1894,10 +2113,10 @@ class WorldObjectDossierService:
         db: AsyncSession,
         novel_id: str,
         profile_type: str,
-        data: DossierTemplateUpsert,
+        data: DossierTemplateUpsert | DossierTemplateAuthorUpsert,
         *,
         source: str = "author",
-    ) -> DossierTemplateResponse:
+    ) -> DossierTemplateResponse | DossierTemplateAuthorResponse:
         await require_active_project(db, novel_id, allow_demo_readonly=False)
         if source not in DOSSIER_SOURCES:
             raise ValidationError("档案模板来源不在支持的来源类型中")
@@ -1905,12 +2124,73 @@ class WorldObjectDossierService:
         normalized_type = profile_type.strip().lower()
         if not normalized_type or len(normalized_type) > 64:
             raise ValidationError("对象类型不能为空")
+        template = (
+            await db.execute(
+                select(EntityProfileTemplate)
+                .where(
+                    EntityProfileTemplate.novel_id == nid,
+                    EntityProfileTemplate.profile_type == normalized_type,
+                )
+                .with_for_update()
+            )
+        ).scalar_one_or_none()
+        is_author_request = isinstance(data, DossierTemplateAuthorUpsert)
+        if is_author_request:
+            borrowed_facings = list(data.borrowed_facings)
+            borrowed_identities = _validate_borrowed_facing_refs(
+                normalized_type, borrowed_facings
+            )
+        else:
+            borrowed_identities = (
+                await self._template_borrowed_facings(db, nid, normalized_type)
+                if template is not None
+                else set()
+            )
+            borrowed_facings = [
+                DossierFacingRef(
+                    kind="core", key=_stored_core_facing_key(source_type, key)
+                )
+                for source_type, key in sorted(borrowed_identities)
+            ]
+        if template is not None:
+            current_borrowed = await self._template_borrowed_facings(
+                db, nid, normalized_type
+            )
+            removed_borrowed = current_borrowed - borrowed_identities
+            if removed_borrowed:
+                removed_keys = [
+                    _stored_core_facing_key(source_type, key)
+                    for source_type, key in removed_borrowed
+                ]
+                active_count = await db.scalar(
+                    select(func.count(WorldObjectDossierEntry.id))
+                    .join(
+                        CoreEntity,
+                        (CoreEntity.novel_id == WorldObjectDossierEntry.novel_id)
+                        & (CoreEntity.id == WorldObjectDossierEntry.entity_id),
+                    )
+                    .where(
+                        WorldObjectDossierEntry.novel_id == nid,
+                        WorldObjectDossierEntry.facing_kind == "core",
+                        WorldObjectDossierEntry.facing_key.in_(removed_keys),
+                        WorldObjectDossierEntry.status == "active",
+                        CoreEntity.entity_type == normalized_type,
+                    )
+                )
+                if active_count:
+                    raise ValidationError(
+                        "模板仍有活动档案使用该借用面向；请先清除或改写条目"
+                    )
         seen = set()
         seen_keys = set()
         submitted_key_facings: dict[str, tuple[str, str]] = {}
         for item in data.fields:
             facing_key, _label = await self._validate_facing(
-                db, nid, normalized_type, item.facing
+                db,
+                nid,
+                normalized_type,
+                item.facing,
+                declared_borrowed=borrowed_identities,
             )
             identity = (item.facing.kind, facing_key)
             if identity in seen:
@@ -1927,23 +2207,39 @@ class WorldObjectDossierService:
         if len(state_field_keys) != len(set(state_field_keys)):
             raise ValidationError("文字状态字段 key 不能重复")
         snapshot = {
-            "format_version": 1,
+            "format_version": 2 if borrowed_facings else 1,
             "fields": [field.model_dump(mode="json") for field in data.fields],
+            "borrowed_facings": [
+                field.model_dump(mode="json") for field in borrowed_facings
+            ],
             "state_fields": [
                 field.model_dump(mode="json") for field in data.state_fields
             ],
             "display_schema": data.display_schema,
         }
-        template = (
-            await db.execute(
-                select(EntityProfileTemplate)
-                .where(
-                    EntityProfileTemplate.novel_id == nid,
-                    EntityProfileTemplate.profile_type == normalized_type,
+
+        def response(
+            revision_id: uuid.UUID,
+            version_number: int,
+            display_schema: dict[str, Any],
+            updated_at: datetime | None,
+        ) -> DossierTemplateResponse | DossierTemplateAuthorResponse:
+            values = {
+                "profile_type": normalized_type,
+                "template_id": template.id,
+                "revision_id": revision_id,
+                "version_number": version_number,
+                "fields": data.fields,
+                "state_fields": data.state_fields,
+                "display_schema": display_schema,
+                "updated_at": updated_at,
+            }
+            if is_author_request:
+                return DossierTemplateAuthorResponse(
+                    **values, borrowed_facings=borrowed_facings
                 )
-                .with_for_update()
-            )
-        ).scalar_one_or_none()
+            return DossierTemplateResponse(**values)
+
         if template is not None and submitted_key_facings:
             revisions = (
                 await db.scalars(
@@ -1969,11 +2265,7 @@ class WorldObjectDossierService:
                     previous_facing = DossierFacingRef.model_validate(raw.get("facing"))
                 except (PydanticValidationError, TypeError, ValueError):
                     continue
-                previous_key = (
-                    previous_facing.key
-                    if previous_facing.kind == "core"
-                    else str(previous_facing.term_id)
-                )
+                previous_key = _facing_identity(previous_facing, normalized_type)[1]
                 historical_key_facings.setdefault(
                     raw["key"], (previous_facing.kind, previous_key)
                 )
@@ -1990,8 +2282,9 @@ class WorldObjectDossierService:
                 novel_id=nid,
                 profile_type=normalized_type,
                 template_schema_json={
-                    "format_version": 1,
+                    "format_version": snapshot["format_version"],
                     "fields": snapshot["fields"],
+                    "borrowed_facings": snapshot["borrowed_facings"],
                     "state_fields": snapshot["state_fields"],
                 },
                 display_schema_json=data.display_schema,
@@ -2018,24 +2311,23 @@ class WorldObjectDossierService:
                 template.template_schema_json.get("fields", []) == snapshot["fields"]
                 and template.template_schema_json.get("state_fields", [])
                 == snapshot["state_fields"]
+                and template.template_schema_json.get("borrowed_facings", [])
+                == snapshot["borrowed_facings"]
                 and template.display_schema_json == data.display_schema
             ):
                 if current is None:
                     raise ConflictError("模板当前修订缺失，请核对数据")
-                return DossierTemplateResponse(
-                    profile_type=normalized_type,
-                    template_id=template.id,
-                    revision_id=current.id,
-                    version_number=template.version_number,
-                    fields=data.fields,
-                    state_fields=data.state_fields,
-                    display_schema=template.display_schema_json or {},
-                    updated_at=template.updated_at,
+                return response(
+                    current.id,
+                    template.version_number,
+                    template.display_schema_json or {},
+                    template.updated_at,
                 )
             revision_number = template.version_number + 1
             template.template_schema_json = {
-                "format_version": 1,
+                "format_version": snapshot["format_version"],
                 "fields": snapshot["fields"],
+                "borrowed_facings": snapshot["borrowed_facings"],
                 "state_fields": snapshot["state_fields"],
             }
             template.display_schema_json = data.display_schema
@@ -2054,15 +2346,8 @@ class WorldObjectDossierService:
         )
         db.add(revision)
         await db.flush()
-        return DossierTemplateResponse(
-            profile_type=normalized_type,
-            template_id=template.id,
-            revision_id=revision.id,
-            version_number=revision_number,
-            fields=data.fields,
-            state_fields=data.state_fields,
-            display_schema=data.display_schema,
-            updated_at=template.updated_at,
+        return response(
+            revision.id, revision_number, data.display_schema, template.updated_at
         )
 
     async def preview_template_upsert(
@@ -2070,17 +2355,45 @@ class WorldObjectDossierService:
         db: AsyncSession,
         novel_id: str,
         profile_type: str,
-        data: DossierTemplateUpsert,
+        data: DossierTemplateUpsert | DossierTemplateAuthorUpsert,
     ) -> dict[str, Any]:
         """Validate a template edit and return a preview without changing it."""
         nid = parse_uuid(novel_id, "novel_id")
         normalized_type = profile_type.strip().lower()
         if not normalized_type or len(normalized_type) > 64:
             raise ValidationError("对象类型不能为空")
+        template = await db.scalar(
+            select(EntityProfileTemplate).where(
+                EntityProfileTemplate.novel_id == nid,
+                EntityProfileTemplate.profile_type == normalized_type,
+            )
+        )
+        is_author_request = isinstance(data, DossierTemplateAuthorUpsert)
+        if is_author_request:
+            borrowed_facings = list(data.borrowed_facings)
+            borrowed_identities = _validate_borrowed_facing_refs(
+                normalized_type, borrowed_facings
+            )
+        else:
+            borrowed_identities = (
+                await self._template_borrowed_facings(db, nid, normalized_type)
+                if template is not None
+                else set()
+            )
+            borrowed_facings = [
+                DossierFacingRef(
+                    kind="core", key=_stored_core_facing_key(source_type, key)
+                )
+                for source_type, key in sorted(borrowed_identities)
+            ]
         identities = set()
         for item in data.fields:
             facing_key, _label = await self._validate_facing(
-                db, nid, normalized_type, item.facing
+                db,
+                nid,
+                normalized_type,
+                item.facing,
+                declared_borrowed=borrowed_identities,
             )
             identity = (item.facing.kind, facing_key)
             if identity in identities:
@@ -2091,12 +2404,6 @@ class WorldObjectDossierService:
             raise ValidationError("文字状态字段 key 不能重复")
         if normalized_type in SUPPORTED_ENTITY_TYPES and data.state_fields:
             raise ValidationError("内置对象类型不能声明自定义文字状态字段")
-        template = await db.scalar(
-            select(EntityProfileTemplate).where(
-                EntityProfileTemplate.novel_id == nid,
-                EntityProfileTemplate.profile_type == normalized_type,
-            )
-        )
         if template is None:
             if data.expected_version_number is not None:
                 raise ConflictError("模板不存在，请刷新后重试")
@@ -2109,6 +2416,9 @@ class WorldObjectDossierService:
             current_version = template.version_number
         after = {
             "fields": [item.model_dump(mode="json") for item in data.fields],
+            "borrowed_facings": [
+                item.model_dump(mode="json") for item in borrowed_facings
+            ],
             "state_fields": [item.model_dump(mode="json") for item in data.state_fields],
             "display_schema": data.display_schema,
         }
@@ -2117,6 +2427,9 @@ class WorldObjectDossierService:
                 "fields": (template.template_schema_json or {}).get("fields", []),
                 "state_fields": (template.template_schema_json or {}).get(
                     "state_fields", []
+                ),
+                "borrowed_facings": (template.template_schema_json or {}).get(
+                    "borrowed_facings", []
                 ),
                 "display_schema": template.display_schema_json or {},
             }
@@ -2133,8 +2446,13 @@ class WorldObjectDossierService:
         }
 
     async def get_template(
-        self, db: AsyncSession, novel_id: str, profile_type: str
-    ) -> DossierTemplateResponse:
+        self,
+        db: AsyncSession,
+        novel_id: str,
+        profile_type: str,
+        *,
+        include_author_fields: bool = False,
+    ) -> DossierTemplateResponse | DossierTemplateAuthorResponse:
         nid = parse_uuid(novel_id, "novel_id")
         normalized_type = profile_type.strip().lower()
         template = (
@@ -2164,16 +2482,25 @@ class WorldObjectDossierService:
             DossierStateField.model_validate(item)
             for item in (revision.snapshot_json.get("state_fields") or [])
         ]
-        return DossierTemplateResponse(
-            profile_type=normalized_type,
-            template_id=template.id,
-            revision_id=revision.id,
-            version_number=revision.version_number,
-            fields=fields,
-            state_fields=state_fields,
-            display_schema=revision.snapshot_json.get("display_schema", {}),
-            updated_at=template.updated_at,
-        )
+        borrowed_facings = [
+            DossierFacingRef.model_validate(item)
+            for item in (revision.snapshot_json.get("borrowed_facings") or [])
+        ]
+        values = {
+            "profile_type": normalized_type,
+            "template_id": template.id,
+            "revision_id": revision.id,
+            "version_number": revision.version_number,
+            "fields": fields,
+            "state_fields": state_fields,
+            "display_schema": revision.snapshot_json.get("display_schema", {}),
+            "updated_at": template.updated_at,
+        }
+        if include_author_fields:
+            return DossierTemplateAuthorResponse(
+                **values, borrowed_facings=borrowed_facings
+            )
+        return DossierTemplateResponse(**values)
 
     async def require_custom_text_state_field(
         self,
