@@ -81,6 +81,11 @@ Goal 的确定 ID 父任务也通过 enqueuer 创建为 `inline_only` / `manual_
 `AIRunEnvelope`；未知/可能计费结果需要作者显式续算。handler 在 Story 模块声明，最终 app task manifest
 和操作目录组合接线仍由集成者完成；此处的任务类型记录不代表完整应用接线或迁移链已通过。
 
+`story_world_progression` 是 Story 的独立候选推进 handler 声明，使用 `simulation_v3` 与不可变步骤记录，
+计划按 `never_retry`/`max_attempts=1` 执行；每次 provider 调用前先提交单调累计账本和分支检查点，可能计费结果未知时暂停。
+它尚未进入当前任务注册表：应用组合根仍需注册 handler、`story.world_progression` root capability、checkpoint、Story router 与操作目录；
+完成接线前，不能声称 HTTP/worker 可用或把模块声明算作当前注册项，也不代表输出质量已人工验收。
+
 `deep_import` 完成时可把 post-import adoption package 的 compact receipt 写入既有
 `result.phase_artifacts`；这不是新任务类型或队列状态。包组装失败不得覆盖已完成的
 imports result，恢复、rollback 与 asset summary 仍由 imports 自己拥有。

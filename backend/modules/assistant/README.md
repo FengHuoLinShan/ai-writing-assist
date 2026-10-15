@@ -348,7 +348,7 @@ uuid5 幂等执行与批次指纹；或既有领域任务如 `writing_semantic_r
 依赖方向（ADR-0031）：guided_flow 只经操作目录或 facade 触达
 Evidence/Writing/Project/Story；不新增模块依赖边，Assistant 仍禁止直接 import
 World（骨架与采用经操作目录调用 `world.draft_opening_skeleton` /
-`world.adopt_package`）。三个流程共用一张注册表与派发表（`flows.py`），按同一
+`world.adopt_package`）。现有五个流程共用一张注册表与派发表（`flows.py`），按同一
 机制追加推导、确认/选择输入与自动执行实现，不另起编排层。
 
 HTTP 入口为 `/api/assistant/flows`（start/active/latest/view/advance/settings/abandon）；鉴权与项目隔离与 Assistant 其余入口一致，作者语言视图为唯一公开投影。开始请求按流程携带输入（`continue_writing` 需 `chapter_index`；`new_book_opening` 需 `input.vision` 与可选题材/篇幅意向；`editorial_revision` 无开始输入），推进请求除资料确认外支持 `choice`（作者选择停点的输入，由各流程在服务端校验）；视图的 `panel` 承载当前停点的作者面向载荷（方向卡、骨架包引用、修订条目、滚动窗口进度）。
@@ -391,6 +391,11 @@ HTTP 入口为 `/api/assistant/flows`（start/active/latest/view/advance/setting
 或被引用资产按领域回执保留。取舍保存 CAS 冲突保留编辑，重读前本地备份可恢复；
 备份失败保留当前编辑并阻止无保护离页。审读台重新挂载读取活动流程恢复停点。
 方向卡能力归属为 `assistant.guided_flow.direction_cards`，只声明对齐作者构想 `author_intent`，输出不构成世界事实或知识审查通过回执。审读修订的改后复核任务仍在途时保持流程进行中；终态回执才进入复核结果停点。
+
+`world_progression_review` v1 已注册为作者逐步复核流程：选择参与者/方式/步长 → 确认资料 →
+单独确认 R4 根预算并推进 → 查看候选 → 按钩子逐次确认滚动窗口、R0 预览与 R3 采用。流程没有
+自动提交模型任务或资产写入的 step；它经 Assistant 操作目录调用 Story。C5 操作目录与 Task/app
+组合接线完成前，流程定义不代表此入口已可运行；全局引导流程开关保持默认关闭。
 
 ## 工作上下文的意图与选区范围（R00）
 

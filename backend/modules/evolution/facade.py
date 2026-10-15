@@ -1,5 +1,6 @@
 """Stable domain entry points for source mutations; no model work is started."""
 
+from modules.evolution.completed_read_chapters import read_completed_chapter_indices
 from modules.evolution.consumption import (
     CONSUMPTION_REGISTRY_STATE_KEY,
     read_consumption_records,
@@ -82,6 +83,7 @@ __all__ = [
     "read_consumption_records",
     "switch_project_engine",
     "read_committed_understanding",
+    "read_completed_chapter_indices",
     "require_current_world_candidate",
     "require_current_structure_candidate",
 ]

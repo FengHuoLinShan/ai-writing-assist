@@ -7,7 +7,7 @@ from uuid import UUID, uuid4
 
 import pytest
 from httpx import ASGITransport
-from sqlalchemy import select
+from sqlalchemy import func, select
 
 from app.main import app
 from core.database import get_manager
@@ -265,23 +265,36 @@ async def test_author_transfers_exact_round_once_and_world_stays_candidate(with_
                 "entity_type": "location",
             },
         }
+        preference = await first.get("/api/assistant/operation-traces/preference")
+        assert preference.status_code == 200, preference.text
+        original_enabled = preference.json()["enabled"]
         enabled = await first.put(
             "/api/assistant/operation-traces/preference", json={"enabled": True}
         )
         assert enabled.status_code == 200, enabled.text
-        traced = await first.post(path, json=payload)
-        assert traced.status_code == 201 and traced.json()["repeated"] is True
-        assert traced.headers.get("x-novelcraft-operation-trace-incomplete") is None
-        async with get_manager().session_factory() as db:
-            rows = (
-                await db.scalars(
-                    select(AssistantOperationTrace).where(
+        try:
+            async with get_manager().session_factory() as db:
+                baseline_trace_id = await db.scalar(
+                    select(func.coalesce(func.max(AssistantOperationTrace.id), 0)).where(
                         AssistantOperationTrace.novel_id == novel_id,
                         AssistantOperationTrace.op_id
                         == "story.scene_director.transfer_world_candidate",
                     )
                 )
-            ).all()
+            traced = await first.post(path, json=payload)
+            assert traced.status_code == 201 and traced.json()["repeated"] is True
+            assert traced.headers.get("x-novelcraft-operation-trace-incomplete") is None
+            async with get_manager().session_factory() as db:
+                rows = (
+                    await db.scalars(
+                        select(AssistantOperationTrace).where(
+                            AssistantOperationTrace.novel_id == novel_id,
+                            AssistantOperationTrace.op_id
+                            == "story.scene_director.transfer_world_candidate",
+                            AssistantOperationTrace.id > baseline_trace_id,
+                        )
+                    )
+                ).all()
             assert [row.event_type for row in rows].count("confirmed") == 1
             assert [row.event_type for row in rows].count("executed") == 1
             assert all(row.actor_type == "ui" for row in rows)
@@ -289,10 +302,12 @@ async def test_author_transfers_exact_round_once_and_world_stays_candidate(with_
             assert executed.result_refs == [
                 {"type": "world_candidate", "id": candidate_id}
             ]
-        disabled = await first.put(
-            "/api/assistant/operation-traces/preference", json={"enabled": False}
-        )
-        assert disabled.status_code == 200, disabled.text
+        finally:
+            restored = await first.put(
+                "/api/assistant/operation-traces/preference",
+                json={"enabled": original_enabled},
+            )
+            assert restored.status_code == 200, restored.text
 
     async with get_manager().session_factory() as db:
         receipt_rows = (
