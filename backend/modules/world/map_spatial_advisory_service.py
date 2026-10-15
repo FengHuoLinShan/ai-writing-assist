@@ -192,6 +192,10 @@ class MapSpatialAdvisoryService:
         from modules.world.contracts import KnowledgeVisibilityRequest
         from modules.world.facade import check_knowledge_visibility
         from modules.world.map_atlas_models import MapAtlasNode, MapAtlasRevision
+        from modules.world.map_merge_lineage import (
+            EXCLUDED_MERGE_UNKNOWN,
+            excluded_merge_targets,
+        )
         from modules.world.map_structure_geometry import (
             _path_is_calculable,
             constraint_is_calculable,
@@ -314,7 +318,17 @@ class MapSpatialAdvisoryService:
         docs: list[tuple[object, object, MapDocument]] = []
         type_refs: dict[tuple, str] = {}
         omitted = max(0, len(rows) - _MAX_MAP_NODES)
+        excluded_merges = await excluded_merge_targets(
+            db,
+            data.novel_id,
+            [node.id for node, _ in rows[:_MAX_MAP_NODES]],
+            excluded_nodes=excluded,
+            excluded_revisions=excluded,
+        )
         for node, revision in rows[:_MAX_MAP_NODES]:
+            if str(node.id) in excluded_merges:
+                omitted += 1
+                continue
             if str(node.id) in excluded or str(revision.id) in excluded:
                 continue
             try:
@@ -990,9 +1004,12 @@ class MapSpatialAdvisoryService:
             items=ordered[:_MAX_ADVISORIES],
             omitted_count=omitted + max(0, len(ordered) - _MAX_ADVISORIES),
             map_revisions=baselines,
-            unknowns=["未提供正文明确的场景间时间间隔，无法判断移动是否来得及。"]
-            if data.transitions
-            else [],
+            unknowns=([EXCLUDED_MERGE_UNKNOWN] if excluded_merges else [])
+            + (
+                ["未提供正文明确的场景间时间间隔，无法判断移动是否来得及。"]
+                if data.transitions
+                else []
+            ),
         )
 
 

@@ -1054,3 +1054,164 @@ async def test_assistant_batch_enforces_twenty_actual_merge_changes(
             MapAtlasNode, uuid.UUID(proposal.arguments["source_node_id"])
         )
         assert node.merged_into_node_id is None
+
+
+@pytest.mark.parametrize("excluded_kind", ["map_spatial", "map_atlas_revision"])
+@pytest.mark.parametrize(
+    "later_state",
+    [
+        "merged",
+        "saved",
+        "restored_after_undo",
+        "restored_then_merged_again",
+        "restored_then_merged_back",
+    ],
+)
+async def test_merged_sources_remain_excluded_from_spatial_consumers(
+    db_session, test_project_id, excluded_kind, later_state
+):
+    from modules.world.map_notification_service import read_map_notification_signals
+    from modules.world.map_spatial_advisory_service import read_map_spatial_advisories
+    from modules.world.map_spatial_brief_service import read_map_spatial_brief
+    from modules.world.map_structure_schemas import MapRevisionReview
+    from modules.world.tests.test_map_spatial_advisory_integration import seed
+
+    scene, source, source_revision, _places, _ = await seed(db_session, test_project_id)
+    source_revision.geometry_hash = geometry_hash(
+        MapDocument.model_validate(source_revision.document)
+    )
+    other_source_revision = MapAtlasRevision(
+        novel_id=source.novel_id,
+        node_id=source.id,
+        status="saved",
+        document=MapDocument().model_dump(mode="json"),
+        geometry_hash=geometry_hash(MapDocument()),
+    )
+    db_session.add(other_source_revision)
+    await db_session.flush()
+    target_id, _ = await _saved_node(
+        db_session, test_project_id, "合并目标", MapDocument(schema_version=2)
+    )
+    service = MapNodeMergeService()
+    preview = await service.preview(db_session, test_project_id, source.id, target_id)
+    assert preview.can_execute, preview.blockers
+    result = await service.apply(
+        db_session,
+        test_project_id,
+        MapNodeMergeApplyRequest(
+            source_node_id=source.id,
+            target_node_id=target_id,
+            preview_fingerprint=preview.fingerprint,
+            confirmed_source_disposition=True,
+        ),
+    )
+    merged_id = result["merged_revision_id"]
+    if later_state == "saved":
+        await MapStructureService().save(
+            db_session,
+            test_project_id,
+            target_id,
+            MapSaveRequest(base_revision_id=merged_id, document=preview.merged_document),
+        )
+    elif later_state in {
+        "restored_after_undo",
+        "restored_then_merged_again",
+        "restored_then_merged_back",
+    }:
+        # Undo removes the tombstone; the historical merged document can still
+        # be restored and contains the excluded source's content.
+        undo = await service.preview_undo(
+            db_session, test_project_id, source.id, target_id
+        )
+        assert undo.can_undo, undo.blockers
+        restored = await service.undo(
+            db_session,
+            test_project_id,
+            MapNodeMergeUndoRequest(
+                source_node_id=source.id,
+                target_node_id=target_id,
+                preview_fingerprint=undo.fingerprint,
+                confirmed=True,
+            ),
+        )
+        await MapStructureService().review(
+            db_session,
+            test_project_id,
+            target_id,
+            merged_id,
+            MapRevisionReview(
+                base_revision_id=restored["restored_revision_id"], action="restore"
+            ),
+        )
+        if later_state in {"restored_then_merged_again", "restored_then_merged_back"}:
+            restored_source_id = target_id
+            if later_state == "restored_then_merged_again":
+                target_id, _ = await _saved_node(
+                    db_session,
+                    test_project_id,
+                    "后续合并目标",
+                    MapDocument(schema_version=2),
+                )
+            else:
+                target_id = str(source.id)
+            next_preview = await service.preview(
+                db_session, test_project_id, restored_source_id, target_id
+            )
+            assert next_preview.can_execute, next_preview.blockers
+            await service.apply(
+                db_session,
+                test_project_id,
+                MapNodeMergeApplyRequest(
+                    source_node_id=restored_source_id,
+                    target_node_id=target_id,
+                    preview_fingerprint=next_preview.fingerprint,
+                    confirmed_source_disposition=True,
+                ),
+            )
+    request = {"novel_id": test_project_id, "scene_id": str(scene.id)}
+    notification = {
+        "asset_type": "map_atlas_node",
+        "asset_id": target_id,
+        "scene_ids": [str(scene.id)],
+    }
+    assert any(
+        item.node_id == target_id
+        for item in (await read_map_spatial_brief(db_session, request)).items
+    )
+    assert any(
+        item.node_id == target_id
+        for item in (await read_map_spatial_advisories(db_session, request)).items
+    )
+    assert await read_map_notification_signals(db_session, test_project_id, notification)
+    unabsorbed_request = {
+        **request,
+        "excluded_ids": [f"map_atlas_revision:{other_source_revision.id}"],
+    }
+    assert any(
+        item.node_id == target_id
+        for item in (await read_map_spatial_brief(db_session, unabsorbed_request)).items
+    )
+    assert any(
+        item.node_id == target_id
+        for item in (
+            await read_map_spatial_advisories(db_session, unabsorbed_request)
+        ).items
+    )
+    excluded = (
+        f"map_spatial:{source.id}:{source_revision.id}"
+        if excluded_kind == "map_spatial"
+        else f"map_atlas_revision:{source_revision.id}"
+    )
+    excluded_request = {**request, "excluded_ids": [excluded]}
+    brief = await read_map_spatial_brief(db_session, excluded_request)
+    advisory = await read_map_spatial_advisories(db_session, excluded_request)
+    assert brief.items == []
+    assert brief.omitted_count and brief.unknowns
+    assert advisory.items == [] and advisory.map_revisions == []
+    assert advisory.omitted_count and advisory.unknowns
+    assert (
+        await read_map_notification_signals(
+            db_session, test_project_id, {**notification, "excluded_ids": [excluded]}
+        )
+        is None
+    )

@@ -14,6 +14,7 @@ from modules.project.models import Project
 from modules.world.map_atlas_models import MapAtlasNode, MapAtlasRevision
 from modules.world.map_atlas_schemas import MapAtlasNodeUpdate
 from modules.world.map_atlas_service import MapAtlasService
+from modules.world.map_merge_lineage import excluded_merge_targets
 from modules.world.map_node_merge import (
     MapNodeMergeApplyRequest,
     MapNodeMergeService,
@@ -92,6 +93,31 @@ async def test_merge_one_winner_cached_writer_rejects_tombstone_and_undo_appends
                 )
             await cached.rollback()
         async with sessions.begin() as db:
+            source_revision_id = await db.scalar(
+                select(MapAtlasNode.current_revision_id).where(
+                    MapAtlasNode.novel_id == nid,
+                    MapAtlasNode.id == UUID(source["id"]),
+                )
+            )
+            node_ids = [UUID(source["id"]), UUID(target["id"])]
+            for excluded_nodes, excluded_revisions in (
+                ({source["id"]}, set()),
+                (set(), {str(source_revision_id)}),
+            ):
+                assert await excluded_merge_targets(
+                    db,
+                    nid,
+                    node_ids,
+                    excluded_nodes=excluded_nodes,
+                    excluded_revisions=excluded_revisions,
+                ) == {target["id"]}
+                assert not await excluded_merge_targets(
+                    db,
+                    other_id,
+                    node_ids,
+                    excluded_nodes=excluded_nodes,
+                    excluded_revisions=excluded_revisions,
+                )
             with pytest.raises(
                 DBAPIError, match="fk_map_atlas_node_merged_into_same_novel"
             ):

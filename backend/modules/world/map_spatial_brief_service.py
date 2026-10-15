@@ -15,6 +15,10 @@ from core.service_keys import PROJECT_REQUIRE_ACTIVE
 from infrastructure.stable_hash import stable_hash
 from modules.evidence import facade as evidence_facade
 from modules.evidence.contracts import VisibilityContextContract
+from modules.world.map_merge_lineage import (
+    EXCLUDED_MERGE_UNKNOWN,
+    excluded_merge_targets,
+)
 from modules.world.map_spatial_brief_schemas import (
     MapSpatialBriefItem,
     MapSpatialBriefRequest,
@@ -507,10 +511,18 @@ class MapSpatialBriefService:
         omitted_count = max(0, len(rows) - _MAX_NODES)
         rows = rows[:_MAX_NODES]
         excluded_node_ids = {value for value in excluded_nodes}
+        excluded_merges = await excluded_merge_targets(
+            db,
+            data.novel_id,
+            [node.id for node, _ in rows],
+            excluded_nodes=excluded_nodes,
+            excluded_revisions=excluded_revisions,
+        )
         node_rows = [
             (node, revision)
             for node, revision in rows
             if str(node.id) not in excluded_node_ids
+            and str(node.id) not in excluded_merges
             and str(revision.id) not in excluded_revisions
         ]
         omitted_count += len(rows) - len(node_rows)
@@ -946,6 +958,7 @@ class MapSpatialBriefService:
             chapter_index=cutoff_chapter,
             items=items,
             omitted_count=omitted_count,
+            unknowns=[EXCLUDED_MERGE_UNKNOWN] if excluded_merges else [],
         )
 
     @staticmethod
