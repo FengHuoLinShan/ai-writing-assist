@@ -1,0 +1,27 @@
+{
+  "verified_at": "2026-10-15T02:09:14.010252+00:00",
+  "freeze_sha256": "78c81e18ad2df150931c6b57121d925ddc79ba111b73dcaf804e1ac9a94b1bd2",
+  "frozen_files_verified": 781,
+  "old_ledgers_and_raw_evidence_unchanged": true,
+  "all_stages_complete_once": true,
+  "native_calls": 66,
+  "native_unknown": 0,
+  "native_nonzero": 0,
+  "private_permissions": "directories 0700, files 0600",
+  "checks": {
+    "offline_selfcheck": "source drift rejection, exclusive-lock replay rejection, 32-case balance/schema/source hashes, parent teacher/debug proofs, baseline/candidate source delta, current owner/Project Luna/max",
+    "ruff": "passed",
+    "format": "passed",
+    "docs_check_origin_main": "passed",
+    "git_diff_check": "passed"
+  },
+  "docs_log_sha256": "65738c870cef90464e305cc69f94575b66e7a54b034b75d128f373b738975ada",
+  "retained_candidate_failures": 1,
+  "raw_teacher_deterministic_disagreements": 3,
+  "statistical_limitation": "paired positive-case sign-test p=0.5; no population significance claim",
+  "g6_closed": true,
+  "additional_model_stages": null,
+  "human_validated": false,
+  "blocking": false,
+  "delivery": "local uncommitted/unpushed/unmerged/undeployed"
+}

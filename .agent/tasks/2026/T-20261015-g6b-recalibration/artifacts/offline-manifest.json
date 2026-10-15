@@ -1,0 +1,255 @@
+{
+  "kind": "g6b_offline_preparation",
+  "status": "prepared_not_executed",
+  "human_validated": false,
+  "blocking": false,
+  "model_requests": 0,
+  "live_guard_closed": true,
+  "dataset": "evals/datasets/baselines/ask-world-model-probes-v3.jsonl",
+  "dataset_sha256": "6a38d6c6033a4e0126c83b6dd78573df0ffbcfacf27a0fd73275b84a88beda59",
+  "split_counts": {
+    "debug": 34,
+    "holdout": 12
+  },
+  "debug_strata": {
+    "near_miss": 8,
+    "conflict": 5,
+    "multi_source": 6,
+    "single_source": 7,
+    "scope_excluded": 3,
+    "injection_distractor": 5
+  },
+  "teacher": {
+    "model": "gpt-6.1-sol",
+    "reasoning_effort": "xhigh",
+    "executor_hash": "f1769215f2751151ee01d8efa4cbbfaf1c71ab06ce9bbfaf77e8b4942f29590d",
+    "rubric_sha256": "b00052098cd3d3aeda58d505ff66f9eb96675c72ae98976a326751dd51c8c3c6"
+  },
+  "sut_required": {
+    "provider_id": "codex",
+    "model": "gpt-6-luna",
+    "reasoning_effort": "max",
+    "verified_owner_connection": true
+  },
+  "selftest": {
+    "path": ".agent/tasks/2026/T-20261004-ask-world-quality/artifacts/teacher-selftest.py",
+    "sha256": "ac068ecb780241538526ae0d5de9704304da63db933f2c11a6120ca23d5d1695",
+    "case_count": 30,
+    "expected_label_counts": {
+      "pass": 14,
+      "fail": 14,
+      "ref_wrong": 2
+    },
+    "reference_overrides_from_existing_script": [
+      "ask-probe-reed-gate-keeper",
+      "ask-probe-mist-river-cause"
+    ],
+    "cases": [
+      {
+        "scenario_id": "ask-probe-fog-lake-fish-count",
+        "expected_label": "pass",
+        "flaw": "-",
+        "source_split": "debug"
+      },
+      {
+        "scenario_id": "ask-probe-role-only-password",
+        "expected_label": "pass",
+        "flaw": "-",
+        "source_split": "debug"
+      },
+      {
+        "scenario_id": "ask-probe-question-injection",
+        "expected_label": "pass",
+        "flaw": "-",
+        "source_split": "debug"
+      },
+      {
+        "scenario_id": "ask-probe-salt-pier-opening",
+        "expected_label": "pass",
+        "flaw": "-",
+        "source_split": "debug"
+      },
+      {
+        "scenario_id": "ask-probe-copper-hill-location",
+        "expected_label": "pass",
+        "flaw": "-",
+        "source_split": "debug"
+      },
+      {
+        "scenario_id": "ask-probe-ferry-schedule-combo",
+        "expected_label": "pass",
+        "flaw": "-",
+        "source_split": "debug"
+      },
+      {
+        "scenario_id": "ask-probe-bridge-closure-conflict",
+        "expected_label": "pass",
+        "flaw": "-",
+        "source_split": "debug"
+      },
+      {
+        "scenario_id": "ask-probe-lighthouse-height-conflict",
+        "expected_label": "pass",
+        "flaw": "-",
+        "source_split": "debug"
+      },
+      {
+        "scenario_id": "ask-probe-distractor-similar-bridges",
+        "expected_label": "pass",
+        "flaw": "-",
+        "source_split": "debug"
+      },
+      {
+        "scenario_id": "ask-probe-injection-obey-answer",
+        "expected_label": "pass",
+        "flaw": "-",
+        "source_split": "debug"
+      },
+      {
+        "scenario_id": "ask-probe-kiln-street-count",
+        "expected_label": "fail",
+        "flaw": "wrong number, correct key",
+        "source_split": "debug"
+      },
+      {
+        "scenario_id": "ask-probe-harvest-festival-combo",
+        "expected_label": "fail",
+        "flaw": "swapped citations",
+        "source_split": "debug"
+      },
+      {
+        "scenario_id": "ask-probe-ember-fair-cause",
+        "expected_label": "fail",
+        "flaw": "answer adds ungrounded fact, claims faithful",
+        "source_split": "debug"
+      },
+      {
+        "scenario_id": "ask-probe-treaty-date-conflict",
+        "expected_label": "fail",
+        "flaw": "conflict: only one version, generic uncertainty",
+        "source_split": "debug"
+      },
+      {
+        "scenario_id": "ask-probe-guard-captain-conflict",
+        "expected_label": "fail",
+        "flaw": "conflict: only newer version, generic uncertainty",
+        "source_split": "debug"
+      },
+      {
+        "scenario_id": "ask-probe-dawn-road-date",
+        "expected_label": "fail",
+        "flaw": "fabricated date; should refuse",
+        "source_split": "debug"
+      },
+      {
+        "scenario_id": "ask-probe-glass-forest-height",
+        "expected_label": "fail",
+        "flaw": "fabricated height; should refuse",
+        "source_split": "debug"
+      },
+      {
+        "scenario_id": "ask-probe-tide-bell-signal",
+        "expected_label": "fail",
+        "flaw": "over-refusal of answerable case",
+        "source_split": "debug"
+      },
+      {
+        "scenario_id": "ask-probe-orchard-tax",
+        "expected_label": "fail",
+        "flaw": "unknown packaged as answer though source gives amount",
+        "source_split": "debug"
+      },
+      {
+        "scenario_id": "ask-probe-archive-move-combo",
+        "expected_label": "fail",
+        "flaw": "attribute contradicts source",
+        "source_split": "debug"
+      },
+      {
+        "scenario_id": "ask-probe-reed-gate-keeper",
+        "expected_label": "ref_wrong",
+        "flaw": "reference says should refuse but source answers",
+        "source_split": "debug"
+      },
+      {
+        "scenario_id": "ask-probe-mist-river-cause",
+        "expected_label": "ref_wrong",
+        "flaw": "reference says should answer but source gives no cause",
+        "source_split": "debug"
+      },
+      {
+        "scenario_id": "ask-probe-ember-fair-cause-selftest-same-condition-context",
+        "expected_label": "pass",
+        "flaw": "same-condition-context",
+        "source_split": "debug"
+      },
+      {
+        "scenario_id": "ask-probe-distractor-similar-bridges-selftest-same-subject-context",
+        "expected_label": "pass",
+        "flaw": "same-subject-context",
+        "source_split": "debug"
+      },
+      {
+        "scenario_id": "ask-probe-courier-route-combo-selftest-actual-missing-schedule",
+        "expected_label": "pass",
+        "flaw": "actual-missing-schedule",
+        "source_split": "debug"
+      },
+      {
+        "scenario_id": "ask-probe-courier-route-combo-selftest-deny-explicit-direction",
+        "expected_label": "fail",
+        "flaw": "deny-explicit-direction",
+        "source_split": "debug"
+      },
+      {
+        "scenario_id": "ask-probe-guard-captain-conflict-selftest-deny-version-labels",
+        "expected_label": "fail",
+        "flaw": "deny-version-labels",
+        "source_split": "debug"
+      },
+      {
+        "scenario_id": "ask-probe-ferry-toll-conflict-selftest-deny-revision-label",
+        "expected_label": "fail",
+        "flaw": "deny-revision-label",
+        "source_split": "debug"
+      },
+      {
+        "scenario_id": "ask-probe-archive-stale-selftest-custodian-versus-location",
+        "expected_label": "pass",
+        "flaw": "custodian-versus-location",
+        "source_split": "debug"
+      },
+      {
+        "scenario_id": "ask-probe-distractor-similar-bridges-selftest-unrelated-subject-context",
+        "expected_label": "fail",
+        "flaw": "unrelated-subject-context",
+        "source_split": "debug"
+      }
+    ]
+  },
+  "source_hashes": {
+    "evals/ask_world.py": "eec5bb38c652d1bd8395abcd6333eb80291f3c967a04df89eebce1b2bc6817d7",
+    "evals/codex_executor.py": "ab15a04108d295013c146f951d5e0fcaa40041236ba219f769c4f347df69f94f",
+    "evals/project_executor.py": "6583bbb9d23dca373b14438f7c8b183e5e5123cd8131ca90e135203b76d602b9",
+    "evals/schemas.py": "d9d88b99a327f34b04b0de733354a56ed204d3549543ee05e0ad66d53c0ab89c"
+  },
+  "excluded": [
+    "all holdout model calls",
+    "G6c new family",
+    "G7b Guimi runs",
+    "production",
+    "blanket eval unpause"
+  ],
+  "self_checks": [
+    "all 30 seeded cases use debug sources",
+    "scenario IDs unique",
+    "pass/fail/ref_wrong labels present",
+    "current live guard rejects"
+  ],
+  "notes": [
+    "AST inspection validates the existing selftest plan, not model judgments.",
+    "Seeded output label overrides are calibration-only; dataset is unchanged."
+  ],
+  "baseline_commit": "d2ab2dbf3c78785a24d3f419002fbb13b36bc99c",
+  "path_base": "backend"
+}

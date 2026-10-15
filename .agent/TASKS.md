@@ -53,3 +53,5 @@
 - [T-20261013-capability-tail-fixes](tasks/2026/T-20261013-capability-tail-fixes/TASK.md) — 能力收尾PR #222的CI修复与合并
 
 - [T-20261014-evolution-model-pools](tasks/2026/T-20261014-evolution-model-pools/TASK.md) — 独立模型池、Luna范围授权与500k输入预算审查修复和合并
+
+- [T-20261015-audit-wave3](tasks/2026/T-20261015-audit-wave3/TASK.md) — 能力审计第三批执行
