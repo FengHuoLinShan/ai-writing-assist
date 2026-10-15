@@ -369,6 +369,38 @@ async def test_reading_entry_sequences_replays_and_appends_without_resampling(
     assert (await handle_evolution_scene_step(db, structure))["reading_complete"]
     assert len(calls) == 4 and "天亮了。" in calls[1]
     assert (await reading_status(db, nid, key))["run"]["status"] == "completed"
+    # A completed reading can still have a reviewed reveal topic without a
+    # resolvable Story target. The author route must show that candidate and
+    # its Scene receipt instead of implying that every reveal was materialized.
+    from modules.evolution.api import reading_status as author_reading_status
+
+    stored_run = await PostgresAttemptStore(db, nid).load_run(key)
+    original_plan = stored_run.reading_plan_json
+    plan_with_unresolved = json.loads(json.dumps(original_plan))
+    structure_batch = plan_with_unresolved["structure"]["batches"][0]
+    source_scene_id = structure_batch["sources"][0]["scene_id"]
+    structure_batch["unresolved_reveals"] = [
+        {
+            "title": "两界边界关系",
+            "summary": "边界在潮退后折回。",
+            "needs_review": True,
+            "review_reason": "unresolved_reveal_target",
+            "supporting_scene_ids": [source_scene_id],
+            "evidence_gate": {"status": "passed"},
+        }
+    ]
+    stored_run.reading_plan_json = plan_with_unresolved
+    await db.flush()
+    author_view = (await author_reading_status(db, UUID(nid)))["run"]
+    assert author_view["status"] == "completed"
+    review = author_view["structure_review"]
+    assert review["unresolved_reveal_count"] == 1
+    assert review["unresolved_reveals"][0]["summary"] == "边界在潮退后折回。"
+    assert (
+        review["unresolved_reveals"][0]["source_refs"][0]["scene_id"] == source_scene_id
+    )
+    stored_run.reading_plan_json = original_plan
+    await db.flush()
     await seed(db, nid, 3, "风停了。")
     append = await request_start(db, nid, mode="append", run_key=key, end_chapter=3)
     next_run = (await start_reading(db, nid, append))["run"]

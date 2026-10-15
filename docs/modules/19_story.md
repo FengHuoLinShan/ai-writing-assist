@@ -93,6 +93,9 @@ Scene 融合的请求 Scene 集合还必须与 confirmation 中的 pinned Scene 
 只接收重新物化的 confirmed Markdown，不再旁路加载完整 World/Outline 资料。
 
 总览手工版本可携带既有结构的来源版本标识，源结构更新只提示核对，不双向覆盖。简单结构生成使用 main/sub/background 分类及显式兼容映射，参数版本 phase3_structure_simple_v3。
+Evolution 阅读结构的揭示输出是待核主题；在没有已验证对象 ID 时，Story 不把标题当实体名。
+未解析揭示留在阅读批次回执和作者状态投影，带独立复核证据与待复核原因；
+其余结构资产保持严格持久化，RevealPlan 仍要求真实目标。
 ## 剧情线自动入选（2026-10 修正）
 
 写作上下文的剧情线自动入选（`PlotThreadRepository.get_active`，经

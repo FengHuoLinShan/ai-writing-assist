@@ -1418,6 +1418,37 @@ async def _optional_coverage_summary(store, run, pending):
     return result
 
 
+def _structure_review_summary(structure):
+    unresolved = []
+    for batch in structure.get("batches", []):
+        sources = {
+            ref.get("scene_id"): {
+                "scene_id": ref.get("scene_id"),
+                "run_key": ref.get("run_key"),
+                "attempt_id": ref.get("attempt_id"),
+            }
+            for ref in batch.get("sources", [])
+        }
+        for item in batch.get("unresolved_reveals", []):
+            unresolved.append(
+                {
+                    "batch_key": batch.get("batch_key"),
+                    "title": item.get("title"),
+                    "summary": item.get("summary"),
+                    "needs_review": True,
+                    "review_reason": item.get("review_reason"),
+                    "supporting_scene_ids": item.get("supporting_scene_ids", []),
+                    "evidence_gate": item.get("evidence_gate", {}),
+                    "source_refs": [
+                        sources[scene_id]
+                        for scene_id in item.get("supporting_scene_ids", [])
+                        if scene_id in sources
+                    ],
+                }
+            )
+    return {"unresolved_reveal_count": len(unresolved), "unresolved_reveals": unresolved}
+
+
 async def reading_status(db, novel_id, run_key=None):
     await require_active_project(db, novel_id)
     engine = await get_understanding_engine(db, novel_id)
@@ -1526,6 +1557,7 @@ async def reading_status(db, novel_id, run_key=None):
                 and not structure.get("complete")
                 and completed == len(plan["steps"])
             ),
+            "structure_review": _structure_review_summary(structure),
             "model": (run.llm_snapshot_json or {}).get("profile", {}).get("model"),
             "discovery_categories": [
                 {"key": key, "label": label}

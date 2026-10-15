@@ -108,6 +108,26 @@ async def persist_structure_drafts(
         end_chapter=end,
         diagnostics=materialized["diagnostics"],
     )
+    # Phase 3 observes reveal topics, while a Story RevealPlan requires an
+    # existing entity/character target. This reading path has no verified
+    # target mapping; preserve the reviewed candidates in the batch receipt
+    # for author resolution instead of guessing from a topic title.
+    unresolved_reveals = [
+        {
+            **item.model_dump(mode="json"),
+            "target_id": None,
+            "needs_review": True,
+            "review_reason": "; ".join(
+                filter(None, [item.review_reason, "unresolved_reveal_target"])
+            ),
+        }
+        for item in output.reveals
+    ]
+    parsed.reveal_plans = []
+    parsed.diagnostics = {
+        **(parsed.diagnostics or {}),
+        "unresolved_reveal_count": len(unresolved_reveals),
+    }
     result = await PlotStructureGenerator()._persister.persist(
         db,
         UUID(novel_id),
@@ -127,5 +147,6 @@ async def persist_structure_drafts(
     )
     return {
         **materialized,
+        "unresolved_reveals": unresolved_reveals,
         "result_refs": PlotStructureGenerator.result_refs(result.to_dict()),
     }

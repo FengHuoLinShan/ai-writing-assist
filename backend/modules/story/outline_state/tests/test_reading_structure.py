@@ -1,6 +1,8 @@
 """The reading owner can freeze every Phase 3 call without hidden provider I/O."""
 
 import json
+from types import SimpleNamespace
+from unittest.mock import patch
 
 import pytest
 
@@ -9,6 +11,8 @@ from modules.story.facade import (
     materialize_reading_structure_review,
     prepare_reading_structure_review,
 )
+from modules.story.outline_state.generation.persister import PlotStructurePersister
+from modules.story.outline_state.reading_structure import persist_structure_drafts
 
 
 @pytest.mark.parametrize("bad", [None, "missing", "duplicate", "foreign", "quote"])
@@ -65,6 +69,67 @@ def test_frozen_structure_review_requires_exact_item_coverage_and_sources(bad):
     assert thread["evidence_gate"]["status"] == ("needs_review" if bad else "passed")
     with pytest.raises(ValueError, match="incomplete"):
         materialize_reading_structure_review(raw, scenes, [])
+
+
+@pytest.mark.asyncio
+async def test_reading_reveal_topic_remains_reviewable_without_inventing_a_target():
+    scene_text = "灰庭的边界在潮退后折回原位。"
+    scenes = [
+        {
+            "scene_id": "scene-0",
+            "scene_index": 0,
+            "start_chapter": 2,
+            "end_chapter": 2,
+            "summary": scene_text,
+            "_evidence": {"status": "exact", "sources": [{"text": scene_text}]},
+        }
+    ]
+    raw = {
+        "reveals": [
+            {
+                "title": "灰庭与本界的边界关系",
+                "summary": scene_text,
+                "confidence": 0.86,
+                "supporting_scene_ids": ["scene-0"],
+            }
+        ]
+    }
+    request, _ = prepare_reading_structure_review(raw, scenes)[0]
+    candidate_id = json.loads(request.messages[1].content)["review_items"][0][
+        "candidate_id"
+    ]
+    reviews = [
+        {
+            "reviews": [
+                {
+                    "candidate_id": candidate_id,
+                    "verdict": "supported",
+                    "confidence": 0.99,
+                    "evidence": [{"quote": scene_text}],
+                }
+            ]
+        }
+    ]
+    with patch.object(PlotStructurePersister, "persist", autospec=True) as persist:
+        persist.return_value = SimpleNamespace(to_dict=lambda: {})
+        result = await persist_structure_drafts(
+            None,
+            "00000000-0000-0000-0000-000000000001",
+            raw=raw,
+            scene_cards=scenes,
+            reviews=reviews,
+            provenance={
+                "evolution_structure_ref": {"run_key": "test", "batch_key": "batch"}
+            },
+        )
+
+    assert persist.await_args.kwargs["strict"] is True
+    assert persist.await_args.args[5].reveal_plans == []
+    assert result["result_refs"] == []
+    assert result["unresolved_reveals"][0]["target_id"] is None
+    assert result["unresolved_reveals"][0]["needs_review"] is True
+    assert result["unresolved_reveals"][0]["evidence_gate"]["status"] == "passed"
+    assert result["unresolved_reveals"][0]["supporting_scene_ids"] == ["scene-0"]
 
 
 def test_review_cannot_borrow_quotes_from_a_different_text_chunk():
