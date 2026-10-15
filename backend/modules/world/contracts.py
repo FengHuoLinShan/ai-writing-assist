@@ -19,6 +19,12 @@ from modules.world.map_auto_draft_schemas import (
 from modules.world.map_auto_draft_schemas import (
     MapAutoDraftBuildResult as MapAutoDraftBuildResult,
 )
+from modules.world.map_spatial_advisory_schemas import (
+    MapSpatialAdvisoryRequest as MapSpatialAdvisoryRequest,
+)
+from modules.world.map_spatial_advisory_schemas import (
+    MapSpatialAdvisoryResponse as MapSpatialAdvisoryResponse,
+)
 from modules.world.map_spatial_brief_schemas import (
     MapSpatialBriefItem as MapSpatialBriefItem,
 )
@@ -123,6 +129,14 @@ class WorldReadMapSpatialBriefPort(Protocol):
         db: AsyncSession,
         request: MapSpatialBriefRequest,
     ) -> MapSpatialBriefResponse: ...
+
+
+class WorldReadMapSpatialAdvisoriesPort(Protocol):
+    """Read-only deterministic reminders over adopted, current map revisions."""
+
+    async def __call__(
+        self, db: AsyncSession, request: MapSpatialAdvisoryRequest
+    ) -> MapSpatialAdvisoryResponse: ...
 
 
 ENTITY_FUSION_CHECKPOINT_PAIR_BATCH_SIZE = 12

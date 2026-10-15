@@ -519,6 +519,12 @@ canonical 变化继续检查已保存地图与相同模式草图；working 变�
 
 Evidence 通过 World `read_map_spatial_brief` 只读 facade 消费已采用节点的 saved head，绝不直接查询地图表。简报包含已知当前地点的上级链、明示的邻接/通路/方位、相关行程与条件，以及本场移动对象有精确来源和明确 `scene_index` 的最新位置；没有显式 Scene 地点时不推断，只能返回本场移动对象位置。来源引文/hash、World `check_knowledge_visibility`、ReaderReveal 与角色知识边界均在投影时重验；`author_full` 不跳过这些检查。类型仅使用固定修订的名称/描述作为文字，计算特性只读当前 active 类型。
 
+## 空间提醒与地理前瞻（M4）
+
+`read_map_spatial_advisories` 在明确 Scene 时点读取当前已采用地图版本，仅计算 `event_observed`、有效期覆盖该 Scene、来源仍有效且类型固定修订仍为 active 的声明；只有 Scene 锚点可解析的未来/过期地点才会触发“位置不在有效期”提醒。它提示直接矛盾的方位、已知通路网络中的无有效路径、同一交通方式/旅行者/通行条件下互不相交的行程耗时区间，以及移动对象跨空间却没有已声明连接。无地图覆盖或无相关对象时不推断；未明确故事内间隔时标记 unknown，不按几何坐标猜距离或时间。提醒均带地图版本和来源 hash，正文与地图两种处理路径可供作者选择，逐条静默复用冲突检查项的 `ignored / later` 状态。Writing 既有 Scene 时点规则也会提示同一对象在同一 Scene 时点被记录在多个地点；只有 ready 且系统生成或作者确认的位置 checkpoint 会参与地图行程提醒。
+
+Writing 的确定性空间提醒能力 `writing.conflict_check.spatial_advisory` 与 Story 大纲地理前瞻能力 `story.spatial_planning` 通过 `MAP_SPATIAL_ENABLED_CAPABILITIES` 分别开启，默认关闭。两者只提供建议，不修改正文或阻止写作；Story 只读取场景显式地点相关的 M3 空间简报，用来检查旅程分段和地点分布，地图未覆盖不证明地点/路线不存在，当前也不根据地图推断势力边界。
+
 七个 Evidence consumer 与 Assistant v5 的只读地图工具各有独立 `MAP_SPATIAL_ENABLED_CAPABILITIES` 开关，默认空集合。简报最多 20 个地图节点、每节点 3000 字符；作者排除、失效来源、超出预算或范围的参考写入 advisory 省略信息，不使必查知识范围阻断。Context confirmation 保存节点 revision/hash；地图变化时沿用 G8b `read_map_node_heads` 读时提示，不回写核对状态。五题材 paired eval 尚未运行，`human_validated=false`，因此所有消费开关保持关闭。
 
 空间参考只使用核心上下文的剩余预算；语义审查与定向返修复用生成确认时按各自开关读取地图，

@@ -1277,6 +1277,8 @@ Writing 冲突检查的旧版地图核对（G8b）另经 `facade.read_map_node_h
 
 Evidence 的 M3 `read_map_spatial_brief` 只读当前已采用节点的 saved revision，经 World facade 加载；Scene 当前地点只由结构元数据中的显式身份决定，没有位置时不猜。图元、来源和读者/角色可见性逐项重验，`author_full` 不放宽揭示边界；移动位置只取当前 Scene 出场对象中有精确来源与明确时点的最新记录。此简报供创作参考，不写回 World；revision/hash 的后续核对复用 G8b head 读取。
 
+M4 `read_map_spatial_advisories(db, MapSpatialAdvisoryRequest)` 是写作与助手可复用的只读提醒出口。它只读当前 adopted node 的 saved revision，按 Scene 锚点解析有效期，要求 `event_observed`、当前有效来源和固定 revision 的 active 空间类型特性；图元、World Bible 页与原文来源沿用读者揭示边界。有效期范围可解析但未覆盖当前 Scene 的地点，仅在状态声明指向该地点时提醒；写作侧只把 ready 且系统生成或作者确认的位置 checkpoint 交作当前 Scene 行程输入。它在双向矛盾方位、同模式/旅行者/通行条件下耗时区间互不相交、已知通路网络断开或过期，或可移动对象跨空间且没有已声明连接时返回提醒，并带 node/revision/source hash、两种修订路径和可逐条静默标志。缺少地图证据不判断无路，缺少故事内时间明确返回 unknown，不从坐标推算距离或耗时。入口各自通过 `MAP_SPATIAL_ENABLED_CAPABILITIES` 的能力项开启，默认空集合。
+
 
 ### 助手页面维护
 

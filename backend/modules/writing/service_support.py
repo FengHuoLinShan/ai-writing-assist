@@ -61,6 +61,9 @@ SceneCheckpointLoader = Callable[[AsyncSession, str, str], Awaitable[object | No
 
 
 MapContinuityLoader = Callable[[AsyncSession, str, list[str]], Awaitable[list[object]]]
+MapSpatialAdvisoryLoader = Callable[
+    [AsyncSession, str, str, list[dict[str, Any]]], Awaitable[object]
+]
 
 #: 按 node_ids 批量读取地图当前 head（revision/采用状态/来源 hash）的只读出口。
 #: world 侧提供实现并经组合根注册 DI 键；writing 只声明消费形状，不 import world。
@@ -189,6 +192,24 @@ async def _default_map_node_head_loader(
     node_ids: list[str],
 ) -> dict[str, dict[str, Any]]:
     return await get(WORLD_READ_MAP_NODE_HEADS)(db, novel_id, node_ids)
+
+
+async def _default_map_spatial_advisory_loader(
+    db: AsyncSession,
+    novel_id: str,
+    scene_id: str,
+    transitions: list[dict[str, Any]],
+) -> object:
+    from core.service_keys import WORLD_READ_MAP_SPATIAL_ADVISORIES
+
+    return await get(WORLD_READ_MAP_SPATIAL_ADVISORIES)(
+        db,
+        {
+            "novel_id": novel_id,
+            "scene_id": scene_id,
+            "transitions": transitions,
+        },
+    )
 
 
 def _sanitize_draft_create(
