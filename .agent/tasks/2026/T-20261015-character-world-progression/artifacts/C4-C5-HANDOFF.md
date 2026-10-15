@@ -139,3 +139,19 @@ root已分配新专库world_progression_impl_test_20261016（是否创建待实�
 准备PG前先checkpoint独立WIP，再仅在无冲突时合C0c固定9b9c022a5，迁移接实际单head；
 有Git冲突停下交Sol直接处理。当前起点072没有C0c真实有效期代码，阅读新源码不算运行已覆盖。
 共享keys/bootstrap/catalog/TaskRegistry仍归A3 Sol，不在Luna树争写。
+
+
+## 2026-10-16 root逐项复核的C4尾项（待Sol直接补）
+
+计划§6.4第3条要求导演新人物/物件/地点可“一键转为World候选”。root核对primary f5c6：
+SceneDirectorPanel.vue:167–170的candidate_events仅显示label/description/说明；
+director_api.py和World域未找到该转换桥接。原先候选不自动写入状态/正史边界正确，
+但缺显式作者转换的端到端证据，不能将当前C4工程测试当全部功能已交付。
+已通知当前A4 Sol排后续队列，由Sol独立核对并直接补最小作者候选桥接；不是root改产品。
+需精确绑定已存round/candidate reference、来源指纹与novel owner，不凭名称猜已有身份，
+重试幂等，候选后续采用仍经既有确认；有真实HTTP/trace/UI闭环。新候选不是已发生事件，
+不进入角色知识或Writing检索。新增目录与历史冻结由Sol按实际操作类别处理。
+C0模板互通和C5推进仍独立写入，不能同时抢写其World/Story文件。
+C5已获flows.py中world_progression_review v1注册与TOML Story prefix窄写权；
+root为后续C3/A1准备的旧C4 review路径现切到codex/chapter-order-timeline-impl/f5c6，
+原codex/scene-director-review/616e9d474与原证据保留，没有删除旧提交或数据。

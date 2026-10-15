@@ -3,7 +3,7 @@ id: T-20261015-map-enhancement-design
 title: 地图系统增强设计与分批实施（自动冷启动、参与创作决策、题材鲁棒性）
 status: active
 created: 2026-10-15T10:54:00+08:00
-updated: 2026-10-16T06:02:47+08:00
+updated: 2026-10-16T06:07:28+08:00
 ---
 
 # 地图系统增强设计
@@ -17,26 +17,26 @@ updated: 2026-10-16T06:02:47+08:00
 
 root对eab普通扩大回归为8255通过/3失败/7跳过/1 deselected，另30项专库PG为29通过/1 Goal规划失败。Sol直接修复：完整目录压缩首轮表达（9925→6812 token，不提高12000预算或删操作）；旧RP测试补真实Task.meta契约；Writing Worker断言v12；五Collab confirm在首个业务调用前用排他active/owner依赖，消除重复取锁。新增他人及软删项目五路由404的PG断言。两个净fix均已合入。
 
-当前f5c6 root复验：author_operations_primary_test_20261016保留原合成数据，复用无CREATE脚本/tmp/map-a3-root-primary-reuse-pg-20261016.py，head/ORM parity与Goal/Director/C0c/A3的30项PG全部通过（10.57s）；docs-check/repo-gates通过。全modules+tasks/llm基础设施+unit/prompt扩大普通后端进行中（session66253，/tmp/map-a3-primary-combined-fixed-20261016.log）。A3前端源未改，沿用eab的251文件3175项与lint/build证据；不能冒称新源全后端已绿。原CREATE脚本已执行，禁止重跑重建专库。旧bd31的5133后端/27PG/3173前端只适用于旧固定点。
+当前f5c6 root复验：author_operations_primary_test_20261016保留原合成数据，复用无CREATE脚本/tmp/map-a3-root-primary-reuse-pg-20261016.py，head/ORM parity与Goal/Director/C0c/A3的30项PG全部通过（10.57s）；docs-check/repo-gates通过。全modules+tasks/llm基础设施+unit/prompt扩大普通后端已完成：8258通过/7跳过/1 deselected/1既有Pydantic warning，295.54s，RuntimeWarning转error（/tmp/map-a3-primary-combined-fixed-20261016.log）。A3前端源未改，沿用eab的251文件3175项与lint/build证据；当前A3集成固定点工程回归通过。原CREATE脚本已执行，禁止重跑重建专库。旧bd31的5133后端/27PG/3173前端只适用于旧固定点。
 
 A3原Sol审修fb62已合eab：作者Interaction/Collaboration十二项真实SPEC/HTTP、摘要R4精确TaskWorker+offline LLMClient、Collab原子R3采用及独立Session CAS均已验。摘要的新unknown/80%/1800秒策略只匹配冻结author_project_id；旧RP重试/deadline语义保持，worker不硬编码业务type。390/1280浏览器已看图，原始日志记录390设置保存刷新true→false、Escape及无溢出；截图本身是设置修改前。服务已停，专库保留。
 
-A4 Luna候选`b55497379b377dc8a5f12d6aa57c687d0c879598`已固定（19文件、原树干净），交Sol在author-operations-review审修。原候选最终定向39后端/3PG/48前端，完整8896后端与3177前端是最终小调之前的源；没有浏览器证据。Sol已合PRIMARY与候选为f8b8423b5并单头接A3迁移，确认两项待直接修：raw截止向UTC午夜floor导致超过180天，以及report GET会触发archive写库；另补三新汇总表文档登记。统计分母、归属用量、真实前向生命周期、覆盖缺口、匿名窗口与并发均需审修，不以合成样本假造数周数据或真实Top3。ordinary operations.py、goal_runs/service.py与顶层组合写权现属该Sol，A4 Luna已退出。
+A4 Luna候选`b55497379b377dc8a5f12d6aa57c687d0c879598`已固定（19文件、原树干净），交Sol在author-operations-review审修。原候选最终定向39后端/3PG/48前端，完整8896后端与3177前端是最终小调之前的源；没有浏览器证据。Sol已合PRIMARY与候选为f8b8423b5并单头接A3迁移，确认两项待直接修：raw截止向UTC午夜floor导致超过180天，以及report GET会触发archive写库；另补三新汇总表文档登记。Sol还确认并直接修普通成组执行partial retry重复记录全部confirmed/declined的问题；专库fresh迁移/head/parity与当前5PG自检通过，仍未最终交付。统计分母、归属用量、真实前向生命周期、覆盖缺口、匿名窗口与并发均需审修，不以合成样本假造数周数据或真实Top3。ordinary operations.py、goal_runs/service.py与顶层组合写权现属该Sol，A4 Luna已退出。
 
 C5 Luna在world-progression-impl/codex/world-progression-impl继续完整实现；checkpoint4c13f5df0合C0c的facade冲突由Sol直接解为9ed9426bef6d7a24ab5648a72af46b6076a34e94后归还Luna。自有迁移接dossier_story_field_key。新API/任务/GuidedFlow/Notice顶层未装配，不当完成。Luna独占TOML的Story api_prefixes和Assistant flows.py中world_progression_review v1派发表窄写入，其余app/keys/catalog/TaskRegistry/worker/env由Sol组合。world_progression_impl_test_20261016及18590/18591已分配，尚未报告创建。
 
 C0模板互通Luna/max已启动：world-object-dossier-impl/codex/dossier-template-interchange-impl由旧干净978a树fast-forward到f5c6，保留旧分支。负责自定义类型显式借八类内核（含既有faction）、版本化五题材预设、真正CSV/XLSX/JSON预览采用/撤销与作者UI。新专库dossier_template_interchange_impl_test_20261016及18592/18593已分配，创建须回报；不得借其他专库。root独占TASK和共享任务artifacts。
 
-剩余C3前瞻表演格式/人物弧计划实际/演化阅读提醒、A1真实章节重排/一般Story时间线将继续分批Luna实施、Sol直接审修，不能用已通过的部分测试替代。C1长篇、M5势力、RP迁移、A4数周数据条件门禁如实保留。C0c/C4已审工程证据保留各handoff；真实地图R3仍诊断封存，holdout不解码，后续采用“模拟作者显式指定Scene地点”评测口径。零新真实模型请求，未push/PR/main合并/部署。
+剩余C3前瞻表演格式/人物弧计划实际/演化阅读提醒、A1真实章节重排/一般Story时间线将继续分批Luna实施、Sol直接审修；root又核对C4新引入对象一键转World候选尚缺闭环，已列Sol直接补的尾项，不能用已通过的部分测试替代。C1长篇、M5势力、RP迁移、A4数周数据条件门禁如实保留。C0c/C4已审工程证据保留各handoff；真实地图R3仍诊断封存，holdout不解码，后续采用“模拟作者显式指定Scene地点”评测口径。零新真实模型请求，未push/PR/main合并/部署。
 
-- 下一步：root收齐f5c6扩大普通后端结果并检查新增失败；Sol继续A4隐私/只读/计量与真实PG/浏览器审修，C5和C0 Luna继续完整实现。之后逐批C3/A1尾项；条件门禁不冒称完成。
+- 下一步：root保留f5c6的8258后端/30PG工程绿色证据；Sol继续A4隐私/只读/计量与真实PG/浏览器审修，C5和C0 Luna继续完整实现。之后逐批C3/A1尾项；条件门禁不冒称完成。
 - 批次验收：[完整范围对账](../T-20261015-character-world-progression/artifacts/FULL-SCOPE-ACCEPTANCE.md)，区分已合入、进行中、未实施与外部条件门禁。
 - 范围：用户已明确“该分支三份计划全部实施，包括操作目录、对象档案、导演和世界推进”。执行地图M0–M5及两个配套完整计划；既有计划的条件依赖和真实质量门禁仍有效，不能冒称完成。
 - 依赖：M5 依赖独立势力路线图阶段 1，现有计划明确阶段 1 前不提供领地图层；不得读取旧无时效势力字段冒充完成。
 - 已落地共享前置：`6fcce3bfd` 把7种ObservationModality上移shared并保持Evolution兼容再出口（16测）；`16f64570a` 在既有Story scene-source port提供按当前顺序的锚点/替换链只读数据（5测）。两者ruff通过，后续纳入Sol审查。
 - 验证环境：唯一primary/backend/.venv（Python3.14.8/Pydantic2.14.0），Node24.15/npm11.12；PG仅65202容器明确分配专库。root保留author_operations_primary等专库，Sol现仅operation_trace_report_review_test_20261016，Luna C0/C5分别dossier_template_interchange_impl_test_20261016/world_progression_impl_test_20261016，所有数据保留。默认开发库不探测，早期A0是否写入无证据不推断。node_modules曾有嵌套自链已由Sol只解该链恢复，未安装或改依赖；子树只能在目录与链接均不存在时链接一次。
 - 验证：实现前 `make docs-check` 已通过（152 ORM表、49ADR）；没有真实模型/真实稿件验证。
-- 最后核实：2026-10-16T06:02:47+08:00
+- 最后核实：2026-10-16T06:07:28+08:00
 
 ## 批次与分工
 
