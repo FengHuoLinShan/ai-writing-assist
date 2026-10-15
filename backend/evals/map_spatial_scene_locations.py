@@ -403,6 +403,7 @@ async def apply_scene_locations(
                 event = {
                     "status": "started",
                     "before": before,
+                    "before_scene_hash": digest(before),
                     "request": payload,
                     "request_sha256": digest(payload),
                     **proof,
