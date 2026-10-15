@@ -3,7 +3,7 @@ id: T-20261015-map-enhancement-design
 title: 地图系统增强设计与分批实施（自动冷启动、参与创作决策、题材鲁棒性）
 status: active
 created: 2026-10-15T10:54:00+08:00
-updated: 2026-10-16T00:10:00+08:00
+updated: 2026-10-16T00:20:00+08:00
 ---
 
 # 地图系统增强设计
@@ -13,14 +13,14 @@ updated: 2026-10-16T00:10:00+08:00
 - 当前授权：2026-10-15 用户 `/goal` 要求执行 `codex/map-enhancement-plan` 的计划；Luna/max 子代理并行实现，Sol/high 按批次 review 与修复。只做本地开发验证；没有发布、真实数据破坏或对外发送授权。用户16:43补充“修复由sol子代理直接修”：后续代码修复均由Sol/high子代理直接执行。用户曾要求“由你收尾”；其后明确答复范围为三份计划全部实施，包括操作目录、对象档案、导演、世界推进。root继续负责分批拆解、集成、验证、任务记录与实际隔离评测；已明确确认采用“模拟作者显式指定Scene地点后做辅助Writing对比”。
 - 主工作区：`/Users/tywww/项目/ai-writing-assist/.worktrees/map-enhancement-plan`，分支 `codex/map-enhancement-plan`。原 Desktop 路径已失效；仓库实际已迁至 `/Users/tywww/项目/ai-writing-assist`。
 - 恢复时基线：设计提交 `3fd5ca29e`；刚 fetch 的 `origin/main=00d861283` 已无冲突合并为 `b74d7c28d`（本地），包含 G8c 与第三批评测/HTTPX2 变更。开始时主工作区干净，其他 worktree/WIP 保留。
-- 当前里程碑：primary HEAD d20d27517，A0b原三提交及Sol净fix已集成；Sol112定向/6PG/fresh/parity通过，root扩大套9 failed/2162 passed，已交原Sol继续直接修，不报全绿。root依赖61/517、docs164表通过（BASE直接仍要求CLAUDE逐项确认，核对后no-change-reason通过）。C0b新Sol审633+30d并独占typed DI/core keys/bootstrap；C3b已提交待审，C2卡片WIP f6f559f9含导入循环不可直接集成。
-- 下一步：收原Sol的9项回归修复并重跑同一扩大套；收C0b Sol净DI/知识边界修复与真实API/PG证据，再由Sol安全把净修复移入Luna f6 WIP并恢复C2/Generic闭环。C3b下一Sol批完成真实来源装配/处置，C2 UI继续；A1/A2、C4/C5依批次接续。R3封存不重试，holdout不读取。
+- 当前里程碑：primary32e63b630已集成A0扩大回归Sol净fix6962d51c1；root安全DATABASE_URL/RuntimeWarning转error下2178 passed、1既有Pydantic warning（84.30s），原9fail已消除。C0b净fix788+582仍待分页前可见投影安全补丁，暂未集成；C3b/C2b由Sol在组合审查树直接修，C4a由新Luna/max实施。
+- 下一步：收C0b分页前公开/角色可见投影修复后集成；Sol再把已审primary合入backend C2 f6 WIP，解冲突并恢复Luna C2/Generic闭环。Sol UI继续C3b+C2b真实装配/异步草稿修复；C4a协议随后审修，A1/A2和C4b/C5接续。R3封存不重试、holdout不读取。
 - 范围：用户已明确“该分支三份计划全部实施，包括操作目录、对象档案、导演和世界推进”。执行地图M0–M5及两个配套完整计划；既有计划的条件依赖和真实质量门禁仍有效，不能冒称完成。
 - 依赖：M5 依赖独立势力路线图阶段 1，现有计划明确阶段 1 前不提供领地图层；不得读取旧无时效势力字段冒充完成。
 - 已落地共享前置：`6fcce3bfd` 把7种ObservationModality上移shared并保持Evolution兼容再出口（16测）；`16f64570a` 在既有Story scene-source port提供按当前顺序的锚点/替换链只读数据（5测）。两者ruff通过，后续纳入Sol审查。
 - 验证环境：主树独立backend/.venv（Python3.14.8、locked ci）及frontend node_modules；本任务专用PostgreSQL容器 `map-enhancement-test-20261015`、loopback65202、数据库 `map_enhancement_test`，基线完整Alembic升级已通过，未接触真实库。
 - 验证：实现前 `make docs-check` 已通过（152 ORM表、49ADR）；没有真实模型/真实稿件验证。
-- 最后核实：2026-10-16T00:10:00+08:00
+- 最后核实：2026-10-16T00:20:00+08:00
 
 ## 批次与分工
 
@@ -425,3 +425,18 @@ updated: 2026-10-16T00:10:00+08:00
   max_actors；不碰main/core keys/bootstrap和当前C0/C2共享文件。协议切片不代表C4b/C5完成。
 - /goal tracker现为active，无token预算。宿主root+3子代理，当前2 Sol/high修复与1 Luna/max实现。
   没有新增模型请求、评测/holdout读取、push/PR/main合并或部署；R3仍封存。全部剩余授权范围继续。
+
+
+## 2026-10-16T00:20:00+08:00 主树回归通过与C0b补审
+
+- primary32e63b630为Sol6962d51c1净修复集成；root同一原失败扩大套使用正确3.14.8、
+  显式无secret不可达单元DB URL和RuntimeWarning转error，2178 passed/1已知schema warning，
+  84.30s；日志/tmp/map-a0b-primary-regression-fixed-20261016.log。未重做当前A0 PG关键路径，
+  旧6PG通过不等于新guard路径已重验；待工程PG释放后随UI真实组合复验。
+- C0b Sol交付78808780f/582955cd3，61 SQLite、2真实PG、Ruff/import61/517、route ratchet、
+  docs有理由门禁通过。root发现limit250先分页再过滤secret会让隐藏条数/排序影响safe覆盖，
+  已由同Sol直接补分页前可见范围；因此C0b暂未进primary，不以初版通过冒称最终安全。
+- C2b/C3b组合树原提交cherry为a52159a47/91fd0902f，另接A0fix为d03dce096；Sol已复现
+  busy/reload、模板重读丢草稿和409二次GET晚响应，直接修复并对齐author_full作者管理请求。
+- C4a Luna已锁45项旧协议/HTTP状态试验基线，保留unresolved_outcomes的actor_id旧语义，
+  正迁移协议与Story新建入口；RP保留v2。当前没有新真实模型或评测数据访问。

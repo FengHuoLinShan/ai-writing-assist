@@ -3,7 +3,7 @@ id: T-20261015-character-world-progression
 title: 世界对象档案、场景导演、写作副驾驶与世界推进设计
 status: active
 created: 2026-10-15T16:00:00+08:00
-updated: 2026-10-16T00:10:00+08:00
+updated: 2026-10-16T00:20:00+08:00
 ---
 
 # 世界对象档案、场景导演、写作副驾驶与世界推进设计
@@ -22,7 +22,7 @@ updated: 2026-10-16T00:10:00+08:00
 ADR-0039 旧接口写回规则、共用词表与锚点、档案发现按 ADR-0036 §1 契约登记。
 修订经用户授权在第三个本地提交 `20d6f1eff` 中提交，未推送。
 2026-10-15 用户采纳 ADR-0039 至 ADR-0041（Accepted / 未实施）；ADR-0005、0025 补充说明与索引同步。
-用户已明确三份计划全部实施，执行C0–C5。primary当前d20d27517已集成C0a/C3a/A0b审修；rootA0扩大回归9fail/2162pass正交原Sol修复。C0b首633293ee2+30d5b0698由新Sol/high sol_review_dossier_brief在map-spatial-eval-review独立审修，已解total_count冲突，负责World/Story/Evolution typed read DI实际接线与知识边界。Luna C2全部WIP已checkpoint f6f559f9（含未完成DI试探、当前import循环，严禁直接集成）后结束释放槽；等Sol净DI修复后恢复卡片/Reaction/目录与Generic桥接。C3b 53aaec35c已在map-clue-review/da21d3f05准备审查，root已看mock API 390/1280截图；尚未真实装配审修。原Luna继续C2对象/World档案真实界面。C0/C2/C3均未标完成，C4/C5与C1/P4/势力/RP条件门禁仍保留。
+用户已明确三份计划全部实施，执行C0–C5。primary32e63b630已集成A0回归Sol净修复，root原扩大套2178通过，原9fail消除且RuntimeWarning转error无失败；仍有一项既有Pydantic schema warning。C0b首聚合和Sol净fix78808780f/582955cd3尚未集成，root发现隐藏条数/排序可影响safe分页覆盖，交该Sol继续直接修分页前可见投影。backend C2 f6 WIP已接Sol初版净fix3c556dfd0/b5beb7131（35相邻测试通过），等最新安全补丁与已审primary组合后恢复Luna；不能提前宣称C0/C2完成。C3b+C2b前端原53aaec35c/a212d9faa在map-clue-review/codex/copilot-ui-integration-review由Sol直接审修，C4a新Luna/max在map-assistant-structure实施。A1–A4、C1/P4、C4b/C5、势力与RP真实门禁仍按原计划推进或保留条件。仅本地，无push/PR/main合并/部署。
 
 ## 目标与验收
 
@@ -196,3 +196,18 @@ ADR-0039 旧接口写回规则、共用词表与锚点、档案发现按 ADR-003
   max_actors；不碰main/core keys/bootstrap和当前C0/C2共享文件。协议切片不代表C4b/C5完成。
 - /goal tracker现为active，无token预算。宿主root+3子代理，当前2 Sol/high修复与1 Luna/max实现。
   没有新增模型请求、评测/holdout读取、push/PR/main合并或部署；R3仍封存。全部剩余授权范围继续。
+
+
+## 2026-10-16T00:20:00+08:00 主树回归通过与C0b补审
+
+- primary32e63b630为Sol6962d51c1净修复集成；root同一原失败扩大套使用正确3.14.8、
+  显式无secret不可达单元DB URL和RuntimeWarning转error，2178 passed/1已知schema warning，
+  84.30s；日志/tmp/map-a0b-primary-regression-fixed-20261016.log。未重做当前A0 PG关键路径，
+  旧6PG通过不等于新guard路径已重验；待工程PG释放后随UI真实组合复验。
+- C0b Sol交付78808780f/582955cd3，61 SQLite、2真实PG、Ruff/import61/517、route ratchet、
+  docs有理由门禁通过。root发现limit250先分页再过滤secret会让隐藏条数/排序影响safe覆盖，
+  已由同Sol直接补分页前可见范围；因此C0b暂未进primary，不以初版通过冒称最终安全。
+- C2b/C3b组合树原提交cherry为a52159a47/91fd0902f，另接A0fix为d03dce096；Sol已复现
+  busy/reload、模板重读丢草稿和409二次GET晚响应，直接修复并对齐author_full作者管理请求。
+- C4a Luna已锁45项旧协议/HTTP状态试验基线，保留unresolved_outcomes的actor_id旧语义，
+  正迁移协议与Story新建入口；RP保留v2。当前没有新真实模型或评测数据访问。
