@@ -78,6 +78,13 @@ class AssistantOperationContext:
     operation_id: str | None = None
     llm_snapshot: dict | None = None
     internal_meta: dict | None = None
+    trace_enabled: bool = False
+    trace_actor_type: str = "assistant"
+    trace_entrypoint: str = "assistant.turn"
+    trace_call_id: str | None = None
+    trace_parent_call_id: str | None = None
+    trace_session_id: str | None = None
+    trace_usage: dict | None = None
 
 
 @dataclass(frozen=True)

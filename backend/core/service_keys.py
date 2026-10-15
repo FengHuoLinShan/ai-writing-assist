@@ -72,6 +72,9 @@ ASSISTANT_OPERATIONS: ServiceKey[dict[str, Any]] = ServiceKey("assistant.operati
 ASSISTANT_OPERATION_TRACE: ServiceKey[Callable[..., Any]] = ServiceKey(
     "assistant.operation_trace"
 )
+ASSISTANT_NOTICE_SOURCES: ServiceKey[dict[str, Any]] = ServiceKey(
+    "assistant.notice_sources"
+)
 ASSISTANT_READ_MAP_AUTHOR_DECISION: ServiceKey[MapAuthorDecisionReaderPort] = ServiceKey(
     "assistant.read_map_author_decision"
 )
@@ -398,6 +401,7 @@ ALL_SERVICE_KEYS: tuple[ServiceKey[Any], ...] = (
     ASSISTANT_FORECAST_SOURCES,
     ASSISTANT_OPERATIONS,
     ASSISTANT_OPERATION_TRACE,
+    ASSISTANT_NOTICE_SOURCES,
     SOURCE_CHANGED,
     ASSISTANT_PROACTIVE_SUBMITTERS,
     ASSISTANT_PROACTIVE_FINDINGS,

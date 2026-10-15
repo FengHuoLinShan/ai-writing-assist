@@ -9,11 +9,17 @@
 """
 
 from dataclasses import replace
+from time import monotonic
+from uuid import NAMESPACE_URL, uuid5
 
 from app.assistant_operation_metadata import OPERATION_METADATA, TRACE_PARAMETER_FIELDS
 from modules.assistant.contracts import AssistantOperation, AssistantOperationTraceRule
+from modules.assistant.evidence_tools import fingerprint
 from modules.assistant.map_spatial_advisories import (
     OPERATIONS_SPEC as _SPATIAL_ADVISORIES,
+)
+from modules.assistant.notice_disposition_operations import (
+    OPERATIONS_SPEC as _NOTICE_DISPOSITIONS,
 )
 from modules.evidence.forecast import OPERATIONS_SPEC as _EVIDENCE_FORECAST
 from modules.evolution.assistant_tools import OPERATIONS_SPEC as _EVOLUTION
@@ -100,8 +106,182 @@ def _materialize(specs: dict[str, dict]) -> dict[str, AssistantOperation]:
                 raise ValueError(f"操作 {name} 的留痕规则无效") from exc
         operation = AssistantOperation(**values)
         _validate_catalog_entry(name, operation)
-        built[name] = operation
+        built[name] = _instrument(operation)
     return built
+
+
+def _instrument(operation: AssistantOperation) -> AssistantOperation:
+    """Trace real callback calls while leaving domain specs and return values intact."""
+    prepare = operation.prepare
+    apply = operation.apply
+
+    def trace_call_enabled(context) -> bool:
+        from modules.assistant.operation_trace_service import (
+            current_operation_trace_context,
+        )
+
+        active = current_operation_trace_context()
+        return bool(
+            getattr(context, "trace_enabled", False)
+            or (active and active.get("operation_id") == operation.op_id)
+        )
+
+    async def record(db, novel_id, arguments, context, event_type, **kwargs):
+        if context is None or not trace_call_enabled(context):
+            return
+        from core.container import get
+        from core.service_keys import ASSISTANT_OPERATION_TRACE
+        from modules.assistant.operation_trace_service import (
+            current_operation_trace_context,
+        )
+
+        active = current_operation_trace_context()
+        call_id = (
+            (
+                active.get("call_id")
+                if active and active.get("operation_id") == operation.op_id
+                else None
+            )
+            or context.trace_call_id
+            or str(
+                uuid5(
+                    NAMESPACE_URL,
+                    f"{context.run_id}:{operation.op_id}:{fingerprint(arguments)}",
+                )
+            )
+        )
+        await get(ASSISTANT_OPERATION_TRACE)(
+            db,
+            enabled=True,
+            novel_id=str(novel_id),
+            owner_id=context.owner_id,
+            operation=operation,
+            event_type=event_type,
+            arguments=arguments,
+            actor_type=context.trace_actor_type,
+            entrypoint=context.trace_entrypoint,
+            run_id=context.run_id,
+            session_id=context.trace_session_id,
+            call_id=call_id,
+            parent_call_id=(
+                active.get("parent_call_id")
+                if active and active.get("operation_id") == operation.op_id
+                else context.trace_parent_call_id
+            ),
+            usage=context.trace_usage,
+            **kwargs,
+        )
+
+    async def traced_prepare(db, novel_id, arguments, *, context=None):
+        preflight = bool(
+            (getattr(context, "internal_meta", None) or {}).get("confirmation_preflight")
+        )
+        if not trace_call_enabled(context) or preflight:
+            return await prepare(db, novel_id, arguments, context=context)
+        started = monotonic()
+        args_json = (
+            arguments.model_dump(mode="json")
+            if hasattr(arguments, "model_dump")
+            else arguments
+        )
+        if operation.permission != "read":
+            await record(db, novel_id, args_json, context, "proposed")
+        try:
+            result = await prepare(db, novel_id, arguments, context=context)
+        except Exception as error:
+            await record(
+                db,
+                novel_id,
+                args_json,
+                context,
+                "failed",
+                error_code=getattr(error, "code", "operation_prepare_failed"),
+                duration_ms=round((monotonic() - started) * 1000),
+            )
+            raise
+        await record(
+            db,
+            novel_id,
+            args_json,
+            context,
+            "executed" if operation.permission == "read" else "previewed",
+            preview=result,
+            duration_ms=round((monotonic() - started) * 1000),
+        )
+        return result
+
+    async def traced_apply(db, novel_id, arguments, preview, *, context=None):
+        if apply is None or not trace_call_enabled(context):
+            if apply is None:
+                return None
+            return await apply(db, novel_id, arguments, preview, context=context)
+        started = monotonic()
+        args_json = (
+            arguments.model_dump(mode="json")
+            if hasattr(arguments, "model_dump")
+            else arguments
+        )
+        try:
+            result = await apply(db, novel_id, arguments, preview, context=context)
+        except Exception as error:
+            from modules.assistant.operation_trace_service import (
+                current_operation_trace_context,
+            )
+
+            active = current_operation_trace_context()
+            if (
+                operation.transaction_mode == "multi_stage"
+                and active
+                and active.get("operation_id") == operation.op_id
+            ):
+                active["failure_event"] = "outcome_unknown"
+                active["error_code"] = getattr(error, "code", "operation_apply_failed")
+                raise
+            event_type = (
+                "outcome_unknown"
+                if operation.transaction_mode == "multi_stage"
+                else "failed"
+            )
+            await record(
+                db,
+                novel_id,
+                args_json,
+                context,
+                event_type,
+                preview=preview,
+                error_code=getattr(error, "code", "operation_apply_failed"),
+                duration_ms=round((monotonic() - started) * 1000),
+            )
+            raise
+        from modules.assistant.operation_trace_service import (
+            current_operation_trace_context,
+        )
+
+        active = current_operation_trace_context()
+        if (
+            operation.transaction_mode == "multi_stage"
+            and active
+            and active.get("operation_id") == operation.op_id
+        ):
+            active["result"] = result
+            return result
+        await record(
+            db,
+            novel_id,
+            args_json,
+            context,
+            "executed",
+            preview=preview,
+            result=result,
+            duration_ms=round((monotonic() - started) * 1000),
+        )
+        return result
+
+    return replace(
+        operation,
+        prepare=traced_prepare,
+        apply=traced_apply if apply is not None else None,
+    )
 
 
 def _validate_catalog_entry(name: str, operation: AssistantOperation) -> None:
@@ -170,3 +350,4 @@ world_cocreation_operations = _materialize(_WORLD_COCREATION)
 world_review_operations = _materialize(_WORLD_REVIEW)
 
 assistant_spatial_advisory_operations = _materialize(_SPATIAL_ADVISORIES)
+assistant_notice_operations = _materialize(_NOTICE_DISPOSITIONS)

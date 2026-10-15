@@ -76,7 +76,14 @@ async def select_plan(db, run_id, selection, owner_id):
         db,
         selection.novel_id,
         proposals,
-        context=AssistantOperationContext(run_id, owner_id, work),
+        context=AssistantOperationContext(
+            run_id,
+            owner_id,
+            work,
+            trace_enabled=bool(run.request_json.get("operation_trace_enabled")),
+            trace_entrypoint="assistant.team.plan_selection",
+            trace_session_id=str(run.session_id) if run.session_id else None,
+        ),
         operations=resolve_operations(
             runtime_protocol(run.request_json)["operations"],
             allow_stale=run.request_json.get("runtime_version") == "7",

@@ -4,17 +4,46 @@ from __future__ import annotations
 
 import hashlib
 import hmac
+import json
 import logging
 import re
 from collections.abc import Mapping
-from time import monotonic
+from contextvars import ContextVar, Token
+from datetime import UTC, date, datetime, timedelta
+from secrets import token_hex
 from uuid import UUID
+
+from sqlalchemy import select
+from sqlalchemy.exc import IntegrityError
 
 from core.config import get_settings
 from modules.assistant.contracts import AssistantOperation
-from modules.assistant.operation_trace_models import AssistantOperationTrace
+from modules.assistant.operation_trace_models import (
+    AssistantOperationSequenceAggregate,
+    AssistantOperationTrace,
+    AssistantOperationTraceAggregate,
+    AssistantOperationTracePreference,
+    AssistantOperationTraceProjectSalt,
+)
 
 logger = logging.getLogger(__name__)
+
+_active_trace_context: ContextVar[dict | None] = ContextVar(
+    "assistant_operation_trace_context", default=None
+)
+
+
+def bind_operation_trace_context(context: dict) -> Token:
+    return _active_trace_context.set(context)
+
+
+def reset_operation_trace_context(token: Token) -> None:
+    _active_trace_context.reset(token)
+
+
+def current_operation_trace_context() -> dict | None:
+    return _active_trace_context.get()
+
 
 _USAGE_FIELDS = frozenset(
     {
@@ -62,15 +91,20 @@ def _bucket(size: int) -> str:
     return "50+"
 
 
-def _project_hash(novel_id: str, value: str) -> str:
+def _project_hash(novel_id: str, project_salt: str, value: str) -> str:
     settings = get_settings()
-    key = (settings.auth_secret_key or novel_id).encode("utf-8")
-    salt = hashlib.sha256(b"assistant-operation-trace\0" + novel_id.encode()).digest()
-    return hmac.new(key + salt, value.encode("utf-8"), hashlib.sha256).hexdigest()[:32]
+    key = (settings.auth_secret_key or project_salt).encode("utf-8")
+    salt = hashlib.sha256(
+        b"assistant-operation-trace\0" + novel_id.encode() + project_salt.encode()
+    ).digest()
+    return hmac.new(key, salt + value.encode("utf-8"), hashlib.sha256).hexdigest()[:32]
 
 
 def _parameter_summary(
-    operation: AssistantOperation, novel_id: str, arguments: object
+    operation: AssistantOperation,
+    novel_id: str,
+    project_salt: str,
+    arguments: object,
 ) -> dict:
     values = arguments if isinstance(arguments, Mapping) else {}
     declared = set(operation.trace_rule.parameter_fields)
@@ -92,7 +126,7 @@ def _parameter_summary(
                 {
                     "type": "string",
                     "length": len(value),
-                    "project_hash": _project_hash(novel_id, value),
+                    "project_hash": _project_hash(novel_id, project_salt, value),
                 }
             )
         elif isinstance(value, (list, tuple, set)):
@@ -165,10 +199,137 @@ def _uuid_or_none(value: object) -> UUID | None:
         return None
 
 
+async def operation_trace_enabled(db, owner_id: str) -> bool:
+    """Resolve the account switch; local defaults on, public defaults off."""
+    settings = get_settings()
+    if not settings.assistant_operation_trace_enabled:
+        return False
+    from modules.account.facade import is_demo_readonly_principal
+
+    if is_demo_readonly_principal():
+        return False
+    preference = await db.get(AssistantOperationTracePreference, UUID(str(owner_id)))
+    if preference is not None and preference.enabled is not None:
+        return bool(preference.enabled)
+    return settings.auth_mode.strip().lower() != "public"
+
+
+async def set_operation_trace_preference(db, owner_id: str, enabled: bool) -> None:
+    preference = await db.get(AssistantOperationTracePreference, UUID(str(owner_id)))
+    if preference is None:
+        db.add(
+            AssistantOperationTracePreference(
+                owner_id=UUID(str(owner_id)), enabled=bool(enabled)
+            )
+        )
+    else:
+        preference.enabled = bool(enabled)
+    await db.flush()
+
+
+async def _project_salt(db, novel_id: str, owner_id: str) -> str:
+    novel_uuid = UUID(str(novel_id))
+    salt_row = await db.get(AssistantOperationTraceProjectSalt, novel_uuid)
+    if salt_row is not None:
+        return salt_row.salt
+    candidate = AssistantOperationTraceProjectSalt(
+        novel_id=novel_uuid,
+        owner_id=UUID(str(owner_id)),
+        salt=token_hex(32),
+    )
+    try:
+        async with db.begin_nested():
+            db.add(candidate)
+            await db.flush()
+        return candidate.salt
+    except IntegrityError:
+        existing = await db.get(AssistantOperationTraceProjectSalt, novel_uuid)
+        if existing is None:
+            raise
+        return existing.salt
+
+
+async def _increment_aggregate(db, model, identity: dict, field: str, amount: int = 1):
+    key = tuple(identity[column.name] for column in model.__table__.primary_key.columns)
+    row = await db.get(model, key)
+    if row is None:
+        db.add(model(**identity, **{field: amount}))
+    else:
+        setattr(row, field, getattr(row, field) + amount)
+        if "operation_sequence" in identity:
+            row.operation_sequence = identity["operation_sequence"]
+
+
+async def archive_expired_operation_traces(
+    db, novel_id: str, *, now: datetime | None = None
+) -> int:
+    """Aggregate and delete details after 180 days; aggregate rows have no IDs."""
+    current = now or datetime.now(UTC)
+    cutoff = current - timedelta(days=180)
+    novel_uuid = UUID(str(novel_id))
+    rows = list(
+        (
+            await db.scalars(
+                select(AssistantOperationTrace)
+                .where(
+                    AssistantOperationTrace.novel_id == novel_uuid,
+                    AssistantOperationTrace.occurred_at < cutoff,
+                )
+                .order_by(AssistantOperationTrace.id)
+            )
+        ).all()
+    )
+    if not rows:
+        return 0
+
+    event_counts: dict[tuple[date, str, str], int] = {}
+    sequence_rows: dict[tuple[date, str], list[AssistantOperationTrace]] = {}
+    for row in rows:
+        occurred_on = row.occurred_at.date()
+        key = (occurred_on, row.op_id, row.event_type)
+        event_counts[key] = event_counts.get(key, 0) + 1
+        if row.event_type in {"executed", "failed", "outcome_unknown"}:
+            group_id = str(row.session_id or row.run_id or row.call_id or row.id)
+            sequence_rows.setdefault((occurred_on, group_id), []).append(row)
+
+    for (occurred_on, op_id, event_type), count in event_counts.items():
+        await _increment_aggregate(
+            db,
+            AssistantOperationTraceAggregate,
+            {
+                "novel_id": novel_uuid,
+                "occurred_on": occurred_on,
+                "op_id": op_id,
+                "event_type": event_type,
+            },
+            "event_count",
+            count,
+        )
+    for (occurred_on, _group_id), sequence_rows_for_day in sequence_rows.items():
+        sequence = [row.op_id for row in sequence_rows_for_day]
+        sequence_json = json.dumps(sequence, separators=(",", ":"), ensure_ascii=True)
+        sequence_hash = hashlib.sha256(sequence_json.encode()).hexdigest()
+        await _increment_aggregate(
+            db,
+            AssistantOperationSequenceAggregate,
+            {
+                "novel_id": novel_uuid,
+                "occurred_on": occurred_on,
+                "sequence_hash": sequence_hash,
+                "operation_sequence": sequence,
+            },
+            "sequence_count",
+        )
+    for row in rows:
+        await db.delete(row)
+    await db.flush()
+    return len(rows)
+
+
 async def record_operation_trace(
     db,
     *,
-    enabled: bool,
+    enabled: bool | None = None,
     novel_id: str,
     owner_id: str,
     operation: AssistantOperation,
@@ -183,36 +344,46 @@ async def record_operation_trace(
     run_id: str | None = None,
     session_id: str | None = None,
     usage: object = None,
+    call_id: str | None = None,
+    parent_call_id: str | None = None,
 ) -> bool:
     """Return false only when enabled trace persistence failed."""
-    if not enabled or operation.trace_rule.mode == "exempt":
+    if operation.trace_rule.mode == "exempt":
         return True
-    from modules.assistant.operation_trace_models import AssistantOperationTrace
-
-    stable_error = error_code if error_code and _ERROR_CODE.fullmatch(error_code) else None
-    row = AssistantOperationTrace(
-        novel_id=UUID(str(novel_id)),
-        owner_id=UUID(str(owner_id)),
-        actor_type=actor_type if actor_type in {
-            "assistant", "guided_flow", "goal", "ui", "background", "system"
-        } else "assistant",
-        entrypoint=entrypoint[:80],
-        run_id=_uuid_or_none(run_id),
-        session_id=_uuid_or_none(session_id),
-        op_id=operation.op_id,
-        op_version=operation.op_version,
-        risk_level=operation.risk_level,
-        fee_category=operation.fee_category,
-        event_type=event_type,
-        target_type=operation.target_type,
-        target_refs=_refs(preview),
-        parameter_summary=_parameter_summary(operation, str(novel_id), arguments),
-        result_refs=_refs(result),
-        error_code=stable_error,
-        duration_ms=max(0, int(duration_ms)) if duration_ms is not None else None,
-        usage=_usage_summary(usage),
-    )
     try:
+        if enabled is False or not await operation_trace_enabled(db, owner_id):
+            return True
+        stable_error = (
+            error_code if error_code and _ERROR_CODE.fullmatch(error_code) else None
+        )
+        salt = await _project_salt(db, novel_id, owner_id)
+        row = AssistantOperationTrace(
+            call_id=_uuid_or_none(call_id),
+            parent_call_id=_uuid_or_none(parent_call_id),
+            novel_id=UUID(str(novel_id)),
+            owner_id=UUID(str(owner_id)),
+            actor_type=actor_type
+            if actor_type
+            in {"assistant", "guided_flow", "goal", "ui", "background", "system"}
+            else "assistant",
+            entrypoint=entrypoint[:80],
+            run_id=_uuid_or_none(run_id),
+            session_id=_uuid_or_none(session_id),
+            op_id=operation.op_id,
+            op_version=operation.op_version,
+            risk_level=operation.risk_level,
+            fee_category=operation.fee_category,
+            event_type=event_type,
+            target_type=operation.target_type,
+            target_refs=_refs(preview),
+            parameter_summary=_parameter_summary(
+                operation, str(novel_id), salt, arguments
+            ),
+            result_refs=_refs(result),
+            error_code=stable_error,
+            duration_ms=max(0, int(duration_ms)) if duration_ms is not None else None,
+            usage=_usage_summary(usage),
+        )
         # The savepoint is intentionally narrower than the business transaction:
         # trace failure must not undo a successful domain write.
         async with db.begin_nested():
@@ -231,4 +402,12 @@ async def record_operation_trace(
     return True
 
 
-__all__ = ["record_operation_trace"]
+__all__ = [
+    "bind_operation_trace_context",
+    "current_operation_trace_context",
+    "archive_expired_operation_traces",
+    "operation_trace_enabled",
+    "record_operation_trace",
+    "reset_operation_trace_context",
+    "set_operation_trace_preference",
+]

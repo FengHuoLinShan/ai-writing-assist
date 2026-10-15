@@ -29,6 +29,7 @@ from core.service_keys import (
     ASSISTANT_MARK_EDITORIAL_READY,
     ASSISTANT_OPERATIONS,
     ASSISTANT_OPERATION_TRACE,
+    ASSISTANT_NOTICE_SOURCES,
     ASSISTANT_PROACTIVE_FINDINGS,
     ASSISTANT_PROACTIVE_SUBMITTERS,
     ASSISTANT_REQUIRE_OPERATION_TARGETS,
@@ -218,8 +219,10 @@ from app.assistant_operation_registry import (
     evidence_forecast_operations,
     evolution_operations,
     assistant_spatial_advisory_operations,
+    assistant_notice_operations,
     imports_operations,
 )
+from app.notice_source_registry import notice_sources as _assistant_notice_sources
 from app.assistant_operation_registry import project_dedup_operations
 from app.assistant_operation_registry import project_operations
 from app.assistant_operation_registry import story_information_operations
@@ -313,6 +316,7 @@ def _register_orm_models() -> None:
     """Import ORM models with Base.metadata for FK dependency resolution."""
     import modules.account.models  # noqa: F401, I001
     import modules.assistant.models  # noqa: F401, E402
+    import modules.assistant.notice_models  # noqa: F401, E402
     import modules.assistant.operation_trace_models  # noqa: F401, E402
     import modules.assistant.forecast.models  # noqa: F401, E402
     import modules.collaboration.models  # noqa: F401, E402
@@ -426,9 +430,11 @@ def _container_services() -> Iterable[tuple[ServiceKey[Any], Any]]:
                 **assistant_spatial_advisory_operations,
                 **world_vocabulary_operations,
                 **world_review_operations,
+                **assistant_notice_operations,
             },
         ),
         (ASSISTANT_OPERATION_TRACE, _record_operation_trace),
+        (ASSISTANT_NOTICE_SOURCES, _assistant_notice_sources),
         (SOURCE_CHANGED, _assistant_mark_changed),
         (ASSISTANT_READ_MAP_AUTHOR_DECISION, _read_map_author_decision),
         (EVOLUTION_READ_MAP_COLD_START_STATUS, _read_map_cold_start_status),

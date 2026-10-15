@@ -141,7 +141,13 @@ async def choice(db, novel_id, run, flow, artifacts, settings, value):
             novel_id,
             args,
             context=AssistantOperationContext(
-                str(run.id), str(run.owner_id), WorkContext(page="map", scope="project")
+                str(run.id),
+                str(run.owner_id),
+                WorkContext(page="map", scope="project"),
+                trace_enabled=True,
+                trace_actor_type="guided_flow",
+                trace_entrypoint="assistant.guided_flow.map_cold_start",
+                trace_session_id=str(run.session_id) if run.session_id else None,
             ),
         )
         artifacts["scope"] = {

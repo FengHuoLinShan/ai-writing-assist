@@ -339,7 +339,13 @@ async def prepare(db, novel_id, candidate_id, data):
             )
         ],
         context=AssistantOperationContext(
-            str(run.id), str(run.owner_id), work, operation_id=str(run.id)
+            str(run.id),
+            str(run.owner_id),
+            work,
+            operation_id=str(run.id),
+            trace_enabled=True,
+            trace_entrypoint="assistant.forecast.prepare",
+            trace_session_id=str(run.session_id) if run.session_id else None,
         ),
     )
     try:

@@ -452,12 +452,9 @@ class AssistantService:
         if session is None or session.status != "active":
             raise NotFoundError("助手会话不存在或已归档")
         payload = data.model_dump(mode="json") | {"session_id": session_id}
-        from modules.account.facade import is_demo_readonly_principal
+        from modules.assistant.operation_trace_service import operation_trace_enabled
 
-        payload["operation_trace_enabled"] = bool(
-            get_settings().assistant_operation_trace_enabled
-            and not is_demo_readonly_principal()
-        )
+        payload["operation_trace_enabled"] = await operation_trace_enabled(db, owner_id)
         if regression_targets:
             payload["regression_targets"] = regression_targets
         if quoted_discussion:
@@ -1074,6 +1071,7 @@ class AssistantService:
                 llm_snapshot=payload["llm_snapshot"],
                 operations=operations,
                 operation_catalog_snapshot=protocol["operations"],
+                operation_trace_enabled=bool(payload.get("operation_trace_enabled")),
                 final_requests=2 if quality_review else 1,
                 session_id=str(run.session_id) if run.session_id else None,
             )
@@ -1362,7 +1360,13 @@ class AssistantService:
                 db,
                 novel_id,
                 answer.actions,
-                context=AssistantOperationContext(run_id, owner_id, work),
+                context=AssistantOperationContext(
+                    run_id,
+                    owner_id,
+                    work,
+                    trace_enabled=bool(payload.get("operation_trace_enabled")),
+                    trace_session_id=str(run.session_id) if run.session_id else None,
+                ),
                 operations=operations,
             )
             run = await self.require_run(db, novel_id, run_id, lock=True)
@@ -1405,7 +1409,15 @@ class AssistantService:
                         db,
                         novel_id,
                         plan.actions,
-                        context=AssistantOperationContext(run_id, owner_id, work),
+                        context=AssistantOperationContext(
+                            run_id,
+                            owner_id,
+                            work,
+                            trace_enabled=bool(payload.get("operation_trace_enabled")),
+                            trace_session_id=str(run.session_id)
+                            if run.session_id
+                            else None,
+                        ),
                         operations=operations,
                     )
                     option = {**plan.model_dump(mode="json"), "actions": actions}

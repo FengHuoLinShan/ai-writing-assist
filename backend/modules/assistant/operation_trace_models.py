@@ -1,15 +1,16 @@
 """Append-only, content-minimizing operation lifecycle records."""
 
-from datetime import datetime
+from datetime import date, datetime
 
 from sqlalchemy import (
+    JSON,
     BigInteger,
     CheckConstraint,
+    Date,
     DateTime,
     ForeignKey,
     Index,
     Integer,
-    JSON,
     String,
     func,
 )
@@ -23,7 +24,7 @@ class AssistantOperationTrace(Base):
     __table_args__ = (
         CheckConstraint(
             "event_type IN ('proposed','previewed','confirmed','declined','edited',"
-            "'executed','failed','restored','undone')",
+            "'executed','failed','restored','undone','outcome_unknown')",
             name="ck_assistant_operation_trace_event_type",
         ),
         CheckConstraint(
@@ -45,6 +46,7 @@ class AssistantOperationTrace(Base):
             "op_id",
             "occurred_at",
         ),
+        Index("ix_assistant_operation_trace_call_sequence", "call_id", "id"),
     )
 
     id: Mapped[int] = mapped_column(
@@ -52,6 +54,8 @@ class AssistantOperationTrace(Base):
         primary_key=True,
         autoincrement=True,
     )
+    call_id: Mapped[object | None] = mapped_column(UUIDType, nullable=True)
+    parent_call_id: Mapped[object | None] = mapped_column(UUIDType, nullable=True)
     novel_id: Mapped[object] = mapped_column(
         UUIDType,
         ForeignKey("projects.id", ondelete="CASCADE"),
@@ -77,3 +81,71 @@ class AssistantOperationTrace(Base):
     error_code: Mapped[str | None] = mapped_column(String(80), nullable=True)
     duration_ms: Mapped[int | None] = mapped_column(Integer, nullable=True)
     usage: Mapped[dict | None] = mapped_column(JSON, nullable=True)
+
+
+class AssistantOperationTracePreference(Base):
+    """Account-level opt-in; NULL follows the local/public default."""
+
+    __tablename__ = "assistant_operation_trace_preferences"
+
+    owner_id: Mapped[object] = mapped_column(
+        UUIDType,
+        ForeignKey("accounts.id", ondelete="CASCADE"),
+        primary_key=True,
+    )
+    enabled: Mapped[bool | None] = mapped_column(nullable=True)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        server_default=func.now(),
+        onupdate=func.now(),
+        nullable=False,
+    )
+
+
+class AssistantOperationTraceProjectSalt(Base):
+    """Random, private salt makes string hashes unlinkable across works."""
+
+    __tablename__ = "assistant_operation_trace_project_salts"
+
+    novel_id: Mapped[object] = mapped_column(
+        UUIDType,
+        ForeignKey("projects.id", ondelete="CASCADE"),
+        primary_key=True,
+    )
+    owner_id: Mapped[object] = mapped_column(UUIDType, nullable=False)
+    salt: Mapped[str] = mapped_column(String(64), nullable=False)
+
+
+class AssistantOperationTraceAggregate(Base):
+    """Retained counts only; intentionally has no event, target, or run IDs."""
+
+    __tablename__ = "assistant_operation_trace_aggregates"
+    __table_args__ = (
+        CheckConstraint("event_count > 0", name="ck_operation_trace_aggregate_count"),
+    )
+
+    novel_id: Mapped[object] = mapped_column(
+        UUIDType,
+        ForeignKey("projects.id", ondelete="CASCADE"),
+        primary_key=True,
+    )
+    occurred_on: Mapped[date] = mapped_column(Date, primary_key=True)
+    op_id: Mapped[str] = mapped_column(String(160), primary_key=True)
+    event_type: Mapped[str] = mapped_column(String(24), primary_key=True)
+    event_count: Mapped[int] = mapped_column(Integer, nullable=False)
+
+
+class AssistantOperationSequenceAggregate(Base):
+    """Operation-ID sequences only; no request or asset identifiers."""
+
+    __tablename__ = "assistant_operation_sequence_aggregates"
+
+    novel_id: Mapped[object] = mapped_column(
+        UUIDType,
+        ForeignKey("projects.id", ondelete="CASCADE"),
+        primary_key=True,
+    )
+    occurred_on: Mapped[date] = mapped_column(Date, primary_key=True)
+    sequence_hash: Mapped[str] = mapped_column(String(64), primary_key=True)
+    operation_sequence: Mapped[list[str]] = mapped_column(JSON, nullable=False)
+    sequence_count: Mapped[int] = mapped_column(Integer, nullable=False)

@@ -258,6 +258,8 @@ async def schedule_proactive_review(db, novel_id, change, internal_meta):
         WorkContext(
             scope="project", excluded_targets=policy.get("excluded_targets") or []
         ),
+        trace_enabled=True,
+        trace_entrypoint="assistant.review",
     )
     return await _submit(
         db,

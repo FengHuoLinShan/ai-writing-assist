@@ -361,7 +361,13 @@ async def read_operation(
         raise ModelRetry(
             f"只读操作参数不正确：{error.errors(include_input=False, include_url=False)}"
         ) from None
-    context = AssistantOperationContext(deps.run_id or "", deps.owner_id, deps.work)
+    context = AssistantOperationContext(
+        deps.run_id or "",
+        deps.owner_id,
+        deps.work,
+        trace_enabled=deps.operation_trace_enabled,
+        trace_session_id=deps.session_id,
+    )
     return await operation.prepare(deps.db, deps.novel_id, args, context=context)
 
 
@@ -492,7 +498,13 @@ async def execute_suggestion(ctx, capability, arguments):
         raise ModelRetry(
             f"复核参数不正确：{error.errors(include_input=False, include_url=False)}"
         ) from None
-    context = AssistantOperationContext(deps.run_id, deps.owner_id, deps.work)
+    context = AssistantOperationContext(
+        deps.run_id,
+        deps.owner_id,
+        deps.work,
+        trace_enabled=deps.operation_trace_enabled,
+        trace_session_id=deps.session_id,
+    )
     preview = await operation.prepare(deps.db, deps.novel_id, args, context=context)
     operation_id = str(
         uuid.uuid5(
@@ -507,6 +519,8 @@ async def execute_suggestion(ctx, capability, arguments):
         operation_id=operation_id,
         llm_snapshot=deps.llm_snapshot,
         internal_meta={"_execution_mode": "inline_only", "_parent_task_id": deps.task_id},
+        trace_enabled=deps.operation_trace_enabled,
+        trace_session_id=deps.session_id,
     )
     reference = await operation.apply(
         deps.db, deps.novel_id, args, preview, context=context
@@ -599,6 +613,37 @@ def _ordered(actions: list[dict]) -> list[dict]:
     return ordered
 
 
+async def _record_batch_event(db, run, item, operation, event_type, *, error_code=None):
+    if not run.request_json.get("operation_trace_enabled"):
+        return
+    from core.container import get
+    from core.service_keys import ASSISTANT_OPERATION_TRACE
+
+    context = {
+        "trace_call_id": str(
+            uuid.uuid5(uuid.NAMESPACE_URL, f"{run.id}:action:{item['key']}")
+        ),
+        "trace_parent_call_id": str(run.id),
+    }
+    await get(ASSISTANT_OPERATION_TRACE)(
+        db,
+        enabled=True,
+        novel_id=str(run.novel_id),
+        owner_id=str(run.owner_id),
+        operation=operation,
+        event_type=event_type,
+        arguments=item.get("arguments"),
+        preview=item.get("preview"),
+        error_code=error_code,
+        actor_type="ui",
+        entrypoint="assistant.batch.confirm",
+        run_id=str(run.id),
+        session_id=str(run.session_id) if run.session_id else None,
+        call_id=context["trace_call_id"],
+        parent_call_id=context["trace_parent_call_id"],
+    )
+
+
 async def prepare_actions(
     db,
     novel_id: str,
@@ -617,7 +662,13 @@ async def prepare_actions(
         if operation is None:
             raise ValidationError("提案包含当前未提供的操作")
         args = operation.schema.model_validate(proposal.arguments)
-        preview = await operation.prepare(db, novel_id, args, context=context)
+        action_context = replace(
+            context,
+            trace_call_id=str(
+                uuid.uuid5(uuid.NAMESPACE_URL, f"{context.run_id}:action:{proposal.key}")
+            ),
+        )
+        preview = await operation.prepare(db, novel_id, args, context=action_context)
         action_targets = set(
             preview.get("target_keys")
             or ([preview["target_key"]] if preview.get("target_key") else [])
@@ -710,6 +761,7 @@ async def decide_batch(db, batch_id: str, decision: BatchDecision, owner_id: str
         AgentRunBudget.model_validate(run.budget_json or {}),
         unused_checkpoint,
         evidence_refs=dict((run.checkpoint_json or {}).get("evidence_refs") or {}),
+        operation_trace_enabled=bool(run.request_json.get("operation_trace_enabled")),
     )
     postconditions = (batch.authorization_json or {}).get("postconditions") or {}
     if completed and postconditions:
@@ -757,17 +809,38 @@ async def decide_batch(db, batch_id: str, decision: BatchDecision, owner_id: str
         operation = available.get(item["capability"])
         if operation is None:
             raise ConflictError("操作不在本次运行的工具范围内")
+        item_context = replace(
+            operation_context,
+            trace_call_id=str(
+                uuid.uuid5(uuid.NAMESPACE_URL, f"{run.id}:action:{item['key']}")
+            ),
+            trace_actor_type="ui",
+            trace_entrypoint="assistant.batch.confirm",
+            trace_enabled=bool(run.request_json.get("operation_trace_enabled")),
+            trace_session_id=str(run.session_id) if run.session_id else None,
+        )
         preview = await operation.prepare(
             db,
             novel_id,
             operation.schema.model_validate(item["arguments"]),
-            context=operation_context,
+            context=item_context,
         )
         if fingerprint(preview) != item["baseline_hash"]:
             raise ConflictError(
                 "待修改的资料已变化，请重新生成方案", code="assistant_source_stale"
             )
         confirmation_meta["confirmed_previews"].append(fingerprint(preview))
+    for item in batch.actions_json:
+        operation = available.get(item["capability"])
+        if operation is None:
+            continue
+        await _record_batch_event(
+            db,
+            run,
+            item,
+            operation,
+            "confirmed" if item["key"] in keys else "declined",
+        )
     batch.authorization_json = batch.authorization_json or {
         "owner_id": owner_id,
         "selected": decision.selected,
@@ -799,18 +872,37 @@ async def decide_batch(db, batch_id: str, decision: BatchDecision, owner_id: str
             async with db.begin_nested():
                 confirmation_meta["prepared_preview"] = item["preview"]
                 operation = available[item["capability"]]
+                item_context = replace(
+                    operation_context,
+                    trace_call_id=str(
+                        uuid.uuid5(uuid.NAMESPACE_URL, f"{run.id}:action:{item['key']}")
+                    ),
+                    trace_actor_type="ui",
+                    trace_entrypoint="assistant.batch.confirm",
+                    trace_enabled=bool(run.request_json.get("operation_trace_enabled")),
+                    trace_session_id=str(run.session_id) if run.session_id else None,
+                    trace_parent_call_id=str(run.id),
+                )
                 result = await operation.apply(
                     db,
                     novel_id,
                     operation.schema.model_validate(item["arguments"]),
                     item["preview"],
-                    context=operation_context,
+                    context=item_context,
                 )
                 await db.flush()
                 await context.record_confirmed_write(result)
         except DomainError:
             context.work, context.evidence_refs = previous_work, previous_refs
             failed.add(key)
+            await _record_batch_event(
+                db,
+                run,
+                item,
+                available[item["capability"]],
+                "failed",
+                error_code="operation_apply_failed",
+            )
             results.append(
                 {
                     "key": key,
@@ -818,6 +910,21 @@ async def decide_batch(db, batch_id: str, decision: BatchDecision, owner_id: str
                     "message": "资料或操作条件已变化，请到来源位置核对",
                 }
             )
+        except Exception:
+            context.work, context.evidence_refs = previous_work, previous_refs
+            failed.add(key)
+            operation = available[item["capability"]]
+            await _record_batch_event(
+                db,
+                run,
+                item,
+                operation,
+                "outcome_unknown"
+                if operation.transaction_mode == "multi_stage"
+                else "failed",
+                error_code="operation_apply_failed",
+            )
+            raise
         else:
             results.append({"key": key, "status": "completed", "result": result})
     batch.authorization_json = {
