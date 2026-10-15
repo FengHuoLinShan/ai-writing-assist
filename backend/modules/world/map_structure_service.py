@@ -32,9 +32,12 @@ from modules.world.map_atlas_models import (
 )
 from modules.world.map_atlas_schemas import ATLAS_LEVEL_RANK
 from modules.world.map_atlas_service import MapAtlasService
+from modules.world.map_spatial_anchors import validity_problems
 from modules.world.map_structure_geometry import (
     affine_transform,
+    constraint_is_calculable,
     diagnose,
+    feature_has_calculable_geometry,
     geometry_hash,
     layout,
 )
@@ -92,6 +95,190 @@ def source_payload(item) -> dict:
         key: getattr(item, key, None)
         for key in ("title", "free_text", "sections_json", "status", "version_number")
     }
+
+
+async def resolve_spatial_vocabulary_references(
+    db, novel_id: str, references: dict[tuple[uuid.UUID, uuid.UUID], str]
+) -> dict[tuple[uuid.UUID, uuid.UUID], dict[str, object]]:
+    if not references:
+        return {}
+    from modules.world.project_vocabulary_schemas import VocabularyTraits
+    from modules.world.project_vocabulary_service import (
+        resolve_vocabulary_type_revisions,
+    )
+
+    try:
+        resolved = await resolve_vocabulary_type_revisions(
+            db, novel_id, set(references)
+        )
+    except NotFoundError as exc:
+        raise ValidationError("空间类型引用无效或不属于当前作品") from exc
+    result = {}
+    for key, expected_kind in references.items():
+        item = resolved[key]
+        if item.get("kind") != expected_kind:
+            raise ValidationError("空间类型引用的种类不匹配")
+        result[key] = {
+            **item,
+            "traits": VocabularyTraits.model_validate(item.get("traits") or {}),
+            "computable": item.get("status") == "active",
+        }
+    return result
+
+
+def _document_type_references(document: MapDocument):
+    references: dict[tuple[uuid.UUID, uuid.UUID], str] = {}
+
+    def add(type_ref, revision_id, kind: str) -> None:
+        if type_ref is None and revision_id is None:
+            return
+        if type_ref is None or revision_id is None:
+            raise ValidationError("空间类型必须同时指定身份和修订")
+        key = (type_ref, revision_id)
+        old_kind = references.setdefault(key, kind)
+        if old_kind != kind:
+            raise ValidationError("同一项目类型不能被当作不同空间类型使用")
+
+    for space in document.spaces:
+        add(space.type_ref, space.type_revision_id, "space")
+    for feature in document.features:
+        add(feature.type_ref, feature.type_revision_id, "feature")
+    for constraint in document.constraints:
+        add(constraint.type_ref, constraint.type_revision_id, "relation")
+        add(constraint.path_type_ref, constraint.path_type_revision_id, "feature")
+    for journey in document.journeys:
+        add(journey.transport_type_ref, journey.transport_type_revision_id, "transport")
+        add(journey.traveler_type_ref, journey.traveler_type_revision_id, "traveler")
+        add(journey.connection_type_ref, journey.connection_type_revision_id, "relation")
+        for condition in journey.access_conditions:
+            add(condition.type_ref, condition.type_revision_id, "access_condition")
+    return references
+
+
+def _active_spatial_type_traits(resolved_types):
+    return {
+        key: item["traits"]
+        for key, item in resolved_types.items()
+        if item["computable"]
+    }
+
+
+def _spatial_item_feature_ids(item) -> list[str]:
+    if hasattr(item, "points"):
+        return [item.id]
+    if hasattr(item, "subject"):
+        return [item.subject, item.target]
+    return [item.origin, item.destination]
+
+
+def _spatial_item_type_pairs(item):
+    if hasattr(item, "points"):
+        return [(item.type_ref, item.type_revision_id)]
+    if hasattr(item, "subject"):
+        return [
+            (item.type_ref, item.type_revision_id),
+            (item.path_type_ref, item.path_type_revision_id),
+        ]
+    return [
+        (item.transport_type_ref, item.transport_type_revision_id),
+        (item.traveler_type_ref, item.traveler_type_revision_id),
+        (item.connection_type_ref, item.connection_type_revision_id),
+        *[
+            (condition.type_ref, condition.type_revision_id)
+            for condition in item.access_conditions
+        ],
+    ]
+
+
+def _spatial_type_problems(document: MapDocument, resolved_types) -> list[MapProblem]:
+    problems = []
+    for space in document.spaces:
+        pair = (space.type_ref, space.type_revision_id)
+        if (
+            space.type_ref is not None
+            and pair in resolved_types
+            and not resolved_types[pair]["computable"]
+        ):
+            problems.append(
+                MapProblem(
+                    code="spatial_type_not_computable",
+                    message="引用的空间类型当前不可计算，已按文字保留，请核对类型状态",
+                    feature_ids=[
+                        feature.id
+                        for feature in document.features
+                        if feature.space_id == space.id
+                    ],
+                )
+            )
+    for item in [*document.features, *document.constraints, *document.journeys]:
+        if any(
+            type_ref is not None
+            and (type_ref, revision_id) in resolved_types
+            and not resolved_types[(type_ref, revision_id)]["computable"]
+            for type_ref, revision_id in _spatial_item_type_pairs(item)
+        ):
+            problems.append(
+                MapProblem(
+                    code="spatial_type_not_computable",
+                    message="引用的空间类型当前不可计算，已按文字保留，请核对类型状态",
+                    feature_ids=_spatial_item_feature_ids(item),
+                )
+            )
+    features = {feature.id: feature for feature in document.features}
+    for constraint in document.constraints:
+        if (
+            features[constraint.subject].space_id
+            == features[constraint.target].space_id
+        ):
+            continue
+        pair = (constraint.type_ref, constraint.type_revision_id)
+        resolved = resolved_types.get(pair)
+        if (
+            resolved is not None
+            and resolved["computable"]
+            and "cross_space" not in resolved["traits"].connection
+        ):
+            problems.append(
+                MapProblem(
+                    code="spatial_type_not_computable",
+                    message="跨空间关系缺少可用的跨空间特性，仅保留为文字并待核对",
+                    feature_ids=[constraint.subject, constraint.target],
+                )
+            )
+    for journey in document.journeys:
+        if (
+            features[journey.origin].space_id
+            == features[journey.destination].space_id
+        ):
+            continue
+        pair = (journey.connection_type_ref, journey.connection_type_revision_id)
+        resolved = resolved_types.get(pair)
+        if (
+            resolved is not None
+            and resolved["computable"]
+            and "cross_space" not in resolved["traits"].connection
+        ):
+            problems.append(
+                MapProblem(
+                    code="spatial_type_not_computable",
+                    message="跨空间行程缺少可用的跨空间特性，仅保留为文字并待核对",
+                    feature_ids=[journey.origin, journey.destination],
+                )
+            )
+    return problems
+
+
+async def spatial_anchor_problems(db, novel_id: str, document: MapDocument):
+    if not any(
+        item.effective is not None
+        for item in [*document.features, *document.constraints, *document.journeys]
+    ):
+        return []
+    scenes = await _story_scene_port().read_temporal_anchor_scenes(db, novel_id)
+    return [
+        MapProblem.model_validate(item)
+        for item in validity_problems(document, scenes)
+    ]
 
 
 def source_digest(payload: dict) -> str:
@@ -226,6 +413,15 @@ class MapStructureService:
 
     async def create_node(self, db, novel_id: str, data: MapNodeCreate):
         await require_active_project_exclusive(db, novel_id)
+        await resolve_spatial_vocabulary_references(
+            db,
+            novel_id,
+            {
+                (data.level_type_ref, data.level_type_revision_id): "level"
+            }
+            if data.level_type_ref is not None
+            else {},
+        )
         if data.parent_id:
             parent = await self.node(db, novel_id, str(data.parent_id))
             if ATLAS_LEVEL_RANK[parent.level] >= ATLAS_LEVEL_RANK[data.level]:
@@ -259,6 +455,8 @@ class MapStructureService:
             semantic_key=semantic_key,
             title=data.title.strip(),
             level=data.level,
+            level_type_ref=data.level_type_ref,
+            level_type_revision_id=data.level_type_revision_id,
             status="adopted",
         )
         db.add(node)
@@ -310,6 +508,11 @@ class MapStructureService:
         return text
 
     async def validate_document(self, db, novel_id, node, document: MapDocument):
+        type_refs = _document_type_references(document)
+        resolved_types = await resolve_spatial_vocabulary_references(
+            db, novel_id, type_refs
+        )
+        type_traits = _active_spatial_type_traits(resolved_types)
         for feature in document.features:
             if feature.entity_id:
                 entity = await db.scalar(
@@ -335,10 +538,14 @@ class MapStructureService:
         )
         previous_sources = {
             (type(item), item.id): {ref.model_dump_json() for ref in item.sources}
-            for item in [*previous_document.features, *previous_document.constraints]
+            for item in [
+                *previous_document.features,
+                *previous_document.constraints,
+                *previous_document.journeys,
+            ]
         }
-        checked, problems = {}, []
-        for item in [*document.features, *document.constraints]:
+        checked, problems = {}, _spatial_type_problems(document, resolved_types)
+        for item in [*document.features, *document.constraints, *document.journeys]:
             for ref in item.sources:
                 key = ref.model_dump_json()
                 if key not in checked:
@@ -354,6 +561,8 @@ class MapStructureService:
                         [item.id]
                         if hasattr(item, "points")
                         else [item.subject, item.target]
+                        if hasattr(item, "subject")
+                        else [item.origin, item.destination]
                     )
                     problems.append(
                         MapProblem(
@@ -440,7 +649,9 @@ class MapStructureService:
             if annotation is None:
                 raise ValidationError("标注不属于当前地图")
 
-        return problems
+        problems.extend(await spatial_anchor_problems(db, novel_id, document))
+
+        return problems, type_traits
 
     async def save(
         self,
@@ -481,7 +692,13 @@ class MapStructureService:
                 if old != item:
                     # An author edit owns the relation from now on.
                     item.generated_by_task_id = None
-        source_problems = await self.validate_document(db, novel_id, node, document)
+        source_problems, type_traits = await self.validate_document(
+            db, novel_id, node, document
+        )
+        if document.schema_version == 1:
+            payload = document.model_dump(mode="json")
+            payload["schema_version"] = 2
+            document = MapDocument.model_validate(payload)
         from modules.world.services.common import current_writing_chapter_index
 
         # 内容保护触发器覆盖新列：writing_chapter_index 只能在插入时写入。
@@ -493,7 +710,10 @@ class MapStructureService:
             status="saved",
             document=document.model_dump(mode="json"),
             geometry_hash=geometry_hash(document),
-            problems=[p.model_dump() for p in [*diagnose(document), *source_problems]],
+            problems=[
+                p.model_dump()
+                for p in [*diagnose(document, type_traits=type_traits), *source_problems]
+            ],
             writing_chapter_index=writing_chapter_index,
         )
         db.add(row)
@@ -527,8 +747,16 @@ class MapStructureService:
         await self.node(db, novel_id, node_id)
         row = await self.revision(db, novel_id, node_id, revision_id)
         document = MapDocument.model_validate(row.document)
-        problems = list(row.problems)
-        for item in [*document.features, *document.constraints]:
+        problems = [
+            problem
+            for problem in row.problems
+            if problem.get("code") != "spatial_type_not_computable"
+        ]
+        resolved_types = await resolve_spatial_vocabulary_references(
+            db, novel_id, _document_type_references(document)
+        )
+        problems.extend(_spatial_type_problems(document, resolved_types))
+        for item in [*document.features, *document.constraints, *document.journeys]:
             for source in item.sources:
                 try:
                     await self.source(db, novel_id, source)
@@ -539,7 +767,9 @@ class MapStructureService:
                             "message": "此版本的部分来源已变化或不可用，请核对后再使用",
                             "feature_ids": [item.id]
                             if hasattr(item, "points")
-                            else [item.subject, item.target],
+                            else [item.subject, item.target]
+                            if hasattr(item, "subject")
+                            else [item.origin, item.destination],
                         }
                     )
                     break
@@ -589,7 +819,9 @@ class MapStructureService:
         items = document_items(document)
         for key in applied:
             item = items.get(key)
-            if item is not None and key.startswith(("feature:", "constraint:")):
+            if item is not None and key.startswith(
+                ("feature:", "constraint:", "journey:")
+            ):
                 for source in item.sources:
                     await self.source(db, novel_id, source)
         return document, applied, expanded
@@ -788,8 +1020,23 @@ class MapStructureService:
         for response in [revision, *candidate_responses]:
             if response is None:
                 continue
-            response.problems = [p for p in response.problems if p.code != "source_stale"]
-            for item in [*response.document.features, *response.document.constraints]:
+            response.problems = [
+                problem
+                for problem in response.problems
+                if problem.code
+                not in {"source_stale", "spatial_type_not_computable"}
+            ]
+            resolved_types = await resolve_spatial_vocabulary_references(
+                db, novel_id, _document_type_references(response.document)
+            )
+            response.problems.extend(
+                _spatial_type_problems(response.document, resolved_types)
+            )
+            for item in [
+                *response.document.features,
+                *response.document.constraints,
+                *response.document.journeys,
+            ]:
                 for ref in item.sources:
                     key = ref.model_dump_json()
                     if key not in checked:
@@ -805,10 +1052,15 @@ class MapStructureService:
                                 message="已有空间资料发生变化，请核对来源；阅读预览暂不展示相关内容",
                                 feature_ids=[item.id]
                                 if hasattr(item, "points")
-                                else [item.subject, item.target],
+                                else [item.subject, item.target]
+                                if hasattr(item, "subject")
+                                else [item.origin, item.destination],
                             )
                         )
                         break
+            response.problems.extend(
+                await spatial_anchor_problems(db, novel_id, response.document)
+            )
         tasks = (
             await list_task_lifecycle_contracts(
                 db,
@@ -849,8 +1101,10 @@ class MapStructureService:
         if node.current_revision_id != data.base_revision_id:
             raise ConflictError("地图已更新，请先比较版本")
         document = data.document.model_copy(deep=True)
-        source_problems = await self.validate_document(db, novel_id, node, document)
-        result = layout(document)
+        source_problems, type_traits = await self.validate_document(
+            db, novel_id, node, document
+        )
+        result = layout(document, type_traits=type_traits)
         result.problems.extend(source_problems)
         result.image_layers = await self.image_layers(
             db, novel_id, node_id, result.document
@@ -908,21 +1162,42 @@ class MapStructureService:
     ):
         node = await self.node(db, novel_id, node_id)
         if not (revision_id or node.current_revision_id):
-            return {"features": [], "images": [], "chapter": chapter}
+            return {"features": [], "journeys": [], "images": [], "chapter": chapter}
         row = await self.revision(
             db, novel_id, node_id, revision_id or node.current_revision_id
         )
         if row.status != "saved":
             raise NotFoundError("阅读预览只能使用已保存版本")
         document = MapDocument.model_validate(row.document)
+        resolved_types = await resolve_spatial_vocabulary_references(
+            db, novel_id, _document_type_references(document)
+        )
+        type_traits = _active_spatial_type_traits(resolved_types)
         visibility = VisibilityContextContract(
             mode="reader", cutoff_chapter=chapter, cutoff_offset=0
         )
-        blocked = {key for problem in diagnose(document) for key in problem.feature_ids}
+        blocked = {
+            key
+            for problem in diagnose(document, type_traits=type_traits)
+            for key in problem.feature_ids
+        }
+        blocked.update(
+            key
+            for problem in await spatial_anchor_problems(db, novel_id, document)
+            for key in problem.feature_ids
+        )
         eligible, public_labels = set(), {}
         for feature in document.features:
             if (
                 feature.id in blocked
+                or feature.modality != "event_observed"
+                # The reader endpoint accepts a chapter ordinal, not a stable
+                # chapter/Scene identity; keep timed facts author-only until that
+                # seam exists.
+                or feature.effective is not None
+                or not feature_has_calculable_geometry(
+                    feature, type_traits=type_traits
+                )
                 or feature.reader_from_chapter is None
                 or feature.reader_from_chapter > chapter
             ):
@@ -964,6 +1239,14 @@ class MapStructureService:
         # A visible line or hull must not reveal hidden dependencies.
         dependencies = {f.id: set(f.depends_on) for f in document.features}
         for constraint in document.constraints:
+            if (
+                constraint.modality != "event_observed"
+                or constraint.effective is not None
+                or not constraint_is_calculable(
+                    constraint, type_traits=type_traits
+                )
+            ):
+                continue
             group = {constraint.subject, constraint.target, *constraint.via}
             for source in constraint.sources:
                 if not await self.reader_source_visible(db, novel_id, source, visibility):
@@ -986,6 +1269,39 @@ class MapStructureService:
             for f in document.features
             if f.id in eligible
         ]
+        journeys = []
+        for journey in document.journeys:
+            if (
+                journey.modality != "event_observed"
+                or journey.effective is not None
+                or journey.origin not in eligible
+                or journey.destination not in eligible
+            ):
+                continue
+            if not all(
+                [
+                    await self.reader_source_visible(db, novel_id, source, visibility)
+                    for source in journey.sources
+                ]
+            ):
+                continue
+            journeys.append(
+                {
+                    "id": journey.id,
+                    "origin": journey.origin,
+                    "destination": journey.destination,
+                    "transport_label": journey.transport_label,
+                    "duration": journey.duration.model_dump(mode="json")
+                    if journey.duration
+                    else None,
+                    "distance": journey.distance.model_dump(mode="json")
+                    if journey.distance
+                    else None,
+                    "access_conditions": [
+                        condition.label for condition in journey.access_conditions
+                    ],
+                }
+            )
         layers = await self.image_layers(db, novel_id, node_id, document)
         images = []
         for placement, layer in zip(document.images, layers, strict=True):
@@ -1012,7 +1328,12 @@ class MapStructureService:
                     for key in ("page_id", "role", "feature_id", "transform", "opacity")
                 }
             )
-        return {"features": features, "images": images, "chapter": chapter}
+        return {
+            "features": features,
+            "journeys": journeys,
+            "images": images,
+            "chapter": chapter,
+        }
 
 
 async def list_adopted_map_continuity_facts(
@@ -1051,12 +1372,38 @@ async def list_adopted_map_continuity_facts(
         )
     ).all()
     service = MapStructureService()
-    facts: list[MapContinuityFactContract] = []
-    seen: set[tuple[str, str, str, str]] = set()
+    documents = []
+    type_references = {}
     for node, revision in rows:
         document = MapDocument.model_validate(revision.document)
+        documents.append((node, revision, document))
+        for pair, kind in _document_type_references(document).items():
+            prior_kind = type_references.setdefault(pair, kind)
+            if prior_kind != kind:
+                raise ValidationError("同一项目类型不能被当作不同空间类型使用")
+    resolved_types = await resolve_spatial_vocabulary_references(
+        db, novel_id, type_references
+    )
+    type_traits = _active_spatial_type_traits(resolved_types)
+    facts: list[MapContinuityFactContract] = []
+    seen: set[tuple[str, str, str, str]] = set()
+    for node, revision, document in documents:
         features = {item.id: item for item in document.features}
         for constraint in document.constraints:
+            if (
+                constraint.modality != "event_observed"
+                or constraint.effective is not None
+                or not constraint_is_calculable(
+                    constraint, type_traits=type_traits
+                )
+                or not feature_has_calculable_geometry(
+                    features[constraint.subject], type_traits=type_traits
+                )
+                or not feature_has_calculable_geometry(
+                    features[constraint.target], type_traits=type_traits
+                )
+            ):
+                continue
             subject = features[constraint.subject].entity_id
             target = features[constraint.target].entity_id
             if (
@@ -1153,7 +1500,11 @@ async def read_map_node_heads(
                 sorted(
                     {
                         source.source_hash
-                        for item in [*document.features, *document.constraints]
+                        for item in [
+                            *document.features,
+                            *document.constraints,
+                            *document.journeys,
+                        ]
                         for source in item.sources
                     }
                 )
@@ -1221,8 +1572,23 @@ async def inspect_map_node(db: AsyncSession, novel_id: str, node_id: str) -> dic
         return {**material, "warnings": ["这张地图尚无采用的空间版本，不能推断地理"]}
     row = await service.revision(db, novel_id, node_id, node.current_revision_id)
     response = service.response(row)
+    resolved_types = await resolve_spatial_vocabulary_references(
+        db, novel_id, _document_type_references(response.document)
+    )
+    response.problems = [
+        problem
+        for problem in response.problems
+        if problem.code != "spatial_type_not_computable"
+    ]
+    response.problems.extend(
+        _spatial_type_problems(response.document, resolved_types)
+    )
     warnings = []
-    for item in [*response.document.features, *response.document.constraints]:
+    for item in [
+        *response.document.features,
+        *response.document.constraints,
+        *response.document.journeys,
+    ]:
         for source in item.sources:
             try:
                 await service.source(db, novel_id, source)

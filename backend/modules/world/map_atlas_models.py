@@ -145,6 +145,10 @@ class MapAtlasNode(Base, UUIDMixin, TimestampMixin, NovelMixin):
     semantic_key: Mapped[str] = mapped_column(String(255), nullable=False)
     title: Mapped[str] = mapped_column(String(255), nullable=False)
     level: Mapped[str] = mapped_column(String(16), nullable=False, index=True)
+    level_type_ref: Mapped[uuid.UUID | None] = mapped_column(UUIDType, nullable=True)
+    level_type_revision_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUIDType, nullable=True
+    )
     status: Mapped[str] = mapped_column(
         String(16), nullable=False, default="provisional", index=True
     )

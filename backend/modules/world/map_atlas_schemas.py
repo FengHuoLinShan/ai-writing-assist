@@ -344,6 +344,8 @@ class MapAtlasNodeResponse(BaseModel):
     current_revision_id: str | None = None
     title: str
     level: AtlasLevel
+    level_type_ref: UUID | None = None
+    level_type_revision_id: UUID | None = None
     status: Literal["provisional", "adopted"]
     summary: str | None = None
     sort_order: int
@@ -477,6 +479,8 @@ class MapAtlasNodeUpdate(BaseModel):
 
     parent_id: UUID | None = None
     level: AtlasLevel | None = None
+    level_type_ref: UUID | None = None
+    level_type_revision_id: UUID | None = None
     title: str | None = Field(default=None, min_length=1, max_length=255)
     before_node_id: UUID | None = None
     expected_updated_at: datetime
@@ -490,3 +494,13 @@ class MapAtlasNodeUpdate(BaseModel):
         if not normalized:
             raise ValueError("title must not be empty")
         return normalized
+
+    @model_validator(mode="after")
+    def paired_level_type_revision(self) -> MapAtlasNodeUpdate:
+        type_fields = {"level_type_ref", "level_type_revision_id"}
+        if self.model_fields_set & type_fields:
+            if not type_fields.issubset(self.model_fields_set):
+                raise ValueError("a level type update must include its pinned revision")
+            if (self.level_type_ref is None) != (self.level_type_revision_id is None):
+                raise ValueError("a level type must pin both its identity and revision")
+        return self

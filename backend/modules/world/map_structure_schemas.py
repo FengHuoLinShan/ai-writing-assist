@@ -6,6 +6,7 @@ import json
 import re
 from dataclasses import asdict, fields
 from datetime import datetime
+from decimal import Decimal
 from typing import Annotated, Literal
 from uuid import UUID
 
@@ -19,6 +20,7 @@ from pydantic import (
 )
 
 from modules.writing.contracts import SourceRangeRefContract
+from shared.observation import ObservationModality
 
 FeatureKey = Annotated[str, Field(pattern=r"^[a-zA-Z0-9][a-zA-Z0-9:_.-]{0,95}$")]
 Coordinate = Annotated[float, Field(ge=-100000, le=100000, allow_inf_nan=False)]
@@ -43,6 +45,23 @@ SpatialRelation = Literal[
     "entrance_to",
     "faces",
 ]
+SYSTEM_SPATIAL_RELATIONS = {
+    "inside",
+    "north",
+    "south",
+    "east",
+    "west",
+    "northeast",
+    "northwest",
+    "southeast",
+    "southwest",
+    "adjacent",
+    "connects",
+    "passes_through",
+    "along_street",
+    "entrance_to",
+    "faces",
+}
 
 
 class SpatialModel(BaseModel):
@@ -52,6 +71,82 @@ class SpatialModel(BaseModel):
 class MapPoint(SpatialModel):
     x: Coordinate
     y: Coordinate
+
+
+class ProjectTypeRevisionRef(SpatialModel):
+    type_ref: UUID | None = None
+    type_revision_id: UUID | None = None
+
+    @model_validator(mode="after")
+    def paired_type_revision(self):
+        if (self.type_ref is None) != (self.type_revision_id is None):
+            raise ValueError("a project type must pin both its identity and revision")
+        return self
+
+
+class MapSpace(ProjectTypeRevisionRef):
+    id: FeatureKey
+    label: str = Field(min_length=1, max_length=200)
+
+    @field_validator("label")
+    @classmethod
+    def readable_label(cls, value: str) -> str:
+        if not value.strip():
+            raise ValueError("space labels must not be blank")
+        return value.strip()
+
+
+class SpatialAnchor(SpatialModel):
+    kind: Literal["chapter", "scene"]
+    id: UUID
+
+
+class SpatialValidity(SpatialModel):
+    start: SpatialAnchor | None = None
+    end: SpatialAnchor | None = None
+
+    @model_validator(mode="after")
+    def requires_anchor(self):
+        if self.start is None and self.end is None:
+            raise ValueError("a validity range needs at least one stable anchor")
+        return self
+
+
+class SpatialQuantityRange(SpatialModel):
+    minimum: Decimal | None = Field(default=None, ge=0)
+    maximum: Decimal | None = Field(default=None, ge=0)
+    unit: str = Field(min_length=1, max_length=32)
+
+    @field_validator("unit")
+    @classmethod
+    def readable_unit(cls, value: str) -> str:
+        normalized = value.strip()
+        if not normalized:
+            raise ValueError("quantity units must not be blank")
+        return normalized
+
+    @model_validator(mode="after")
+    def ordered_range(self):
+        if self.minimum is None and self.maximum is None:
+            raise ValueError("a quantity needs at least one bound")
+        if (
+            self.minimum is not None
+            and self.maximum is not None
+            and self.minimum > self.maximum
+        ):
+            raise ValueError("quantity range minimum must not exceed maximum")
+        return self
+
+
+class SpatialAccessCondition(ProjectTypeRevisionRef):
+    label: str = Field(min_length=1, max_length=500)
+
+    @field_validator("label")
+    @classmethod
+    def readable_label(cls, value: str) -> str:
+        if not value.strip():
+            raise ValueError("access conditions must not be blank")
+        return value.strip()
 
 
 class MapSource(SpatialModel):
@@ -92,10 +187,11 @@ class MapSource(SpatialModel):
         return self
 
 
-class MapFeature(SpatialModel):
+class MapFeature(ProjectTypeRevisionRef):
     id: FeatureKey
     kind: Literal["location", "landmark", "road", "river", "area"]
     label: str = Field(min_length=1, max_length=200)
+    space_id: FeatureKey = "main"
     entity_id: UUID | None = None
     target_node_id: UUID | None = None
     points: list[MapPoint] = Field(default_factory=list, max_length=128)
@@ -104,6 +200,8 @@ class MapFeature(SpatialModel):
     depends_on: list[FeatureKey] = Field(default_factory=list, max_length=200)
     note: str = Field(default="", max_length=1000)
     reader_from_chapter: int | None = Field(default=None, ge=1, le=100000)
+    modality: ObservationModality = "event_observed"
+    effective: SpatialValidity | None = None
 
     @field_validator("label")
     @classmethod
@@ -122,16 +220,67 @@ class MapFeature(SpatialModel):
         return self
 
 
-class SpatialConstraint(SpatialModel):
+class SpatialConstraint(ProjectTypeRevisionRef):
     id: FeatureKey
     subject: FeatureKey
-    relation: SpatialRelation
+    relation: FeatureKey
     target: FeatureKey
     via: list[FeatureKey] = Field(default_factory=list, max_length=30)
     path_kind: Literal["road", "river"] = "road"
     path_label: str | None = Field(default=None, min_length=1, max_length=200)
+    path_type_ref: UUID | None = None
+    path_type_revision_id: UUID | None = None
     sources: list[MapSource] = Field(default_factory=list, max_length=8)
     generated_by_task_id: UUID | None = None
+    modality: ObservationModality = "event_observed"
+    effective: SpatialValidity | None = None
+
+    @model_validator(mode="after")
+    def paired_path_type_revision(self):
+        if (self.path_type_ref is None) != (self.path_type_revision_id is None):
+            raise ValueError("a path type must pin both its identity and revision")
+        return self
+
+
+class SpatialJourney(SpatialModel):
+    id: FeatureKey
+    origin: FeatureKey
+    destination: FeatureKey
+    transport_label: str = Field(min_length=1, max_length=200)
+    transport_type_ref: UUID | None = None
+    transport_type_revision_id: UUID | None = None
+    traveler_type_ref: UUID | None = None
+    traveler_type_revision_id: UUID | None = None
+    connection_type_ref: UUID | None = None
+    connection_type_revision_id: UUID | None = None
+    duration: SpatialQuantityRange | None = None
+    distance: SpatialQuantityRange | None = None
+    access_conditions: list[SpatialAccessCondition] = Field(
+        default_factory=list, max_length=30
+    )
+    modality: ObservationModality = "event_observed"
+    sources: list[MapSource] = Field(min_length=1, max_length=8)
+    effective: SpatialValidity | None = None
+
+    @field_validator("transport_label")
+    @classmethod
+    def readable_transport(cls, value: str) -> str:
+        if not value.strip():
+            raise ValueError("transport labels must not be blank")
+        return value.strip()
+
+    @model_validator(mode="after")
+    def journey_references_and_evidence(self):
+        for type_ref, revision_id in (
+            (self.transport_type_ref, self.transport_type_revision_id),
+            (self.traveler_type_ref, self.traveler_type_revision_id),
+            (self.connection_type_ref, self.connection_type_revision_id),
+        ):
+            if (type_ref is None) != (revision_id is None):
+                raise ValueError("a journey type must pin both its identity and revision")
+        if not any(source.quote.strip() for source in self.sources):
+            raise ValueError("a journey needs at least one quoted source")
+        return self
 
 
 class CalibrationAnchor(SpatialModel):
@@ -167,10 +316,12 @@ class MapAnnotationBinding(SpatialModel):
 
 
 class MapDocument(SpatialModel):
-    schema_version: Literal[1] = 1
+    schema_version: Literal[1, 2] = 2
     layout_version: Literal[1] = 1
+    spaces: list[MapSpace] = Field(default_factory=list, max_length=20)
     features: list[MapFeature] = Field(default_factory=list, max_length=200)
     constraints: list[SpatialConstraint] = Field(default_factory=list, max_length=400)
+    journeys: list[SpatialJourney] = Field(default_factory=list, max_length=400)
     images: list[MapImagePlacement] = Field(default_factory=list, max_length=40)
     annotation_bindings: list[MapAnnotationBinding] = Field(
         default_factory=list, max_length=100
@@ -178,18 +329,62 @@ class MapDocument(SpatialModel):
 
     @model_validator(mode="after")
     def references(self):
+        if self.schema_version == 1:
+            if self.spaces or self.journeys:
+                raise ValueError("v1 documents cannot contain v2 spaces or journeys")
+            if any(
+                feature.space_id != "main"
+                or feature.type_ref is not None
+                or feature.type_revision_id is not None
+                or feature.effective is not None
+                for feature in self.features
+            ):
+                raise ValueError(
+                    "v1 features cannot contain v2 space, type, or time data"
+                )
+            if any(
+                item.type_ref is not None
+                or item.type_revision_id is not None
+                or item.path_type_ref is not None
+                or item.path_type_revision_id is not None
+                or item.effective is not None
+                for item in self.constraints
+            ):
+                raise ValueError("v1 constraints cannot contain v2 type or time data")
+            space_ids = {"main"}
+        else:
+            if not any(space.id == "main" for space in self.spaces):
+                self.spaces.insert(0, MapSpace(id="main", label="主空间"))
+            space_ids = {space.id for space in self.spaces}
+            if len(space_ids) != len(self.spaces):
+                raise ValueError("space identities must be unique")
         ids = {item.id for item in self.features}
         if len(ids) != len(self.features):
             raise ValueError("feature identities must be unique")
         if len({item.id for item in self.constraints}) != len(self.constraints):
             raise ValueError("constraint identities must be unique")
         for item in self.features:
+            if item.space_id not in space_ids:
+                raise ValueError("feature refers to a missing space")
             if not set(item.depends_on).issubset(ids) or item.id in item.depends_on:
                 raise ValueError("invalid geometry dependency")
         features = {item.id: item for item in self.features}
         for item in self.constraints:
             if not {item.subject, item.target, *item.via}.issubset(ids):
                 raise ValueError("constraint refers to a missing feature")
+            if item.relation not in SYSTEM_SPATIAL_RELATIONS:
+                if self.schema_version != 2 or item.type_ref is None:
+                    raise ValueError("a custom relation needs a v2 project type")
+            endpoint_spaces = {
+                features[item.subject].space_id,
+                features[item.target].space_id,
+                *(features[key].space_id for key in item.via),
+            }
+            if len(endpoint_spaces) > 1:
+                if self.schema_version != 2 or item.type_ref is None or item.via:
+                    raise ValueError(
+                        "cross-space relations need a v2 relation type and no via path"
+                    )
             if item.relation in {"along_street", "entrance_to", "faces"}:
                 if item.subject == item.target or item.via:
                     raise ValueError(
@@ -208,6 +403,19 @@ class MapDocument(SpatialModel):
                     raise ValueError(
                         "point relation target has an incompatible feature kind"
                     )
+        if len({item.id for item in self.journeys}) != len(self.journeys):
+            raise ValueError("journey identities must be unique")
+        for journey in self.journeys:
+            if journey.origin not in ids or journey.destination not in ids:
+                raise ValueError("journey refers to a missing feature")
+            if (
+                features[journey.origin].space_id
+                != features[journey.destination].space_id
+                and journey.connection_type_ref is None
+            ):
+                raise ValueError(
+                    "a cross-space journey needs a typed cross-space connection"
+                )
         for item in self.images:
             if item.feature_id is not None and item.feature_id not in ids:
                 raise ValueError("image refers to a missing feature")
@@ -241,6 +449,8 @@ class MapNodeCreate(SpatialModel):
     level: StructureLevel = "region"
     parent_id: UUID | None = None
     location_entity_id: UUID | None = None
+    level_type_ref: UUID | None = None
+    level_type_revision_id: UUID | None = None
 
     @field_validator("title")
     @classmethod
@@ -248,6 +458,12 @@ class MapNodeCreate(SpatialModel):
         if not value.strip():
             raise ValueError("map title must not be blank")
         return value.strip()
+
+    @model_validator(mode="after")
+    def paired_level_type_revision(self):
+        if (self.level_type_ref is None) != (self.level_type_revision_id is None):
+            raise ValueError("a level type must pin both its identity and revision")
+        return self
 
 
 class MapSaveRequest(SpatialModel):
@@ -441,9 +657,20 @@ class MapReaderImage(SpatialModel):
     opacity: float = Field(ge=0, le=1)
 
 
+class MapReaderJourney(SpatialModel):
+    id: FeatureKey
+    origin: FeatureKey
+    destination: FeatureKey
+    transport_label: str = Field(min_length=1, max_length=200)
+    duration: SpatialQuantityRange | None = None
+    distance: SpatialQuantityRange | None = None
+    access_conditions: list[str] = Field(max_length=30)
+
+
 class MapReaderPreview(SpatialModel):
     chapter: int = Field(ge=1, le=100000)
     features: list[MapReaderFeature] = Field(max_length=200)
+    journeys: list[MapReaderJourney] = Field(default_factory=list, max_length=400)
     images: list[MapReaderImage] = Field(max_length=40)
 
 

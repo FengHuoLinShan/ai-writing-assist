@@ -82,3 +82,19 @@ def test_v1_geometry_hash_ignores_source_and_task_metadata() -> None:
     )
     document.constraints[0].sources[0].source_hash = "b" * 64
     assert geometry_hash(document) == V1_GEOMETRY_HASH
+
+
+def test_v1_to_v2_main_space_keeps_calibration_hash_but_other_space_changes_it():
+    payload = v1_document().model_dump(mode="json")
+    payload["schema_version"] = 2
+    main_space = MapDocument.model_validate(payload)
+    assert geometry_hash(main_space) == V1_GEOMETRY_HASH
+
+    payload["spaces"] = [
+        {"id": "main", "label": "主空间"},
+        {"id": "dream", "label": "梦境"},
+    ]
+    payload["constraints"] = []
+    payload["features"][0]["space_id"] = "dream"
+    separate_space = MapDocument.model_validate(payload)
+    assert geometry_hash(separate_space) != V1_GEOMETRY_HASH

@@ -1018,6 +1018,21 @@ class MapAtlasService:
             raise NotFoundError("地图节点不存在")
         if node.updated_at != data.expected_updated_at:
             raise ConflictError("地图层级已在别处更新，请刷新后重试")
+        if (
+            "level_type_ref" in data.model_fields_set
+            and data.level_type_ref is not None
+        ):
+            from modules.world.map_structure_service import (
+                resolve_spatial_vocabulary_references,
+            )
+
+            await resolve_spatial_vocabulary_references(
+                db,
+                novel_id,
+                {
+                    (data.level_type_ref, data.level_type_revision_id): "level"
+                },
+            )
         if node.status == "provisional":
             if node.created_by_run_id is None:
                 raise ConflictError("该候选节点不能手动调整")
@@ -1068,6 +1083,9 @@ class MapAtlasService:
         old_semantic = node.semantic_key
         node.parent_id = new_parent_id
         node.level = new_level
+        if "level_type_ref" in data.model_fields_set:
+            node.level_type_ref = data.level_type_ref
+            node.level_type_revision_id = data.level_type_revision_id
         if data.title is not None:
             node.title = data.title.strip()
         if old_semantic.startswith("path:") and (
@@ -1939,6 +1957,8 @@ class MapAtlasService:
             "current_revision_id": _uuid(node.current_revision_id),
             "title": node.title,
             "level": node.level,
+            "level_type_ref": _uuid(node.level_type_ref),
+            "level_type_revision_id": _uuid(node.level_type_revision_id),
             "status": node.status,
             "summary": node.summary,
             "sort_order": node.sort_order,

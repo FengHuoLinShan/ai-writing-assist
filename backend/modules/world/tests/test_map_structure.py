@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import uuid
+from unittest.mock import patch
 
 import pytest
 from pydantic import ValidationError as SchemaError
@@ -26,8 +27,20 @@ from modules.world.map_structure_schemas import (
     MapNodeCreate,
     MapRevisionReview,
     MapSaveRequest,
+    MapSource,
+    SpatialJourney,
 )
 from modules.world.map_structure_service import MapStructureService
+from modules.world.project_vocabulary_schemas import (
+    VocabularyTermCreate,
+    VocabularyTermUpdate,
+    VocabularyTraits,
+)
+from modules.world.project_vocabulary_service import (
+    archive_project_vocabulary_term,
+    create_project_vocabulary_term,
+    update_project_vocabulary_term,
+)
 
 
 def document():
@@ -106,6 +119,148 @@ def test_layout_is_stable_preserves_existing_points_and_explicit_routes():
     assert [f.points for f in second.document.features[:2]] == [
         f.points for f in first.document.features[:2]
     ]
+
+
+@pytest.mark.asyncio
+async def test_spatial_service_uses_pinned_active_type_traits_only(
+    db_session, test_project_id
+):
+    feature_type = await create_project_vocabulary_term(
+        db_session,
+        test_project_id,
+        VocabularyTermCreate(
+            kind="feature",
+            name="点状地点",
+            traits=VocabularyTraits(geometry=["point"]),
+        ),
+    )
+    relation_type = await create_project_vocabulary_term(
+        db_session,
+        test_project_id,
+        VocabularyTermCreate(
+            kind="relation",
+            name="北向关系",
+            traits=VocabularyTraits(orientation=["compass"]),
+        ),
+    )
+    changed_feature_type = await update_project_vocabulary_term(
+        db_session,
+        test_project_id,
+        str(feature_type.id),
+        VocabularyTermUpdate(
+            name="文字地点",
+            description="",
+            aliases=[],
+            traits=VocabularyTraits(),
+            expected_revision_id=feature_type.revision_id,
+        ),
+    )
+    changed_relation_type = await update_project_vocabulary_term(
+        db_session,
+        test_project_id,
+        str(relation_type.id),
+        VocabularyTermUpdate(
+            name="普通关系",
+            description="",
+            aliases=[],
+            traits=VocabularyTraits(),
+            expected_revision_id=relation_type.revision_id,
+        ),
+    )
+    service, node = await create_map(db_session, test_project_id)
+    document_with_old_revisions = MapDocument.model_validate(
+        {
+            "schema_version": 2,
+            "features": [
+                {
+                    "id": "a",
+                    "kind": "location",
+                    "label": "甲",
+                    "type_ref": str(feature_type.id),
+                    "type_revision_id": str(feature_type.revision_id),
+                    "points": [{"x": 0, "y": 100}],
+                },
+                {
+                    "id": "b",
+                    "kind": "location",
+                    "label": "乙",
+                    "type_ref": str(feature_type.id),
+                    "type_revision_id": str(feature_type.revision_id),
+                    "points": [{"x": 0, "y": 0}],
+                },
+            ],
+            "constraints": [
+                {
+                    "id": "north",
+                    "subject": "a",
+                    "relation": "north",
+                    "target": "b",
+                    "type_ref": str(relation_type.id),
+                    "type_revision_id": str(relation_type.revision_id),
+                }
+            ],
+        }
+    )
+    request = MapSaveRequest(
+        base_revision_id=node["current_revision_id"],
+        document=document_with_old_revisions,
+    )
+
+    old_revision_result = await service.preview_layout(
+        db_session, test_project_id, node["id"], request
+    )
+    assert any(
+        problem.code == "direction_conflict" for problem in old_revision_result.problems
+    )
+    assert changed_feature_type.revision_id != feature_type.revision_id
+    assert changed_relation_type.revision_id != relation_type.revision_id
+
+    archived = await archive_project_vocabulary_term(
+        db_session,
+        test_project_id,
+        str(feature_type.id),
+        changed_feature_type.revision_id,
+    )
+    archived_result = await service.preview_layout(
+        db_session, test_project_id, node["id"], request
+    )
+    assert not any(
+        problem.code == "direction_conflict" for problem in archived_result.problems
+    )
+    assert any(
+        problem.code == "spatial_type_not_computable"
+        for problem in archived_result.problems
+    )
+    assert archived.status == "archived"
+
+
+@pytest.mark.asyncio
+async def test_atlas_node_persists_a_revision_pinned_custom_level(
+    db_session, test_project_id
+):
+    level_type = await create_project_vocabulary_term(
+        db_session,
+        test_project_id,
+        VocabularyTermCreate(kind="level", name="浮空群岛"),
+    )
+    service = MapStructureService()
+
+    node = await service.create_node(
+        db_session,
+        test_project_id,
+        MapNodeCreate(
+            title="天穹群岛",
+            level="region",
+            level_type_ref=level_type.id,
+            level_type_revision_id=level_type.revision_id,
+        ),
+    )
+
+    stored = await db_session.get(MapAtlasNode, uuid.UUID(node["id"]))
+    assert stored.level == "region"
+    assert stored.level_type_ref == level_type.id
+    assert stored.level_type_revision_id == level_type.revision_id
+    assert node["level_type_ref"] == str(level_type.id)
 
 
 def test_contradictory_directions_stay_unplaced():
@@ -398,7 +553,7 @@ async def test_manual_node_update_preserves_hierarchy_and_project_boundaries(
     _, foreign = await create_map(db_session, foreign_id)
     service = MapAtlasService()
     row = await db_session.get(MapAtlasNode, uuid.UUID(parent["id"]))
-    for patch in (
+    for update_fields in (
         {"parent_id": parent["id"]},
         {"parent_id": child["id"]},
         {"parent_id": foreign["id"]},
@@ -410,7 +565,7 @@ async def test_manual_node_update_preserves_hierarchy_and_project_boundaries(
                 db_session,
                 test_project_id,
                 parent["id"],
-                MapAtlasNodeUpdate(expected_updated_at=row.updated_at, **patch),
+                MapAtlasNodeUpdate(expected_updated_at=row.updated_at, **update_fields),
             )
     with pytest.raises(NotFoundError):
         await service.update_node(
@@ -483,6 +638,15 @@ async def test_continuity_facts_require_current_adopted_revision_and_sources(
     )
     db_session.add_all([source, start, end])
     await db_session.flush()
+    relation_type = await create_project_vocabulary_term(
+        db_session,
+        test_project_id,
+        VocabularyTermCreate(
+            kind="relation",
+            name="可通行连通",
+            traits=VocabularyTraits(connection=["traversable"]),
+        ),
+    )
     node = await MapStructureService().create_node(
         db_session,
         test_project_id,
@@ -509,6 +673,8 @@ async def test_continuity_facts_require_current_adopted_revision_and_sources(
                 "subject": "start",
                 "relation": "connects",
                 "target": "end",
+                "type_ref": str(relation_type.id),
+                "type_revision_id": str(relation_type.revision_id),
                 "sources": [
                     {
                         "kind": "entity",
@@ -540,6 +706,21 @@ async def test_continuity_facts_require_current_adopted_revision_and_sources(
     assert facts[0].subject_entity_id == str(start.id)
     assert facts[0].target_entity_id == str(end.id)
     assert facts[0].source_hashes
+
+    await archive_project_vocabulary_term(
+        db_session,
+        test_project_id,
+        str(relation_type.id),
+        relation_type.revision_id,
+    )
+    assert (
+        await list_adopted_map_continuity_facts(
+            db_session,
+            test_project_id,
+            [str(start.id), str(end.id)],
+        )
+        == []
+    )
 
     source.summary = "来源已修改。"
     await db_session.flush()
@@ -798,6 +979,66 @@ async def test_reader_projection_omits_hidden_endpoints_routes_and_source_fields
     )
     assert {f["id"] for f in late["features"]} == {"harbor", "pass", "fort", "road"}
     assert early["features"][0]["points"] == late["features"][0]["points"]
+
+
+@pytest.mark.asyncio
+async def test_reader_projection_includes_only_public_event_journeys(
+    db_session, test_project_id
+):
+    service, node = await create_map(db_session, test_project_id)
+    doc = document()
+    source = MapSource(
+        kind="entity",
+        id=uuid.uuid4(),
+        source_hash="a" * 64,
+        quote="乘船半日可达",
+    )
+    doc.journeys = [
+        SpatialJourney(
+            id="ferry-trip",
+            origin="harbor",
+            destination="pass",
+            transport_label="渡船",
+            duration={"minimum": 0.5, "maximum": 1, "unit": "day"},
+            sources=[source],
+        ),
+        SpatialJourney(
+            id="rumored-trip",
+            origin="harbor",
+            destination="pass",
+            transport_label="传闻中的暗道",
+            modality="belief",
+            sources=[source],
+        ),
+    ]
+    with (
+        patch.object(
+            MapStructureService,
+            "source",
+            autospec=True,
+            return_value="乘船半日可达",
+        ),
+        patch.object(
+            MapStructureService,
+            "reader_source_visible",
+            autospec=True,
+            return_value=True,
+        ),
+    ):
+        saved = await service.save(
+            db_session,
+            test_project_id,
+            node["id"],
+            MapSaveRequest(base_revision_id=node["current_revision_id"], document=doc),
+        )
+        projection = await service.reader_preview(
+            db_session, test_project_id, node["id"], chapter=1
+        )
+
+    assert [journey["id"] for journey in projection["journeys"]] == ["ferry-trip"]
+    assert projection["journeys"][0]["duration"]["unit"] == "day"
+    assert "sources" not in projection["journeys"][0]
+    assert saved.document.journeys[0].id == "ferry-trip"
 
 
 @pytest.mark.asyncio

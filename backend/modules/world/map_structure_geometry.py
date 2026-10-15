@@ -7,6 +7,7 @@ import heapq
 import io
 import json
 from math import hypot
+from typing import Any
 
 from modules.world.map_structure_schemas import (
     MapDocument,
@@ -27,15 +28,90 @@ DIRECTIONS = {
     "southeast": (1, 1),
     "southwest": (-1, 1),
 }
+_KIND_GEOMETRY = {
+    "location": "point",
+    "landmark": "point",
+    "road": "line",
+    "river": "line",
+    "area": "area",
+}
+
+
+def _pinned_traits(item, type_traits: dict | None, *, prefix: str = ""):
+    type_ref = getattr(item, f"{prefix}type_ref")
+    revision_id = getattr(item, f"{prefix}type_revision_id")
+    if type_ref is None or revision_id is None or type_traits is None:
+        return None
+    return type_traits.get((type_ref, revision_id))
+
+
+def _trait_values(traits: Any, name: str) -> set[str]:
+    if traits is None:
+        return set()
+    value = getattr(traits, name, None)
+    if value is None and isinstance(traits, dict):
+        value = traits.get(name)
+    return set(value or [])
+
+
+def _feature_geometry(feature: MapFeature, type_traits: dict | None) -> str | None:
+    expected = _KIND_GEOMETRY.get(feature.kind)
+    if feature.type_ref is None:
+        return expected
+    traits = _pinned_traits(feature, type_traits)
+    if expected is None or expected not in _trait_values(traits, "geometry"):
+        return None
+    return expected
+
+
+def feature_has_calculable_geometry(
+    feature: MapFeature, *, type_traits: dict | None = None
+) -> bool:
+    return _feature_geometry(feature, type_traits) is not None
+
+
+def constraint_is_calculable(constraint, *, type_traits: dict | None = None) -> bool:
+    if constraint.type_ref is None:
+        return True
+    traits = _pinned_traits(constraint, type_traits)
+    if traits is None:
+        return False
+    if constraint.relation in DIRECTIONS or constraint.relation == "faces":
+        return "compass" in _trait_values(traits, "orientation")
+    if constraint.relation == "inside":
+        return "can_contain" in _trait_values(traits, "containment")
+    if constraint.relation in {
+        "connects",
+        "passes_through",
+        "along_street",
+        "entrance_to",
+    }:
+        return "traversable" in _trait_values(traits, "connection")
+    if constraint.relation == "adjacent":
+        return "distance_constrained" in _trait_values(traits, "connection")
+    return False
+
+
+def _path_is_calculable(constraint, type_traits: dict | None) -> bool:
+    if constraint.path_type_ref is None:
+        return True
+    traits = _pinned_traits(constraint, type_traits, prefix="path_")
+    return "line" in _trait_values(traits, "geometry")
 
 
 def geometry_hash(document: MapDocument) -> str:
+    feature_fields = {"id", "kind", "entity_id", "target_node_id", "points"}
+    # Upgrading an unchanged v1 map to v2 must keep its calibrated main-space hash.
+    if document.schema_version == 2 and any(
+        feature.space_id != "main" for feature in document.features
+    ):
+        feature_fields.add("space_id")
     payload = {
         "layout_version": document.layout_version,
         "features": [
             f.model_dump(
                 mode="json",
-                include={"id", "kind", "entity_id", "target_node_id", "points"},
+                include=feature_fields,
             )
             for f in sorted(document.features, key=lambda f: f.id)
         ],
@@ -142,17 +218,35 @@ def _point_relation_ok(point: MapPoint, target: MapFeature, relation: str) -> bo
     )
 
 
-def diagnose(document: MapDocument) -> list[MapProblem]:
+def diagnose(
+    document: MapDocument, *, type_traits: dict | None = None
+) -> list[MapProblem]:
     features = {f.id: f for f in document.features}
+    calculable_features = {
+        feature_id: feature
+        for feature_id, feature in features.items()
+        if feature.modality == "event_observed" and feature.effective is None
+        and _feature_geometry(feature, type_traits) is not None
+    }
     problems = []
     for f in document.features:
-        if not f.points:
+        if f.id in calculable_features and not f.points:
             problems.append(
                 MapProblem(
                     code="unplaced", message=f"“{f.label}”尚未定位", feature_ids=[f.id]
                 )
             )
     for c in document.constraints:
+        if (
+            c.modality != "event_observed"
+            or c.effective is not None
+            or not constraint_is_calculable(c, type_traits=type_traits)
+        ):
+            continue
+        if c.subject not in calculable_features or c.target not in calculable_features:
+            continue
+        if features[c.subject].space_id != features[c.target].space_id:
+            continue
         a, b = _center(features[c.subject]), _center(features[c.target])
         if not a or not b:
             continue
@@ -203,8 +297,17 @@ def diagnose(document: MapDocument) -> list[MapProblem]:
                     )
                 )
     _, cyclic = _ranks(
-        set(features),
-        [(c.subject, c.target) for c in document.constraints if c.relation == "inside"],
+        set(calculable_features),
+        [
+            (c.subject, c.target)
+            for c in document.constraints
+            if c.relation == "inside"
+            and c.modality == "event_observed"
+            and c.effective is None
+            and constraint_is_calculable(c, type_traits=type_traits)
+            and c.subject in calculable_features
+            and c.target in calculable_features
+        ],
     )
     if cyclic:
         problems.append(
@@ -217,7 +320,7 @@ def diagnose(document: MapDocument) -> list[MapProblem]:
     return problems
 
 
-def _place_points(result, features, ranks, cycles):
+def _place_points(result, features, ranks, cycles, geometry_by_id):
     dependencies, _ = _ranks(
         set(features),
         [
@@ -240,7 +343,7 @@ def _place_points(result, features, ranks, cycles):
             f.points
             or f.locked
             or f.id in cycles
-            or f.kind not in {"location", "landmark"}
+            or geometry_by_id.get(f.id) != "point"
         ):
             continue
         point_relations = [
@@ -294,7 +397,7 @@ def _place_points(result, features, ranks, cycles):
                 if any(
                     hypot(point.x - p.x, point.y - p.y) < 55
                     for other in result.features
-                    if other.id != f.id and other.kind in {"location", "landmark"}
+                    if other.id != f.id and geometry_by_id.get(other.id) == "point"
                     for p in other.points
                 ):
                     continue
@@ -321,9 +424,42 @@ def _place_points(result, features, ranks, cycles):
                 break
 
 
-def layout(document: MapDocument) -> MapLayoutResponse:
-    result = document.model_copy(deep=True)
+def _layout_single_space(
+    document: MapDocument, *, type_traits: dict | None = None
+) -> MapLayoutResponse:
+    original = document.model_copy(deep=True)
+    calculable_features = [
+        feature
+        for feature in original.features
+        if feature.modality == "event_observed" and feature.effective is None
+        and _feature_geometry(feature, type_traits) is not None
+    ]
+    feature_ids = {feature.id for feature in calculable_features}
+    calculable_constraints = [
+        constraint
+        for constraint in original.constraints
+        if constraint.modality == "event_observed"
+        and constraint.effective is None
+        and constraint_is_calculable(constraint, type_traits=type_traits)
+        and constraint.subject in feature_ids
+        and constraint.target in feature_ids
+        and set(constraint.via).issubset(feature_ids)
+    ]
+    result = original.model_copy(
+        update={
+            "features": calculable_features,
+            "constraints": calculable_constraints,
+            "journeys": [],
+            "images": [],
+            "annotation_bindings": [],
+        },
+        deep=True,
+    )
     features = {f.id: f for f in result.features}
+    geometry_by_id = {
+        feature.id: _feature_geometry(feature, type_traits)
+        for feature in result.features
+    }
     ranks, cycles = [], set()
     for axis in (0, 1):
         edges = []
@@ -334,9 +470,9 @@ def layout(document: MapDocument) -> MapLayoutResponse:
         rank, cyclic = _ranks(set(features), edges)
         ranks.append(rank)
         cycles.update(cyclic)
-    _place_points(result, features, ranks, cycles)
+    _place_points(result, features, ranks, cycles, geometry_by_id)
     for f in result.features:
-        if f.kind != "area" or f.points or f.locked:
+        if geometry_by_id.get(f.id) != "area" or f.points or f.locked:
             continue
         children = [
             features[c.subject]
@@ -361,9 +497,11 @@ def layout(document: MapDocument) -> MapLayoutResponse:
             ]
             f.depends_on = sorted(set(f.depends_on) | {child.id for child in children})
     # Areas generated from known contents can now anchor their entrance points.
-    _place_points(result, features, ranks, cycles)
+    _place_points(result, features, ranks, cycles, geometry_by_id)
     for c in result.constraints:
         if c.relation not in {"connects", "passes_through"}:
+            continue
+        if not _path_is_calculable(c, type_traits):
             continue
         route_id = route_key(c.id)
         route = [c.subject, *c.via, c.target]
@@ -381,10 +519,23 @@ def layout(document: MapDocument) -> MapLayoutResponse:
                 sources=c.sources,
                 points=[p for p in points if p] if all(points) else [],
                 depends_on=list(dict.fromkeys(route)),
+                space_id=features[c.subject].space_id,
+                type_ref=c.path_type_ref,
+                type_revision_id=c.path_type_revision_id,
             )
         )
-    result = MapDocument.model_validate(result.model_dump())
-    problems = diagnose(result)
+    placed_by_id = {feature.id: feature for feature in result.features}
+    merged_features = [
+        placed_by_id.get(feature.id, feature) for feature in original.features
+    ]
+    original_feature_ids = {item.id for item in original.features}
+    merged_features.extend(
+        feature
+        for feature in result.features
+        if feature.id not in original_feature_ids
+    )
+    result = original.model_copy(update={"features": merged_features}, deep=True)
+    problems = diagnose(result, type_traits=type_traits)
     if cycles:
         problems.append(
             MapProblem(
@@ -395,6 +546,52 @@ def layout(document: MapDocument) -> MapLayoutResponse:
         )
     return MapLayoutResponse(
         document=result, geometry_hash=geometry_hash(result), problems=problems
+    )
+
+
+def layout(
+    document: MapDocument, *, type_traits: dict | None = None
+) -> MapLayoutResponse:
+    space_ids = {feature.space_id for feature in document.features}
+    if document.schema_version == 1 or len(space_ids) <= 1:
+        return _layout_single_space(document, type_traits=type_traits)
+
+    placed_by_id = {}
+    problems = []
+    for space_id in sorted(space_ids):
+        features = [item for item in document.features if item.space_id == space_id]
+        feature_ids = {item.id for item in features}
+        constraints = [
+            item
+            for item in document.constraints
+            if item.subject in feature_ids
+            and item.target in feature_ids
+            and set(item.via).issubset(feature_ids)
+        ]
+        local = document.model_copy(
+            update={
+                "features": features,
+                "constraints": constraints,
+                "journeys": [],
+                "images": [],
+                "annotation_bindings": [],
+            },
+            deep=True,
+        )
+        result = _layout_single_space(local, type_traits=type_traits)
+        placed_by_id.update({item.id: item for item in result.document.features})
+        problems.extend(result.problems)
+
+    result_document = document.model_copy(
+        update={
+            "features": [placed_by_id.get(item.id, item) for item in document.features]
+        },
+        deep=True,
+    )
+    return MapLayoutResponse(
+        document=result_document,
+        geometry_hash=geometry_hash(result_document),
+        problems=problems,
     )
 
 

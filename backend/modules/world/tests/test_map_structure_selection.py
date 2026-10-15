@@ -36,6 +36,7 @@ from modules.world.map_structure_schemas import (
     MapSaveRequest,
     MapSource,
     SpatialConstraint,
+    SpatialJourney,
 )
 from modules.world.map_structure_service import MapStructureService
 from modules.world.map_structure_workflow import (
@@ -744,6 +745,66 @@ async def test_selected_change_cannot_import_stale_source(db_session, test_proje
                     base_revision_id=saved.id, action="adopt", change_keys=["feature:b"]
                 ),
             )
+
+
+async def test_partial_adoption_revalidates_journey_sources(
+    db_session, test_project_id
+):
+    service, node, saved = await saved_map(db_session, test_project_id)
+    candidate_document = saved.document.model_copy(deep=True)
+    source = source_range().model_copy(update={"quote": "乘船半日抵达乙城"})
+    candidate_document.journeys.append(
+        SpatialJourney(
+            id="crossing",
+            origin="a",
+            destination="b",
+            transport_label="渡船",
+            sources=[source],
+        )
+    )
+    candidate = MapAtlasRevision(
+        novel_id=uuid.UUID(test_project_id),
+        node_id=uuid.UUID(node["id"]),
+        base_revision_id=uuid.UUID(saved.id),
+        status="candidate",
+        document=candidate_document.model_dump(mode="json"),
+        geometry_hash=geometry_hash(candidate_document),
+        problems=[],
+        confirmation_id=uuid.uuid4(),
+        context_fingerprint="f" * 64,
+    )
+    db_session.add(candidate)
+    await db_session.flush()
+
+    with (
+        patch(
+            "modules.world.map_structure_service.prepare_confirmed_ai_action",
+            autospec=True,
+            return_value=SimpleNamespace(
+                confirmation=SimpleNamespace(context_fingerprint="f" * 64)
+            ),
+        ),
+        patch.object(
+            MapStructureService,
+            "source",
+            autospec=True,
+            side_effect=ConflictError("行程原文已变化"),
+        ) as source_check,
+    ):
+        with pytest.raises(ConflictError, match="行程原文已变化"):
+            await service.review_preview(
+                db_session,
+                test_project_id,
+                node["id"],
+                str(candidate.id),
+                MapRevisionReview(
+                    base_revision_id=saved.id,
+                    action="adopt",
+                    change_keys=["journey:crossing"],
+                ),
+            )
+    source_check.assert_awaited_once()
+    assert source_check.await_args.args[3] == source
     assert candidate.status == "candidate"
 
 
