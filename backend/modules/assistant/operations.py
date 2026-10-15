@@ -690,7 +690,10 @@ async def decide_batch(db, batch_id: str, decision: BatchDecision, owner_id: str
         item["key"]: item for item in batch.results_json if item["status"] == "completed"
     }
     available = (
-        resolve_operations(runtime_protocol(run.request_json)["operations"])
+        resolve_operations(
+            runtime_protocol(run.request_json)["operations"],
+            allow_stale=run.request_json.get("runtime_version") == "7",
+        )
         if run.request_json.get("runtime_version")
         else catalog()
     )

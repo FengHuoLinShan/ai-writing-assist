@@ -312,6 +312,10 @@ async def test_declined_direction_survives_read_and_rewording_without_hiding_the
     )
     preview = await preparation.prepare(db, nid, candidate.id, request)
     child = await db.get(AssistantRun, preview.run_id)
+    assert all(
+        set(entry) == {"schema_hash", "revision"}
+        for entry in child.request_json["operations"].values()
+    )
     # Legacy preparation idempotency used the pre-addition serialized request.
     child.request_hash = content_hash(
         [str(candidate.id), request.model_dump(mode="json")]

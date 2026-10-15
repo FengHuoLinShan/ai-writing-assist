@@ -77,7 +77,10 @@ async def select_plan(db, run_id, selection, owner_id):
         selection.novel_id,
         proposals,
         context=AssistantOperationContext(run_id, owner_id, work),
-        operations=resolve_operations(runtime_protocol(run.request_json)["operations"])
+        operations=resolve_operations(
+            runtime_protocol(run.request_json)["operations"],
+            allow_stale=run.request_json.get("runtime_version") == "7",
+        )
         if run.request_json.get("runtime_version")
         else None,
     )

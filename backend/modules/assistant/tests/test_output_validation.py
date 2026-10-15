@@ -289,6 +289,7 @@ def test_v7_frozen_operation_can_be_described_but_not_executed_after_change():
             describe_operation(ctx, "project.add_task")
         )
     assert "project.add_task" not in executable
+    assert "project.update_task" in executable
     assert description["executable"] is False
     assert description["unavailable_reason"] == "操作已下线或已变更"
     assert description["schema"] == frozen["project.add_task"]["schema"]

@@ -562,7 +562,8 @@ async def run_team(service, db, task, run_id, payload, deps, profile) -> Assista
         deps.operation_catalog_snapshot = {
             key: value
             for key, value in (previous_catalog_snapshot or {}).items()
-            if key in plan_operations
+            if value.get("metadata", {}).get("permission") == "confirm"
+            and (frozen["id"] != "import_consult" or key == "imports.accept_review")
         }
         discovery_tools = operation_discovery_tools(
             legacy=False, operations=plan_operations

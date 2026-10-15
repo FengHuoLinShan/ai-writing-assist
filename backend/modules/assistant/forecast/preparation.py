@@ -321,7 +321,7 @@ async def prepare(db, novel_id, candidate_id, data):
         request_json={
             "runtime_version": "3",
             "protocol": "forecast_prepare_v1",
-            "operations": {capability: operation_manifest()[capability]},
+            "operations": {capability: operation_manifest(legacy=True)[capability]},
             "context": work.model_dump(mode="json"),
             "forecast_parent": parent,
         },

@@ -382,7 +382,7 @@ OPERATION_SNAPSHOT.update(
             "编辑空间、关系或行程",
             "confirm",
             "1",
-            "194c8fd2550060201812363154cfac67e40b553b6536c31f1fb6eae13d224ccd",
+            "90aa2b611611e07cc436ad1d5a736996b911fc1088e306d2685059535fa0cf95",
         ),
         "map.merge_nodes": (
             "合并两个已保存的地图节点",
