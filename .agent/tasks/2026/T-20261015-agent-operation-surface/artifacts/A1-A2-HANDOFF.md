@@ -164,3 +164,13 @@ root已核实章节/时间线准备树干净并fast-forward至942c40746（产品
 ## 2026-10-16T07:12:34+08:00 当前执行检查点
 
 C0退出空槽已启动Luna/max luna_chapter_order_timeline：map-assistant-vocab-review/codex/chapter-order-timeline-impl从干净已审02faedbc98916499107e067c1b7885de297c309d实施真实Writing章节重排/CAS恢复与Story continuity一般事实时间线。Writing api/facade/draft_service及continuity/facade.py归其，总Story facade.py仍C5顺序组合，C3人物弧/OutlineFloat不抢。新专库chapter_order_timeline_impl_test_20261016与18602/18603已分配未建，和C3库一起hold C5最终线性head；当前两Luna独立实现+C5 Sol总装三路并行。重排不得篡改旧阅读receipt/计数，来源/稳定章身份无法保留时原standing授权应显式失效需重确认，跨域走公开端口。
+
+## 最新实施与独立 Sol 接线要求
+
+Luna已形成Writing全版本CAS预览/执行/恢复和Story-owned Scene/Span绑定remap、派生失效及事实timeline投影骨架，HTTP/UI与自查仍在实施。新增纯SPEC：`writing.chapter.reorder` R3、`writing.chapter.reorder.restore` R3、`writing.chapter.order.history.read` R0（`writing/chapter_order_operations.py`）；`story.fact_timeline.read` R0（`story/continuity/operations.py`）。后续Sol物化Writing/Story目录，装配`story.chapter_order`公开端口及既有唯一`STORY_INVALIDATE_WORLD_PROGRESSION_FOR_REORDER`；不能复制ServiceKey或静默跳过原持续授权撤销。前端新`api/storyTimeline.js`需在api.js公开`storyTimeline`。
+
+后继迁移拟`20261016_chapter_order`，两表`writing_chapter_order_operations`和`story_chapter_order_receipts`。C3库已实际应用人物弧初版且root发现不可变trigger漏洞，须Sol另加后继修复；为避免分叉，本批库CREATE/apply**继续hold到C3独立Sol固定最终DDL头**，不能只按Luna初版parent应用。SQLite/HTTP/UI和迁移源码可继续，专库未创建。
+
+root已读并明确交本批后续Sol直接修的finding：Writing重排prepare/apply/history与Story timeline纯SPEC忽略传入context（直接`del context`）。Assistant通用read/prepare只是传context，不替域证明全部targets。窄Scene/对象/排除项/原Evidence确认范围可能扩读全书历史、未来Scene与timeline选项，或确认跨章重排；需经可信work+公开目标范围端口在prepare/apply重验，不能仅信模型cutoff/entity_id或R3确认。HTTP作者全书界面可保留。Luna已确认此门禁pending，不据root finding直接修。
+
+恢复路由声明`x-novelcraft-operation-terminal-event: restored`，当前共享HTTP adapter未接该字段。Sol须提供真实restored/result refs并匹配原重排执行`(op_id,call_id)`，单给新restore op随机call_id会在A4报表成为unmatched。不要改统计口径掩盖生产关联。C3/A1均会改WritingView/useWritingWorkspace或writing-desk.css的各自接线，最终Sol顺序merge时保留人物弧和章节重排两者，不能覆盖一侧。主代理不解Git冲突。

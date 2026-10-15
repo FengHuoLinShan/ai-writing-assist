@@ -54,10 +54,11 @@ Luna已提交恢复checkpoint `3b494b91d`，无冲突合C5 `10db18e19` 为 `c8f1
 
 Luna自查真实PG3项：v1/v2、同operation幂等、stale CAS、历史恢复、软归档/恢复、无章映射未知、直接revision改写拒绝与Project删除级联；SQLite正式范围/降级证据拒绝2项、ORM parity通过。实际forecast SQLite链和旧v1回读证据此前已报；这些均不代表完整C3、真实模型或独立审查通过。API/UI/notice与共享hub装配仍需最终交接。
 
-root已读实现和已应用迁移，三项明确交后续Sol/high直接修（Luna已确认保留，不据root finding修复）：
+root已读实现和已应用迁移，四项明确交后续Sol/high直接修（Luna已确认保留，不据root finding修复）：
 
 - `character_arcs/service.py:_trace`直接import `modules.assistant.contracts`并复制AssistantOperation物化，新增Story→Assistant依赖及棘轮风险；应以公开core DI/实际HTTP装配处理。C3/A1恢复事件还需关联原执行的`(op_id,call_id)`，不能仅给restore新随机ID制造unmatched记录。
 - `forecast/registry.py defaults('scene')`从原人物反应+`story.scene_transition.v1`改成仅人物反应v2，未经授权取消了转场默认能力；须核真实v2与旧能力混选、共同输出/候选，不以删旧能力避开新格式问题。
 - `20261016_story_character_arc_plan`的revision mutation/head delete trigger仅按`pg_trigger_depth()>1`放行，未验证真实`TG_TABLE_SCHEMA.projects`已删除。存续Project下任意nested trigger/父cascade可绕过不可变历史；需独立后继迁移使用C5已有的schema限定Project删除证明，并补真实PG直接/父删除/nested/TEMP绕过拒绝及真实Project删除允许。现有PG仅覆盖直接修订改写与Project级联，**没有覆盖该漏洞**。
+- `character_arcs/operations.py`各prepare/apply未用context证明原work的Scene/人物/排除项/资料确认范围，仅验证作者拥有项目和模型传入的Scene/character参数。需经既有公开范围端口按可信work约束，prepare/apply都重验，不能以R3确认自动扩大原冻结范围；HTTP作者全书界面可保留。
 
 Sol最终需顺序合已审C5+C0完整固定点，装配forecast v2/Arc pureSPEC与真实HTTP/NOTICE/前端namespace，保留旧冻结目录、map.edit hash与原12000预算。唯一解释器primary/backend/.venv、Node24，不安装/同步依赖；只用明确分配的新review库，不能借任何现存实现/primary库。root独占三份TASK与共享artifacts。
