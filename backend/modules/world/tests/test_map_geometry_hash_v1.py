@@ -77,9 +77,7 @@ def test_v1_geometry_hash_is_frozen_and_old_calibration_still_matches() -> None:
 
 def test_v1_geometry_hash_ignores_source_and_task_metadata() -> None:
     document = v1_document()
-    document.constraints[0].generated_by_task_id = (
-        "00000000-0000-0000-0000-000000000005"
-    )
+    document.constraints[0].generated_by_task_id = "00000000-0000-0000-0000-000000000005"
     document.constraints[0].sources[0].source_hash = "b" * 64
     assert geometry_hash(document) == V1_GEOMETRY_HASH
 

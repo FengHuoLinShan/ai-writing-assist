@@ -578,11 +578,17 @@ class MapSpatialBriefService:
             features = {feature.id: feature for feature in document.features}
             spaces = {space.id: space for space in document.spaces}
             feature_text: dict[str, dict] = {}
+            from modules.world.map_structure_service import canonical_map_feature_ids
+
+            canonical_features = await canonical_map_feature_ids(
+                db, data.novel_id, document
+            )
             valid_features = set()
             included_source_hashes: set[str] = set()
             for feature in document.features:
                 if (
-                    feature.modality != "event_observed"
+                    feature.id not in canonical_features
+                    or feature.modality != "event_observed"
                     or not feature.sources
                     and revision.task_id is not None
                     or feature.type_ref is not None

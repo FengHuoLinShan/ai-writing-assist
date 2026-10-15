@@ -339,6 +339,7 @@ class MapAnnotationBinding(SpatialModel):
 
 
 class MapDocument(SpatialModel):
+    author_decision: MapAuthorDecision | None = None
     schema_version: Literal[1, 2] = 2
     layout_version: Literal[1] = 1
     spaces: list[MapSpace] = Field(default_factory=list, max_length=20)

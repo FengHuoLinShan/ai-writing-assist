@@ -153,12 +153,15 @@ class MapStructureEdit(BaseModel):
         "add_space",
         "rename_space",
         "remove_space",
+        "merge_space",
+        "move_feature_to_space",
         "upsert_constraint",
         "remove_constraint",
         "upsert_journey",
         "remove_journey",
     ]
     target_id: str | None = Field(default=None, min_length=1, max_length=96)
+    destination_space_id: str | None = Field(default=None, min_length=1, max_length=96)
     space: AssistantSpaceArrangement | None = None
     constraint: AssistantConstraintArrangement | None = None
     journey: AssistantJourneyArrangement | None = None
@@ -172,7 +175,7 @@ class MapStructureEdit(BaseModel):
         }
         expected = (
             "space"
-            if self.kind in {"add_space", "rename_space", "remove_space"}
+            if self.kind in {"add_space", "rename_space", "remove_space", "merge_space"}
             else "constraint"
             if self.kind in {"upsert_constraint", "remove_constraint"}
             else "journey"
@@ -204,6 +207,18 @@ class MapStructureEdit(BaseModel):
             self.target_id
         ):
             raise ValueError("新增或更新数据请在结构对象中指定身份")
+        if self.kind == "merge_space":
+            if (
+                not self.target_id
+                or not self.destination_space_id
+                or self.target_id == self.destination_space_id
+            ):
+                raise ValueError("合并空间需要两个不同的现有空间")
+        elif self.kind == "move_feature_to_space":
+            if not self.target_id or not self.destination_space_id:
+                raise ValueError("移动图元需要现有图元和目标空间")
+        elif self.destination_space_id is not None:
+            raise ValueError("目标空间仅用于空间合并")
         return self
 
 
@@ -415,9 +430,16 @@ async def _review_preview(db, novel_id, args, *, context=None):
         "base_revision_id": str(node.current_revision_id)
         if node.current_revision_id
         else None,
-        "affected_count": len(set(result.applied_change_keys) | set(result.expanded_change_keys))
+        "affected_count": len(
+            set(result.applied_change_keys) | set(result.expanded_change_keys)
+        )
         if args.action == "adopt"
-        else max(1, len(result.document.features) + len(result.document.constraints) + len(result.document.journeys)),
+        else max(
+            1,
+            len(result.document.features)
+            + len(result.document.constraints)
+            + len(result.document.journeys),
+        ),
         "changes": result.model_dump(mode="json")
         if hasattr(result, "model_dump")
         else result,
@@ -627,7 +649,7 @@ async def _auto_draft_group_preview(db, novel_id, args, *, context=None):
     candidates = [item for item in scoped if item.status == "candidate"]
     if not candidates:
         raise ConflictError("这个空间或层级没有待审自动草图")
-    if any(item.stale or item.warnings for item in candidates):
+    if any(item.stale or item.batch_status != "completed" for item in candidates):
         raise ConflictError("草图有失效来源或未完成分片，请到地图工作台核对")
     require_targets = get(ASSISTANT_REQUIRE_OPERATION_TARGETS)
     await require_targets(
@@ -785,10 +807,7 @@ async def _structure_edit_preview(db, novel_id, args, *, context=None):
     if node.current_revision_id != args.base_revision_id:
         raise ConflictError("地图版本已变化，请重新读取当前空间")
     document = document.model_copy(deep=True)
-    arranged_journeys = [edit for edit in args.edits if edit.kind == "upsert_journey"]
-    author_decision = (
-        await _read_author_decision(db, novel_id, context) if arranged_journeys else None
-    )
+    author_decision = await _read_author_decision(db, novel_id, context)
     before = document.model_dump(mode="json")
     for edit in args.edits:
         if edit.kind == "add_space":
@@ -812,6 +831,29 @@ async def _structure_edit_preview(db, novel_id, args, *, context=None):
             document.spaces = [
                 item for item in document.spaces if item.id != edit.target_id
             ]
+        elif edit.kind == "merge_space":
+            if edit.target_id == "main":
+                raise ConflictError("主空间不能被合并移除")
+            if not {edit.target_id, edit.destination_space_id}.issubset(
+                {item.id for item in document.spaces}
+            ):
+                raise ConflictError("请指定两个现有空间")
+            for feature in document.features:
+                if feature.space_id == edit.target_id:
+                    feature.space_id = edit.destination_space_id
+            document.spaces = [
+                item for item in document.spaces if item.id != edit.target_id
+            ]
+        elif edit.kind == "move_feature_to_space":
+            feature = next(
+                (item for item in document.features if item.id == edit.target_id), None
+            )
+            if feature is None or edit.destination_space_id not in {
+                "main",
+                *(item.id for item in document.spaces),
+            }:
+                raise ConflictError("请指定现有图元和目标空间")
+            feature.space_id = edit.destination_space_id
         elif edit.kind == "upsert_constraint":
             constraint = SpatialConstraint(**edit.constraint.model_dump())
             document.constraints = [
@@ -838,6 +880,7 @@ async def _structure_edit_preview(db, novel_id, args, *, context=None):
             document.journeys = [
                 item for item in document.journeys if item.id != edit.target_id
             ]
+    document.author_decision = author_decision
     document = MapDocument.model_validate(document.model_dump(mode="json"))
     layout_preview = await service.preview_layout(
         db,
@@ -845,13 +888,18 @@ async def _structure_edit_preview(db, novel_id, args, *, context=None):
         str(args.node_id),
         MapSaveRequest(base_revision_id=args.base_revision_id, document=document),
     )
+    from modules.world.map_structure_review import changed_items
+
+    affected_count = len(changed_items(MapDocument.model_validate(before), document))
+    if affected_count > 20:
+        raise ConflictError("本次空间整理涉及超过 20 项实际变更，请缩小范围")
     return {
         "target_key": f"map:{node.id}",
         "title": f"修改{node.title}的空间结构",
         "base_revision_id": str(node.current_revision_id)
         if node.current_revision_id
         else None,
-        "affected_count": len(args.edits),
+        "affected_count": affected_count,
         "before": before,
         "after": document.model_dump(mode="json"),
         "author_decision": author_decision.model_dump(mode="json")
@@ -909,13 +957,13 @@ async def _node_update_preview(db, novel_id, args, *, context=None):
         "title": f"修改地图层级：{before['title']}",
         "before": {key: before[key] for key in fields},
         "after": {key: after[key] for key in fields},
-        "effect": "只移動或改名地圖節點，不改動空間版本和圖元坐標",
+        "effect": "只移动或改名地图节点，不改动空间版本和图元坐标",
     }
 
 
 async def _node_update_apply(db, novel_id, args, preview, *, context=None):
     if await _node_update_preview(db, novel_id, args, context=context) != preview:
-        raise ConflictError("地圖層級已變化，請重新查看方案")
+        raise ConflictError("地图层级已变化，请重新查看方案")
     result = await MapAtlasService().update_node(
         db, novel_id, str(args.node_id), args.update
     )
@@ -926,7 +974,54 @@ async def _node_update_apply(db, novel_id, args, preview, *, context=None):
     }
 
 
+class PreviewMapNodeMerge(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    source_node_id: UUID
+    target_node_id: UUID
+
+
+async def _node_merge_preview(db, novel_id, args, *, context=None):
+    if args.source_node_id == args.target_node_id:
+        raise ValidationError("不能将地图节点合并到自身")
+    _require_workbench_scope(context)
+    _, source, source_doc = await _document(db, novel_id, args.source_node_id, context)
+    _, target, target_doc = await _document(db, novel_id, args.target_node_id, context)
+    return {
+        "target_keys": [f"map:{source.id}", f"map:{target.id}"],
+        "affected_count": 2,
+        "source_node_id": str(source.id),
+        "target_node_id": str(target.id),
+        "source_revision_id": str(source.current_revision_id),
+        "target_revision_id": str(target.current_revision_id),
+        "source_document": source_doc.model_dump(mode="json"),
+        "target_document": target_doc.model_dump(mode="json"),
+        "effect": (
+            "生成节点合并候选预览；需在地图工作台逐项处理图元冲突，"
+            "并独立确认原节点处置，不把改父节点当作合并"
+        ),
+        "requires_workbench_review": True,
+        "can_execute_merge": False,
+    }
+
+
+async def _node_merge_candidate(db, novel_id, args, preview, *, context=None):
+    if await _node_merge_preview(db, novel_id, args, context=context) != preview:
+        raise ConflictError("节点或空间版本已变化，请重新准备合并候选")
+    return {
+        "type": "map_node_merge_candidate",
+        "page": "map",
+        **preview,
+        "label": "节点合并候选已保存在本次助手方案中，尚未改动节点",
+    }
+
+
 OPERATIONS_SPEC = {
+    "map.preview_node_merge": {
+        "label": "准备地图节点合并候选",
+        "schema": PreviewMapNodeMerge,
+        "prepare": _node_merge_preview,
+        "apply": _node_merge_candidate,
+    },
     "map.add_known_location": {
         "label": "把已知地点加入地图（保留未知位置）",
         "schema": AddKnownLocation,

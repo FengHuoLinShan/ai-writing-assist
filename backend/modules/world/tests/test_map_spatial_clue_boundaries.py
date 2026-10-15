@@ -427,7 +427,12 @@ async def test_adopt_revalidates_source_and_does_not_touch_map_heads(
     )
     assert adopted.status == "pending_verification"
     assert (
-        await db_session.scalar(select(func.count()).select_from(MapAtlasRevision)) == 0
+        await db_session.scalar(
+            select(func.count())
+            .select_from(MapAtlasRevision)
+            .where(MapAtlasRevision.novel_id == uuid.UUID(project_novel_id))
+        )
+        == 0
     )
 
 

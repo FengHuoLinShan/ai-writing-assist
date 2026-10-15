@@ -289,7 +289,7 @@ async def test_auto_candidate_adoption_uses_normal_gate_and_updates_batch_status
 
 
 @pytest.mark.asyncio
-async def test_auto_adoption_keeps_candidate_world_place_as_text_until_canonical(
+async def test_auto_adoption_preserves_candidate_binding_until_canonical(
     db_session, project_novel_id
 ):
     scene, _start, _end, clue_row = await _stage_bound_clue(
@@ -297,8 +297,7 @@ async def test_auto_adoption_keeps_candidate_world_place_as_text_until_canonical
         project_novel_id,
         entity_status="candidate",
     )
-    # Candidate identities remain pending review, and adoption must reduce them
-    # to text placeholders rather than canonical map facts.
+    # Candidate bindings survive map adoption, but stay out of formal reads.
     result = await build_map_auto_drafts(
         db_session, project_novel_id, _build_request(scene, clue_row)
     )
@@ -313,9 +312,25 @@ async def test_auto_adoption_keeps_candidate_world_place_as_text_until_canonical
     )
     saved = await db_session.get(MapAtlasRevision, uuid.UUID(adopted.id))
     features = saved.document["features"]
-    assert len(features) == 2
-    assert all(item["entity_id"] is None and item["points"] == [] for item in features)
-    assert all("待核" in item["note"] for item in features)
+    assert len(features) == 3  # Two bound places and the program-built route.
+    assert sum(item["entity_id"] is not None for item in features) == 2
+    from modules.world.map_structure_service import canonical_map_feature_ids
+
+    from modules.world.map_structure_schemas import MapDocument
+
+    document = MapDocument.model_validate(saved.document)
+    assert (
+        await canonical_map_feature_ids(db_session, project_novel_id, document) == set()
+    )
+    for feature in document.features:
+        if feature.entity_id is None:
+            continue
+        entity = await db_session.get(CoreEntity, feature.entity_id)
+        entity.status = "canonical"
+    await db_session.flush()
+    assert await canonical_map_feature_ids(db_session, project_novel_id, document) == {
+        item.id for item in document.features
+    }
     original = await db_session.get(MapAtlasRevision, revision.id)
     assert original.status == "rejected"
     with pytest.raises(ConflictError, match="只能恢复已保存"):

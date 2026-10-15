@@ -156,6 +156,7 @@ async def test_assistant_space_edit_saves_without_model_coordinates_or_provenanc
     context = AssistantOperationContext(
         str(uuid4()), str(current_account_id()), WorkContext(page="map", scope="project")
     )
+    context, author_message = await _persist_author_turn(db, nid)
     args = EditMapStructure(
         node_id=UUID(node["id"]),
         base_revision_id=UUID(node["current_revision_id"]),
@@ -172,11 +173,18 @@ async def test_assistant_space_edit_saves_without_model_coordinates_or_provenanc
     assert "points" not in str(operation.schema.model_json_schema())
     assert "author_decision" not in str(operation.schema.model_json_schema())
 
+    author_message.content = "作者已经更改安排"
+    await db.flush()
+    with pytest.raises(ConflictError, match="变化"):
+        await operation.apply(db, nid, args, preview, context=context)
+    author_message.content = "请建立梦境空间"
+    await db.flush()
     result = await operation.apply(db, nid, args, preview, context=context)
     revision = await service.revision(
         db, nid, str(args.node_id), UUID(result["revision_id"])
     )
     assert any(space["id"] == "dream" for space in revision.document["spaces"])
+    assert revision.document["author_decision"]["message_id"] == str(author_message.id)
 
 
 @pytest.mark.asyncio
@@ -255,3 +263,38 @@ async def test_assistant_clue_review_uses_exact_quote_and_rejects_ambiguous_sele
         await assistant_map_tools._clue_review_preview(
             None, test_project_id, ambiguous, context=context
         )
+
+
+async def _persist_author_turn(db, novel_id):
+    from infrastructure.tasks.models import AsyncTask
+    from modules.assistant.models import AssistantMessage, AssistantRun, AssistantSession
+
+    task = AsyncTask(novel_id=UUID(novel_id), task_type="assistant_turn", status="done")
+    session = AssistantSession(
+        novel_id=UUID(novel_id), title="地图安排", source_kind="project"
+    )
+    db.add_all([task, session])
+    await db.flush()
+    run = AssistantRun(
+        novel_id=UUID(novel_id),
+        owner_id=current_account_id(),
+        session_id=session.id,
+        task_id=task.id,
+        mode="author",
+        request_hash="a" * 64,
+    )
+    db.add(run)
+    await db.flush()
+    message = AssistantMessage(
+        novel_id=UUID(novel_id),
+        session_id=session.id,
+        task_id=task.id,
+        role="author",
+        kind="message",
+        content="请建立梦境空间",
+    )
+    db.add(message)
+    await db.flush()
+    return AssistantOperationContext(
+        str(run.id), str(current_account_id()), WorkContext(page="map", scope="project")
+    ), message

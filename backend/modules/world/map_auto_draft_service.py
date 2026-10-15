@@ -1149,9 +1149,9 @@ async def _project_candidate_entities(
             warnings.append("部分地点已融合，草图绑定跟随融合目标")
         if current is not None and current.status != "canonical":
             feature.note = (
-                f"{feature.note}\n地点尚未采用；正式地图中仅保留文字标签，需重新映射或采用地点后再放置。"
+                f"{feature.note}\n地点尚未采用；保留身份绑定，采用地点前不进入读者预览、写作简报或空间检查。"
             )[-1000:]
-            warnings.append("部分地点尚未采用，地图草图保留文字标签并待核")
+            warnings.append("部分地点尚未采用，地图草图保留候选身份绑定")
     return projected, list(dict.fromkeys(warnings))
 
 
@@ -1240,13 +1240,13 @@ async def prepare_auto_draft_adoption(
         if feature.entity_id is None:
             continue
         entity = await _resolve_merged_entity(db, novel_id, feature.entity_id)
-        if entity is None or entity.status != "canonical":
+        if entity is None:
             stale_feature_ids.add(feature.id)
             feature.entity_id = None
             feature.points = []
             feature.locked = False
             feature.note = (
-                f"{feature.note}\n地点尚未采用或已失效，待核；正式地图仅保留文字标签，需重新映射。"
+                f"{feature.note}\n地点已失效，待核；正式地图仅保留文字标签，需重新映射。"
             )[-1000:]
         else:
             feature.entity_id = entity.id

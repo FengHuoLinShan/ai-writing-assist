@@ -505,8 +505,10 @@ class MapStructureService:
         return text
 
     async def validate_document(self, db, novel_id, node, document: MapDocument):
-        for journey in document.journeys:
-            decision = journey.author_decision
+        for decision in [
+            document.author_decision,
+            *(journey.author_decision for journey in document.journeys),
+        ]:
             if decision is None or decision.origin != "assistant":
                 continue
             reader = get(ASSISTANT_READ_MAP_AUTHOR_DECISION)
@@ -529,11 +531,11 @@ class MapStructureService:
                     select(CoreEntity.id).where(
                         CoreEntity.novel_id == node.novel_id,
                         CoreEntity.id == feature.entity_id,
-                        CoreEntity.status == "canonical",
+                        CoreEntity.status.in_(["canonical", "candidate", "draft"]),
                     )
                 )
                 if entity is None:
-                    raise ValidationError("地图图元必须引用当前作品已采用的对象")
+                    raise ValidationError("地图图元必须引用当前作品有效的对象")
             if feature.target_node_id:
                 target = await self.node(db, novel_id, str(feature.target_node_id))
                 if target.id == node.id or target.status != "adopted":
@@ -1273,10 +1275,12 @@ class MapStructureService:
             for problem in await spatial_anchor_problems(db, novel_id, document)
             for key in problem.feature_ids
         )
+        canonical_features = await canonical_map_feature_ids(db, novel_id, document)
         eligible, public_labels = set(), {}
         for feature in document.features:
             if (
                 feature.id in blocked
+                or feature.id not in canonical_features
                 or feature.modality != "event_observed"
                 # The reader endpoint accepts a chapter ordinal, not a stable
                 # chapter/Scene identity; keep timed facts author-only until that
@@ -1449,6 +1453,40 @@ class MapStructureService:
         }
 
 
+async def canonical_map_feature_ids(db, novel_id: str, document: MapDocument) -> set[str]:
+    """Pending World bindings remain durable but cannot become formal map facts."""
+    ids = {item.entity_id for item in document.features if item.entity_id is not None}
+    canonical = (
+        set(
+            (
+                await db.scalars(
+                    select(CoreEntity.id).where(
+                        CoreEntity.novel_id == parse_uuid(novel_id, "novel_id"),
+                        CoreEntity.id.in_(ids),
+                        CoreEntity.status == "canonical",
+                    )
+                )
+            ).all()
+        )
+        if ids
+        else set()
+    )
+    eligible = {
+        item.id
+        for item in document.features
+        if item.entity_id is None or item.entity_id in canonical
+    }
+    while True:
+        dependent = {
+            item.id
+            for item in document.features
+            if item.id in eligible and not set(item.depends_on).issubset(eligible)
+        }
+        if not dependent:
+            return eligible
+        eligible -= dependent
+
+
 async def list_adopted_map_continuity_facts(
     db: AsyncSession,
     novel_id: str,
@@ -1503,6 +1541,12 @@ async def list_adopted_map_continuity_facts(
     for node, revision, document in documents:
         features = {item.id: item for item in document.features}
         static_features = calculable_features(document, type_traits=type_traits)
+        canonical_features = await canonical_map_feature_ids(db, novel_id, document)
+        static_features = {
+            key: value
+            for key, value in static_features.items()
+            if key in canonical_features
+        }
         for constraint in document.constraints:
             if (
                 constraint.modality != "event_observed"

@@ -10,7 +10,7 @@ from sqlalchemy import select
 from core.errors import ConflictError, NotFoundError
 from modules.assistant.models import AssistantMessage, AssistantRun
 from modules.project.facade import get_any_project_context, require_active_project
-from modules.world.map_structure_schemas import MapAuthorDecision
+from modules.world.contracts import MapAuthorDecision
 
 
 async def read_map_author_decision(

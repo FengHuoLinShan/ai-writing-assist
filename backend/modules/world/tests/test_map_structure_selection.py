@@ -747,9 +747,7 @@ async def test_selected_change_cannot_import_stale_source(db_session, test_proje
             )
 
 
-async def test_partial_adoption_revalidates_journey_sources(
-    db_session, test_project_id
-):
+async def test_partial_adoption_revalidates_journey_sources(db_session, test_project_id):
     service, node, saved = await saved_map(db_session, test_project_id)
     candidate_document = saved.document.model_copy(deep=True)
     source = source_range().model_copy(update={"quote": "乘船半日抵达乙城"})

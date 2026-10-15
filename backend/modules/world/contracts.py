@@ -82,6 +82,7 @@ from modules.world.map_spatial_clue_schemas import (
 from modules.world.map_spatial_clue_schemas import (
     MapSpatialClueTypeProposalResponse as MapSpatialClueTypeProposalResponse,
 )
+from modules.world.map_structure_schemas import MapAuthorDecision as MapAuthorDecision
 from modules.world.project_vocabulary_schemas import (
     ModelVocabularyProposal as ModelVocabularyProposal,
 )
@@ -107,8 +108,6 @@ from modules.world.schemas import RelationKind
 
 if TYPE_CHECKING:
     from sqlalchemy.ext.asyncio import AsyncSession
-
-    from modules.world.map_structure_schemas import MapAuthorDecision
 
 
 class WorldBuildMapAutoDraftsPort(Protocol):
@@ -528,7 +527,6 @@ class GenerationBackgroundProvider(Protocol):
 # =====================================================
 
 
-
 class AuthorNote(BaseModel):
     """未识别列转化的作者备注条目，追加到 hidden_truth。"""
 
@@ -730,6 +728,7 @@ class WorldAliasRelationTaskPort(Protocol):
 
 
 __all__ = [
+    "MapAuthorDecision",
     "MapAuthorDecisionReaderPort",
     "MapAutoDraftBuildRequest",
     "MapAutoDraftBuildResult",
@@ -780,3 +779,7 @@ __all__ = [
 from modules.world.services.core.entity_types import (  # noqa: E402
     normalize_author_entity_type as normalize_author_entity_type,
 )
+
+
+class WorldReadMapColdStartDraftsPort(Protocol):
+    async def __call__(self, db: AsyncSession, novel_id: str, run_key: str) -> dict: ...
