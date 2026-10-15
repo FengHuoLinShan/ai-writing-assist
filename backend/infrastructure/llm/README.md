@@ -76,6 +76,10 @@ result = await client.generate_structured(
 text = await client.generate_simple(system, user)
 ```
 
+OpenAI 3.x 的文字、独立 embedding 与图片 SDK 客户端使用原生 `httpx2.AsyncClient`，
+不走旧 HTTPX 兼容路径；超时、显式代理与环境代理配置保持原语义。公共出站守卫同时
+支持 HTTPX2 SDK 请求和现有 HTTPX 健康/余额探针，拒绝私网目标及非白名单直连。
+
 OpenAI-compatible SDK 的内建重试固定关闭；普通调用、流式建连和 embedding 的重试均由
 `LLMClient` 的显式退避策略统一拥有。需要避免重复付费或不可解释 sibling 的业务流可对
 `generate_stream(..., transport_retries=False)` 关闭建连重试；流开始后的中断始终交给上层
