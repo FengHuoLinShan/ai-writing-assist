@@ -27,14 +27,15 @@
 
 当前 C0c 已由 Sol 完成并合入 primary `9b9c022a5`，前端 fixture 后固定 `bd31d959d`；
 root 的5133后端、27专库PG、3173前端与lint/build/docs/repo-gates全部通过。
-上述尾项尚未派发。共享 keys/bootstrap/目录冻结、worker及TaskRegistry现由 A3 Sol 独占；
+上述尾项已由新 Luna/max 批次接手。共享 keys/bootstrap/目录冻结、worker及TaskRegistry现由 A4 Sol 独占；
 后续从最新已审 primary 复用干净任务树，新建主题分支，最终由 Sol 顺序组合。
 旧模板 format_version=1、Dossier/Assistant 的历史输入快照保持版本化，不因新增借用字段改写。
 结构化 JSON 只走明确的作者档案 manifest 边界，不扩文稿或表格上传后缀白名单。
 唯一后端环境为 primary/backend/.venv，Node24，无安装依赖、默认开发库、真实模型、R3或holdout访问。
 PostgreSQL 只用 root 明确分配的新专库，不能借用其他代理的库。保持旧目录与 map.edit 哈希冻结。
 
-root已核实原world-object-dossier-impl任务树干净，在不删除旧
-codex/world-object-validity-impl/ee51f869a的前提下，切到新分支
-codex/dossier-template-interchange-impl，起点978a14e2d（产品bd31加任务笔记）。
-该树已准备，尚未派代理；不要误认为有Luna正在实现本尾项。
+root核实原world-object-dossier-impl干净后保留旧codex/world-object-validity-impl/ee51f869a，
+新分支codex/dossier-template-interchange-impl已fast-forward到f5c6d5cc5。
+新代理luna_dossier_template_interchange（Luna/max）已启动；独占
+PG dossier_template_interchange_impl_test_20261016和18592/18593端口已分配，尚未报告创建。
+禁借其他代理专库，保存合成数据；不向消息或仓库写连接secret。root独占TASK与本artifact。

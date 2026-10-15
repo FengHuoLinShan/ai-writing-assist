@@ -144,3 +144,14 @@ A3 作者侧 Interaction / Collaboration、地图与势力后续能力仍需实�
   当已发生事实，也不为补目录任意新增正史写操作。需要截止Scene的消费者必须过滤后续资料。
 - 新目录/HTTP留痕、幂等回执及恢复都要同批实际接线；不能把提供纯SPEC当完成。
   当前共享组合由C0c Sol单写，后续实施树从已审primary开始，本域固定后Sol顺序组合。
+
+
+## 2026-10-16 A1尾项实施树准备（尚未派发）
+
+root核实map-assistant-vocab-review旧scene-director-review/616e9d474树干净，保留旧分支后，
+切到codex/chapter-order-timeline-impl，起点f5c6d5cc5。该树当前无代理写入；
+旧C4审修提交与证据仍保留，不能沿旧路径名误判正在跑C4审修。
+后续从最新已审primary快进再派Luna/max，范围为真正Writing章节重排与Story事件时间线，
+接入目录/HTTP/来源CAS及恢复须由Sol审修组合，不以只改列表或篇章计划冒称完成。
+A4候选b554已交Sol；ordinary operations.py、goal_runs/service.py及顶层组合归该Sol。
+C5与C0独立Luna继续在各自领域，不借用其PG或共享文件写入权。

@@ -27,3 +27,13 @@
 共同注册时由 Sol 顺序组合。C4及C0c现已合primary，产品固定bd31d959d（其后root仅任务笔记），
 顶层共享装配由A3 Sol独占；C5独立新文件正由另一Luna实施，不抢写其推进模块。
 primary 任务记录由 root 独占，子代理只回报固定提交和证据。
+
+
+## 下一实施树已准备（尚未派发）
+
+root核实simulation-v3-director-impl旧copilot-unified-ui/a212d9faa树干净，保留旧分支后，
+切到codex/copilot-mechanism-alignment-impl，起点f5c6d5cc5。该树当前无代理写入；
+等并发槽位时从最新已审primary快进后派Luna/max，不能把准备当已经实施。
+共享组合现由A4 Sol持有；C5独占world-progression新域、Story前端推进面板、flows.py中的
+world_progression_review注册及TOML Story prefix；C0新Luna独占模板/档案互通领域。
+正式开工前由root明确新增forecast/人物弧/notice范围，跨域共享接口仍顺序由Sol组合。
