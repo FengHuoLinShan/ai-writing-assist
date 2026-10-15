@@ -531,7 +531,7 @@ def test_candidate_event_cannot_write_simulation_state_or_claim_unknown_identity
         )
 
 
-def test_consistency_reports_conflicting_exact_scene_facts_and_unavailable_c0c():
+def test_consistency_reports_exact_scene_and_world_validity_conflicts():
     actor_id = str(uuid4())
     continuity_items = [
         {
@@ -551,7 +551,21 @@ def test_consistency_reports_conflicting_exact_scene_facts_and_unavailable_c0c()
                 "continuity_items": continuity_items,
                 "omissions": [],
                 "coverage": "partial",
-            }
+            },
+            "object_validity_notices": [
+                {
+                    "notice_key": "world.object_validity:dossier:entry-1",
+                    "basis_fingerprint": "a" * 64,
+                    "validity_decision": "author_priority",
+                    "target": {"entity_id": actor_id, "entry_id": "entry-1"},
+                },
+                {
+                    "notice_key": "world.object_validity:map:node-1:feature:feature-1",
+                    "basis_fingerprint": "b" * 64,
+                    "validity_decision": "gap",
+                    "target": {"node_id": "node-1"},
+                },
+            ],
         },
         intents=[],
         candidates={},
@@ -562,12 +576,22 @@ def test_consistency_reports_conflicting_exact_scene_facts_and_unavailable_c0c()
     )
 
     conflicts = [item for item in consistency.findings if item.severity == "conflict"]
-    assert len(conflicts) == 1
-    assert conflicts[0].field == "entities:life_state"
-    assert {item["id"] for item in conflicts[0].source_refs} == {
+    assert {item.field for item in conflicts} == {
+        "entities:life_state",
+        "author_validity",
+    }
+    fact_conflict = next(
+        item for item in conflicts if item.field == "entities:life_state"
+    )
+    assert {item["id"] for item in fact_conflict.source_refs} == {
         "checkpoint-a",
         "checkpoint-b",
     }
     assert "当前精确来源字段：entities:life_state" in consistency.checked_facts
     assert consistency.coverage == "partial"
-    assert any("C0c" in item for item in consistency.unavailable_checks)
+    assert "当前精确来源字段：world:author_validity" in consistency.checked_facts
+    assert any("地图声明作者有效期" in item for item in consistency.unavailable_checks)
+    assert any(
+        item.field == "author_validity" and item.severity == "unknown"
+        for item in consistency.findings
+    )

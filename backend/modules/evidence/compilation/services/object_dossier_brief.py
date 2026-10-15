@@ -382,6 +382,7 @@ class ObjectDossierBriefService:
         selected_ids = sorted({str(item) for item in entity_ids})[:MAX_OBJECTS]
         omitted_count = max(0, len(set(entity_ids)) - len(selected_ids))
         world_items: list[dict[str, Any]] = []
+        validity_notices: list[dict[str, Any]] = []
         dossier_fingerprints: list[dict[str, str]] = []
         unmapped_legacy_count = 0
         if omitted_count:
@@ -417,6 +418,7 @@ class ObjectDossierBriefService:
                         if role_view
                         else None
                     ),
+                    story_viewpoint=viewpoint,
                 )
             )
             if (
@@ -460,6 +462,27 @@ class ObjectDossierBriefService:
             for raw in dossier.get("entries") or []:
                 if not isinstance(raw, dict):
                     continue
+                if not safe_view and (
+                    raw.get("validity_conflict") is True or raw.get("validity_gap")
+                ):
+                    validity_notices.append(
+                        {
+                            "entity_id": entity_id,
+                            "entry_id": str(raw.get("id") or ""),
+                            "facing_label": raw.get("facing_label"),
+                            "story_field_key": raw.get("story_field_key"),
+                            "status": (
+                                "story_override"
+                                if raw.get("story_override_applied") is True
+                                else "author_priority"
+                                if raw.get("validity_conflict") is True
+                                else "gap"
+                            ),
+                            "gap": raw.get("validity_gap"),
+                            "story_observation": raw.get("story_observation"),
+                            "world_evidence": raw.get("evidence") or [],
+                        }
+                    )
                 generic_metadata = (raw.get("source_metadata") or {}).get(
                     "generic_profile_metadata"
                 )
@@ -516,6 +539,8 @@ class ObjectDossierBriefService:
                             omitted_count += 1
                             omissions.append("旧档案字段缺少目标 Scene 的时点事实证明")
                         continue
+                if raw.get("story_override_applied") is True:
+                    continue
                 if raw.get("effective_at_cutoff") is not True or raw.get(
                     "anchor_problem"
                 ):
@@ -547,6 +572,11 @@ class ObjectDossierBriefService:
                     "source": raw.get("source"),
                     "source_refs": source_refs,
                     "validity": raw.get("validity"),
+                    "story_field_key": raw.get("story_field_key"),
+                    "validity_conflict": raw.get("validity_conflict") is True,
+                    "story_override_applied": raw.get("story_override_applied") is True,
+                    "validity_gap": raw.get("validity_gap"),
+                    "story_observation": raw.get("story_observation"),
                     "dossier_fingerprint": dossier.get("dossier_fingerprint"),
                 }
                 if safe_view:
@@ -894,6 +924,7 @@ class ObjectDossierBriefService:
                 "continuity": continuity_fingerprint,
                 "patterns": pattern_fingerprint,
                 "world_items": world_items,
+                "validity_notices": validity_notices,
                 "continuity_items": continuity_items,
                 "pattern_items": pattern_items,
             }
@@ -904,6 +935,7 @@ class ObjectDossierBriefService:
             "scene_index": scene_index,
             "viewpoint": state_view.get("viewpoint"),
             "world_items": world_items,
+            "validity_notices": validity_notices,
             "continuity_items": continuity_items,
             "pattern_items": pattern_items,
             "checkpoint_refs": checkpoint_refs,
@@ -943,6 +975,7 @@ class ObjectDossierBriefService:
             "scene_index": None,
             "viewpoint": {"kind": options.reveal_mode},
             "world_items": [],
+            "validity_notices": [],
             "continuity_items": [],
             "pattern_items": [],
             "checkpoint_refs": [],

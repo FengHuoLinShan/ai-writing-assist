@@ -15,7 +15,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from core.container import get
 from core.errors import ConflictError, NotFoundError, ValidationError
 from core.service_keys import STORY_SCENE_SOURCE
-from modules.project.facade import require_active_project
+from modules.project.facade import read_object_dossier_settings, require_active_project
 from modules.world.dossier_repository import WorldObjectDossierRepository
 from modules.world.map_spatial_anchors import resolve_anchor, resolve_validity
 from modules.world.models import (
@@ -41,12 +41,16 @@ from modules.world.schemas.dossier import (
     DossierHistoryResponse,
     DossierLegacyProfileField,
     DossierReadResponse,
+    DossierStateField,
     DossierTemplateField,
     DossierTemplateHistoryResponse,
     DossierTemplateResponse,
     DossierTemplateUpsert,
     DossierValidity,
 )
+from modules.world.services.core.entity_types import SUPPORTED_ENTITY_TYPES
+from modules.world.validity import validate_scene_validity
+from modules.world.validity_policy import exact_story_field_observation
 from shared.utils import parse_uuid
 
 CORE_FACINGS: dict[str, dict[str, str]] = {
@@ -152,6 +156,7 @@ DOSSIER_SOURCES = frozenset(
         "object_completion",
     }
 )
+_UNSET = object()
 GENERIC_PROFILE_FIELD_PREFIX = "generic_profile:"
 GENERIC_UNKNOWN_FACING_KEY = "legacy_unmapped"
 
@@ -223,6 +228,10 @@ def _entry_response(
     source_metadata: dict[str, Any] | None = None,
     anchor_problem: str | None = None,
     effective_at_cutoff: bool | None = None,
+    validity_conflict: bool = False,
+    story_override_applied: bool = False,
+    validity_gap: str | None = None,
+    story_observation: dict[str, Any] | None = None,
 ) -> DossierEntryResponse:
     facing = DossierFacingRef(
         kind=row.facing_kind,
@@ -241,6 +250,7 @@ def _entry_response(
         facing=facing,
         facing_label=facing_label,
         legacy_field_key=row.legacy_field_key,
+        story_field_key=row.story_field_key,
         content=row.content,
         tags=row.tags_json or [],
         evidence=evidence,
@@ -255,6 +265,10 @@ def _entry_response(
         validity=_validity_from_row(row),
         anchor_problem=anchor_problem,
         effective_at_cutoff=effective_at_cutoff,
+        validity_conflict=validity_conflict,
+        story_override_applied=story_override_applied,
+        validity_gap=validity_gap,
+        story_observation=story_observation,
         revision_reason=row.revision_reason,
         restored_from_id=row.restored_from_id,
         created_at=row.created_at,
@@ -392,12 +406,39 @@ class WorldObjectDossierService:
         novel_id: uuid.UUID,
         validity: DossierValidity | None,
     ) -> None:
-        if validity is None or not (validity.start or validity.end):
+        await validate_scene_validity(db, novel_id, validity)
+
+    async def _validate_story_field_key(
+        self, db: AsyncSession, entity: CoreEntity, field_key: str | None
+    ) -> None:
+        if field_key is None:
             return
-        scenes = await self._anchor_scenes(db, novel_id)
-        result = resolve_validity(validity, scenes)
-        if not result.valid:
-            raise ValidationError("生效范围的 Scene 或章节锚点无效，请核对后重试")
+        if entity.entity_type in SUPPORTED_ENTITY_TYPES:
+            raise ValidationError("仅自定义对象类型可以绑定自定义 Story 状态字段")
+        template = await db.scalar(
+            select(EntityProfileTemplate).where(
+                EntityProfileTemplate.novel_id == entity.novel_id,
+                EntityProfileTemplate.profile_type == entity.entity_type,
+                EntityProfileTemplate.status == "active",
+            )
+        )
+        if template is None:
+            raise ValidationError("请先为该对象类型声明文字状态字段")
+        revision = await db.scalar(
+            select(EntityProfileTemplateRevision).where(
+                EntityProfileTemplateRevision.novel_id == entity.novel_id,
+                EntityProfileTemplateRevision.template_id == template.id,
+                EntityProfileTemplateRevision.version_number == template.version_number,
+            )
+        )
+        state_fields = [
+            DossierStateField.model_validate(item)
+            for item in (
+                (revision.snapshot_json or {}).get("state_fields", []) if revision else []
+            )
+        ]
+        if not any(item.key == field_key for item in state_fields):
+            raise ValidationError("关联的 Story 状态字段未在当前对象类型模板中声明")
 
     async def list_facets(
         self, db: AsyncSession, novel_id: str, entity_type: str
@@ -463,6 +504,7 @@ class WorldObjectDossierService:
         offset: int = 0,
         visibility_filter: str | None = None,
         visible_contents: list[str] | None = None,
+        story_viewpoint: dict[str, Any] | None = None,
     ) -> DossierReadResponse:
         if visibility_filter not in {None, "public"}:
             raise ValidationError("档案可见性筛选仅支持 public")
@@ -517,6 +559,11 @@ class WorldObjectDossierService:
         )
         cutoff_index = None
         cutoff_error = None
+        story_view = None
+        allow_story_override = False
+        author_full = visibility_filter is None and (
+            story_viewpoint is None or story_viewpoint.get("kind") == "author"
+        )
         if as_of_scene_id is not None:
             scenes = await self._anchor_scenes(db, nid)
             cutoff_index, cutoff_error = resolve_anchor(
@@ -526,15 +573,34 @@ class WorldObjectDossierService:
             )
             if cutoff_error or cutoff_index is None:
                 raise ValidationError("截止 Scene 锚点无效，无法读取该时点档案")
+            if author_full:
+                settings = await read_object_dossier_settings(db, str(nid))
+                allow_story_override = bool(settings["allow_story_override"])
+            if author_full and any(
+                _validity_from_row(row) is not None and row.story_field_key
+                for row in entries
+            ):
+                story_view = await get(STORY_SCENE_SOURCE).get_scene_state_view(
+                    db,
+                    str(nid),
+                    as_of_scene_id,
+                    viewpoint=story_viewpoint or {"kind": "author"},
+                    include_dimensions=["entities"],
+                )
         result = []
         for row in entries:
             validity = _validity_from_row(row)
             anchor_problem = cutoff_error
             effective: bool | None = True if validity is None else None
+            validity_conflict = False
+            story_override_applied = False
+            validity_gap = anchor_problem
+            story_observation = None
             if validity and as_of_scene_id is not None:
                 resolved = resolve_validity(validity, scenes)
                 if not resolved.valid:
                     anchor_problem = resolved.reason
+                    validity_gap = resolved.reason or "author_interval_anchor_invalid"
                     effective = False
                 elif cutoff_index is None:
                     effective = False
@@ -546,7 +612,42 @@ class WorldObjectDossierService:
                         resolved.end_scene_index is None
                         or cutoff_index <= resolved.end_scene_index
                     )
-                if not effective and anchor_problem is None:
+                if validity and author_full and anchor_problem is None:
+                    if not row.story_field_key:
+                        validity_gap = "story_field_alignment_not_declared"
+                    elif story_view is None:
+                        validity_gap = "story_state_unavailable"
+                    else:
+                        observation = exact_story_field_observation(
+                            story_view,
+                            novel_id=str(nid),
+                            cutoff_scene_id=as_of_scene_id,
+                            entity_id=str(entity.id),
+                            entity_type=entity.entity_type,
+                            field_key=row.story_field_key,
+                            cutoff_scene_index=int(cutoff_index),
+                        )
+                        validity_gap = observation.gap
+                        if (
+                            observation.gap is None
+                            and (observation.value == row.content) != effective
+                        ):
+                            validity_conflict = True
+                            story_observation = {
+                                "event_id": observation.event_id,
+                                "scene_index": observation.scene_index,
+                                "source_refs": observation.source_refs or [],
+                                "author_confirmed": observation.author_confirmed,
+                            }
+                            if allow_story_override:
+                                effective = observation.value == row.content
+                                story_override_applied = True
+                                validity_gap = None
+                if (
+                    not effective
+                    and anchor_problem is None
+                    and not story_override_applied
+                ):
                     continue
             result.append(
                 _entry_response(
@@ -570,6 +671,10 @@ class WorldObjectDossierService:
                     ),
                     anchor_problem=anchor_problem,
                     effective_at_cutoff=effective,
+                    validity_conflict=validity_conflict,
+                    story_override_applied=story_override_applied,
+                    validity_gap=validity_gap,
+                    story_observation=story_observation,
                 )
             )
         total_count = len(result)
@@ -590,6 +695,7 @@ class WorldObjectDossierService:
                     "entity_status": entity.status,
                     "visibility_filter": visibility_filter,
                     "as_of_scene_id": as_of_scene_id,
+                    "allow_story_override": allow_story_override,
                     "offset": page_offset,
                     "limit": page_limit,
                     "entries": payload,
@@ -605,6 +711,7 @@ class WorldObjectDossierService:
             as_of_scene_id=parse_uuid(as_of_scene_id, "scene_id")
             if as_of_scene_id
             else None,
+            allow_story_override=allow_story_override,
             offset=page_offset,
             limit=page_limit,
             entries=result,
@@ -1175,6 +1282,7 @@ class WorldObjectDossierService:
         facing_key: str,
         vocabulary_term_id: uuid.UUID | None,
         legacy_field_key: str | None,
+        story_field_key: str | None | object = _UNSET,
         content: str,
         tags: list[str],
         evidence: list[dict[str, Any]],
@@ -1207,6 +1315,13 @@ class WorldObjectDossierService:
             facing_key=facing_key,
             vocabulary_term_id=vocabulary_term_id,
             legacy_field_key=legacy_field_key,
+            story_field_key=(
+                previous.story_field_key
+                if story_field_key is _UNSET and previous is not None
+                else None
+                if story_field_key is _UNSET
+                else story_field_key
+            ),
             content=content,
             tags_json=tags,
             legacy_value_json=legacy_value_json,
@@ -1239,6 +1354,7 @@ class WorldObjectDossierService:
             db, nid, entity.entity_type, data.facing
         )
         self._validate_legacy_field(entity, data.facing, data.legacy_field_key)
+        await self._validate_story_field_key(db, entity, data.story_field_key)
         if data.legacy_field_key == "secret" and data.visibility != "secret":
             raise ValidationError("人物秘密档案必须保持秘密可见性")
         await self._validate_validity(db, nid, data.validity)
@@ -1253,6 +1369,7 @@ class WorldObjectDossierService:
             facing_key=facing_key,
             vocabulary_term_id=data.facing.term_id,
             legacy_field_key=data.legacy_field_key,
+            story_field_key=data.story_field_key,
             content=data.content,
             tags=data.tags,
             evidence=[ref.model_dump(mode="json") for ref in data.evidence],
@@ -1280,6 +1397,7 @@ class WorldObjectDossierService:
             db, entity.novel_id, entity.entity_type, data.facing
         )
         self._validate_legacy_field(entity, data.facing, data.legacy_field_key)
+        await self._validate_story_field_key(db, entity, data.story_field_key)
         if data.legacy_field_key == "secret" and data.visibility != "secret":
             raise ValidationError("人物秘密档案必须保持秘密可见性")
         await self._validate_validity(db, entity.novel_id, data.validity)
@@ -1288,6 +1406,7 @@ class WorldObjectDossierService:
             "entity_id": str(entity.id),
             "facing_label": facing_label,
             "legacy_field_key": data.legacy_field_key,
+            "story_field_key": data.story_field_key,
             "content": data.content,
             "visibility": data.visibility,
             "validity": data.validity.model_dump(mode="json") if data.validity else None,
@@ -1330,6 +1449,7 @@ class WorldObjectDossierService:
             raise ConflictError("档案已变化，请刷新后重试", code="dossier_revision_stale")
         values = self._updated_values(row, data)
         await self._validate_validity(db, entity.novel_id, values["validity"])
+        await self._validate_story_field_key(db, entity, values["story_field_key"])
         return {
             "target_key": f"world_dossier:{entity.id}:{row.entry_group_id}",
             "entity_id": str(entity.id),
@@ -1340,6 +1460,7 @@ class WorldObjectDossierService:
                 "content": values["content"],
                 "tags": values["tags"],
                 "visibility": values["visibility"],
+                "story_field_key": values["story_field_key"],
             },
             "effect": "作者确认后追加修订；旧版本保留，可从历史恢复。",
         }
@@ -1369,6 +1490,11 @@ class WorldObjectDossierService:
                 raise ValidationError("档案可见性不能清空")
             visibility = data.visibility
         validity = data.validity if "validity" in fields_set else _validity_from_row(row)
+        story_field_key = (
+            data.story_field_key
+            if "story_field_key" in fields_set
+            else row.story_field_key
+        )
         return {
             "content": content,
             "tags": tags,
@@ -1376,6 +1502,7 @@ class WorldObjectDossierService:
             "quote_text": quote_text,
             "visibility": visibility,
             "validity": validity,
+            "story_field_key": story_field_key,
         }
 
     async def update_entry(
@@ -1411,6 +1538,7 @@ class WorldObjectDossierService:
             and values["quote_text"] == row.quote_text
             and values["visibility"] == row.visibility
             and values["validity"] == _validity_from_row(row)
+            and values["story_field_key"] == row.story_field_key
         ):
             if row.facing_kind == "project":
                 _term, revision = await self._vocabulary_record(
@@ -1421,6 +1549,7 @@ class WorldObjectDossierService:
                 label = CORE_FACING_LABELS.get(row.facing_key, row.facing_key)
             return _entry_response(row, facing_label=label)
         await self._validate_validity(db, nid, values["validity"])
+        await self._validate_story_field_key(db, entity, values["story_field_key"])
         if row.legacy_field_key == "secret" and values["visibility"] != "secret":
             raise ValidationError("人物秘密档案必须保持秘密可见性")
         if row.facing_kind == "project":
@@ -1444,6 +1573,7 @@ class WorldObjectDossierService:
             facing_key=row.facing_key,
             vocabulary_term_id=row.vocabulary_term_id,
             legacy_field_key=row.legacy_field_key,
+            story_field_key=values["story_field_key"],
             content=values["content"],
             tags=values["tags"],
             evidence=values["evidence"],
@@ -1552,6 +1682,7 @@ class WorldObjectDossierService:
             facing_key=selected.facing_key,
             vocabulary_term_id=selected.vocabulary_term_id,
             legacy_field_key=selected.legacy_field_key,
+            story_field_key=selected.story_field_key,
             content=selected.content,
             tags=selected.tags_json or [],
             evidence=selected.source_refs_json or [],
@@ -1790,9 +1921,17 @@ class WorldObjectDossierService:
                     raise ValidationError("模板字段 key 不能重复")
                 seen_keys.add(item.key)
                 submitted_key_facings[item.key] = identity
+        if normalized_type in SUPPORTED_ENTITY_TYPES and data.state_fields:
+            raise ValidationError("内置对象类型不能声明自定义文字状态字段")
+        state_field_keys = [item.key for item in data.state_fields]
+        if len(state_field_keys) != len(set(state_field_keys)):
+            raise ValidationError("文字状态字段 key 不能重复")
         snapshot = {
             "format_version": 1,
             "fields": [field.model_dump(mode="json") for field in data.fields],
+            "state_fields": [
+                field.model_dump(mode="json") for field in data.state_fields
+            ],
             "display_schema": data.display_schema,
         }
         template = (
@@ -1850,7 +1989,11 @@ class WorldObjectDossierService:
             template = EntityProfileTemplate(
                 novel_id=nid,
                 profile_type=normalized_type,
-                template_schema_json={"format_version": 1, "fields": snapshot["fields"]},
+                template_schema_json={
+                    "format_version": 1,
+                    "fields": snapshot["fields"],
+                    "state_fields": snapshot["state_fields"],
+                },
                 display_schema_json=data.display_schema,
                 version_number=1,
                 status="active",
@@ -1873,6 +2016,8 @@ class WorldObjectDossierService:
             )
             if (
                 template.template_schema_json.get("fields", []) == snapshot["fields"]
+                and template.template_schema_json.get("state_fields", [])
+                == snapshot["state_fields"]
                 and template.display_schema_json == data.display_schema
             ):
                 if current is None:
@@ -1883,6 +2028,7 @@ class WorldObjectDossierService:
                     revision_id=current.id,
                     version_number=template.version_number,
                     fields=data.fields,
+                    state_fields=data.state_fields,
                     display_schema=template.display_schema_json or {},
                     updated_at=template.updated_at,
                 )
@@ -1890,6 +2036,7 @@ class WorldObjectDossierService:
             template.template_schema_json = {
                 "format_version": 1,
                 "fields": snapshot["fields"],
+                "state_fields": snapshot["state_fields"],
             }
             template.display_schema_json = data.display_schema
             template.version_number = revision_number
@@ -1913,6 +2060,7 @@ class WorldObjectDossierService:
             revision_id=revision.id,
             version_number=revision_number,
             fields=data.fields,
+            state_fields=data.state_fields,
             display_schema=data.display_schema,
             updated_at=template.updated_at,
         )
@@ -1938,6 +2086,11 @@ class WorldObjectDossierService:
             if identity in identities:
                 raise ValidationError("模板不能重复登记同一面向")
             identities.add(identity)
+        state_field_keys = [item.key for item in data.state_fields]
+        if len(state_field_keys) != len(set(state_field_keys)):
+            raise ValidationError("文字状态字段 key 不能重复")
+        if normalized_type in SUPPORTED_ENTITY_TYPES and data.state_fields:
+            raise ValidationError("内置对象类型不能声明自定义文字状态字段")
         template = await db.scalar(
             select(EntityProfileTemplate).where(
                 EntityProfileTemplate.novel_id == nid,
@@ -1956,11 +2109,15 @@ class WorldObjectDossierService:
             current_version = template.version_number
         after = {
             "fields": [item.model_dump(mode="json") for item in data.fields],
+            "state_fields": [item.model_dump(mode="json") for item in data.state_fields],
             "display_schema": data.display_schema,
         }
         current_snapshot = (
             {
                 "fields": (template.template_schema_json or {}).get("fields", []),
+                "state_fields": (template.template_schema_json or {}).get(
+                    "state_fields", []
+                ),
                 "display_schema": template.display_schema_json or {},
             }
             if template is not None
@@ -2003,15 +2160,78 @@ class WorldObjectDossierService:
             DossierTemplateField.model_validate(item)
             for item in (revision.snapshot_json.get("fields") or [])
         ]
+        state_fields = [
+            DossierStateField.model_validate(item)
+            for item in (revision.snapshot_json.get("state_fields") or [])
+        ]
         return DossierTemplateResponse(
             profile_type=normalized_type,
             template_id=template.id,
             revision_id=revision.id,
             version_number=revision.version_number,
             fields=fields,
+            state_fields=state_fields,
             display_schema=revision.snapshot_json.get("display_schema", {}),
             updated_at=template.updated_at,
         )
+
+    async def require_custom_text_state_field(
+        self,
+        db: AsyncSession,
+        novel_id: str,
+        entity_id: str,
+        field_key: str,
+        expected_version_number: int,
+    ) -> dict[str, Any]:
+        """Resolve an author write against the current World declaration.
+
+        Story owns the resulting value. World only verifies that the canonical
+        custom object and the exact field declaration still match the author's
+        submitted template revision.
+        """
+        entity = await self._entity(
+            db, novel_id, entity_id, lock=True, require_canonical=True
+        )
+        if entity.entity_type in SUPPORTED_ENTITY_TYPES:
+            raise ValidationError("内置对象类型不接受自定义文字状态字段")
+        template = await db.scalar(
+            select(EntityProfileTemplate).where(
+                EntityProfileTemplate.novel_id == entity.novel_id,
+                EntityProfileTemplate.profile_type == entity.entity_type,
+                EntityProfileTemplate.status == "active",
+            )
+        )
+        if template is None:
+            raise NotFoundError("该自定义对象类型尚未声明文字状态字段")
+        if template.version_number != expected_version_number:
+            raise ConflictError(
+                "对象类型模板已变化，请重新读取后核对状态字段",
+                code="dossier_template_stale",
+            )
+        revision = await db.scalar(
+            select(EntityProfileTemplateRevision).where(
+                EntityProfileTemplateRevision.novel_id == entity.novel_id,
+                EntityProfileTemplateRevision.template_id == template.id,
+                EntityProfileTemplateRevision.version_number == template.version_number,
+            )
+        )
+        if revision is None:
+            raise ConflictError("对象类型模板当前修订缺失，请核对数据")
+        fields = [
+            DossierStateField.model_validate(item)
+            for item in (revision.snapshot_json or {}).get("state_fields", [])
+        ]
+        field = next((item for item in fields if item.key == field_key), None)
+        if field is None:
+            raise ValidationError("该文字状态字段已从对象类型模板移除")
+        return {
+            "entity_id": str(entity.id),
+            "entity_type": entity.entity_type,
+            "entity_name": entity.name,
+            "template_id": str(template.id),
+            "template_version_number": template.version_number,
+            "field": field.model_dump(mode="json"),
+        }
 
     async def template_history(
         self, db: AsyncSession, novel_id: str, profile_type: str

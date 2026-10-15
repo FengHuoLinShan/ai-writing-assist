@@ -1310,6 +1310,9 @@ class EntityRelationRepository:
             else None,
             quote=data.quote,
             review_meta=data.review_meta or {},
+            validity_json=data.validity.model_dump(mode="json")
+            if data.validity is not None
+            else None,
             status=data.status or "canonical",
         )
         db.add(rel)
@@ -1827,6 +1830,12 @@ class EntityRelationRepository:
             value = getattr(data, field, None)
             if value is not None:
                 update_values[field] = value
+        if "validity" in data.model_fields_set:
+            update_values["validity_json"] = (
+                data.validity.model_dump(mode="json")
+                if data.validity is not None
+                else None
+            )
 
         if update_values:
             for field, value in update_values.items():

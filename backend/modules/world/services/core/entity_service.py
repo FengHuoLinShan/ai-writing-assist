@@ -47,6 +47,7 @@ from modules.world.services.core.entity_revision_service import (
     diff_revision_snapshots,
     entity_state_dict,
 )
+from modules.world.validity import validate_changed_alias_intervals
 from shared.constants import DEFAULT_PAGE_SIZE, MAX_PAGE_SIZE
 
 logger = logging.getLogger(__name__)
@@ -112,6 +113,11 @@ class WorldEntityService(
                         ),
                     )
                 }
+            )
+            await validate_changed_alias_intervals(
+                db,
+                novel_id,
+                (data.content_json or {}).get("aliases") or [],
             )
 
         if data.status == "canonical" and not _validation_prechecked:
@@ -542,6 +548,11 @@ class WorldEntityService(
                 else None,
             )
             original = existing.content_json or {}
+            await validate_changed_alias_intervals(
+                db,
+                novel_id,
+                submitted.get("aliases") or [],
+            )
             original_ref = (original.get("_meta") or {}).get("evolution_ref")
             if original_ref:
                 submitted["_meta"] = {

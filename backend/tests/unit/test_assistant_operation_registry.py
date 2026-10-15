@@ -511,6 +511,73 @@ C4_SCENE_DIRECTOR_OPERATIONS = {
     "story.scene_director.advance",
     "story.scene_director.save_reference",
 }
+C0C_VALIDITY_OPERATIONS = {
+    "project.object_validity_settings.read",
+    "project.object_validity_settings.edit",
+    "story.custom_text_state.confirm",
+    "story.map_declaration_state.confirm",
+    "world.relations.read",
+}
+# Preserve the pre-C0c snapshot above. These seven contracts were deliberately
+# versioned after the response or nested request shape changed.
+C0C_REVISED_SNAPSHOT = {
+    "world.dossier.read": (
+        "读取对象档案",
+        "read",
+        "2",
+        "c6fa145e02df9d5ee1a91df7998c6db46d6f3dc7caa7072f63eacf44159e7f59",
+    ),
+    "world.dossier.history.read": (
+        "读取对象档案历史",
+        "read",
+        "2",
+        "5556705289373ce29fc0458583b2da5b775b0083bd867e34f10af9223e4d1368",
+    ),
+    "world.dossier.template.read": (
+        "读取对象档案模板",
+        "read",
+        "2",
+        "f701fcd49fdb3a4ac35e21066d7905bc8c271b89d84289a46bf61428f5e749e8",
+    ),
+    "world.dossier.entry.create": (
+        "新增对象档案条目",
+        "confirm",
+        "2",
+        "8948846dc0937dfedfdd6b71a5304b4e5220a05f51003e5ab4515cb74b3b9ab9",
+    ),
+    "world.dossier.entry.edit": (
+        "修订对象档案条目",
+        "confirm",
+        "2",
+        "9635228d35bf69ac98d3af12a780456b33e2adf186d4953aac9fa6bf3aa9e817",
+    ),
+    "world.dossier.entry.restore": (
+        "恢复对象档案历史版本",
+        "confirm",
+        "2",
+        "b4169b8499b5f94b51fef9ed0dad43b05adc3ec62d4414d1bbf06875dc60cb65",
+    ),
+    "world.dossier.template.edit": (
+        "修订对象档案模板",
+        "confirm",
+        "3",
+        "ddd8aecd41124a23a4b56a6fba78f0b566defe95ee6dcfbe911a3dfd2d4c13ca",
+    ),
+}
+
+
+def _pre_c0c_manifest():
+    from modules.assistant.operations import operation_manifest
+
+    frozen = {
+        name: value
+        for name, value in operation_manifest().items()
+        if name not in C0C_VALIDITY_OPERATIONS
+    }
+    for name in C0C_REVISED_SNAPSHOT:
+        old = OPERATION_SNAPSHOT[name]
+        frozen[name] = {**frozen[name], "schema_hash": old[3], "revision": old[2]}
+    return frozen
 
 
 def test_bootstrap_operation_catalog_matches_snapshot():
@@ -524,6 +591,7 @@ def test_bootstrap_operation_catalog_matches_snapshot():
         | A1_FIRST_WAVE_OPERATIONS
         | C2_OBJECT_CONSUMER_OPERATIONS
         | C4_SCENE_DIRECTOR_OPERATIONS
+        | C0C_VALIDITY_OPERATIONS
     )
     mismatches = {
         name: {
@@ -533,7 +601,7 @@ def test_bootstrap_operation_catalog_matches_snapshot():
                 operation.revision,
                 fingerprint(operation.schema.model_json_schema()),
             ),
-            "expected": OPERATION_SNAPSHOT[name],
+            "expected": C0C_REVISED_SNAPSHOT.get(name, OPERATION_SNAPSHOT[name]),
         }
         for name, operation in catalog.items()
         if name in OPERATION_SNAPSHOT
@@ -543,7 +611,7 @@ def test_bootstrap_operation_catalog_matches_snapshot():
             operation.revision,
             fingerprint(operation.schema.model_json_schema()),
         )
-        != OPERATION_SNAPSHOT[name]
+        != C0C_REVISED_SNAPSHOT.get(name, OPERATION_SNAPSHOT[name])
     }
     assert not mismatches, mismatches
 
@@ -585,6 +653,7 @@ def test_catalog_v2_metadata_and_trace_inventory_match_runtime_schemas():
         + len(A1_FIRST_WAVE_OPERATIONS)
         + len(C2_OBJECT_CONSUMER_OPERATIONS)
         + len(C4_SCENE_DIRECTOR_OPERATIONS)
+        + len(C0C_VALIDITY_OPERATIONS)
     )
     assert set(operations) == set(manifest)
     for op_id, operation in operations.items():
@@ -606,50 +675,72 @@ def test_catalog_v2_metadata_and_trace_inventory_match_runtime_schemas():
 
 def test_v8_additions_do_not_appear_in_a_frozen_v7_directory():
     from app.bootstrap import register_container_services
-    from modules.assistant.operations import operation_manifest, resolve_operations
+    from modules.assistant.operations import resolve_operations
 
     register_container_services()
     frozen_v7 = {
         name: value
-        for name, value in operation_manifest().items()
+        for name, value in _pre_c0c_manifest().items()
         if name
         not in A1_FIRST_WAVE_OPERATIONS
         | C2_OBJECT_CONSUMER_OPERATIONS
         | C4_SCENE_DIRECTOR_OPERATIONS
     }
     resolved = resolve_operations(frozen_v7, allow_stale=True)
-    assert set(resolved) == set(OPERATION_SNAPSHOT)
+    assert set(resolved) == set(OPERATION_SNAPSHOT) - set(C0C_REVISED_SNAPSHOT)
     assert not (set(resolved) & A1_FIRST_WAVE_OPERATIONS)
 
 
 def test_v9_additions_do_not_appear_in_a_frozen_v8_directory():
     from app.bootstrap import register_container_services
-    from modules.assistant.operations import operation_manifest, resolve_operations
+    from modules.assistant.operations import resolve_operations
 
     register_container_services()
     frozen_v8 = {
         name: value
-        for name, value in operation_manifest().items()
+        for name, value in _pre_c0c_manifest().items()
         if name not in C2_OBJECT_CONSUMER_OPERATIONS | C4_SCENE_DIRECTOR_OPERATIONS
     }
     resolved = resolve_operations(frozen_v8, allow_stale=True)
-    assert set(resolved) == set(OPERATION_SNAPSHOT) | A1_FIRST_WAVE_OPERATIONS
+    assert (
+        set(resolved)
+        == (set(OPERATION_SNAPSHOT) - set(C0C_REVISED_SNAPSHOT))
+        | A1_FIRST_WAVE_OPERATIONS
+    )
 
 
 def test_v10_additions_do_not_appear_in_a_frozen_v9_directory():
     from app.bootstrap import register_container_services
-    from modules.assistant.operations import operation_manifest, resolve_operations
+    from modules.assistant.operations import resolve_operations
 
     register_container_services()
     frozen_v9 = {
         name: value
-        for name, value in operation_manifest().items()
+        for name, value in _pre_c0c_manifest().items()
         if name not in C4_SCENE_DIRECTOR_OPERATIONS
     }
     resolved = resolve_operations(frozen_v9, allow_stale=True)
     assert set(resolved) == (
-        set(OPERATION_SNAPSHOT) | A1_FIRST_WAVE_OPERATIONS | C2_OBJECT_CONSUMER_OPERATIONS
+        (set(OPERATION_SNAPSHOT) - set(C0C_REVISED_SNAPSHOT))
+        | A1_FIRST_WAVE_OPERATIONS
+        | C2_OBJECT_CONSUMER_OPERATIONS
     )
+
+
+def test_c0c_revised_operations_fail_closed_for_old_frozen_manifests():
+    import pytest
+
+    from app.bootstrap import register_container_services
+    from core.errors import ConflictError
+    from modules.assistant.operations import resolve_operations
+
+    register_container_services()
+    frozen_v10 = _pre_c0c_manifest()
+    assert not set(resolve_operations(frozen_v10, allow_stale=True)) & set(
+        C0C_REVISED_SNAPSHOT
+    )
+    with pytest.raises(ConflictError, match="工具版本不可用"):
+        resolve_operations(frozen_v10)
 
 
 def test_inline_operation_metadata_requires_an_explicit_schema_trace_policy():

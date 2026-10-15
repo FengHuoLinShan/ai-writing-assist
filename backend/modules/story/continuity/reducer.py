@@ -53,11 +53,27 @@ def _apply_entity_event(entities: dict, changes: list, event: Any) -> None:
 def _apply_relation_event(relations: list, changes: list, event: Any) -> None:
     event_type = str(event.event_type)
     after = _event_payload(event)
+    for key in ("scene_index", "scene_sequence"):
+        value = getattr(event, key, None)
+        if isinstance(value, int) and not isinstance(value, bool):
+            after.setdefault(key, value)
     if event_type == EventType.relation_ended:
         relation_id = after.get("relation_id") or after.get("id")
-        relations[:] = [r for r in relations if r.get("id") != relation_id]
+        ended = next(
+            (item for item in relations if str(item.get("id")) == str(relation_id)),
+            {},
+        )
+        relations[:] = [r for r in relations if str(r.get("id")) != str(relation_id)]
+        changes.append(
+            {
+                **ended,
+                **after,
+                "id": str(relation_id),
+                "relation_status": "ended",
+            }
+        )
     elif event_type == EventType.relation_established:
-        relations.append(after)
+        relations.append({**after, "relation_status": "active"})
     else:
         changes.append(after)
 

@@ -6,6 +6,16 @@
 <template>
   <div>
     <p class="world-list-description">管理世界对象与人物之间的关系。</p>
+    <div class="world-relation-validity-filter">
+      <label for="world-relation-validity-scene">按 Scene 核对作者有效期</label>
+      <select id="world-relation-validity-scene" v-model="validitySceneId" @change="onValiditySceneChanged">
+        <option value="">不读取 Story 有效期结果</option>
+        <option v-for="scene in scenes" :key="scene.id" :value="scene.id">{{ scene.title || `第 ${scene.scene_index ?? '?'} 场` }}</option>
+      </select>
+      <button v-if="validitySceneId" type="button" class="btn btn-sm" :disabled="validityLoading" @click="loadSceneRelations">{{ validityLoading ? '核对中…' : '重新核对' }}</button>
+      <span v-if="sceneResult?.allow_story_override" role="status">剧情覆盖已开启</span>
+      <p v-if="validityError" class="error-card" role="alert">{{ validityError }}</p>
+    </div>
 
     <form class="review-search-bar world-canonical-search" role="search" aria-label="查找已采用关系" @submit.prevent="applySearch">
       <label class="world-review-quick-label" for="world-relation-search">查找关系</label>
@@ -22,14 +32,14 @@
     </form>
 
     <!-- 错误态 -->
-    <div v-if="relationsLoadError && !relations.length" class="error-card" role="alert">
+    <div v-if="relationsLoadError && !shownRelations.length" class="error-card" role="alert">
       <strong>关系暂时没有加载出来</strong>
       <p>{{ relationsLoadError }}</p>
       <button class="btn btn-sm" type="button" @click="retryLoad">重新加载</button>
     </div>
 
     <!-- 空态 -->
-    <div v-else-if="!relations.length" class="empty-state">
+    <div v-else-if="!shownRelations.length" class="empty-state">
       <p>{{ session.relationListFilters.q ? "没有找到匹配的关系。" : "还没有建立人物关系。" }}</p>
       <p class="world-text-dim">
         {{ session.relationListFilters.q ? "换个关键词，或清除搜索查看全部。" : "关系网可以帮助你梳理角色之间的恩怨情仇。" }}
@@ -39,7 +49,7 @@
     <!-- 关系列表 -->
     <template v-else>
       <p class="world-review-result-summary" role="status">
-        当前结果：{{ relationsTotal }} 条关系
+        当前结果：{{ shownTotal }} 条关系
       </p>
 
       <WorldBulkToolbar
@@ -69,7 +79,7 @@
           </tr>
         </thead>
         <tbody>
-          <tr v-for="r in relations" :key="r.id || r.relationship_id" :data-id="r.id || r.relationship_id">
+            <tr v-for="r in shownRelations" :key="r.id || r.relationship_id" :data-id="r.id || r.relationship_id">
             <td class="selection-cell">
                 <WorldSelectionInput mode="one" scope="world-relations" :id="r.id || r.relationship_id" :label="`选择关系 ${detailTypeLabel(reviewTypeCatalog, 'relation', r.relation_type)}`" />
             </td>
@@ -80,7 +90,12 @@
             </td>
             <td class="world-table-cell--type" data-label="目标对象">{{ targetNameOf(r) }}</td>
             <td data-label="状态"><span class="badge" :class="statusBadgeClass(r)">{{ statusLabelOf(r) }}</span></td>
-            <td class="world-table-cell--dim world-table-cell--ellipsis" data-label="描述">{{ r.description || "未填写" }}</td>
+            <td class="world-table-cell--dim world-table-cell--ellipsis" data-label="描述">
+              {{ r.description || "未填写" }}
+              <p v-if="r.validity" class="world-text-dim">已设置作者生效范围</p>
+                <p v-if="validitySceneId && r.effective_at_cutoff === false && !r.story_override_applied" class="world-relation-validity-result" role="status">该关系在所选 Scene 不处于作者有效期。</p>
+                <p v-if="r.validity_conflict || r.validity_gap" class="world-relation-validity-result" role="status">{{ relationValidityLabel(r) }}</p>
+            </td>
             <td class="world-table-cell--dim" data-label="来源与证据">
               <template v-if="authorEvidencePairs(r).length">
                 <details class="world-canonical-evidence"><summary>查看依据</summary>
@@ -106,7 +121,7 @@
       </table>
 
       <WorldPager
-        :total="relationsTotal"
+        :total="shownTotal"
         :skip="session.relationListFilters.skip"
         :limit="session.relationListFilters.limit"
         prev-action="prev-relations-page"
@@ -118,8 +133,9 @@
 </template>
 
 <script setup>
-import { computed, ref, watch } from "vue"
-import { getRouter, getConfirmAction, getToast } from "../../../bridge/index.js"
+import { computed, onBeforeUnmount, ref, watch } from "vue"
+import { getApi, getRouter, getConfirmAction, getToast } from "../../../bridge/index.js"
+import { validityGapLabel } from "../logic/validityLabels.js"
 import { worldSession as session } from "../worldSession.js"
 import { deleteRelation, inlineRelationEvidencePairs as relationEvidencePairs, syncRelationsAliasesRegistry, runCanonicalBulkAction, showRelationReviewEditForm } from "../logic/worldRelationsAliasesOps.js"
 import { selectedItemsFrom, getBulkSelection, reconcileBulkSelection } from "../logic/worldBulkSelection.js"
@@ -140,17 +156,26 @@ const props = defineProps({
 })
 
 const searchQuery = ref(session.relationListFilters.q || "")
+const scenes = ref([])
+const validitySceneId = ref("")
+const validityLoading = ref(false)
+const validityError = ref("")
+const sceneResult = ref(null)
+let validityRequest = 0
+let scenesRequest = 0
+const shownRelations = computed(() => validitySceneId.value ? (sceneResult.value?.items || []) : props.relations)
+const shownTotal = computed(() => validitySceneId.value ? (sceneResult.value?.total ?? 0) : props.relationsTotal)
 watch(() => session.relationListFilters.q, (value) => {
   searchQuery.value = value || ""
 })
 
 // 注册表同步（供 ops 操作查找）
-watch(() => [props.relations, props.reviewTypeCatalog], ([items, reviewTypeCatalog]) => {
+watch(() => [shownRelations.value, props.reviewTypeCatalog], ([items, reviewTypeCatalog]) => {
   syncRelationsAliasesRegistry({ relations: items, reviewTypeCatalog })
 }, { immediate: true, deep: true })
 
 const relationIds = computed(() => (
-  props.relations.map((r) => r.id || r.relationship_id).filter(Boolean)
+  shownRelations.value.map((r) => r.id || r.relationship_id).filter(Boolean)
 ))
 watch(relationIds, (ids) => reconcileBulkSelection("world-relations", ids), { immediate: true })
 
@@ -198,6 +223,12 @@ function statusBadgeClass(r) {
   return displayStateBadgeClass(display.displayState)
 }
 
+function relationValidityLabel(relation) {
+  if (relation.story_override_applied) return "可信的同一关系状态观察已覆盖作者有效期。"
+  if (relation.validity_conflict) return "Story 关系观察与作者有效期冲突；当前按作者有效期读取。"
+  return validityGapLabel(relation.validity_gap)
+}
+
 function onDeleteRelation(id) {
   deleteRelation(id)
 }
@@ -210,16 +241,18 @@ function onPageChange(delta) {
   const filters = session.relationListFilters
   const newSkip = filters.skip + delta * filters.limit
   if (newSkip < 0) return
-  if (newSkip >= props.relationsTotal) return
+  if (newSkip >= shownTotal.value) return
   filters.skip = newSkip
-  navigateRelations(filters)
+  if (validitySceneId.value) void loadSceneRelations()
+  else navigateRelations(filters)
 }
 
 function applySearch() {
   const filters = session.relationListFilters
   filters.q = searchQuery.value.trim()
   filters.skip = 0
-  navigateRelations(filters)
+  if (validitySceneId.value) void loadSceneRelations()
+  else navigateRelations(filters)
 }
 
 function clearSearch() {
@@ -235,10 +268,67 @@ function retryLoad() {
   getRouter()?.refresh?.()
 }
 
+async function loadScenes(projectId = props.projectId) {
+  if (!projectId) return
+  const requestId = ++scenesRequest
+  try {
+    const result = await getApi().outline.listScenesOrdered(projectId)
+    if (projectId !== props.projectId || requestId !== scenesRequest) return
+    scenes.value = Array.isArray(result) ? result : result?.items || []
+  } catch (error) {
+    if (projectId === props.projectId && requestId === scenesRequest) validityError.value = error?.message || "Scene 列表暂时无法读取。"
+  }
+}
+
+async function loadSceneRelations() {
+  if (!props.projectId || !validitySceneId.value) return
+  const projectId = props.projectId
+  const sceneId = validitySceneId.value
+  const requestId = ++validityRequest
+  validityLoading.value = true
+  validityError.value = ""
+  try {
+    const filters = session.relationListFilters
+    const result = await getApi().world.listRelationships({
+      novel_id: projectId,
+      as_of_scene_id: sceneId,
+      status: filters.status || undefined,
+      relation_type: filters.relation_type || undefined,
+      relation_kind: filters.relation_kind || undefined,
+      q: filters.q || undefined,
+      source_chapter_id: filters.source_chapter_id || undefined,
+      strength_min: filters.strength_min ?? undefined,
+      strength_max: filters.strength_max ?? undefined,
+      skip: filters.skip || 0,
+      limit: filters.limit || 50,
+    })
+    if (projectId !== props.projectId || sceneId !== validitySceneId.value || requestId !== validityRequest) return
+    sceneResult.value = result
+  } catch (error) {
+    if (projectId === props.projectId && sceneId === validitySceneId.value && requestId === validityRequest) {
+      validityError.value = error?.message || "关系有效期暂时无法核对。"
+    }
+  } finally {
+    if (projectId === props.projectId && sceneId === validitySceneId.value && requestId === validityRequest) validityLoading.value = false
+  }
+}
+
+function onValiditySceneChanged() {
+  validityRequest += 1
+  validityError.value = ""
+  if (!validitySceneId.value) {
+    sceneResult.value = null
+    validityLoading.value = false
+    return
+  }
+  sceneResult.value = null
+  void loadSceneRelations()
+}
+
 function onBulkAction(action) {
   const scope = "world-relations"
   const selection = getBulkSelection(scope)
-  const items = selectedItemsFrom(props.relations, selection, (r) => r.id || r.relationship_id)
+  const items = selectedItemsFrom(shownRelations.value, selection, (r) => r.id || r.relationship_id)
   if (!items.length) {
     getToast()("请先选择要处理的项目", "warning")
     return
@@ -258,5 +348,52 @@ function onBulkAction(action) {
   )
 }
 
+watch(() => props.projectId, (projectId) => {
+  scenesRequest += 1
+  validityRequest += 1
+  validitySceneId.value = ""
+  scenes.value = []
+  sceneResult.value = null
+  validityError.value = ""
+  validityLoading.value = false
+  if (projectId) void loadScenes(projectId)
+}, { immediate: true })
+watch(() => props.relations, () => {
+  if (validitySceneId.value) void loadSceneRelations()
+  else sceneResult.value = null
+}, { deep: true })
+onBeforeUnmount(() => { validityRequest += 1 })
+
 
 </script>
+
+<style scoped>
+.world-relation-validity-filter {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin: 8px 0 12px;
+}
+
+.world-relation-validity-filter label {
+  color: var(--text-secondary);
+  font-size: 12px;
+}
+
+.world-relation-validity-filter select {
+  min-width: min(260px, 100%);
+  max-width: 100%;
+}
+
+.world-relation-validity-filter p {
+  flex-basis: 100%;
+  margin: 0;
+}
+
+.world-relation-validity-result {
+  margin: 4px 0 0;
+  color: var(--warning, #8a5b00);
+  white-space: normal;
+}
+</style>

@@ -5,7 +5,10 @@
         <h3>对象档案</h3>
         <p>长期设定按面向记录；本场发生的变化仍以 Story 时点状态为准。</p>
       </div>
-      <button type="button" class="btn btn-sm" :disabled="loading || Boolean(busyKey)" @click="loadAll({ confirmDiscard: true })">重新读取</button>
+      <div class="object-dossier-editor__read-controls">
+        <label><span>按 Scene 截止读取</span><select v-model="readCutoffSceneId" :disabled="loading || Boolean(busyKey)"><option value="">不限定 Scene</option><option v-for="scene in scenes" :key="scene.id" :value="scene.id">{{ sceneLabel(scene) }}</option></select></label>
+        <button type="button" class="btn btn-sm" :disabled="loading || Boolean(busyKey)" @click="loadAll({ confirmDiscard: true })">重新读取</button>
+      </div>
     </header>
 
     <p v-if="loading" role="status">正在读取对象档案…</p>
@@ -16,6 +19,7 @@
       <p class="object-dossier-editor__coverage">
         已保存修订 {{ dossier.total_count }} 条；本次返回 {{ entries.length }} 条
         <template v-if="dossier.omitted_count">，另有 {{ dossier.omitted_count }} 条未显示</template>。
+        <template v-if="dossier.as_of_scene_id">本次按 Scene 截止；剧情覆盖设置{{ dossier.allow_story_override ? '已开启' : '关闭' }}。</template>
       </p>
 
       <div v-if="entries.length" class="object-dossier-editor__entries">
@@ -33,6 +37,9 @@
           </div>
           <p v-if="entry.validity" class="object-dossier-editor__meta">生效范围：{{ validityLabel(entry.validity) }}</p>
           <p v-if="entry.anchor_problem" class="object-dossier-editor__warning" role="status">生效范围暂无法核对：{{ entry.anchor_problem }}</p>
+          <p v-if="entry.validity_conflict && entry.story_override_applied" class="object-dossier-editor__warning" role="status">已绑定 Story 字段 {{ entry.story_field_key }}；可信的同字段观察已在本 Scene 截止点覆盖此作者条目。</p>
+          <p v-else-if="entry.validity_conflict" class="object-dossier-editor__warning" role="status">已绑定 Story 字段 {{ entry.story_field_key }}；观察与作者条目冲突，当前按作者有效期读取。</p>
+          <p v-if="entry.validity_gap" class="object-dossier-editor__warning" role="status">{{ entry.story_field_key ? `Story 字段 ${entry.story_field_key} 的来源或截止点暂不可核实` : '此档案未声明可核对的 Story 状态字段' }}：{{ validityGapLabel(entry.validity_gap) }}</p>
 
           <form v-if="editingId === entry.id" class="object-dossier-editor__form" @submit.prevent="saveEdit(entry)">
             <p v-if="conflict?.revisionId === entry.id" class="object-dossier-editor__warning" role="alert">
@@ -47,6 +54,7 @@
             <label><span>内容</span><textarea v-model="editDraft.content" rows="4" maxlength="20000" :disabled="readOnly || Boolean(busyKey)" /></label>
             <label><span>标签（用逗号分隔）</span><input v-model="editDraft.tagsText" maxlength="800" :disabled="readOnly || Boolean(busyKey)"></label>
             <label><span>可见范围</span><select v-model="editDraft.visibility" :disabled="readOnly || Boolean(busyKey)"><option value="public">公开</option><option value="secret">作者秘密</option></select></label>
+            <label v-if="templateStateFields.length || entry.story_field_key"><span>精确关联的 Story 文字状态字段</span><select v-model="editDraft.storyFieldKey" :disabled="readOnly || Boolean(busyKey)"><option value="">不绑定 Story 字段</option><option v-if="entry.story_field_key && !templateStateFields.some(field => field.key === entry.story_field_key)" :value="entry.story_field_key">{{ entry.story_field_key }} · 当前模板中未找到</option><option v-for="field in templateStateFields" :key="field.key" :value="field.key">{{ field.label }} · {{ field.key }}</option></select></label>
             <div class="object-dossier-editor__validity">
               <label><span>从哪场开始生效</span><select v-model="editDraft.startAnchor" :disabled="readOnly || Boolean(busyKey)"><option value="">全书</option><option v-if="editDraft.startAnchor && !sceneOptionExists(editDraft.startAnchor)" :value="editDraft.startAnchor">{{ anchorChoiceLabel(editDraft.startAnchor) }}</option><option v-for="scene in scenes" :key="scene.id" :value="`scene:${scene.id}`">{{ sceneLabel(scene) }}</option></select></label>
               <label><span>到哪场结束生效</span><select v-model="editDraft.endAnchor" :disabled="readOnly || Boolean(busyKey)"><option value="">持续至今</option><option v-if="editDraft.endAnchor && !sceneOptionExists(editDraft.endAnchor)" :value="editDraft.endAnchor">{{ anchorChoiceLabel(editDraft.endAnchor) }}</option><option v-for="scene in scenes" :key="scene.id" :value="`scene:${scene.id}`">{{ sceneLabel(scene) }}</option></select></label>
@@ -102,6 +110,7 @@
           <label><span>内容</span><textarea v-model="newDraft.content" rows="4" maxlength="20000" :disabled="Boolean(busyKey)" /></label>
           <label><span>标签（用逗号分隔）</span><input v-model="newDraft.tagsText" maxlength="800" :disabled="Boolean(busyKey)"></label>
           <label><span>可见范围</span><select v-model="newDraft.visibility" :disabled="Boolean(busyKey)"><option value="public">公开</option><option value="secret">作者秘密</option></select></label>
+          <label v-if="templateStateFields.length"><span>精确关联的 Story 文字状态字段</span><select v-model="newDraft.storyFieldKey" :disabled="Boolean(busyKey)"><option value="">不绑定 Story 字段</option><option v-for="field in templateStateFields" :key="field.key" :value="field.key">{{ field.label }} · {{ field.key }}</option></select></label>
           <div class="object-dossier-editor__validity">
             <label><span>从哪场开始生效</span><select v-model="newDraft.startSceneId" :disabled="Boolean(busyKey)"><option value="">全书</option><option v-for="scene in scenes" :key="scene.id" :value="scene.id">{{ sceneLabel(scene) }}</option></select></label>
             <label><span>到哪场结束生效</span><select v-model="newDraft.endSceneId" :disabled="Boolean(busyKey)"><option value="">持续至今</option><option v-for="scene in scenes" :key="scene.id" :value="scene.id">{{ sceneLabel(scene) }}</option></select></label>
@@ -135,6 +144,22 @@
             <button v-if="!readOnly" type="button" class="btn btn-sm" :disabled="Boolean(busyKey) || !templateFacingToAdd" @click="addTemplateField">添加字段</button>
             <details v-if="!readOnly"><summary>高级显示规则</summary><label><span>显示规则 JSON</span><textarea v-model="templateDisplaySchemaText" rows="3" aria-label="显示规则 JSON" /></label></details>
           </fieldset>
+          <fieldset class="object-dossier-editor__template-fields" :disabled="readOnly || Boolean(busyKey) || !customStateFieldsAllowed">
+            <legend>自定义时点状态字段（{{ templateStateFields.length }}）</legend>
+            <p class="object-dossier-editor__meta">这里只声明字段名称和稳定 key；本场的文字状态由作者在写作场景中确认后写入 Story，不参与确定性模拟。移除定义不会删除 Story 历史。</p>
+            <p v-if="!customStateFieldsAllowed" class="object-dossier-editor__meta">内置对象类型使用系统登记的状态字段；这里仅供项目自定义类型配置。</p>
+            <div v-for="(field, index) in templateStateFields" :key="field.key" class="object-dossier-editor__state-field">
+              <code :title="field.key">{{ field.key }}</code>
+              <input v-model="field.label" aria-label="自定义状态显示名称" maxlength="80" placeholder="字段名称">
+              <span>文字</span>
+              <button v-if="!readOnly" type="button" class="btn btn-sm btn-ghost" :disabled="Boolean(busyKey)" @click="removeStateField(index)">移除</button>
+            </div>
+            <div v-if="!readOnly && customStateFieldsAllowed" class="object-dossier-editor__state-field-add">
+              <label><span>稳定 key</span><input v-model="newStateField.key" maxlength="64" pattern="[a-z][a-z0-9_]*" placeholder="例如 condition" /></label>
+              <label><span>显示名称</span><input v-model="newStateField.label" maxlength="80" placeholder="例如封印状态" /></label>
+              <button type="button" class="btn btn-sm" :disabled="Boolean(busyKey) || !newStateField.key.trim() || !newStateField.label.trim()" @click="addStateField">添加文字字段</button>
+            </div>
+          </fieldset>
           <div v-if="!readOnly" class="object-dossier-editor__actions"><button type="button" class="btn btn-sm btn-primary" :disabled="Boolean(busyKey) || !templateDirty" @click="saveTemplate">{{ busyKey === 'template' ? '保存中…' : '保存模板' }}</button></div>
           <details class="object-dossier-editor__history" @toggle="event => event.target.open && loadTemplateHistory()">
             <summary>模板历史</summary>
@@ -152,16 +177,19 @@
 <script setup>
 import { computed, onBeforeUnmount, onMounted, reactive, ref, watch } from "vue"
 import { getApi, getConfirm } from "../../../bridge/index.js"
+import { validityGapLabel } from "../logic/validityLabels.js"
 
 const props = defineProps({
   entity: { type: Object, required: true },
   projectId: { type: String, required: true },
   readOnly: { type: Boolean, default: false },
 })
+const SYSTEM_ENTITY_TYPES = new Set(["character", "location", "faction", "organization", "species", "group", "item", "object", "event", "rule", "power_system", "secret", "legend", "resource", "concept", "creature", "skill", "ability", "artifact", "other"])
 const emit = defineEmits(["dirty", "saved"])
 const entityId = computed(() => props.entity?.id || props.entity?.entity_id || "")
 const typeLabel = computed(() => ({ character: "人物", location: "地点", item: "物件", faction: "势力", organization: "组织", rule: "规则", secret: "秘密" })[props.entity?.entity_type] || props.entity?.entity_type || "对象")
 const readOnly = computed(() => props.readOnly)
+const customStateFieldsAllowed = computed(() => !SYSTEM_ENTITY_TYPES.has(String(props.entity?.entity_type || "").toLowerCase()))
 const dossier = ref(null)
 const facets = ref([])
 const scenes = ref([])
@@ -173,8 +201,9 @@ const notice = ref("")
 const busyKey = ref("")
 const editingId = ref("")
 const editExpectedRevisionId = ref("")
-const editDraft = reactive({ content: "", tagsText: "", visibility: "public", startAnchor: "", endAnchor: "" })
-const newDraft = reactive({ facingKey: "", content: "", tagsText: "", visibility: "public", startSceneId: "", endSceneId: "" })
+const editDraft = reactive({ content: "", tagsText: "", visibility: "public", startAnchor: "", endAnchor: "", storyFieldKey: "" })
+const newDraft = reactive({ facingKey: "", content: "", tagsText: "", visibility: "public", startSceneId: "", endSceneId: "", storyFieldKey: "" })
+const readCutoffSceneId = ref("")
 const conflict = ref(null)
 const restoreTarget = ref(null)
 const restoreError = ref("")
@@ -188,9 +217,11 @@ const templateError = ref("")
 const templateSaved = ref(null)
 const templateConflict = ref(null)
 const templateFields = ref([])
+const templateStateFields = ref([])
 const templateDisplaySchemaText = ref("{}")
 const templateBaseline = ref("")
 const templateFacingToAdd = ref("")
+const newStateField = reactive({ key: "", label: "" })
 const templateHistory = ref([])
 const templateHistoryLoading = ref(false)
 const templateHistoryError = ref("")
@@ -202,16 +233,16 @@ const entries = computed(() => dossier.value?.entries || [])
 const selectedFacet = computed(() => facets.value.find((item) => facingKey(item.facing) === newDraft.facingKey) || null)
 const editDirty = computed(() => {
   const original = editingOriginal.value
-  return Boolean(original) && JSON.stringify({ content: editDraft.content, tagsText: editDraft.tagsText, visibility: editDraft.visibility, startAnchor: editDraft.startAnchor, endAnchor: editDraft.endAnchor }) !== JSON.stringify({ content: original.content, tagsText: tagsText(original.tags), visibility: original.visibility, startAnchor: anchorValue(original.validity?.start), endAnchor: anchorValue(original.validity?.end) })
+  return Boolean(original) && JSON.stringify({ content: editDraft.content, tagsText: editDraft.tagsText, visibility: editDraft.visibility, startAnchor: editDraft.startAnchor, endAnchor: editDraft.endAnchor, storyFieldKey: editDraft.storyFieldKey }) !== JSON.stringify({ content: original.content, tagsText: tagsText(original.tags), visibility: original.visibility, startAnchor: anchorValue(original.validity?.start), endAnchor: anchorValue(original.validity?.end), storyFieldKey: original.story_field_key || "" })
 })
-const newDraftDirty = computed(() => Boolean(newDraft.facingKey || newDraft.content.trim() || newDraft.tagsText.trim() || newDraft.startSceneId || newDraft.endSceneId || newDraft.visibility !== "public"))
+const newDraftDirty = computed(() => Boolean(newDraft.facingKey || newDraft.content.trim() || newDraft.tagsText.trim() || newDraft.startSceneId || newDraft.endSceneId || newDraft.visibility !== "public" || newDraft.storyFieldKey))
 const editingOriginal = computed(() => entries.value.find((item) => item.id === editingId.value) || null)
 const templateVersion = computed(() => template.value?.version_number ?? null)
 const templateDirty = computed(() => templateLoaded.value && templateSnapshot() !== templateBaseline.value)
 const availableTemplateFacets = computed(() => facets.value.filter((item) => !templateFields.value.some((field) => facingKey(field.facing) === facingKey(item.facing))))
 
 function current(token, projectId, id) { return token === generation && props.projectId === projectId && entityId.value === id }
-function resetData() {
+function resetData({ preserveCutoff = false } = {}) {
   generation += 1
   loadSequence += 1
   dossierReadSequence += 1
@@ -220,26 +251,28 @@ function resetData() {
   busyKey.value = ""; editingId.value = ""; editExpectedRevisionId.value = ""; conflict.value = null
   restoreTarget.value = null; restoreError.value = ""; historyByGroup.value = {}; historyErrors.value = {}; historyLoadingId.value = ""
   template.value = null; templateLoaded.value = false; templateLoading.value = false; templateError.value = ""; templateSaved.value = null; templateConflict.value = null
-  templateFields.value = []; templateDisplaySchemaText.value = "{}"; templateBaseline.value = ""; templateFacingToAdd.value = ""
+  templateFields.value = []; templateStateFields.value = []; templateDisplaySchemaText.value = "{}"; templateBaseline.value = ""; templateFacingToAdd.value = ""
+  newStateField.key = ""; newStateField.label = ""
   templateHistory.value = []; templateHistoryLoading.value = false; templateHistoryError.value = ""
+  if (!preserveCutoff) readCutoffSceneId.value = ""
   clearNewDraft()
 }
 
 function clearNewDraft() {
-  newDraft.facingKey = ""; newDraft.content = ""; newDraft.tagsText = ""; newDraft.visibility = "public"; newDraft.startSceneId = ""; newDraft.endSceneId = ""
+  newDraft.facingKey = ""; newDraft.content = ""; newDraft.tagsText = ""; newDraft.visibility = "public"; newDraft.startSceneId = ""; newDraft.endSceneId = ""; newDraft.storyFieldKey = ""
 }
 
 async function loadAll({ confirmDiscard = false } = {}) {
   if (!props.projectId || !entityId.value) return
   if (confirmDiscard && (editDirty.value || newDraftDirty.value || templateDirty.value || conflict.value)) {
     if (!getConfirm()("当前对象有未保存草稿，确定放弃并重新读取吗？")) return
-    resetData()
+    resetData({ preserveCutoff: true })
   }
   const projectId = props.projectId; const id = entityId.value; const token = generation; const requestId = ++loadSequence
   loading.value = true; loadError.value = ""; facetError.value = ""
   const api = getApi()
   const [dossierResult, facetResult, sceneResult] = await Promise.allSettled([
-    api.world.getEntityDossier(id, projectId, { cache: "no-store" }),
+    api.world.getEntityDossier(id, projectId, { cache: "no-store", asOfSceneId: readCutoffSceneId.value || null }),
     api.world.listEntityDossierFacets(id, projectId, { cache: "no-store" }),
     api.outline.listScenesOrdered(projectId),
   ])
@@ -257,7 +290,7 @@ async function reloadDossier() {
   if (!props.projectId || !entityId.value) return null
   const projectId = props.projectId; const id = entityId.value; const token = generation; const requestId = ++dossierReadSequence
   try {
-    const result = await getApi().world.getEntityDossier(id, projectId, { cache: "no-store" })
+    const result = await getApi().world.getEntityDossier(id, projectId, { cache: "no-store", asOfSceneId: readCutoffSceneId.value || null })
     if (!current(token, projectId, id) || requestId !== dossierReadSequence) return null
     dossier.value = result; loadError.value = ""; emitDirty(); return result
   } catch (error) {
@@ -270,6 +303,7 @@ function beginEdit(entry) {
   editingId.value = entry.id; editExpectedRevisionId.value = entry.id
   editDraft.content = entry.content || ""; editDraft.tagsText = tagsText(entry.tags); editDraft.visibility = entry.visibility || "public"
   editDraft.startAnchor = anchorValue(entry.validity?.start); editDraft.endAnchor = anchorValue(entry.validity?.end)
+  editDraft.storyFieldKey = entry.story_field_key || ""
   conflict.value = null; actionError.value = ""; notice.value = ""
   emitDirty()
 }
@@ -291,6 +325,7 @@ async function saveEdit(entry) {
         start: parseAnchorChoice(editDraft.startAnchor),
         end: parseAnchorChoice(editDraft.endAnchor),
       } : null,
+      story_field_key: editDraft.storyFieldKey || null,
     })
     if (!current(token, projectId, id)) return
     cancelEdit(); await reloadDossier()
@@ -327,6 +362,7 @@ async function createEntry() {
     content: newDraft.content,
     tags: parseTags(newDraft.tagsText),
     visibility: newDraft.visibility,
+    story_field_key: newDraft.storyFieldKey || null,
     validity: newDraft.startSceneId || newDraft.endSceneId ? {
       start: newDraft.startSceneId ? { kind: "scene", id: newDraft.startSceneId } : null,
       end: newDraft.endSceneId ? { kind: "scene", id: newDraft.endSceneId } : null,
@@ -390,6 +426,7 @@ async function loadTemplate() {
     if (!current(token, projectId, id)) return
     template.value = value
     templateFields.value = (value?.fields || []).map((field) => ({ ...field, facing: { ...field.facing } }))
+    templateStateFields.value = (value?.state_fields || []).map((field) => ({ ...field }))
     templateDisplaySchemaText.value = JSON.stringify(value?.display_schema || {}, null, 2)
     templateLoaded.value = true; templateConflict.value = null; templateBaseline.value = templateSnapshot()
   } catch (error) { if (current(token, projectId, id)) templateError.value = error?.message || "模板暂时无法读取；不能据此判断模板为空。" }
@@ -404,6 +441,29 @@ function addTemplateField() {
 }
 function removeTemplateField(index) { templateFields.value = templateFields.value.filter((_, itemIndex) => itemIndex !== index); templateSaved.value = null }
 
+function addStateField() {
+  const key = String(newStateField.key || "").trim()
+  const label = String(newStateField.label || "").trim()
+  if (!customStateFieldsAllowed.value) {
+    templateError.value = "内置对象类型使用系统状态字段。"
+    return
+  }
+  if (!/^[a-z][a-z0-9_]{0,63}$/.test(key) || !label) {
+    templateError.value = "字段 key 用小写英文字母开头，只能包含小写字母、数字和下划线；显示名称不能为空。"
+    return
+  }
+  if (templateStateFields.value.some((field) => field.key === key)) {
+    templateError.value = "这个字段 key 已存在。"
+    return
+  }
+  templateStateFields.value = [...templateStateFields.value, { key, label, value_kind: "text" }]
+  newStateField.key = ""; newStateField.label = ""; templateError.value = ""; templateSaved.value = null
+}
+function removeStateField(index) {
+  templateStateFields.value = templateStateFields.value.filter((_, itemIndex) => itemIndex !== index)
+  templateSaved.value = null
+}
+
 async function saveTemplate() {
   if (readOnly.value || busyKey.value || !templateDirty.value) return
   const projectId = props.projectId; const id = entityId.value; const token = generation
@@ -415,10 +475,11 @@ async function saveTemplate() {
     const value = await getApi().world.saveEntityDossierTemplate(props.entity.entity_type, projectId, {
       expected_version_number: templateVersion.value,
       fields: templateFields.value.map(({ facing, label, description, required, value_kind }) => ({ facing, label, description, required, value_kind })),
+      state_fields: templateStateFields.value.map(({ key, label }) => ({ key, label, value_kind: "text" })),
       display_schema: displaySchema,
     })
     if (!current(token, projectId, id)) return
-    template.value = value; templateBaseline.value = templateSnapshot(); templateSaved.value = value; templateConflict.value = null
+    template.value = value; templateStateFields.value = (value.state_fields || []).map((field) => ({ ...field })); templateBaseline.value = templateSnapshot(); templateSaved.value = value; templateConflict.value = null
   } catch (error) {
     if (!current(token, projectId, id)) return
     if (error?.status === 409) {
@@ -433,9 +494,9 @@ async function saveTemplate() {
 function resolveTemplateConflict(choice) {
   const server = templateConflict.value?.server
   if (choice === "reload" && server) {
-    template.value = server; templateFields.value = (server.fields || []).map((field) => ({ ...field, facing: { ...field.facing } })); templateDisplaySchemaText.value = JSON.stringify(server.display_schema || {}, null, 2); templateBaseline.value = templateSnapshot(); templateConflict.value = null
+    template.value = server; templateFields.value = (server.fields || []).map((field) => ({ ...field, facing: { ...field.facing } })); templateStateFields.value = (server.state_fields || []).map((field) => ({ ...field })); templateDisplaySchemaText.value = JSON.stringify(server.display_schema || {}, null, 2); templateBaseline.value = templateSnapshot(); templateConflict.value = null
   } else if (choice === "keep" && server) {
-    template.value = server; templateConflict.value = null; templateError.value = "模板草稿已保留；再次保存会以服务器版本为基线。"; templateBaseline.value = JSON.stringify({ fields: server.fields || [], display_schema: server.display_schema || {} })
+    template.value = server; templateConflict.value = null; templateError.value = "模板草稿已保留；再次保存会以服务器版本为基线。"; templateBaseline.value = JSON.stringify({ fields: server.fields || [], state_fields: server.state_fields || [], display_schema: server.display_schema || {} })
   } else templateError.value = "服务器模板仍不可读，请重试读取后再保存。"
 }
 
@@ -454,7 +515,7 @@ async function loadTemplateHistory() {
 function templateSnapshot() {
   let displaySchema = {}
   try { displaySchema = JSON.parse(templateDisplaySchemaText.value || "{}") } catch { displaySchema = templateDisplaySchemaText.value }
-  return JSON.stringify({ fields: templateFields.value, display_schema: displaySchema })
+  return JSON.stringify({ fields: templateFields.value, state_fields: templateStateFields.value, display_schema: displaySchema })
 }
 function emitDirty() { emit("dirty", Boolean(editingId.value && editDirty.value || conflict.value || newDraftDirty.value || templateDirty.value)) }
 function tagsText(tags) { return Array.isArray(tags) ? tags.join(", ") : "" }
@@ -486,10 +547,11 @@ watch([editDirty, newDraftDirty, templateDirty], () => {
   if (templateDirty.value) templateSaved.value = null
   emitDirty()
 })
-onMounted(() => { if (props.projectId && entityId.value) void loadAll() })
+onMounted(() => { if (props.projectId && entityId.value) { void loadAll(); void loadTemplate() } })
 onBeforeUnmount(() => { generation += 1; loadSequence += 1; dossierReadSequence += 1; emit("dirty", false) })
 </script>
 
 <style scoped>
-.object-dossier-editor{display:grid;gap:14px;min-width:0}.object-dossier-editor__header,.object-dossier-editor__templates>header{display:flex;justify-content:space-between;align-items:flex-start;gap:12px}.object-dossier-editor h3,.object-dossier-editor h4,.object-dossier-editor p{margin-top:0}.object-dossier-editor__header h3,.object-dossier-editor__templates h4{margin-bottom:3px}.object-dossier-editor__header p,.object-dossier-editor__templates header p{margin-bottom:0;color:var(--text-secondary);font-size:12px;line-height:1.5}.object-dossier-editor__coverage,.object-dossier-editor__meta,.object-dossier-editor__revision,.object-dossier-editor__readonly{color:var(--text-secondary);font-size:12px;line-height:1.5}.object-dossier-editor__entries{display:grid;gap:10px}.object-dossier-editor__entry,.object-dossier-editor__new,.object-dossier-editor__templates{display:grid;gap:10px;min-width:0;padding:12px;border:1px solid var(--border-color,var(--border));border-radius:9px;background:var(--bg-primary,var(--surface))}.object-dossier-editor__entry>header,.object-dossier-editor__entry>header>div,.object-dossier-editor__history-item>header{display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:8px}.object-dossier-editor__revision{margin-left:8px}.object-dossier-editor__secret{color:var(--danger,#a1362f);font-size:11px}.object-dossier-editor__content{margin:0;white-space:pre-wrap;overflow-wrap:anywhere;line-height:1.6}.object-dossier-editor__tags{display:flex;flex-wrap:wrap;gap:5px}.object-dossier-editor__tags span{padding:2px 7px;border-radius:999px;background:var(--bg-muted,#f4f2ee);font-size:11px}.object-dossier-editor__form{display:grid;gap:9px}.object-dossier-editor__form>label,.object-dossier-editor__validity>label{display:grid;gap:4px;min-width:0}.object-dossier-editor__form label>span,.object-dossier-editor__validity label>span{color:var(--text-secondary);font-size:12px}.object-dossier-editor textarea,.object-dossier-editor input,.object-dossier-editor select{max-width:100%;min-width:0}.object-dossier-editor__validity{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px}.object-dossier-editor__actions,.object-dossier-editor__conflict-actions{display:flex;flex-wrap:wrap;gap:7px}.object-dossier-editor__warning{display:grid;gap:7px;padding:9px;border-left:3px solid var(--warning,#a66a00);background:var(--warning-soft,rgba(176,132,32,.08));font-size:12px;line-height:1.5}.object-dossier-editor__history{border-top:1px solid var(--border-color,var(--border));padding-top:8px}.object-dossier-editor__history summary{cursor:pointer;font-size:12px;font-weight:600}.object-dossier-editor__history-item,.object-dossier-editor__restore{display:grid;gap:7px;margin-top:8px;padding:9px;border:1px solid var(--border-color,var(--border));border-radius:7px}.object-dossier-editor__history-item p{margin:0;white-space:pre-wrap;overflow-wrap:anywhere;font-size:12px}.object-dossier-editor__empty{padding:10px;border:1px dashed var(--border-color,var(--border));color:var(--text-secondary)}.object-dossier-editor__templates{background:transparent}.object-dossier-editor__template-fields{display:grid;gap:8px;min-width:0;margin:0;padding:10px;border:1px solid var(--border-color,var(--border));border-radius:7px}.object-dossier-editor__template-field{display:grid;grid-template-columns:minmax(80px,1fr) minmax(100px,1fr) minmax(120px,2fr) minmax(100px,auto) auto auto;align-items:center;gap:7px;padding:8px 0;border-bottom:1px solid var(--border-color,var(--border))}.object-dossier-editor__notice{padding:8px;border-left:3px solid var(--success,#31846a);background:var(--success-soft,rgba(49,132,106,.08));font-size:12px}.object-dossier-editor__readonly{margin:0}@media(max-width:650px){.object-dossier-editor__header,.object-dossier-editor__templates>header{flex-direction:column}.object-dossier-editor__header>.btn,.object-dossier-editor__templates>header>.btn{width:100%;min-height:42px}.object-dossier-editor__validity{grid-template-columns:minmax(0,1fr)}.object-dossier-editor__template-field{grid-template-columns:minmax(0,1fr) minmax(0,1fr)}.object-dossier-editor__template-field>span{grid-column:1/-1}}
+.object-dossier-editor{display:grid;gap:14px;min-width:0}.object-dossier-editor__header,.object-dossier-editor__templates>header{display:flex;justify-content:space-between;align-items:flex-start;gap:12px}.object-dossier-editor__read-controls{display:flex;align-items:flex-end;gap:8px;flex-wrap:wrap}.object-dossier-editor__read-controls label{display:grid;gap:4px;min-width:190px}.object-dossier-editor__read-controls label span{color:var(--text-secondary);font-size:12px}.object-dossier-editor h3,.object-dossier-editor h4,.object-dossier-editor p{margin-top:0}.object-dossier-editor__header h3,.object-dossier-editor__templates h4{margin-bottom:3px}.object-dossier-editor__header p,.object-dossier-editor__templates header p{margin-bottom:0;color:var(--text-secondary);font-size:12px;line-height:1.5}.object-dossier-editor__coverage,.object-dossier-editor__meta,.object-dossier-editor__revision,.object-dossier-editor__readonly{color:var(--text-secondary);font-size:12px;line-height:1.5}.object-dossier-editor__entries{display:grid;gap:10px}.object-dossier-editor__entry,.object-dossier-editor__new,.object-dossier-editor__templates{display:grid;gap:10px;min-width:0;padding:12px;border:1px solid var(--border-color,var(--border));border-radius:9px;background:var(--bg-primary,var(--surface))}.object-dossier-editor__entry>header,.object-dossier-editor__entry>header>div,.object-dossier-editor__history-item>header{display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:8px}.object-dossier-editor__revision{margin-left:8px}.object-dossier-editor__secret{color:var(--danger,#a1362f);font-size:11px}.object-dossier-editor__content{margin:0;white-space:pre-wrap;overflow-wrap:anywhere;line-height:1.6}.object-dossier-editor__tags{display:flex;flex-wrap:wrap;gap:5px}.object-dossier-editor__tags span{padding:2px 7px;border-radius:999px;background:var(--bg-muted,#f4f2ee);font-size:11px}.object-dossier-editor__form{display:grid;gap:9px}.object-dossier-editor__form>label,.object-dossier-editor__validity>label{display:grid;gap:4px;min-width:0}.object-dossier-editor__form label>span,.object-dossier-editor__validity label>span{color:var(--text-secondary);font-size:12px}.object-dossier-editor textarea,.object-dossier-editor input,.object-dossier-editor select{max-width:100%;min-width:0}.object-dossier-editor__validity{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px}.object-dossier-editor__actions,.object-dossier-editor__conflict-actions{display:flex;flex-wrap:wrap;gap:7px}.object-dossier-editor__warning{display:grid;gap:7px;padding:9px;border-left:3px solid var(--warning,#a66a00);background:var(--warning-soft,rgba(176,132,32,.08));font-size:12px;line-height:1.5}.object-dossier-editor__history{border-top:1px solid var(--border-color,var(--border));padding-top:8px}.object-dossier-editor__history summary{cursor:pointer;font-size:12px;font-weight:600}.object-dossier-editor__history-item,.object-dossier-editor__restore{display:grid;gap:7px;margin-top:8px;padding:9px;border:1px solid var(--border-color,var(--border));border-radius:7px}.object-dossier-editor__history-item p{margin:0;white-space:pre-wrap;overflow-wrap:anywhere;font-size:12px}.object-dossier-editor__empty{padding:10px;border:1px dashed var(--border-color,var(--border));color:var(--text-secondary)}.object-dossier-editor__templates{background:transparent}.object-dossier-editor__template-fields{display:grid;gap:8px;min-width:0;margin:0;padding:10px;border:1px solid var(--border-color,var(--border));border-radius:7px}.object-dossier-editor__template-field{display:grid;grid-template-columns:minmax(80px,1fr) minmax(100px,1fr) minmax(120px,2fr) minmax(100px,auto) auto auto;align-items:center;gap:7px;padding:8px 0;border-bottom:1px solid var(--border-color,var(--border))}.object-dossier-editor__notice{padding:8px;border-left:3px solid var(--success,#31846a);background:var(--success-soft,rgba(49,132,106,.08));font-size:12px}.object-dossier-editor__readonly{margin:0}@media(max-width:650px){.object-dossier-editor__header,.object-dossier-editor__templates>header{flex-direction:column}.object-dossier-editor__read-controls{width:100%;flex-direction:column;align-items:stretch}.object-dossier-editor__read-controls label{min-width:0}.object-dossier-editor__read-controls .btn{width:100%;min-height:42px}.object-dossier-editor__header>.btn,.object-dossier-editor__templates>header>.btn{width:100%;min-height:42px}.object-dossier-editor__validity{grid-template-columns:minmax(0,1fr)}.object-dossier-editor__template-field{grid-template-columns:minmax(0,1fr) minmax(0,1fr)}.object-dossier-editor__template-field>span{grid-column:1/-1}}
+.object-dossier-editor__state-field{display:grid;grid-template-columns:minmax(90px,1fr) minmax(140px,2fr) 55px auto;align-items:center;gap:8px;min-width:0;padding:8px 0;border-bottom:1px solid var(--border-color,var(--border))}.object-dossier-editor__state-field code{overflow-wrap:anywhere;font-size:11px}.object-dossier-editor__state-field-add{display:grid;grid-template-columns:minmax(130px,1fr) minmax(150px,1fr) auto;align-items:end;gap:8px}.object-dossier-editor__state-field-add label{display:grid;gap:4px}.object-dossier-editor__state-field-add label span{color:var(--text-secondary);font-size:12px}@media(max-width:650px){.object-dossier-editor__state-field{grid-template-columns:minmax(0,1fr) auto}.object-dossier-editor__state-field code{grid-column:1/-1}.object-dossier-editor__state-field-add{grid-template-columns:minmax(0,1fr)}.object-dossier-editor__state-field-add button{min-height:42px}}
 </style>

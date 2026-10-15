@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import uuid
 from pathlib import Path
-from unittest.mock import AsyncMock, MagicMock
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
@@ -115,6 +115,10 @@ def test_normalize_content_aliases_preserves_order_metadata_and_two_layers() -> 
                     "type": "自定义身份",
                     "kind": "identity",
                     "evidence_refs": [{"id": "e1"}],
+                    "validity": {
+                        "start": {"kind": "scene", "id": str(uuid.uuid4())},
+                        "end": None,
+                    },
                 },
                 {"alias": "待定称呼", "type": "自定义称呼", "status": "candidate"},
             ],
@@ -136,6 +140,7 @@ def test_normalize_content_aliases_preserves_order_metadata_and_two_layers() -> 
     ]
     assert normalized["aliases"][1]["source"] == "manual"
     assert normalized["aliases"][2]["evidence_refs"] == [{"id": "e1"}]
+    assert normalized["aliases"][2]["validity"]["start"]["kind"] == "scene"
 
 
 @pytest.mark.parametrize(
@@ -699,6 +704,70 @@ async def test_edit_alias_moves_to_target_entity(
     assert target.content_json["aliases"][0]["alias"] == "Blackthorn"
     assert target.content_json["aliases"][0]["type"] == "name"
     assert set(result["affected_ids"]) == {str(source.id), str(target.id)}
+    db.flush.assert_awaited_once()
+
+
+@pytest.mark.asyncio
+async def test_edit_alias_move_and_type_change_preserve_scene_interval(
+    novel_id: str,
+    alias_service: EntityAliasService,
+) -> None:
+    validity = {
+        "start": {"kind": "scene", "id": str(uuid.uuid4())},
+        "end": None,
+    }
+    source = _make_entity(
+        novel_id=novel_id,
+        content_json={
+            "aliases": [
+                {
+                    "alias": "灰鸦",
+                    "type": "identity",
+                    "kind": "identity",
+                    "status": "canonical",
+                    "source": "manual",
+                    "reviewed_by": "manual",
+                    "validity": validity,
+                }
+            ]
+        },
+    )
+    target = _make_entity(novel_id=novel_id, content_json={"aliases": []})
+    alias_service.repo.get_many_for_update = AsyncMock(return_value=[source, target])
+    db = AsyncMock()
+
+    scene_source = MagicMock()
+    scene_source.read_temporal_anchor_scenes = AsyncMock(
+        return_value=[
+            {
+                "scene_id": validity["start"]["id"],
+                "scene_index": 0,
+                "status": "canonical",
+            }
+        ]
+    )
+    with patch("modules.world.validity.get", autospec=True) as get_port:
+        get_port.return_value = scene_source
+        await alias_service.edit_alias(
+            db,
+            novel_id,
+            str(source.id),
+            "灰鸦",
+            target_entity_id=str(target.id),
+            alias_type="title",
+            alias_kind="title",
+            validity=validity,
+            update_validity=True,
+        )
+    scene_source.read_temporal_anchor_scenes.assert_awaited()
+
+    moved = target.content_json["aliases"][0]
+    assert moved["alias"] == "灰鸦"
+    assert moved["type"] == "title"
+    assert moved["validity"] == validity
+    assert moved["source"] == "manual"
+    assert moved["reviewed_by"] == "manual"
+    assert source.content_json["aliases"] == []
     db.flush.assert_awaited_once()
 
 

@@ -324,6 +324,15 @@ WORLD_BUILD_MAP_AUTO_DRAFTS: ServiceKey[WorldBuildMapAutoDraftsPort] = ServiceKe
 WORLD_READ_MAP_SPATIAL_BRIEF: ServiceKey[WorldReadMapSpatialBriefPort] = ServiceKey(
     "world.read_map_spatial_brief"
 )
+WORLD_REQUIRE_CUSTOM_TEXT_STATE_FIELD: ServiceKey[Callable[..., Any]] = ServiceKey(
+    "world.require_custom_text_state_field"
+)
+WORLD_REQUIRE_MAP_DECLARATION_STATE: ServiceKey[Callable[..., Any]] = ServiceKey(
+    "world.require_map_declaration_state"
+)
+WORLD_READ_OBJECT_VALIDITY_NOTICES: ServiceKey[Callable[..., Any]] = ServiceKey(
+    "world.read_object_validity_notices"
+)
 WORLD_READ_MAP_SPATIAL_ADVISORIES: ServiceKey[WorldReadMapSpatialAdvisoriesPort] = (
     ServiceKey("world.read_map_spatial_advisories")
 )
@@ -487,6 +496,9 @@ ALL_SERVICE_KEYS: tuple[ServiceKey[Any], ...] = (
     WORLD_READ_MAP_CHAPTER_CONSUMERS,
     WORLD_READ_MAP_NODE_HEADS,
     WORLD_READ_MAP_SPATIAL_BRIEF,
+    WORLD_REQUIRE_CUSTOM_TEXT_STATE_FIELD,
+    WORLD_REQUIRE_MAP_DECLARATION_STATE,
+    WORLD_READ_OBJECT_VALIDITY_NOTICES,
     WORLD_READ_MAP_SPATIAL_ADVISORIES,
     WORLD_READ_PROJECT_VOCABULARY,
     WORLD_STAGE_SPATIAL_DISCOVERY,
