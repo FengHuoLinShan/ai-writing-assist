@@ -67,6 +67,11 @@ beforeEach(() => {
         total: 2,
       })),
     },
+    outline: {
+      listScenesOrdered: vi.fn(async () => [
+        { id: "00000000-0000-4000-8000-000000000001", scene_index: 1, title: "雾港来信" },
+      ]),
+    },
   }
   routerMock = { navigate: vi.fn(), refresh: vi.fn(async () => true) }
   setBridgeOverrides({
@@ -236,7 +241,7 @@ describe("showAliasCreateForm", () => {
     const handler = modalCalls[0].buttons[0].handler
     await handler()
     expect(apiMock.world.createAlias).toHaveBeenCalledWith(
-      { entity_id: "e1", alias: "小名", alias_kind: "name", alias_type: "nickname" },
+      { entity_id: "e1", alias: "小名", alias_kind: "name", alias_type: "nickname", validity: null },
       "p-ra",
     )
   })
@@ -272,7 +277,7 @@ describe("showAliasCreateForm", () => {
 })
 
 describe("showRelationReviewEditForm", () => {
-  it("端点选择器可区分且挂载后刷新未保存基线", () => {
+  it("端点选择器可区分且挂载后刷新未保存基线", async () => {
     const refreshBaseline = vi.fn()
     vi.stubGlobal("refreshModalFormBaseline", refreshBaseline)
     setBridgeOverrides({
@@ -282,7 +287,7 @@ describe("showRelationReviewEditForm", () => {
       },
     })
 
-    showRelationReviewEditForm("r1")
+    await showRelationReviewEditForm("r1")
 
     const queries = Array.from(document.querySelectorAll("[data-reference-query]"))
     expect(queries.map((input) => input.placeholder)).toEqual([
@@ -299,7 +304,7 @@ describe("showRelationReviewEditForm", () => {
   })
 
   it("正式关系可编辑端点与两层类型", async () => {
-    showRelationReviewEditForm("r1")
+    await showRelationReviewEditForm("r1")
     expect(modalCalls[0].title).toBe("编辑关系")
     document.body.innerHTML = modalCalls[0].html
     document.getElementById("rel-review-source").value = "e2"
@@ -314,6 +319,7 @@ describe("showRelationReviewEditForm", () => {
       target_id: "e1",
       relation_kind: "social",
       relation_type: "friend_of",
+      validity: null,
       confirm_review: true,
     }), "p-ra")
   })
@@ -324,7 +330,7 @@ describe("showRelationReviewEditForm", () => {
     const closeModal = vi.fn()
     apiMock.world.reviewEditRelationship.mockReturnValue(request.promise)
     setBridgeOverrides({ state, closeModal })
-    showRelationReviewEditForm("r1")
+    await showRelationReviewEditForm("r1")
     document.body.innerHTML = modalCalls[0].html
 
     const pending = modalCalls[0].buttons[0].handler()
@@ -339,7 +345,7 @@ describe("showRelationReviewEditForm", () => {
 
   it("当前子视图内失败时保留模态供重试", async () => {
     apiMock.world.reviewEditRelationship.mockRejectedValue(new Error("采用失败"))
-    showRelationReviewEditForm("r1")
+    await showRelationReviewEditForm("r1")
     document.body.innerHTML = modalCalls[0].html
 
     await expect(modalCalls[0].buttons[0].handler()).resolves.toBe(false)
@@ -349,7 +355,7 @@ describe("showRelationReviewEditForm", () => {
 })
 
 describe("showAliasEditForm", () => {
-  it("目标选择器挂载后刷新未保存基线", () => {
+  it("目标选择器挂载后刷新未保存基线", async () => {
     const refreshBaseline = vi.fn()
     vi.stubGlobal("refreshModalFormBaseline", refreshBaseline)
     setBridgeOverrides({
@@ -359,7 +365,7 @@ describe("showAliasEditForm", () => {
       },
     })
 
-    showAliasEditForm("e1", "小名")
+    await showAliasEditForm("e1", "小名")
 
     const query = document.querySelector("[data-reference-query]")
     expect(query.getAttribute("aria-label")).toBe("搜索目标对象")
@@ -368,7 +374,7 @@ describe("showAliasEditForm", () => {
   })
 
   it("正式别名可改名、分类并移动对象", async () => {
-    showAliasEditForm("e1", "小名")
+    await showAliasEditForm("e1", "小名")
     expect(modalCalls[0].title).toBe("编辑别名")
     document.body.innerHTML = modalCalls[0].html
     document.getElementById("alias-edit-target").value = "e2"
@@ -383,6 +389,7 @@ describe("showAliasEditForm", () => {
       alias: "新小名",
       alias_kind: "name",
       alias_type: "nickname",
+      validity: null,
       confirm_review: true,
     }, { novel_id: "p-ra" })
   })

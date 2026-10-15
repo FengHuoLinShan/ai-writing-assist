@@ -244,7 +244,12 @@ def _options(*, reveal_mode: str = "author_safe") -> CompileOptions:
 
 @pytest.fixture
 def facade_reads(monkeypatch):
-    calls = {"checkpoints": 0, "story": _story_view, "dossier": _world_dossier}
+    calls = {
+        "checkpoints": 0,
+        "story": _story_view,
+        "dossier": _world_dossier,
+        "viewpoint": None,
+    }
 
     async def active_project(_db, _novel_id, *, allow_demo_readonly):
         assert allow_demo_readonly is False
@@ -253,6 +258,7 @@ def facade_reads(monkeypatch):
     async def scene_state(_db, *, novel_id, scene_id, viewpoint, include_checkpoints):
         assert novel_id == NOVEL_ID
         assert scene_id == SCENE_ID
+        calls["viewpoint"] = viewpoint
         return {
             "state": calls["story"](
                 character=viewpoint["kind"] == "character",
@@ -293,11 +299,13 @@ def facade_reads(monkeypatch):
         offset,
         visibility_filter,
         visible_contents,
+        story_viewpoint,
     ):
         assert novel_id == NOVEL_ID
         assert entity_id == ENTITY_ID
         assert as_of_scene_id == SCENE_ID
         assert (limit, offset) == (250, 0)
+        assert story_viewpoint == calls["viewpoint"]
         value = calls["dossier"]()
         value["visibility_filter"] = visibility_filter
         if visibility_filter == "public":
@@ -711,7 +719,9 @@ async def test_bridged_generic_revision_still_requires_story_cutoff_proof(facade
         entity_ids=[ENTITY_ID],
         include_patterns=False,
     )
-    assert all(item.get("entry_id") != generic_entry_id for item in wrong_key["world_items"])
+    assert all(
+        item.get("entry_id") != generic_entry_id for item in wrong_key["world_items"]
+    )
     facade_reads["dossier"] = lambda: generic_revision("北门关闭")
 
     def earlier_fact_story(*, character=False, reader=False):

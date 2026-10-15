@@ -47,6 +47,43 @@ export function syncRelationsAliasesRegistry(partial = {}) {
   if (partial.reviewTypeCatalog) listRegistry.reviewTypeCatalog = partial.reviewTypeCatalog
 }
 
+async function loadSceneAnchorOptions(api, projectId) {
+  const result = await api.outline.listScenesOrdered(projectId)
+  const scenes = Array.isArray(result) ? result : result?.items || []
+  return scenes
+    .filter((scene) => scene?.id)
+    .map((scene) => ({
+      value: `scene:${scene.id}`,
+      label: `场景 · ${scene.title || `第 ${scene.scene_index || "?"} 场`}`,
+    }))
+}
+
+function validitySelectHtml(id, anchor, emptyLabel, options, esc) {
+  const selected = anchor?.kind && anchor?.id ? `${anchor.kind}:${anchor.id}` : ""
+  const choices = [...options]
+  if (selected && !choices.some((item) => item.value === selected)) {
+    choices.unshift({
+      value: selected,
+      label: `当前锚点待核对 · ${anchor.kind} ${String(anchor.id).slice(0, 8)}`,
+    })
+  }
+  const optionHtml = choices.map((item) => (
+    `<option value="${esc(item.value)}" ${item.value === selected ? "selected" : ""}>${esc(item.label)}</option>`
+  )).join("")
+  return `<select class="form-select" id="${id}"><option value="">${esc(emptyLabel)}</option>${optionHtml}</select>`
+}
+
+function validityFromControls(startId, endId) {
+  const parse = (value) => {
+    if (!value) return null
+    const separator = value.indexOf(":")
+    return { kind: value.slice(0, separator), id: value.slice(separator + 1) }
+  }
+  const start = parse(document.getElementById(startId)?.value || "")
+  const end = parse(document.getElementById(endId)?.value || "")
+  return start || end ? { start, end } : null
+}
+
 // ============================================================
 // 实体选项渲染（与 vanilla _entityOptionsHtml 一致：option 格式为 "名称 · 类型 · 状态"）
 // ============================================================
@@ -197,6 +234,15 @@ export async function showAliasCreateForm(reviewTypeCatalog = {}, initial = {}) 
   // 先 fetch 实体选项
   const aliasSelectHtml = await entitySelectHtml("alias-entity")
   if (!ownsWorldOperationScope(scope)) return
+  const api = getApi()
+  let anchorOptions = []
+  let validityLoadError = ""
+  try {
+    anchorOptions = await loadSceneAnchorOptions(api, projectId)
+  } catch (error) {
+    validityLoadError = error?.message || "场景列表暂时无法读取，别名有效期不可编辑。"
+  }
+  if (!ownsWorldOperationScope(scope)) return
   const initialType = catalogTypeItems(reviewTypeCatalog, "alias")[0]?.value || "name"
   const initialKind = kindOrTypeDefault(reviewTypeCatalog, "alias", "", initialType)
   const formHtml = `
@@ -217,6 +263,17 @@ export async function showAliasCreateForm(reviewTypeCatalog = {}, initial = {}) 
       <label for="alias-type">详细类型</label>
       <select class="form-select" id="alias-type">${detailTypeOptionsHtml(reviewTypeCatalog, "alias", initialType, esc)}</select>
       <div id="alias-type-custom-wrap" hidden><label for="alias-type-custom">自定义详细类型</label><input class="form-input" id="alias-type-custom" maxlength="20" /></div>
+    </div>
+    <div class="form-group">
+      <label>作者声明的生效范围</label>
+      ${validityLoadError ? `<p class="form-help" role="status">${esc(validityLoadError)}</p>` : ""}
+      <div class="rel-review-validity">
+        <label for="alias-validity-start">从</label>
+        ${validitySelectHtml("alias-validity-start", initial.validity?.start, "全书有效", anchorOptions, esc)}
+        <label for="alias-validity-end">到</label>
+        ${validitySelectHtml("alias-validity-end", initial.validity?.end, "持续至今", anchorOptions, esc)}
+      </div>
+      <div class="form-help">按稳定 Scene ID 保存；失效锚点会保留并标为待核对。</div>
     </div>
   `
   showModalHtml("新建别名", formHtml, [{
@@ -239,12 +296,12 @@ export async function showAliasCreateForm(reviewTypeCatalog = {}, initial = {}) 
       const modalOwner = captureModalOwner(document.getElementById("alias-text"))
       pending = true
       try {
-        const api = getApi()
         await api.world.createAlias({
           entity_id: eid,
           alias: text,
           alias_kind: aliasKind,
           alias_type: aliasType,
+          validity: validityFromControls("alias-validity-start", "alias-validity-end"),
         }, projectId)
         if (!ownsWorldOperationScope(scope) || !ownsModalOwner(modalOwner)) return true
         toast("别名已创建", "success")
@@ -432,7 +489,7 @@ export function inlineRelationEvidencePairs(relation = {}) {
 export { aliasKey }
 
 /** 编辑或移动已采用别名。 */
-export function showAliasEditForm(entityId, aliasText) {
+export async function showAliasEditForm(entityId, aliasText) {
   const esc = getEsc()
   const toast = getToast()
   const showModalHtml = getShowModalHtml()
@@ -443,6 +500,14 @@ export function showAliasEditForm(entityId, aliasText) {
     toast("未找到目标别名", "error")
     return
   }
+  let anchorOptions = []
+  let validityLoadError = ""
+  try {
+    anchorOptions = await loadSceneAnchorOptions(getApi(), projectId)
+  } catch (error) {
+    validityLoadError = error?.message || "场景列表暂时无法读取，别名有效期不可编辑。"
+  }
+  if (!ownsWorldOperationScope(scope)) return
   const catalog = listRegistry.reviewTypeCatalog || {}
   const selectedType = alias.alias_type || "name"
   const selectedKind = kindOrTypeDefault(catalog, "alias", alias.alias_kind, selectedType)
@@ -464,6 +529,17 @@ export function showAliasEditForm(entityId, aliasText) {
       <div id="alias-edit-type-custom-wrap" hidden><label for="alias-edit-type-custom">自定义详细类型</label><input class="form-input" id="alias-edit-type-custom" maxlength="20" value="${esc(selectedType)}" /></div>
       <p class="form-help">修改所属对象时，原来的来源和证据会一起保留。</p>
     </div>
+    <div class="form-group">
+      <label>作者声明的生效范围</label>
+      ${validityLoadError ? `<p class="form-help" role="status">${esc(validityLoadError)}</p>` : ""}
+      <div class="rel-review-validity">
+        <label for="alias-edit-validity-start">从</label>
+        ${validitySelectHtml("alias-edit-validity-start", alias.validity?.start, "全书有效", anchorOptions, esc)}
+        <label for="alias-edit-validity-end">到</label>
+        ${validitySelectHtml("alias-edit-validity-end", alias.validity?.end, "持续至今", anchorOptions, esc)}
+      </div>
+      <div class="form-help">按稳定 Scene ID 保存；失效锚点会保留并标为待核对。</div>
+    </div>
   `
   showModalHtml("编辑别名", formHtml, [{
     text: "保存",
@@ -473,6 +549,7 @@ export function showAliasEditForm(entityId, aliasText) {
       const text = document.getElementById("alias-edit-text")?.value?.trim() || ""
       const aliasKind = document.getElementById("alias-edit-kind")?.value || ""
       const aliasType = readDetailType(document.getElementById("alias-edit-type"), document.getElementById("alias-edit-type-custom"))
+      const validity = validityFromControls("alias-edit-validity-start", "alias-edit-validity-end")
       if (!targetId || !text || !aliasKind || !aliasType) {
         toast("请选择所属对象、别名分类并填写别名和详细类型", "warning")
         return false
@@ -485,6 +562,7 @@ export function showAliasEditForm(entityId, aliasText) {
           alias: text,
           alias_kind: aliasKind,
           alias_type: aliasType,
+          validity,
           confirm_review: true,
         }, { novel_id: projectId })
         if (!ownsWorldOperationScope(scope) || !ownsModalOwner(modalOwner)) return true
@@ -524,7 +602,7 @@ export function showAliasEditForm(entityId, aliasText) {
  * 携带 expected_execution_fingerprint，让服务端在行锁内做过期重验。
  * options.relation：视角列表里的完整关系数据；listRegistry 未收录该关系
  * （例如当前只加载了分组页）时以其兜底，表单仍可打开。 */
-export function showRelationReviewEditForm(relationId, options = {}) {
+export async function showRelationReviewEditForm(relationId, options = {}) {
   const esc = getEsc()
   const toast = getToast()
   const showModalHtml = getShowModalHtml()
@@ -537,6 +615,14 @@ export function showRelationReviewEditForm(relationId, options = {}) {
     || null
   if (!relation) {
     toast("未找到目标关系", "error")
+    return
+  }
+  let anchorOptions
+  try {
+    anchorOptions = await loadSceneAnchorOptions(api, projectId)
+    if (!ownsWorldOperationScope(scope)) return
+  } catch (error) {
+    if (ownsWorldOperationScope(scope)) toast(error?.message || "场景列表暂时无法读取，关系有效期未加载。", "error")
     return
   }
   const isCanonical = !relation.status || relation.status === "canonical"
@@ -571,6 +657,16 @@ export function showRelationReviewEditForm(relationId, options = {}) {
       <label>强度</label>
       <input class="form-input" id="rel-review-strength" type="number" min="0" max="1" step="0.01" value="${esc(relation.strength ?? 0.5)}" />
     </div>
+    <div class="form-group">
+      <label>作者声明的生效范围</label>
+      <div class="rel-review-validity">
+        <label for="rel-review-validity-start">从</label>
+        ${validitySelectHtml("rel-review-validity-start", relation.validity?.start, "全书有效", anchorOptions, esc)}
+        <label for="rel-review-validity-end">到</label>
+        ${validitySelectHtml("rel-review-validity-end", relation.validity?.end, "持续至今", anchorOptions, esc)}
+      </div>
+      <div class="form-help">留空表示没有对应边界；使用稳定场景或章节身份。剧情观察只在项目设置开启且来源链证明精确对应后影响读取。</div>
+    </div>
   `
   showModalHtml(isCanonical ? "编辑关系" : "编辑后采用关系", formHtml, [{
     text: isCanonical ? "保存" : "采用",
@@ -594,6 +690,7 @@ export function showRelationReviewEditForm(relationId, options = {}) {
           relation_type: relationType,
           description: document.getElementById("rel-review-description")?.value?.trim() || "",
           strength: Number(document.getElementById("rel-review-strength")?.value || 0.5),
+          validity: validityFromControls("rel-review-validity-start", "rel-review-validity-end"),
           confirm_review: true,
           ...(executionFingerprint
             ? { expected_execution_fingerprint: executionFingerprint }

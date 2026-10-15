@@ -32,6 +32,7 @@ from modules.world.schemas import (
     EntityAliasReviewGroupListResponse,
     ReviewBatchResponse,
 )
+from modules.world.schemas.dossier import DossierValidity
 from modules.world.services.common import parse_uuid
 from modules.world.services.core.dedup_service import EntityDedupService
 from modules.world.services.core.review_queue import (
@@ -39,6 +40,9 @@ from modules.world.services.core.review_queue import (
     default_alias_kind,
     stable_fingerprint,
     suggest_alias_type,
+)
+from modules.world.validity import (
+    validate_scene_validity,
 )
 
 logger = logging.getLogger(__name__)
@@ -140,6 +144,10 @@ class EntityAliasService:
                     else normalized.get("alias_type", "name")
                 )
                 normalized["type"] = cls._normalize_alias_type(raw_type)
+                if normalized.get("validity") is not None:
+                    normalized["validity"] = DossierValidity.model_validate(
+                        normalized["validity"]
+                    ).model_dump(mode="json")
                 status = normalized.get(
                     "status",
                     (
@@ -154,6 +162,11 @@ class EntityAliasService:
                     raise DomainValidationError(
                         "alias status must be a string", status_code=422
                     )
+                if (
+                    normalized.get("validity") is not None
+                    and status not in ACTIVE_ALIAS_STATUSES
+                ):
+                    raise DomainValidationError("待复核别名不能声明作者有效期")
                 alias_kind = (
                     normalized.get("kind")
                     if "kind" in normalized
@@ -286,6 +299,7 @@ class EntityAliasService:
             "reviewed_from": alias_item.get("reviewed_from"),
             "quote": alias_item.get("quote"),
             "evidence_refs": list(alias_item.get("evidence_refs") or []),
+            "validity": alias_item.get("validity"),
             "execution_fingerprint": self._alias_execution_fingerprint(
                 entity.id, alias_item
             ),
@@ -560,6 +574,9 @@ class EntityAliasService:
                     "evidence_refs": list(alias_item.get("evidence_refs") or [])
                     if isinstance(alias_item, dict)
                     else [],
+                    "validity": alias_item.get("validity")
+                    if isinstance(alias_item, dict)
+                    else None,
                     "execution_fingerprint": self._alias_execution_fingerprint(
                         entity["id"], alias_item
                     ),
@@ -810,6 +827,8 @@ class EntityAliasService:
                 alias=decision.alias,
                 alias_type=decision.alias_type,
                 alias_kind=decision.alias_kind,
+                validity=decision.validity,
+                update_validity="validity" in decision.model_fields_set,
                 confirm_review=True,
             )
             return {"affected_ids": result.get("affected_ids") or []}
@@ -872,6 +891,7 @@ class EntityAliasService:
         source_chapter_index: int | None = None,
         confidence: float | None = None,
         evidence_refs: list[dict] | None = None,
+        validity: DossierValidity | dict | None = None,
         reviewed_by: str = "manual",
         _validation_prechecked: bool = False,
     ) -> dict:
@@ -892,6 +912,11 @@ class EntityAliasService:
             raise DomainValidationError("Alias text cannot be empty", status_code=422)
         alias_type = self._normalize_alias_type(alias_type)
         resolved_kind = self._resolve_alias_kind(alias_type, alias_kind, status)
+        if validity is not None:
+            if status not in ACTIVE_ALIAS_STATUSES:
+                raise DomainValidationError("待复核别名不能声明作者有效期")
+            validity = DossierValidity.model_validate(validity)
+            await validate_scene_validity(db, novel_id, validity)
         for alias_item in aliases:
             existing, _ = self._normalize_alias_item(alias_item)
             if existing == normalized_alias:
@@ -908,6 +933,8 @@ class EntityAliasService:
             "evidence_refs": evidence_refs or [],
             "needs_review": status in {"candidate", "conflicted"},
         }
+        if validity is not None:
+            alias_payload["validity"] = validity.model_dump(mode="json")
         if status in {"canonical", "confirmed"}:
             alias_payload.update(
                 {
@@ -944,6 +971,7 @@ class EntityAliasService:
         content = dict(entity.content_json or {})
         aliases = list(content.get("aliases", []))
         normalized_alias = alias.strip()
+        changes = dict(changes)
         for index, alias_item in enumerate(aliases):
             existing, alias_type = self._normalize_alias_item(alias_item)
             if existing != normalized_alias:
@@ -968,6 +996,16 @@ class EntityAliasService:
 
                 await require_fresh_understanding_source(db, novel_id, alias_item)
 
+            if "validity" in changes and changes["validity"] is not None:
+                if changes.get("status", current_status) not in ACTIVE_ALIAS_STATUSES:
+                    raise DomainValidationError("待复核别名不能声明作者有效期")
+                normalized_validity = DossierValidity.model_validate(changes["validity"])
+                changes["validity"] = normalized_validity.model_dump(mode="json")
+                if changes["validity"] != (
+                    alias_item.get("validity") if isinstance(alias_item, dict) else None
+                ):
+                    await validate_scene_validity(db, novel_id, normalized_validity)
+
             updated = (
                 dict(alias_item)
                 if isinstance(alias_item, dict)
@@ -978,7 +1016,6 @@ class EntityAliasService:
             )
             updated["alias"] = existing
             updated["type"] = updated.get("type") or alias_type or "name"
-            changes = dict(changes)
             explicit_kind = changes.pop("alias_kind", None)
             for key, value in changes.items():
                 if value is None:
@@ -1021,6 +1058,7 @@ class EntityAliasService:
                 "reviewed_by": updated.get("reviewed_by"),
                 "reviewed_from": updated.get("reviewed_from"),
                 "quote": updated.get("quote"),
+                "validity": updated.get("validity"),
             }
 
         raise NotFoundError(f"Alias not found: {alias}")
@@ -1036,6 +1074,8 @@ class EntityAliasService:
         alias: str | None = None,
         alias_type: str | None = None,
         alias_kind: str | None = None,
+        validity: DossierValidity | dict | None = None,
+        update_validity: bool = False,
         confirm_review: bool = True,
     ) -> dict:
         """Edit alias text/type and optionally move it to another target entity."""
@@ -1093,6 +1133,14 @@ class EntityAliasService:
             alias_kind or (old_item.get("kind") if isinstance(old_item, dict) else None),
             next_status,
         )
+        if update_validity and validity is not None:
+            if next_status not in ACTIVE_ALIAS_STATUSES:
+                raise DomainValidationError("待复核别名不能声明作者有效期")
+            validity = DossierValidity.model_validate(validity)
+            if validity.model_dump(mode="json") != (
+                old_item.get("validity") if isinstance(old_item, dict) else None
+            ):
+                await validate_scene_validity(db, novel_id, validity)
 
         updated = (
             dict(old_item)
@@ -1114,6 +1162,11 @@ class EntityAliasService:
             updated["reviewed_at"] = datetime.now(UTC).isoformat()
             updated["reviewed_by"] = "manual"
             updated["reviewed_from"] = "world_aliases_edit"
+        if update_validity:
+            if validity is None:
+                updated.pop("validity", None)
+            else:
+                updated["validity"] = validity.model_dump(mode="json")
 
         affected_ids = {str(source.id)}
         if str(target.id) == str(source.id):
@@ -1163,6 +1216,7 @@ class EntityAliasService:
         alias: str,
         alias_type: str = "alias",
         alias_kind: str | None = None,
+        validity: DossierValidity | dict | None = None,
         allow_canonical_source: bool = False,
     ) -> dict:
         """Resolve an entity as an alias, with an explicit canonical-source gate."""
@@ -1214,6 +1268,9 @@ class EntityAliasService:
             alias_kind,
             "canonical",
         )
+        if validity is not None:
+            validity = DossierValidity.model_validate(validity)
+            await validate_scene_validity(db, novel_id, validity)
 
         target_content = dict(target.content_json or {})
         target_aliases = list(target_content.get("aliases", []))
@@ -1233,6 +1290,8 @@ class EntityAliasService:
                 else "world_candidate_alias_resolution"
             ),
         }
+        if validity is not None:
+            alias_payload["validity"] = validity.model_dump(mode="json")
         for key in (
             "source",
             "workflow_id",

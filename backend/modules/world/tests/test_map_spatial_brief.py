@@ -12,12 +12,15 @@ from modules.world.map_spatial_anchors import resolve_validity
 from modules.world.map_spatial_brief_schemas import MapSpatialBriefRequest
 from modules.world.map_spatial_brief_service import (
     _safe_json,
+    _within_cutoff,
     read_map_spatial_brief,
 )
 from modules.world.map_structure_schemas import (
     MapDocument,
     MapNodeCreate,
     MapSaveRequest,
+    SpatialAnchor,
+    SpatialValidity,
 )
 from modules.world.map_structure_service import (
     MapStructureService,
@@ -42,6 +45,40 @@ def _range_ref() -> dict:
         "end_offset": 8,
         "source_hash": "a" * 64,
         "range_hash": "b" * 64,
+    }
+
+
+def test_map_validity_keeps_author_interval_when_story_identity_contract_is_missing() -> (
+    None
+):
+    scene_id = str(uuid.uuid4())
+    item = SimpleNamespace(
+        id="map-declaration-1",
+        effective=SpatialValidity(start=SpatialAnchor(kind="scene", id=scene_id)),
+    )
+    notices = {}
+
+    active = _within_cutoff(
+        item,
+        scenes=[
+            {
+                "scene_id": scene_id,
+                "scene_index": 2,
+                "status": "canonical",
+                "replaced_by_scene_ids": [],
+            }
+        ],
+        scene_index=2,
+        validity_notices=notices,
+    )
+
+    assert active is True
+    assert notices["map-declaration-1:gap:story_map_declaration_unavailable"] == {
+        "item_id": "map-declaration-1",
+        "status": "gap",
+        "gap": "story_map_declaration_unavailable",
+        "author_active": True,
+        "story_observation": None,
     }
 
 

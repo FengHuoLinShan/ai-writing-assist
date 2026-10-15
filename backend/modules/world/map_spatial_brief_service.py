@@ -82,25 +82,52 @@ def _exact_match(query: str, label: str) -> bool:
     return bool(label_key and label_key in query_key)
 
 
-def _within_cutoff(item, *, scenes: list[dict], scene_index: int | None) -> bool:
+def _within_cutoff(
+    item,
+    *,
+    scenes: list[dict],
+    scene_index: int | None,
+    validity_notices: dict[str, dict] | None = None,
+) -> bool:
     if item.effective is None:
         return True
-    if scene_index is None:
-        return False
     from modules.world.map_spatial_anchors import resolve_validity
 
     resolution = resolve_validity(item.effective, scenes)
-    return bool(
-        resolution.valid
-        and (
-            resolution.start_scene_index is None
-            or resolution.start_scene_index <= scene_index
+    if not resolution.valid:
+        author_active = False
+        gap = resolution.reason or "author_interval_anchor_invalid"
+    elif scene_index is None:
+        author_active = False
+        gap = "scene_cutoff_unavailable"
+    else:
+        author_active = bool(
+            (
+                resolution.start_scene_index is None
+                or resolution.start_scene_index <= scene_index
+            )
+            and (
+                resolution.end_scene_index is None
+                or scene_index <= resolution.end_scene_index
+            )
         )
-        and (
-            resolution.end_scene_index is None
-            or scene_index <= resolution.end_scene_index
-        )
-    )
+        gap = None
+    item_id = str(getattr(item, "id", ""))
+    if validity_notices is not None:
+        # Map declarations have stable IDs in World, but Story currently has no
+        # registered field/source contract that binds those IDs to map state.
+        # Do not infer a match from an entity location or a coincident relation
+        # ID; keep the author interval and disclose the missing proof.
+        notice_gap = gap or "story_map_declaration_unavailable"
+        key = f"{item_id}:gap:{notice_gap}"
+        validity_notices[key] = {
+            "item_id": item_id,
+            "status": "gap",
+            "gap": notice_gap,
+            "author_active": author_active,
+            "story_observation": None,
+        }
+    return author_active
 
 
 def _safe_json(value: dict) -> tuple[str, bool]:
@@ -176,6 +203,8 @@ class MapSpatialBriefService:
         scene_location_ids: set[str] = set()
         state_facts: list[dict] = []
         temporal_scenes: list[dict] = []
+        validity_notices: dict[str, dict] = {}
+        author_view = data.reveal_mode in {"author_safe", "author_full"}
         if data.scene_id:
             raw_scene = await _story_scene_port().get_scene_contract(
                 db, data.novel_id, data.scene_id
@@ -530,6 +559,7 @@ class MapSpatialBriefService:
             return MapSpatialBriefResponse(
                 scene_id=data.scene_id,
                 scene_index=scene_index,
+                validity_notices=list(validity_notices.values()),
                 unknowns=["尚未选择 Scene 或截止章节，空间资料未核对；请选择范围后重试。"]
                 if node_rows
                 else [],
@@ -647,7 +677,10 @@ class MapSpatialBriefService:
                         or feature.reader_from_chapter > cutoff_chapter
                     )
                     or not _within_cutoff(
-                        feature, scenes=temporal_scenes, scene_index=scene_index
+                        feature,
+                        scenes=temporal_scenes,
+                        scene_index=scene_index,
+                        validity_notices=validity_notices if author_view else None,
                     )
                     or feature.entity_id
                     and not await target_visible(
@@ -800,7 +833,10 @@ class MapSpatialBriefService:
                 if (
                     constraint.modality != "event_observed"
                     or not _within_cutoff(
-                        constraint, scenes=temporal_scenes, scene_index=scene_index
+                        constraint,
+                        scenes=temporal_scenes,
+                        scene_index=scene_index,
+                        validity_notices=validity_notices if author_view else None,
                     )
                     or not endpoint_ids.issubset(valid_features)
                     or not endpoint_ids.intersection(focus_features)
@@ -855,7 +891,10 @@ class MapSpatialBriefService:
                         if pair[0] is not None
                     )
                     or not _within_cutoff(
-                        journey, scenes=temporal_scenes, scene_index=scene_index
+                        journey,
+                        scenes=temporal_scenes,
+                        scene_index=scene_index,
+                        validity_notices=validity_notices if author_view else None,
                     )
                     or not endpoints.issubset(valid_features)
                     or not endpoints.intersection(focus_features)
@@ -957,6 +996,7 @@ class MapSpatialBriefService:
             scene_index=int(scene_index) if isinstance(scene_index, int) else None,
             chapter_index=cutoff_chapter,
             items=items,
+            validity_notices=list(validity_notices.values()),
             omitted_count=omitted_count,
             unknowns=[EXCLUDED_MERGE_UNKNOWN] if excluded_merges else [],
         )

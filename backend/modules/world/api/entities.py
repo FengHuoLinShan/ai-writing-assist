@@ -478,6 +478,7 @@ async def resolve_entity_as_alias(
         alias=data.alias,
         alias_type=data.alias_type,
         alias_kind=data.alias_kind,
+        validity=data.validity,
     )
 
 

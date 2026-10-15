@@ -26,6 +26,7 @@ _scene_memory = SceneMemoryProjectionService()
 __all__ = [
     "capture_snapshot",
     "confirm_scene_continuity_event",
+    "confirm_custom_text_state",
     "ensure_scene_checkpoints",
     "get_continuity_evidence_for_writing",
     "get_memory_panorama",
@@ -134,6 +135,29 @@ async def confirm_scene_continuity_event(
         scene_index=scene_index,
         chapter_index=chapter_index,
         event=event,
+    )
+
+
+async def confirm_custom_text_state(
+    db: AsyncSession,
+    novel_id: str,
+    *,
+    scene_id: str,
+    entity_id: str,
+    field_key: str,
+    value: str,
+    expected_template_version_number: int,
+    idempotency_key: str,
+):
+    return await _memory.confirm_custom_text_state(
+        db,
+        novel_id,
+        scene_id=scene_id,
+        entity_id=entity_id,
+        field_key=field_key,
+        value=value,
+        expected_template_version_number=expected_template_version_number,
+        idempotency_key=idempotency_key,
     )
 
 

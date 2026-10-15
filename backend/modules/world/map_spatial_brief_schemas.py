@@ -42,5 +42,6 @@ class MapSpatialBriefResponse(BaseModel):
     scene_index: int | None = None
     chapter_index: int | None = None
     items: list[MapSpatialBriefItem] = Field(default_factory=list, max_length=20)
+    validity_notices: list[dict] = Field(default_factory=list)
     omitted_count: int = Field(default=0, ge=0)
     unknowns: list[str] = Field(default_factory=list, max_length=4)

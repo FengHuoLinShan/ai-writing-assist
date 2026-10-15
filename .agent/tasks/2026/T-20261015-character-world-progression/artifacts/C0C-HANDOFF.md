@@ -1,44 +1,29 @@
-# C0c 后续批次交接
+# C0c 实现检查点交接
 
-核实时间：2026-10-16。状态：待实施，属于本次三份计划的已授权范围；本文不构成新增授权。
-主任务仍为 active。实现用 Luna/max，独立审查、代码修复与合并冲突由 Sol/high 直接处理。
+核实时间：2026-10-16。状态：第一检查点已实现并通过离线验证，等待本地提交与 Sol 独立审修；地图 typed Story 声明观察按 root 明确要求在下一独立提交继续完成。本记录不代表整项 C0c 或三份计划已完成。
 
-## 已确认缺口与边界
+## 已实现切片
 
-- 作者有效期规则、别名生效区间、项目自定义文字状态字段尚未交付。DossierValidity 的锚点
-  过滤、静态 STATE_FIELD_REGISTRY 或普通关系 CRUD 均不能替代这些功能。
-- 有向分级态度已有 RelationAttitude、端点校验、逐字段来源和投影测试；从真实事件写入与
-  author/reader/character 三视角读取链核验增量，不再新增一套态度模型。
-- C2 当前由 Sol 在 map-clue-review/codex/object-dossier-consumer-review 审修；待其固定并
-  集成后从新的主线开始 C0c，不基于旧 f6c3790ccb 的未审安全语义继续扩建。
+- 项目设置 `world_object_dossier_v1` 默认关闭，版本 CAS 更新；仅影响截止点读取，不重写 World/Story 历史。
+- 档案条目可选绑定同对象已登记 Story 字段；覆盖只认精确对象/字段、可信确认来源及 cutoff Scene 之前观察。作者区间内的冲突统一进入只读 `world.object_validity` NoticeSource；GET 只走 Story state view，不 ensure / rebuild checkpoint。
+- 关系保存作者有效期；Story 状态按稳定 `EntityRelation.id` 和 `relation_status` 来源精确核对，端点/类型不充当身份。原 RelationAttitude 模型未重做；真实关系建立/结束事件进入字段来源投影，结束事实保留在只读观察面。
+- 别名稳定 Scene/章节区间贯穿新增、编辑、移动、批量复核、类型转换和历史恢复；旧无区间别名维持来源/状态语义。历史对比现在显示区间变化。别名不会授权角色知道真实身份。
+- World 模板可声明自定义文字状态字段，值仅写入 Story author-confirmation 事件；项目、类型、字段键与版本重验，继续复用三视角过滤与逐字段来源。自定义自由字段继续保留；模型输出不被标为作者确认。
+- 项目设置、World 档案/关系/别名、Story 状态已有作者界面和草稿/并发/异步上下文保护。具体操作注册、NoticeSource 组合根和共享 DI 由 Sol 按 `OPERATIONS-SPEC-C0C.md` 接线。
+- 地图当前保持 fail-closed：缺同一结构声明 Story 身份契约时只返回 gap；不从位置、相似值或偶然 ID 推断。Root 已授权在下一提交实现最小 typed map-declaration observation 接口；历史无契约记录仍是 gap。
+- 势力阶段账本仍不可用，不从旧字段回退。
 
-## 实施验收
+## 关键边界与下一步
 
-1. 按计划 §4.6 实现项目级“允许剧情覆盖作者有效期”，默认关闭。关闭时作者区间优先；开启
-   时仅在确定对齐键且有受信来源的观察点之后选择剧情值。切换只影响读取，不改历史数据。
-   文字内容相似或值相同不能构成结构化对齐。无精确证明、未来观察或失效锚点明确报告缺口。
-2. 对档案、作者关系和地图结构化有效期提供共同规则，双方来源进入登记的统一提醒源；同一
-   分歧提醒可复核、保持并静默，开关或来源变化可重算。不让 GET 物化 continuity 或写档案。
-   势力阶段未到时明确不可用，不能读取旧无时效字段代替。
-3. 别名区间使用 Scene/章节 ID 与既有替换链解析，不固定存章号。保留旧无区间别名的语义、
-   来源及复核元数据；编辑、移动、批量复核、类型转换和历史恢复不丢区间。角色知道真实身份
-   仍经 CharacterKnowledge 证明，别名存在不自动等于角色知道。
-4. 自定义项目类型可声明文字状态字段；值留在 Story，定义按领域边界存储和读出，逐字段来源
-   与三视角规则沿用现有链。项目、类型和字段键隔离；自由字段不丢弃；自定义文字状态不能
-   进入确定性模拟结算或被模型输出提升成事实。
-5. 作者可通过实际界面配置、编辑、查看结果。保存失败/409/迟到响应保留输入，项目及 Scene
-   切换不串数据；390/1280 宽度、键盘、恢复与重新读取验证。仅 API 或纯 schema 不算交付。
-6. 新操作只登记实际存在的服务。若参数变化更新对应操作版本与新目录冻结，旧版本失败关闭；
-   未声明写路由棘轮、模块边界和函数内 import 基线均不得扩宽。
+地图结构项 ID 是任意稳定 `FeatureKey` 字符串；Story 事件 `entity_id` 是 UUID。下一提交将由 World helper 校验本项目 adopted node、当前 saved revision、声明 kind/ID 与 Scene，再返回由无歧义规范序列化确定的 project-scoped synthetic UUID 作为 Story 投影键。元数据同时留原 FeatureKey、node、kind、revision。该 UUID 仅是 Story 投影键，不是或不冒充 CoreEntity。读写均验证同一 novel 和当前声明版本；删除、替换、旧 revision、未来 cutoff、跨项目及角色/读者泄露必须失败关闭。GET 不写事件。
 
-## 证据与环境
+第一检查点后，可执行下一步：提交当前对象/关系/别名/自定义文字状态与界面代码；然后开始地图 observation 的第二提交，更新操作纯 SPEC 和 typed tests。
 
-先核对 docs/plans/2026-10-15-world-object-dossier-and-scene-director.md §4.5–4.8、
-ADR-0039、World dossier_service/map_spatial_anchors、aliases/relations 服务、Story
-continuity/field_provenance 与 scene_state_view、已登记 NoticeSource。独立 PG 会话验证
-区间与来源更新并发、切换不写数据、跨项目拒绝、作者优先、未来证明拒绝与重新读取。
+## 已验证
 
-后端仅用 primary/backend/.venv/bin/python（3.14.8/Pydantic 2.14.0）；普通测试显式假
-DATABASE_URL。真实 PG 先向 root 申请 65202 独占窗口与全新专用 DB；不连接默认开发库。
-封存 R3、65302、holdout 与真实稿件均不参与。不得调用真实模型、安装依赖或改黄金哈希。
-主代理独占 TASK.md；子代理在固定提交后回报实际更改、验证和未覆盖项，由 root 更新状态。
+- 后端定向离线回归：93 passed，包括设置 CAS、别名、对象档案、精确有效期观察、地图 gap、Story typed registry/reducer、Evidence dossier viewpoint。
+- 前端定向组件回归：121 passed（7 files），覆盖项目设置、别名/关系、档案编辑器、写作档案视图与别名历史。
+- Vue 生产构建通过（Vite bundle 与 production references 验证）；Ruff 目标文件检查及格式检查通过；Alembic 为单 head `20261016_dossier_story_field_key`。
+- `make docs-check` 通过。基于 `origin/main` 的影响检查通过：Project README 与模块文档已更新；CLAUDE.md 只是 AGENTS.md 导入器，使用脚本支持的 `--no-change-reason` 明确说明不另维护重复架构规则。
+- 不连 PostgreSQL、真实稿件或真实模型；PG 65202 尚未分配。没有做生产/作者验收、390/1280 浏览器截图、数据库升级执行或 app lifespan/lifecycle drain 验证。
+- 操作注册仍未完成：请按 `OPERATIONS-SPEC-C0C.md` 由 Sol 处理服务键、应用组合根、assistant operation registry、真实路由棘轮和目录冻结。

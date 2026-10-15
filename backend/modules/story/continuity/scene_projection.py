@@ -18,6 +18,7 @@ from modules.story.continuity.contracts import (
 )
 from modules.story.continuity.field_provenance import (
     FIELD_PROVENANCE_STATE_KEY,
+    STATE_FIELD_REGISTRY,
     FieldProvenance,
     ProvenanceSourceRef,
     motif_fields_for_dimension,
@@ -758,10 +759,15 @@ class SceneMemoryProjectionService:
                 db, novel_id, event, chapter_sources
             )
             for field_key, subject_ref, object_type in assigned:
+                field_value = event.snapshot_after.get(field_key)
+                if field_key == "relation_status":
+                    field_value = (
+                        "ended" if str(event.event_type) == "relation_ended" else "active"
+                    )
                 provenance.append(
                     FieldProvenance(
                         field_key=field_key,
-                        value_hash=stable_hash(event.snapshot_after[field_key]),
+                        value_hash=stable_hash(field_value),
                         dimension=dimension,
                         object_type=object_type,
                         event_id=str(event.id),
@@ -769,6 +775,17 @@ class SceneMemoryProjectionService:
                         source_refs=source_refs,
                         version=source_refs[0].version_number if source_refs else 0,
                         recorded_at_sequence=self._provenance_sequence(event),
+                        author_confirmed=(
+                            getattr(event, "source", None) == "author_confirmation"
+                            and (event.snapshot_after.get("meta") or {}).get(
+                                "custom_state_field"
+                            )
+                            is True
+                            and (event.snapshot_after.get("meta") or {}).get(
+                                "author_confirmed"
+                            )
+                            is True
+                        ),
                     )
                 )
         if provenance:
@@ -804,7 +821,18 @@ class SceneMemoryProjectionService:
             if typed_object_type
             else ()
         )
-        if not motif_registered and not typed_registered:
+        custom_author_state = (
+            dimension == "entities"
+            and event_type == "entity_created"
+            and getattr(event, "source", None) == "author_confirmation"
+            and typed_object_type
+            and typed_object_type
+            not in {item.object_type for item in STATE_FIELD_REGISTRY.values()}
+            and isinstance(payload.get("meta"), dict)
+            and payload["meta"].get("custom_state_field") is True
+            and payload["meta"].get("author_confirmed") is True
+        )
+        if not motif_registered and not typed_registered and not custom_author_state:
             return ()
         if dimension == "timeline":
             # timeline 每条事件都追加为 fact；以最后一条 fact 为落点。
@@ -814,22 +842,33 @@ class SceneMemoryProjectionService:
             landed = facts[-1] if isinstance(facts, list) and facts else None
             subject_ref = timeline_fact_instance_key(landed)
         elif dimension == "relations":
-            if event_type != "relation_established":
+            if event_type not in {"relation_established", "relation_ended"}:
                 return ()
             relation_id = payload.get("id") or payload.get("relation_id")
             if not relation_id:
                 return ()
             subject_ref = str(relation_id)
-            relations = state.get("relations") or []
-            landed = next(
-                (
-                    item
-                    for item in reversed(relations)
-                    if isinstance(item, dict)
-                    and str(item.get("id") or item.get("relation_id")) == subject_ref
-                ),
-                None,
-            )
+            if event_type == "relation_ended":
+                landed = next(
+                    (
+                        item
+                        for item in reversed(state.get("changes") or [])
+                        if isinstance(item, dict)
+                        and str(item.get("id") or item.get("relation_id")) == subject_ref
+                        and item.get("relation_status") == "ended"
+                    ),
+                    None,
+                )
+            else:
+                landed = next(
+                    (
+                        item
+                        for item in reversed(state.get("relations") or [])
+                        if isinstance(item, dict)
+                        and str(item.get("id") or item.get("relation_id")) == subject_ref
+                    ),
+                    None,
+                )
         else:
             entity_id = str(event.entity_id) if event.entity_id else None
             if not entity_id:
@@ -857,12 +896,25 @@ class SceneMemoryProjectionService:
             if item.field_key in payload
             and landed.get(item.field_key) == payload[item.field_key]
         ]
-        assigned.extend(
-            (item.field_key, subject_ref, item.object_type)
-            for item in typed_registered
-            if item.field_key in payload
-            and landed.get(item.field_key) == payload[item.field_key]
-        )
+        for item in typed_registered:
+            if item.field_key == "relation_status" and dimension == "relations":
+                status_value = "ended" if event_type == "relation_ended" else "active"
+                if landed.get(item.field_key) == status_value:
+                    assigned.append((item.field_key, subject_ref, item.object_type))
+            elif (
+                item.field_key in payload
+                and landed.get(item.field_key) == payload[item.field_key]
+            ):
+                assigned.append((item.field_key, subject_ref, item.object_type))
+        if custom_author_state:
+            assigned.extend(
+                (field_key, subject_ref, typed_object_type)
+                for field_key, value in payload.items()
+                if field_key != "meta"
+                and isinstance(value, str)
+                and len(value) <= 4000
+                and landed.get(field_key) == value
+            )
         return tuple(assigned)
 
     @staticmethod

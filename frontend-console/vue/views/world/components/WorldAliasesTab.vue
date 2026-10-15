@@ -64,6 +64,7 @@
             <th>对象</th>
             <th>别名</th>
             <th>分类与类型</th>
+            <th>作者有效期</th>
             <th>状态</th>
             <th>来源</th>
             <th>置信度</th>
@@ -92,6 +93,7 @@
                 <span class="badge" :class="a.alias_kind ? 'badge-canonical' : 'badge-candidate'">{{ kindLabel(reviewTypeCatalog, "alias", a.alias_kind) }}</span>
                 <div class="world-text-dim">{{ detailTypeLabel(reviewTypeCatalog, "alias", a.alias_type) }}</div>
               </td>
+              <td data-label="作者有效期">{{ validityLabel(a.validity) }}</td>
               <td data-label="状态"><span class="badge" :class="statusBadgeClassOf(a)">{{ statusLabelOf(a) }}</span></td>
               <td class="world-table-cell--muted" data-label="来源">{{ sourceLabelOf(a) }}</td>
               <td data-label="置信度">{{ confidenceLabelOf(a) }}</td>
@@ -220,6 +222,16 @@ function diagnosticEvidencePairs(a) {
     ["场景标识", sceneNumber(a.scene_index) != null ? "" : a.scene_id],
     ["章节标识", Number(a.source_chapter_index) > 0 ? "" : a.source_chapter_id],
   ].filter(([, value]) => value != null && String(value).trim() !== "")
+}
+
+function validityLabel(validity) {
+  if (!validity) return "全书有效"
+  const label = (anchor) => {
+    if (!anchor?.id) return ""
+    const prefix = anchor.kind === "scene" ? "场景" : "章节"
+    return `${prefix} ${String(anchor.id).slice(0, 8)}`
+  }
+  return `${label(validity.start) || "全书起始"} — ${label(validity.end) || "持续至今"}`
 }
 
 function statusLabelOf(a) {

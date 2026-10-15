@@ -17,6 +17,7 @@ from core.dependencies import DbSession
 from modules.story.continuity.scene_projection import SceneMemoryProjectionService
 from modules.story.continuity.schemas import (
     ChapterPanorama,
+    CustomTextStateUpdateRequest,
     EventListResponse,
     MemoryStatusResponse,
     SceneCheckpointEnsureRequest,
@@ -276,6 +277,26 @@ async def get_scene_state_view(
         request.scene_id,
         viewpoint=viewpoint,
         include_dimensions=request.include_dimensions,
+    )
+
+
+@router.post("/custom-text-state")
+async def write_custom_text_state(
+    db: DbSession,
+    novel_id: NovelIdPath,
+    request: CustomTextStateUpdateRequest,
+) -> dict:
+    """Append one explicitly confirmed custom text status to this Scene."""
+    await _require_active_project(db, novel_id)
+    return await _service.confirm_custom_text_state(
+        db,
+        novel_id,
+        scene_id=str(request.scene_id),
+        entity_id=str(request.entity_id),
+        field_key=request.field_key,
+        value=request.value,
+        expected_template_version_number=request.expected_template_version_number,
+        idempotency_key=request.idempotency_key,
     )
 
 

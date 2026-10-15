@@ -420,6 +420,28 @@ class SceneStateViewRequest(BaseModel):
         return unique
 
 
+class CustomTextStateUpdateRequest(BaseModel):
+    """Author-confirmed write of one World-declared custom Story text field."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    scene_id: uuid.UUID
+    entity_id: uuid.UUID
+    field_key: str = Field(min_length=1, max_length=64, pattern=r"^[a-z][a-z0-9_]*$")
+    value: str = Field(max_length=4000)
+    expected_template_version_number: int = Field(ge=1)
+    idempotency_key: str = Field(min_length=8, max_length=128)
+    confirmed: Literal[True]
+
+    @field_validator("value")
+    @classmethod
+    def nonblank_value(cls, value: str) -> str:
+        normalized = value.strip()
+        if not normalized:
+            raise ValueError("状态内容不能为空")
+        return normalized
+
+
 class SceneStateViewResponse(BaseModel):
     novel_id: str
     scene_id: str

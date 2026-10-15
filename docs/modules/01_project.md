@@ -30,6 +30,11 @@ JSONB 配置字段，存储项目级可调参数，如 `temporary_entity_expiry_
 `settings.llm` 只保留旧项目的非 secret 兼容字段，`settings.deep_import` 继续承载项目级
 深度导入参数；任何项目创建、通用更新或兼容 LLM 设置接口中的 Key 写入都会被拒绝。
 
+`settings.world_object_dossier_v1` 保存对象有效期读取策略，包含单调递增的 `version` 与
+`allow_story_override`；默认值为关闭。作者显式开启后，只有同一对象/声明、同一注册字段、
+受信且早于截止 Scene 的 Story 观察才可影响 World 档案、关系和地图结构化有效期的读取。
+该策略不会回写 Story 事件或作者设定；更新经 `expected_version` CAS，设置页在项目切换时重读。
+
 可恢复任务由 project facade 生成不含 secret 的执行快照，冻结提交时的
 provider/model/预算与配置哈希；执行时校验快照版本、`novel_id` 和快照哈希，按项目 owner
 重新读取原 provider 的当前账户 Key。因此，同一 owner/provider 的 Key 轮换不要求重建既有任务；
@@ -127,6 +132,8 @@ POST   /api/projects/recycle-bin/permanent-delete # 原子批量永久删除回�
 GET    /api/projects/llm/provider-templates     # 兼容的供应商模板清单
 GET    /api/projects/{id}/llm-settings          # 读取项目非 secret 兼容设置
 PUT    /api/projects/{id}/llm-settings          # 更新非 secret 兼容设置；拒绝 Key
+GET    /api/projects/{id}/object-dossier-settings # 读取作者有效期剧情覆盖设置，默认关闭
+PUT    /api/projects/{id}/object-dossier-settings # expected_version CAS 更新；只改变读取策略
 DELETE /api/projects/{id}/llm-settings/field/{field_name} # 重置单个白名单字段为继承全局
 GET    /api/projects/{id}/effective-llm-settings # canonical 有效 LLM 配置投影
 GET    /api/projects/{id}/effective-author-preferences # canonical 有效作者偏好投影

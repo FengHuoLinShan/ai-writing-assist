@@ -22,6 +22,12 @@ class DossierValidity(BaseModel):
     start: DossierAnchor | None = None
     end: DossierAnchor | None = None
 
+    @model_validator(mode="after")
+    def requires_anchor(self) -> DossierValidity:
+        if self.start is None and self.end is None:
+            raise ValueError("生效区间至少需要一个稳定锚点")
+        return self
+
 
 class DossierFacingRef(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True)
@@ -62,6 +68,9 @@ class DossierEntryCreate(BaseModel):
 
     facing: DossierFacingRef
     legacy_field_key: str | None = Field(default=None, min_length=1, max_length=96)
+    story_field_key: str | None = Field(
+        default=None, max_length=64, pattern=r"^[a-z][a-z0-9_]{0,63}$"
+    )
     content: str = Field(min_length=1, max_length=20000)
     tags: list[str] = Field(default_factory=list, max_length=24)
     evidence: list[DossierEvidenceRef] = Field(default_factory=list, max_length=16)
@@ -87,6 +96,9 @@ class DossierEntryUpdate(BaseModel):
     quote_text: str | None = Field(default=None, max_length=4000)
     visibility: Literal["public", "secret"] | None = None
     validity: DossierValidity | None = None
+    story_field_key: str | None = Field(
+        default=None, max_length=64, pattern=r"^[a-z][a-z0-9_]{0,63}$"
+    )
 
     @model_validator(mode="after")
     def require_change(self) -> DossierEntryUpdate:
@@ -120,11 +132,30 @@ class DossierTemplateField(BaseModel):
         return value.strip() if value is not None else None
 
 
+class DossierStateField(BaseModel):
+    """World-owned declaration for one custom Story text-state field."""
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    key: str = Field(min_length=1, max_length=64, pattern=r"^[a-z][a-z0-9_]*$")
+    label: str = Field(min_length=1, max_length=80)
+    value_kind: Literal["text"] = "text"
+
+    @field_validator("label")
+    @classmethod
+    def nonblank_label(cls, value: str) -> str:
+        normalized = value.strip()
+        if not normalized:
+            raise ValueError("状态字段名称不能为空")
+        return normalized
+
+
 class DossierTemplateUpsert(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     expected_version_number: int | None = Field(default=None, ge=1)
     fields: list[DossierTemplateField] = Field(max_length=128)
+    state_fields: list[DossierStateField] = Field(default_factory=list, max_length=64)
     display_schema: dict = Field(default_factory=dict)
 
 
@@ -134,6 +165,7 @@ class DossierTemplateResponse(BaseModel):
     revision_id: uuid.UUID
     version_number: int
     fields: list[DossierTemplateField] = Field(default_factory=list)
+    state_fields: list[DossierStateField] = Field(default_factory=list)
     display_schema: dict = Field(default_factory=dict)
     updated_at: datetime | None = None
 
@@ -168,6 +200,7 @@ class DossierEntryResponse(BaseModel):
     facing: DossierFacingRef
     facing_label: str
     legacy_field_key: str | None = None
+    story_field_key: str | None = None
     content: str
     tags: list[str] = Field(default_factory=list)
     evidence: list[DossierEvidenceRef] = Field(default_factory=list)
@@ -180,6 +213,10 @@ class DossierEntryResponse(BaseModel):
     validity: DossierValidity | None = None
     anchor_problem: str | None = None
     effective_at_cutoff: bool | None = None
+    validity_conflict: bool = False
+    story_override_applied: bool = False
+    validity_gap: str | None = None
+    story_observation: dict[str, Any] | None = None
     revision_reason: str | None = None
     restored_from_id: uuid.UUID | None = None
     created_at: datetime | None = None
@@ -207,6 +244,7 @@ class DossierReadResponse(BaseModel):
     entity_status: str
     visibility_filter: Literal["public"] | None = None
     as_of_scene_id: uuid.UUID | None = None
+    allow_story_override: bool = False
     offset: int = Field(default=0, ge=0)
     limit: int = Field(default=100, ge=1, le=250)
     entries: list[DossierEntryResponse] = Field(default_factory=list)

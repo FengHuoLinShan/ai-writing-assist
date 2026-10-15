@@ -20,6 +20,7 @@
 from __future__ import annotations
 
 import json
+import re
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from enum import StrEnum
@@ -114,7 +115,10 @@ _STATE_FIELDS: tuple[RegisteredStateField, ...] = (
     RegisteredStateField("rule", "known_by", "entities", "规则知情者", "entity_ref_list"),
     RegisteredStateField("secret", "reveal_status", "entities", "秘密揭示状态", "text"),
     RegisteredStateField("relation", "attitude", "relations", "有向关系态度", "attitude"),
+    RegisteredStateField("relation", "relation_status", "relations", "关系状态", "text"),
 )
+_STATIC_STATE_OBJECT_TYPES = frozenset(item.object_type for item in _STATE_FIELDS)
+_CUSTOM_STATE_FIELD_KEY = re.compile(r"^[a-z][a-z0-9_]{0,63}$")
 STATE_FIELD_REGISTRY: Mapping[tuple[str, str], RegisteredStateField] = MappingProxyType(
     {(item.object_type, item.field_key): item for item in _STATE_FIELDS}
 )
@@ -222,6 +226,7 @@ class FieldProvenance(BaseModel):
     source_refs: tuple[ProvenanceSourceRef, ...] = ()
     version: int = Field(ge=0)
     recorded_at_sequence: int = Field(ge=0)
+    author_confirmed: bool = False
 
     @model_validator(mode="after")
     def _validate_chain(self) -> FieldProvenance:
@@ -237,11 +242,18 @@ class FieldProvenance(BaseModel):
             registered_state = STATE_FIELD_REGISTRY.get(
                 (self.object_type, self.field_key)
             )
-            if registered_state is None:
+            if registered_state is None and (
+                self.dimension != "entities"
+                or self.object_type in _STATIC_STATE_OBJECT_TYPES
+                or len(self.object_type) > 64
+                or not _CUSTOM_STATE_FIELD_KEY.fullmatch(self.field_key)
+            ):
                 raise ValueError(
                     f"field {self.object_type}.{self.field_key} is not registered"
                 )
-            expected_dimension = registered_state.dimension
+            expected_dimension = (
+                registered_state.dimension if registered_state is not None else "entities"
+            )
         if self.dimension != expected_dimension:
             raise ValueError(
                 f"field {self.field_key!r} belongs to dimension "

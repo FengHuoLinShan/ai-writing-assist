@@ -49,6 +49,7 @@ from modules.world.dossier_facade import (  # noqa: F401
     read_world_object_dossier,
     read_world_object_dossier_history,
     read_world_object_dossier_template_history,
+    require_custom_text_state_field,
     restore_world_object_dossier_entry,
     save_world_object_dossier_template,
 )
@@ -181,6 +182,7 @@ __all__ = [
     "read_world_object_dossier",
     "read_world_object_dossier_history",
     "read_world_object_dossier_template_history",
+    "require_custom_text_state_field",
     "restore_world_object_dossier_entry",
     "save_world_object_dossier_template",
     "read_world_object_image",
