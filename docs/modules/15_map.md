@@ -467,5 +467,38 @@ Scene 的新证据，World 逐条重读引文并校验累计 evidence hash。只
 `adopt` 表示作者确认线索候选；它本身不修改正式地图版本，正式地图写入仍需后续通过 Map 的基线、
 canonical 来源与审核门禁。合并只允许语义签名相同的线索，源行保留并指向目标，不删除证据。
 
-此切片只交付 World 存储、受限读取和作者复核 API；Evolution 调用接线和地图增量草图尚未启用，
-不调用模型，也不自动采用线索或地图。
+M1 完成 World 的存储、受限读取和作者复核 API；M2 增加 Evolution 聚合批次后的程序化候选草图。
+空间线索与地图版本仍须作者审核；草图构建不调用模型、不生成图片、不移动正式地图 head。
+
+## Evolution 自动草图（M2）
+
+World 入口 `build_map_auto_drafts(db, novel_id, request)` 聚合一次阅读运行截止 Scene 之前的线索，
+不是每 Scene 生成一版。请求以 `(run_id, build_key, through_scene_id)` 幂等；重复相同请求时，
+`running` 批次每次最多推进 20 个持久化分片，已完成批次返回同一结果。响应的 `fingerprint`、
+`cursor`、`total_chunks` 和 `status` 支持作者端续跑；当前批次只有候选，没有图片或正式 head 写入。
+每个节点每批使用独立 `task_id`。同节点最多一条待审自动草图；增量基于当前待审草图、
+否则已保存版本、否则空白。旧候选在新候选落库时标为 `superseded`，已保存版本不修改。
+
+父子层级按已采用 World 关系、已保存地图层级、已独立复核线索、World 候选关系的优先级计算；
+冲突同时记录来源、展示待核托盘。每个分片最多 200 个图元和 400 个关系/行程，超过上限的地点
+或关系留在带精确引文的托盘，不静默截断。非 `event_observed` 线索只进入待核，不参与程序布局。
+布局沿用确定性地图几何算法并锁定已有点位。托盘地点必须先预览，再提交包含托盘 fingerprint、
+正式基线、用户点击坐标和预览 fingerprint 的确认请求；重复提交相同放置会返回已有候选，坐标不会
+由助手生成。
+
+作者采用自动草图仍走地图 revision 的比较、来源和 CAS 门禁。采用前重验每条线索、Scene、端点、
+复核与逐字引用；working 来源不能进入正式地图。World 候选地点可绑定在作者侧草图中，未采用时
+正式采用只保留待核文字标签；地点融合时绑定跟随目标，拒绝或删除后降为文字并提示重新映射。
+拒绝或合并任一依赖线索会使批次标为 stale；正文来源变更在读取时也会显示为 stale。作者重做只会
+对目标分片从已保存基线重新生成候选。
+
+自动草图 API 位于 `/api/world/map-atlas/{novel_id}/auto-drafts`：GET 返回候选和每批进度；
+POST `/build` 创建/续跑聚合批次，`/{batch_id}/resume` 兼容作者续跑，`/{batch_id}/redo` 确认整片重做。
+待放置地点通过 `/{batch_id}/nodes/{node_id}/revisions/{revision_id}/tray/{item_id}/preview|place`
+预览和确认。线索审核仍用上节的 `/spatial-clues/{clue_id}/review`，草图审核仍用
+`/nodes/{node_id}/revisions/{revision_id}/review-preview|review`。
+
+G8a 在 `maps[]` 继续只报告已保存地图；另有 `auto_drafts[]` 单独报告引用变更章节的待审自动草图，
+并返回 `auto_draft_unverified` 与 `auto_draft_truncated`。端口按 `content_mode` 精确分开核对：
+canonical 变化继续检查已保存地图与相同模式草图；working 变化只检查相同模式草图，不把 working
+来源当成已发布地图来源。来源查询失败仍按 G8a 的 Savepoint 降级语义回报覆盖不足。

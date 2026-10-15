@@ -790,6 +790,19 @@ class MapStructureService:
             raise ConflictError("地图已更新，请重新比较后再操作")
         if row.status != "candidate" or row.base_revision_id != node.current_revision_id:
             raise ConflictError("候选基于旧地图，请重新生成或手动比较")
+        if (row.context_fingerprint or "").startswith("auto-draft:"):
+            from modules.world.map_auto_draft_service import (
+                prepare_auto_draft_adoption,
+            )
+
+            return await prepare_auto_draft_adoption(
+                db,
+                novel_id,
+                node,
+                row,
+                data.change_keys,
+                source_validator=self.source,
+            )
         if not row.confirmation_id:
             raise ConflictError("候选缺少原参考资料确认，请重新生成")
         try:
@@ -824,7 +837,7 @@ class MapStructureService:
             ):
                 for source in item.sources:
                     await self.source(db, novel_id, source)
-        return document, applied, expanded
+        return document, applied, expanded, candidate
 
     async def review_preview(
         self, db, novel_id, node_id, revision_id, data: MapRevisionReview
@@ -835,7 +848,7 @@ class MapStructureService:
             raise ValidationError("采用范围预览只接受采用操作")
         node = await self.node(db, novel_id, node_id)
         row = await self.revision(db, novel_id, node_id, revision_id)
-        _, applied, expanded = await self._adoption_document(
+        _, applied, expanded, _candidate = await self._adoption_document(
             db, novel_id, node_id, node, row, data
         )
         return MapReviewPreview(
@@ -856,13 +869,18 @@ class MapStructureService:
                 raise ConflictError("只能拒绝尚未采用的候选")
             row.status = "rejected"
             await db.flush()
+            from modules.world.map_auto_draft_service import (
+                update_auto_draft_review_ref,
+            )
+
+            await update_auto_draft_review_ref(db, novel_id, row, status="rejected")
             return self.response(row)
         if node.current_revision_id != data.base_revision_id:
             raise ConflictError("地图已更新，请重新比较后再操作")
         candidate = MapDocument.model_validate(row.document)
-        document, applied, expanded = candidate, [], []
+        document, applied, expanded, candidate = candidate, [], [], candidate
         if data.action == "adopt":
-            document, applied, expanded = await self._adoption_document(
+            document, applied, expanded, candidate = await self._adoption_document(
                 db, novel_id, node_id, node, row, data
             )
         elif row.status != "saved":
@@ -894,6 +912,7 @@ class MapStructureService:
                     problems=list(row.problems),
                     confirmation_id=row.confirmation_id,
                     context_fingerprint=row.context_fingerprint,
+                    task_id=uuid.uuid4(),
                     writing_chapter_index=result.writing_chapter_index,
                 )
                 # The remaining full candidate retains the same dependency-valid
@@ -901,8 +920,24 @@ class MapStructureService:
                 db.add(remaining)
                 await db.flush()
                 result.remaining_candidate_id = str(remaining.id)
+                from modules.world.map_auto_draft_service import (
+                    update_auto_draft_review_ref,
+                )
+
+                await update_auto_draft_review_ref(
+                    db,
+                    novel_id,
+                    row,
+                    status="rejected",
+                    replacement=remaining,
+                )
             else:
                 row.status = "saved"
+                from modules.world.map_auto_draft_service import (
+                    update_auto_draft_review_ref,
+                )
+
+                await update_auto_draft_review_ref(db, novel_id, row, status="saved")
         await db.flush()
         return result
 

@@ -185,6 +185,19 @@ def _result_ref(row: MapSpatialClueRecord) -> MapSpatialClueResultRef:
     )
 
 
+async def _invalidate_auto_drafts_for_clue(
+    db: AsyncSession, novel_id: str, clue_id: str
+) -> None:
+    from modules.world.map_auto_draft_service import invalidate_auto_drafts_for_clue
+
+    await invalidate_auto_drafts_for_clue(
+        db,
+        novel_id,
+        clue_id,
+        reason="草图依赖的空间线索已合并或拒绝，请重新映射。",
+    )
+
+
 async def _scene_contract(db, novel_id: str, scene_id: str, scene_index: int):
     scene = await get(STORY_SCENE_SOURCE).get_scene_contract(db, novel_id, scene_id)
     if (
@@ -465,8 +478,13 @@ async def _validate_type_references(
 
 
 async def _revalidate_stored_clue(
-    db, novel_id: str, row: MapSpatialClueRecord, clue: MapSpatialClue
-) -> None:
+    db,
+    novel_id: str,
+    row: MapSpatialClueRecord,
+    clue: MapSpatialClue,
+    *,
+    allow_identity_transitions: bool = False,
+) -> dict[str, CoreEntity]:
     binding = MapSpatialClueSourceBinding.model_validate(row.source_binding)
     sources = await _resolve_binding(db, novel_id, row.scene_id, row.scene_index, binding)
     source_hash = _matching_source_hash(clue, sources)
@@ -488,6 +506,7 @@ async def _revalidate_stored_clue(
         for endpoint in (clue.subject, clue.target)
         if endpoint is not None and endpoint.entity_id is not None
     }
+    current_endpoints: dict[str, CoreEntity] = {}
     if endpoints:
         rows = (
             await db.scalars(
@@ -497,13 +516,48 @@ async def _revalidate_stored_clue(
                 )
             )
         ).all()
-        actual = {
-            entity.id: "canonical" if entity.status == "canonical" else "candidate"
-            for entity in rows
-            if entity.status in {"canonical", "candidate", "draft"}
-        }
-        if actual != endpoints:
-            raise ValidationError("Clue endpoint identity changed")
+        by_id = {entity.id: entity for entity in rows}
+        for entity_id, expected_state in endpoints.items():
+            entity = by_id.get(entity_id)
+            if (
+                allow_identity_transitions
+                and entity is not None
+                and entity.status == "merged"
+            ):
+                redirect = (entity.content_json or {}).get("merged_into")
+                seen = {entity.id}
+                while redirect:
+                    target_id = parse_uuid(str(redirect), "merged_entity_id")
+                    if target_id in seen:
+                        break
+                    seen.add(target_id)
+                    target = await db.scalar(
+                        select(CoreEntity).where(
+                            CoreEntity.novel_id == parse_uuid(novel_id, "novel_id"),
+                            CoreEntity.id == target_id,
+                        )
+                    )
+                    if target is None:
+                        break
+                    if target.status == "merged":
+                        redirect = (target.content_json or {}).get("merged_into")
+                        continue
+                    entity = target
+                    break
+            if entity is None or entity.status not in {
+                "canonical",
+                "candidate",
+                "draft",
+            }:
+                raise ValidationError("Clue endpoint identity changed")
+            actual_state = "canonical" if entity.status == "canonical" else "candidate"
+            if actual_state != expected_state and not (
+                allow_identity_transitions
+                and expected_state == "candidate"
+                and actual_state == "canonical"
+            ):
+                raise ValidationError("Clue endpoint identity changed")
+            current_endpoints[str(entity_id)] = entity
     for type_ref, revision_id, kind in _type_references(clue):
         row_type = (
             await db.execute(
@@ -540,6 +594,7 @@ async def _revalidate_stored_clue(
         )
         if not reviewed:
             raise ValidationError("Clue type proposal has no passing independent review")
+    return current_endpoints
 
 
 async def _validate_type_proposal(
@@ -1198,6 +1253,7 @@ async def review_spatial_clue(
         row.decision_reason = data.reason.strip() or None
         row.decided_by = decided_by[:128]
         row.decided_at = datetime.now(UTC)
+        await _invalidate_auto_drafts_for_clue(db, novel_id, str(row.id))
         await db.flush()
         return _response(row)
 
@@ -1207,6 +1263,7 @@ async def review_spatial_clue(
         row.decision_reason = data.reason.strip() or None
         row.decided_by = decided_by[:128]
         row.decided_at = datetime.now(UTC)
+        await _invalidate_auto_drafts_for_clue(db, novel_id, str(row.id))
         await db.flush()
         return _response(row)
 

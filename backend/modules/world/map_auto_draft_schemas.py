@@ -39,7 +39,7 @@ class MapAutoDraftRevisionRef(MapAutoDraftModel):
     node_id: UUID
     revision_id: UUID
     base_revision_id: UUID | None = None
-    status: Literal["candidate", "superseded", "stale"]
+    status: Literal["candidate", "saved", "rejected", "superseded", "stale"]
     feature_count: int = Field(ge=0, le=200)
     source_clue_ids: list[UUID] = Field(default_factory=list)
 
@@ -59,7 +59,9 @@ class MapAutoDraftTrayItem(MapAutoDraftModel):
         "endpoint_not_location",
         "ambiguous_source_quote",
         "feature_limit",
+        "relation_limit",
         "placement_failed",
+        "non_event_modality",
         "hierarchy_conflict",
         "source_stale",
         "endpoint_stale",
@@ -94,6 +96,7 @@ class MapAutoDraftHierarchyConflict(MapAutoDraftModel):
 
 class MapAutoDraftBuildResult(MapAutoDraftModel):
     batch_id: UUID
+    fingerprint: Sha256
     status: MapAutoDraftStatus
     cursor: int = Field(ge=0)
     total_chunks: int = Field(ge=0)
@@ -102,6 +105,15 @@ class MapAutoDraftBuildResult(MapAutoDraftModel):
     tray_items: list[MapAutoDraftTrayItem] = Field(default_factory=list)
     conflicts: list[MapAutoDraftHierarchyConflict] = Field(default_factory=list)
     diagnostics: list[str] = Field(default_factory=list, max_length=128)
+
+
+class MapAutoDraftBatchProgress(MapAutoDraftModel):
+    batch_id: UUID
+    fingerprint: Sha256
+    status: MapAutoDraftStatus
+    cursor: int = Field(ge=0)
+    total_chunks: int = Field(ge=0)
+    completed_chunks: int = Field(ge=0)
 
 
 class MapAutoDraftListItem(MapAutoDraftModel):
@@ -124,6 +136,7 @@ class MapAutoDraftListItem(MapAutoDraftModel):
 class MapAutoDraftListResponse(MapAutoDraftModel):
     items: list[MapAutoDraftListItem]
     total_count: int = Field(ge=0)
+    batches: list[MapAutoDraftBatchProgress] = Field(default_factory=list, max_length=200)
 
 
 class MapAutoDraftResumeRequest(MapAutoDraftModel):
@@ -145,6 +158,7 @@ class MapAutoDraftTrayPlacementPreviewRequest(MapAutoDraftModel):
 
 
 class MapAutoDraftTrayPlacementRequest(MapAutoDraftTrayPlacementPreviewRequest):
+    preview_fingerprint: Sha256
     confirmed: Literal[True]
 
 
@@ -177,6 +191,7 @@ class MapAutoDraftTrayPlacementResponse(MapAutoDraftModel):
 __all__ = [
     "MapAutoDraftBuildRequest",
     "MapAutoDraftBuildResult",
+    "MapAutoDraftBatchProgress",
     "MapAutoDraftHierarchyAlternative",
     "MapAutoDraftHierarchyConflict",
     "MapAutoDraftListItem",
