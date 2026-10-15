@@ -188,6 +188,8 @@ async function applyPresets() {
 .vocabulary-list span, .vocabulary-list small, .vocabulary-editor > fieldset > label { display: block; }
 .vocabulary-editor fieldset { min-width: 0; border: 0; padding: .5rem 0; margin: 0; }
 .vocabulary-editor label { margin-bottom: .7rem; }
+.vocabulary-editor details > label { display: block; margin-top: .7rem; }
+.vocabulary-editor details > button { margin-bottom: .5rem; }
 .vocabulary-editor details fieldset label { display: inline-flex; gap: .35rem; margin-right: 1rem; align-items: center; }
 .vocabulary input[type="checkbox"] { min-height: 1.25rem; min-width: 1.25rem; }
 @media (max-width: 640px) { .vocabulary-body { grid-template-columns: 1fr; } .vocabulary-list { max-height: 15rem; } .vocabulary-bar > button { min-height: 2.75rem; } }
