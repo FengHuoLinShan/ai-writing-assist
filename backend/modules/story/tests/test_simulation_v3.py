@@ -87,13 +87,31 @@ def test_simulation_v3_requires_typed_reference_shapes():
         )
 
 
-def test_public_event_does_not_assume_unknown_observer_is_at_known_location():
+@pytest.mark.parametrize(
+    ("actor_location", "witness_location", "witness_can_observe"),
+    [
+        (None, "elsewhere", False),
+        (None, None, False),
+        ("hall", None, False),
+        ("hall", "hall", True),
+        ("hall", "elsewhere", False),
+    ],
+)
+def test_public_event_requires_known_shared_location_for_other_observers(
+    actor_location: str | None,
+    witness_location: str | None,
+    witness_can_observe: bool,
+):
     actor, witness = _object("actor-1"), _object("actor-2")
-    hall = SimulationReference(kind="map_node", id="hall")
+    locations = {}
+    if actor_location:
+        locations[actor.state_key] = f"candidate:{actor_location}"
+    if witness_location:
+        locations[witness.state_key] = f"candidate:{witness_location}"
     state = {
         "revision": 0,
         "observations": {},
-        "locations": {actor.state_key: hall.state_key},
+        "locations": locations,
     }
     intent = SimulationIntent(
         intent_id="say-1",
@@ -109,9 +127,12 @@ def test_public_event_does_not_assume_unknown_observer_is_at_known_location():
         observers={actor.state_key, witness.state_key},
         rule_revision="a" * 64,
     )
-    assert batch.events[0]["observers"] == [actor.state_key]
+    expected_observers = (
+        [actor.state_key, witness.state_key] if witness_can_observe else [actor.state_key]
+    )
+    assert batch.events[0]["observers"] == expected_observers
     replayed = replay_batch(state, batch)
-    assert witness.state_key not in replayed["observations"]
+    assert (witness.state_key in replayed["observations"]) is witness_can_observe
 
 
 def test_simulation_v3_applies_only_successful_transfer_and_replays_exactly():

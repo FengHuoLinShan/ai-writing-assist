@@ -256,6 +256,24 @@ async def test_rehearsal_http_rejects_unowned_or_missing_world_identity_before_e
     fresh.assert_not_awaited()
 
 
+@pytest.mark.parametrize("declared_ids", [[], [str(uuid.uuid4())]])
+def test_v3_seed_participants_must_match_selected_actors(declared_ids: list[str]) -> None:
+    selected = str(uuid.uuid4())
+    with pytest.raises(ValidationError, match="participants must match selected actors"):
+        StoryOneClickTaskRequest(
+            novel_id=str(uuid.uuid4()),
+            scene_id=str(uuid.uuid4()),
+            character_ids=[selected],
+            context_confirmation_id="v3-confirmation",
+            simulation_protocol="simulation_v3",
+            simulation_seed={
+                "participants": [
+                    {"kind": "object", "id": identifier} for identifier in declared_ids
+                ]
+            },
+        )
+
+
 @pytest.mark.asyncio
 async def test_scene_rehearsal_route_returns_read_only_conflict_for_old_protocol(
     async_client: AsyncClient,

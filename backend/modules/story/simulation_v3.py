@@ -252,7 +252,7 @@ def _observers_for(
     visible = {
         observer
         for observer in observers
-        if origin is None or locations.get(observer) == origin
+        if observer == actor or (origin is not None and locations.get(observer) == origin)
     }
     audience = {item.state_key for item in intent.audience}
     if actor not in visible or audience - visible:
