@@ -239,6 +239,10 @@ World 正典修订、地图册非正文/待审来源与世界知识的来源版�
 未复核结论。复核通过的批次以 `needs_review` Story 草稿持久化并登记
 `evolution_structure_ref`；故事大纲四类结构资产（剧情线/人物弧/伏笔/揭示）采用时
 重验原回执与最新来源，来源漂移拒绝采用，已采用条目回归作者自由编辑。
+揭示主题若没有可验证的既有对象目标，不猜测目标，也不写入需目标 ID 的 RevealPlan；
+批次回执保留原候选、逐 Scene 证据与 `unresolved_reveal_target` 待复核标记。
+作者可从 `GET /api/evolution/reading` 的 `run.structure_review` 读取未解析数量、
+具体条目及来源回执。流程 `completed` 表示阅读阶段结束，待复核揭示仍需作者处理。
 
 ## 测试
 
