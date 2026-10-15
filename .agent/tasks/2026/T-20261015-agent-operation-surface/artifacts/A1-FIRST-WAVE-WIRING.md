@@ -36,7 +36,7 @@
 - 同语义的现有 World 融合/历史备注/恢复、Story 排序/合并、Writing 编辑准备/批注、Evolution
   阅读预览路由标注操作 ID 与逐字段留痕映射。Evolution 路由只记 `previewed`，不会产生作者
   已授权启动的假事件；融合/合并的 `confirmed=false` 不记成作者已确认。
-- `modules/assistant/operation_http.py` 增加类型迁移、Scene 窄拆分、章节改名、当前草稿冲突检查的
+- `modules/assistant/operation_api.py` 增加类型迁移、Scene 窄拆分、章节改名、当前草稿冲突检查的
   作者预览与相同指纹确认入口，并加 Evidence 的三个 R0 窄读入口。宽体对象编辑、正文
   checkpoint、任意正文冲突检查和 Evidence 原宽路由不冒充窄操作。R0 不走 apply。
 - `app/main.py` 的 HTTP 留痕从明确映射的 Pydantic 字段提取摘要；不会将 body 中的正文、
