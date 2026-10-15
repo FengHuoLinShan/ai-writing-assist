@@ -83,6 +83,7 @@ from core.service_keys import (
     WORLD_READ_MAP_CHAPTER_CONSUMERS,
     WORLD_READ_MAP_NODE_HEADS,
     WORLD_READ_MAP_SPATIAL_BRIEF,
+    WORLD_READ_MAP_SPATIAL_ADVISORIES,
     WORLD_READ_PROJECT_VOCABULARY,
     WORLD_STAGE_SPATIAL_DISCOVERY,
     WORLD_BUILD_MAP_AUTO_DRAFTS,
@@ -206,6 +207,7 @@ from modules.world.facade import (
     stage_spatial_discovery as _world_stage_spatial_discovery,
     build_map_auto_drafts as _world_build_map_auto_drafts,
     read_map_spatial_brief as _world_read_map_spatial_brief,
+    read_map_spatial_advisories as _world_read_map_spatial_advisories,
 )
 from modules.world.assistant_tools import OPERATIONS as _WORLD_OPERATIONS
 from app.assistant_operation_registry import evidence_forecast_operations
@@ -467,6 +469,7 @@ def _container_services() -> Iterable[tuple[ServiceKey[Any], Any]]:
         (WORLD_READ_MAP_CHAPTER_CONSUMERS, _world_read_map_chapter_consumers),
         (WORLD_READ_MAP_NODE_HEADS, _world_read_map_node_heads),
         (WORLD_READ_MAP_SPATIAL_BRIEF, _world_read_map_spatial_brief),
+        (WORLD_READ_MAP_SPATIAL_ADVISORIES, _world_read_map_spatial_advisories),
         (WORLD_READ_PROJECT_VOCABULARY, _world_read_project_vocabulary),
         (WORLD_STAGE_SPATIAL_DISCOVERY, _world_stage_spatial_discovery),
         (WORLD_BUILD_MAP_AUTO_DRAFTS, _world_build_map_auto_drafts),
