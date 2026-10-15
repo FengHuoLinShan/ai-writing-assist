@@ -20,6 +20,11 @@ V4 长期计划（`docs/plans/novelcraft-v4/plans/01-EVOLUTION.md`）的演化�
 
 ## 契约层（`contracts.py` / `observations.py`）
 
+评测只读入口 `read_map_spatial_evaluation_receipts(db, novel_id, run_key, operation_id, scene_ids)`
+经 owner 门禁校验实际空间阅读/补扫授权及请求 Scene 范围，返回冻结来源、空间覆盖与调用 journal、持久提交回执。
+不核对并修改任务，不返回项目配置或凭据。主阅读未保存逐授权 attempt 映射时标记 `operation_binding_status=unknown`；
+没有 attempt 的 Scene 覆盖同样标记 unknown，不能将缺失回执视为零调用或已完成。
+
 - `SourceRevisionRef`：不可变来源引用。range_hash 由 content_hash + 偏移确定性
   推导；章节序号只用于展示排序，来源身份由 draft/content_hash/revision 承担——
   同字数替换、复制、恢复旧稿都产生可识别变化。

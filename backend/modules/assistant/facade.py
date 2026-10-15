@@ -3,6 +3,9 @@
 from modules.assistant.map_author_decision_service import (
     read_map_author_decision as read_map_author_decision,
 )
+from modules.assistant.map_evaluation_read_service import (
+    read_map_spatial_evaluation_turn as read_map_spatial_evaluation_turn,
+)
 from modules.assistant.operation_scope import (
     require_operation_targets as require_operation_targets,
 )

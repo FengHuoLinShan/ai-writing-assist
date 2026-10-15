@@ -1164,6 +1164,7 @@ async def list_spatial_clues(
     *,
     statuses: list[MapSpatialClueStatus] | None = None,
     scene_id: str | None = None,
+    run_id: str | None = None,
     limit: int = 100,
     offset: int = 0,
 ) -> MapSpatialClueListResponse:
@@ -1177,6 +1178,8 @@ async def list_spatial_clues(
         conditions.append(
             MapSpatialClueRecord.scene_id == str(parse_uuid(scene_id, "scene_id"))
         )
+    if run_id is not None:
+        conditions.append(MapSpatialClueRecord.run_id == run_id)
     total = int(
         (
             await db.scalar(

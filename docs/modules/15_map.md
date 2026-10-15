@@ -261,6 +261,11 @@ hash；指纹变化时在图片模型调用前失败关闭。
 
 ## 验证
 
+World facade 的 `read_map_spatial_evaluation_artifacts(db, novel_id, run_id, scene_ids)`
+仅在 owner 门禁后只读指定运行及 1–200 个 Scene 的线索、原始来源与复核、草图批次、不可变空间修订及当前 head，
+并附相关项目类型的修订历史。线索分页完整读取，返回 `truncated/omitted_count` 与缺失记录；没有线索的 Scene
+覆盖为 unknown，不能据此认定空间发现成功或真人验收。该入口不生成、复核或采用资产。
+
 - 空间与集成：`backend/modules/world/tests/test_map_structure.py`、`test_map_structure_workflow.py`。
 - PostgreSQL：`backend/tests/e2e/test_unified_map_concurrency.py`；浏览器：`frontend-console/e2e/map-structure.spec.js`。
 - 后端：`backend/modules/world/tests/test_map_atlas.py`、`backend/tests/account_project_preferences/test_image_connection.py`
