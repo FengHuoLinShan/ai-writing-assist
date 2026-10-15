@@ -38,6 +38,7 @@ _TIER_HEADERS: dict[str, str] = {
     "scene_time_boundary": "Scene 时间边界",
     "current_scene_evidence": "当前 Scene 证据",
     "map_spatial": "空间简报",
+    "director_reference": "场景导演参考（作者选择的思路，不是正史）",
 }
 
 # 按 section key 确定性标注资料性质；只描述资料类别，不改变 section.content，
@@ -68,6 +69,7 @@ _SECTION_FACT_LEVELS: dict[str, str] = {
     "retrieval_evidence_packs": "derived",
     "style_assets": "fact",
     "world_entities": "fact",
+    "director_reference": "reference",
     "world_bible_activation": "fact",
     "world_bible_synopsis": "fact",
     "world_bible_working_pages": "candidate",

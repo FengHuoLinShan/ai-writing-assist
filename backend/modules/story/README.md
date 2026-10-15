@@ -278,6 +278,38 @@ Story 新建的排演使用 `simulation_v3`。通用 `/tasks/one-click` 默认�
 其 `max_actors` 继续由 Interaction 入口策略控制。v1–v7 冻结目录后续如接新排演，必须显式版本化协议和路由，
 不能按新默认重解释旧运行。启用见 development-guide；工程验证与模型自然性验收分别记录。
 
+### 场景导演（C4b）
+
+`director_api.py`、`director_tasks.py`、`director_context.py` 与 `director_service.py` 定义了独立的
+Story 导演根、分支、不可变回合、预算续算、作者历史操作与内容副本。入口使用显式 N 轮和独立请求、Token、
+时限上限；每个回合沿用 `simulation_v3` 的 `SimulationIntentDraft`、有限结算与状态回放。分支续算复用同一个
+`AIRunEnvelope` 根并保留原 `started_at` / deadline。未知请求的作者确认只覆盖确认时的累计范围；后续新增未知、
+未确认计量或 attempt 摘要溢出仍会暂停。
+
+角色意图各自读取 Evidence `character` POV 简报，并在运行时按角色实际收到且未因上下文容量省略的来源 ID 与
+当前来源指纹核验表演依据。对象和地点先经 Story/World canonical/current 校验，再叠加角色可知对象集；全知
+作者资料、未来约束、Story 人物卡自由文本只留在作者侧，不作为角色知识。内心素材只属于本人视角；其他素材
+的感知者由角色简报来源或模拟事件观察回执推导，模型声明本身不作权限证明。新登场对象和事件均进入
+`candidate_events`，不应用到模拟状态、World、continuity 或正文。
+
+`director_notice_sources.py` 的 `story.scene_director` 只读来源、`director_operations.py`
+的八项纯操作声明与 `director_api.router` 已经在应用组合根注册：
+`story.scene_director.preview`、`story.scene_director.continue_preview`、`story.scene_director.start`、
+`story.scene_director.continue`、`story.scene_director.history`、
+`story.scene_director.advance`、`story.scene_director.check_consistency` 和
+`story.scene_director.save_reference`。独立 `story_scene_director` Task 在任务 manifest 中注册，
+使用 `never_retry` 和持久化根账本。`20261016_story_scene_director.py`
+在当前基线上是单 head；后续与其他批次合并时须重新串接。Story 提供
+`read_scene_director_references_for_writing` typed facade，按作品与当前 Scene 读取作者保存的内容副本；Evidence
+`director_reference` loader/section/policy 与 Writing generate、targeted-revision 请求已实现，环境白名单
+`NOVELCRAFT_DIRECTOR_REFERENCE_ENABLED_CAPABILITIES` 默认关闭。组合根已将
+`EVIDENCE_READ_STORY_DIRECTOR_REFERENCES` 已绑定 Story facade。
+该参考不是 SceneScriptFile、采用资格或正文约束。对象一致性未覆盖的生死、外观和 C0c 作者有效期仍明确返回
+unknown/partial，不代表已完成事实审查。
+
+场景工作台与写作副驾驶 Director 标签共用 `SceneDirectorPanel.vue`；旧 rehearsal 面板只读且不能续跑。
+真实模型质量与作者验收仍须在最终固定代码上单独完成。
+
 ## 创作试验的结构与观察边界
 
 Story 为 Collaboration 提供 Scene、伏笔/揭示安排的冻结可编辑字段与原领域操作 port。

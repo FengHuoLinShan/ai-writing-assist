@@ -8,7 +8,12 @@ from typing import Any
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from modules.story.contracts import scene_chapter_indices as scene_chapter_indices
+from modules.story.contracts import (
+    StoryDirectorReferencesForWritingContract,
+)
+from modules.story.contracts import (
+    scene_chapter_indices as scene_chapter_indices,
+)
 from modules.story.generation import (
     STORY_CARD_TASK,
     STORY_CHARACTER_CARD_ACTION,
@@ -50,6 +55,31 @@ async def read_object_dossier_state(
         else None
     )
     return {"state": state, "checkpoints": checkpoints}
+
+
+async def read_scene_director_references_for_writing(
+    db: AsyncSession,
+    *,
+    novel_id: str,
+    scene_id: str | None,
+    reference_ids: list[str],
+    consumer_action: str,
+    max_chars: int,
+) -> StoryDirectorReferencesForWritingContract:
+    """Read bounded copied references only for the two authorized Writing actions."""
+    from modules.story.director_service import (
+        read_director_references_for_writing,
+    )
+
+    value = await read_director_references_for_writing(
+        db,
+        novel_id,
+        reference_ids,
+        consumer_action=consumer_action,
+        expected_scene_id=scene_id,
+        max_chars=max_chars,
+    )
+    return StoryDirectorReferencesForWritingContract.model_validate(value)
 
 
 def build_reading_structure_request(scene_cards, world_context):

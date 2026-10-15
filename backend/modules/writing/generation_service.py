@@ -75,6 +75,7 @@ class WritingGenerationService:
         from modules.evidence.facade import (
             bind_confirmed_action_result,
             confirmed_knowledge_source_count,
+            freeze_director_reference_context,
             prepare_confirmed_ai_action,
         )
         from modules.project.facade import (
@@ -92,7 +93,14 @@ class WritingGenerationService:
         }:
             raise ValueError("Unsupported internal generation metadata")
         payload = data.model_dump(mode="json", exclude={"operation_id"})
+        if not data.director_reference_ids:
+            payload.pop("director_reference_ids", None)
         identity = operation_payload if operation_payload is not None else payload
+        if data.director_reference_ids:
+            identity = {
+                **(operation_payload or payload),
+                "director_reference_ids": list(data.director_reference_ids),
+            }
         try:
             existing = await get_operation_task(
                 db,
@@ -114,6 +122,24 @@ class WritingGenerationService:
             confirmation_id=data.context_confirmation_id,
         )
         scene_id = str((confirmed.compile_options or {}).get("scene_id") or "") or None
+        confirmed_director_reference_ids = list(
+            (confirmed.compile_options or {}).get("director_reference_ids") or []
+        )
+        if set(confirmed_director_reference_ids) != set(data.director_reference_ids):
+            raise ConflictError(
+                "本次选择的导演参考与已确认资料不一致，请重新整理并确认",
+                code="director_reference_confirmation_mismatch",
+            )
+        if data.director_reference_ids and not scene_id:
+            raise ConflictError(
+                "导演参考副本必须绑定本次确认的 Scene",
+                code="director_reference_scene_required",
+            )
+        director_reference_context_snapshot = (
+            freeze_director_reference_context(confirmed)
+            if data.director_reference_ids
+            else None
+        )
         basis = []
         if scene_id:
             assets = await get_scene_story_assets(
@@ -160,6 +186,9 @@ class WritingGenerationService:
                     # scene 由确认编译选项解析，客户端不可伪造替换确认范围。
                     "scene_id": scene_id,
                     "story_asset_basis": basis,
+                    "director_reference_context_snapshot": (
+                        director_reference_context_snapshot
+                    ),
                     "llm_execution_snapshot": snapshot,
                     # 冻结本次确认编译产物的来源数上界：任务配额公式按真实 K 计，
                     # 不再退回 16384 的物理上界导致 1544 请求的虚高 cap。
@@ -538,10 +567,12 @@ class WritingGenerationService:
         base_draft_id: str | None = None,
         confirm_stale_story_assets: bool = False,
         story_asset_basis: list[dict[str, Any]] | None = None,
+        director_reference_context_snapshot: dict[str, Any] | None = None,
     ) -> _WritingGenerationTaskPlan:
         from modules.evidence.facade import (
             build_hidden_guard_context,
             prepare_confirmed_ai_action,
+            restore_director_reference_context,
         )
         from modules.project.facade import require_active_project
 
@@ -551,6 +582,21 @@ class WritingGenerationService:
             novel_id=novel_id,
             action="writing.generate",
             confirmation_id=context_confirmation_id,
+        )
+        confirmed_reference_ids = list(
+            (confirmed_context.compile_options or {}).get("director_reference_ids") or []
+        )
+        frozen_reference_ids = list(
+            (director_reference_context_snapshot or {}).get("selected_ids") or []
+        )
+        if set(confirmed_reference_ids) != set(frozen_reference_ids):
+            raise ValidationError(
+                "Writing generation director-reference selection changed",
+                code="director_reference_confirmation_mismatch",
+            )
+        director_reference_usage = restore_director_reference_context(
+            confirmed_context,
+            director_reference_context_snapshot,
         )
         self._require_task_confirmation_owner(
             confirmed_context,
@@ -650,6 +696,10 @@ class WritingGenerationService:
                 scene_execution_bundle_hash=execution_bundle_hash,
                 confirm_stale_story_assets=confirm_stale_story_assets,
                 story_asset_basis=story_asset_basis or [],
+                director_reference_context_snapshot=deepcopy(
+                    director_reference_context_snapshot or {}
+                ),
+                director_reference_usage=director_reference_usage,
             ),
             llm_execution_snapshot=deepcopy(llm_execution_snapshot),
             generation_mode=generation_mode,
@@ -796,6 +846,7 @@ class WritingGenerationService:
         base_draft_id: str | None = None,
         confirm_stale_story_assets: bool = False,
         story_asset_basis: list[dict[str, Any]] | None = None,
+        director_reference_context_snapshot: dict[str, Any] | None = None,
         freeze_paid_output: bool = False,
     ) -> WritingDraftResponse:
         """Generate a candidate with no transaction during provider/parse work.
@@ -819,6 +870,7 @@ class WritingGenerationService:
             base_draft_id=base_draft_id,
             confirm_stale_story_assets=confirm_stale_story_assets,
             story_asset_basis=story_asset_basis,
+            director_reference_context_snapshot=director_reference_context_snapshot,
         )
 
         candidate: WritingDraftCreate | None = None
@@ -986,6 +1038,7 @@ class WritingGenerationService:
             bind_confirmed_action_result,
             build_hidden_guard_context,
             prepare_confirmed_ai_action,
+            restore_director_reference_context,
         )
         from modules.project.facade import (
             require_active_project,
@@ -1008,6 +1061,21 @@ class WritingGenerationService:
             action="writing.generate",
             confirmation_id=plan.context_confirmation_id,
             for_update=True,
+        )
+        confirmed_reference_ids = list(
+            (confirmed_context.compile_options or {}).get("director_reference_ids") or []
+        )
+        frozen_reference_ids = list(
+            (plan.director_reference_context_snapshot or {}).get("selected_ids") or []
+        )
+        if set(confirmed_reference_ids) != set(frozen_reference_ids):
+            raise ValidationError(
+                "Writing generation director-reference selection changed",
+                code="director_reference_confirmation_mismatch",
+            )
+        director_reference_usage = restore_director_reference_context(
+            confirmed_context,
+            plan.director_reference_context_snapshot,
         )
         self._require_task_confirmation_owner(
             confirmed_context,
@@ -1059,6 +1127,10 @@ class WritingGenerationService:
             scene_execution_bundle_hash=current_execution_bundle_hash,
             confirm_stale_story_assets=plan.confirm_stale_story_assets,
             story_asset_basis=list(plan.story_asset_basis),
+            director_reference_context_snapshot=deepcopy(
+                plan.director_reference_context_snapshot or {}
+            ),
+            director_reference_usage=director_reference_usage,
         )
         if current_fingerprint != plan.source_fingerprint:
             raise ValidationError(
@@ -1071,6 +1143,11 @@ class WritingGenerationService:
         candidate.provenance_json = {
             **(candidate.provenance_json or {}),
             "source_fingerprint": current_fingerprint,
+            **(
+                {"director_reference": deepcopy(plan.director_reference_usage)}
+                if plan.director_reference_usage.get("selected_ids")
+                else {}
+            ),
         }
         draft = await self._repo.create_with_status(db, candidate, status="candidate")
         await bind_confirmed_action_result(

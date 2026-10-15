@@ -6,6 +6,7 @@ Context Pydantic Schema 定义
 
 from __future__ import annotations
 
+import uuid
 from typing import Any, Literal
 
 from pydantic import BaseModel, Field, field_validator, model_validator
@@ -177,6 +178,14 @@ class ContextSelectionRequest(BaseModel):
         max_length=20,
         description="本次显式加入的 World Bible 工作稿 ID",
     )
+    director_reference_ids: list[str] = Field(
+        default_factory=list,
+        max_length=20,
+        description=(
+            "本次显式选择的 Scene Director 参考副本 ID；"
+            "仅用于 Writing generate/targeted revision"
+        ),
+    )
     activation_profile_id: str | None = Field(
         default=None,
         description="本次显式启用的已发布 AI 参考规则 Profile",
@@ -213,6 +222,37 @@ class ContextSelectionRequest(BaseModel):
             and "budget_tokens" not in self.model_fields_set
         ):
             self.budget_tokens = 12000
+        return self
+
+    @field_validator("director_reference_ids")
+    @classmethod
+    def validate_director_reference_ids(cls, values: list[str]) -> list[str]:
+        normalized = [str(uuid.UUID(value)) for value in values]
+        if len(set(normalized)) != len(normalized):
+            raise ValueError("director_reference_ids must be unique")
+        return normalized
+
+    @model_validator(mode="after")
+    def validate_director_reference_scope(self):
+        if not self.director_reference_ids:
+            return self
+        if getattr(self, "action", None) not in {
+            "writing.generate",
+            "writing.targeted_revision",
+        }:
+            raise ValueError(
+                "Scene Director references are only available to Writing generation "
+                "and targeted revision"
+            )
+        if self.reveal_mode == "reader":
+            raise ValueError("reader mode cannot use Scene Director references")
+        if not self.scene_id:
+            raise ValueError("Scene Director references require a current Scene")
+        if self.reveal_mode == "character" and not self.viewpoint_character_id:
+            raise ValueError(
+                "character mode needs a viewpoint before selecting "
+                "Scene Director references"
+            )
         return self
 
     @field_validator("budget_tokens")
@@ -490,6 +530,14 @@ class ContextSelectionProposalRequest(ContextSelectionRequest):
 
     action: str = Field(..., min_length=1, max_length=128)
     instruction: str = Field(..., min_length=1, max_length=1000)
+
+    @model_validator(mode="after")
+    def no_director_references(self):
+        if self.director_reference_ids:
+            raise ValueError(
+                "selection proposals cannot consume Scene Director references"
+            )
+        return self
 
 
 class ContextSelectionProposalOperation(BaseModel):

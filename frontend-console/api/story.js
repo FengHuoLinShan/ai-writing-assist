@@ -7,6 +7,8 @@ import {
   request,
   withQuery,
   post,
+  patch,
+  put,
 } from "./_shared.js"
 
   // ============================================================
@@ -37,6 +39,57 @@ export const story = {
     },
     async startSceneSimulation(novelId, sceneId, payload = {}) {
       return post("/story/tasks/one-click", { novel_id: novelId, scene_id: sceneId, ...payload })
+    },
+    async previewSceneDirectorBudget(novelId, payload = {}) {
+      return post("/story/scenes/director/budget-preview", { novel_id: novelId, ...payload })
+    },
+    async startSceneDirector(novelId, sceneId, payload = {}) {
+      return post(`/story/scenes/${sceneId}/director`, { novel_id: novelId, scene_id: sceneId, ...payload })
+    },
+    async previewSceneDirectorContinuation(rootId, payload = {}) {
+      return post(`/story/director/roots/${rootId}/budget-preview`, payload)
+    },
+    async continueSceneDirector(rootId, payload = {}) {
+      return post(`/story/director/roots/${rootId}/branches`, payload)
+    },
+    async advanceSceneDirector(rootId, payload = {}) {
+      return post(`/story/director/roots/${rootId}/advance`, payload)
+    },
+    async sceneDirectorHistory(novelId, sceneId) {
+      return request(withQuery(`/story/scenes/${sceneId}/director/history`, { novel_id: novelId }), { cache: "no-store" })
+    },
+    async updateSceneDirectorRound(roundId, payload = {}) {
+      return patch(`/story/director/rounds/${roundId}`, payload)
+    },
+    async updateSceneDirectorBranch(branchId, payload = {}) {
+      return patch(`/story/director/branches/${branchId}`, payload)
+    },
+    async deleteSceneDirectorBranch(branchId, payload = {}) {
+      return post(`/story/director/branches/${branchId}/delete`, payload)
+    },
+    async restoreSceneDirectorBranch(branchId, payload = {}) {
+      return post(`/story/director/branches/${branchId}/restore`, payload)
+    },
+    async deleteUnstarredSceneDirectorBranches(sceneId, payload = {}) {
+      return post(`/story/scenes/${sceneId}/director/delete-unstarred`, { scene_id: sceneId, ...payload })
+    },
+    async saveSceneDirectorReference(roundId, payload = {}) {
+      return post(`/story/director/rounds/${roundId}/references`, { source_round_id: roundId, ...payload })
+    },
+    async updateSceneDirectorReference(referenceId, payload = {}) {
+      return patch(`/story/director/references/${referenceId}`, payload)
+    },
+    async deleteSceneDirectorReference(referenceId, payload = {}) {
+      return post(`/story/director/references/${referenceId}/delete`, payload)
+    },
+    async restoreSceneDirectorReference(referenceId, payload = {}) {
+      return post(`/story/director/references/${referenceId}/restore`, payload)
+    },
+    async getSceneDirectorPreferences(novelId) {
+      return request(withQuery("/story/director/preferences", { novel_id: novelId }), { cache: "no-store" })
+    },
+    async setSceneDirectorPreferences(novelId, payload = {}) {
+      return put("/story/director/preferences", { novel_id: novelId, ...payload })
     },
     async listSceneScripts(novelId, sceneId, params = {}) {
       return request(withQuery(`/story/scenes/${sceneId}/script-files`, { novel_id: novelId, ...params }))

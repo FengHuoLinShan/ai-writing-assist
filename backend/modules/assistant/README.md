@@ -43,7 +43,7 @@ HTTP 入口为 `/api/assistant`；账户与项目身份由服务端验证。RP �
 的重放不重新写入。人工正文可使用 `review_world_constraints`，原 AI 建议继续用原资料审稿。
 实现与验收状态见项目持久任务记录；仅离线协议通过不等于原生联网或产品质量验收。
 
-新作者运行使用 v9：在 v8 完整冻结格式上加入 C2 三项；v8 已纳入 A1 首批 15 项。运行快照冻结每项操作的完整参数 schema、版本与目录元数据（用途、
+新作者运行使用 v10：在 v9 的 C2 三项之上加入 C4b 场景导演八项；v8 已纳入 A1 首批 15 项。v1–v9 冻结目录不自动获得新项。运行快照冻结每项操作的完整参数 schema、版本与目录元数据（用途、
 R0–R4 风险、可能计费类别、可撤销性、前置条件、产出、目标类型、事务形态及留痕规则）。
 模型先用 `find_operations` 获取至多八项摘要，再用 `describe_operation` 读取单项完整说明；
 R0 目录读取经 `read_operation` 进入领域读取端口。已下线或改版的冻结项仍可查看原说明，
@@ -59,7 +59,7 @@ R0 目录读取经 `read_operation` 进入领域读取端口。已下线或改�
 留痕只保存声明参数的类型、长度、分桶或按作品独立盐值生成的 HMAC；未声明字段只保存出现标记，
 不存正文、prompt、模型输出或密钥。单事务写入把成功事件放在业务事务内，trace 自身用 savepoint
 隔离；多阶段异常记为结果未知，不自动重放。留痕写入失败不阻断业务；响应发送前的 HTTP 留痕缺口用
-`x-novelcraft-operation-trace-incomplete` 标记，v7–v9 助手运行在 checkpoint 和结果中标记
+`x-novelcraft-operation-trace-incomplete` 标记，v7–v10 助手运行在 checkpoint 和结果中标记
 `operation_trace_incomplete`，以便作者识别记录缺口。绑定操作的 HTTP 入口先验证当前 owner 和未回收项目，
 再读取留痕开关或写入盐值；终态留痕只可使用与该请求业务会话同一数据库引擎的会话，异库时标记缺口。
 账户偏好由 `/operation-traces/preference`

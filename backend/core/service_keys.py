@@ -89,8 +89,8 @@ EVOLUTION_READ_MAP_COLD_START_STATUS: ServiceKey[EvolutionReadMapColdStartStatus
 EVIDENCE_READ_EVOLUTION_OBJECT_PATTERNS: ServiceKey[EvolutionObjectPatternReadPort] = (
     ServiceKey("evidence.read_evolution_object_patterns")
 )
-EVIDENCE_READ_WORLD_OBJECT_DOSSIER: ServiceKey[WorldObjectDossierReadPort] = (
-    ServiceKey("evidence.read_world_object_dossier")
+EVIDENCE_READ_WORLD_OBJECT_DOSSIER: ServiceKey[WorldObjectDossierReadPort] = ServiceKey(
+    "evidence.read_world_object_dossier"
 )
 EVIDENCE_READ_STORY_OBJECT_STATE: ServiceKey[StoryObjectStateReadPort] = ServiceKey(
     "evidence.read_story_object_state"
@@ -122,6 +122,9 @@ ASSISTANT_MARK_EDITORIAL_READY: ServiceKey[Callable[..., Any]] = ServiceKey(
 )
 ASSISTANT_RUN_DISCUSSION_SCOPE: ServiceKey[Callable[..., Any]] = ServiceKey(
     "assistant.run_discussion_scope"
+)
+ASSISTANT_IS_AUTHOR_TURN_RUN: ServiceKey[Callable[..., Any]] = ServiceKey(
+    "assistant.is_author_turn_run"
 )
 ASSISTANT_REQUIRE_OPERATION_TARGETS: ServiceKey[Callable[..., Any]] = ServiceKey(
     "assistant.require_operation_targets"
@@ -427,6 +430,7 @@ ALL_SERVICE_KEYS: tuple[ServiceKey[Any], ...] = (
     ASSISTANT_SUBMIT_COMMENT_PROPOSALS,
     ASSISTANT_MARK_EDITORIAL_READY,
     ASSISTANT_RUN_DISCUSSION_SCOPE,
+    ASSISTANT_IS_AUTHOR_TURN_RUN,
     ASSISTANT_REQUIRE_OPERATION_TARGETS,
     ASSISTANT_EDITORIAL_POST_ADOPTION_RECHECKS,
     COLLABORATION_RESOURCES,

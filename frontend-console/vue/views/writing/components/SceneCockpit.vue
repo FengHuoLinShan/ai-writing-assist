@@ -72,10 +72,15 @@
           />
         </section>
 
-        <section v-else-if="activeTab === 'director'" class="cockpit-panel cockpit-panel--unavailable" data-panel="director">
-          <h3>场景导演暂未开放</h3>
-          <p>当前页面不会生成剧本或导演建议。需要调整场景结构时，可打开现有场景工作台。</p>
-          <button type="button" class="btn btn-sm" @click="$emit('organize')">打开场景工作台</button>
+        <section v-show="activeTab === 'director'" class="cockpit-panel" data-panel="director">
+          <SceneDirectorPanel
+            :project-id="projectId"
+            :scene="scene"
+            :read-only="readOnly"
+            :visible="activeTab === 'director'"
+            :selected-writing-reference-ids="directorReferenceIds"
+            @update:writing-reference-ids="emit('update:director-reference-ids', $event)"
+          />
         </section>
       </div>
       <FocusedEvidencePanel
@@ -150,6 +155,7 @@ import SceneLensSummary from "./SceneLensSummary.vue"
 import ObjectDossierPanel from "./ObjectDossierPanel.vue"
 import UnifiedNoticesPanel from "./UnifiedNoticesPanel.vue"
 import FocusedEvidencePanel from "../../../components/FocusedEvidencePanel.vue"
+import SceneDirectorPanel from "../../scene/SceneDirectorPanel.vue"
 
 const props = defineProps({
   projectId: { type: String, default: null },
@@ -164,8 +170,9 @@ const props = defineProps({
   railCollapsed: { type: Boolean, default: false },
   lens: { type: Object, default: () => ({ loading: false, data: null, error: null }) },
   evidenceRefs: { type: Array, default: () => [] },
+  directorReferenceIds: { type: Array, default: () => [] },
 })
-const emit = defineEmits(["organize", "toggle-collapse", "select-scene", "load-lens", "start-trial", "pin-evidence", "clear-evidence", "open-notice", "open-world-object"])
+const emit = defineEmits(["organize", "toggle-collapse", "select-scene", "load-lens", "start-trial", "pin-evidence", "clear-evidence", "open-notice", "open-world-object", "update:director-reference-ids"])
 
 const tabs = [
   { key: "main", label: "本场" }, { key: "objects", label: "对象" },

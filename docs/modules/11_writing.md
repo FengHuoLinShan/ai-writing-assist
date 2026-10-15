@@ -130,6 +130,13 @@ POST   /api/writing/targeted-revisions                  # 按审查 finding（�
 GET    /api/writing/export                              # 按章序导出每章当前已采用版本（txt/md/md-zip，可选 chapter_index 单章）
 ```
 
+`writing.generate` 与 `writing.targeted_revision` 可以在 Evidence 资料确认中显式选择 Scene
+Director 保存的参考副本；targeted revision 使用自己的 `writing.targeted_revision` confirmation。
+Evidence 仅编译 `director_reference` advisory section，默认 capability 白名单为空；角色视角由 Evidence
+按本人表演和确定性感知回执过滤。缺失、来源变化、POV 不可见或预算省略只产生提示，不改变必查资料范围。
+任务入队后冻结确认时的副本，来源在任务运行期间删除或漂移时仍沿用冻结内容并追加警告。候选 provenance
+记录所选/纳入/省略状态；参考副本不属于 adopted scripts，不进入 Scene 执行合同或 story basis hash。
+
 公开演示的 `demo_readonly` principal 只能读取 `published` 章节列表与按章最新正文；显式白名单投影仅含章号、标题、正文和读者可见字数，不含 raw ID、内部状态、时间戳、provenance、冲突快照或作者状态。未发布章节不进列表，draft ID、版本历史与原参考范围 `regeneration-context` 均不对公开演示开放。
 
 ## 稳定原文引用

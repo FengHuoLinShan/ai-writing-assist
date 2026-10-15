@@ -132,6 +132,13 @@ async def run_discussion_scope(db, novel_id, run_id, owner_id, *, lock=False):
     )
 
 
+async def is_author_turn_run(db, *, novel_id: str, run_id: str, owner_id: str) -> bool:
+    """Only an ordinary author Assistant turn may bridge into Director budget."""
+    from modules.assistant.director_bridge import is_author_turn_run as inspect_run
+
+    return await inspect_run(db, novel_id=novel_id, run_id=run_id, owner_id=owner_id)
+
+
 async def forecast_feed(db, novel_id, data, *, persona="author"):
     from modules.assistant.forecast.service import feed
 

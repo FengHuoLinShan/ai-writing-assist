@@ -6,6 +6,9 @@ from modules.evidence.compilation.services.loaders.author_examples_loader import
 from modules.evidence.compilation.services.loaders.characters_loader import (
     CharactersLoader,
 )
+from modules.evidence.compilation.services.loaders.director_reference_loader import (
+    DirectorReferenceLoader,
+)
 from modules.evidence.compilation.services.loaders.editorial_brief_loader import (
     EditorialBriefLoader,
 )
@@ -52,6 +55,7 @@ _AVAILABLE_LOADERS: dict[str, bool] = {
     "outline_analysis": True,
     "scene": True,
     "map_spatial": True,
+    "director_reference": True,
 }
 
 
@@ -64,6 +68,7 @@ __all__ = [
     "OutlineArcLoader",
     "OutlineAnalysisLoader",
     "EditorialBriefLoader",
+    "DirectorReferenceLoader",
     "AuthorExamplesLoader",
     "ProjectLoader",
     "WorldEntitiesLoader",

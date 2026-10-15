@@ -501,6 +501,16 @@ C2_OBJECT_CONSUMER_OPERATIONS = {
     "story.character_card.generate",
     "story.reaction.generate",
 }
+C4_SCENE_DIRECTOR_OPERATIONS = {
+    "story.scene_director.preview",
+    "story.scene_director.start",
+    "story.scene_director.continue_preview",
+    "story.scene_director.continue",
+    "story.scene_director.history",
+    "story.scene_director.check_consistency",
+    "story.scene_director.advance",
+    "story.scene_director.save_reference",
+}
 
 
 def test_bootstrap_operation_catalog_matches_snapshot():
@@ -510,7 +520,10 @@ def test_bootstrap_operation_catalog_matches_snapshot():
     register_container_services()
     catalog = get("assistant.operations")
     assert set(catalog) == (
-        set(OPERATION_SNAPSHOT) | A1_FIRST_WAVE_OPERATIONS | C2_OBJECT_CONSUMER_OPERATIONS
+        set(OPERATION_SNAPSHOT)
+        | A1_FIRST_WAVE_OPERATIONS
+        | C2_OBJECT_CONSUMER_OPERATIONS
+        | C4_SCENE_DIRECTOR_OPERATIONS
     )
     mismatches = {
         name: {
@@ -571,6 +584,7 @@ def test_catalog_v2_metadata_and_trace_inventory_match_runtime_schemas():
         == len(OPERATION_SNAPSHOT)
         + len(A1_FIRST_WAVE_OPERATIONS)
         + len(C2_OBJECT_CONSUMER_OPERATIONS)
+        + len(C4_SCENE_DIRECTOR_OPERATIONS)
     )
     assert set(operations) == set(manifest)
     for op_id, operation in operations.items():
@@ -598,7 +612,10 @@ def test_v8_additions_do_not_appear_in_a_frozen_v7_directory():
     frozen_v7 = {
         name: value
         for name, value in operation_manifest().items()
-        if name not in A1_FIRST_WAVE_OPERATIONS | C2_OBJECT_CONSUMER_OPERATIONS
+        if name
+        not in A1_FIRST_WAVE_OPERATIONS
+        | C2_OBJECT_CONSUMER_OPERATIONS
+        | C4_SCENE_DIRECTOR_OPERATIONS
     }
     resolved = resolve_operations(frozen_v7, allow_stale=True)
     assert set(resolved) == set(OPERATION_SNAPSHOT)
@@ -613,10 +630,26 @@ def test_v9_additions_do_not_appear_in_a_frozen_v8_directory():
     frozen_v8 = {
         name: value
         for name, value in operation_manifest().items()
-        if name not in C2_OBJECT_CONSUMER_OPERATIONS
+        if name not in C2_OBJECT_CONSUMER_OPERATIONS | C4_SCENE_DIRECTOR_OPERATIONS
     }
     resolved = resolve_operations(frozen_v8, allow_stale=True)
     assert set(resolved) == set(OPERATION_SNAPSHOT) | A1_FIRST_WAVE_OPERATIONS
+
+
+def test_v10_additions_do_not_appear_in_a_frozen_v9_directory():
+    from app.bootstrap import register_container_services
+    from modules.assistant.operations import operation_manifest, resolve_operations
+
+    register_container_services()
+    frozen_v9 = {
+        name: value
+        for name, value in operation_manifest().items()
+        if name not in C4_SCENE_DIRECTOR_OPERATIONS
+    }
+    resolved = resolve_operations(frozen_v9, allow_stale=True)
+    assert set(resolved) == (
+        set(OPERATION_SNAPSHOT) | A1_FIRST_WAVE_OPERATIONS | C2_OBJECT_CONSUMER_OPERATIONS
+    )
 
 
 def test_inline_operation_metadata_requires_an_explicit_schema_trace_policy():

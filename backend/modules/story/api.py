@@ -792,3 +792,9 @@ async def fork_rehearsal(
     if data.parent_rehearsal_id != run_id or data.simulation_protocol != "simulation_v3":
         raise HTTPException(status_code=422, detail="分叉必须绑定准确的原排演")
     return await api_submit_one_click_task(data, db)
+
+
+# The author Scene Director has its own finite protocol and cumulative root
+# ledger. Keep its router separate until app composition registers the matching
+# assistant operations and trace policies; importing this legacy router must not
+# expose unregistered writes or break the application registry at import time.

@@ -2,16 +2,14 @@
   <section id="scene-runtime-panel-simulation" class="scene-runtime-panel scene-simulation-panel" role="tabpanel" aria-labelledby="scene-runtime-tab-simulation">
     <header class="scene-runtime-panel__header">
       <div>
-        <p class="scene-runtime-panel__eyebrow">人物反应与剧情推演</p>
+        <p class="scene-runtime-panel__eyebrow">同一场景导演工作台</p>
         <h2>{{ scene?.title || "先选择一个场景" }}</h2>
-        <p>一键推演会补齐本场缺失或过期的人物卡；人物反应与剧本仍只作为待确认预览，不会自动保存。</p>
-      </div>
-      <div class="scene-runtime-panel__actions">
-        <button v-if="running" type="button" class="btn btn-sm" data-action="cancel-scene-simulation" @click="$emit('cancel')">停止推演</button>
+        <p>预算预览、逐人物隔离排演、候选历史与分支都由同一个导演运行管理。</p>
       </div>
     </header>
 
-    <SceneRehearsalPanel v-if="scene && projectId" :project-id="projectId" :characters="characters" :rehearsal-id="simulation?.rehearsalId" :running="running" @run="$emit('run', $event)" />
+    <SceneDirectorPanel :project-id="projectId" :scene="scene" :characters="characters" />
+    <SceneRehearsalPanel v-if="scene && projectId && simulation?.rehearsalId" :project-id="projectId" :characters="characters" :rehearsal-id="simulation.rehearsalId" :running="false" />
     <div v-if="!scene" class="scene-runtime-empty">
       <strong>请先从“管理”选择一个场景</strong>
       <p>推演会读取本场目标、冲突和人物资料。</p>
@@ -76,6 +74,7 @@
 
 <script setup>
 import { computed } from "vue"
+import SceneDirectorPanel from "./SceneDirectorPanel.vue"
 import SceneRehearsalPanel from "./SceneRehearsalPanel.vue"
 
 const props = defineProps({
@@ -84,13 +83,13 @@ const props = defineProps({
   scene: { type: Object, default: null },
   simulation: { type: Object, default: null },
   progress: { type: Object, default: null },
-  loading: Boolean,
   running: Boolean,
-  reactionRunning: Boolean,
   error: { type: String, default: null },
 })
-
-defineEmits(["run", "cancel", "reaction", "run-reactions"])
-
+defineEmits(["reaction"])
 const keptCount = computed(() => (props.simulation?.reactions || []).filter((item) => item.status === "kept").length)
 </script>
+
+<style scoped>
+.scene-simulation-panel__legacy{margin-top:18px;padding-top:12px;border-top:1px solid var(--border,#d9e0e4)}
+</style>
