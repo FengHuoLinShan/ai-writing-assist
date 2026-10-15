@@ -910,8 +910,14 @@ async def run_evolution(
                     "usage": "unknown",
                     "human_validated": False,
                 }
-            if record.get("tasks_completed", 0) >= 5:
-                raise MapSpatialEvalError("五Scene pilot已耗尽5个精确Evolution task上限")
+            completed = record.get("tasks_completed", 0)
+            if completed >= 6:
+                raise MapSpatialEvalError("五Scene及一个结构task已耗尽精确Evolution上限")
+            if (
+                evidence.get("run_key") != record["run_key"]
+                or evidence.get("operation_id") != record["operation_id"]
+            ):
+                raise MapSpatialEvalError("下一task回执不属于原run/operation")
             task_path = _evolution_task_path(
                 root, family_id, record["operation_id"], task_id
             )
@@ -930,6 +936,23 @@ async def run_evolution(
                 ):
                     raise MapSpatialEvalError(
                         "Evolution worker只能接管同Project的pending且未尝试精确task"
+                    )
+                meta = task.meta or {}
+                if (
+                    meta.get("run_key") != record["run_key"]
+                    or state.get("completed_scenes") != min(completed, 5)
+                    or (completed == 5 and meta.get("operation") != "structure")
+                    or (
+                        completed < 5
+                        and (
+                            meta.get("operation") is not None
+                            or meta.get("scene_index") != completed
+                            or meta.get("scene_id") not in scene_ids
+                        )
+                    )
+                ):
+                    raise MapSpatialEvalError(
+                        "精确task不是本run的顺序Scene或最终结构阶段"
                     )
                 await verify_runtime(db, common)
             task_record = {
@@ -982,7 +1005,7 @@ async def run_evolution(
             _write_private_json(task_path, task_record)
             record["tasks_completed"] += 1
             record["task_ids"] = [*record["task_ids"], task_id]
-            record["status"] = "pending"
+            record["status"] = "running"
             _write_private_json(path, record)
 
     except BaseException:
@@ -1334,6 +1357,7 @@ async def review_map_family(
                                 if item["scene_id"] == scene_id
                             )
                         ]["source_refs"],
+                        world_clue=True,
                     )
                 )
                 action = (

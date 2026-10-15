@@ -35,6 +35,7 @@ from evals.map_spatial_guard import (
     CalibrationResult,
     calibration_prompt,
     digest,
+    digest_bytes,
     evaluate_development,
     finish_request,
     read_binding,
@@ -769,30 +770,69 @@ def test_common_source_baseline_allows_evolution_enrichment_but_not_span_drift()
 
 def test_evolution_source_receipt_requires_exact_canonical_range():
     from evals.map_spatial_guard import _source_binding_matches
+    from modules.evolution.contracts import SourceRevisionRef
 
     refs = [
         {
             "draft_id": "draft-1",
             "chapter_index": 2,
-            "content_hash": "content-hash",
+            "content_hash": "a" * 64,
             "start_offset": 4,
             "end_offset": 19,
-            "range_hash": "range-hash",
+            "range_hash": digest_bytes(b"canonical slice"),
             "content_mode": "canonical",
         }
     ]
     receipt = {
         "draft_id": "draft-1",
         "chapter_index": 2,
-        "content_hash": "content-hash",
+        "content_hash": "a" * 64,
         "start_offset": 4,
         "end_offset": 19,
-        "range_hash": "range-hash",
+        "range_hash": None,
         "content_mode": "canonical",
     }
     assert _source_binding_matches(receipt, refs)
     assert not _source_binding_matches({**receipt, "start_offset": 5}, refs)
     assert not _source_binding_matches({**receipt, "content_mode": "draft"}, refs)
+    optional_hash = SourceRevisionRef.compute_range_hash("a" * 64, 4, 19)
+    assert optional_hash != refs[0]["range_hash"]
+    assert _source_binding_matches({**receipt, "range_hash": optional_hash}, refs)
+    assert not _source_binding_matches(
+        {**receipt, "range_hash": refs[0]["range_hash"]}, refs
+    )
+    assert _source_binding_matches(
+        {**receipt, "range_hash": refs[0]["range_hash"]}, refs, world_clue=True
+    )
+    assert not _source_binding_matches(
+        {**receipt, "range_hash": optional_hash}, refs, world_clue=True
+    )
+    for key, value in (
+        ("draft_id", "other"),
+        ("chapter_index", 3),
+        ("content_hash", "b" * 64),
+        ("start_offset", 5),
+        ("end_offset", 18),
+        ("content_mode", "working"),
+        ("range_hash", "f" * 64),
+        ("draft_id", ""),
+        ("start_offset", True),
+        ("additional_sources", [{"draft_id": "other"}]),
+    ):
+        assert not _source_binding_matches({**receipt, key: value}, refs), key
+    for key in (
+        "draft_id",
+        "chapter_index",
+        "content_hash",
+        "start_offset",
+        "end_offset",
+        "content_mode",
+    ):
+        missing = {name: value for name, value in receipt.items() if name != key}
+        assert not _source_binding_matches(missing, refs), key
+    for value in (None, "", "forged"):
+        assert not _source_binding_matches(receipt, [{**refs[0], "range_hash": value}])
+    assert not _source_binding_matches(receipt, [{**refs[0], "content_mode": "working"}])
 
 
 @pytest.mark.asyncio

@@ -479,7 +479,9 @@ question即使复核确认“问题有依据”，仍另存绑定原主题/修�
 ## ADR-0036 空间可选阅读步骤（M1）
 
 `discover_details` 与 `discover_spatial` 按 `optional_steps.py` 的纯数据规格登记。
-新建且开启空间发现的阅读计划冻结 `optional_stage_version=1`，同值进入 Scene attempt。
+新建且开启空间发现的阅读计划冻结 `optional_stage_version=1`，确认启动时保留该版本；
+Scene attempt 在首次请求前固定同版本及计划已授权的 `spatial_method_fingerprint`，采样后仍保留原值。
+旧 run 的 append/continue 保持原阶段版本；新 recompute run 沿用其正式预览冻结的新协议。
 主采样、身份、World 候选和状态在原事务内先提交不可变 Scene 回执；同一持久 Scene 任务随后
 按 details、spatial 顺序执行可选阶段，再推进下一 Scene。可选 provider 慢或挂起时，其他会话已能读取
 主回执和 World 结果。`optional_scene_stage` 关联 `receipt_attempt_id`、提交后的 Scene 指纹和

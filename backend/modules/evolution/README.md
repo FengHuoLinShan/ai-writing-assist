@@ -579,7 +579,7 @@ World v3 审查准备含冻结 `context_snapshot`，即使分组相同，上下�
 ### 空间可选阅读步骤（ADR-0036）
 
 空间发现由 `optional_steps.py` 登记，抽取与独立复核分属 `spatial.py` 的两项 capability 和独立 journal。
-新空间阅读冻结 `optional_stage_version=1`：主 Scene/身份/World 先提交，同一持久任务再完成
+新空间阅读在正式预览及确认后持久保留 `optional_stage_version=1`；Scene attempt 请求前固定该值与计划授权的空间方法指纹，采样后重建仍保留。主 Scene/身份/World 先提交，同一持久任务再完成
 `optional_scene_stage` 中的 details/spatial 阶段；挂起期间主回执已可读，恢复已提交分支仍继续未收尾阶段。
 各步骤付费 journal 留在原 attempt，经 `optional_scene_stage.receipt_attempt_id` 关联主回执；
 后置结果不改写主回执的 `paid_call_receipts`。费用未知只记本步骤缺口且不重发；

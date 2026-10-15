@@ -11,6 +11,7 @@ import hashlib
 import json
 import math
 import os
+import re
 import uuid
 from contextlib import contextmanager
 from pathlib import Path
@@ -1057,10 +1058,46 @@ async def read_evolution_product_evidence(
     by_scene = {item["scene_id"]: item for item in common["case_bindings"].values()}
     for step in steps:
         scope = by_scene.get(step.get("scene_id"))
-        binding = step.get("source_binding") or {}
+        binding = {
+            **(step.get("source_binding") or {}),
+            "content_mode": step.get("source_content_mode"),
+        }
         refs = (scope or {}).get("source_refs") or []
         if not scope or not refs or not _source_binding_matches(binding, refs):
             raise MapSpatialEvalError("Evolution冻结source binding与共同Scene基线不符")
+        from evals.map_spatial import _as_plain
+        from modules.evidence.contracts import VisibilityContextContract
+        from modules.evidence.facade import read_novel_evidence
+        from modules.writing.facade import build_manuscript_range_ref
+
+        ref = refs[0]
+        current = await build_manuscript_range_ref(
+            db,
+            common["novel_id"],
+            draft_id=ref["draft_id"],
+            start_offset=ref["start_offset"],
+            end_offset=ref["end_offset"],
+            content_mode="canonical",
+        )
+        visible = await read_novel_evidence(
+            db,
+            novel_id=common["novel_id"],
+            source_ref=current,
+            visibility=VisibilityContextContract(
+                mode="reader",
+                cutoff_chapter=ref["chapter_index"],
+                cutoff_scene_id=step["scene_id"],
+            ),
+            before=0,
+            after=0,
+        )
+        if (
+            _as_plain(current) != ref
+            or (visible.get("visibility_decision") or {}).get("visible") is not True
+            or digest_bytes(str(visible.get("text") or "").encode("utf-8"))
+            != ref["range_hash"]
+        ):
+            raise MapSpatialEvalError("Writing canonical切片身份、可见性或原文hash已变化")
     for attempt in attempts:
         scene_id = attempt.get("scene_id")
         scope = by_scene.get(scene_id)
@@ -1068,7 +1105,13 @@ async def read_evolution_product_evidence(
         if (
             not scope
             or not refs
-            or not _source_binding_matches(attempt.get("source_binding") or {}, refs)
+            or not _source_binding_matches(
+                {
+                    **(attempt.get("source_binding") or {}),
+                    "content_mode": attempt.get("source_content_mode"),
+                },
+                refs,
+            )
             or attempt.get("source_manifest_hash") is None
             or attempt.get("spatial_method_fingerprint")
             != common["domain_method_fingerprints"].get("evolution_spatial")
@@ -1106,7 +1149,7 @@ async def read_evolution_product_evidence(
             or clue.get("method_fingerprint")
             != common["domain_method_fingerprints"].get("evolution_spatial")
             or not _source_binding_matches(
-                clue.get("source_binding") or {}, scope["source_refs"]
+                clue.get("source_binding") or {}, scope["source_refs"], world_clue=True
             )
         ):
             raise MapSpatialEvalError("World clue不属于同一run与冻结Scene source")
@@ -1140,24 +1183,62 @@ async def read_evolution_product_evidence(
     }
 
 
-def _source_binding_matches(binding: dict, refs: list[dict]) -> bool:
+def _source_binding_matches(binding: dict, refs: list[dict], *, world_clue=False) -> bool:
     """Compare actual Scene range identity, retaining only source-bound fields."""
-    if not isinstance(binding, dict) or len(refs) != 1:
+    if not isinstance(binding, dict) or len(refs) != 1 or not isinstance(refs[0], dict):
         return False
     ref = refs[0]
+    if (
+        ref.get("content_mode") != "canonical"
+        or not isinstance(binding.get("draft_id"), str)
+        or not binding["draft_id"]
+        or binding.get("additional_sources") not in (None, [])
+        or not isinstance(ref.get("range_hash"), str)
+        or not re.fullmatch(r"[0-9a-f]{64}", ref["range_hash"])
+        or type(ref.get("chapter_index")) is not int
+        or ref["chapter_index"] < 1
+        or type(ref.get("start_offset")) is not int
+        or type(ref.get("end_offset")) is not int
+        or not 0 <= ref["start_offset"] < ref["end_offset"]
+    ):
+        return False
     aliases = {
         "draft_id": ("draft_id", "source_draft_id"),
         "chapter_index": ("chapter_index",),
         "content_hash": ("content_hash", "source_content_hash", "source_hash"),
         "start_offset": ("start_offset",),
         "end_offset": ("end_offset",),
-        "range_hash": ("range_hash",),
     }
     for field, choices in aliases.items():
         expected = next((ref[key] for key in choices if ref.get(key) is not None), None)
         if expected is None or binding.get(field) != expected:
             return False
-    return binding.get("content_mode", "canonical") == "canonical"
+        if (
+            field in {"chapter_index", "start_offset", "end_offset"}
+            and type(binding[field]) is not int
+        ):
+            return False
+        if field == "content_hash" and (
+            not isinstance(expected, str) or not re.fullmatch(r"[0-9a-f]{64}", expected)
+        ):
+            return False
+    from modules.evolution.contracts import SourceRevisionRef
+
+    # Writing and World clue validation hash the source text slice; Evolution's
+    # optional hash identifies content_hash + offsets. Keep both contracts.
+    expected_range_hash = (
+        ref["range_hash"]
+        if world_clue
+        else SourceRevisionRef.compute_range_hash(
+            binding["content_hash"], binding["start_offset"], binding["end_offset"]
+        )
+    )
+    if (
+        binding.get("range_hash") is not None
+        and binding["range_hash"] != expected_range_hash
+    ):
+        return False
+    return binding.get("content_mode") == "canonical"
 
 
 def _validate_evolution_optional_stage(attempt: dict) -> dict:

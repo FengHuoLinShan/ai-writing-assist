@@ -44,13 +44,13 @@ root 仅在明确开始 pilot 后，通过正常 `PUT /api/account/settings/llm-
   --operation-id '<精确preview UUID>' --execute
 .venv/bin/python -m evals.map_spatial run-evolution --family-id map-xianxia-development-v1 --max-tasks 2 --execute
 .venv/bin/python -m evals.map_spatial run-evolution --family-id map-xianxia-development-v1 --max-tasks 2 --execute
-.venv/bin/python -m evals.map_spatial run-evolution --family-id map-xianxia-development-v1 --max-tasks 1 --execute
+.venv/bin/python -m evals.map_spatial run-evolution --family-id map-xianxia-development-v1 --max-tasks 2 --execute
 .venv/bin/python -m evals.map_spatial review-map --family-id map-xianxia-development-v1 --max-actions 20 --execute
 .venv/bin/python -m evals.map_spatial freeze-binding --family-id map-xianxia-development-v1 \
   --scopes /Users/tywww/.codex/private/map-spatial-evaluation-20261015/scopes/map-xianxia-development-v1.json --execute
 ```
 
-共同基线必须空地图、同章五个独立 Scene/真实 canonical spans。正常 Evolution enrichment 允许，源身份/精确 offsets/hash 不能变。完成必须同 task 的可选阶段收尾；details disabled 及 spatial coverage/gaps 如实报告。attempt→operation 关系缺持久证明仍为 unknown，不造已知。每次只执行正式回执指出的同项目 `pending/attempt=0` 精确 task；全族最多五 task，unknown/超时不重发。World 代理作者最多 20 个决定/批，地点采用走原 promote/source-hash/source-prefix 校验，地图另外 preview/CAS；0 模型请求。pending 续批先由 root 检查并显式计入额外 wall 预算，unknown/stale 不重试。
+共同基线必须空地图、同章五个独立 Scene/真实 canonical spans。正常 Evolution enrichment 允许，源身份/精确 offsets/hash 不能变。完成必须同 task 的可选阶段收尾；details disabled 及 spatial coverage/gaps 如实报告。attempt→operation 关系缺持久证明仍为 unknown，不造已知。每次只执行正式回执指出的同项目 `pending/attempt=0` 精确 task；全族最多五个 Scene task 加一个正式结构 task（共六个），unknown/超时不重发。World 代理作者最多 20 个决定/批，地点采用走原 promote/source-hash/source-prefix 校验，地图另外 preview/CAS；0 模型请求。pending 续批先由 root 检查并显式计入额外 wall 预算，unknown/stale 不重试。
 
 每个 case 从 setup scopes 读真实 novel_id、scene_id、chapter_index，分别运行下面三个命令；p1 至 p5 串行，不采用任何 Writing 候选：
 
@@ -70,11 +70,13 @@ Writing 两臂先共同冻结非地图 context 后精确执行；每臂 root reg
 
 含首次验证的模型调用上界 **297+M+Q**：验证 1、seed 1、judge 5、Evolution M+Q、Writing 10×14、Assistant 5×30。现有生产运行信封计入 initial、agent/tool 子调用与重试；不将 task 数当模型请求数。并发 ≤2，任务串行；所有精确 task timeout 900s；教师/裁判固定 Sol/xhigh、attempts=1、模型 timeout 300s。World review/auto-draft 经源码确认是确定性查询、来源验证、几何布局，0 模型调用。
 
-CLI 整命令 deadline 包含数据库及准备：setup300、共同/最终freeze各120、preview60、start90、Evolution每批`max_tasks×900+120`、review1440、Writingpair1920、Assistant1020、score360（秒）。上述一次 setup、两 preview、2/2/1 Evolution、一次 review 和五 case 总 **23910s**；正常验证另60s，合计 **23970s / 6h39m30s**，额外 review 续批每次另1440s。取消清理及进程启动另计，unknown 不续发。
+CLI 整命令 deadline 包含数据库及准备：setup300、共同/最终freeze各120、preview60、start90、Evolution每批`max_tasks×900+120`、review1440、Writingpair1920、Assistant1020、score360（秒）。上述一次 setup、两 preview、2/2/2 Evolution、一次 review 和五 case 总 **24810s**；正常验证另60s，合计 **24870s / 6h54m30s**，额外 review 续批每次另1440s。取消清理及进程启动另计，unknown 不续发。
 
 实际 snapshot context ceiling、hard input、输出 target 和每 task registry 限额进入私有账本。Codex `output_token_limit_enforced=False`，硬 token budget unsupported、token_limit=null；不伪造硬 token 限额或费用。`total_cost=unknown` 仍报告，不作为无计划阈值的质量准入；单 case 0机会可 n/a，整题材质量缺 coverage/unknown 仍失败。完整 25 开发 case 通过后才可冻结 gate 并单次独立 holdout。
 
 生产代码/方法/schema 在 root 集成后才冻结，后续漂移停止。原始输入/输出只留私有目录；Git 仅 hash 与去原文结果。本工程审修不代表真实 Codex 可用、五题材质量或真人作者验收。
+
+Writing 可达性仍须实际核对：setup 的 manual canonical Scene 只有来源 spans，没有 location metadata，也不会自动语义 enrichment。采用地图不等于该 Scene 已有可用地图参考；只有原正式来源支持的 Scene 地点、在场/位置事实满足正常 Brief/Evidence 门，才能形成带地图 baseline。缺可信位置时产品诚实省略，当前 eval 的 present/baseline 条件停止该 case；不得猜地点、补填 location ID 或把省略冒称为地图增强质量通过。
 
 ## Sol 工程审修证据
 
@@ -82,5 +84,6 @@ CLI 整命令 deadline 包含数据库及准备：setup300、共同/最终freeze
 - 增补正式 World promote 与独立地图重新预览/CAS，费用、工具历史与 token 硬限保持诚实。生产默认开关未改。
 - 最终本地 `evals/tests`：373 passed / 2 skipped；其中地图相关 59 项。Ruff check/format、docs impact（七份既有 authority 逐项说明 no-change）、`git diff --check`、模块导入门均通过；导入棘轮61/9/0/517不增长。
 - SQLite/真实 ASGI 验证 Project/draft/五 Scene spans，以及 clue review→auto-draft→candidate-location 原 promote（hash stale/跨项目/缺理解来源拒绝）→独立地图重新 preview→旧 head CAS 拒绝→正常保存。模型入口在该链被显式禁止；仅产生正常 pending 派生任务，没有伪造 done Task。
-- fresh Python 进程验证正常 app composition 和 ASGI 只读路由，禁止真实数据库连接且不启动 lifespan。控制器测试另覆盖 exact task IDs、2/2/1 Evolution、timeout/已尝试 task 拒绝、unknown 禁止重发、能力恢复、未校准/无权限/错误 owner 和冻结指纹漂移。
+- 新增正常 ASGI preview/start→持久 run→五 Scene 加一个结构 task 的精确 TaskWorker 回归，provider 边界使用受控响应。独立会话在采样前看到原授权方法/阶段版本，正式读取 facade 与完整 Evolution 产品证据 guard 校验真实 attempt、主回执、可选收尾、两 journal 和当前 canonical 切片；不手造 done task。旧诊断 pilot 的阶段版本/方法遗漏、5-task 上限和两种 range hash 错比属于实际链发现的缺陷，旧账本不补写；修复后的真实评测使用新 private root/Project/请求身份。
+- fresh Python 进程验证正常 app composition 和 ASGI 只读路由，禁止真实数据库连接且不启动 lifespan。控制器测试另覆盖 exact task IDs、2/2/2 Evolution、timeout/已尝试 task 拒绝、unknown 禁止重发、能力恢复、未校准/无权限/错误 owner 和冻结指纹漂移。
 - 未运行：真实 PG 并发/CAS、真实四域 TaskWorker 的整链与 Codex/teacher/judge。工程 orchestration 的 task 替身只证明调度边界；真实模型产物、语义质量、费用、真实 owner 连接和人类作者验收仍须 root pilot，不能以本节工程绿色替代。

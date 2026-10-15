@@ -18,6 +18,30 @@ from evals.tests.test_map_spatial_guard import URL, binding_fixture, completed_c
 
 
 @pytest.mark.parametrize(
+    "name",
+    [
+        "pipeline.py",
+        "tasks.py",
+        "optional_scene.py",
+        "world.py",
+        "structure.py",
+        "optional_step_budget.py",
+    ],
+)
+def test_execution_protocol_changes_invalidate_pipeline_hash(monkeypatch, name):
+    before = map_spatial.pipeline_hash()
+    path = map_spatial.REPO_ROOT / "backend/modules/evolution" / name
+    assert path.is_file()
+    real_hash = map_spatial._sha256_file
+    monkeypatch.setattr(
+        map_spatial,
+        "_sha256_file",
+        lambda target: "0" * 64 if target == path else real_hash(target),
+    )
+    assert map_spatial.pipeline_hash() != before
+
+
+@pytest.mark.parametrize(
     "reading",
     [
         {"engine": {"engine": "legacy", "epoch": 1}, "run": {"status": "active"}},
@@ -342,7 +366,10 @@ async def test_final_freeze_keeps_distinct_scene_source_spans(tmp_path, monkeypa
 
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize("outcome", ["done", "timeout", "attempted"])
+@pytest.mark.parametrize(
+    "outcome",
+    ["done", "timeout", "attempted", "wrong_run", "wrong_operation", "sixth_scene"],
+)
 async def test_evolution_executes_only_new_exact_tasks_and_observes_final_stage(
     tmp_path, monkeypatch, outcome
 ):
@@ -355,16 +382,33 @@ async def test_evolution_executes_only_new_exact_tasks_and_observes_final_stage(
     monkeypatch.setenv("MAP_SPATIAL_EVAL_ALLOW_LIVE", "1")
     monkeypatch.setenv("APP_ENV", "test")
     operation_id = str(uuid.uuid4())
-    ids = [str(uuid.uuid4()) for _ in range(5)]
+    ids = [str(uuid.uuid4()) for _ in range(6)]
+    scene_ids = [item["scene_id"] for item in common["case_bindings"].values()]
     tasks = {
         task_id: SimpleNamespace(
             task_type="evolution_scene_step_v2",
             status="pending",
             attempt=1 if outcome == "attempted" else 0,
             result={},
+            meta={
+                "run_key": "synthetic-run",
+                **(
+                    {"operation": "structure"}
+                    if index == 5
+                    else {"scene_id": scene_ids[index], "scene_index": index}
+                ),
+            },
         )
-        for task_id in ids
+        for index, task_id in enumerate(ids)
     }
+    if outcome == "wrong_run":
+        tasks[ids[0]].meta["run_key"] = "other-run"
+    if outcome == "sixth_scene":
+        tasks[ids[5]].meta = {
+            "run_key": "synthetic-run",
+            "scene_id": scene_ids[0],
+            "scene_index": 5,
+        }
     called = []
 
     async def scalar(query):
@@ -379,12 +423,18 @@ async def test_evolution_executes_only_new_exact_tasks_and_observes_final_stage(
 
     async def state(*args):
         return {
-            "status": "completed" if len(called) == 5 else "pending",
-            "completed_scenes": len(called),
+            "status": "completed" if len(called) == 6 else "pending",
+            "completed_scenes": min(len(called), 5),
         }
 
     async def receipts(*args):
-        return {"task_id": ids[len(called)] if len(called) < 5 else ids[-1]}
+        return {
+            "task_id": ids[len(called)] if len(called) < 6 else ids[-1],
+            "run_key": "synthetic-run",
+            "operation_id": "other-operation"
+            if outcome == "wrong_operation"
+            else operation_id,
+        }
 
     async def run_once(*, task_id, novel_id):
         assert novel_id == common["novel_id"] and task_id == ids[len(called)]
@@ -430,8 +480,15 @@ async def test_evolution_executes_only_new_exact_tasks_and_observes_final_stage(
         assert first["status"] == "pending" and first["next_task_id"] == ids[2]
         assert called == ids[:2]
         await control.run_evolution(**args)
-        last = await control.run_evolution(**{**args, "max_tasks": 1})
+        last = await control.run_evolution(**args)
         assert last["status"] == "completed" and called == ids
+    elif outcome == "sixth_scene":
+        await control.run_evolution(**args)
+        await control.run_evolution(**args)
+        with pytest.raises(MapSpatialEvalError, match="最终结构阶段"):
+            await control.run_evolution(**args)
+        assert called == ids[:5]
+        assert map_spatial._read_private_json(path)["status"] == "unknown"
     else:
         with pytest.raises((TimeoutError, MapSpatialEvalError)):
             await control.run_evolution(**args)
@@ -683,7 +740,9 @@ async def test_proxy_author_promotes_through_original_route_then_confirms_map_se
     )
     monkeypatch.setattr(control, "_product_client", client)
     # Match the real source contract rather than bypassing its validator.
-    assert control._source_binding_matches(clue["source_binding"], scope["source_refs"])
+    assert control._source_binding_matches(
+        clue["source_binding"], scope["source_refs"], world_clue=True
+    )
     result = await control.review_map_family(
         private_root=root,
         family_id=family_id,

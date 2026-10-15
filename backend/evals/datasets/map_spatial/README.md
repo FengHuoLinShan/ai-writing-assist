@@ -20,6 +20,8 @@ owner 必须正常 active，Project 标题以 `MAP-EVAL:<family-id>:` 开头，�
 
 最终 `freeze-binding` 冻结 post-Evolution Scene/card 和地图 head。Writing 两臂先同时入队并固定相同 source、Project、Scene、指令和非地图 context，再各运行精确 task，候选不采用。每次只接管 `pending/attempt=0` 的同项目 task，不 drain 队列；started/unknown/已执行 task 永不重发。方法 fingerprint 覆盖实际 Evolution、auto-draft、Assistant prompt/tool schema 和 Writing/Evidence；项目动态词表按状态冻结，不混入方法 hash。
 
+管线 hash 也覆盖实际 Scene pipeline/task、主提交后的 optional stage、World 候选物化、最终结构 task 与可选额度实现。attempt 保存原计划授权的空间方法指纹；证据读取重新验证 canonical 切片。Writing 的 `range_hash` 是原文切片 hash，Evolution 的可选同名字段是整稿 hash 与 offsets 的身份 hash，两者按正式契约分别验证；draft、章节、整稿 hash、精确 offsets 和 content mode 必须全部一致。
+
 ## 命令
 
 完整环境、正常账户连接、逐阶段命令、预算及停止条件见 [预检交接](../../../../.agent/tasks/2026/T-20261015-map-enhancement-design/artifacts/evaluation/MAP-SPATIAL-LIVE-PREFLIGHT.md)。以下为离线准备，不调用模型：
@@ -31,10 +33,10 @@ owner 必须正常 active，Project 标题以 `MAP-EVAL:<family-id>:` 开头，�
   --output /Users/tywww/.codex/private/map-spatial-evaluation-20261015/reports/template.json
 ```
 
-所有 live 命令只运行一个选定 development family。顺序：setup → freeze-common → seeded score → preview（先读 M、Q，再冻结精确 M+Q）→ root 检查后 start → run-evolution（2、2、1 个串行 task）→ review-map → freeze-binding → 五 case 各 pair-writing / assistant-turn / judge。最后一个 Evolution task 完成后同次读取正式完成状态，不额外发任务。
+所有 live 命令只运行一个选定 development family。顺序：setup → freeze-common → seeded score → preview（先读 M、Q，再冻结精确 M+Q）→ root 检查后 start → run-evolution（2、2、2 个串行 task）→ review-map → freeze-binding → 五 case 各 pair-writing / assistant-turn / judge。五个 Scene 完成后只接管同 run/operation 正式回执返回的一个结构 task；该 task 完成后同次读取正式完成状态。
 
 单族包括正常连接验证的调用硬上界为 **297+M+Q**：1 验证 + 1 seeded + 5 judge + Evolution 的 M+Q + 10 Writing task 各至多 14 + 5 Assistant task 各至多 30。Writing 上限按真实 registry `6*ceil(K/64)+8` 解析，超过 14 在模型前停止；不把 task 数当请求数。World review / auto-draft 是确定性 DB、来源验证及几何代码，0 模型请求。隔离进程必须显式 `ASSISTANT_ENABLED=true`，业务模型并发≤2；common freeze 先检查两者，driver 串行处理任务。各 task 900 秒；教师/裁判单次 300 秒、attempts=1。
 
-CLI 另有包含 DB/准备的整阶段 deadline：setup 300s、common/final freeze 各 120s、preview 60s、start 90s、Evolution `max_tasks*900+120s`、review-map 1440s、Writing pair 1920s、Assistant 1020s、score 360s。一次 setup、两次 preview、一次 start、2/2/1 Evolution、一次 review、五 Writing pairs/Assistant/judge 的 deadline 总和 **23910s**；额外已检查的 review 续批每次另加 1440s。账户验证的产品 60s timeout 另计，总 **23970s（6h39m30s）**。这是取消式 wall deadline，取消清理和进程启动耗时另计；unknown 不重发。
+CLI 另有包含 DB/准备的整阶段 deadline：setup 300s、common/final freeze 各 120s、preview 60s、start 90s、Evolution `max_tasks*900+120s`、review-map 1440s、Writing pair 1920s、Assistant 1020s、score 360s。一次 setup、两次 preview、一次 start、2/2/2 Evolution、一次 review、五 Writing pairs/Assistant/judge 的 deadline 总和 **24810s**；额外已检查的 review 续批每次另加 1440s。账户验证的产品 60s timeout 另计，总 **24870s（6h54m30s）**。这是取消式 wall deadline，取消清理和进程启动耗时另计；unknown 不重发。
 
 账本冻结 snapshot context ceiling、输入上限、输出 target 和 registry 调用上限。Codex 明确 `output_token_limit_enforced=False`；无硬 token budget，报告 `unsupported` / `token_limit=null`，不得把输出 target 写成硬额度。费用和实际 token 缺失保持 unknown。工程测试不代表真实模型质量或作者验收；实际 pilot 由 root 在最终生产集成版本上执行。
