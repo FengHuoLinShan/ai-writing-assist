@@ -6,6 +6,7 @@ and preserves the historical ``modules.world.models`` import path.
 
 from __future__ import annotations
 
+from modules.world.map_auto_draft_models import MapAutoDraftBatchRecord
 from modules.world.project_vocabulary_models import (
     ProjectVocabularyRevision,
     ProjectVocabularyTerm,
@@ -134,6 +135,7 @@ __all__ = [
     "ImageRequestReuse",
     "WorldObjectImageCandidate",
     "ProjectVocabularyRevision",
+    "MapAutoDraftBatchRecord",
     "ProjectVocabularyTerm",
     "_ProfileMixin",
 ]

@@ -13,6 +13,57 @@ from sqlalchemy.exc import DBAPIError
 pytestmark = pytest.mark.e2e
 
 
+async def test_auto_draft_batch_migration_keeps_cursor_identity_and_history(db_session):
+    db = db_session
+    schema = f"map_batch_guard_{uuid4().hex}"
+    await db.execute(text(f'CREATE SCHEMA "{schema}"'))
+    await db.execute(text(f'SET LOCAL search_path TO "{schema}", public'))
+    await db.execute(text("CREATE TABLE projects (id uuid PRIMARY KEY)"))
+    spec = importlib.util.spec_from_file_location(
+        "map_auto_drafts_migration",
+        Path(__file__).resolve().parents[2] / "alembic/versions/"
+        "20261015_map_auto_drafts_persist_resumable_map_auto_draft_batches.py",
+    )
+    migration = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(migration)
+
+    def run_migration(session, direction):
+        migration.op = Operations(MigrationContext.configure(session.connection()))
+        getattr(migration, direction)()
+
+    await db.run_sync(run_migration, "upgrade")
+    novel_id = uuid4()
+    await db.execute(text("INSERT INTO projects VALUES (:id)"), {"id": novel_id})
+    insert = text(
+        "INSERT INTO map_auto_draft_batches "
+        "(id,novel_id,run_id,build_key,through_scene_id,through_scene_index,"
+        "input_fingerprint,method_fingerprint,status,cursor,plan_json,"
+        "result_refs,tray_items,conflicts) VALUES "
+        "(:id,:novel,'run','build','scene',0,:fp,:fp,:status,:cursor,'{}','[]','[]','[]')"
+    )
+    values = {
+        "id": uuid4(),
+        "novel": novel_id,
+        "fp": "a" * 64,
+        "status": "running",
+        "cursor": 1,
+    }
+    await db.execute(insert, values)
+    with pytest.raises(DBAPIError, match="uq_map_auto_draft_batch_identity"):
+        async with db.begin_nested():
+            await db.execute(insert, {**values, "id": uuid4()})
+    for invalid in ({"cursor": -1}, {"status": "saved"}):
+        with pytest.raises(DBAPIError, match="ck_map_auto_draft_batches"):
+            async with db.begin_nested():
+                await db.execute(insert, {**values, **invalid, "id": uuid4()})
+    with pytest.raises(RuntimeError, match="downgrade would discard progress"):
+        await db.run_sync(run_migration, "downgrade")
+    assert await db.scalar(text("SELECT cursor FROM map_auto_draft_batches")) == 1
+    await db.execute(text("DELETE FROM projects WHERE id=:id"), {"id": novel_id})
+    assert await db.scalar(text("SELECT count(*) FROM map_auto_draft_batches")) == 0
+    await db.run_sync(run_migration, "downgrade")
+
+
 async def test_superseded_map_migration_preserves_history_on_downgrade(db_session):
     db = db_session
     schema = f"map_draft_guard_{uuid4().hex}"

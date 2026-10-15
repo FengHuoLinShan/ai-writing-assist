@@ -13,6 +13,12 @@ from typing import TYPE_CHECKING, Any, Literal, Protocol
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
+from modules.world.map_auto_draft_schemas import (
+    MapAutoDraftBuildRequest as MapAutoDraftBuildRequest,
+)
+from modules.world.map_auto_draft_schemas import (
+    MapAutoDraftBuildResult as MapAutoDraftBuildResult,
+)
 from modules.world.map_spatial_clue_schemas import (
     MapSpatialClue as MapSpatialClue,
 )
@@ -86,6 +92,12 @@ from modules.world.schemas import RelationKind
 
 if TYPE_CHECKING:
     from sqlalchemy.ext.asyncio import AsyncSession
+
+
+class WorldBuildMapAutoDraftsPort(Protocol):
+    async def __call__(
+        self, db: AsyncSession, novel_id: str, request: MapAutoDraftBuildRequest
+    ) -> MapAutoDraftBuildResult: ...
 
 
 class TemporalAnchorScenePort(Protocol):
@@ -668,6 +680,9 @@ class WorldAliasRelationTaskPort(Protocol):
 
 
 __all__ = [
+    "MapAutoDraftBuildRequest",
+    "MapAutoDraftBuildResult",
+    "WorldBuildMapAutoDraftsPort",
     "AuthorMigrationEntityInput",
     "AuthorMigrationRelationInput",
     "AuthorMigrationWorldRequest",
