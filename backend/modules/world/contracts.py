@@ -19,6 +19,12 @@ if TYPE_CHECKING:
     from sqlalchemy.ext.asyncio import AsyncSession
 
 
+class TemporalAnchorScenePort(Protocol):
+    async def read_temporal_anchor_scenes(
+        self, db: AsyncSession, novel_id: str
+    ) -> list[dict]: ...
+
+
 ENTITY_FUSION_CHECKPOINT_PAIR_BATCH_SIZE = 12
 
 

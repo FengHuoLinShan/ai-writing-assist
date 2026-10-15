@@ -41,6 +41,10 @@ class SceneSourcePort:
         return await outline_facade.get_scene_contract(db, novel_id, scene_id)
 
     @staticmethod
+    async def read_temporal_anchor_scenes(db: AsyncSession, novel_id: str):
+        return await story_facade.read_temporal_anchor_scenes(db, novel_id)
+
+    @staticmethod
     async def get_scene_state_view(
         db: AsyncSession,
         novel_id: str,

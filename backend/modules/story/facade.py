@@ -82,6 +82,12 @@ async def read_world_dependency(
     return await read(db, novel_id, kind, source_id)
 
 
+async def read_temporal_anchor_scenes(db: AsyncSession, novel_id: str) -> list[dict]:
+    from modules.story.outline_state.temporal_anchors import read_temporal_anchor_scenes
+
+    return await read_temporal_anchor_scenes(db, novel_id)
+
+
 # Story is the physical owner of the authoring workflow.  The two internal
 # subdomains keep their own locality, while this root facade is the stable
 # cross-module seam during and after the compatibility release.
@@ -435,6 +441,7 @@ __all__ = [
     "replace_scene_memory_events",
     "supersede_scene_projections_from",
     "project_scene_presence",
+    "read_temporal_anchor_scenes",
     "invalidate_derived_state",
     "align_scene_event_indices",
     "get_scene_event_order_start",
