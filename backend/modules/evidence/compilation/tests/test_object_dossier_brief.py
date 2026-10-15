@@ -2,7 +2,8 @@
 
 from __future__ import annotations
 
-from uuid import uuid4
+from copy import deepcopy
+from uuid import UUID, uuid4
 
 import pytest
 
@@ -110,6 +111,7 @@ def _world_dossier() -> dict:
     return {
         "entity_id": ENTITY_ID,
         "entity_type": "location",
+        "entity_status": "canonical",
         "as_of_scene_id": SCENE_ID,
         "entries": [
             {
@@ -159,7 +161,7 @@ def _world_dossier() -> dict:
             {
                 "profile_id": str(uuid4()),
                 "profile_type": "location",
-                "profile_status": "active",
+                "profile_status": "canonical",
                 "template_id": str(uuid4()),
                 "template_version_number": 3,
                 "field_key": "origin_place",
@@ -172,7 +174,7 @@ def _world_dossier() -> dict:
             {
                 "profile_id": str(uuid4()),
                 "profile_type": "location",
-                "profile_status": "active",
+                "profile_status": "canonical",
                 "template_id": None,
                 "template_version_number": None,
                 "field_key": "unknown_legacy_key",
@@ -238,15 +240,22 @@ def _options(*, reveal_mode: str = "author_safe") -> CompileOptions:
 
 @pytest.fixture
 def facade_reads(monkeypatch):
-    calls = {"checkpoints": 0}
+    calls = {"checkpoints": 0, "story": _story_view, "dossier": _world_dossier}
 
     async def active_project(_db, _novel_id):
         return None
 
-    async def scene_state(_db, novel_id, scene_id, *, viewpoint):
+    async def scene_state(_db, *, novel_id, scene_id, viewpoint, include_checkpoints):
         assert novel_id == NOVEL_ID
         assert scene_id == SCENE_ID
-        return _story_view(character=viewpoint["kind"] == "character")
+        return {
+            "state": calls["story"](character=viewpoint["kind"] == "character"),
+            "checkpoints": (
+                await checkpoints(_db, novel_id, scene_id)
+                if include_checkpoints
+                else None
+            ),
+        }
 
     async def checkpoints(_db, novel_id, scene_id):
         calls["checkpoints"] += 1
@@ -271,12 +280,19 @@ def facade_reads(monkeypatch):
         assert entity_id == ENTITY_ID
         assert as_of_scene_id == SCENE_ID
         assert (limit, offset) == (250, 0)
-        return _world_dossier()
+        return calls["dossier"]()
 
-    monkeypatch.setattr("modules.project.facade.require_active_project", active_project)
-    monkeypatch.setattr("modules.story.facade.get_scene_state_view", scene_state)
-    monkeypatch.setattr("modules.story.facade.get_scene_checkpoints", checkpoints)
-    monkeypatch.setattr("modules.world.facade.read_world_object_dossier", dossier)
+    monkeypatch.setattr(
+        "modules.evidence.compilation.services.object_dossier_brief.require_active_project",
+        active_project,
+    )
+    def service(key):
+        return {
+            "evidence.read_story_object_state": scene_state,
+            "evidence.read_world_object_dossier": dossier,
+        }[key.name]
+
+    monkeypatch.setattr("core.container.get", service)
     return calls
 
 
@@ -303,7 +319,7 @@ async def test_author_brief_aggregates_three_layers_and_keeps_only_reference_ids
 
     result = await ObjectDossierBriefService(read_patterns).load(
         None,
-        _options(),
+        _options(reveal_mode="author_full"),
         entity_ids=[ENTITY_ID],
         include_patterns=True,
     )
@@ -365,11 +381,158 @@ async def test_character_brief_fails_closed_on_secret_and_evolution_patterns(
     assert visible_entry.source_refs == []
     assert visible_entry.dossier_fingerprint is None
     assert response.checkpoint_refs == []
+    assert response.checkpoint_fingerprint != "story-fingerprint"
+    assert all(item.checkpoint_id == "" for item in response.continuity_items)
+    assert all(item.source_refs == [] for item in response.continuity_items)
     assert response.world_dossier_fingerprints[0]["fingerprint"] != "world-fingerprint"
     assert response.pattern_items == []
     assert all(item.layer != "observation" for item in response.continuity_items)
     assert "secret" not in str(response.model_dump())
     assert "人物倾向" in " ".join(response.omissions)
+
+
+async def test_current_legacy_value_cannot_fill_a_past_scene(facade_reads):
+    def changed_dossier():
+        value = _world_dossier()
+        value["legacy_profile_fields"][0]["value"] = "今日才关闭"
+        return value
+
+    facade_reads["dossier"] = changed_dossier
+    result = await ObjectDossierBriefService().load(
+        None,
+        _options(reveal_mode="author_full"),
+        entity_ids=[ENTITY_ID],
+        include_patterns=False,
+    )
+    response = ObjectDossierBriefResponse.model_validate(result)
+    assert all(item.kind != "legacy_profile_field" for item in response.world_items)
+    assert any("目标 Scene 的时点事实" in item for item in response.omissions)
+
+
+async def test_author_safe_secret_changes_do_not_leak_values_or_fingerprints(
+    facade_reads,
+):
+    secret = {"value": "第一版隐藏真相"}
+    base_story = _story_view()
+    base_dossier = _world_dossier()
+
+    def story(*, character=False):
+        value = deepcopy(base_story)
+        value["state_fingerprint"] = f"author-{secret['value']}"
+        value["dimensions"][0]["facts"].append(
+            {
+                "subject_id": ENTITY_ID,
+                "subject_label": "北门",
+                "field": "hidden_truth",
+                "value": secret["value"],
+                "layer": "fact",
+                "source": {"checkpoint_id": CHECKPOINT_ID},
+                "confidence": "confirmed",
+                "possibly_false": False,
+            }
+        )
+        return value
+
+    def dossier():
+        value = deepcopy(base_dossier)
+        value["entries"][1]["content"] = secret["value"]
+        value["dossier_fingerprint"] = f"world-{secret['value']}"
+        value["legacy_profile_fields"].append(
+            {
+                **value["legacy_profile_fields"][0],
+                "field_key": "hidden_truth",
+                "value": secret["value"],
+            }
+        )
+        return value
+
+    facade_reads["story"] = story
+    facade_reads["dossier"] = dossier
+
+    async def brief(mode):
+        return ObjectDossierBriefResponse.model_validate(
+            await ObjectDossierBriefService().load(
+                None,
+                _options(reveal_mode=mode),
+                entity_ids=[ENTITY_ID],
+                include_patterns=False,
+            )
+        )
+
+    safe_first = await brief("author_safe")
+    full = await brief("author_full")
+    assert secret["value"] not in str(safe_first.model_dump())
+    assert secret["value"] in str(full.model_dump())
+    assert all(item.kind != "legacy_profile_field" for item in safe_first.world_items)
+    assert any(item.field_key == "hidden_truth" for item in full.world_items)
+    assert safe_first.checkpoint_refs == []
+    assert safe_first.omitted_count == 0
+    secret["value"] = "第二版隐藏真相"
+    safe_second = await brief("author_safe")
+    assert safe_first.fingerprint == safe_second.fingerprint
+    assert safe_first.world_fingerprint == safe_second.world_fingerprint
+    assert safe_first.checkpoint_fingerprint == safe_second.checkpoint_fingerprint
+    assert safe_first.omitted_count == safe_second.omitted_count
+
+
+async def test_missing_story_port_reports_unknown_without_reading_world(
+    facade_reads, monkeypatch
+):
+    def missing(_key):
+        raise KeyError("evidence.read_story_object_state")
+
+    monkeypatch.setattr("core.container.get", missing)
+    result = await ObjectDossierBriefService().load(
+        None, _options(), entity_ids=[ENTITY_ID], include_patterns=True
+    )
+    assert result["coverage"] == "unknown"
+    assert result["unknown_layers"] == ["world", "continuity"]
+    assert result["world_items"] == result["continuity_items"] == []
+
+
+async def test_draft_entity_and_profile_are_excluded(facade_reads):
+    def draft_entity():
+        value = _world_dossier()
+        value["entity_status"] = "draft"
+        return value
+
+    facade_reads["dossier"] = draft_entity
+    draft = await ObjectDossierBriefService().load(
+        None,
+        _options(reveal_mode="author_full"),
+        entity_ids=[ENTITY_ID],
+        include_patterns=False,
+    )
+    assert draft["world_items"] == []
+    assert "world" in draft["unknown_layers"]
+
+    def draft_profile():
+        value = _world_dossier()
+        value["legacy_profile_fields"][0]["profile_status"] = "draft"
+        return value
+
+    facade_reads["dossier"] = draft_profile
+    profile = await ObjectDossierBriefService().load(
+        None,
+        _options(reveal_mode="author_full"),
+        entity_ids=[ENTITY_ID],
+        include_patterns=False,
+    )
+    assert all(item["kind"] != "legacy_profile_field" for item in profile["world_items"])
+    assert any("尚未采用" in item for item in profile["omissions"])
+
+
+async def test_evolution_provider_failure_is_not_hidden_as_missing_di(facade_reads):
+    async def broken_provider(*_args, **_kwargs):
+        raise RuntimeError("source store unavailable")
+
+    with pytest.raises(RuntimeError, match="source store unavailable"):
+        await ObjectDossierBriefService(broken_provider).load(
+            None,
+            _options(reveal_mode="author_full"),
+            entity_ids=[ENTITY_ID],
+            include_patterns=True,
+        )
 
 
 def test_brief_request_contract_requires_a_cutoff_and_explicit_pattern_opt_in():
@@ -404,3 +567,46 @@ def test_object_brief_api_is_registered_without_importing_evolution_service_key(
     )
     assert route.methods == {"POST"}
     assert route.response_model is ObjectDossierBriefResponse
+
+
+async def test_object_brief_http_uses_registered_ports(
+    async_client, db_session, test_project_id
+):
+    from core.container import get
+    from core.service_keys import (
+        EVIDENCE_READ_EVOLUTION_OBJECT_PATTERNS,
+        EVIDENCE_READ_STORY_OBJECT_STATE,
+        EVIDENCE_READ_WORLD_OBJECT_DOSSIER,
+    )
+    from modules.story.outline_state.models import Scene
+    from modules.world.models import CoreEntity
+
+    scene_id, entity_id = uuid4(), uuid4()
+    db_session.add(Scene(id=scene_id, novel_id=UUID(test_project_id), scene_index=0))
+    db_session.add(
+        CoreEntity(
+            id=entity_id,
+            novel_id=UUID(test_project_id),
+            entity_type="location",
+            name="北门",
+            status="canonical",
+        )
+    )
+    await db_session.flush()
+    assert callable(get(EVIDENCE_READ_STORY_OBJECT_STATE))
+    assert callable(get(EVIDENCE_READ_WORLD_OBJECT_DOSSIER))
+    assert callable(get(EVIDENCE_READ_EVOLUTION_OBJECT_PATTERNS))
+
+    response = await async_client.post(
+        "/api/evidence/compilation/object-dossier-brief",
+        json={
+            "novel_id": test_project_id,
+            "scene_id": str(scene_id),
+            "entity_ids": [str(entity_id)],
+        },
+    )
+    assert response.status_code == 200, response.text
+    payload = ObjectDossierBriefResponse.model_validate(response.json())
+    assert payload.novel_id == test_project_id
+    assert payload.scene_id == str(scene_id)
+    assert payload.pattern_items == []

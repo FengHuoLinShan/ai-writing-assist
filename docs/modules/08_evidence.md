@@ -88,6 +88,13 @@ reader 视角不沿用作者 section 组装：编译器只纳入公开/已揭示
 回读 writing 且校验 hash 的正文证据与无剧情事实的风格资产。完整 Scene 卡、
 剧情线、记忆、篇章纲和包含未来伏笔的动态约束一律排除。
 
+对象简报 `POST /api/evidence/compilation/object-dossier-brief` 是独立只读 Scene 投影，
+可选台账倾向默认关闭。Story、World、Evolution 经三个只读 DI 端口提供源数据；
+`author_safe` 只读取公开档案投影，隐藏条目不参与输出指纹或省略计数；角色视角不读取作者
+checkpoint 或 Evolution，并且只显示时点事实已证明可见的档案值。
+旧 profile 字段没有时点证明时不补作历史状态；未知、失效与预算省略只影响参考覆盖，
+不降低核心 KnowledgeScope。
+
 每个 `ContextSection` 会携带审查台元数据：
 
 | 字段 | 含义 |

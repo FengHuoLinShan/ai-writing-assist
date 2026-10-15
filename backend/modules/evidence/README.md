@@ -22,6 +22,9 @@
   trace、Activation Profile 和 hidden guard。
 
 两条流水线只共享本模块的 ORM、contracts 和 facade，不建立第二套服务、表或双写。
+对象简报由 compilation 子域按 Scene 截止点汇总 World 档案、Story 时点投影和可选的
+Evolution 台账参考；三个跨域读取均经组合根只读端口，角色视角只投影 Story 可见事实。
+接口与未知/省略语义见 [compilation README](compilation/README.md)。
 跨模块生产调用只允许使用 `modules.evidence.contracts` 与 `modules.evidence.facade`；调用方
 不得直接读取 `rag_chunks`。内部细节见 `indexing/README.md` 与 `compilation/README.md`。
 

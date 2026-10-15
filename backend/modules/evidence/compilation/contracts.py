@@ -45,6 +45,35 @@ class EvolutionObjectPatternReadPort(Protocol):
     ) -> dict: ...
 
 
+class WorldObjectDossierReadPort(Protocol):
+    """Read one World dossier at a requested Scene anchor."""
+
+    async def __call__(
+        self,
+        db: AsyncSession,
+        novel_id: str,
+        entity_id: str,
+        *,
+        as_of_scene_id: str,
+        limit: int,
+        offset: int,
+    ) -> object: ...
+
+
+class StoryObjectStateReadPort(Protocol):
+    """Read one POV state, with author checkpoints only when requested."""
+
+    async def __call__(
+        self,
+        db: AsyncSession,
+        *,
+        novel_id: str,
+        scene_id: str,
+        viewpoint: dict[str, str],
+        include_checkpoints: bool,
+    ) -> dict: ...
+
+
 INTERACTION_SOURCE_CONTEXT_MAX_TOKENS = 16_000
 SCENE_WORLD_STATE_ACTIONS = frozenset(
     {

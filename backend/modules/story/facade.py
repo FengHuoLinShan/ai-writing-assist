@@ -29,6 +29,28 @@ from modules.story.service import (
 _service = StoryService()
 
 
+async def read_object_dossier_state(
+    db: AsyncSession,
+    *,
+    novel_id: str,
+    scene_id: str,
+    viewpoint: dict[str, str],
+    include_checkpoints: bool,
+) -> dict[str, Any]:
+    """Read a Scene POV projection and optional author checkpoint set."""
+    state = await get_scene_state_view(
+        db, novel_id, scene_id, viewpoint=viewpoint
+    )
+    if viewpoint.get("kind") != "author" and include_checkpoints:
+        raise ValueError("author checkpoints require author viewpoint")
+    checkpoints = (
+        await get_scene_checkpoints(db, novel_id, scene_id)
+        if include_checkpoints
+        else None
+    )
+    return {"state": state, "checkpoints": checkpoints}
+
+
 def build_reading_structure_request(scene_cards, world_context):
     from modules.story.outline_state.reading_structure import build_structure_request
 
@@ -398,6 +420,7 @@ async def persist_one_click_character_cards(
 
 
 __all__ = [
+    "read_object_dossier_state",
     "STORY_CARD_TASK",
     "STORY_CHARACTER_CARD_ACTION",
     "STORY_ONE_CLICK_ACTION",

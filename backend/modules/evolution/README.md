@@ -588,6 +588,14 @@ World v3 审查准备含冻结 `context_snapshot`，即使分组相同，上下�
 旧冻结和 append/continue 不升级，shadow 可选阶段明确 not_run。精确阶段字段及覆盖见下述实施合同。
 授权固定空间方法指纹；append/continue 保留未核清补扫登记和草图游标。来源、端点、词表与严格更早的线索构成冻结 consumer read-set；候选只经 World stage 写入地图域，不写 World 关系或地图 head。旧运行通过独立空间补扫授权启动，不修改原阅读开关或方法版本；批次结束时只请求一个幂等 auto-draft build，候选仍待作者审核。覆盖四态、预算保留、来源核验和 World ports 见 [ADR-0036 实施合同](../../../docs/modules/22_evolution.md#adr-0036-空间可选阅读步骤m1)。
 
+## 对象简报的台账只读投影（ADR-0039）
+
+`evidence_read.read_evolution_object_patterns` 经组合根注册为
+`evidence.read_evolution_object_patterns`。它由服务端重读 Scene 顺序与作者时点视图，
+逐条核验依赖 Scene、正文来源范围、对象身份和复核/作者决定，只返回历史倾向与来源坐标，
+不返回引文或写入台账。`only_adopted` 默认关闭；未知、失效和截断显式反馈给 Evidence，
+角色视角不调用此端口。
+
 ## 已发布正文变化与地图核对（G8a）
 
 已发布正文的正式地图、以及工作稿/正式稿的自动草图来源核对由 World 只读 DI port 推导，作为写作回执建议；不改变 Scene

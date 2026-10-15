@@ -13,6 +13,9 @@ from core.service_keys import (
     ALL_SERVICE_KEYS,
     ASSISTANT_READ_MAP_AUTHOR_DECISION,
     EVOLUTION_READ_MAP_COLD_START_STATUS,
+    EVIDENCE_READ_EVOLUTION_OBJECT_PATTERNS,
+    EVIDENCE_READ_STORY_OBJECT_STATE,
+    EVIDENCE_READ_WORLD_OBJECT_DOSSIER,
     WORLD_READ_MAP_COLD_START_DRAFTS,
     WORLD_READ_MAP_NOTIFICATION_SIGNALS,
     CONDITIONALLY_REGISTERED,
@@ -206,9 +209,12 @@ from modules.evolution.facade import (
     require_current_world_candidate as _evolution_require_current_world_candidate,
     receipt_view as _evolution_receipt_view,
 )
+from modules.evolution.evidence_read import read_evolution_object_patterns
 from modules.story.facade import get_scene_contract as _story_get_scene_contract
+from modules.story.facade import read_object_dossier_state
 from modules.world import assistant_ports as _world_assistant
 from modules.world.facade import (
+    read_world_object_dossier,
     read_spatial_discovery_context as _world_read_spatial_discovery_context,
     stage_spatial_discovery as _world_stage_spatial_discovery,
     build_map_auto_drafts as _world_build_map_auto_drafts,
@@ -440,6 +446,9 @@ def _container_services() -> Iterable[tuple[ServiceKey[Any], Any]]:
         (SOURCE_CHANGED, _assistant_mark_changed),
         (ASSISTANT_READ_MAP_AUTHOR_DECISION, _read_map_author_decision),
         (EVOLUTION_READ_MAP_COLD_START_STATUS, _read_map_cold_start_status),
+        (EVIDENCE_READ_EVOLUTION_OBJECT_PATTERNS, read_evolution_object_patterns),
+        (EVIDENCE_READ_STORY_OBJECT_STATE, read_object_dossier_state),
+        (EVIDENCE_READ_WORLD_OBJECT_DOSSIER, read_world_object_dossier),
         (WORLD_READ_MAP_COLD_START_DRAFTS, _read_map_cold_start_drafts),
         (WORLD_READ_MAP_NOTIFICATION_SIGNALS, _read_map_notification_signals),
         (

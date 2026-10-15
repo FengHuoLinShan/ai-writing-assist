@@ -80,8 +80,10 @@ def _claim(*, scene_id: str = SCENE_ID, scene_index: int = 2) -> LedgerClaim:
 
 
 class _ScenePort:
-    async def get_scene_contract(self, _db, _novel_id, scene_id):
+    async def get_scene_contract(self, _db, novel_id, scene_id):
         return {
+            "id": scene_id,
+            "novel_id": novel_id,
             "scene_index": 3 if scene_id == FUTURE_SCENE_ID else 2,
         }
 
@@ -253,3 +255,46 @@ async def test_story_cutoff_mismatch_stops_before_ledger_query(
     assert db.executed is False
     assert result["coverage"] == "unknown"
     assert result["items"] == []
+
+
+async def test_scene_contract_identity_mismatch_stops_before_ledger_query(
+    read_validators,
+):
+    class WrongScenePort(_ScenePort):
+        async def get_scene_contract(self, _db, novel_id, scene_id):
+            return {"id": str(uuid4()), "novel_id": novel_id, "scene_index": 2}
+
+    db = _Database([])
+    with container_scope({STORY_SCENE_SOURCE: WrongScenePort()}):
+        result = await read_evolution_object_patterns(
+            db,
+            novel_id=NOVEL_ID,
+            scene_id=SCENE_ID,
+            entity_ids=[ENTITY_ID],
+        )
+    assert db.executed is False
+    assert result["coverage"] == "unknown"
+
+
+async def test_stale_source_hash_is_omitted(monkeypatch, read_validators):
+    async def stale_ranges(_db, _novel_id, _claim):
+        return "source_changed"
+
+    monkeypatch.setattr(
+        "modules.evolution.evidence_read._claim_ranges_current", stale_ranges
+    )
+    result = await _read(_Database([_row(_claim())]))
+    assert result["items"] == []
+    assert result["omitted_count"] == 1
+    assert any("证据已失效" in item for item in result["omissions"])
+
+
+async def test_read_port_never_flushes_caller_pending_writes(read_validators):
+    class PendingDatabase(_Database):
+        new = {"uncommitted domain row"}
+
+    db = PendingDatabase([])
+    result = await _read(db)
+    assert result["coverage"] == "unknown"
+    assert db.executed is False
+    assert any("未提交变更" in item for item in result["omissions"])

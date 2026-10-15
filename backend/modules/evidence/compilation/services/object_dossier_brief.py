@@ -4,11 +4,17 @@ from __future__ import annotations
 
 from typing import Any
 
+from core.service_keys import (
+    EVIDENCE_READ_EVOLUTION_OBJECT_PATTERNS,
+    EVIDENCE_READ_STORY_OBJECT_STATE,
+    EVIDENCE_READ_WORLD_OBJECT_DOSSIER,
+)
 from infrastructure.stable_hash import stable_hash
 from modules.evidence.compilation.contracts import (
     CompileOptions,
     EvolutionObjectPatternReadPort,
 )
+from modules.project.facade import require_active_project
 
 MAX_OBJECTS = 16
 MAX_DOSSIER_ENTRIES = 48
@@ -69,6 +75,8 @@ def _legacy_value_visible(
     return any(
         str(fact.get("subject_id") or "") == entity_id
         and fact.get("layer") == "fact"
+        and fact.get("confidence") == "confirmed"
+        and fact.get("possibly_false") is not True
         and _hashable(fact.get("value")) == target_hash
         for fact in facts
     )
@@ -84,6 +92,8 @@ def _dossier_entry_visible(
     return any(
         str(fact.get("subject_id") or "") == entity_id
         and fact.get("layer") == "fact"
+        and fact.get("confidence") == "confirmed"
+        and fact.get("possibly_false") is not True
         and _hashable(fact.get("value")) == content_hash
         for fact in facts
     )
@@ -144,8 +154,6 @@ class ObjectDossierBriefService:
         include_patterns: bool,
         only_adopted_patterns: bool = False,
     ) -> dict[str, Any]:
-        from modules.project.facade import require_active_project
-
         await require_active_project(db, options.novel_id)
         scene_id = options.scene_id
         if not scene_id:
@@ -158,6 +166,7 @@ class ObjectDossierBriefService:
         novel_id = str(options.novel_id)
         scene_id = str(scene_id)
         role_view = options.reveal_mode == "character"
+        safe_view = role_view or options.reveal_mode == "author_safe"
         reader_view = options.reveal_mode == "reader"
         if reader_view:
             return self._empty(options, ["读者视角不使用对象档案与台账参考"])
@@ -170,15 +179,24 @@ class ObjectDossierBriefService:
         if role_view and not options.viewpoint_character_id:
             return self._empty(options, ["角色视角缺少 POV 人物，已排除对象参考"])
 
-        from modules.story.facade import get_scene_checkpoints, get_scene_state_view
+        from core.container import get
 
-        state_value = await get_scene_state_view(
+        try:
+            story_reader = get(EVIDENCE_READ_STORY_OBJECT_STATE)
+        except KeyError:
+            return self._empty(
+                options,
+                ["Story 对象时点只读 DI 尚未接线"],
+                unknown_layers=["world", "continuity"],
+            )
+        story_result = await story_reader(
             db,
-            novel_id,
-            scene_id,
+            novel_id=novel_id,
+            scene_id=scene_id,
             viewpoint=viewpoint,
+            include_checkpoints=not safe_view,
         )
-        state_view = _data(state_value)
+        state_view = _data(story_result.get("state"))
         state_index = state_view.get("scene_index")
         if (
             str(state_view.get("scene_id") or "") != scene_id
@@ -202,9 +220,9 @@ class ObjectDossierBriefService:
 
         checkpoint_refs: list[dict[str, Any]] = []
         checkpoint_omissions: list[str] = []
-        if not role_view:
+        if not safe_view:
             try:
-                checkpoint_value = await get_scene_checkpoints(db, novel_id, scene_id)
+                checkpoint_value = story_result.get("checkpoints")
                 checkpoint_set = _data(checkpoint_value)
                 if (
                     str(checkpoint_set.get("novel_id") or "") != novel_id
@@ -232,7 +250,11 @@ class ObjectDossierBriefService:
                 checkpoint_omissions.append("Story checkpoint 引用暂时无法读取")
 
         facts = _visible_facts(state_view)
-        omissions = [*state_view.get("omissions", []), *checkpoint_omissions]
+        omissions = (
+            ["部分时点状态未获得可见证明"]
+            if safe_view and state_view.get("omissions")
+            else [] if safe_view else list(state_view.get("omissions") or [])
+        ) + checkpoint_omissions
         unknown_layers = list(
             dict.fromkeys(
                 "continuity"
@@ -241,6 +263,9 @@ class ObjectDossierBriefService:
                 and dimension.get("status") in {"missing", "degraded", "unsupported"}
             )
         )
+        if not state_view.get("dimensions"):
+            unknown_layers.append("continuity")
+            omissions.append("Story 未返回可核实的时点维度")
         if checkpoint_omissions:
             unknown_layers.append("continuity")
         if any(
@@ -257,8 +282,6 @@ class ObjectDossierBriefService:
             if degraded:
                 omissions.append("部分角色时点状态来源待复核")
 
-        from modules.world.facade import read_world_object_dossier
-
         selected_ids = sorted({str(item) for item in entity_ids})[:MAX_OBJECTS]
         omitted_count = max(0, len(set(entity_ids)) - len(selected_ids))
         world_items: list[dict[str, Any]] = []
@@ -266,9 +289,15 @@ class ObjectDossierBriefService:
         unmapped_legacy_count = 0
         if omitted_count:
             omissions.append("部分关联对象未进入本次有界读取")
-        for entity_id in selected_ids:
+        try:
+            world_reader = get(EVIDENCE_READ_WORLD_OBJECT_DOSSIER)
+        except KeyError:
+            world_reader = None
+            unknown_layers.append("world")
+            omissions.append("World 档案只读 DI 尚未接线")
+        for entity_id in selected_ids if world_reader is not None else []:
             dossier = _data(
-                await read_world_object_dossier(
+                await world_reader(
                     db,
                     novel_id,
                     entity_id,
@@ -284,6 +313,10 @@ class ObjectDossierBriefService:
                 omitted_count += 1
                 omissions.append("World 档案对象或截止点不匹配")
                 continue
+            if dossier.get("entity_status") != "canonical":
+                unknown_layers.append("world")
+                omissions.append("对象尚未采用或状态无法核实，未进入简报")
+                continue
             dossier_fingerprint = str(dossier.get("dossier_fingerprint") or "").strip()
             if not dossier_fingerprint:
                 omitted_count += 1
@@ -298,11 +331,13 @@ class ObjectDossierBriefService:
                     - len(dossier.get("entries") or []),
                 ),
             )
-            if dossier_omitted:
-                if not role_view:
-                    omitted_count += dossier_omitted
-                    omissions.append("World 档案分页未覆盖全部当前条目")
-            if dossier.get("unknown") is True and not role_view:
+            if dossier_omitted and not safe_view:
+                omitted_count += dossier_omitted
+                omissions.append("World 档案分页未覆盖全部当前条目")
+            elif dossier_omitted:
+                unknown_layers.append("world")
+                omissions.append("可见档案的分页覆盖无法核实")
+            if dossier.get("unknown") is True and not safe_view:
                 unknown_layers.append("world")
             entity_item_start = len(world_items)
             for raw in dossier.get("entries") or []:
@@ -311,11 +346,11 @@ class ObjectDossierBriefService:
                 if raw.get("effective_at_cutoff") is not True or raw.get(
                     "anchor_problem"
                 ):
-                    if not role_view:
+                    if not safe_view:
                         omitted_count += 1
                         omissions.append("存在无效或待核对的档案锚点")
                     continue
-                if role_view and raw.get("visibility") != "public":
+                if safe_view and raw.get("visibility") != "public":
                     continue
                 if role_view and not _dossier_entry_visible(
                     entity_id=entity_id, entry=raw, facts=facts
@@ -341,7 +376,7 @@ class ObjectDossierBriefService:
                     "validity": raw.get("validity"),
                     "dossier_fingerprint": dossier.get("dossier_fingerprint"),
                 }
-                if role_view:
+                if safe_view:
                     item = {
                         "kind": "world_dossier",
                         "entity_id": entity_id,
@@ -355,15 +390,28 @@ class ObjectDossierBriefService:
             for raw in dossier.get("legacy_profile_fields") or []:
                 if not isinstance(raw, dict):
                     continue
+                if options.reveal_mode == "author_safe":
+                    # Legacy JSON has no trustworthy public/secret marker.
+                    continue
+                if raw.get("profile_status") != "canonical":
+                    if not safe_view:
+                        omitted_count += 1
+                        omissions.append("旧档案资料尚未采用")
+                    continue
                 if not raw.get("mapped") or not raw.get("facing"):
-                    if not role_view:
+                    if not safe_view:
                         unmapped_legacy_count += 1
                     continue
-                if role_view and not _legacy_value_visible(
+                # A legacy profile has no historical validity interval. A value
+                # enters this Scene brief only when Story proves it at cutoff.
+                if not _legacy_value_visible(
                     entity_id=entity_id,
                     value=raw.get("value"),
                     facts=facts,
                 ):
+                    if not safe_view:
+                        omitted_count += 1
+                        omissions.append("旧档案字段缺少目标 Scene 的时点事实证明")
                     continue
                 item = {
                     "kind": "legacy_profile_field",
@@ -395,7 +443,7 @@ class ObjectDossierBriefService:
                         "value": raw.get("value"),
                     }
                 world_items.append(item)
-            if role_view:
+            if safe_view:
                 safe_items = [
                     {
                         "kind": item.get("kind"),
@@ -425,10 +473,13 @@ class ObjectDossierBriefService:
             )
         )
         if len(world_items) > MAX_DOSSIER_ENTRIES:
-            if not role_view:
+            if not safe_view:
                 omitted_count += len(world_items) - MAX_DOSSIER_ENTRIES
             world_items = world_items[:MAX_DOSSIER_ENTRIES]
-            if not role_view:
+            if safe_view:
+                unknown_layers.append("world")
+                omissions.append("可见档案超过本次读取上限")
+            else:
                 omissions.append("档案参考超过条数上限")
         if unmapped_legacy_count:
             omitted_count += unmapped_legacy_count
@@ -444,7 +495,7 @@ class ObjectDossierBriefService:
                 continue
             status = str(dimension.get("status") or "unknown")
             if status != "ok":
-                if status != "missing":
+                if status != "missing" and not safe_view:
                     omissions.append(
                         f"{dimension.get('label') or dimension.get('dimension')}: "
                         f"{dimension.get('gap_reason') or status}"
@@ -452,6 +503,10 @@ class ObjectDossierBriefService:
                 continue
             for raw in dimension.get("facts") or []:
                 if not isinstance(raw, dict):
+                    continue
+                if options.reveal_mode == "author_safe" and str(
+                    raw.get("field") or ""
+                ).casefold() in {"hidden_truth", "secret"}:
                     continue
                 source = _data(raw.get("source"))
                 checkpoint_id = str(source.get("checkpoint_id") or "")
@@ -505,13 +560,31 @@ class ObjectDossierBriefService:
                 }
                 if role_view and raw.get("layer") == "observation":
                     continue
+                if safe_view:
+                    fact = {
+                        "kind": "story_state",
+                        "entity_id": str(raw.get("subject_id") or ""),
+                        "subject_label": raw.get("subject_label"),
+                        "dimension": dimension.get("dimension"),
+                        "field": raw.get("field"),
+                        "value": raw.get("value"),
+                        "layer": raw.get("layer"),
+                        "possibly_false": bool(raw.get("possibly_false")),
+                        "occurred_at": raw.get("occurred_at"),
+                        "confidence": raw.get("confidence"),
+                        "checkpoint_id": "",
+                        "checkpoint_source_hash": None,
+                        "provenance": None,
+                        "source_refs": [],
+                    }
                 continuity_items.append(fact)
         if len(continuity_items) > MAX_CONTINUITY_FACTS:
-            if not role_view:
+            if not safe_view:
                 omitted_count += len(continuity_items) - MAX_CONTINUITY_FACTS
             continuity_items = continuity_items[:MAX_CONTINUITY_FACTS]
-            if role_view:
-                omissions.append("部分 Story 时点事实超过有界读取上限")
+            if safe_view:
+                unknown_layers.append("continuity")
+                omissions.append("部分可见时点事实超过有界读取上限")
             else:
                 omissions.append("Scene 时点事实超过条数上限")
 
@@ -521,9 +594,9 @@ class ObjectDossierBriefService:
         pattern_items: list[dict[str, Any]] = []
         pattern_fingerprint = None
         if include_patterns:
-            if role_view:
+            if safe_view:
                 omissions.append(
-                    "角色视角下未能逐条证明台账条件与来源可见，已排除人物倾向"
+                    "当前视角未能逐条证明台账条件与来源可见，已排除人物倾向"
                 )
                 omitted_count += 1
             else:
@@ -532,7 +605,7 @@ class ObjectDossierBriefService:
                     if provider is None:
                         from core.container import get
 
-                        provider = get("evidence.read_evolution_object_patterns")
+                        provider = get(EVIDENCE_READ_EVOLUTION_OBJECT_PATTERNS)
                 except KeyError:
                     omissions.append("Evolution 台账只读 DI 尚未接线，未回退读取其他数据")
                     omitted_count += 1
@@ -616,7 +689,7 @@ class ObjectDossierBriefService:
                                     )
                                 }
                             )
-        if include_patterns and not role_view and not pattern_fingerprint:
+        if include_patterns and not safe_view and not pattern_fingerprint:
             if "evolution" not in unknown_layers:
                 omitted_count += 1
                 omissions.append("Evolution 台账缺少稳定指纹，未使用该结果")
@@ -628,7 +701,11 @@ class ObjectDossierBriefService:
             pattern_items = pattern_items[:MAX_CHARACTER_PATTERNS]
             omissions.append("人物倾向参考超过条数上限")
 
-        checkpoint_fingerprint = str(state_view.get("state_fingerprint") or "")
+        checkpoint_fingerprint = (
+            stable_hash({"viewpoint": viewpoint, "facts": continuity_items})
+            if safe_view
+            else str(state_view.get("state_fingerprint") or "")
+        )
         world_fingerprint = stable_hash(dossier_fingerprints)
         continuity_fingerprint = stable_hash(
             {"state": checkpoint_fingerprint, "checkpoints": checkpoint_refs}
