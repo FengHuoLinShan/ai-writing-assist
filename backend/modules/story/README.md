@@ -128,6 +128,11 @@ the preview scope before confirming and enqueueing one preview-only task under t
 snapshot and usage envelope. Confirmation binds each Story action to its retrieval purpose and same-Scene
 cutoff; card also requires its target as the in-project POV. Enqueue rejects stale snapshots with a wider
 chapter/offset or token budget before creating a task.
+The generator still returns 2–4 V2 performances; script and one-click requests accept one
+`story.reaction.choice.v1` performance per character with its own source IDs. They reject an
+entire V2 proposal as an accepted choice, while old v1 accepted reactions remain readable.
+Generated V2 cards retain their fact basis and source-bound interpretations through save/read-back;
+the existing Assistant `story.save_card` operation keeps its frozen v1 content schema.
 
 Scene asset reads batch-load card and script revisions with two bounded `IN`
 queries. The common Story baseline is hashed once, then per-script exclusion

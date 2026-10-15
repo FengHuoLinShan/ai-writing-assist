@@ -293,6 +293,61 @@ describe("Story Scene workspace panels", () => {
     }))
   })
 
+  it("shows and saves a V2 card as source-bound interpretations", async () => {
+    const content = {
+      version: "character_card.v2",
+      fact_basis: [{ fact_id: "story:gate", kind: "story_state", layer: "fact", subject_id: "c1", dimension: "entities", field: "condition", value: "北门关闭" }],
+      pattern_basis: [],
+      interpretations: [{ category: "tactics", statement: "她会先观察门闩。", source_fact_ids: ["story:gate"], source_pattern_ids: [] }],
+    }
+    story.getSceneContext.mockResolvedValue({ character_cards: [{ character_id: "c1", name: "阿遥", content: { personality: "谨慎" } }], script_files: [] })
+    story.saveCharacterCard.mockResolvedValue({ id: "card-v2", character_id: "c1", current_revision_id: "rev-v2", revision: { id: "rev-v2", content } })
+    createWrapper({ selectedSceneId: "s1" })
+    await wrapper.get('[data-action="scene-runtime-tab-characters"]').trigger("click")
+    await flushPromises()
+    await wrapper.get('[data-action="edit-scene-character-c1"]').trigger("click")
+    tasks.get.mockResolvedValue({ task_id: "task-v2", status: "done", result: { preview: { content } } })
+    sceneRuntimeManager.adopt({ task_id: "task-v2", status: "pending" }, { sceneId: "s1", stage: "character-card" }, "p1", "s1")
+    await vi.waitFor(() => expect(wrapper.find('[data-action="apply-generated-scene-character-card"]').exists()).toBe(true))
+    expect(wrapper.get(".scene-character-card__generated").text()).toContain("北门关闭")
+    await wrapper.get('[data-action="apply-generated-scene-character-card"]').trigger("click")
+    await wrapper.get('[data-action="save-scene-character-card"]').trigger("click")
+    await flushPromises()
+    expect(story.saveCharacterCard.mock.calls[0][3].content).toEqual(content)
+    expect(wrapper.get(".scene-character-card__facts").text()).toContain("她会先观察门闩")
+    expect(wrapper.get(".scene-character-card__facts").text()).toContain("北门关闭")
+  })
+
+  it("keeps only the chosen V2 performance and its sources for script generation", async () => {
+    story.getSceneContext.mockResolvedValue({ character_cards: [{ character_id: "c1", name: "阿遥", content: { personality: "谨慎" } }], script_files: [] })
+    const option = (optionId, action) => ({
+      option_id: optionId, motivation: action, source_fact_ids: [`story:${optionId}`], source_pattern_ids: [],
+      action, facial_expression: "皱眉", body_language: "侧身", voice_and_dialogue: "低声提醒", inner_response: "警觉",
+      attention: "门闩", change: "开始行动", confidence: 0.8,
+    })
+    tasks.get.mockResolvedValue({ task_id: "reaction-v2", status: "done", result: { preview: {
+      schema_version: "story.reaction.v2", proposals: [{ schema_version: "story.reaction.v2", character_id: "c1", internal_pressure: "时间紧迫", performances: [option("watch", "先观察"), option("move", "先行动")] }],
+    } } })
+    story.startScriptTask.mockResolvedValue({ task_id: "script-next", status: "pending" })
+    createWrapper({ selectedSceneId: "s1" })
+    await wrapper.get('[data-action="scene-runtime-tab-simulation"]').trigger("click")
+    await flushPromises()
+    sceneRuntimeManager.adopt({ task_id: "reaction-v2", status: "pending" }, { sceneId: "s1", stage: "reaction" }, "p1", "s1")
+    await vi.waitFor(() => expect(wrapper.findAll(".scene-reaction-card")).toHaveLength(2))
+    sceneRuntimeManager.setResult(sceneRuntimeManager.state.result, "p1", "s1")
+    expect(wrapper.get(".scene-simulation-panel").text()).toContain("先行动")
+    await wrapper.get('[data-action="keep-scene-reaction-c1:move"]').trigger("click")
+    await wrapper.get('[data-action="scene-runtime-tab-script"]').trigger("click")
+    await flushPromises()
+    expect(wrapper.get('[data-action="generate-scene-script"]').attributes("disabled")).toBeUndefined()
+    await wrapper.get('[data-action="generate-scene-script"]').trigger("click")
+    await flushPromises()
+    const accepted = story.startScriptTask.mock.calls[0][0].accepted_reactions
+    expect(accepted).toHaveLength(1)
+    expect(accepted[0]).toMatchObject({ schema_version: "story.reaction.choice.v1", character_id: "c1", selected_performance: { option_id: "move", action: "先行动", source_fact_ids: ["story:move"] } })
+    expect(JSON.stringify(accepted)).not.toContain("story:watch")
+  })
+
   it("stores a genuinely bounded multi-file draft while keeping the active draft", () => {
     const activeDraft = "甲".repeat(200000)
     persistSceneRuntimeDraft("p1", "s1", {

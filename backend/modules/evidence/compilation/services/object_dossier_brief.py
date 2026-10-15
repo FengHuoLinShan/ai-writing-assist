@@ -65,41 +65,28 @@ def _visible_facts(state_view: dict[str, Any]) -> list[dict[str, Any]]:
     return facts
 
 
-def _legacy_value_visible(
-    *,
-    entity_id: str,
-    value: Any,
-    facts: list[dict[str, Any]],
-) -> bool:
-    target_hash = _hashable(value)
-    return any(
-        str(fact.get("subject_id") or "") == entity_id
-        and fact.get("layer") == "fact"
-        and fact.get("confidence") == "confirmed"
-        and fact.get("possibly_false") is not True
-        and _hashable(fact.get("value")) == target_hash
-        for fact in facts
-    )
-
-
 def _bridged_generic_value_visible(
     *,
     entity_id: str,
+    field_key: str,
     value: Any,
     facts: list[dict[str, Any]],
     scene_index: int,
-    current_checkpoint_ids: set[str],
+    current_checkpoints: dict[str, str],
 ) -> bool:
+    if not field_key:
+        return False
     target_hash = _hashable(value)
     return any(
         str(fact.get("subject_id") or "") == entity_id
+        and fact.get("field") == field_key
         and fact.get("layer") == "fact"
         and fact.get("confidence") == "confirmed"
         and fact.get("possibly_false") is not True
         and _has_current_scene_source_proof(
             fact,
             scene_index=scene_index,
-            current_checkpoint_ids=current_checkpoint_ids,
+            current_checkpoints=current_checkpoints,
         )
         and _hashable(fact.get("value")) == target_hash
         for fact in facts
@@ -110,7 +97,7 @@ def _has_current_scene_source_proof(
     fact: dict[str, Any],
     *,
     scene_index: int,
-    current_checkpoint_ids: set[str],
+    current_checkpoints: dict[str, str],
 ) -> bool:
     occurred_at = fact.get("occurred_at")
     occurred_index = (
@@ -124,9 +111,12 @@ def _has_current_scene_source_proof(
     ):
         return False
     source = fact.get("source")
+    dimension = str(fact.get("dimension") or "")
     if (
         not isinstance(source, dict)
-        or str(source.get("checkpoint_id") or "") not in current_checkpoint_ids
+        or not dimension
+        or source.get("dimension") != dimension
+        or current_checkpoints.get(str(source.get("checkpoint_id") or "")) != dimension
     ):
         return False
     provenance = source.get("provenance")
@@ -354,8 +344,8 @@ class ObjectDossierBriefService:
                 checkpoint_omissions.append("Story checkpoint 引用暂时无法读取")
 
         facts = _visible_facts(state_view)
-        current_checkpoint_ids = {
-            str(item.get("checkpoint_id") or "") for item in checkpoint_refs
+        current_checkpoints = {
+            str(item["checkpoint_id"]): str(item["dimension"]) for item in checkpoint_refs
         }
         # Reader/character omissions may count hidden facts. Do not let their
         # existence change a safe brief's metadata or fingerprint.
@@ -497,17 +487,29 @@ class ObjectDossierBriefService:
                     if not (
                         _bridged_generic_value_visible(
                             entity_id=entity_id,
+                            field_key=str(
+                                (raw.get("source_metadata") or {}).get(
+                                    "generic_profile_field_key"
+                                )
+                                or ""
+                            ),
                             value=raw.get("legacy_value"),
                             facts=facts,
                             scene_index=scene_index,
-                            current_checkpoint_ids=current_checkpoint_ids,
+                            current_checkpoints=current_checkpoints,
                         )
                         or _bridged_generic_value_visible(
                             entity_id=entity_id,
+                            field_key=str(
+                                (raw.get("source_metadata") or {}).get(
+                                    "generic_profile_field_key"
+                                )
+                                or ""
+                            ),
                             value=raw.get("content"),
                             facts=facts,
                             scene_index=scene_index,
-                            current_checkpoint_ids=current_checkpoint_ids,
+                            current_checkpoints=current_checkpoints,
                         )
                     ):
                         if not safe_view:
@@ -575,10 +577,13 @@ class ObjectDossierBriefService:
                     continue
                 # A legacy profile has no historical validity interval. A value
                 # enters this Scene brief only when Story proves it at cutoff.
-                if not _legacy_value_visible(
+                if not _bridged_generic_value_visible(
                     entity_id=entity_id,
+                    field_key=str(raw.get("field_key") or ""),
                     value=raw.get("value"),
                     facts=facts,
+                    scene_index=scene_index,
+                    current_checkpoints=current_checkpoints,
                 ):
                     if not safe_view:
                         omitted_count += 1

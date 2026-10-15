@@ -30,11 +30,66 @@ from modules.story.tasks import (
     _character_card_source_hashes,
     _parse_task_request,
     _require_character_reveal,
+    _validate_accepted_reaction_choices,
 )
 
 NOVEL_ID = str(uuid.uuid4())
 SCENE_ID = str(uuid.uuid4())
 CHARACTER_ID = str(uuid.uuid4())
+
+
+def test_accepted_v2_reaction_choice_stays_inside_its_character_pov():
+    from modules.story.schemas import StoryTaskRequest
+
+    other_id = str(uuid.uuid4())
+    option = {
+        "option_id": "guard_first",
+        "motivation": "先保护同伴",
+        "source_fact_ids": ["story:known-goal"],
+        "action": "守住门口",
+        "facial_expression": "皱眉",
+        "body_language": "抬手拦门",
+        "voice_and_dialogue": "先别进",
+        "inner_response": "担心埋伏",
+        "attention": "门后的脚步",
+        "change": "由疑虑转为防御",
+    }
+    request = StoryTaskRequest(
+        novel_id=NOVEL_ID,
+        scene_id=SCENE_ID,
+        character_ids=[CHARACTER_ID, other_id],
+        context_confirmation_id="current-confirmation",
+        confirmed=True,
+        accepted_reactions=[
+            {
+                "schema_version": "story.reaction.choice.v1",
+                "character_id": CHARACTER_ID,
+                "internal_pressure": "没有退路",
+                "selected_performance": option,
+            }
+        ],
+    )
+    reveals = {
+        CHARACTER_ID: {
+            "markdown": "当前人物可见资料",
+            "deterministic_facts": [{"fact_id": "story:known-goal"}],
+            "reference_patterns": [],
+        },
+        other_id: {
+            "markdown": "另一人物资料",
+            "deterministic_facts": [{"fact_id": "story:other-goal"}],
+            "reference_patterns": [],
+        },
+    }
+    _validate_accepted_reaction_choices(request, [CHARACTER_ID, other_id], reveals)
+    with pytest.raises(ValueError, match="outside its POV"):
+        _validate_accepted_reaction_choices(
+            request,
+            [CHARACTER_ID, other_id],
+            {**reveals, CHARACTER_ID: reveals[other_id]},
+        )
+    with pytest.raises(ValueError, match="outside this Scene task"):
+        _validate_accepted_reaction_choices(request, [other_id], reveals)
 
 
 @pytest.mark.parametrize(

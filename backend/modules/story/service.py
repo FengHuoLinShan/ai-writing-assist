@@ -38,13 +38,14 @@ from modules.story.repositories import (
 )
 from modules.story.schemas import (
     CardPreview,
-    CharacterCardContent,
     CharacterCardResponse,
     CharacterCardRevisionResponse,
     OneClickOutput,
     SceneScriptFileResponse,
     SceneScriptRevisionResponse,
     StorySceneContextResponse,
+    VersionedCharacterCardContent,
+    parse_character_card_content,
 )
 from modules.world.facade import get_characters_context
 
@@ -218,7 +219,7 @@ class StoryService:
                 character_id=revision.character_id,
                 scene_id=revision.scene_id,
                 version_number=revision.version_number,
-                content=CharacterCardContent.model_validate(revision.payload_json),
+                content=parse_character_card_content(revision.payload_json),
                 content_hash=revision.content_hash,
                 source=revision.source,
                 status=revision.status,
@@ -308,7 +309,7 @@ class StoryService:
                 character_id=revision.character_id,
                 scene_id=revision.scene_id,
                 version_number=revision.version_number,
-                content=CharacterCardContent.model_validate(revision.payload_json),
+                content=parse_character_card_content(revision.payload_json),
                 content_hash=revision.content_hash,
                 source=revision.source,
                 status=revision.status,
@@ -331,7 +332,7 @@ class StoryService:
         novel_id: str,
         scene_id: str,
         character_id: str,
-        content: CharacterCardContent,
+        content: VersionedCharacterCardContent,
         expected_revision_id: uuid.UUID | None = None,
         source_manifest: dict[str, Any] | None = None,
         source: str = "manual",
@@ -446,7 +447,7 @@ class StoryService:
                 str(exc),
                 latest=latest.model_dump(mode="json"),
             ) from exc
-        content = CharacterCardContent.model_validate(source.payload_json)
+        content = parse_character_card_content(source.payload_json)
         return await self.create_manual_card(
             db,
             novel_id=str(nid),

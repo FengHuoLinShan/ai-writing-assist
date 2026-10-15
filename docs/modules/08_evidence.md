@@ -101,6 +101,11 @@ reader 视角不沿用作者 section 组装：编译器只纳入公开/已揭示
 checkpoint 或 Evolution，并且只显示时点事实已证明可见的档案值。
 旧 profile 字段没有时点证明时不补作历史状态；未知、失效与预算省略只影响参考覆盖，
 不降低核心 KnowledgeScope。
+Assistant v9 的 `evidence.object_dossier_brief.read` 经同一 Evidence facade 读取；
+窄 HTTP 只接受 Scene、对象与安全视角，不接受调用方指定 owner 或任意正文窗口。
+已固定的片段确认/排除范围不能据此扩读整对象。编译器的对象简报和人物倾向开关
+分别由 `OBJECT_DOSSIER_ENABLED_CAPABILITIES` 与
+`CHARACTER_PATTERN_ENABLED_CAPABILITIES` 显式设置消费能力，默认均关闭。
 
 每个 `ContextSection` 会携带审查台元数据：
 

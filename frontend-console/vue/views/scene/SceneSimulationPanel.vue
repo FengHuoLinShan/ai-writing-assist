@@ -43,10 +43,17 @@
           <div class="scene-reaction-card__heading"><strong>{{ reaction.name }}</strong><span>{{ reaction.status === "kept" ? "已保留" : reaction.status === "rejected" ? "已拒绝" : "待决定" }}</span></div>
           <p v-if="reaction.goal"><b>目标：</b>{{ reaction.goal }}</p>
           <p v-if="reaction.subjectiveJudgment"><b>判断：</b>{{ reaction.subjectiveJudgment }}</p>
+          <p v-if="reaction.motivation"><b>方案动机：</b>{{ reaction.motivation }}</p>
           <p v-if="reaction.immediateReaction"><b>即时反应：</b>{{ reaction.immediateReaction }}</p>
           <p><b>压力：</b>{{ reaction.stance }}</p>
           <p><b>回应：</b>{{ reaction.action }}</p>
+          <p v-if="reaction.facialExpression"><b>表情：</b>{{ reaction.facialExpression }}</p>
+          <p v-if="reaction.bodyLanguage"><b>肢体：</b>{{ reaction.bodyLanguage }}</p>
           <p v-if="reaction.dialogueTendency"><b>对白倾向：</b>{{ reaction.dialogueTendency }}</p>
+          <p v-if="reaction.innerResponse"><b>内心：</b>{{ reaction.innerResponse }}</p>
+          <p v-if="reaction.attention"><b>注意：</b>{{ reaction.attention }}</p>
+          <p v-if="reaction.change"><b>变化：</b>{{ reaction.change }}</p>
+          <p v-if="reaction.schemaVersion === 'story.reaction.v2'"><b>依据：</b>{{ reaction.sourceFactIds.length }} 项确认事实、{{ reaction.sourcePatternIds.length }} 项待审倾向</p>
           <p v-if="reaction.conflict"><b>冲突：</b>{{ reaction.conflict }}</p>
           <p v-if="reaction.confidence"><b>置信度：</b>{{ Math.round(reaction.confidence * 100) }}%</p>
           <div class="scene-reaction-card__actions">

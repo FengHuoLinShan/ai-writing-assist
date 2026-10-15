@@ -586,7 +586,7 @@ class AssistantService:
             request_json=frozen_payload
             | {
                 "llm_snapshot": snapshot,
-                "runtime_version": "8",
+                "runtime_version": "9",
                 **({"team": team} if team else {}),
                 "web_search": search_snapshot()
                 if data.allow_web and data.web_backend == "searxng-v1"
@@ -598,7 +598,7 @@ class AssistantService:
                 },
                 "read_tools": {
                     tool.name: fingerprint(tool.function_schema.json_schema)
-                    for tool in author_read_tools(allow_web=True, version="8")
+                    for tool in author_read_tools(allow_web=True, version="9")
                     if tool.name
                     not in {
                         "map_spatial_brief",
@@ -671,7 +671,7 @@ class AssistantService:
     def view(self, run, *, can_resume: bool = False):
         executor = (run.request_json or {}).get("agent_executor") or {}
         result = dict(run.result_json or {})
-        if (run.request_json or {}).get("runtime_version") in {"7", "8"} and (
+        if (run.request_json or {}).get("runtime_version") in {"7", "8", "9"} and (
             run.checkpoint_json or {}
         ).get("operation_trace_incomplete"):
             result["operation_trace_incomplete"] = True
@@ -993,7 +993,7 @@ class AssistantService:
         protocol = runtime_protocol(payload)
         runtime_version = str(payload.get("runtime_version", "2"))
         operations = resolve_operations(
-            protocol["operations"], allow_stale=runtime_version in {"7", "8"}
+            protocol["operations"], allow_stale=runtime_version in {"7", "8", "9"}
         )
         read_tools = {
             tool.name: tool
@@ -1097,7 +1097,7 @@ class AssistantService:
                     and (
                         search_snapshot_matches(payload.get("web_search"))
                         if payload.get("runtime_version")
-                        in {"3", "4", "5", "6", "7", "8"}
+                        in {"3", "4", "5", "6", "7", "8", "9"}
                         else verified_native_search(profile.provider_id, profile.model)
                     )
                 ),
@@ -1125,7 +1125,7 @@ class AssistantService:
                     role="system",
                     content=(
                         _V7_INSTRUCTIONS
-                        if runtime_version in {"7", "8"}
+                        if runtime_version in {"7", "8", "9"}
                         else _INSTRUCTIONS
                     )
                     + f"\n本次请求的日历日期为 {today}（{work.timezone}）。"
@@ -1242,7 +1242,8 @@ class AssistantService:
                         or deps.allow_web
                     ]
                     + operation_discovery_tools(
-                        legacy=runtime_version not in {"7", "8"}, operations=operations
+                        legacy=runtime_version not in {"7", "8", "9"},
+                        operations=operations,
                     )
                     + [Tool(review_assets, sequential=True)]
                     + (

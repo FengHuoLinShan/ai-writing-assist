@@ -232,11 +232,13 @@ from app.assistant_operation_registry import (
 from app.notice_source_registry import notice_sources as _assistant_notice_sources
 from app.assistant_operation_registry import project_dedup_operations
 from app.assistant_operation_registry import evidence_read_operations
+from app.assistant_operation_registry import evidence_object_dossier_operations
 from app.assistant_operation_registry import project_operations
 from app.assistant_operation_registry import story_information_operations
 from app.assistant_operation_registry import story_operations
 from app.assistant_operation_registry import story_planning_operations
 from app.assistant_operation_registry import story_scene_operations
+from app.assistant_operation_registry import story_generation_operations
 from app.assistant_operation_registry import story_structure_operations
 from app.assistant_operation_registry import writing_candidate_operations
 from app.assistant_operation_registry import writing_a1_operations
@@ -434,10 +436,12 @@ def _container_services() -> Iterable[tuple[ServiceKey[Any], Any]]:
                 **story_structure_operations,
                 **story_planning_operations,
                 **story_scene_operations,
+                **story_generation_operations,
                 **world_opening_operations,
                 **imports_operations,
                 **evidence_forecast_operations,
                 **evidence_read_operations,
+                **evidence_object_dossier_operations,
                 **world_map_operations,
                 **evolution_operations,
                 **assistant_spatial_advisory_operations,

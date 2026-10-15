@@ -173,6 +173,11 @@ Assistant v8 首批另注册 Scene 完整排序、合并及窄拆分操作；执
 来源与影响预览，合并/拆分须作者 R3 确认。旧可带 `draft_scenes` 的宽拆分路由保持原作者工作台
 用途，不扩大为 AI 的窄操作。伏笔/揭示计划章节调整仍由原 `story.edit_information_plan` 承担，
 不是一般事实时间线编辑。
+Assistant v9 新增人物卡与反应预览目录项，窄 HTTP 仅准备、留痕，不启动任务；
+建议真正执行须沿当前 Assistant 父任务的模型快照和共享额度内联运行。
+人物卡 v2 将确定性事实与带来源的解释分开保存；人物反应 v2 每人生成 2–4 套完整表演，
+作者仅选一个 `story.reaction.choice.v1` 及其来源供剧本或一键建议使用。
+旧 v1 卡片、反应和 `story.save_card` 参数保持可读/冻结，不把整组未选表演当作者采用。
 Interaction 的 `team_v1` 与 `observation_v2` 仍按原入口策略执行，`max_actors` 不变。通用 OneClick
 的旧目录请求继续走 `legacy`；未来目录接入 v3 时需显式版本/路由，不得默默重解释冻结运行。
 现有 Scene 排演入口现提交单回合 v3；连续推进须待共享根预算与再次授权入口，归入后续 C4b。

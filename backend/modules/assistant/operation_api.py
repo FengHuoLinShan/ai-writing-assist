@@ -275,3 +275,63 @@ async def inspect_project_evidence(
     db: DbSession, data: OperationArguments, *, novel_id: NovelIdQuery
 ):
     return await _read(db, novel_id, "evidence.knowledge.preview_scope", data.arguments)
+
+
+@router.post(
+    "/evidence/object-dossier-brief",
+    openapi_extra={
+        "x-novelcraft-operation-id": "evidence.object_dossier_brief.read",
+        "x-novelcraft-operation-trace-fields": {
+            "scene_id": "data.arguments.scene_id",
+            "entity_ids": "data.arguments.entity_ids",
+            "reveal_mode": "data.arguments.reveal_mode",
+            "viewpoint_character_id": "data.arguments.viewpoint_character_id",
+            "include_patterns": "data.arguments.include_patterns",
+            "only_adopted_patterns": "data.arguments.only_adopted_patterns",
+        },
+    },
+)
+async def read_object_dossier_brief_operation(
+    db: DbSession, data: OperationArguments, *, novel_id: NovelIdQuery
+):
+    return await _read(db, novel_id, "evidence.object_dossier_brief.read", data.arguments)
+
+
+@router.post(
+    "/previews/story/character-card",
+    openapi_extra={
+        "x-novelcraft-operation-id": "story.character_card.generate",
+        "x-novelcraft-operation-phase": "prepare",
+        "x-novelcraft-operation-trace-fields": {
+            "scene_id": "data.arguments.scene_id",
+            "character_id": "data.arguments.character_id",
+            "additional_notes": "data.arguments.additional_notes",
+        },
+    },
+)
+async def preview_character_card_generation(
+    db: DbSession, data: OperationArguments, *, novel_id: NovelIdQuery
+):
+    return await _preview(
+        db, novel_id, "story.character_card.generate", data.arguments, "scene"
+    )
+
+
+@router.post(
+    "/previews/story/reactions",
+    openapi_extra={
+        "x-novelcraft-operation-id": "story.reaction.generate",
+        "x-novelcraft-operation-phase": "prepare",
+        "x-novelcraft-operation-trace-fields": {
+            "scene_id": "data.arguments.scene_id",
+            "character_ids": "data.arguments.character_ids",
+            "additional_notes": "data.arguments.additional_notes",
+        },
+    },
+)
+async def preview_reaction_generation(
+    db: DbSession, data: OperationArguments, *, novel_id: NovelIdQuery
+):
+    return await _preview(
+        db, novel_id, "story.reaction.generate", data.arguments, "scene"
+    )

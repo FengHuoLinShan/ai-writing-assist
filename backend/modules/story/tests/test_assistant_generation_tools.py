@@ -5,6 +5,8 @@ import pytest
 
 from core.errors import ConflictError
 from core.service_keys import ASSISTANT_REQUIRE_OPERATION_TARGETS
+from infrastructure.llm.agent_runtime import AgentRunBudget
+from modules.assistant import operations as assistant_operations
 from modules.story import assistant_generation_tools
 from modules.story.assistant_generation_tools import (
     OPERATIONS_SPEC,
@@ -142,14 +144,16 @@ async def test_generation_assistant_prepare_is_free_and_apply_reuses_confirmed_s
     operation_id = uuid.uuid4()
     snapshot = {"novel_id": str(novel_id), "profile": {"model": "run-model"}}
     context = SimpleNamespace(
-        operation_id=operation_id,
+        operation_id=None,
+        run_id=str(uuid.uuid4()),
+        owner_id=str(uuid.uuid4()),
         work=SimpleNamespace(
             scene_id=str(scene_id),
             context_confirmation_id=None,
             excluded_targets=(),
         ),
         llm_snapshot=snapshot,
-        internal_meta={"root_run_id": "root-run"},
+        internal_meta=None,
     )
     args = args_factory(scene_id, character_id)
     preview_calls = []
@@ -193,9 +197,19 @@ async def test_generation_assistant_prepare_is_free_and_apply_reuses_confirmed_s
     assert confirmations == []
     assert enqueues == []
 
+    context.operation_id = operation_id
+    context.internal_meta = {
+        "_execution_mode": "inline_only",
+        "_parent_task_id": str(uuid.uuid4()),
+    }
     result = await apply(None, str(novel_id), args, preview, context=context)
 
-    assert result.task_id == "queued-task"
+    assert result == {
+        "task_id": "queued-task",
+        "task_type": task_type,
+        "status": "pending",
+        "target": {"type": "outline_scene", "id": str(scene_id)},
+    }
     assert len(preview_calls) == 2  # apply rematerializes the preview before confirming
     assert len(confirmations) == len(enqueues) == 1
     assert confirmations[0].action == action
@@ -210,7 +224,12 @@ async def test_generation_assistant_prepare_is_free_and_apply_reuses_confirmed_s
     assert metadata["action"] == action
     assert metadata["task_type"] == task_type
     assert metadata["llm_execution_snapshot"] == snapshot
-    assert metadata["extra_meta"] == {"root_run_id": "root-run"}
+    assert metadata["extra_meta"] == context.internal_meta
+
+    context.internal_meta = None
+    with pytest.raises(ConflictError, match="任务预算"):
+        await apply(None, str(novel_id), args, preview, context=context)
+    assert len(enqueues) == 1
 
 
 @pytest.mark.asyncio
@@ -220,12 +239,18 @@ async def test_generation_assistant_apply_stops_when_preview_scope_changes(monke
     character_id = uuid.uuid4()
     context = SimpleNamespace(
         operation_id=uuid.uuid4(),
+        run_id=str(uuid.uuid4()),
+        owner_id=str(uuid.uuid4()),
         work=SimpleNamespace(
             scene_id=str(scene_id),
             context_confirmation_id=None,
             excluded_targets=(),
         ),
         llm_snapshot={"novel_id": str(novel_id)},
+        internal_meta={
+            "_execution_mode": "inline_only",
+            "_parent_task_id": str(uuid.uuid4()),
+        },
     )
     args = GenerateCharacterCard(scene_id=scene_id, character_id=character_id)
     fingerprints = iter(("a" * 64, "b" * 64))
@@ -272,6 +297,8 @@ async def test_existing_assistant_confirmation_is_revalidated_and_reused(monkeyp
     operation_id = uuid.uuid4()
     context = SimpleNamespace(
         operation_id=operation_id,
+        run_id=str(uuid.uuid4()),
+        owner_id=str(uuid.uuid4()),
         work=SimpleNamespace(
             scene_id=str(scene_id),
             chapter_index=None,
@@ -280,6 +307,10 @@ async def test_existing_assistant_confirmation_is_revalidated_and_reused(monkeyp
             excluded_targets=(),
         ),
         llm_snapshot={"novel_id": str(novel_id)},
+        internal_meta={
+            "_execution_mode": "inline_only",
+            "_parent_task_id": str(uuid.uuid4()),
+        },
     )
     args = GenerateCharacterCard(scene_id=scene_id, character_id=character_id)
     fixed = SimpleNamespace(
@@ -336,6 +367,117 @@ async def test_existing_assistant_confirmation_is_revalidated_and_reused(monkeyp
         None, str(novel_id), args, preview, context=context
     )
 
-    assert result.task_id == "reused-task"
+    assert result["task_id"] == "reused-task"
+    assert result["task_type"] == STORY_CARD_TASK
     assert len(enqueued) == 1
     assert enqueued[0][0].context_confirmation_id == "existing-confirmation"
+
+
+@pytest.mark.asyncio
+async def test_assistant_suggestion_prepares_then_reads_story_receipt(
+    monkeypatch,
+):
+    novel_id, scene_id, character_id, run_id, parent_task_id = (
+        uuid.uuid4() for _ in range(5)
+    )
+    snapshot = {"novel_id": str(novel_id), "profile": {"model": "offline"}}
+    prepared_contexts = []
+    enqueues = []
+
+    async def guard():
+        return None
+
+    async def require_targets(*_args, **_kwargs):
+        return None
+
+    async def preview_context(_db, _options):
+        return {"context_fingerprint": "a" * 64, "blockers": []}
+
+    async def confirm(_db, _request):
+        return SimpleNamespace(id="fresh-confirmation")
+
+    async def enqueue(_db, request, **metadata):
+        enqueues.append((request, metadata))
+        return SimpleNamespace(task_id=str(uuid.uuid4()), status="pending")
+
+    async def life(_db, *, task_ids, **_kwargs):
+        return {task_ids[0]: SimpleNamespace(status="done")}
+
+    async def completed(_db, **_kwargs):
+        return SimpleNamespace(
+            result={"preview": {"content": {"version": "character_card.v2"}}}
+        )
+
+    async def commit():
+        return None
+
+    async def checkpoint(_values):
+        return None
+
+    original_prepare = assistant_generation_tools._prepare_card
+
+    async def prepare(db, novel, args, *, context):
+        prepared_contexts.append(context.operation_id)
+        return await original_prepare(db, novel, args, context=context)
+
+    spec = OPERATIONS_SPEC["story.character_card.generate"]
+    operation = SimpleNamespace(
+        label=spec["label"],
+        permission=spec["permission"],
+        schema=spec["schema"],
+        prepare=prepare,
+        apply=assistant_generation_tools._submit_card,
+        read_result=assistant_generation_tools._read_card_result,
+    )
+    deps = SimpleNamespace(
+        guard=guard,
+        run_id=str(run_id),
+        task_id=str(parent_task_id),
+        owner_id=str(uuid.uuid4()),
+        novel_id=str(novel_id),
+        work=SimpleNamespace(
+            scene_id=str(scene_id),
+            context_confirmation_id=None,
+            excluded_targets=(),
+        ),
+        db=SimpleNamespace(commit=commit),
+        llm_snapshot=snapshot,
+        operation_trace_enabled=False,
+        session_id=None,
+        operations={"story.character_card.generate": operation},
+        budget=AgentRunBudget(),
+        checkpoint=checkpoint,
+        final_requests=1,
+        remember=lambda payload: payload,
+    )
+
+    def registered_target_guard(key):
+        return require_targets if key is ASSISTANT_REQUIRE_OPERATION_TARGETS else None
+
+    monkeypatch.setattr(assistant_generation_tools, "get", registered_target_guard)
+    monkeypatch.setattr(
+        assistant_generation_tools, "preview_context_confirmation", preview_context
+    )
+    monkeypatch.setattr(assistant_generation_tools, "confirm_context", confirm)
+    monkeypatch.setattr(
+        assistant_generation_tools, "enqueue_confirmed_story_task", enqueue
+    )
+    monkeypatch.setattr(
+        assistant_generation_tools, "get_completed_task_payload", completed
+    )
+    monkeypatch.setattr(assistant_operations, "list_task_lifecycle_contracts", life)
+
+    result = await assistant_operations.execute_suggestion(
+        SimpleNamespace(deps=deps),
+        "story.character_card.generate",
+        {"scene_id": str(scene_id), "character_id": str(character_id)},
+    )
+    assert prepared_contexts[0] is None
+    assert len(enqueues) == 1
+    assert enqueues[0][1]["extra_meta"] == {
+        "_execution_mode": "inline_only",
+        "_parent_task_id": str(parent_task_id),
+    }
+    assert result["domain_result"]["preview"]["content"]["version"] == (
+        "character_card.v2"
+    )

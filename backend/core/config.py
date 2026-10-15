@@ -359,6 +359,20 @@ class Settings:
             if value.strip()
         )
     )
+    object_dossier_enabled_capabilities: tuple[str, ...] = field(
+        default_factory=lambda: tuple(
+            value.strip()
+            for value in _env("OBJECT_DOSSIER_ENABLED_CAPABILITIES").split(",")
+            if value.strip()
+        )
+    )
+    character_pattern_enabled_capabilities: tuple[str, ...] = field(
+        default_factory=lambda: tuple(
+            value.strip()
+            for value in _env("CHARACTER_PATTERN_ENABLED_CAPABILITIES").split(",")
+            if value.strip()
+        )
+    )
     interaction_agent_enabled: bool = field(
         default_factory=lambda: _env_bool("INTERACTION_AGENT_ENABLED", False)
     )
