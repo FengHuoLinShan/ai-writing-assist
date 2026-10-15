@@ -45,6 +45,12 @@ root已实际看1280推进历史及390加载后历史/备注截图：`/tmp/world
 
 Sol已确认最终schema头固定`20261016_wp_read_count`，后续C0/v15/预算修补无DDL。root因此正式释放C3的新库一次CREATE/升级；线性次序为C5 → `20261016_story_character_arc_plan`（heads+immutable revisions两表）→ A1 `20261016_chapter_order`（Writing operation+Story receipt两表）。C3先提交自有恢复checkpoint `3b494b91d`，无冲突合10db为`c8f1a5dc8d06390428e656891177f8362912cf30`，已开始迁移源码；尚未回报库创建。A1库仍hold，等C3迁移真实提交再释放。不能把C5 schema释放等同其最终工程全绿。
 
-已知C3独立Sol待修：root读取其checkpoint发现`character_arcs/service.py:_trace`直接依赖`modules.assistant.contracts`并复制AssistantOperation物化，违反纯域装配方向；已告知Luna留给Sol直接审修、不扩大该依赖。C3及A1手工恢复都需真实restored trace并关联原`(op_id,call_id)`；当前HTTP adapter只支持prepare/execute，Goal已有自己的restored生产者。只生成新restore操作随机call_id会成为报表unmatched，不能据此声称原操作已恢复。两Luna交精确trace/DI/hub清单，后续Sol顺序处理共享装配。
+已知C3独立Sol待修：root读取其checkpoint发现`character_arcs/service.py:_trace`直接依赖`modules.assistant.contracts`并复制AssistantOperation物化，违反纯域装配方向；已告知Luna留给Sol直接审修、不扩大该依赖。另`forecast/registry.py defaults('scene')`将原人物反应+转场改为仅人物反应v2，未经授权移除原转场默认能力；需Sol核实际混选/默认共存，不能以删旧能力规避v2结构输出。C3及A1手工恢复都需真实restored trace并关联原`(op_id,call_id)`；当前HTTP adapter只支持prepare/execute，Goal已有自己的restored生产者。只生成新restore操作随机call_id会成为报表unmatched，不能据此声称原操作已恢复。两Luna交精确trace/DI/hub清单，后续Sol顺序处理共享装配。
 
 root已准备仅复用脚本`/tmp/map-c5-c0-primary-reuse-pg-20261016.py`（0600），**尚未执行**；仅允许原root库C4或wp_read_count头，不含CREATE，待最终C5+C0集成后升级/parity并在原45PG基础增加C0互通和C5持久/阅读测试。后端唯一解释器仍primary/backend/.venv/bin/python，秘密env不输出。所有旧库/封存R3/holdout保留。
+
+随后Sol已直接修14失败的根因，失败集26/26通过，方向棘轮恢复517/517且repo gates绿。免费阅读检查任务移入可发现的_tasks模块、C5能力/active-project登记及_api边界修复；offline Worker用自有SQLite引擎避免写错全局测试manager。C0预设preview与apply统一版本计数并保留20词条限制，不更新错误预览去掩盖写入差异。最终PG组合12/12再过（2.49s），`/tmp/world-progression-c0-c5-final-pg-20261016.log`已读；第二轮完整普通后端`/tmp/world-progression-c0-c5-full-backend-final-20261016.log`仍运行。root已实际看`/tmp/world-progression-browser-unknown-resume-390-20261016.png`，原日志`/tmp/world-progression-browser-unknown-20261016.log`证明390/1280未知根恢复按钮可见、无浏览器错误；恢复确认源码显示原预算、deadline与当前未知数及可能重复计费，不静默续跑。
+
+最新更正：上述第二轮也由Sol主动中断（3597通过/122.62s），不作完整通过。原因是真实浏览器已写章节/Scene预算preview又暴露缺模型配置500及读取StorySceneContextResponse顶层不存在scene_index；Sol正直接修成可操作409与正确上下文字段，并补真实Project/Writing canonical/Scene/World入口回归，不能仅mock Context/direct造root。源码固定后再跑一次完整门禁，无真实完成exit0不集成。root没有终止其进程或改其源码。
+
+C3现已回报核验0600工程env后，确认不存在才一次CREATE `copilot_alignment_impl_test_20261016`，并实际upgrade至未提交的`20261016_story_character_arc_plan`；没有启停服务，专库保留。该已应用迁移冻结，后续约束修补须新增独立迁移。为防分叉，A1的库与apply继续hold到C3独立Sol确定最终DDL头后，不能只按Luna初稿parent提前apply。A1可继续SQLite/HTTP/UI及迁移源码，等待不阻止独立实现。
