@@ -144,8 +144,16 @@ def upgrade() -> None:
         initially="DEFERRED",
     )
     op.execute("""CREATE FUNCTION reject_project_vocabulary_history_mutation()
-        RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN
-        IF TG_OP = 'DELETE' AND pg_trigger_depth() > 1 THEN RETURN OLD; END IF;
+        RETURNS trigger LANGUAGE plpgsql AS $$
+        DECLARE project_deleted boolean;
+        BEGIN
+        IF TG_OP = 'DELETE' THEN
+            EXECUTE format(
+                'SELECT NOT EXISTS (SELECT 1 FROM %I.projects WHERE id = $1)',
+                TG_TABLE_SCHEMA
+            ) INTO project_deleted USING OLD.novel_id;
+            IF project_deleted THEN RETURN OLD; END IF;
+        END IF;
         RAISE EXCEPTION 'project vocabulary history is immutable';
         END $$""")
     op.execute("""CREATE TRIGGER project_vocabulary_revisions_immutable

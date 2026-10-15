@@ -404,4 +404,5 @@ SceneStateViewResponse 的 world_canon_revision unsupported 标记继续保留�
 既有 `story.scene_source` 只读端口新增 `read_temporal_anchor_scenes(db, novel_id)`，
 由 Story facade 返回本作品 Scene 的当前顺序、状态、章节引用和替换链。退役 Scene 保留在结果中，
 供空间等消费方解析融合后的锚点；不把历史章节序号猜成稳定身份，也不保存当时的顺序副本。
-此接口只供证，具体生效区间和失效提醒由消费领域判断。
+作者开放元数据里的替换引用为 null 或非列表时，返回空替换列表；退役身份仍保留，
+消费方须视为未解析锚点，不回退为全书有效。此接口只供证，具体生效区间和失效提醒由消费领域判断。
