@@ -40,6 +40,7 @@ from evals.map_spatial_guard import (
     require_calibration,
     require_development_gate,
     rubric_hash,
+    same_source_baseline,
     start_request,
     verify_runtime,
 )
@@ -620,17 +621,188 @@ async def test_pair_freezes_both_confirmations_before_exact_worker_claim(
     assert get_settings().map_spatial_enabled_capabilities == original
 
 
+def test_common_source_baseline_allows_evolution_enrichment_but_not_span_drift():
+    common = {
+        "novel_id": "novel",
+        "owner_id": "owner",
+        "database_target": ["127.0.0.1", "65302", "map_spatial_eval_20261015"],
+        "scene_id": "scene",
+        "chapter_index": 1,
+        "scene_hash": "before-enrichment",
+        "source_snapshot_hash": "source-hash",
+        "source_refs": [{"start_offset": 12, "end_offset": 28}],
+        "project_snapshot_hash": "project-hash",
+    }
+    after_evolution = {**common, "scene_hash": "enriched-scene-card"}
+    assert same_source_baseline(after_evolution, common)
+    for field, changed in (
+        ("source_snapshot_hash", "changed-source-hash"),
+        ("project_snapshot_hash", "changed-project-hash"),
+        ("scene_id", "another-scene"),
+    ):
+        drifted = {**after_evolution, field: changed}
+        assert not same_source_baseline(drifted, common)
+    drifted_span = {
+        **after_evolution,
+        "source_refs": [{"start_offset": 13, "end_offset": 28}],
+    }
+    assert not same_source_baseline(drifted_span, common)
+
+
+def test_evolution_source_receipt_requires_exact_canonical_range():
+    from evals.map_spatial_guard import _source_binding_matches
+
+    refs = [
+        {
+            "draft_id": "draft-1",
+            "chapter_index": 2,
+            "content_hash": "content-hash",
+            "start_offset": 4,
+            "end_offset": 19,
+            "range_hash": "range-hash",
+            "content_mode": "canonical",
+        }
+    ]
+    receipt = {
+        "draft_id": "draft-1",
+        "chapter_index": 2,
+        "content_hash": "content-hash",
+        "start_offset": 4,
+        "end_offset": 19,
+        "range_hash": "range-hash",
+        "content_mode": "canonical",
+    }
+    assert _source_binding_matches(receipt, refs)
+    assert not _source_binding_matches({**receipt, "start_offset": 5}, refs)
+    assert not _source_binding_matches({**receipt, "content_mode": "draft"}, refs)
+
+
 @pytest.mark.asyncio
-async def test_four_group_judge_remains_closed_for_missing_real_domain_adapters(
+async def test_assistant_adapter_preserves_real_unknown_tool_telemetry_without_inference(
     tmp_path, monkeypatch
 ):
-    from evals.map_spatial_guard import product_evidence
+    import sys
+    from types import ModuleType
+
+    from evals.map_spatial import _write_private_json
+    from evals.map_spatial_guard import read_assistant_product_evidence
 
     root, binding, _ = binding_fixture(tmp_path, monkeypatch)
-    with pytest.raises(
-        MapSpatialEvalError, match="cold_start, type_emergence, assistant"
-    ):
-        await product_evidence(None, root, binding, next(iter(binding["case_bindings"])))
+    case_id, scope = next(iter(binding["case_bindings"].items()))
+    run_id, task_id = str(uuid.uuid4()), str(uuid.uuid4())
+    evidence = {
+        "schema_version": 1,
+        "novel_id": binding["novel_id"],
+        "run_id": run_id,
+        "task_id": task_id,
+        "scene_ids": [scope["scene_id"]],
+        "scene_scope_status": "known",
+        "request": {"context": {"scene_id": scope["scene_id"]}},
+        "result": {"answer": "当前证据不足，无法确认该地点位置。"},
+        "answer_status": "completed",
+        "tool_invocations": None,
+        "tool_invocations_status": "unknown",
+        "truncated": False,
+        "omitted_count": 0,
+        "human_validated": False,
+    }
+    _write_private_json(
+        root
+        / "task-ledger"
+        / "assistant"
+        / binding["family_id"]
+        / case_id
+        / f"{task_id}.json",
+        {
+            "task_type": "assistant_turn",
+            "status": "completed",
+            "run_id": run_id,
+            "task_id": task_id,
+        },
+    )
+    module = ModuleType("modules.assistant.facade")
+
+    async def read_turn(db, novel_id, requested_run_id):
+        assert db == "synthetic-db-handle"
+        assert novel_id == binding["novel_id"]
+        assert requested_run_id == run_id
+        return evidence
+
+    module.read_map_spatial_evaluation_turn = read_turn
+    monkeypatch.setitem(sys.modules, "modules.assistant.facade", module)
+    record = {
+        "run_id": run_id,
+        "task_id": task_id,
+        "evidence_sha256": digest(evidence),
+    }
+
+    adapted = await read_assistant_product_evidence(
+        "synthetic-db-handle", root, binding, case_id, record
+    )
+
+    assert adapted["result"] == evidence["result"]
+    assert adapted["tool_invocations"] is None
+    assert adapted["tool_invocations_status"] == "unknown"
+    assert adapted["answer_status"] == "completed"
+
+
+@pytest.mark.asyncio
+async def test_assistant_adapter_rejects_cross_project_or_scene_receipt(
+    tmp_path, monkeypatch
+):
+    import sys
+    from types import ModuleType
+
+    from evals.map_spatial import _write_private_json
+    from evals.map_spatial_guard import read_assistant_product_evidence
+
+    root, binding, _ = binding_fixture(tmp_path, monkeypatch)
+    case_id, scope = next(iter(binding["case_bindings"].items()))
+    run_id, task_id = str(uuid.uuid4()), str(uuid.uuid4())
+    evidence = {
+        "schema_version": 1,
+        "novel_id": str(uuid.uuid4()),
+        "run_id": run_id,
+        "task_id": task_id,
+        "scene_ids": [scope["scene_id"]],
+        "scene_scope_status": "known",
+        "request": {"context": {"scene_id": scope["scene_id"]}},
+        "tool_invocations": None,
+        "tool_invocations_status": "unknown",
+        "truncated": False,
+        "omitted_count": 0,
+        "human_validated": False,
+    }
+    _write_private_json(
+        root
+        / "task-ledger"
+        / "assistant"
+        / binding["family_id"]
+        / case_id
+        / f"{task_id}.json",
+        {
+            "task_type": "assistant_turn",
+            "status": "completed",
+            "run_id": run_id,
+            "task_id": task_id,
+        },
+    )
+    module = ModuleType("modules.assistant.facade")
+    module.read_map_spatial_evaluation_turn = lambda *args: _async_value(evidence)
+    monkeypatch.setitem(sys.modules, "modules.assistant.facade", module)
+
+    with pytest.raises(MapSpatialEvalError, match="真实Scene/run/task"):
+        await read_assistant_product_evidence(
+            "synthetic-db-handle",
+            root,
+            binding,
+            case_id,
+            {"run_id": run_id, "task_id": task_id, "evidence_sha256": digest(evidence)},
+        )
+
+
+async def _async_value(value):
+    return value
 
 
 def test_binding_identity_is_checked_before_any_private_decode(tmp_path, monkeypatch):

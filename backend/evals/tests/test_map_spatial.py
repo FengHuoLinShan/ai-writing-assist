@@ -160,6 +160,111 @@ def test_pair_invariants_require_identical_frozen_inputs():
         assert_pair_invariants(without, with_map)
 
 
+def test_evolution_preview_requires_complete_spatial_quota_and_root_cap():
+    from evals.map_spatial_control import _validate_evolution_preview
+
+    request = {"end_chapter": 2, "request_limit": 15}
+    preview = {
+        "spatial_discovery_enabled": True,
+        "scene_count": 5,
+        "end_chapter": 2,
+        "request_limit": 15,
+        "budget_mode": "bounded",
+        "model": "gpt-6-luna",
+        "fingerprint": "product-preview-fingerprint",
+        "mandatory_request_reserve": 5,
+        "optional_steps": {
+            "spatial": {
+                "quota": 10,
+                "per_scene_limit": 2,
+                "used": 0,
+                "remaining": 10,
+                "request_range": {"minimum": 0, "maximum": 10},
+            }
+        },
+    }
+
+    assert _validate_evolution_preview(preview, request) == {
+        "fingerprint": "product-preview-fingerprint",
+        "scene_count": 5,
+        "mandatory_request_reserve": 5,
+        "spatial_quota": 10,
+        "spatial_per_scene_limit": 2,
+        "required_root_limit": 15,
+        "request_limit": 15,
+        "within_root_limit": True,
+    }
+    assert not _validate_evolution_preview(
+        {**preview, "request_limit": 14}, {**request, "request_limit": 14}
+    )["within_root_limit"]
+    with pytest.raises(MapSpatialEvalError, match="完整空间子额度"):
+        _validate_evolution_preview(
+            {
+                **preview,
+                "optional_steps": {
+                    "spatial": {
+                        **preview["optional_steps"]["spatial"],
+                        "quota": 8,
+                        "remaining": 8,
+                        "request_range": {"minimum": 0, "maximum": 8},
+                    }
+                },
+            },
+            request,
+        )
+
+
+def test_optional_stage_contract_is_same_attempt_and_preserves_product_gaps():
+    from evals.map_spatial_guard import _validate_evolution_optional_stage
+
+    attempt = {
+        "attempt_id": "attempt-1",
+        "optional_stage_version": 1,
+        "optional_scene_stage": {
+            "version": 1,
+            "receipt_attempt_id": "attempt-1",
+            "scene_card_hash": "post-enrichment-scene-card",
+            "main_state_fingerprint": "main-state",
+            "completed_state_fingerprint": "settled-state",
+            "steps": {
+                "details": {"status": "not_run", "gaps": [{"reason": "step_disabled"}]},
+                "spatial": {"status": "complete", "gaps": []},
+            },
+        },
+        "optional_step_coverage": {"spatial": {"status": "inspected", "gaps": []}},
+        "spatial_discovery_result": {"status": "inspected", "clues": []},
+        "spatial_stage_result": {"status": "inspected", "gaps": []},
+    }
+
+    stage = _validate_evolution_optional_stage(attempt)
+    assert stage["scene_card_hash"] == "post-enrichment-scene-card"
+    assert stage["spatial_step_coverage"]["status"] == "inspected"
+    assert stage["spatial_stage_result"]["status"] == "inspected"
+    with pytest.raises(MapSpatialEvalError, match="同attempt"):
+        _validate_evolution_optional_stage(
+            {
+                **attempt,
+                "optional_scene_stage": {
+                    **attempt["optional_scene_stage"],
+                    "receipt_attempt_id": "another-attempt",
+                },
+            }
+        )
+    with pytest.raises(MapSpatialEvalError, match="同attempt"):
+        _validate_evolution_optional_stage(
+            {
+                **attempt,
+                "optional_scene_stage": {
+                    **attempt["optional_scene_stage"],
+                    "steps": {
+                        **attempt["optional_scene_stage"]["steps"],
+                        "spatial": {"status": "unknown", "gaps": []},
+                    },
+                },
+            }
+        )
+
+
 def test_live_execution_fails_closed_until_sol_scope_is_integrated(tmp_path, monkeypatch):
     private_root = tmp_path / "private"
     private_root.mkdir(mode=0o700)

@@ -697,20 +697,25 @@ seeded 32/32、独立 debug 12/12，unknown=0。它不证明真实稿件质量�
 ### 地图五题材评测的独立窄 scope
 
 `evals.map_spatial` 的离线 `verify/report` 不访问模型；留出只核权限和哈希，不解码正文/期望。
-`MapSpatialEvaluationScope` 仅在 `--execute` 与 `MAP_SPATIAL_EVAL_ALLOW_LIVE=1` 同时显式设置后，
-放行 `eval.map_spatial.teacher_calibration` / `eval.map_spatial.judge` 的 Sol/xhigh、attempts=1；
-无 scope 的全局暂停、Ask World/G7 范围不变。只接受本地专用 `map_spatial_eval_20261015` 与
-正常 owner 的 verified Codex Luna/max Project snapshot，每次请求前真实重验并释放读事务。
+所有产品执行命令必须同时显式 `--execute` 与 `MAP_SPATIAL_EVAL_ALLOW_LIVE=1`。教师 scope
+仅放行 `eval.map_spatial.teacher_calibration` / `eval.map_spatial.judge` 的 Sol/xhigh、attempts=1；
+不改变全局暂停，也不借 Ask World/G7 scope。产品 SUT 仅经正常 Project facade/产品 API 和当前
+owner 的 verified Codex Luna/max snapshot，限定本地隔离库 `map_spatial_eval_20261015`。
+每次任务前重验 owner/Project snapshot 并释放读事务。
 
-`freeze-binding` 冻结五个不同案例 Scene 的当前 canonical 来源、采用地图、Project、
-manifest/source/expected/prompt/rubric 哈希；`score --phase teacher_calibration --case-id seeded-v1`
-仅执行代码固定四 seed。通过原始请求/返回、schema/executor/model/effort/hash 重建校准结果，
-不接受 `passed/approved` 布尔。请求原子占用，unknown/invalid/cancel 均不重发或覆盖。
+产品 setup 经正式 Project、词表、Writing draft 与 Scene API 建立五个独立合成 Scene 和精确
+canonical source range。先冻结共同 owner/Project/Scene/source 基线（要求空地图），随后运行一条
+四-seed teacher calibration，再通过 `preview-evolution` 实际读取 mandatory reserve 与空间 child
+quota，root 检查后只启动同一 operation id，并用精确 Scene task `run_once(task_id, novel_id)`。
+演化 candidate、World auto-draft、作者代理审核、最终地图 head、两臂 Writing、正常 Assistant turn
+和逐 case judge 各用各自正式领域读取契约；Evolution/Assistant/Writing 不假设统一 task metadata
+或产品 `result.eval_observations`。来源、owner、Scene scope、method/prompt/schema fingerprint 与
+真实 raw hash 不匹配时失败关闭。`started/pending/unknown/completed` 不重发；费用缺失为 unknown。
 
-当前真实 SUT 执行器仅 Writing 两臂：Evidence 确认后实际入队，首臂前冻结两份确认，精确
-`TaskWorker.run_once(task_id, novel_id)`，不采用候选。冷启动、类型涌现和助手仍缺正式领域
-回执适配/driver，以及作者操作/费用计量；四组 judge、开发 gate、留出明确失败关闭。
-`freeze-development-gate` 现返回 `not_ready_for_live`，空模板或工程单测不能解锁。
+本批尚无真实连接验证、模型或业务数据库请求。驱动进入 Sol/high review，Assistant turn capability /
+case context、Writing worker timeout 与 gate 的 cost/零机会聚合仍需直接修复并集成；因此现有
+工程测试不能解锁 live pilot，当前 holdout 仍受完整 25 开发 case、四组所有既定门槛的实际 gate
+保护。代理作者审核始终 `human_validated=false`。
 
 执行命令、专用隔离 setup、逐阶段预算和未完成接口见
 [地图预检交接](.agent/tasks/2026/T-20261015-map-enhancement-design/artifacts/evaluation/MAP-SPATIAL-LIVE-PREFLIGHT.md)。

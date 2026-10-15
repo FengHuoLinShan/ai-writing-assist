@@ -508,15 +508,73 @@ def pipeline_hash() -> str:
         "backend/modules/evidence/compilation",
         "backend/evals",
     )
-    paths = sorted(
+    paths = {
         path
         for root in roots
         for path in (REPO_ROOT / root).rglob("*.py")
         if "tests" not in path.parts
+    }
+    # Pin the narrow production surfaces that generate/read/route the map
+    # evidence. Hashing whole business modules would invalidate this suite for
+    # unrelated changes; these files own its prompts, schemas, capabilities and
+    # product execution contracts.
+    paths.update(
+        REPO_ROOT / relative
+        for relative in (
+            "backend/core/config.py",
+            "backend/modules/project/facade.py",
+            "backend/modules/evolution/spatial.py",
+            "backend/modules/evolution/workflow.py",
+            "backend/modules/evolution/spatial_rescan.py",
+            "backend/modules/world/map_spatial_clue_schemas.py",
+            "backend/modules/world/map_spatial_clue_service.py",
+            "backend/modules/world/project_vocabulary_service.py",
+            "backend/modules/world/project_vocabulary_presets.py",
+            "backend/modules/world/map_auto_draft_service.py",
+            "backend/modules/world/map_auto_draft_schemas.py",
+            "backend/modules/world/map_spatial_brief_service.py",
+            "backend/modules/world/map_spatial_brief_schemas.py",
+            "backend/modules/world/map_structure_schemas.py",
+            "backend/modules/world/map_structure_service.py",
+            "backend/modules/assistant/evidence_tools.py",
+            "backend/modules/assistant/map_spatial_advisories.py",
+            "backend/modules/assistant/operations.py",
+            "backend/modules/assistant/service.py",
+            "backend/modules/assistant/schemas.py",
+            "backend/modules/writing/generation_service.py",
+        )
     )
     return _canonical_hash(
         {str(path.relative_to(REPO_ROOT)): _sha256_file(path) for path in paths}
     )
+
+
+def domain_method_fingerprints() -> dict[str, str]:
+    """Reuse the domain's own frozen method IDs and pin the Assistant map tools."""
+    from modules.assistant.evidence_tools import author_read_tools
+    from modules.evolution.spatial import spatial_method_fingerprint
+    from modules.world.map_auto_draft_service import _method_fingerprint
+
+    assistant_tools = sorted(
+        tool.name
+        for tool in author_read_tools(allow_web=False, version="6")
+        if tool.name
+        in {
+            "map_spatial_brief",
+            "map_spatial_advisories",
+            "map_journey",
+            "map_object_position",
+        }
+    )
+    if not assistant_tools:
+        raise MapSpatialEvalError("Assistant没有注册地图参考工具")
+    return {
+        "evolution_spatial": spatial_method_fingerprint(),
+        "map_auto_draft": _method_fingerprint(),
+        "assistant_map_tools": _canonical_hash(
+            {"runtime_version": "6", "tools": assistant_tools}
+        ),
+    }
 
 
 async def scene_source_refs(
@@ -580,7 +638,51 @@ async def preflight_project(
     chapter_index: int,
     source_excerpt: str,
 ) -> dict[str, Any]:
-    """Read only the exact isolated owner and actual canonical Scene source ranges."""
+    """Freeze a post-review map head for the two Writing arms."""
+    result = await _preflight_project_state(
+        private_root=private_root,
+        family=family,
+        novel_id=novel_id,
+        scene_id=scene_id,
+        chapter_index=chapter_index,
+        source_excerpt=source_excerpt,
+        expected_map_state="present",
+    )
+    return result
+
+
+async def preflight_common_project(
+    *,
+    private_root: Path,
+    family: dict[str, Any],
+    novel_id: str,
+    scene_id: str,
+    chapter_index: int,
+    source_excerpt: str,
+) -> dict[str, Any]:
+    """Freeze owner, Project and exact Scene source before any map SUT calls."""
+    return await _preflight_project_state(
+        private_root=private_root,
+        family=family,
+        novel_id=novel_id,
+        scene_id=scene_id,
+        chapter_index=chapter_index,
+        source_excerpt=source_excerpt,
+        expected_map_state="empty",
+    )
+
+
+async def _preflight_project_state(
+    *,
+    private_root: Path,
+    family: dict[str, Any],
+    novel_id: str,
+    scene_id: str,
+    chapter_index: int,
+    source_excerpt: str,
+    expected_map_state: str,
+) -> dict[str, Any]:
+    """Read the actual owner/Project/Scene and spatial map through product facades."""
     _database_target(os.environ.get("DATABASE_URL", ""))
     if os.environ.get("AUTH_MODE") != "local":
         raise MapSpatialEvalError("评测进程必须显式设置AUTH_MODE=local")
@@ -600,7 +702,7 @@ async def preflight_project(
     from modules.project.models import Project
     from modules.story.facade import get_scene_contract
     from modules.world.contracts import MapSpatialBriefRequest
-    from modules.world.facade import read_map_spatial_brief
+    from modules.world.facade import read_map_spatial_brief, read_project_vocabulary
 
     register_container_services(ignore_existing=True)
     manager = get_manager()
@@ -650,8 +752,21 @@ async def preflight_project(
                 ),
             )
         )
-        if not brief_data.get("items"):
-            raise MapSpatialEvalError("World产品入口没有返回已采用的空间简报")
+        vocabulary_data = _as_plain(
+            await read_project_vocabulary(
+                db,
+                novel_id,
+                limit=500,
+                include_archived=True,
+            )
+        )
+        if vocabulary_data.get("omitted_count"):
+            raise MapSpatialEvalError("项目空间词表超过冻结上限，不能确定涌现基线")
+        has_map = bool(brief_data.get("items"))
+        if expected_map_state == "empty" and has_map:
+            raise MapSpatialEvalError("cold-start基线必须来自空地图项目")
+        if expected_map_state == "present" and not has_map:
+            raise MapSpatialEvalError("Writing配对需要作者审核后已采用的地图简报")
         result = {
             "schema_version": 1,
             "suite": "map_spatial",
@@ -672,8 +787,12 @@ async def preflight_project(
             "scene_hash": _canonical_hash(scene_data),
             "map_snapshot_hash": _canonical_hash(brief_data),
             "source_snapshot_hash": _canonical_hash(matched_refs),
+            "source_refs": matched_refs,
             "pipeline_hash": pipeline_hash(),
+            "domain_method_fingerprints": domain_method_fingerprints(),
             "map_revision_count": len(brief_data["items"]),
+            "vocabulary_snapshot": vocabulary_data,
+            "vocabulary_snapshot_hash": _canonical_hash(vocabulary_data),
             "human_validated": False,
             "private_root_sha256": _canonical_hash(str(private_root.resolve())),
         }
@@ -1017,6 +1136,62 @@ def main() -> None:
     )
     report.add_argument("--private-root", type=Path, default=DEFAULT_PRIVATE_ROOT)
     report.add_argument("--output", type=Path, required=True)
+    setup = commands.add_parser(
+        "setup-family", help="create one synthetic family through product HTTP APIs"
+    )
+    setup.add_argument("--private-root", type=Path, default=DEFAULT_PRIVATE_ROOT)
+    setup.add_argument("--family-id", required=True)
+    setup.add_argument("--api-base-url", default="http://127.0.0.1:65303")
+    setup.add_argument("--timeout-seconds", type=int, default=30)
+    setup.add_argument("--execute", action="store_true")
+    common = commands.add_parser(
+        "freeze-common", help="freeze owner/Project/Scene baseline before the teacher"
+    )
+    common.add_argument("--private-root", type=Path, default=DEFAULT_PRIVATE_ROOT)
+    common.add_argument("--family-id", required=True)
+    common.add_argument("--execute", action="store_true")
+    evolution_preview = commands.add_parser(
+        "preview-evolution", help="freeze a bounded Evolution preview for root inspection"
+    )
+    evolution_preview.add_argument(
+        "--private-root", type=Path, default=DEFAULT_PRIVATE_ROOT
+    )
+    evolution_preview.add_argument("--family-id", required=True)
+    evolution_preview.add_argument("--api-base-url", default="http://127.0.0.1:65303")
+    evolution_preview.add_argument("--request-limit", type=int, required=True)
+    evolution_preview.add_argument("--timeout-seconds", type=int, default=30)
+    evolution_preview.add_argument("--execute", action="store_true")
+    evolution_start = commands.add_parser(
+        "start-evolution", help="start the exact root-inspected preview once"
+    )
+    evolution_start.add_argument(
+        "--private-root", type=Path, default=DEFAULT_PRIVATE_ROOT
+    )
+    evolution_start.add_argument("--family-id", required=True)
+    evolution_start.add_argument("--operation-id", required=True)
+    evolution_start.add_argument("--api-base-url", default="http://127.0.0.1:65303")
+    evolution_start.add_argument("--timeout-seconds", type=int, default=30)
+    evolution_start.add_argument("--execute", action="store_true")
+    run_evolution_parser = commands.add_parser(
+        "run-evolution", help="run only exact persisted pending Evolution task ids"
+    )
+    run_evolution_parser.add_argument(
+        "--private-root", type=Path, default=DEFAULT_PRIVATE_ROOT
+    )
+    run_evolution_parser.add_argument("--family-id", required=True)
+    run_evolution_parser.add_argument("--api-base-url", default="http://127.0.0.1:65303")
+    run_evolution_parser.add_argument("--max-tasks", type=int, default=2)
+    run_evolution_parser.add_argument("--timeout-seconds", type=int, default=900)
+    run_evolution_parser.add_argument("--execute", action="store_true")
+    review_map = commands.add_parser(
+        "review-map", help="apply bounded proxy-author reviews through normal World APIs"
+    )
+    review_map.add_argument("--private-root", type=Path, default=DEFAULT_PRIVATE_ROOT)
+    review_map.add_argument("--family-id", required=True)
+    review_map.add_argument("--api-base-url", default="http://127.0.0.1:65303")
+    review_map.add_argument("--max-actions", type=int, default=20)
+    review_map.add_argument("--timeout-seconds", type=int, default=30)
+    review_map.add_argument("--execute", action="store_true")
     pair = commands.add_parser(
         "pair-writing", help="run one guarded product Writing pair"
     )
@@ -1031,6 +1206,15 @@ def main() -> None:
         action="store_true",
         help="explicitly requests guarded live SUT calls",
     )
+    assistant = commands.add_parser(
+        "assistant-turn", help="submit one normal map-scoped Assistant turn"
+    )
+    assistant.add_argument("--private-root", type=Path, default=DEFAULT_PRIVATE_ROOT)
+    assistant.add_argument("--family-id", required=True)
+    assistant.add_argument("--case-id", required=True)
+    assistant.add_argument("--api-base-url", default="http://127.0.0.1:65303")
+    assistant.add_argument("--timeout-seconds", type=int, default=900)
+    assistant.add_argument("--execute", action="store_true")
     freeze = commands.add_parser(
         "freeze-binding", help="freeze actual owner/Scene setup; no LLM"
     )
@@ -1073,8 +1257,29 @@ def main() -> None:
         result = build_report(args.private_root, args.output)
         print(json.dumps(result, ensure_ascii=False))
         return
-    if args.command in {"freeze-binding", "score", "freeze-development-gate"}:
-        from evals.map_spatial_control import freeze_binding, freeze_gate
+    if args.command in {
+        "setup-family",
+        "freeze-common",
+        "preview-evolution",
+        "start-evolution",
+        "run-evolution",
+        "review-map",
+        "assistant-turn",
+        "freeze-binding",
+        "score",
+        "freeze-development-gate",
+    }:
+        from evals.map_spatial_control import (
+            freeze_binding,
+            freeze_common_binding,
+            freeze_gate,
+            preview_evolution,
+            review_map_family,
+            run_assistant_turn,
+            run_evolution,
+            setup_family,
+            start_evolution,
+        )
         from evals.map_spatial_control import score as score_request
 
         options = vars(args).copy()
@@ -1083,9 +1288,17 @@ def main() -> None:
             if args.command == "freeze-development-gate":
                 result = freeze_gate(args.private_root)
             else:
-                action = (
-                    freeze_binding if args.command == "freeze-binding" else score_request
-                )
+                action = {
+                    "setup-family": setup_family,
+                    "freeze-common": freeze_common_binding,
+                    "preview-evolution": preview_evolution,
+                    "start-evolution": start_evolution,
+                    "run-evolution": run_evolution,
+                    "review-map": review_map_family,
+                    "assistant-turn": run_assistant_turn,
+                    "freeze-binding": freeze_binding,
+                    "score": score_request,
+                }[args.command]
                 result = asyncio.run(action(**options))
         except MapSpatialEvalError as exc:
             parser.error(str(exc))
