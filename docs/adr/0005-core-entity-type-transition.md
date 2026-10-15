@@ -80,6 +80,10 @@ Profile 的 World Bible、知识策略、冲突/建议和其他 Profile TargetRe
 - 自定义类型使用 Generic Profile，不自动获得地图、人物或事件能力。
 - AI 不读取项目自定义类型，Prompt 模板保持不变。
 
+补充说明（2026-10-15）：ADR-0035 只对空间类型有意偏离上一条，允许模型读取并维护项目空间类型；
+ADR-0039 接入 `EntityProfileTemplate` 承载档案面向（备选方案 C 的模板部分）。两者都不改变本 ADR
+对 World 对象类型的 AI 边界。
+
 ## 备选方案
 
 ### A. 只允许新建时自定义

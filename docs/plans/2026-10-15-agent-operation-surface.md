@@ -1,9 +1,9 @@
 # 全模块 AI 操作入口、目标运行与操作留痕
 
-日期：2026-10-15。状态：设计讨论稿，未排期；执行者由用户安排。
+日期：2026-10-15。状态：设计稿，配套 ADR 已采纳，未排期；执行者由用户安排。
 任务记录：[T-20261015-agent-operation-surface](../../.agent/tasks/2026/T-20261015-agent-operation-surface/TASK.md)。
 本文基于 main `4efe7f21a` 核对现状。
-配套 ADR（Proposed）：
+配套 ADR（2026-10-15 由用户采纳，未实施）：
 [ADR-0038 AI 操作目录：风险分级、目标运行与操作留痕](../adr/0038-ai-operation-catalog-goal-runs-and-trace.md)。
 其中 §10 的地图与势力操作是本框架的第一个具体实例。
 
@@ -243,7 +243,7 @@
 
 | 期 | 内容 | 依赖 |
 |---|---|---|
-| A0 | ADR-0038 评审转 Accepted；剩余 `OPERATIONS` 插件收口到注册表（快照零差异）；目录 v2 字段与等级、事务形态声明（现有 47 个操作全部补齐）及校验测试；未声明写路由棘轮；`find_operations`/`describe_operation`；留痕表与记录端口；现有 47 个操作接入留痕 | 无 |
+| A0 | 剩余 `OPERATIONS` 插件收口到注册表（快照零差异）；目录 v2 字段与等级、事务形态声明（现有 47 个操作全部补齐）及校验测试；未声明写路由棘轮；`find_operations`/`describe_operation`；留痕表与记录端口；现有 47 个操作接入留痕 | 无 |
 | A1 | 高频界面写路由绑定 `op_id` 并接入留痕；覆盖第一波：world 类型转换、融合、历史恢复，story 伏笔与时间线，writing 章节管理与批注，evolution 准备阅读与补扫，evidence 读取转目录项 | A0 |
 | A2 | 目标运行 v1：`goal` 模式与每项目唯一活动索引（migration）、计划、审批、执行引擎、停点、多阶段步骤对账、目标预算、R2 变更清单与一键恢复；默认关闭 | A0 |
 | A3 | 覆盖第二波：interaction 作者侧、collaboration 试改准备；地图与势力随地图增强 M0–M5 同步（ADR-0038 §10） | A1；地图增强各期；势力路线图阶段 1 |

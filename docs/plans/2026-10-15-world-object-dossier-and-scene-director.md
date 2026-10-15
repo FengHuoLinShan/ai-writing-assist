@@ -1,9 +1,9 @@
 # 世界对象档案、场景导演与写作副驾驶
 
-日期：2026-10-15。状态：设计讨论稿，未排期；执行者由用户安排。
+日期：2026-10-15。状态：设计稿，配套 ADR 已采纳，未排期；执行者由用户安排。
 任务记录：[T-20261015-character-world-progression](../../.agent/tasks/2026/T-20261015-character-world-progression/TASK.md)。
 本文基于 main `a5a5e5d61` 核对现状（相关模块与 `d2ab2dbf3` 相同）。
-配套 ADR（均为 Proposed）：
+配套 ADR（2026-10-15 由用户采纳，未实施）：
 
 - [ADR-0039 世界对象档案：信息分层、开放面向与统一接口](../adr/0039-world-object-dossier-layers-and-interfaces.md)
 - [ADR-0040 写作副驾驶 v2：场景导演、机制对齐与统一提醒](../adr/0040-writing-copilot-scene-director-and-unified-notices.md)

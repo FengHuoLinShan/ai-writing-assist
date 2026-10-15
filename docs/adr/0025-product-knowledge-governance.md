@@ -73,3 +73,6 @@
   稿后仅清除 AI 审查 PASS 投影，不剥夺发布手写稿的权力。
 - 本 ADR 不改变 ADR-0017/0018/0022/0023/0024 已确立的事实权威、source 边界、复核
   所有权与有界 Agent 约束；治理工作流在这些边界内执行。
+- 补充说明（2026-10-15）：ADR-0037 §1 修订第 4 条对参考维度的适用：参考维度缺失或省略单独记录、
+  不进 `omitted`、不影响 `scope_complete`，审查只出提示；必查维度的规则不变。ADR-0040 追加
+  `object_dossier`、`character_pattern`、`director_reference` 三个参考维度，规则相同。
