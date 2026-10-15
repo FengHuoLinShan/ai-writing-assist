@@ -15,8 +15,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from core.container import get
 from core.errors import ConflictError, NotFoundError, ValidationError
 from core.service_keys import STORY_SCENE_SOURCE
-from modules.project.facade import require_active_project
-from modules.project.object_dossier_settings import read_object_dossier_settings
+from modules.project.facade import read_object_dossier_settings, require_active_project
 from modules.world.dossier_repository import WorldObjectDossierRepository
 from modules.world.map_spatial_anchors import resolve_anchor, resolve_validity
 from modules.world.models import (

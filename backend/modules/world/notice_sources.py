@@ -10,7 +10,7 @@ from sqlalchemy import or_, select
 from core.container import get
 from core.service_keys import STORY_SCENE_SOURCE
 from infrastructure.stable_hash import stable_hash
-from modules.project.object_dossier_settings import read_object_dossier_settings
+from modules.project.facade import read_object_dossier_settings
 from modules.world.map_atlas_models import MapAtlasNode, MapAtlasRevision
 from modules.world.map_spatial_anchors import resolve_anchor, resolve_validity
 from modules.world.map_structure_schemas import MapDocument
@@ -19,6 +19,7 @@ from modules.world.schemas.dossier import DossierAnchor, DossierValidity
 from modules.world.validity_policy import (
     exact_story_field_observation,
     exact_story_relation_observation,
+    resolve_map_declaration_validity,
 )
 from shared.utils import parse_uuid
 
@@ -362,11 +363,46 @@ async def list_object_validity_notices(
                 author_active, anchor_gap = _author_active(
                     item.effective, temporal_scenes, cutoff
                 )
-                # Map IDs do not yet have a Story `relation_status` binding.
-                # Matching a map item to a Story relation by coincident UUID
-                # would invent provenance, so surface the unavailable contract.
-                status = "gap"
-                gap = anchor_gap or policy_gap or "story_map_declaration_unavailable"
+                decision = resolve_map_declaration_validity(
+                    author_active=author_active,
+                    anchor_gap=anchor_gap,
+                    story_view=story_view,
+                    novel_id=novel_id,
+                    cutoff_scene_id=scene_id,
+                    node_id=str(node.id),
+                    revision_id=str(revision.id),
+                    declaration_kind=kind,
+                    declaration_id=str(item.id),
+                    cutoff_scene_index=scene_index,
+                    allow_story_override=allow_override,
+                    policy_gap=policy_gap,
+                )
+                if decision.status == "consistent":
+                    continue
+                status = decision.status or "gap"
+                gap = decision.gap
+                observation = decision.observation
+                evidence = [
+                    {
+                        "kind": "world_map_declaration",
+                        "node_id": str(node.id),
+                        "revision_id": str(revision.id),
+                        "declaration_id": str(item.id),
+                        "declaration_kind": kind,
+                        "validity": item.effective.model_dump(mode="json"),
+                    }
+                ]
+                if observation is not None and observation.gap is None:
+                    evidence.append(
+                        {
+                            "kind": "story_map_declaration",
+                            "event_id": observation.event_id,
+                            "scene_index": observation.scene_index,
+                            "source_refs": observation.source_refs or [],
+                            "author_confirmed": observation.author_confirmed,
+                            "identity_ref": observation.identity_ref,
+                        }
+                    )
                 notices.append(
                     _notice(
                         key=f"{SOURCE_ID}:map:{node.id}:{kind}:{item.id}",
@@ -376,8 +412,13 @@ async def list_object_validity_notices(
                             "node_id": str(node.id),
                             "map_item_id": str(item.id),
                             "map_item_kind": kind,
+                            "revision_id": str(revision.id),
                         },
-                        summary=("地图结构项的 Story 对应来源暂不可核实"),
+                        summary=(
+                            "同一地图声明的 Story 状态与作者有效期冲突"
+                            if status in {"author_priority", "story_override"}
+                            else "地图结构有效期或 Story 对应来源暂不可核实"
+                        ),
                         status=status,
                         gap=gap,
                         basis={
@@ -386,14 +427,24 @@ async def list_object_validity_notices(
                             "map_item_id": str(item.id),
                             "map_item_kind": kind,
                             "validity": item.effective.model_dump(mode="json"),
-                            "story_status": None,
-                            "story_event_id": None,
-                            "story_source_refs": None,
+                            "story_status": observation.status if observation else None,
+                            "story_event_id": observation.event_id
+                            if observation
+                            else None,
+                            "story_identity_ref_hash": (
+                                stable_hash(observation.identity_ref)
+                                if observation and observation.identity_ref
+                                else None
+                            ),
+                            "story_source_refs": (
+                                observation.source_refs if observation else None
+                            ),
+                            "author_active": decision.author_active,
                             "allow_override": allow_override,
                             "policy_version": policy_version,
                             "gap": gap,
                         },
-                        evidence=[],
+                        evidence=evidence,
                         page="map",
                     )
                 )

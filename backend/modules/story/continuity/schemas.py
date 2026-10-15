@@ -442,6 +442,44 @@ class CustomTextStateUpdateRequest(BaseModel):
         return normalized
 
 
+class MapDeclarationStateUpdateRequest(BaseModel):
+    """Author-confirmed status for one exact, current World map declaration."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    scene_id: uuid.UUID
+    node_id: uuid.UUID
+    revision_id: uuid.UUID
+    declaration_kind: Literal["feature", "constraint", "journey"]
+    declaration_id: str = Field(
+        min_length=1,
+        max_length=96,
+        pattern=r"^[a-zA-Z0-9][a-zA-Z0-9:_.-]{0,95}$",
+    )
+    status: Literal["active", "inactive"]
+    idempotency_key: str = Field(min_length=8, max_length=128)
+    confirmed: Literal[True]
+
+
+class MapDeclarationStateBinding(BaseModel):
+    """Validated World identity returned through the registered DI port."""
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    novel_id: uuid.UUID
+    node_id: uuid.UUID
+    revision_id: uuid.UUID
+    declaration_kind: Literal["feature", "constraint", "journey"]
+    declaration_id: str = Field(
+        min_length=1,
+        max_length=96,
+        pattern=r"^[a-zA-Z0-9][a-zA-Z0-9:_.-]{0,95}$",
+    )
+    field_key: Literal["effective_status"]
+    subject_id: uuid.UUID
+    label: str = Field(min_length=1, max_length=80)
+
+
 class SceneStateViewResponse(BaseModel):
     novel_id: str
     scene_id: str

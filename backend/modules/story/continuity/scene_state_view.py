@@ -218,6 +218,10 @@ def summarize_field_provenance(
         }
         if chosen is not None and chosen.object_type is not None:
             summaries[(field_key, subject_ref)]["object_type"] = chosen.object_type
+        if chosen is not None and chosen.identity_ref is not None:
+            summaries[(field_key, subject_ref)]["identity_ref"] = (
+                chosen.identity_ref.model_dump(mode="json")
+            )
         if chosen is not None and chosen.author_confirmed:
             summaries[(field_key, subject_ref)]["author_confirmed"] = True
         if include_value_hash:

@@ -20,6 +20,7 @@ from modules.story.continuity.field_provenance import (
     FIELD_PROVENANCE_STATE_KEY,
     STATE_FIELD_REGISTRY,
     FieldProvenance,
+    MapDeclarationIdentityRef,
     ProvenanceSourceRef,
     motif_fields_for_dimension,
     read_field_provenance,
@@ -764,6 +765,13 @@ class SceneMemoryProjectionService:
                     field_value = (
                         "ended" if str(event.event_type) == "relation_ended" else "active"
                     )
+                identity_ref = None
+                if object_type == "map_declaration":
+                    identity_ref = MapDeclarationIdentityRef.model_validate(
+                        (event.snapshot_after.get("meta") or {}).get(
+                            "map_declaration_state"
+                        )
+                    )
                 provenance.append(
                     FieldProvenance(
                         field_key=field_key,
@@ -778,14 +786,21 @@ class SceneMemoryProjectionService:
                         author_confirmed=(
                             getattr(event, "source", None) == "author_confirmation"
                             and (event.snapshot_after.get("meta") or {}).get(
-                                "custom_state_field"
-                            )
-                            is True
-                            and (event.snapshot_after.get("meta") or {}).get(
                                 "author_confirmed"
                             )
                             is True
+                            and (
+                                (event.snapshot_after.get("meta") or {}).get(
+                                    "author_confirmed_state"
+                                )
+                                is True
+                                or (event.snapshot_after.get("meta") or {}).get(
+                                    "custom_state_field"
+                                )
+                                is True
+                            )
                         ),
+                        identity_ref=identity_ref,
                     )
                 )
         if provenance:
@@ -821,6 +836,18 @@ class SceneMemoryProjectionService:
             if typed_object_type
             else ()
         )
+        meta = payload.get("meta") if isinstance(payload.get("meta"), dict) else {}
+        map_author_state = (
+            dimension == "entities"
+            and typed_object_type == "map_declaration"
+            and event_type == "entity_created"
+            and getattr(event, "source", None) == "author_confirmation"
+            and meta.get("author_confirmed") is True
+            and meta.get("author_confirmed_state") is True
+            and isinstance(meta.get("map_declaration_state"), dict)
+        )
+        if typed_object_type == "map_declaration" and not map_author_state:
+            typed_registered = ()
         custom_author_state = (
             dimension == "entities"
             and event_type == "entity_created"

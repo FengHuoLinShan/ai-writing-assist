@@ -21,6 +21,7 @@ from __future__ import annotations
 
 import json
 import re
+import uuid
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from enum import StrEnum
@@ -62,6 +63,25 @@ class RegisteredStateField:
     label: str
     value_kind: str
     deterministic_check: bool = False
+
+
+class MapDeclarationIdentityRef(BaseModel):
+    """Exact World identity attached to a confirmed map-declaration observation."""
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    contract_version: Literal[1]
+    novel_id: uuid.UUID
+    node_id: uuid.UUID
+    revision_id: uuid.UUID
+    subject_id: uuid.UUID
+    declaration_kind: Literal["feature", "constraint", "journey"]
+    declaration_id: str = Field(
+        min_length=1,
+        max_length=96,
+        pattern=r"^[a-zA-Z0-9][a-zA-Z0-9:_.-]{0,95}$",
+    )
+    field_key: Literal["effective_status"]
 
 
 _MOTIF_FIELDS: tuple[RegisteredMotifField, ...] = (
@@ -114,6 +134,13 @@ _STATE_FIELDS: tuple[RegisteredStateField, ...] = (
     RegisteredStateField("rule", "effective_status", "entities", "规则生效状态", "text"),
     RegisteredStateField("rule", "known_by", "entities", "规则知情者", "entity_ref_list"),
     RegisteredStateField("secret", "reveal_status", "entities", "秘密揭示状态", "text"),
+    RegisteredStateField(
+        "map_declaration",
+        "effective_status",
+        "entities",
+        "地图结构状态",
+        "text",
+    ),
     RegisteredStateField("relation", "attitude", "relations", "有向关系态度", "attitude"),
     RegisteredStateField("relation", "relation_status", "relations", "关系状态", "text"),
 )
@@ -227,6 +254,7 @@ class FieldProvenance(BaseModel):
     version: int = Field(ge=0)
     recorded_at_sequence: int = Field(ge=0)
     author_confirmed: bool = False
+    identity_ref: MapDeclarationIdentityRef | None = None
 
     @model_validator(mode="after")
     def _validate_chain(self) -> FieldProvenance:
@@ -259,6 +287,19 @@ class FieldProvenance(BaseModel):
                 f"field {self.field_key!r} belongs to dimension "
                 f"{expected_dimension!r}, got {self.dimension!r}"
             )
+        if self.object_type == "map_declaration":
+            if (
+                self.field_key != "effective_status"
+                or not self.author_confirmed
+                or self.identity_ref is None
+                or self.identity_ref.field_key != self.field_key
+                or str(self.identity_ref.subject_id) != self.subject_ref
+            ):
+                raise ValueError(
+                    "map declaration provenance needs its exact confirmed identity"
+                )
+        elif self.identity_ref is not None:
+            raise ValueError("map identity metadata is only valid for map declarations")
         if self.source_refs:
             ref_versions = {ref.version_number for ref in self.source_refs}
             if len(ref_versions) != 1 or self.version not in ref_versions:
@@ -471,6 +512,7 @@ __all__ = [
     "RegisteredMotifField",
     "RegisteredStateField",
     "FieldProvenance",
+    "MapDeclarationIdentityRef",
     "ProvenanceSourceRef",
     "ProvenanceStatus",
     "TIMELINE_WHEN_CONTROLLED_KEYS",

@@ -27,6 +27,7 @@ __all__ = [
     "capture_snapshot",
     "confirm_scene_continuity_event",
     "confirm_custom_text_state",
+    "confirm_map_declaration_state",
     "ensure_scene_checkpoints",
     "get_continuity_evidence_for_writing",
     "get_memory_panorama",
@@ -157,6 +158,31 @@ async def confirm_custom_text_state(
         field_key=field_key,
         value=value,
         expected_template_version_number=expected_template_version_number,
+        idempotency_key=idempotency_key,
+    )
+
+
+async def confirm_map_declaration_state(
+    db: AsyncSession,
+    novel_id: str,
+    *,
+    scene_id: str,
+    node_id: str,
+    revision_id: str,
+    declaration_kind: str,
+    declaration_id: str,
+    status: str,
+    idempotency_key: str,
+):
+    return await _memory.confirm_map_declaration_state(
+        db,
+        novel_id,
+        scene_id=scene_id,
+        node_id=node_id,
+        revision_id=revision_id,
+        declaration_kind=declaration_kind,
+        declaration_id=declaration_id,
+        status=status,
         idempotency_key=idempotency_key,
     )
 

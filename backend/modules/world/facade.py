@@ -117,6 +117,7 @@ from modules.world.map_notification_service import (
 from modules.world.map_spatial_brief_service import (
     read_map_spatial_brief,
 )
+from modules.world.map_declaration_state import require_map_declaration_state
 from modules.world.map_spatial_clue_service import (  # noqa: F401
     read_spatial_discovery_context,
     stage_spatial_discovery,
@@ -255,6 +256,7 @@ __all__ = [
     "read_map_node_heads",
     "read_map_spatial_advisories",
     "read_map_spatial_brief",
+    "require_map_declaration_state",
     "prepare_map_demo_copy_rows",
     "read_spatial_discovery_context",
     "stage_spatial_discovery",

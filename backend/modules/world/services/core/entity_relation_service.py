@@ -23,7 +23,7 @@ from core.service_keys import (
     WORLD_WORLDBUILDING_MARK_SYNOPSIS_SOURCE_CHANGED,
     WORLD_WORLDBUILDING_REQUIRE_LEGACY_CANON_WRITE_ALLOWED,
 )
-from modules.project.object_dossier_settings import read_object_dossier_settings
+from modules.project.facade import read_object_dossier_settings
 from modules.world.map_spatial_anchors import resolve_anchor, resolve_validity
 from modules.world.models import EntityRelation
 from modules.world.relation_schemas import (
