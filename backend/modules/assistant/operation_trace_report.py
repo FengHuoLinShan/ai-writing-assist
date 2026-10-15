@@ -14,6 +14,7 @@ from modules.assistant.operation_trace_models import (
     AssistantOperationSequenceAggregate,
     AssistantOperationTrace,
     AssistantOperationTraceAggregate,
+    AssistantOperationTraceArchiveDay,
     AssistantOperationTraceLifecycleAggregate,
     AssistantOperationTraceMetricAggregate,
     AssistantOperationTraceParameterAggregate,
@@ -23,7 +24,7 @@ from modules.assistant.operation_trace_service import (
     _metric_values,
     _parameter_profile,
     _utc_datetime,
-    archive_expired_operation_traces,
+    lock_operation_trace_project,
     operation_trace_sequence_records,
 )
 
@@ -154,7 +155,77 @@ def _empty_lifecycle() -> dict:
     return {field: 0 for field in _LIFECYCLE_FIELDS}
 
 
-def _lifecycle_report(operation: str, counts: dict, event_counts: Counter) -> dict:
+def _cross_day_restoration_groups(
+    rows, archived_matches: dict
+) -> tuple[Counter, Counter, set[str]]:
+    """Link retained receipts only; archived days have no persistent call identity."""
+    groups = defaultdict(list)
+    for row in rows:
+        if row.call_id is not None and row.event_type in {
+            "executed",
+            "failed",
+            "outcome_unknown",
+            "restored",
+            "undone",
+        }:
+            groups[(row.op_id, str(row.call_id))].append(row)
+    matched = Counter()
+    superseded_execution_days = Counter()
+    uncertain = set()
+    for (operation, _call_id), items in groups.items():
+        ordered = sorted(
+            items, key=lambda row: (_utc_datetime(row.occurred_at), row.id or 0)
+        )
+        executed = None
+        final_terminal_by_day = {}
+        last_terminal_state = None
+        same_day_match = False
+        cross_day_match = False
+        for row in ordered:
+            day = _utc_datetime(row.occurred_at).date()
+            if row.event_type in {"executed", "failed", "outcome_unknown"}:
+                final_terminal_by_day[day] = row.event_type
+                last_terminal_state = row.event_type
+            if row.event_type == "executed":
+                executed = day
+            elif row.event_type in {"failed", "outcome_unknown"}:
+                executed = None
+            elif executed is not None:
+                if executed == day:
+                    same_day_match = True
+                else:
+                    cross_day_match = True
+        superseded = max(
+            0,
+            sum(event == "executed" for event in final_terminal_by_day.values())
+            - int(last_terminal_state == "executed"),
+        )
+        if superseded:
+            superseded_execution_days[operation] += superseded
+        if cross_day_match and not same_day_match:
+            execution_days = {
+                _utc_datetime(row.occurred_at).date()
+                for row in ordered
+                if row.event_type == "executed"
+            }
+            if any(archived_matches.get((day, operation), 0) for day in execution_days):
+                # An anonymous same-day archive may already include this group.
+                uncertain.add(operation)
+            else:
+                matched[operation] += 1
+    return matched, superseded_execution_days, uncertain
+
+
+def _lifecycle_report(
+    operation: str,
+    counts: dict,
+    event_counts: Counter,
+    *,
+    cross_day_matches: int = 0,
+    superseded_execution_days: int = 0,
+    archived_sample: bool = False,
+    uncertain_cross_day: bool = False,
+) -> dict:
     tracked_by_event = {
         "proposed": counts["proposal_event_count"],
         "confirmed": counts["confirmed_event_count"],
@@ -192,6 +263,27 @@ def _lifecycle_report(operation: str, counts: dict, event_counts: Counter) -> di
         if missing or unlinked or counts["ambiguous_count"]
         else "measurable"
     )
+    restoration_denominator = max(0, counts["executed_count"] - superseded_execution_days)
+    restored_groups = counts["matched_reversal_count"] + cross_day_matches
+    unmatched_reversals = max(0, counts["unmatched_reversal_count"] - cross_day_matches)
+    restoration_status = (
+        "not_measurable"
+        if not restoration_denominator
+        else "partial"
+        if archived_sample
+        or uncertain_cross_day
+        or missing
+        or counts["unlinked_execution_events"]
+        or counts["unlinked_reversal_events"]
+        or unmatched_reversals
+        or restored_groups > restoration_denominator
+        else "measurable"
+    )
+    restoration_rate = (
+        min(restored_groups, restoration_denominator) / restoration_denominator
+        if restoration_denominator
+        else None
+    )
     return {
         "operation": operation,
         "proposals": counts["proposed_count"],
@@ -210,15 +302,19 @@ def _lifecycle_report(operation: str, counts: dict, event_counts: Counter) -> di
         "edited_acceptance_rate_status": (
             coverage_status if counts["accepted_count"] else "not_measurable"
         ),
-        "execution_groups": counts["executed_count"],
+        "execution_groups": restoration_denominator,
         "failed_execution_groups": counts["failed_execution_count"],
         "unknown_execution_groups": counts["unknown_execution_count"],
         "restoration_events": counts["reversal_event_count"],
         "restored_events": counts["restored_event_count"],
         "undone_events": counts["undone_event_count"],
         "same_day_matched_restoration_groups": counts["matched_reversal_count"],
-        "unmatched_restoration_groups": counts["unmatched_reversal_count"],
-        "same_day_correlation_only": True,
+        "matched_restoration_groups": min(restored_groups, restoration_denominator),
+        "restoration_rate": restoration_rate,
+        "restoration_rate_denominator": restoration_denominator,
+        "restoration_rate_status": restoration_status,
+        "unmatched_restoration_groups": unmatched_reversals,
+        "same_day_correlation_only": archived_sample,
         "missing_lifecycle_event_count": missing,
         "unlinked_event_count": unlinked,
         "status": "partial" if missing or unlinked else "recorded_sample",
@@ -329,9 +425,23 @@ async def build_operation_trace_report(
     as_of = _utc_datetime(now_value)
     start, end = _period_window(period, as_of)
 
-    # This takes the same per-project transaction lock as the retention job.
-    # It keeps the archived and still-live halves on one side of the move.
-    await archive_expired_operation_traces(db, str(project_uuid), now=as_of)
+    # The GET remains read-only while sharing the archive transaction lock.
+    await lock_operation_trace_project(db, project_uuid)
+
+    archive_days = (
+        await db.scalars(
+            _date_filter(
+                select(AssistantOperationTraceArchiveDay).where(
+                    AssistantOperationTraceArchiveDay.novel_id == project_uuid
+                ),
+                AssistantOperationTraceArchiveDay.occurred_on,
+                start,
+                end,
+            )
+        )
+    ).all()
+    complete_days = {row.occurred_on for row in archive_days if row.complete}
+    fragmented_days = {row.occurred_on for row in archive_days if not row.complete}
 
     event_counts: Counter = Counter()
     archived_events = list(
@@ -350,6 +460,8 @@ async def build_operation_trace_report(
     )
     for row in archived_events:
         event_counts[(row.op_id, row.event_type)] += row.event_count
+        if row.occurred_on not in complete_days:
+            fragmented_days.add(row.occurred_on)
 
     details_query = select(AssistantOperationTrace).where(
         AssistantOperationTrace.novel_id == project_uuid,
@@ -363,7 +475,11 @@ async def build_operation_trace_report(
     details = list(
         (await db.scalars(details_query.order_by(AssistantOperationTrace.id))).all()
     )
-    detail_lifecycle = _lifecycle_daily_counts(details)
+    detail_lifecycle = _lifecycle_daily_counts(
+        row
+        for row in details
+        if _utc_datetime(row.occurred_at).date() not in complete_days
+    )
     for row in details:
         event_counts[(row.op_id, row.event_type)] += 1
 
@@ -401,12 +517,18 @@ async def build_operation_trace_report(
         key = (row.occurred_on, tuple(row.operation_sequence))
         item = sequence_counts.setdefault(key, {"count": 0, "complete": True})
         item["count"] += row.sequence_count
-        item["complete"] = item["complete"] and row.sequence_complete
+        item["complete"] = (
+            item["complete"]
+            and row.sequence_complete
+            and row.occurred_on not in fragmented_days
+        )
     for day, sequence, complete in operation_trace_sequence_records(details):
+        if day in complete_days:
+            continue
         key = (day, tuple(sequence))
         item = sequence_counts.setdefault(key, {"count": 0, "complete": True})
         item["count"] += 1
-        item["complete"] = item["complete"] and complete
+        item["complete"] = item["complete"] and complete and day not in fragmented_days
     sequences = [
         {
             "date": day.isoformat(),
@@ -456,11 +578,18 @@ async def build_operation_trace_report(
             end,
         )
     )
+    archived_lifecycle_days: dict[str, set[date]] = defaultdict(set)
+    archived_matches: dict[tuple[date, str], int] = {}
     for row in lifecycle_rows:
         _merge_lifecycle(lifecycle_totals[row.op_id], row)
+        archived_lifecycle_days[row.op_id].add(row.occurred_on)
+        archived_matches[(row.occurred_on, row.op_id)] = row.matched_reversal_count
     for (_day, operation), counts in detail_lifecycle.items():
         for field, amount in counts.items():
             lifecycle_totals[operation][field] += amount
+    cross_day_matches, superseded_execution_days, uncertain_cross_day = (
+        _cross_day_restoration_groups(details, archived_matches)
+    )
     lifecycle_operations = set(lifecycle_totals) | {
         operation
         for (operation, event), count in event_counts.items()
@@ -477,6 +606,10 @@ async def build_operation_trace_report(
                     if op == operation and event in _TRACE_LIFECYCLE_EVENTS
                 }
             ),
+            cross_day_matches=cross_day_matches[operation],
+            superseded_execution_days=superseded_execution_days[operation],
+            archived_sample=bool(archived_lifecycle_days[operation]),
+            uncertain_cross_day=operation in uncertain_cross_day,
         )
         for operation in sorted(lifecycle_operations)
     ]
@@ -615,8 +748,8 @@ async def build_operation_trace_report(
             "parameter_profile_gap_by_operation": parameter_coverage,
             "legacy_event_aggregates_preserved": True,
             "note": (
-                "Observed trace records are a sample. Disabled periods, failed writes, "
-                "and history before capture cannot be reconstructed."
+                "这里只显示实际记录的样本；关闭留痕的时段、写入失败和开启前的历史"
+                "无法补回，不能据此判断操作没有发生。"
             ),
         },
     }
@@ -779,6 +912,9 @@ def operation_trace_report_csv(report: dict) -> str:
             "restored_events",
             "undone_events",
             "same_day_matched_restoration_groups",
+            "matched_restoration_groups",
+            "restoration_rate",
+            "restoration_rate_denominator",
             "unmatched_restoration_groups",
         ):
             write_row(
@@ -791,7 +927,16 @@ def operation_trace_report_csv(report: dict) -> str:
                 "",
                 metric,
                 row[metric],
-                row["status"],
+                (
+                    row["restoration_rate_status"]
+                    if metric
+                    in {
+                        "matched_restoration_groups",
+                        "restoration_rate",
+                        "restoration_rate_denominator",
+                    }
+                    else row["status"]
+                ),
             )
     for row in report["metrics"]:
         write_row(

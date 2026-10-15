@@ -30,6 +30,25 @@ const EVENT_LABELS = {
   undone: "撤销",
   outcome_unknown: "结果未知",
 }
+const FIELD_LABELS = {
+  title: "标题",
+  name: "名称",
+  content: "内容",
+  category: "类别",
+  status: "状态",
+  target_id: "目标",
+  entity_id: "对象",
+  scene_id: "场景",
+  chapter_index: "章节",
+}
+const TYPE_LABELS = {
+  string: "文本",
+  number: "数字",
+  integer: "整数",
+  boolean: "开关",
+  array: "列表",
+  object: "资料",
+}
 const PERIOD_LABELS = Object.fromEntries(PERIODS.map(({ value, label }) => [value, label]))
 
 const period = ref("30d")
@@ -152,7 +171,7 @@ async function exportReport(format) {
 }
 
 function operationLabel(operation) {
-  return String(operation || "未知操作").replaceAll(".", " · ").replaceAll("_", " ")
+  return report.value?.operation_labels?.[operation] || "历史操作（名称不可用）"
 }
 
 function eventLabel(event) {
@@ -172,17 +191,18 @@ function formatRate(value) {
 function profileLabel(profile) {
   const values = []
   for (const [field, shape] of Object.entries(profile?.fields || {})) {
+    const label = FIELD_LABELS[field] || "其他参数"
     if (shape.present !== true) {
-      values.push(`${field}：未提供`)
+      values.push(`${label}：未提供`)
       continue
     }
     const details = []
-    if (shape.type) details.push(shape.type)
+    if (shape.type) details.push(TYPE_LABELS[shape.type] || "已提供")
     if (shape.length) details.push(`长度 ${shape.length}`)
     if (shape.size) details.push(`数值范围 ${shape.size}`)
     if (shape.count) details.push(`${shape.count} 项`)
     if (shape.field_count) details.push(`${shape.field_count} 个字段`)
-    values.push(`${field}：${details.join("，") || "已提供"}`)
+    values.push(`${label}：${details.join("，") || "已提供"}`)
   }
   if (profile?.unknown_fields_present) values.push("另有未登记参数字段")
   return values.length ? values.join("；") : "无可展示的参数形状"
@@ -304,20 +324,21 @@ onBeforeUnmount(() => {
         </div>
         <div v-if="report.lifecycle.length" class="otr-table-wrap">
           <table class="otr-table otr-wide-table">
-            <thead><tr><th scope="col">操作</th><th scope="col">提议</th><th scope="col">接受 / 拒绝</th><th scope="col">明确决定接受率</th><th scope="col">先修改后接受</th><th scope="col">执行成功 / 失败 / 未知</th><th scope="col">恢复 / 撤销</th><th scope="col">覆盖</th></tr></thead>
+            <thead><tr><th scope="col">操作</th><th scope="col">提议</th><th scope="col">接受 / 拒绝</th><th scope="col">明确决定接受率</th><th scope="col">先修改后接受</th><th scope="col">执行成功 / 失败 / 未知</th><th scope="col">恢复 / 撤销</th><th scope="col">执行后恢复率</th><th scope="col">覆盖</th></tr></thead>
             <tbody>
               <tr v-for="row in report.lifecycle" :key="row.operation">
                 <td>{{ operationLabel(row.operation) }}</td><td>{{ row.proposals }}</td><td>{{ row.accepted }} / {{ row.declined }}</td>
                 <td>{{ formatRate(row.acceptance_rate) }}<small>分母 {{ row.acceptance_rate_denominator }} · {{ statusLabel(row.acceptance_rate_status) }}</small></td>
                 <td>{{ row.edited_then_accepted }}<small>{{ formatRate(row.edited_acceptance_rate) }}</small></td>
-                <td>{{ row.execution_groups }} / {{ row.failed_execution_groups }} / {{ row.unknown_execution_groups }}</td><td>{{ row.restored_events }} / {{ row.undone_events }}<small>同日可关联 {{ row.same_day_matched_restoration_groups }} 组</small></td>
+                <td>{{ row.execution_groups }} / {{ row.failed_execution_groups }} / {{ row.unknown_execution_groups }}</td><td>{{ row.restored_events }} / {{ row.undone_events }}<small>可关联 {{ row.matched_restoration_groups }} 组</small></td>
+                <td>{{ formatRate(row.restoration_rate) }}<small>分母 {{ row.restoration_rate_denominator }} · {{ statusLabel(row.restoration_rate_status) }}</small></td>
                 <td>{{ statusLabel(row.status) }}<small v-if="row.missing_lifecycle_event_count">缺口 {{ row.missing_lifecycle_event_count }}</small></td>
               </tr>
             </tbody>
           </table>
         </div>
         <p v-else class="otr-empty">没有可测的作者决定或恢复样本；历史缺少关联证据时不会推算接受率。</p>
-        <p class="otr-method-note">“结果未知”单独列示，不计为成功或失败。“先修改后接受”要求同一匿名调用有已记录修改并随后确认。归档仅保留汇总；跨日或旧版恢复关系不能证明时会显示为未匹配。</p>
+        <p class="otr-method-note">“结果未知”单独列示，不计为成功或失败。“先修改后接受”要求同一匿名调用有已记录修改并随后确认。执行后恢复率以本窗口可关联的执行组为分母，每组最多计一次；明细仍在保留期内可跨 UTC 日关联，匿名归档或旧版缺口会标为部分可测。</p>
       </section>
 
       <section class="otr-section" aria-labelledby="otr-metrics-title">

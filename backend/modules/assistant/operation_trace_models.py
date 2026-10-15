@@ -157,6 +157,20 @@ class AssistantOperationSequenceAggregate(Base):
     )
 
 
+class AssistantOperationTraceArchiveDay(Base):
+    """ID-free record of whether one UTC day's sequences were closed intact."""
+
+    __tablename__ = "assistant_operation_trace_archive_days"
+
+    novel_id: Mapped[object] = mapped_column(
+        UUIDType,
+        ForeignKey("projects.id", ondelete="CASCADE"),
+        primary_key=True,
+    )
+    occurred_on: Mapped[date] = mapped_column(Date, primary_key=True)
+    complete: Mapped[bool] = mapped_column(Boolean, nullable=False)
+
+
 class AssistantOperationTraceMetricAggregate(Base):
     """Forward-only duration and usage coverage without event or request IDs."""
 

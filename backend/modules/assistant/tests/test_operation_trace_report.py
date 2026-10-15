@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+from collections import Counter
 from datetime import UTC, datetime, timedelta
 from types import SimpleNamespace
 from uuid import NAMESPACE_URL, UUID, uuid4, uuid5
@@ -28,8 +29,12 @@ from modules.assistant.operation_trace_models import (
     AssistantOperationTraceMetricAggregate,
     AssistantOperationTraceParameterAggregate,
 )
-from modules.assistant.operation_trace_report import build_operation_trace_report
+from modules.assistant.operation_trace_report import (
+    build_operation_trace_report,
+    operation_trace_report_csv,
+)
 from modules.assistant.operation_trace_service import (
+    _event_metadata,
     _lifecycle_daily_counts,
     _parameter_profile,
     archive_expired_operation_traces,
@@ -98,6 +103,100 @@ def test_lifecycle_counts_dedupe_repeated_confirmations_and_require_event_order(
     assert counts["matched_reversal_count"] == 1
     assert counts["ambiguous_count"] == 0
     assert counts["unmatched_decision_count"] == 1
+
+
+def test_late_terminal_does_not_rewrite_an_earlier_day_or_invent_acceptance():
+    day = datetime(2026, 10, 1, 23, 59, tzinfo=UTC)
+    call_id = uuid4()
+    counts = _lifecycle_daily_counts(
+        [
+            _row("proposed", 1, day, call_id),
+            _row("outcome_unknown", 2, day + timedelta(seconds=1), call_id),
+            _row("executed", 3, day + timedelta(days=1), call_id),
+        ]
+    )
+
+    first = counts[(day.date(), "project.add_task")]
+    later = counts[((day + timedelta(days=1)).date(), "project.add_task")]
+    assert first["outcome_unknown_count"] == 1
+    assert first["accepted_count"] == first["failed_execution_count"] == 0
+    assert later["executed_count"] == 1
+    assert later["accepted_count"] == 0
+
+
+def test_cross_day_restoration_rate_uses_one_proven_execution_group():
+    day = datetime(2026, 10, 1, 23, 59, tzinfo=UTC)
+    call_id = uuid4()
+    rows = [
+        _row("executed", 1, day, call_id),
+        _row("restored", 2, day + timedelta(minutes=2), call_id),
+        _row("undone", 3, day + timedelta(minutes=3), call_id),
+    ]
+    matches, repeated, uncertain = report_module._cross_day_restoration_groups(rows, {})
+    assert matches == {"project.add_task": 1}
+    assert repeated["project.add_task"] == 0
+    assert not uncertain
+    counts = report_module._empty_lifecycle()
+    counts["executed_count"] = 1
+    counts["executed_event_count"] = 1
+    counts["restored_event_count"] = 1
+    counts["undone_event_count"] = 1
+    counts["reversal_event_count"] = 2
+    report = report_module._lifecycle_report(
+        "project.add_task",
+        counts,
+        Counter(
+            {
+                ("project.add_task", "executed"): 1,
+                ("project.add_task", "restored"): 1,
+                ("project.add_task", "undone"): 1,
+            }
+        ),
+        cross_day_matches=matches["project.add_task"],
+    )
+    assert report["restoration_rate"] == 1
+    assert report["restoration_rate_denominator"] == 1
+    assert report["matched_restoration_groups"] == 1
+    assert report["restoration_rate_status"] == "measurable"
+    assert report_module._cross_day_restoration_groups(
+        rows, {(day.date(), "project.add_task"): 1}
+    ) == ({}, {}, {"project.add_task"})
+    repeated_rows = [
+        _row("executed", 1, day, call_id),
+        _row("executed", 2, day + timedelta(days=1), call_id),
+        _row("restored", 3, day + timedelta(days=1, minutes=2), call_id),
+    ]
+    _matches, repeated, _uncertain = report_module._cross_day_restoration_groups(
+        repeated_rows, {}
+    )
+    assert repeated["project.add_task"] == 1
+    superseded = [
+        _row("executed", 1, day, call_id),
+        _row("failed", 2, day + timedelta(days=1), call_id),
+    ]
+    _matches, superseded_days, _uncertain = report_module._cross_day_restoration_groups(
+        superseded, {}
+    )
+    assert superseded_days["project.add_task"] == 1
+    assert (
+        report_module._lifecycle_report(
+            "project.add_task", report_module._empty_lifecycle(), Counter()
+        )["restoration_rate"]
+        is None
+    )
+
+
+def test_event_metadata_accepts_only_schema_fields_and_fixed_usage_scope():
+    operation = assistant_notice_operations["assistant.notice.set_disposition"]
+    known_field = next(iter(operation.schema.model_fields))
+    assert _event_metadata(
+        operation,
+        {
+            "changed_fields": [known_field, "api_key", "=HYPERLINK(1)"],
+            "usage_scope": "goal_step_phase",
+            "target_id": "private-asset-id",
+        },
+    ) == {"changed_fields": [known_field], "usage_scope": "goal_step_phase"}
 
 
 def test_terminal_sequence_is_sorted_and_repeated_terminal_state_counts_once():
@@ -561,6 +660,13 @@ async def test_report_merges_live_and_legacy_aggregates_without_leaking_ids_or_h
         "private-salted-text-hash",
     ):
         assert private_value not in serialized
+    report["events"][0]["operation"] = "=HYPERLINK(1,2)"
+    csv_text = operation_trace_report_csv(report)
+    import csv
+    from io import StringIO
+
+    event_row = next(row for row in csv.reader(StringIO(csv_text)) if row[0] == "event")
+    assert event_row[2] == "'=HYPERLINK(1,2)"
 
 
 @pytest.mark.asyncio

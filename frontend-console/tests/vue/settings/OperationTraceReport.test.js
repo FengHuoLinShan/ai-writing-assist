@@ -12,6 +12,7 @@ function makeReport(overrides = {}) {
     window_start: "2026-09-17",
     window_end: "2026-10-16",
     collection_enabled_now: true,
+    operation_labels: {},
     events: [],
     operation_candidates: [],
     sequences: [],
@@ -67,6 +68,26 @@ afterEach(() => {
 })
 
 describe("OperationTraceReport", () => {
+  it("shows the proven execution-after-restoration rate and its sample size", async () => {
+    api.assistant.operationTraceReport.mockResolvedValueOnce(makeReport({
+      coverage: { ...makeReport().coverage, status: "recorded_sample" },
+      lifecycle: [{
+        operation: "project.add_task", proposals: 0, accepted: 0, declined: 0,
+        acceptance_rate: null, acceptance_rate_denominator: 0, acceptance_rate_status: "not_measurable",
+        edited_then_accepted: 0, edited_acceptance_rate: null,
+        execution_groups: 1, failed_execution_groups: 0, unknown_execution_groups: 0,
+        restored_events: 1, undone_events: 1, matched_restoration_groups: 1,
+        restoration_rate: 1, restoration_rate_denominator: 1, restoration_rate_status: "measurable",
+        status: "recorded_sample", missing_lifecycle_event_count: 0,
+      }],
+    }))
+    const wrapper = mount(OperationTraceReport, { props: { projectId: "p1" } })
+    await flushPromises()
+    expect(wrapper.text()).toContain("执行后恢复率")
+    expect(wrapper.text()).toContain("可关联 1 组")
+    expect(wrapper.text()).toContain("分母 1 · 有可核对样本")
+  })
+
   it("shows honest empty coverage and uses the selected project and fixed period", async () => {
     const wrapper = mount(OperationTraceReport, { props: { projectId: "p1" } })
     await flushPromises()
@@ -120,9 +141,14 @@ describe("OperationTraceReport", () => {
     api.assistant.operationTraceReport.mockResolvedValueOnce(makeReport({
       coverage: { ...makeReport().coverage, status: "recorded_sample" },
       events: [{ date: "2026-10-16", operation: "project.add_task", event: "executed", count: 1 }],
+      operation_labels: { "project.add_task": "记录作者待办" },
+      parameter_profiles: [{ operation: "project.add_task", event: "executed", count: 1, profile: { fields: { title: { present: true, type: "string", length: "5-9" } } } }],
     }))
     await wrapper.get(".otr-error button").trigger("click")
     await flushPromises()
+    expect(wrapper.text()).toContain("记录作者待办")
+    expect(wrapper.text()).not.toContain("project · add task")
+    expect(wrapper.text()).toContain("标题：文本，长度 5-9")
     const createObjectURL = vi.spyOn(URL, "createObjectURL").mockReturnValue("blob:trace-report")
     const anchorClick = vi.spyOn(HTMLAnchorElement.prototype, "click").mockImplementation(() => {})
     await wrapper.get(".otr-button-secondary").trigger("click")

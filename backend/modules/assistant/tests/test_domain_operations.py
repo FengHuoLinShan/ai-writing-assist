@@ -6,6 +6,7 @@ from sqlalchemy import func, select
 
 from core.container import container_scope
 from core.errors import ConflictError
+from core.service_keys import ASSISTANT_OPERATION_TRACE
 from modules.account.facade import current_account_id
 from modules.assistant.contracts import AssistantOperation, AssistantOperationContext
 from modules.assistant.evidence_tools import fingerprint
@@ -307,6 +308,11 @@ async def test_partial_batch_retry_preserves_success_and_rejects_replay(
     db, nid = db_session, test_project_id
     owner_id = str(current_account_id())
     calls, failing = [], True
+    trace_events = []
+
+    async def trace_port(_db, **values):
+        trace_events.append(values)
+        return True
 
     class Args(BaseModel):
         name: str
@@ -326,6 +332,7 @@ async def test_partial_batch_retry_preserves_success_and_rejects_replay(
         novel_id=uuid.UUID(nid),
         owner_id=uuid.UUID(owner_id),
         request_hash="a" * 64,
+        request_json={"operation_trace_enabled": True},
         status="waiting_approval",
     )
     db.add(run)
@@ -334,7 +341,8 @@ async def test_partial_batch_retry_preserves_success_and_rejects_replay(
         {
             "assistant.operations": {
                 "project.test_write": AssistantOperation("test", Args, preview, apply)
-            }
+            },
+            ASSISTANT_OPERATION_TRACE: trace_port,
         }
     ):
         actions = await prepare_actions(
@@ -372,15 +380,26 @@ async def test_partial_batch_retry_preserves_success_and_rejects_replay(
             "failed",
             "blocked",
         ]
+
+        def decisions():
+            return [
+                item
+                for item in trace_events
+                if item["event_type"] in {"confirmed", "declined"}
+            ]
+
+        assert len(decisions()) == 3
         failing = False
         await decide_batch(db, str(batch.id), decision, owner_id)
         assert calls == ["first", "second"]
+        assert len(decisions()) == 3
         retry = decision.model_copy(update={"retry_operation_id": uuid.uuid4()})
         assert (await decide_batch(db, str(batch.id), retry, owner_id))[
             "status"
         ] == "completed"
         await decide_batch(db, str(batch.id), retry, owner_id)
         assert calls == ["first", "second", "second", "third"]
+        assert len(decisions()) == 3
         assert await db.scalar(select(func.count()).select_from(ProjectAuthorTask)) == 3
 
 

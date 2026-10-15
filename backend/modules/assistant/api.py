@@ -110,19 +110,26 @@ async def _operation_trace_aggregate(
         or project.project_kind != "author"
     ):
         raise NotFoundError("项目不可访问")
-    return await build_operation_trace_report(
+    report = await build_operation_trace_report(
         db,
         str(novel_id),
         period=period,
         collection_enabled=await operation_trace_enabled(db, owner_id),
     )
+    operations = catalog()
+    report["operation_labels"] = {
+        item["operation"]: operations[item["operation"]].label
+        for item in report["operation_candidates"]
+        if item["operation"] in operations
+    }
+    return report
 
 
 @router.get(
     "/operation-traces/aggregate",
     openapi_extra={
         "x-novelcraft-operation-exemption": (
-            "Owner-only aggregate read; folds expired detail into ID-free counts."
+            "Owner-only read of aggregate counts and current detail; no write."
         )
     },
 )

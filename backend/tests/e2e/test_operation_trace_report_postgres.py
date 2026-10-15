@@ -8,15 +8,20 @@ from datetime import UTC, datetime, timedelta
 from uuid import uuid4
 
 import pytest
+from httpx import ASGITransport
 from sqlalchemy import select
 from sqlalchemy.exc import DBAPIError
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 
+from app.main import app
+from core.database import get_manager
+from modules.account.contracts import BOOTSTRAP_ACCOUNT_ID
 from modules.account.models import Account
 from modules.assistant.operation_trace_models import (
     AssistantOperationSequenceAggregate,
     AssistantOperationTrace,
     AssistantOperationTraceAggregate,
+    AssistantOperationTraceArchiveDay,
     AssistantOperationTraceLifecycleAggregate,
     AssistantOperationTraceMetricAggregate,
     AssistantOperationTraceParameterAggregate,
@@ -31,6 +36,7 @@ from modules.assistant.operation_trace_service import (
 )
 from modules.project.models import Project
 from tests.e2e.config import require_e2e_database_url
+from tests.support.http import XhrAsyncClient
 
 pytestmark = [pytest.mark.asyncio, pytest.mark.e2e]
 
@@ -78,6 +84,7 @@ def _trace(
 async def _snapshot(db: AsyncSession, project_id) -> dict[str, list[tuple]]:
     models = {
         "events": AssistantOperationTraceAggregate,
+        "archive_days": AssistantOperationTraceArchiveDay,
         "sequences": AssistantOperationSequenceAggregate,
         "metrics": AssistantOperationTraceMetricAggregate,
         "lifecycle": AssistantOperationTraceLifecycleAggregate,
@@ -279,6 +286,78 @@ async def test_postgres_archive_batches_are_equivalent_and_report_keeps_real_cov
         await engine.dispose()
 
 
+async def test_cross_utc_day_restore_rate_uses_one_execution_receipt():
+    project_id, call_id, replayed_call_id = uuid4(), uuid4(), uuid4()
+    day = datetime.now(UTC).date() - timedelta(days=2)
+    executed_at = datetime.combine(day, datetime.min.time(), tzinfo=UTC) + timedelta(
+        hours=23, minutes=59
+    )
+    async with get_manager().session_factory() as db:
+        if await db.get(Account, BOOTSTRAP_ACCOUNT_ID) is None:
+            db.add(Account(id=BOOTSTRAP_ACCOUNT_ID, support_code="trace-rate-owner"))
+        db.add(Project(id=project_id, owner_id=BOOTSTRAP_ACCOUNT_ID, title="trace rate"))
+        await db.flush()
+        db.add_all(
+            [
+                _trace(
+                    project_id, BOOTSTRAP_ACCOUNT_ID, executed_at, "executed", call_id
+                ),
+                _trace(
+                    project_id,
+                    BOOTSTRAP_ACCOUNT_ID,
+                    executed_at + timedelta(seconds=30),
+                    "executed",
+                    replayed_call_id,
+                ),
+                _trace(
+                    project_id,
+                    BOOTSTRAP_ACCOUNT_ID,
+                    executed_at + timedelta(minutes=2),
+                    "restored",
+                    call_id,
+                ),
+                _trace(
+                    project_id,
+                    BOOTSTRAP_ACCOUNT_ID,
+                    executed_at + timedelta(minutes=3),
+                    "undone",
+                    call_id,
+                ),
+                _trace(
+                    project_id,
+                    BOOTSTRAP_ACCOUNT_ID,
+                    executed_at + timedelta(minutes=1),
+                    "executed",
+                    replayed_call_id,
+                ),
+                _trace(
+                    project_id,
+                    BOOTSTRAP_ACCOUNT_ID,
+                    executed_at + timedelta(minutes=4),
+                    "restored",
+                    replayed_call_id,
+                ),
+            ]
+        )
+        await db.commit()
+    async with get_manager().session_factory() as db:
+        report = await build_operation_trace_report(
+            db, str(project_id), period="30d", collection_enabled=True
+        )
+        row = next(
+            item
+            for item in report["lifecycle"]
+            if item["operation"] == "project.add_task"
+        )
+        assert row["execution_groups"] == 2
+        assert row["matched_restoration_groups"] == 2
+        assert row["restoration_rate"] == 1
+        assert row["restoration_rate_denominator"] == 2
+        assert row["restoration_rate_status"] == "measurable"
+        csv_text = operation_trace_report_csv(report)
+        assert "restoration_rate,1.0,measurable" in csv_text
+
+
 async def test_postgres_archive_and_owner_read_serialize_without_double_counting():
     engine = create_async_engine(require_e2e_database_url(), pool_size=3, max_overflow=0)
     sessions = async_sessionmaker(engine, expire_on_commit=False)
@@ -322,6 +401,258 @@ async def test_postgres_archive_and_owner_read_serialize_without_double_counting
         assert sum(row["count"] for row in second["events"]) == 6
     finally:
         await engine.dispose()
+
+
+async def test_partial_utc_day_expires_at_exact_microsecond_and_keeps_one_sequence():
+    engine = create_async_engine(require_e2e_database_url(), pool_size=3)
+    sessions = async_sessionmaker(engine, expire_on_commit=False)
+    try:
+        owner_id, (staged_id, once_id) = await _create_owner_projects(sessions, count=2)
+        first_now = datetime.now(UTC).replace(
+            hour=18, minute=0, second=0, microsecond=0
+        ) - timedelta(days=1)
+        cutoff = operation_trace_cutoff(first_now)
+        assert cutoff == first_now - timedelta(days=180)
+        session_id = uuid4()
+        moments = (
+            cutoff - timedelta(microseconds=1),
+            cutoff,
+            cutoff + timedelta(microseconds=1),
+            cutoff + timedelta(hours=1),
+        )
+        async with sessions.begin() as db:
+            for project_id in (staged_id, once_id):
+                db.add_all(
+                    _trace(
+                        project_id,
+                        owner_id,
+                        moment,
+                        "executed",
+                        uuid4(),
+                        op_id=f"project.step_{index}",
+                        session_id=session_id,
+                    )
+                    for index, moment in enumerate(moments)
+                )
+
+        async with sessions.begin() as db:
+            assert (
+                await archive_expired_operation_traces(db, str(staged_id), now=first_now)
+                == 1
+            )
+        async with sessions() as db:
+            remaining = (
+                await db.scalars(
+                    select(AssistantOperationTrace.occurred_at).where(
+                        AssistantOperationTrace.novel_id == staged_id
+                    )
+                )
+            ).all()
+            assert sorted(remaining) == list(moments[1:])
+            report = await build_operation_trace_report(
+                db, str(staged_id), period="all", collection_enabled=True
+            )
+            assert sum(row["count"] for row in report["events"]) == 4
+            assert report["sequences"] == [
+                {
+                    "date": cutoff.date().isoformat(),
+                    "operations": [f"project.step_{index}" for index in range(4)],
+                    "count": 1,
+                    "complete": True,
+                }
+            ]
+            # Report GET must not archive even the remaining overdue row.
+            assert (
+                await db.scalar(
+                    select(AssistantOperationTrace.id).where(
+                        AssistantOperationTrace.novel_id == staged_id,
+                        AssistantOperationTrace.occurred_at == cutoff,
+                    )
+                )
+                is not None
+            )
+
+        async with sessions.begin() as db:
+            assert (
+                await archive_expired_operation_traces(
+                    db, str(staged_id), now=first_now + timedelta(microseconds=1)
+                )
+                == 1
+            )
+        async with sessions.begin() as db:
+            assert (
+                await archive_expired_operation_traces(
+                    db, str(staged_id), now=first_now + timedelta(hours=2)
+                )
+                == 2
+            )
+        async with sessions.begin() as db:
+            assert (
+                await archive_expired_operation_traces(
+                    db, str(once_id), now=first_now + timedelta(hours=2)
+                )
+                == 4
+            )
+        async with sessions() as db:
+            assert await _snapshot(db, staged_id) == await _snapshot(db, once_id)
+            assert (
+                await db.scalar(
+                    select(AssistantOperationTrace.id).where(
+                        AssistantOperationTrace.novel_id == staged_id
+                    )
+                )
+                is None
+            )
+    finally:
+        await engine.dispose()
+
+
+async def test_preexisting_fragment_is_not_reported_as_complete_day():
+    engine = create_async_engine(require_e2e_database_url(), pool_size=2)
+    sessions = async_sessionmaker(engine, expire_on_commit=False)
+    try:
+        owner_id, (project_id,) = await _create_owner_projects(sessions, count=1)
+        now = datetime.now(UTC)
+        old_time = now - timedelta(days=181)
+        async with sessions.begin() as db:
+            db.add(
+                AssistantOperationTraceAggregate(
+                    novel_id=project_id,
+                    occurred_on=old_time.date(),
+                    op_id="project.old_step",
+                    event_type="executed",
+                    event_count=1,
+                )
+            )
+            db.add(
+                AssistantOperationSequenceAggregate(
+                    novel_id=project_id,
+                    occurred_on=old_time.date(),
+                    sequence_hash="a" * 64,
+                    operation_sequence=["project.old_step"],
+                    sequence_count=1,
+                    sequence_complete=True,
+                )
+            )
+            db.add(
+                _trace(
+                    project_id,
+                    owner_id,
+                    old_time + timedelta(seconds=1),
+                    "executed",
+                    uuid4(),
+                    op_id="project.new_step",
+                    session_id=uuid4(),
+                )
+            )
+        async with sessions.begin() as db:
+            assert (
+                await archive_expired_operation_traces(db, str(project_id), now=now) == 1
+            )
+        async with sessions() as db:
+            marker = await db.get(
+                AssistantOperationTraceArchiveDay, (project_id, old_time.date())
+            )
+            assert marker is not None and marker.complete is False
+            report = await build_operation_trace_report(
+                db, str(project_id), period="all", collection_enabled=True
+            )
+            assert report["coverage"]["incomplete_sequence_count"] == 2
+            assert all(not item["complete"] for item in report["sequences"])
+            assert report["coverage"]["missing_metric_event_count"] == 1
+    finally:
+        await engine.dispose()
+
+
+async def test_report_http_owner_active_project_export_and_read_only():
+    owner_project, foreign_project, inactive_project, rp_project = (
+        uuid4() for _ in range(4)
+    )
+    foreign_owner = uuid4()
+    private_target = uuid4()
+    private_trace = _trace(
+        owner_project,
+        BOOTSTRAP_ACCOUNT_ID,
+        datetime.now(UTC) - timedelta(days=181),
+        "executed",
+        uuid4(),
+    )
+    private_trace.target_refs = [{"type": "author_task", "id": str(private_target)}]
+    async with get_manager().session_factory() as db:
+        if await db.get(Account, BOOTSTRAP_ACCOUNT_ID) is None:
+            db.add(Account(id=BOOTSTRAP_ACCOUNT_ID, support_code=uuid4().hex))
+        db.add(Account(id=foreign_owner, support_code=uuid4().hex))
+        db.add_all(
+            [
+                Project(
+                    id=owner_project, owner_id=BOOTSTRAP_ACCOUNT_ID, title="本人作品"
+                ),
+                Project(id=foreign_project, owner_id=foreign_owner, title="他人作品"),
+                Project(
+                    id=inactive_project,
+                    owner_id=BOOTSTRAP_ACCOUNT_ID,
+                    title="已删除作品",
+                    deleted_at=datetime.now(UTC),
+                ),
+                Project(
+                    id=rp_project,
+                    owner_id=BOOTSTRAP_ACCOUNT_ID,
+                    title="隔离旅程",
+                    project_kind="interaction",
+                ),
+            ]
+        )
+        await db.flush()
+        db.add(private_trace)
+        await db.commit()
+
+    base = "/api/assistant/operation-traces"
+    async with XhrAsyncClient(
+        transport=ASGITransport(app=app), base_url="http://test"
+    ) as client:
+        valid = await client.get(
+            f"{base}/aggregate", params={"novel_id": str(owner_project), "period": "all"}
+        )
+        assert valid.status_code == 200, valid.text
+        assert valid.json()["events"][0]["count"] == 1
+        assert valid.json()["operation_labels"]["project.add_task"] == "记录作者待办"
+        exported = await client.get(
+            f"{base}/export",
+            params={"novel_id": str(owner_project), "period": "all", "format": "csv"},
+        )
+        assert exported.status_code == 200, exported.text
+        assert "text/csv" in exported.headers["content-type"]
+        for private_value in (str(owner_project), str(private_target)):
+            assert private_value not in exported.text
+            assert private_value not in valid.text
+        for denied_project in (foreign_project, inactive_project, rp_project):
+            for path in ("aggregate", "export"):
+                denied = await client.get(
+                    f"{base}/{path}", params={"novel_id": str(denied_project)}
+                )
+                assert denied.status_code == 404, (path, denied.text)
+        bad_period = await client.get(
+            f"{base}/aggregate", params={"novel_id": str(owner_project), "period": "0d"}
+        )
+        assert bad_period.status_code == 422
+
+    async with get_manager().session_factory() as db:
+        assert (
+            await db.scalar(
+                select(AssistantOperationTrace.id).where(
+                    AssistantOperationTrace.novel_id == owner_project
+                )
+            )
+            is not None
+        )
+        assert (
+            await db.scalar(
+                select(AssistantOperationTraceAggregate.novel_id).where(
+                    AssistantOperationTraceAggregate.novel_id == owner_project
+                )
+            )
+            is None
+        )
 
 
 async def test_postgres_append_only_trigger_rejects_live_trace_updates():

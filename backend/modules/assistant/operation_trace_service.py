@@ -23,6 +23,7 @@ from modules.assistant.operation_trace_models import (
     AssistantOperationSequenceAggregate,
     AssistantOperationTrace,
     AssistantOperationTraceAggregate,
+    AssistantOperationTraceArchiveDay,
     AssistantOperationTraceLifecycleAggregate,
     AssistantOperationTraceMetricAggregate,
     AssistantOperationTraceParameterAggregate,
@@ -515,9 +516,8 @@ def _utc_datetime(value: datetime) -> datetime:
 
 
 def operation_trace_cutoff(now: datetime) -> datetime:
-    """Use a fixed UTC-day retention boundary so archive batches never split a day."""
-    day = (_utc_datetime(now) - timedelta(days=180)).date()
-    return datetime.combine(day, time.min, tzinfo=UTC)
+    """Return the exact 180-day UTC retention boundary."""
+    return _utc_datetime(now) - timedelta(days=180)
 
 
 def _uuid_or_none(value: object) -> UUID | None:
@@ -609,6 +609,15 @@ async def _increment_structured_aggregate(
             setattr(row, field, getattr(row, field) + amount)
 
 
+async def lock_operation_trace_project(db, novel_id: UUID) -> None:
+    """Serialize one project's archive and report snapshot without changing rows."""
+    if db.get_bind().dialect.name == "postgresql":
+        await db.execute(
+            text("SELECT pg_advisory_xact_lock(hashtextextended(:key, 0))"),
+            {"key": f"assistant-operation-trace-retention:{novel_id}"},
+        )
+
+
 async def archive_expired_operation_traces(
     db,
     novel_id: str,
@@ -616,24 +625,18 @@ async def archive_expired_operation_traces(
     now: datetime | None = None,
     max_days: int | None = None,
 ) -> int:
-    """Aggregate whole UTC days so a session/day sequence is never split by retention."""
+    """Delete exactly expired details, snapshotting each UTC day once."""
     if max_days is not None and max_days < 1:
         raise ValueError("max_days must be positive")
     postgres = db.get_bind().dialect.name == "postgresql"
-    # Use the same transaction clock as the append-only trigger and pin one
-    # UTC-day boundary for the whole archive/read operation.
+    # Use the trigger's transaction clock for the exact deletion boundary.
     current = _utc_datetime(
         now or (await db.scalar(select(func.now())) if postgres else datetime.now(UTC))
     )
     cutoff = operation_trace_cutoff(current)
     novel_uuid = UUID(str(novel_id))
-    if postgres:
-        # The owner read and worker tick may archive the same work at once.
-        # Serialize the read/count/delete unit so aggregates cannot double count.
-        await db.execute(
-            text("SELECT pg_advisory_xact_lock(hashtextextended(:key, 0))"),
-            {"key": f"assistant-operation-trace-retention:{novel_uuid}"},
-        )
+    # The owner read and worker tick share this transaction lock.
+    await lock_operation_trace_project(db, novel_uuid)
     expired = (
         AssistantOperationTrace.novel_id == novel_uuid,
         AssistantOperationTrace.occurred_at < cutoff,
@@ -698,6 +701,62 @@ async def archive_expired_operation_traces(
     if not rows:
         return 0
 
+    expired_by_day: dict[date, list[AssistantOperationTrace]] = {}
+    for row in rows:
+        expired_by_day.setdefault(_utc_datetime(row.occurred_at).date(), []).append(row)
+    derived_rows: list[AssistantOperationTrace] = []
+    complete_days: set[date] = set()
+    archive_models = (
+        AssistantOperationTraceAggregate,
+        AssistantOperationSequenceAggregate,
+        AssistantOperationTraceMetricAggregate,
+        AssistantOperationTraceLifecycleAggregate,
+        AssistantOperationTraceParameterAggregate,
+    )
+    for day, expired_day_rows in sorted(expired_by_day.items()):
+        marker = await db.get(AssistantOperationTraceArchiveDay, (novel_uuid, day))
+        if marker is None:
+            # Older archives have no proof that their fragments formed a whole
+            # day. Keep that gap visible instead of inventing a complete chain.
+            legacy_fragment = False
+            for model in archive_models:
+                if (
+                    await db.scalar(
+                        select(model.novel_id)
+                        .where(model.novel_id == novel_uuid, model.occurred_on == day)
+                        .limit(1)
+                    )
+                    is not None
+                ):
+                    legacy_fragment = True
+                    break
+            marker = AssistantOperationTraceArchiveDay(
+                novel_id=novel_uuid, occurred_on=day, complete=not legacy_fragment
+            )
+            db.add(marker)
+            if marker.complete:
+                day_start = datetime.combine(day, time.min, tzinfo=UTC)
+                derived_rows.extend(
+                    (
+                        await db.scalars(
+                            select(AssistantOperationTrace)
+                            .where(
+                                AssistantOperationTrace.novel_id == novel_uuid,
+                                AssistantOperationTrace.occurred_at >= day_start,
+                                AssistantOperationTrace.occurred_at
+                                < day_start + timedelta(days=1),
+                                AssistantOperationTrace.occurred_at <= current,
+                            )
+                            .order_by(AssistantOperationTrace.id)
+                        )
+                    ).all()
+                )
+                complete_days.add(day)
+            else:
+                derived_rows.extend(expired_day_rows)
+        elif not marker.complete:
+            derived_rows.extend(expired_day_rows)
+
     event_counts: dict[tuple[date, str, str], int] = {}
     for row in rows:
         occurred_on = _utc_datetime(row.occurred_at).date()
@@ -717,7 +776,7 @@ async def archive_expired_operation_traces(
             "event_count",
             count,
         )
-    for occurred_on, sequence, complete in operation_trace_sequence_records(rows):
+    for occurred_on, sequence, complete in operation_trace_sequence_records(derived_rows):
         sequence_json = json.dumps(sequence, separators=(",", ":"), ensure_ascii=True)
         sequence_hash = hashlib.sha256(sequence_json.encode()).hexdigest()
         await _increment_aggregate(
@@ -728,7 +787,7 @@ async def archive_expired_operation_traces(
                 "occurred_on": occurred_on,
                 "sequence_hash": sequence_hash,
                 "operation_sequence": sequence,
-                "sequence_complete": complete,
+                "sequence_complete": complete and occurred_on in complete_days,
             },
             "sequence_count",
         )
@@ -777,7 +836,7 @@ async def archive_expired_operation_traces(
             values,
         )
 
-    lifecycle_values = _lifecycle_daily_counts(rows)
+    lifecycle_values = _lifecycle_daily_counts(derived_rows)
     for (occurred_on, op_id), values in lifecycle_values.items():
         await _increment_structured_aggregate(
             db,
@@ -847,9 +906,7 @@ async def archive_one_expired_operation_trace_project(db) -> int:
     )
     if novel_id is None:
         return 0
-    return await archive_expired_operation_traces(
-        db, str(novel_id), now=current, max_days=1
-    )
+    return await archive_expired_operation_traces(db, str(novel_id), now=current)
 
 
 async def record_operation_trace(

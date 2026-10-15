@@ -921,17 +921,18 @@ async def decide_batch(db, batch_id: str, decision: BatchDecision, owner_id: str
                 "待修改的资料已变化，请重新生成方案", code="assistant_source_stale"
             )
         confirmation_meta["confirmed_previews"].append(fingerprint(preview))
-    for item in batch.actions_json:
-        operation = available.get(item["capability"])
-        if operation is None:
-            continue
-        await _record_batch_event(
-            db,
-            run,
-            item,
-            operation,
-            "confirmed" if item["key"] in keys else "declined",
-        )
+    if not batch.authorization_json:
+        for item in batch.actions_json:
+            operation = available.get(item["capability"])
+            if operation is None:
+                continue
+            await _record_batch_event(
+                db,
+                run,
+                item,
+                operation,
+                "confirmed" if item["key"] in keys else "declined",
+            )
     batch.authorization_json = batch.authorization_json or {
         "owner_id": owner_id,
         "selected": decision.selected,
