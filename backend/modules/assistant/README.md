@@ -51,6 +51,32 @@ World/Writing 复用原领域审稿任务；RP 使用 Interaction 的连续性�
 相同问题的证据未变化时保持原展示决定。当前作者/RP 均有站内回访与提醒入口。
 独立审稿所需原 confirmation 不可被新助手范围替换；无法证明排除范围一致时返回明确冲突。
 
+## 统一作者提醒（ADR-0040 §13，C3a 后端切片）
+
+`modules.assistant.notices_api.router` 声明 `/api/assistant/unified-notices`：GET 按章节或
+Scene 聚合；POST `/dispositions` 处理已读、稍后（1–720 小时）和忽略；PUT/DELETE
+`/category-mutes/{source_id}/{category}` 以行版本静默或恢复类别。路由先校验当前 owner 的
+活跃项目；Scene scope 再经 `OUTLINE_SCENE_SERVICE` 按同一 novel 校验。写操作沿请求事务
+flush，不在领域服务内 commit。
+
+`app.notice_source_registry.notice_sources` 物化只读 provider spec。Assistant 聚合只调用此
+registry；每个并行来源各自打开和关闭 AsyncSession，超时或异常显示“暂时无法读取”并令响应
+`partial=true`，不会被当作空结果缓存。来源没有领域处置时，`assistant_notice_dispositions`
+按项目、来源、稳定键和依据指纹独立 CAS；稍后到期回到未读，忽略只绑定原指纹。类别静默由
+独立 `assistant_notice_category_mutes` 保存，不混入 `assistant_notices`。已有处置入口仍由来源
+adapter 转发。
+
+首批注册 `story.structure`、`writing.conflict`、`writing.invalidation`、
+`assistant.proactive` 和 `assistant.forecast`。`story.structure` 迁移原前端结构缺项规则，
+冲突检查读取已保存正文基线并包括 G8b 地图基线；短期前瞻仍走原 forecast CAS。Assistant
+主动提醒适配器只投影现有 active AssistantNotice（含当前可见的 map_changes 与 editorial_issue），
+不改变审读队列的作者裁定。Evolution 的 G8a 地图册来源核对、地图空间提醒、档案/状态、演化阅读、
+对象一致性和世界推进提醒仍由各自后续来源接入；本切片不把它们伪装为已支持。
+
+组合根必须注册 `ASSISTANT_NOTICE_SOURCES`，挂载上述 router，并把
+`modules.assistant.notice_models` 的两张 ORM 表纳入 bootstrap/Alembic 元数据；来源/操作仍是
+纯 spec。离线 provider 测试通过不代表共享 app 装配或提醒前端标签已上线。
+
 ## 成组执行与恢复
 
 Writing 批注任务可通过 Assistant facade 创建一个独立、禁联网的项目会话，仅开放已有

@@ -127,6 +127,18 @@ reversible. It is not an RP-user entry point and does not expose raw task or
 database concepts as a product requirement. Adoption/undo/conflict behavior
 must remain visible to the author in the workbench.
 
+## Unified structural notices (ADR-0040 §13)
+
+`notice_sources.py` exports a pure `NOTICE_SOURCE_SPEC` for Assistant's composition-root registry;
+Story returns raw source-owned dictionaries and imports no Assistant contract. Its reader uses
+`SceneWorkbenchService.get_workbench()` health/details, preserves the trusted semantic-field status
+rules (`deep_import`, `manual_fusion`, and the approved semantic origins), does not report
+`not_applicable`, reports `uncertain` as pending confirmation, and includes missing POV, review,
+organization, and chapter-mapping issues. Chapter lookup preserves the Scene–chapter many-to-many
+mapping and uses the unbounded workbench mode to avoid silent truncation. Scope ownership is checked
+at the Assistant API boundary before this provider runs. This provider only projects existing
+structure and health; it does not create a second Story issue record.
+
 ## Project assistant integration (ADR-0023)
 
 Story-owned operations prepare concrete previews for versioned outlines, appended Scene plans,

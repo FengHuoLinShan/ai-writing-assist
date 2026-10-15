@@ -330,6 +330,12 @@ Production consumers use typed `core.service_keys.ServiceKey` constants; the con
 - Test fixtures, Alembic migrations, and ORM metadata registration may import models to build schemas or FK metadata.
 - Application composition roots (`app.main`, worker startup) may import implementations for route/task/DI registration only; they must not contain business decisions.
 
+ADR-0040 unified notices follows this composition pattern: domain modules export plain read-provider specs;
+`app.notice_source_registry` materializes them, bootstrap registers the typed Assistant service key and
+new ORM models, and `app.main` mounts the Assistant notice router. The Assistant aggregator must not
+replace provider registration with direct World/Evolution imports or pass one AsyncSession to parallel
+providers.
+
 ## Architecture Quality Bar
 
 - Prefer deep modules: a small interface should hide meaningful behavior and concentrate change in one place.

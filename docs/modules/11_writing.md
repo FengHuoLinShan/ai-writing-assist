@@ -179,6 +179,16 @@ AI 能力是显式追加流程，不替代规则层结果：
   task，404 提示重新开始且不自动重放。任务结果原位更新进度/候选/检查区，不覆盖作者期间
   的正文输入、筛选、焦点或滚动。
 
+### Unified notice adapter (ADR-0040 §13)
+
+The `writing.conflict` provider projects saved rule/AI check items and statuses, stale saved-body
+bases, degraded checks, and the existing G8b `map_staleness` result. The `writing.invalidation`
+provider reads the existing author-language `WritingRecomputeService.list_pending_notices()` view.
+They preserve the domain check and invalidation records as the sources of truth. The server does not
+include the unsaved editor buffer in a saved-body check; the editor keeps its local dirty/stale
+indicator. G8a Evolution map-atlas source checks remain a separate provider and are not included in
+this Writing adapter.
+
 ## AI 正文建议与采用
 
 `POST /api/writing/generate` 只创建作者可见的正文建议。兼容期底层仍保存为

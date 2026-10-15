@@ -14,6 +14,19 @@ World 提供来源/成果/工作区校验 port；RP 历史、回顾和 attempt �
 
 公开入口 `/api/assistant` 包含会话/回合、恢复/停止、批次确认/显式重试和提醒处置。
 
+ADR-0040 §13 的后端首批还声明 `/api/assistant/unified-notices`。GET 按章节或 Scene 聚合，
+写入口分别更新单条处置与来源/类别静默；每个写路由在 OpenAPI 标注对应操作目录项。Owner 与
+活跃项目先校验，Scene 再由 Story typed DI service 按同一 novel 校验。列表通过登记表并行读取，
+provider 独占 DB session；任一 provider 失败或超时以不可用来源占位，其余结果仍返回。
+
+当前 registry providers 是 `story.structure`、`writing.conflict`、`writing.invalidation`、
+`assistant.proactive`、`assistant.forecast`。既有处置由 provider 转发；其余处置写入独立的
+`assistant_notice_dispositions`，类别静默写入 `assistant_notice_category_mutes`，均有 CAS，
+不会把业务 finding 搬进 `assistant_notices`。G8b 地图基线通过 Writing 冲突检查投影；G8a Evolution
+地图册来源核对、编辑员意见的原审读队列裁定、地图空间/对象一致性/世界推进等 provider 仍需后续
+接入。组合根需注册 provider registry、挂 router，并装配这两张模型；离线后端切片不代表 app
+组合或前端提醒标签已经上线。
+
 引导流程（ADR-0032）入口为 `/api/assistant/flows`：服务端注册、带版本的确定性步骤表与停点推导；流程运行复用 `assistant_runs`（`guided_flow_v1`），不建新表。已注册四个流程（同一 `flows.py` 注册表）：`continue_writing` v3（确认资料 → 候选 → 独立审查 → 可审阅；采用后经作者确认滚动规划后续章节，BR-6 只到剧情线/篇章大纲候选，窗口默认 3 章、上限 5 章，后方已规划不足 2 章时提示补足）、`new_book_opening` v1（一句构想 → 方向卡候选 → 选定方向 → 世界观骨架包逐条取舍采用 → 停在「骨架可用」，BR-5；方向卡是 Assistant 侧定向 LLM step，卡片只存运行检查点）、`editorial_revision` v1（审读台选中意见 → 桥接批注修订 → 候选可审阅 → 采用后自动改后复核，BR-4）。开始请求按流程携带输入，推进请求支持 `choice` 作者选择输入；视图 `panel` 承载当前停点的作者面向载荷。AI 输出一律候选，采用与确认语义不变；滚动规划只在流程内经作者确认触发。
 
 
