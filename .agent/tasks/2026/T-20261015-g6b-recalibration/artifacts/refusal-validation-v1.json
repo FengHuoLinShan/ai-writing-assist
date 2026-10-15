@@ -1,0 +1,46 @@
+{
+  "verified_at": "2026-10-15T01:39:20.485079+00:00",
+  "tests": {
+    "eval_toolkit": {
+      "passed": 243,
+      "skipped": 2
+    },
+    "world_related": {
+      "passed": 97
+    },
+    "ask_world_api_included_in_world_related": 9,
+    "prompt_contracts": 26,
+    "ruff": "passed",
+    "ruff_format": "passed",
+    "docs_check_origin_main": "passed",
+    "diff_check": "passed"
+  },
+  "log_sha256": {
+    "eval-fast-final.log": "984bb690752ece1ac5f00ce31c6689032d8a30a205ec294f2fe1d452b5663c79",
+    "world-regression.log": "5da31c4c98722e0053bb08347e0f21fc1ea36c8793ba7d9bf138365c818453a2",
+    "offline-ask-world.log": "38405ee79b46dcaf94da4d8bb378dafa3bb0147179f386e6861aea48c7ebd093",
+    "prompt-contracts.log": "9f951a2622a699b22ee7dd3c6a17bcb945d439933487396492f800eb4f7aa88d",
+    "docs-check-final.log": "65738c870cef90464e305cc69f94575b66e7a54b034b75d128f373b738975ada"
+  },
+  "analysis_report_sha256": "e87108a027b348ed53ab60a37063d7b8832985819b8622c59c728ee81b88e589",
+  "analysis_freeze": {
+    "report_sha256": "4c744a5a6514dfff1a5ca207e959b9b903399522fe0fdda9a02fff83c650d79f",
+    "frozen_before_teacher_calls": true,
+    "note": "Summary formulas frozen without reading model outputs or teacher judgments; CLI JSON transport has no text model banner; argv checks recorded separately."
+  },
+  "receipt_attribution_correction": {
+    "report_sha256": "e87108a027b348ed53ab60a37063d7b8832985819b8622c59c728ee81b88e589",
+    "before_teacher_results": true,
+    "reason": "Parallel teacher stage receipt inventories may overlap. Bind each new teacher request to its frozen neutral-ID repetition prefix; retain original overlapping inventories. No metric, source, label or prompt change."
+  },
+  "final_source_sha256": {
+    "backend/modules/world/services/worldbuilding/ask_world_service.py": "5ef45d5348be33608b581d722a2f5efac922b22ef79fff5f9bfe678b049ce565",
+    "docs/prompts/Prompt体系设计.md": "7485eb279371e7fac40b9b58b2b20c5dcc5872feb0d496b5a9ff18afa041763e",
+    ".agent/tasks/2026/T-20261015-g6b-recalibration/compare-refusal.py": "29b6030737809b7650dfd3d86619a06b565f88b5d68da9731eba51b5fdce6a9f"
+  },
+  "private_permissions": "directories 0700; files 0600; native capture retains original 077 umask",
+  "old_protected_unchanged": true,
+  "human_validated": false,
+  "blocking": false,
+  "delivery": "local, uncommitted, unpushed, undeployed"
+}

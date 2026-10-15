@@ -521,7 +521,10 @@ Evidence Search 构造最多 40 个短键候选；system 规则禁止发明引�
 确定性服务先固定当前项目、作者可见性、正式 source version 和最多 5 个回读来源，再把问题与
 有界 `SOURCE_EVIDENCE` 作为不可信数据交给模型。每条实质主张必须使用服务端提供的
 `citation_key`；未知 key 只修复一次，仍无合法引用就失败。无相关证据时服务在模型调用前拒答；
-有证据但不足以支持结论时 schema 要求 `no_answer=true` 且 claims 为空。模型不能调用工具、
+来源直接给出所问属性但版本冲突时，须在带引用的 claims 中并列记载，`no_answer=false`，
+并说明无法确定正典。保留来源历法、单位与精度，不额外要求更精确的答案；所问属性缺失或
+不能满足用户明确要求的精度/换算时，`no_answer=true` 且 claims 为空，不用旁支事实补答。
+模型不能调用工具、
 保存回答、更新 Wiki 或声称已经修改设定。provider 返回后服务重新回读来源 hash，漂移则 409；
 只读回答与作者随后显式保存为 pending suggestion 是两个独立动作。
 

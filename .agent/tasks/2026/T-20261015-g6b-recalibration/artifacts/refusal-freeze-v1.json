@@ -1,0 +1,135 @@
+{
+  "frozen_at": "2026-10-15T01:26:27.665685+00:00",
+  "hashes": {
+    "cases.json": "810169a50e6c3b4b75e989a1988ab056d1126e01741e0c6be35bce6683440c25",
+    "prompts.json": "5018ece9bf9fbb761fba630ab74af6486e8a2bf07f481b35e1e2be67cd478b0f",
+    "protocol.json": "2478fab90dca1532aa4ef61274b08854e573e087a35579b2921529131465dba5"
+  },
+  "prompt_hashes": {
+    "baseline": "331d3d64dbcb91bcd47279be735d408385266032493cb8ac32954fbd1285b4da",
+    "candidate": "23c0375ae469845b9bbde1fc14b4008c7ab3787a5d3d7cd1877b79bea17e0f01"
+  },
+  "old_protected": {
+    "/Users/tywww/.codex/worktrees/g6b-recalibration/ai-writing-assist/.agent/tasks/2026/T-20261015-g6b-recalibration/artifacts/live-ledger.json": "b01ed54b337166fe49b5e4d0b9db123bdc163464a71eb10e427056bd8c9659dd",
+    "/Users/tywww/.codex/worktrees/g6b-recalibration/ai-writing-assist/.agent/tasks/2026/T-20261015-g6b-recalibration/artifacts/preflight-ledger.json": "1908f9761f93a68853c919fc05b997ef753706f43189396b68de71a6c0318608",
+    "/Users/tywww/.codex/worktrees/g6b-recalibration/ai-writing-assist/.agent/tasks/2026/T-20261015-g6b-recalibration/artifacts/offline-manifest.json": "258cc88d45981fd56ae8e9c85fa6f88cdf78205c15bc8f809b35dd07a86b1be9",
+    "/Users/tywww/.codex/private/g6b-recalibration-20261015/live/debug-generated.json": "d6bd9c4d66b5dfa8cb1ea2b439b3482ad06b2ef7f6c74c5d8ee4538bf103ccbb",
+    "/Users/tywww/.codex/private/g6b-recalibration-20261015/live/debug-teacher.json": "d5c1bd4d7866f7427113aa0e15f3426c6a2ecc3f10a3ae68c15c0e11d80b7c75"
+  },
+  "new_cases": [
+    {
+      "scenario_id": "ask-refusal-amber-beacon-positive",
+      "family": "amber-beacon",
+      "should_answer": true,
+      "source_conflict": true,
+      "stratum": "conflict"
+    },
+    {
+      "scenario_id": "ask-refusal-amber-beacon-negative",
+      "family": "amber-beacon",
+      "should_answer": false,
+      "source_conflict": false,
+      "stratum": "near_miss"
+    },
+    {
+      "scenario_id": "ask-refusal-cobalt-drum-positive",
+      "family": "cobalt-drum",
+      "should_answer": true,
+      "source_conflict": true,
+      "stratum": "conflict"
+    },
+    {
+      "scenario_id": "ask-refusal-cobalt-drum-negative",
+      "family": "cobalt-drum",
+      "should_answer": false,
+      "source_conflict": false,
+      "stratum": "near_miss"
+    },
+    {
+      "scenario_id": "ask-refusal-reed-sluice-positive",
+      "family": "reed-sluice",
+      "should_answer": true,
+      "source_conflict": true,
+      "stratum": "conflict"
+    },
+    {
+      "scenario_id": "ask-refusal-reed-sluice-negative",
+      "family": "reed-sluice",
+      "should_answer": false,
+      "source_conflict": false,
+      "stratum": "near_miss"
+    },
+    {
+      "scenario_id": "ask-refusal-opal-school-positive",
+      "family": "opal-school",
+      "should_answer": true,
+      "source_conflict": false,
+      "stratum": "single_source"
+    },
+    {
+      "scenario_id": "ask-refusal-opal-school-negative",
+      "family": "opal-school",
+      "should_answer": false,
+      "source_conflict": false,
+      "stratum": "near_miss"
+    },
+    {
+      "scenario_id": "ask-refusal-brass-casket-positive",
+      "family": "brass-casket",
+      "should_answer": true,
+      "source_conflict": true,
+      "stratum": "conflict"
+    },
+    {
+      "scenario_id": "ask-refusal-brass-casket-negative",
+      "family": "brass-casket",
+      "should_answer": false,
+      "source_conflict": false,
+      "stratum": "near_miss"
+    },
+    {
+      "scenario_id": "ask-refusal-moss-lock-positive",
+      "family": "moss-lock",
+      "should_answer": true,
+      "source_conflict": true,
+      "stratum": "conflict"
+    },
+    {
+      "scenario_id": "ask-refusal-moss-lock-negative",
+      "family": "moss-lock",
+      "should_answer": false,
+      "source_conflict": false,
+      "stratum": "near_miss"
+    },
+    {
+      "scenario_id": "ask-refusal-violet-vault-positive",
+      "family": "violet-vault",
+      "should_answer": true,
+      "source_conflict": false,
+      "stratum": "single_source"
+    },
+    {
+      "scenario_id": "ask-refusal-violet-vault-negative",
+      "family": "violet-vault",
+      "should_answer": false,
+      "source_conflict": false,
+      "stratum": "scope_excluded"
+    },
+    {
+      "scenario_id": "ask-refusal-umber-convoy-positive",
+      "family": "umber-convoy",
+      "should_answer": true,
+      "source_conflict": false,
+      "stratum": "single_source"
+    },
+    {
+      "scenario_id": "ask-refusal-umber-convoy-negative",
+      "family": "umber-convoy",
+      "should_answer": false,
+      "source_conflict": false,
+      "stratum": "near_miss"
+    }
+  ],
+  "human_validated": false,
+  "blocking": false
+}

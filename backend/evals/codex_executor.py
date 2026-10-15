@@ -6,6 +6,7 @@ import asyncio
 import hashlib
 import json
 import os
+import shutil
 import signal
 import tempfile
 from dataclasses import dataclass
@@ -13,6 +14,7 @@ from pathlib import Path
 from typing import NoReturn, TypeVar
 
 from pydantic import BaseModel
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from evals.schemas import (
     ALLOWED_EVAL_TEACHER_MODELS,
@@ -26,6 +28,39 @@ StructuredResultT = TypeVar("StructuredResultT", bound=BaseModel)
 
 class CodexExecutionError(RuntimeError):
     """Raised when the pinned local Codex execution cannot produce valid output."""
+
+
+@dataclass(frozen=True)
+class AskWorldCalibrationScope:
+    """G6b opt-in: revalidate the actual owner runtime before every teacher call."""
+
+    db: AsyncSession
+    novel_id: str
+    snapshot: dict
+
+    async def verify(self) -> None:
+        from modules.project.facade import (
+            build_project_llm_execution_snapshot,
+            restore_project_llm_execution_settings,
+        )
+
+        current = await build_project_llm_execution_snapshot(self.db, self.novel_id)
+        restored = await restore_project_llm_execution_settings(
+            self.db, self.novel_id, current
+        )
+        profile = current["profile"]
+        if (
+            current != self.snapshot
+            or profile.get("provider_id") != "codex"
+            or profile.get("model") != "gpt-6-luna"
+            or not profile.get("connection_verified")
+            or restored["llm"]["extra"].get("reasoning_effort") != "max"
+        ):
+            raise CodexExecutionError(
+                "G6b requires the unchanged verified Luna/max snapshot"
+            )
+        # Do not hold a database read transaction across the teacher's model IO.
+        await self.db.rollback()
 
 
 def require_live_eval_calibration() -> NoReturn:
@@ -70,6 +105,7 @@ class CodexStructuredExecutor:
         command: str = "codex",
         timeout_seconds: float = 300.0,
         attempts: int = 2,
+        calibration: AskWorldCalibrationScope | None = None,
     ) -> None:
         model = model or os.environ.get("EVAL_CODEX_MODEL", EVAL_TEACHER_MODEL)
         if model not in allowed_models:
@@ -86,11 +122,16 @@ class CodexStructuredExecutor:
             raise ValueError("timeout_seconds must be positive")
         if attempts < 1:
             raise ValueError("attempts must be positive")
+        if calibration is not None and attempts != 1:
+            raise ValueError(
+                "G6b calibration never automatically retries a model request"
+            )
         self.model = model
         self.reasoning_effort = reasoning_effort
         self.command = command
         self.timeout_seconds = timeout_seconds
         self.attempts = attempts
+        self.calibration = calibration
 
     @property
     def meta(self) -> CodexExecutionMeta:
@@ -128,7 +169,27 @@ class CodexStructuredExecutor:
         *,
         step_name: str,
     ) -> StructuredResultT:
-        require_live_eval_calibration()
+        if self.calibration is None:
+            require_live_eval_calibration()
+        if (
+            self.model != EVAL_TEACHER_MODEL
+            or self.reasoning_effort != EVAL_TEACHER_REASONING_EFFORT
+            or step_name != "eval.ask_world.teacher_calibration"
+        ):
+            raise CodexExecutionError(
+                "G6b only permits the pinned Ask World teacher step"
+            )
+        await self.calibration.verify()
+        executable = shutil.which(self.command)
+        if executable is None:
+            raise CodexExecutionError("G6b Codex CLI is unavailable")
+        payload = await self._invoke(
+            executable,
+            prompt,
+            _strict_json_schema(response_model.model_json_schema()),
+            step_name=step_name,
+        )
+        return response_model.model_validate_json(payload)
 
     async def _invoke(
         self,
@@ -160,6 +221,39 @@ class CodexStructuredExecutor:
                 "shell_tool",
                 "--disable",
                 "tool_suggest",
+                "--disable",
+                "multi_agent",
+                "--disable",
+                "apps",
+                "--disable",
+                "hooks",
+                *[
+                    arg
+                    for feature in (
+                        "view_image",
+                        "browser_use",
+                        "browser_use_external",
+                        "computer_use",
+                        "in_app_browser",
+                        "code_mode_host",
+                        "goals",
+                        "skill_search",
+                        "skill_mcp_dependency_install",
+                        "shell_snapshot",
+                        "unified_exec",
+                        "remote_plugin",
+                        "unbounded_connection_retries",
+                    )
+                    for arg in ("--disable", feature)
+                ],
+                "--enable",
+                "skip_host_skill_discovery",
+                "-c",
+                "project_doc_max_bytes=0",
+                "-c",
+                'web_search="disabled"',
+                "-c",
+                "mcp_servers={}",
                 "exec",
                 "--ephemeral",
                 "--ignore-user-config",
@@ -189,6 +283,23 @@ class CodexStructuredExecutor:
                 stdin=asyncio.subprocess.PIPE,
                 stdout=asyncio.subprocess.PIPE,
                 stderr=asyncio.subprocess.PIPE,
+                env={
+                    key: value
+                    for key, value in os.environ.items()
+                    if key
+                    in {
+                        "PATH",
+                        "HOME",
+                        "CODEX_HOME",
+                        "TMPDIR",
+                        "LANG",
+                        "LC_ALL",
+                        "HTTPS_PROXY",
+                        "HTTP_PROXY",
+                        "NO_PROXY",
+                        "SSL_CERT_FILE",
+                    }
+                },
                 start_new_session=True,
             )
             request = (
@@ -202,15 +313,17 @@ class CodexStructuredExecutor:
                     process.communicate(request),
                     timeout=self.timeout_seconds,
                 )
-            except TimeoutError as exc:
+            except (TimeoutError, asyncio.CancelledError) as exc:
                 try:
                     os.killpg(process.pid, signal.SIGKILL)
                 except (AttributeError, OSError, ProcessLookupError):
                     process.kill()
                 await process.wait()
-                raise CodexExecutionError(
-                    f"Codex timed out after {self.timeout_seconds:g}s"
-                ) from exc
+                if isinstance(exc, TimeoutError):
+                    raise CodexExecutionError(
+                        f"Codex timed out after {self.timeout_seconds:g}s"
+                    ) from exc
+                raise
 
             diagnostics = (stdout + stderr).decode("utf-8", errors="replace")
             if process.returncode != 0:
