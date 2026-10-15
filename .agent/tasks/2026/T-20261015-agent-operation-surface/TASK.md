@@ -33,6 +33,8 @@ A4 Luna/max `luna_operation_trace_reports` 在 `operation-trace-report-impl/code
 
 下一步：继续A3独立审修与A4/C5实施；仅在固定提交和证据完成后由root集成。空槽后启动C0模板互通、C3对齐与A1缺项，不把条件门禁或纯接线候选算完成。
 
+批次验收见[完整范围对账](../T-20261015-character-world-progression/artifacts/FULL-SCOPE-ACCEPTANCE.md)。
+
 ## 目标与验收
 
 - 目标：各模块开放或增加 AI 操作入口，让 AI 能自主规划、操作，完成作者的目标；

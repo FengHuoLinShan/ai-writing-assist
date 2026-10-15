@@ -3,6 +3,11 @@
 恢复时先核对主树和实际子代理状态。本文件只协调本次用户已授权的 Luna/max 实现、
 Sol/high 独立审查和直接修复；root 不手改 review 问题或 Git 冲突。
 
+2026-10-16 当前状态优先见[完整范围对账](FULL-SCOPE-ACCEPTANCE.md)及主TASK恢复快照：
+下述C0b/C3b原队列已审修集成；C0c产品亦已合primary bd31d959d并完成root组合验证。
+A3 Sol现独占共享装配，A4/C5 Luna独立实施；后续C0模板、C3对齐与A1尾项尚未派发。
+以下保留原问题和当时证据，不是当前分支/锁的指令。
+
 ## C0b：三层对象简报
 
 - 原实现：world-object-dossier-impl/codex/object-dossier-evidence-impl 的

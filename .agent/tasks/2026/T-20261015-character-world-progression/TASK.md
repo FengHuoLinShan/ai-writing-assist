@@ -36,6 +36,8 @@ A4 Luna/max `luna_operation_trace_reports` 在 `operation-trace-report-impl/code
 
 下一步：继续A3独立审修与A4/C5实施；仅在固定提交和证据完成后由root集成。空槽后启动C0模板互通、C3对齐与A1缺项，不把条件门禁或纯接线候选算完成。
 
+批次验收见[完整范围对账](artifacts/FULL-SCOPE-ACCEPTANCE.md)。
+
 ## 目标与验收
 
 - 目标：所有世界对象的信息分层、可自定义扩展、经统一接口被有效利用；场景导演作为写作副驾驶的高级扩展，

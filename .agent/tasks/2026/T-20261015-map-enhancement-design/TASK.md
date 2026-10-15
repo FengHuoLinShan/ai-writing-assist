@@ -26,6 +26,7 @@ A4 Luna/max `luna_operation_trace_reports` 在 `operation-trace-report-impl/code
 后续仍在范围：C0自定义类型借用内核/五题材档案模板/表格与JSON互通、C3前瞻表演格式/人物弧计划实际对照/演化阅读提醒、A1章节真实重排与一般Story时间线，分别见 artifacts/C0-TEMPLATE-INTERCHANGE-TAIL.md、C3-ALIGNMENT-TAIL.md、A1-A2-HANDOFF.md，待空槽逐批Luna实施、Sol审修。C1长篇、M5势力、RP迁移、A4数周真实留痕为条件门禁，不能用合成测试替代。C4此前Sol8299普通回归与实际TaskWorker同根两轮/8本地provider受控调用/80%零新IO、历史与参考剧本390/1280证据保留，原组合5102已由当前5133范围扩大复验覆盖；此前Writing测试manager泄漏由Sol测试归属修复，生产guard未放宽。R3继续诊断封存，holdout不解码；零新真实模型请求，未push/PR/main合并/部署。
 
 - 下一步：继续A3独立审修与A4/C5实施；仅在固定提交和证据完成后由root集成。空槽后启动C0模板互通、C3对齐与A1缺项，不把条件门禁或纯接线候选算完成。
+- 批次验收：[完整范围对账](../T-20261015-character-world-progression/artifacts/FULL-SCOPE-ACCEPTANCE.md)，区分已合入、进行中、未实施与外部条件门禁。
 - 范围：用户已明确“该分支三份计划全部实施，包括操作目录、对象档案、导演和世界推进”。执行地图M0–M5及两个配套完整计划；既有计划的条件依赖和真实质量门禁仍有效，不能冒称完成。
 - 依赖：M5 依赖独立势力路线图阶段 1，现有计划明确阶段 1 前不提供领地图层；不得读取旧无时效势力字段冒充完成。
 - 已落地共享前置：`6fcce3bfd` 把7种ObservationModality上移shared并保持Evolution兼容再出口（16测）；`16f64570a` 在既有Story scene-source port提供按当前顺序的锚点/替换链只读数据（5测）。两者ruff通过，后续纳入Sol审查。

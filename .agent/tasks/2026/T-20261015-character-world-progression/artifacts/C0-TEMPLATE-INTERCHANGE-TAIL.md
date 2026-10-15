@@ -23,7 +23,11 @@
   保留草稿、409、键盘和窄屏。每个新增 AI 可用操作提供纯 SPEC、真实 HTTP/trace 与版本冻结；
   仅导出文件或接线清单不能算闭环。
 
-当前 C0c Sol 独占有效期、keys/bootstrap/目录冻结及迁移祖先；上述尾项尚未派发。
-后续从最新已审 primary 创建独立树，不抢写该批共享文件；最终由 Sol 顺序组合。
+当前 C0c 已由 Sol 完成并合入 primary `9b9c022a5`，前端 fixture 后固定 `bd31d959d`；
+root 的5133后端、27专库PG、3173前端与lint/build/docs/repo-gates全部通过。
+上述尾项尚未派发。共享 keys/bootstrap/目录冻结、worker及TaskRegistry现由 A3 Sol 独占；
+后续从最新已审 primary 复用干净任务树，新建主题分支，最终由 Sol 顺序组合。
+旧模板 format_version=1、Dossier/Assistant 的历史输入快照保持版本化，不因新增借用字段改写。
+结构化 JSON 只走明确的作者档案 manifest 边界，不扩文稿或表格上传后缀白名单。
 唯一后端环境为 primary/backend/.venv，Node24，无安装依赖、默认开发库、真实模型、R3或holdout访问。
 PostgreSQL 只用 root 明确分配的新专库，不能借用其他代理的库。保持旧目录与 map.edit 哈希冻结。
