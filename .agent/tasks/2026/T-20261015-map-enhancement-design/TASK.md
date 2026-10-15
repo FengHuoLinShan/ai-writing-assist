@@ -3,7 +3,7 @@ id: T-20261015-map-enhancement-design
 title: 地图系统增强设计与分批实施（自动冷启动、参与创作决策、题材鲁棒性）
 status: active
 created: 2026-10-15T10:54:00+08:00
-updated: 2026-10-16T00:42:00+08:00
+updated: 2026-10-16T00:55:08+08:00
 ---
 
 # 地图系统增强设计
@@ -13,14 +13,14 @@ updated: 2026-10-16T00:42:00+08:00
 - 当前授权：2026-10-15 用户 `/goal` 要求执行 `codex/map-enhancement-plan` 的计划；Luna/max 子代理并行实现，Sol/high 按批次 review 与修复。只做本地开发验证；没有发布、真实数据破坏或对外发送授权。用户16:43补充“修复由sol子代理直接修”：后续代码修复均由Sol/high子代理直接执行。用户曾要求“由你收尾”；其后明确答复范围为三份计划全部实施，包括操作目录、对象档案、导演、世界推进。root继续负责分批拆解、集成、验证、任务记录与实际隔离评测；已明确确认采用“模拟作者显式指定Scene地点后做辅助Writing对比”。
 - 主工作区：`/Users/tywww/项目/ai-writing-assist/.worktrees/map-enhancement-plan`，分支 `codex/map-enhancement-plan`。原 Desktop 路径已失效；仓库实际已迁至 `/Users/tywww/项目/ai-writing-assist`。
 - 恢复时基线：设计提交 `3fd5ca29e`；刚 fetch 的 `origin/main=00d861283` 已无冲突合并为 `b74d7c28d`（本地），包含 G8c 与第三批评测/HTTPX2 变更。开始时主工作区干净，其他 worktree/WIP 保留。
-- 当前里程碑：primary4c04bb982已集成C0b全部安全审修及目录模板修订2；root扩大回归3030 passed/3 deselected/1既有Pydantic warning（70.35s），RuntimeWarning转error无失败。A0前扩大2178与当前6PG、C0最终2PG均另有root证据。C0b角色/公开分页前过滤、Story reader正向投影、demo拒绝已验证；C0完整Generic桥接及C2仍未完成。SolUI在map-clue-review组合审修，七独立来源真实PG HTTP1通过，继续浏览器联调。backend C2 f6安全恢复点5217f5310干净，等槽位恢复Luna。C4a与A1分别由Luna/max在map-assistant-structure、map-assistant-operations并行实施；A2/A3/A4、C4b/C5和外部真实/势力/RP条件门禁保留。
-- 下一步：收SolUI真实PG/浏览器组合审修后集成C3b+C2b；恢复Luna backend C2/Generic，再按批次审修C4a/A1并推进A2、C4b/C5。C4a补现有Scene排演UI必要调用方，不允许只留下旧协议409；RP旧team_v1/v2仍独立门禁。R3封存、holdout不读。
+- 当前里程碑：primary a18b80cd5 已无冲突集成 C3b/C2b 与 Sol 组合审修（435153599、80de1edab、97019b1e7、4dbbf6ef0、035671f98、a18b80cd5）。root 在该代码上验证86后端、3专用PG、248文件3134前端全部通过，ESLint及生产构建/资产校验通过；只有既有Pydantic schema warning，RuntimeWarning转error无失败。Sol真实浏览器390/1280已验证七来源/处置持久化/对象简报，root看图无横向溢出。C0b前批3030通过证据仍保留。C4a Luna固定提交4cbc97e35已交同一Sol/high独立审修，尚未集成；连续轮次409只属C4a过渡，C4b必须完成根预算后开放。Luna dossier_consumers已从5217f5310恢复C2及完整Generic桥接；A1 Luna继续纯插件。A2/A3/A4、C4b/C5及外部真实/势力/RP门禁仍未完成。
+- 下一步：收 Sol 的 C4a 固定点审修，集成后开放 C4b/C5；并行完成 Luna C2/Generic 与 A1 插件，再由 Sol 接线审修并继续 A2。章节重排与时间线缺口单列后续领域切片，不伪造已有服务。R3封存、holdout不读。
 - 范围：用户已明确“该分支三份计划全部实施，包括操作目录、对象档案、导演和世界推进”。执行地图M0–M5及两个配套完整计划；既有计划的条件依赖和真实质量门禁仍有效，不能冒称完成。
 - 依赖：M5 依赖独立势力路线图阶段 1，现有计划明确阶段 1 前不提供领地图层；不得读取旧无时效势力字段冒充完成。
 - 已落地共享前置：`6fcce3bfd` 把7种ObservationModality上移shared并保持Evolution兼容再出口（16测）；`16f64570a` 在既有Story scene-source port提供按当前顺序的锚点/替换链只读数据（5测）。两者ruff通过，后续纳入Sol审查。
 - 验证环境：主树独立backend/.venv（Python3.14.8、locked ci）及frontend node_modules；本任务专用PostgreSQL容器 `map-enhancement-test-20261015`、loopback65202、数据库 `map_enhancement_test`，基线完整Alembic升级已通过，未接触真实库。
 - 验证：实现前 `make docs-check` 已通过（152 ORM表、49ADR）；没有真实模型/真实稿件验证。
-- 最后核实：2026-10-16T00:42:00+08:00
+- 最后核实：2026-10-16T00:55:08+08:00
 
 ## 批次与分工
 
@@ -460,3 +460,9 @@ updated: 2026-10-16T00:42:00+08:00
   旧历史只读；Interaction ensemble.py仅显式锁rehearsal_v1以保留team_v1，不改RP策略/上限。
   A1 Luna已快进primary4c后新增纯SPEC，没带待审UI栈，不与Sol共享写。
 - 没有新模型调用、R3重试、holdout读取、push、PR、main合并或部署。全部剩余授权工作继续。
+
+## 2026-10-16T00:55:08+08:00 C3b/C2b 真实组合验收与下一批
+
+- 配套C3b/C2b已集成并经root86后端+3专用PG+3134前端及lint/build组合验证；地图来源提醒实际读取正文manifest的source_hash，修复保存正文后来源不可用。详情见character-world-progression同轮记录。
+- 工程PG65202已由Sol释放、root本批3测试完毕，目前无使用者；原map_enhancement_test及各专用reviewDB均保留。评测65302封存R3、holdout、默认开发DB不访问，无新付费请求。
+- 三份计划全部实施的授权和用户“Sol子代理直接修”保持；只本地提交，无push/PR/main合并/部署。未完成实现及真实质量/作者验收继续如实保留。

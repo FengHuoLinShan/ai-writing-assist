@@ -3,7 +3,7 @@ id: T-20261015-agent-operation-surface
 title: 全模块 AI 操作入口、目标运行与操作留痕设计
 status: active
 created: 2026-10-15T14:30:00+08:00
-updated: 2026-10-16T00:42:00+08:00
+updated: 2026-10-16T00:55:08+08:00
 ---
 
 # 全模块 AI 操作入口、目标运行与操作留痕设计
@@ -19,7 +19,7 @@ updated: 2026-10-16T00:42:00+08:00
 2026-10-15 技术评审后按推荐修订 ADR-0038：目录项事务形态、目标运行 `goal` 模式与每项目唯一索引、
 高频操作留痕合并或豁免。修订经用户授权在第三个本地提交 `20d6f1eff` 中提交，未推送。
 2026-10-15 用户采纳 ADR-0038（Accepted / 未实施）；ADR-0023 补充说明与索引同步。
-用户已明确三份计划全部实施，本任务执行A0–A4。primary4c04bb982已集成C0b全部安全审修及目录模板修订2；root扩大回归3030 passed/3 deselected/1既有Pydantic warning（70.35s），RuntimeWarning转error无失败。A0前扩大2178与当前6PG、C0最终2PG均另有root证据。C0b角色/公开分页前过滤、Story reader正向投影、demo拒绝已验证；C0完整Generic桥接及C2仍未完成。SolUI在map-clue-review组合审修，七独立来源真实PG HTTP1通过，继续浏览器联调。backend C2 f6安全恢复点5217f5310干净，等槽位恢复Luna。C4a与A1分别由Luna/max在map-assistant-structure、map-assistant-operations并行实施；A2/A3/A4、C4b/C5和外部真实/势力/RP条件门禁保留。
+用户已明确三份计划全部实施，本任务执行A0–A4。primary a18b80cd5 已无冲突集成 C3b/C2b 与 Sol 组合审修（435153599、80de1edab、97019b1e7、4dbbf6ef0、035671f98、a18b80cd5）。root 在该代码上验证86后端、3专用PG、248文件3134前端全部通过，ESLint及生产构建/资产校验通过；只有既有Pydantic schema warning，RuntimeWarning转error无失败。Sol真实浏览器390/1280已验证七来源/处置持久化/对象简报，root看图无横向溢出。C0b前批3030通过证据仍保留。C4a Luna固定提交4cbc97e35已交同一Sol/high独立审修，尚未集成；连续轮次409只属C4a过渡，C4b必须完成根预算后开放。Luna dossier_consumers已从5217f5310恢复C2及完整Generic桥接；A1 Luna继续纯插件。A2/A3/A4、C4b/C5及外部真实/势力/RP门禁仍未完成。
 
 ## 目标与验收
 
@@ -196,3 +196,10 @@ updated: 2026-10-16T00:42:00+08:00
   旧历史只读；Interaction ensemble.py仅显式锁rehearsal_v1以保留team_v1，不改RP策略/上限。
   A1 Luna已快进primary4c后新增纯SPEC，没带待审UI栈，不与Sol共享写。
 - 没有新模型调用、R3重试、holdout读取、push、PR、main合并或部署。全部剩余授权工作继续。
+
+## 2026-10-16T00:55:08+08:00 C3b/C2b 真实组合验收与下一批
+
+- A1 Luna报告首批14项World/Story/Writing/Evidence纯SPEC及Evolution授权准备，仍在补实际服务测试和精确接线单；未提交/未接目录，不算已交付。Writing章节重排无现存领域服务，不能直接改chapter_index破坏Story/Evolution来源；保留独立实施项。Story时间线是否已有入口仍待核实，不能以Scene排序替代。
+- Assistant现有组合根在C3b集成后primary已稳定；下批A1注册/route binding/新冻结版本统一交Sol单写，不把新增route藏入历史baseline。目标运行A2尚未实施，A3/A4条件与真实数据要求不变。
+- 七来源提醒/对象简报本批验证见同轮character-world-progression任务，root86后端+3PG+3134前端及lint/build通过；不把UI留痕通过当作目标引擎已完成。
+- 三份计划全部实施的授权和用户“Sol子代理直接修”保持；只本地提交，无push/PR/main合并/部署。未完成实现及真实质量/作者验收继续如实保留。
