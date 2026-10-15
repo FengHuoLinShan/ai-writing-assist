@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import uuid
+from dataclasses import replace
 from datetime import UTC, datetime
 from types import SimpleNamespace
 from unittest import mock
@@ -204,6 +205,8 @@ async def test_context_uses_only_prewrite_sources_explicit_priority_and_top_k() 
             novel_id=data.novel_id,
             asset_type="world_bible_page",
             asset_id=str(uuid.uuid4()),
+            revision_id=str(uuid.uuid4()),
+            revision_digest="a" * 64,
             title=f"页面 {index}",
             summary=f"设定 {index}",
             group="setting:page",
@@ -286,6 +289,18 @@ async def test_context_uses_only_prewrite_sources_explicit_priority_and_top_k() 
         plan = await StoryOutlineGenerationService(
             story_outline_service=story_service,
         ).prepare(SimpleNamespace(), data)
+        background_entries[:] = [
+            replace(e, revision_id=str(uuid.uuid4()), revision_digest="b" * 64)
+            for e in background_entries
+        ]
+        next_plan = await StoryOutlineGenerationService(
+            story_outline_service=story_service,
+        ).prepare(SimpleNamespace(), data)
+        assert plan.source_fingerprint == next_plan.source_fingerprint
+        assert (
+            plan.context_provenance["world_bible_page_revisions"]
+            != (next_plan.context_provenance["world_bible_page_revisions"])
+        )
 
     assert set(plan.context) == {
         "project",
@@ -297,6 +312,12 @@ async def test_context_uses_only_prewrite_sources_explicit_priority_and_top_k() 
         "current_story_outline",
     }
     assert len(plan.context["world_bible_pages"]) == 24
+    baselines = plan.context_provenance["world_bible_page_revisions"]
+    assert len(baselines) == 24
+    assert {b["page_id"] for b in baselines} == {
+        p["asset_id"] for p in plan.context["world_bible_pages"]
+    }
+    assert all(b["revision_digest"] == "a" * 64 for b in baselines)
     assert plan.context["selected_characters"][0]["character_id"] == character_id
     assert plan.context["selected_world_entities"][0]["entity_id"] == entity_id
     assert plan.context_provenance["top_k"] == {
@@ -951,7 +972,12 @@ async def test_apply_edited_preview_uses_server_task_provenance_and_no_lower_wri
     assert {
         key: value
         for key, value in provenance.items()
-        if key not in {"story_execution_profile", "story_execution_profile_hash"}
+        if key
+        not in {
+            "story_execution_profile",
+            "story_execution_profile_hash",
+            "world_bible_page_revisions",
+        }
     } == {
         "actor": "author",
         "note": "Adopted an author-edited StoryOutline AI preview.",
@@ -962,6 +988,7 @@ async def test_apply_edited_preview_uses_server_task_provenance_and_no_lower_wri
             f"project:{sample_novel_id}@{'e' * 64}",
         ],
     }
+    assert provenance["world_bible_page_revisions"] == []
     assert provenance["story_execution_profile"]["version"] == (
         "story_execution_profile.v1"
     )

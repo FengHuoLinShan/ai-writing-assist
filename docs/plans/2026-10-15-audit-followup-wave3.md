@@ -1,6 +1,6 @@
 # 能力审计后续第三批计划（2026-10-15）
 
-日期：2026-10-15。状态：**开发计划，未开工；用户已于 2026-10-15 裁定 §6，执行者由用户自行安排**。上级计划：
+日期：2026-10-15。状态：**执行中；主记录见 T-20261015-audit-wave3/TASK.md**。上级计划：
 [能力审计后续批次开发计划](2026-10-14-audit-followup-batch.md)（以下称“主计划”，G 编号、通用门禁以它为准）与
 [第二批计划](2026-10-14-audit-followup-wave2.md)（以下称“第二批”，G6/G7 切片定义以它为准）。
 
@@ -167,10 +167,10 @@ dropped/omitted，unknown 与作者处置单列；语义复核在 A1 完成后�
 - G8b 已建立同类模式：world 只读批量 head 出口 + DI 键 `world.read_map_node_heads`（`core/service_keys.py:267`、
   `app/bootstrap.py:450`），消费方 Protocol 定义在消费侧，比较结果只进响应、不入库。
 
-做法：world 新增只读“按页面批量取当前 revision 与 digest”出口与 DI 键；首片按主计划 §7.5 落在 Story checkpoint
-的消费登记，把实际读取的页面 revision 写入 `selected_assets`；读时比对，在响应里给“基于旧版正典”提示，不写回、
-不进语义指纹。其他读取世界书页的消费方（如 `story/outline_state/story_outline_generation.py:220-225` 的
-`selected_assets.world_bible_page`）开工时列清单，另片处理。完成后从 `unsupported` 中只移出已覆盖部分，未覆盖的
+做法：world 新增只读“按页面批量取当前 revision 与 digest”出口与 DI 键；用户于执行中同意首片改到实际读取页面的 Story 大纲生成：将直接 `world_bible_pages` 输入的修订保存到任务
+context_provenance，采用时复制到总纲修订 provenance；读时比对，在响应给设定更新提示，不写回、不进语义指纹。
+原 Story checkpoint 仅重放稿件事件，不消费页面，不能为其虚构基线。Evidence 确认编译内额外页面、综合梗概、
+其他生成方及台账仍列为未覆盖；Scene 的 unsupported 不移除。完成后从 `unsupported` 中只移出已覆盖部分，未覆盖的
 继续显式列出。
 
 保护：主计划 §7.6 全部保留（owner + novel_id 双重过滤、revision append-only 与 CAS、作者确认只标待重验等）。
@@ -237,7 +237,7 @@ PR。M3 上 `backend/pyproject.toml:53` 仍写 `openai>=2.53.0`；`backend/infra
 5. 旧 worktree 按 §3.8 核对后清理，删除清单逐项取得授权。
 6. 执行者由用户自行安排，本计划不指派。
 
-本计划自行采用、证据相反时再改的默认假设：R3 并入 R1；G8c 首片只做 Story checkpoint 消费方；A1 的复核工具落在
+本计划自行采用、证据相反时再改的默认假设：R3 并入 R1；G8c 首片按执行中用户答复改做 Story 大纲直接页面输入；A1 的复核工具落在
 仓库内新路径并带合成测试；G7b 并发值在开工范围里写明；#244 在 Dependabot 分支上补齐或另开 PR 取代。
 
 ## 7. 验证门禁

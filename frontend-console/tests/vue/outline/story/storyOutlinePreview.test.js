@@ -495,3 +495,14 @@ describe("预览 · 任务完成创建 preview", () => {
     wrapper.unmount()
   })
 })
+
+
+describe("参考设定更新提示", () => {
+  it.each([null, { changed: false }, { changed: true }])("仅显示真实变化且保留总览 %j", (canonStaleness) => {
+    const revision = { ...revisionFixture("rev-1", 1, "霜城纪事"), canon_staleness: canonStaleness }
+    const wrapper = mount(OutlineStoryTab, { props: makeProps({ current: { revision } }) })
+    expect(wrapper.find('[data-testid="story-outline-canon-notice"]').exists()).toBe(Boolean(canonStaleness?.changed))
+    expect(wrapper.text()).toContain("霜城纪事")
+    if (canonStaleness?.changed) expect(wrapper.text()).toContain("当前内容保留，由你决定是否修改")
+  })
+})

@@ -93,11 +93,25 @@ class StoryExecutionProfile(StoryOutlineSchema):
     macro_state_changes: list[ListText] = Field(default_factory=list, max_length=100)
 
 
+class WorldBiblePageBaseline(StoryOutlineSchema):
+    page_id: uuid.UUID
+    revision_id: uuid.UUID
+    revision_digest: str = Field(pattern=r"^[0-9a-f]{64}$")
+
+
+class WorldCanonStaleness(StoryOutlineSchema):
+    changed: bool
+    changed_page_ids: list[uuid.UUID]
+
+
 class StoryOutlineProvenance(StoryOutlineSchema):
     actor: ActorText | None = None
     note: NoteText | None = None
     client_ref: RefText | None = None
     source_refs: list[RefText] = Field(default_factory=list, max_length=100)
+    world_bible_page_revisions: list[WorldBiblePageBaseline] = Field(
+        default_factory=list, max_length=256
+    )
     story_execution_profile: StoryExecutionProfile | None = None
     story_execution_profile_hash: str | None = Field(
         default=None,
@@ -217,6 +231,7 @@ class StoryOutlineRevisionResponse(StoryOutlineContent):
     content_hash: str = Field(min_length=64, max_length=64)
     created_at: datetime
     is_current: bool
+    canon_staleness: WorldCanonStaleness | None = None
 
 
 class StoryOutlineCurrentResponse(StoryOutlineSchema):

@@ -16,6 +16,7 @@ from typing import TYPE_CHECKING
 from modules.world.attention_facade import (  # noqa: F401
     get_author_attention_summary,
 )
+from modules.world.canon_baselines import read_world_bible_page_revisions
 from modules.world.canon_import import (  # noqa: F401
     CanonImportResourceMaps,
     load_demo_import_source,
@@ -192,6 +193,7 @@ __all__ = [
     "list_auto_ingested_entities",
     "list_adopted_map_continuity_facts",
     "read_map_node_heads",
+    "read_world_bible_page_revisions",
     "list_characters",
     "list_entities",
     "list_entity_terms",
