@@ -274,6 +274,8 @@ def prepare_scene_call_request(request, method, *, model, provider_id):
             in {
                 "evolution.discovery.v1",
                 "evolution.discovery.review.v1",
+                "evolution.spatial_discover.v1",
+                "evolution.spatial_review.v1",
             }
             else DEEPSEEK_QUALITY_OUTPUT_TOKENS
             if method
@@ -326,6 +328,7 @@ def registered_scene_request(consumer, consumed, *, model):
     required = (
         {"inputs"}
         if consumer.startswith("scene_discovery")
+        or consumer in {"scene_spatial_discovery", "scene_spatial_review"}
         else {"request", "schema_name", "schema_hash"}
         if consumer
         in {
@@ -356,6 +359,22 @@ def registered_scene_request(consumer, consumed, *, model):
         )
         schema = DiscoveryReview if review else DiscoveryOutput
         method = "evolution.discovery.review.v1" if review else "evolution.discovery.v1"
+    elif consumer in {"scene_spatial_discovery", "scene_spatial_review"}:
+        from modules.evolution.spatial import (
+            SPATIAL_METHOD_ID,
+            SPATIAL_REVIEW_METHOD_ID,
+            SpatialDiscoveryOutput,
+            SpatialReviewOutput,
+            spatial_discovery_messages,
+        )
+
+        review = consumer == "scene_spatial_review"
+        request = LLMCallRequest(
+            messages=spatial_discovery_messages(inputs["inputs"], review=review),
+            temperature=0,
+        )
+        schema = SpatialReviewOutput if review else SpatialDiscoveryOutput
+        method = SPATIAL_REVIEW_METHOD_ID if review else SPATIAL_METHOD_ID
     elif consumer in {
         "scene_world",
         "scene_relations",
@@ -457,6 +476,12 @@ class ProjectLLMSampler:
 
     async def review_discovery(self, *, inputs):
         return await self._registered_call("scene_discovery_review", {"inputs": inputs})
+
+    async def discover_spatial(self, *, inputs):
+        return await self._registered_call("scene_spatial_discovery", {"inputs": inputs})
+
+    async def review_spatial(self, *, inputs):
+        return await self._registered_call("scene_spatial_review", {"inputs": inputs})
 
     async def enrich_scene(self, *, payload):
         return await self._registered_call("scene_enrichment", {"payload": payload})

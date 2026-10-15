@@ -7,7 +7,13 @@ from fastapi import APIRouter, Depends, Query, Request
 from pydantic import BaseModel, ConfigDict, Field
 
 from core.dependencies import DbSession
-from modules.evolution import category_rescan, ledger, workflow, world_audit_supplement
+from modules.evolution import (
+    category_rescan,
+    ledger,
+    spatial_rescan,
+    workflow,
+    world_audit_supplement,
+)
 from modules.evolution.ledger_contracts import LedgerCategory, LedgerDecision
 from modules.evolution.ownership import switch_project_engine
 from modules.project.facade import (
@@ -211,5 +217,34 @@ async def resume_category_rescan(
     db: DbSession, novel_id: UUID, run_key: str, operation_id: UUID
 ):
     return await category_rescan.resume_category_rescan(
+        db, str(novel_id), run_key, operation_id
+    )
+
+
+@router.post("/reading/{run_key}/spatial-rescan-preview")
+async def preview_spatial_rescan(
+    db: DbSession,
+    novel_id: UUID,
+    run_key: str,
+    data: spatial_rescan.SpatialRescanRequest,
+):
+    return await spatial_rescan.preview_spatial_rescan(db, str(novel_id), run_key, data)
+
+
+@router.post("/reading/{run_key}/spatial-rescan", status_code=201)
+async def start_spatial_rescan(
+    db: DbSession,
+    novel_id: UUID,
+    run_key: str,
+    data: spatial_rescan.SpatialRescanStart,
+):
+    return await spatial_rescan.start_spatial_rescan(db, str(novel_id), run_key, data)
+
+
+@router.post("/reading/{run_key}/spatial-rescan/{operation_id}/resume")
+async def resume_spatial_rescan(
+    db: DbSession, novel_id: UUID, run_key: str, operation_id: UUID
+):
+    return await spatial_rescan.resume_spatial_rescan(
         db, str(novel_id), run_key, operation_id
     )

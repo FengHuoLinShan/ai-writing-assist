@@ -806,6 +806,7 @@ async def run_scene_step(
     identity_candidates: Callable[[str, str, str | None], Awaitable[list[Any]]]
     | None = None,
     content_mode: str = "working",
+    source_content_mode: str | None = None,
     producer_version: str = "evolution/pipeline",
     observer_contract_version: int = 1,
     state_review_version: int = 1,
@@ -856,7 +857,12 @@ async def run_scene_step(
     source = resolved[0]
     if scene_id:
         await _verify_scene_binding(
-            db, str(store.novel_id), scene_id, scene_index, source
+            db,
+            str(store.novel_id),
+            scene_id,
+            scene_index,
+            source,
+            content_mode=source_content_mode if spatial_version == 1 else None,
         )
     input_manifest = await prepare_scene_input(
         store,
@@ -940,6 +946,11 @@ async def run_scene_step(
             "world_version": world_version,
             "discovery_version": discovery_version,
             **({"spatial_version": spatial_version} if spatial_version == 1 else {}),
+            **(
+                {"source_content_mode": source_content_mode}
+                if spatial_version == 1 and source_content_mode is not None
+                else {}
+            ),
             "scene_card": scene_card,
             "input_manifest": input_manifest.model_dump(mode="json"),
         },
@@ -1007,6 +1018,11 @@ async def run_scene_step(
             "world_version": world_version,
             "discovery_version": discovery_version,
             **({"spatial_version": spatial_version} if spatial_version == 1 else {}),
+            **(
+                {"source_content_mode": source_content_mode}
+                if spatial_version == 1 and source_content_mode is not None
+                else {}
+            ),
             "scene_card": scene_card,
             "input_manifest": input_manifest.model_dump(mode="json"),
         }
@@ -1340,6 +1356,35 @@ async def _run_scene_call(
                     for item in operations
                 ],
             }
+        if payload.get("spatial_rescan_operation_id"):
+            operation_id = payload["spatial_rescan_operation_id"]
+            operations = list(run.reading_plan_json.get("spatial_rescans", []))
+            operation = next(
+                (item for item in operations if item["operation_id"] == operation_id),
+                None,
+            )
+            if operation is None or int(operation.get("calls_remaining", 0)) <= 0:
+                raise BudgetExhaustedError("补扫确认的空间调用上限已用完")
+            from modules.evolution.optional_step_budget import (
+                mandatory_requests_remaining,
+            )
+
+            if run.budget_remaining is not None and int(
+                run.budget_remaining
+            ) - 1 < mandatory_requests_remaining(run, payload):
+                raise BudgetExhaustedError("主理解剩余额度已达保护线，空间补扫未发送")
+            run.reading_plan_json = {
+                **run.reading_plan_json,
+                "spatial_rescans": [
+                    {
+                        **item,
+                        "calls_remaining": int(item["calls_remaining"]) - 1,
+                    }
+                    if item["operation_id"] == operation_id
+                    else item
+                    for item in operations
+                ],
+            }
         await store.reserve_budget(frozen.run_id, 1)
         journal = {
             "stage": "sampling",
@@ -1439,6 +1484,17 @@ async def _return_unissued_scene_call(
                     for item in run.reading_plan_json.get("category_rescans", [])
                 ],
             }
+        spatial_operation_id = payload.get("spatial_rescan_operation_id")
+        if spatial_operation_id:
+            run.reading_plan_json = {
+                **run.reading_plan_json,
+                "spatial_rescans": [
+                    {**item, "calls_remaining": item["calls_remaining"] + 1}
+                    if item["operation_id"] == spatial_operation_id
+                    else item
+                    for item in run.reading_plan_json.get("spatial_rescans", [])
+                ],
+            }
         payload.pop(journal_key)
         await store.replace_frozen_payload(
             current.model_copy(update={"payload": payload})
@@ -1471,6 +1527,7 @@ async def _settle_scene_call(
 async def _finish_scene_results(db, store, frozen, source, reviewer, caller):
     from modules.evolution.discovery import finish_scene_discovery
     from modules.evolution.enrichment import finish_scene_enrichment
+    from modules.evolution.spatial import finish_scene_spatial
     from modules.evolution.world import finish_scene_world
 
     if frozen.payload.get("world_version", 0) < 2:
@@ -1479,7 +1536,8 @@ async def _finish_scene_results(db, store, frozen, source, reviewer, caller):
     frozen = await finish_scene_world(db, store, frozen, source, caller)
     if frozen.payload.get("world_version") in {2, 3}:
         frozen = await _finish_state_review(db, store, frozen, source, reviewer)
-    return await finish_scene_discovery(db, store, frozen, source, caller)
+    frozen = await finish_scene_discovery(db, store, frozen, source, caller)
+    return await finish_scene_spatial(db, store, frozen, source, caller)
 
 
 async def _finish_state_review(db, store, frozen, source, reviewer):
@@ -1623,7 +1681,9 @@ def _shadow_applier(scene_index: int, source_revision: int):
     return applier
 
 
-async def _verify_scene_binding(db, novel_id, scene_id, scene_index, source):
+async def _verify_scene_binding(
+    db, novel_id, scene_id, scene_index, source, *, content_mode=None
+):
     from core.errors import ValidationError
 
     try:
@@ -1633,6 +1693,7 @@ async def _verify_scene_binding(db, novel_id, scene_id, scene_index, source):
             scene_id,
             scene_index,
             [part.model_dump(mode="json") for part in source.ranges()],
+            content_mode=content_mode,
         )
     except ValidationError as exc:
         raise CommitConflictError("source_changed", str(exc)) from exc
@@ -1661,7 +1722,16 @@ def _source_verifier(expected: SceneSourceBinding):
             )
         if scene_id := (frozen.payload or {}).get("scene_id"):
             await _verify_scene_binding(
-                db, frozen.novel_id, scene_id, frozen.payload["scene_index"], resolved[0]
+                db,
+                frozen.novel_id,
+                scene_id,
+                frozen.payload["scene_index"],
+                resolved[0],
+                content_mode=(
+                    frozen.payload.get("source_content_mode")
+                    if frozen.payload.get("spatial_version") == 1
+                    else None
+                ),
             )
             if scene_card := frozen.payload.get("scene_card"):
                 from dataclasses import asdict
