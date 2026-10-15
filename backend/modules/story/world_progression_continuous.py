@@ -65,6 +65,8 @@ async def set_continuous_authorization(
         raise ValueError("持续授权作品或推进根不匹配")
     if branch.deleted_at is not None:
         raise ConflictError("已删除分支不能开启持续推进")
+    if data.enabled and branch.status not in {"ready", "complete"}:
+        raise ConflictError("持续推进只能绑定到已完成的一步历史")
     source_participants = {
         str(item["id"]): str(item.get("kind", "character"))
         for item in root.request_json.get("participants") or []
@@ -97,6 +99,14 @@ async def set_continuous_authorization(
         .where(StoryWorldProgressionAuthorization.novel_id == UUID(data.novel_id))
         .with_for_update()
     )
+    if (
+        data.enabled
+        and current is not None
+        and current.enabled
+        and current.root_id is not None
+        and current.root_id != root.id
+    ):
+        raise ConflictError("当前作品已有另一条持续推进授权；请先明确关闭它")
     revision = int(current.revision) if current is not None else 0
     if data.expected_revision is not None and data.expected_revision != revision:
         raise ConflictError("持续授权设置已被修改，请刷新")
@@ -520,6 +530,14 @@ async def list_progression_notices(
         else None
     )
     task_active = task is not None and task.status in {"pending", "running"}
+    task_meta = dict(task.meta or {}) if task is not None else {}
+    task_matches = (
+        str(task_meta.get("world_progression_root_id") or "") == str(root.id)
+        and str(task_meta.get("world_progression_branch_id") or "")
+        == str(branch.id)
+    )
+    if task_active and not task_matches:
+        return []
     step = None
     if not task_active:
         step = await db.scalar(

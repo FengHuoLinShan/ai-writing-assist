@@ -69,6 +69,12 @@ def _require_project(novel_id: str, args) -> None:
         raise PermissionError("操作作品与当前作者工作范围不一致")
 
 
+def _require_enabled() -> None:
+    from modules.story.world_progression_api import _enabled
+
+    _enabled()
+
+
 def _model_name(snapshot: dict) -> str:
     return str((snapshot.get("profile") or {}).get("model") or "unknown")
 
@@ -91,6 +97,7 @@ async def _source(db, novel_id, args, *, snapshot=None):
 
 
 async def _prepare_budget(db, novel_id, args, *, context=None):
+    _require_enabled()
     _require_project(novel_id, args)
     await require_active_project(db, novel_id)
     snapshot = await build_project_llm_execution_snapshot(db, novel_id)
@@ -117,6 +124,7 @@ async def _apply_start(db, novel_id, args, preview, *, context=None):
 
 
 async def _prepare_history(db, novel_id, args, *, context=None):
+    _require_enabled()
     _require_project(novel_id, args)
     await require_active_project(db, novel_id)
     return await read_progression_history(
@@ -128,6 +136,7 @@ async def _prepare_history(db, novel_id, args, *, context=None):
 
 
 async def _prepare_compare(db, novel_id, args, *, context=None):
+    _require_enabled()
     _require_project(novel_id, args)
     await require_active_project(db, novel_id)
     return await compare_progression_steps(
@@ -162,6 +171,7 @@ async def _assert_author_turn(db, novel_id, args, context) -> dict:
 
 
 async def _prepare_advance(db, novel_id, args, *, context=None):
+    _require_enabled()
     _require_project(novel_id, args)
     await require_active_project(db, novel_id)
     selected = await _assert_author_turn(db, novel_id, args, context)
@@ -216,6 +226,7 @@ async def _prepare_hook_preview(db, novel_id, args, *, context=None):
 
 
 async def _prepare_hook_adopt(db, novel_id, args, *, context=None):
+    _require_enabled()
     _require_project(novel_id, args)
     from modules.story.world_progression_hooks import _prepare_hook_preview
 
@@ -241,6 +252,7 @@ async def _apply_hook_adopt(db, novel_id, args, preview, *, context=None):
 
 
 async def _read_continuous(db, novel_id, args, *, context=None):
+    _require_enabled()
     _require_project(novel_id, args)
     await require_active_project(db, novel_id)
     from modules.story.world_progression_continuous import read_continuous_authorization

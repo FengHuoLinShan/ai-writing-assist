@@ -10,6 +10,7 @@ from sqlalchemy import select
 from core.errors import ConflictError, NotFoundError
 from infrastructure.llm.collaboration import content_hash
 from modules.story.world_progression_models import (
+    StoryWorldProgressionAuthorization,
     StoryWorldProgressionBranch,
     StoryWorldProgressionRoot,
     StoryWorldProgressionStep,
@@ -243,6 +244,23 @@ async def read_progression_history(
     )
     steps_by_branch: dict[str, list[dict]] = {}
     for step in steps:
+        result = dict(step.result_json or {})
+        hooks = [
+            {
+                **dict(hook),
+                "hook_id": content_hash(
+                    {
+                        "step_id": str(step.id),
+                        "output_hash": step.output_hash,
+                        "index": index,
+                        "hook": dict(hook),
+                    }
+                )[:32],
+            }
+            for index, hook in enumerate(result.get("plot_hooks") or [])
+        ]
+        if hooks:
+            result["plot_hooks"] = hooks
         steps_by_branch.setdefault(str(step.branch_id), []).append(
             {
                 "id": str(step.id),
@@ -261,7 +279,7 @@ async def read_progression_history(
                     for key, value in dict(step.input_json or {}).items()
                     if key not in {"context_confirmation_id", "operation_id"}
                 },
-                "result": dict(step.result_json or {}),
+                "result": result,
                 "state": dict(step.state_json or {}),
                 "metrics": dict(step.metrics_json or {}),
                 "created_at": step.created_at.isoformat() if step.created_at else None,
@@ -290,6 +308,9 @@ async def read_progression_history(
                 "name": branch.name,
                 "note": branch.note,
                 "starred": branch.starred,
+                "updated_at": branch.updated_at.isoformat()
+                if branch.updated_at
+                else None,
                 "deleted_at": branch.deleted_at.isoformat()
                 if branch.deleted_at
                 else None,
@@ -317,10 +338,14 @@ def _root_history_view(root, branches: list[dict]) -> dict:
     }
     envelope = dict(root.run_envelope_json or {})
     usage = envelope.get("usage") or {}
+    cutoff = (
+        ((root.source_snapshot_json or {}).get("time_basis") or {}).get("cutoff") or {}
+    )
     return {
         "id": str(root.id),
         "novel_id": str(root.novel_id),
         "scene_id": str(root.scene_id),
+        "cutoff_chapter": cutoff.get("chapter_index"),
         "source_hash": root.source_hash,
         "request": safe_request,
         "budget": {
@@ -373,6 +398,23 @@ async def update_branch_metadata(
 
 async def delete_progression_branch(db, *, novel_id: str, branch_id: str) -> dict:
     row = await get_progression_branch(db, novel_id, branch_id, lock=True)
+    authorization = await db.scalar(
+        select(StoryWorldProgressionAuthorization)
+        .where(StoryWorldProgressionAuthorization.novel_id == _uuid(novel_id))
+        .with_for_update()
+    )
+    if (
+        authorization is not None
+        and authorization.enabled
+        and authorization.branch_id == row.id
+    ):
+        authorization.enabled = False
+        authorization.revision += 1
+        authorization.participant_ids_json = []
+        authorization.root_id = None
+        authorization.branch_id = None
+        authorization.context_confirmation_id = None
+        authorization.updated_at = datetime.now(UTC)
     now = datetime.now(UTC)
     row.deleted_at = now
     row.restore_until = now + timedelta(days=30)

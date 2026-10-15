@@ -1,7 +1,7 @@
 """Persist Story world-progression roots, branches, immutable steps, and consent.
 
 Revision ID: 20261016_story_world_progression
-Revises: 20261016_story_scene_director
+Revises: 20261016_dossier_story_field_key
 Create Date: 2026-10-16
 """
 
@@ -12,7 +12,7 @@ import sqlalchemy as sa
 from alembic import op
 
 revision: str = "20261016_story_world_progression"
-down_revision: str | None = "20261016_story_scene_director"
+down_revision: str | None = "20261016_dossier_story_field_key"
 branch_labels: str | Sequence[str] | None = None
 depends_on: str | Sequence[str] | None = None
 
@@ -82,7 +82,10 @@ def upgrade() -> None:
         sa.ForeignKeyConstraint(["novel_id"], ["projects.id"], ondelete="CASCADE"),
         sa.ForeignKeyConstraint(
             ["novel_id", "root_id"],
-            ["story_world_progression_roots.novel_id", "story_world_progression_roots.id"],
+            [
+                "story_world_progression_roots.novel_id",
+                "story_world_progression_roots.id",
+            ],
             ondelete="CASCADE",
         ),
         sa.UniqueConstraint(
@@ -113,17 +116,26 @@ def upgrade() -> None:
         sa.ForeignKeyConstraint(["novel_id"], ["projects.id"], ondelete="CASCADE"),
         sa.ForeignKeyConstraint(
             ["novel_id", "root_id"],
-            ["story_world_progression_roots.novel_id", "story_world_progression_roots.id"],
+            [
+                "story_world_progression_roots.novel_id",
+                "story_world_progression_roots.id",
+            ],
             ondelete="CASCADE",
         ),
         sa.ForeignKeyConstraint(
             ["novel_id", "branch_id"],
-            ["story_world_progression_branches.novel_id", "story_world_progression_branches.id"],
+            [
+                "story_world_progression_branches.novel_id",
+                "story_world_progression_branches.id",
+            ],
             ondelete="CASCADE",
         ),
         sa.ForeignKeyConstraint(
             ["novel_id", "parent_step_id"],
-            ["story_world_progression_steps.novel_id", "story_world_progression_steps.id"],
+            [
+                "story_world_progression_steps.novel_id",
+                "story_world_progression_steps.id",
+            ],
         ),
         sa.UniqueConstraint(
             "novel_id", "id", name="uq_story_world_progression_step_novel"
@@ -163,11 +175,17 @@ def upgrade() -> None:
         sa.ForeignKeyConstraint(["novel_id"], ["projects.id"], ondelete="CASCADE"),
         sa.ForeignKeyConstraint(
             ["novel_id", "root_id"],
-            ["story_world_progression_roots.novel_id", "story_world_progression_roots.id"],
+            [
+                "story_world_progression_roots.novel_id",
+                "story_world_progression_roots.id",
+            ],
         ),
         sa.ForeignKeyConstraint(
             ["novel_id", "branch_id"],
-            ["story_world_progression_branches.novel_id", "story_world_progression_branches.id"],
+            [
+                "story_world_progression_branches.novel_id",
+                "story_world_progression_branches.id",
+            ],
         ),
         sa.UniqueConstraint(
             "novel_id", name="uq_story_world_progression_authorization_novel"
@@ -206,20 +224,41 @@ def downgrade() -> None:
         "DROP TRIGGER story_world_progression_steps_immutable "
         "ON story_world_progression_steps"
     )
-    op.drop_index("ix_story_world_progression_authorizations_novel_id", table_name="story_world_progression_authorizations")
+    op.drop_index(
+        "ix_story_world_progression_authorizations_novel_id",
+        table_name="story_world_progression_authorizations",
+    )
     op.drop_table("story_world_progression_authorizations")
     op.drop_constraint(
         "fk_story_world_progression_branch_parent_step",
         "story_world_progression_branches",
         type_="foreignkey",
     )
-    op.drop_index("ix_story_world_progression_steps_novel_id", table_name="story_world_progression_steps")
-    op.drop_index("ix_story_world_progression_step_branch", table_name="story_world_progression_steps")
+    op.drop_index(
+        "ix_story_world_progression_steps_novel_id",
+        table_name="story_world_progression_steps",
+    )
+    op.drop_index(
+        "ix_story_world_progression_step_branch",
+        table_name="story_world_progression_steps",
+    )
     op.drop_table("story_world_progression_steps")
     op.execute("DROP FUNCTION reject_story_world_progression_step_mutation()")
-    op.drop_index("ix_story_world_progression_branches_novel_id", table_name="story_world_progression_branches")
-    op.drop_index("ix_story_world_progression_branch_root", table_name="story_world_progression_branches")
+    op.drop_index(
+        "ix_story_world_progression_branches_novel_id",
+        table_name="story_world_progression_branches",
+    )
+    op.drop_index(
+        "ix_story_world_progression_branch_root",
+        table_name="story_world_progression_branches",
+    )
     op.drop_table("story_world_progression_branches")
-    op.drop_index("ix_story_world_progression_roots_novel_id", table_name="story_world_progression_roots")
-    op.drop_index("ix_story_world_progression_root_scene", table_name="story_world_progression_roots")
+    op.drop_index(
+        "ix_story_world_progression_roots_novel_id",
+        table_name="story_world_progression_roots",
+    )
+    op.drop_index(
+        "ix_story_world_progression_root_scene",
+        table_name="story_world_progression_roots",
+    )
     op.drop_table("story_world_progression_roots")

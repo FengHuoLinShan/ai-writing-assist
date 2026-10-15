@@ -7,6 +7,8 @@ from typing import Literal
 from pydantic import BaseModel, ConfigDict, Field
 from sqlalchemy import and_, select
 
+from core.container import get
+from core.service_keys import WORLD_READ_OBJECT_VALIDITY_NOTICES
 from infrastructure.llm.collaboration import content_hash
 from modules.evidence.contracts import VisibilityContextContract
 from modules.world.entity_facade import get_hidden_guard_sources
@@ -35,6 +37,9 @@ class ProgressionMapRoute(BaseModel):
     origin_kind: Literal["object", "map_node"]
     destination_id: str
     destination_kind: Literal["object", "map_node"]
+    duration: dict | None = None
+    access_conditions: list[dict] = Field(default_factory=list)
+    travel_type_evidence: list[dict] = Field(default_factory=list)
     source_fingerprint: str = Field(pattern=r"^[a-f0-9]{64}$")
 
 
@@ -47,6 +52,7 @@ class ProgressionMapState(BaseModel):
     routes: list[ProgressionMapRoute] = Field(default_factory=list)
     actor_routes: dict[str, list[ProgressionMapRoute]] = Field(default_factory=dict)
     revision_fingerprints: list[str] = Field(default_factory=list)
+    validity_checks: list[dict] = Field(default_factory=list)
     unknowns: list[str] = Field(default_factory=list)
     coverage: Literal["available", "partial", "not_available"]
     fingerprint: str = Field(pattern=r"^[a-f0-9]{64}$")
@@ -55,6 +61,7 @@ class ProgressionMapState(BaseModel):
 def _source_fingerprint(journey) -> str:
     return content_hash(
         {
+            "modality": str(journey.modality),
             "sources": sorted(
                 (str(item.kind), str(item.id), str(item.source_hash))
                 for item in journey.sources
@@ -97,6 +104,83 @@ def _active_at(
     )
 
 
+def _declaration_active_at(
+    item,
+    *,
+    node_id: str,
+    revision_id: str,
+    kind: str,
+    scene_index: int,
+    scenes: list[dict],
+    author_state: dict,
+    notices_by_target: dict[tuple[str, str, str, str], dict],
+    unknowns: list[str],
+):
+    """Apply C0c's typed decision to an exact current map declaration."""
+    active = _active_at(
+        item.effective, scene_index=scene_index, scenes=scenes, unknowns=unknowns
+    )
+    notice = notices_by_target.get((node_id, revision_id, kind, str(item.id)))
+    if notice is None:
+        return active, None
+    decision = notice.get("validity_decision")
+    if decision == "story_override":
+        evidence = next(
+            (
+                row
+                for row in notice.get("evidence") or []
+                if row.get("kind") == "story_map_declaration"
+            ),
+            None,
+        )
+        identity = evidence.get("identity_ref") if evidence else None
+        subject_id = identity.get("subject_id") if isinstance(identity, dict) else None
+        if not (
+            isinstance(identity, dict)
+            and identity.get("contract_version") == 1
+            and identity.get("node_id") == node_id
+            and identity.get("revision_id") == revision_id
+            and identity.get("declaration_kind") == kind
+            and identity.get("declaration_id") == str(item.id)
+            and identity.get("field_key") == "effective_status"
+            and subject_id
+        ):
+            unknowns.append(f"map_validity_override_identity_mismatch:{node_id}:{kind}:{item.id}")
+            return False, notice
+        dimension = next(
+            (
+                row
+                for row in author_state.get("dimensions") or []
+                if row.get("dimension") == "entities"
+            ),
+            {},
+        )
+        matches = [
+            fact
+            for fact in dimension.get("facts") or []
+            if fact.get("subject_id") == subject_id
+            and fact.get("field") == (identity or {}).get("field_key")
+            and fact.get("layer") == "fact"
+            and fact.get("confidence") == "confirmed"
+            and (fact.get("source") or {}).get("provenance", {}).get("status")
+            == "exact"
+            and (fact.get("source") or {}).get("provenance", {}).get("identity_ref")
+            == identity
+        ]
+        status = matches[0].get("value") if len(matches) == 1 else None
+        if status in {"active", "inactive"}:
+            return status == "active", notice
+        unknowns.append(f"map_validity_override_unreadable:{node_id}:{kind}:{item.id}")
+        return False, notice
+    if decision == "gap":
+        unknowns.append(f"map_validity_gap:{node_id}:{kind}:{item.id}")
+    elif decision != "author_priority":
+        unknowns.append(f"map_validity_decision_unknown:{node_id}:{kind}:{item.id}")
+    # author_priority and gap retain a valid author interval; the gap remains
+    # disclosed, while an invalid interval was already excluded by _active_at.
+    return active, notice
+
+
 async def _read_story_scene_anchors(db, novel_id: str) -> list[dict]:
     from core.container import get
     from core.service_keys import STORY_SCENE_SOURCE
@@ -105,7 +189,7 @@ async def _read_story_scene_anchors(db, novel_id: str) -> list[dict]:
     return await port.read_temporal_anchor_scenes(db, novel_id)
 
 
-async def _read_cutoff_chapter(db, novel_id: str, scene_id: str) -> int | None:
+async def _read_cutoff_state(db, novel_id: str, scene_id: str) -> dict:
     from core.container import get
     from core.service_keys import STORY_SCENE_SOURCE
 
@@ -114,7 +198,7 @@ async def _read_cutoff_chapter(db, novel_id: str, scene_id: str) -> int | None:
         novel_id,
         scene_id,
         viewpoint={"kind": "author"},
-        include_dimensions=["locations"],
+        include_dimensions=["locations", "entities"],
     )
     if isinstance(view, dict):
         value = view
@@ -127,11 +211,14 @@ async def _read_cutoff_chapter(db, novel_id: str, scene_id: str) -> int | None:
     else:
         value = {}
     chapter = value.get("chapter_index")
-    return (
+    value["verified_chapter_index"] = (
         int(chapter)
-        if value.get("status") != "degraded" and isinstance(chapter, int) and chapter > 0
+        if value.get("status") != "degraded"
+        and isinstance(chapter, int)
+        and chapter > 0
         else None
     )
+    return value
 
 
 async def read_map_progression_state(
@@ -156,7 +243,22 @@ async def read_map_progression_state(
     )
     if cutoff is None:
         raise ValueError("地图路线读取的 Scene 截止点已变化或不可用")
-    cutoff_chapter = await _read_cutoff_chapter(db, novel_id, scene_id)
+    author_state = await _read_cutoff_state(db, novel_id, scene_id)
+    cutoff_chapter = author_state.get("verified_chapter_index")
+    validity_notices = await get(WORLD_READ_OBJECT_VALIDITY_NOTICES)(
+        db, novel_id, {"scene_id": scene_id}
+    )
+    notices_by_target = {}
+    for notice in validity_notices:
+        target = notice.get("target") or {}
+        node_id = target.get("node_id")
+        revision_id = target.get("revision_id")
+        kind = target.get("map_item_kind")
+        item_id = target.get("map_item_id")
+        if node_id and revision_id and kind and item_id:
+            notices_by_target[
+                (str(node_id), str(revision_id), str(kind), str(item_id))
+            ] = notice
 
     rows = (
         await db.execute(
@@ -180,10 +282,14 @@ async def read_map_progression_state(
     ).all()
     service = MapStructureService()
     unknowns: list[str] = []
+    if len(validity_notices) >= 100:
+        unknowns.append("object_validity_notice_limit_reached:100")
     routes: list[ProgressionMapRoute] = []
     actor_routes: dict[str, list[ProgressionMapRoute]] = {
         actor_id: [] for actor_id in actor_ids
     }
+    if cutoff_chapter is None:
+        unknowns.append("exact_cutoff_chapter_missing:actor_route_visibility_unchecked")
     revision_fingerprints: list[str] = []
     source_checks: list[tuple[ProgressionMapRoute, object, MapDocument]] = []
     entity_ids: set[str] = set()
@@ -207,12 +313,21 @@ async def read_map_progression_state(
         )
         features = {feature.id: feature for feature in document.features}
         for journey in document.journeys:
-            if not _active_at(
-                journey.effective,
+            if journey.modality != "event_observed":
+                unknowns.append(f"journey_modality_not_observed:{node.id}:{journey.id}")
+                continue
+            journey_active, journey_notice = _declaration_active_at(
+                journey,
+                node_id=str(node.id),
+                revision_id=str(revision.id),
+                kind="journey",
                 scene_index=scene_index,
                 scenes=scenes,
+                author_state=author_state,
+                notices_by_target=notices_by_target,
                 unknowns=unknowns,
-            ):
+            )
+            if not journey_active:
                 continue
             origin, destination = (
                 features.get(journey.origin),
@@ -221,19 +336,31 @@ async def read_map_progression_state(
             if origin is None or destination is None:
                 unknowns.append(f"journey_endpoint_missing:{node.id}:{journey.id}")
                 continue
-            if not _active_at(
-                origin.effective,
+            origin_active, origin_notice = _declaration_active_at(
+                origin,
+                node_id=str(node.id),
+                revision_id=str(revision.id),
+                kind="feature",
                 scene_index=scene_index,
                 scenes=scenes,
+                author_state=author_state,
+                notices_by_target=notices_by_target,
                 unknowns=unknowns,
-            ):
+            )
+            if not origin_active:
                 continue
-            if not _active_at(
-                destination.effective,
+            destination_active, destination_notice = _declaration_active_at(
+                destination,
+                node_id=str(node.id),
+                revision_id=str(revision.id),
+                kind="feature",
                 scene_index=scene_index,
                 scenes=scenes,
+                author_state=author_state,
+                notices_by_target=notices_by_target,
                 unknowns=unknowns,
-            ):
+            )
+            if not destination_active:
                 continue
             if (
                 origin.modality != "event_observed"
@@ -259,11 +386,30 @@ async def read_map_progression_state(
                 map_node_ids.add(str(origin.target_node_id))
             if destination.target_node_id:
                 map_node_ids.add(str(destination.target_node_id))
-            source_fingerprint = _source_fingerprint(journey)
+            declaration_notices = [
+                notice
+                for notice in (journey_notice, origin_notice, destination_notice)
+                if notice is not None
+            ]
+            source_fingerprint = content_hash(
+                {
+                    "journey_sources": _source_fingerprint(journey),
+                    "declaration_notices": sorted(
+                        (
+                            str(item.get("notice_key")),
+                            str(item.get("basis_fingerprint")),
+                            str(item.get("validity_decision")),
+                        )
+                        for item in declaration_notices
+                    ),
+                }
+            )
             route_ref_id = content_hash(
                 {
                     "node_id": str(node.id),
                     "revision_id": str(revision.id),
+                    "cutoff_scene_id": scene_id,
+                    "cutoff_scene_index": scene_index,
                     "kind": "journey",
                     "feature_key": str(journey.id),
                     "source_fingerprint": source_fingerprint,
@@ -321,7 +467,7 @@ async def read_map_progression_state(
                     break
             if not source_valid:
                 continue
-        elif journey.author_decision is None:
+        else:
             unknowns.append(f"journey_source_missing:{route.node_id}:{route.feature_key}")
             continue
 
@@ -339,10 +485,39 @@ async def read_map_progression_state(
                 f"journey_type_unavailable:{route.node_id}:{route.feature_key}"
             )
             continue
+        route = route.model_copy(
+            update={
+                "duration": journey.duration.model_dump(mode="json")
+                if journey.duration is not None
+                else None,
+                "access_conditions": [
+                    item.model_dump(mode="json") for item in journey.access_conditions
+                ],
+                "travel_type_evidence": [
+                    {
+                        "type_ref": str(type_ref),
+                        "revision_id": str(revision_id),
+                        "computable": resolved_types.get(
+                            (type_ref, revision_id), {}
+                        ).get("computable")
+                        is True,
+                        "traits": (
+                            resolved_types[(type_ref, revision_id)][
+                                "traits"
+                            ].model_dump(mode="json")
+                            if (type_ref, revision_id) in resolved_types
+                            else None
+                        ),
+                    }
+                    for type_ref, revision_id in type_pairs
+                    if type_ref is not None and revision_id is not None
+                ],
+            }
+        )
         routes.append(route)
 
         for actor_id in actor_ids:
-            if not journey.sources:
+            if not journey.sources or cutoff_chapter is None:
                 continue
             visibility = VisibilityContextContract(
                 mode="character",
@@ -379,6 +554,14 @@ async def read_map_progression_state(
                 for actor, items in sorted(actor_routes.items())
             },
             "revisions": sorted(revision_fingerprints),
+            "validity_notices": sorted(
+                (
+                    str(item.get("notice_key")),
+                    str(item.get("basis_fingerprint")),
+                    str(item.get("validity_decision")),
+                )
+                for item in validity_notices
+            ),
             "unknowns": sorted(set(unknowns)),
         }
     )
@@ -395,6 +578,15 @@ async def read_map_progression_state(
         routes=routes,
         actor_routes=actor_routes,
         revision_fingerprints=sorted(revision_fingerprints),
+        validity_checks=[
+            {
+                "notice_key": item.get("notice_key"),
+                "validity_decision": item.get("validity_decision", "gap"),
+                "target": item.get("target") or {},
+                "basis_fingerprint": item.get("basis_fingerprint"),
+            }
+            for item in validity_notices
+        ],
         unknowns=sorted(set(unknowns)),
         coverage=coverage,
         fingerprint=fingerprint,

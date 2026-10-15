@@ -68,6 +68,7 @@ ARTIFACT_TASK_TYPES = {
     "arc_proposals": "outline_generate",
     "bridge_items": "writing_comment_run",
     "recheck_results": "assistant_editorial_recheck",
+    "progression_run": "story_world_progression",
 }
 
 CONTINUE_WRITING = FlowDefinition(
@@ -2229,3 +2230,17 @@ START_CHECKS[_map_cold_start.FLOW.flow_id] = _map_cold_start.start_check
 DERIVERS[_map_cold_start.FLOW.flow_id] = _map_cold_start.derive
 CHOICE_INPUT[_map_cold_start.FLOW.flow_id] = _map_cold_start.choice
 AUTO_STEPS[_map_cold_start.FLOW.flow_id] = _map_cold_start.auto_step
+
+# World progression is author-led. R4 execution and R3 adoption occur only at
+# explicit choice stops; the flow never auto-submits these operations.
+from modules.assistant.guided_flow import (  # noqa: E402
+    world_progression_review as _world_progression_review,
+)
+
+START_CHECKS[_world_progression_review.FLOW_ID] = _world_progression_review.start_check
+DERIVERS[_world_progression_review.FLOW_ID] = _world_progression_review.derive
+CONFIRM_INPUT[_world_progression_review.FLOW_ID] = (
+    _world_progression_review.apply_confirm_input
+)
+CHOICE_INPUT[_world_progression_review.FLOW_ID] = _world_progression_review.choice
+AUTO_STEPS[_world_progression_review.FLOW_ID] = _world_progression_review.auto_step

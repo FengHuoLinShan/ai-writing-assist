@@ -629,12 +629,22 @@ async def _run_one_step(
 
         intents = []
         action_rows = []
+        movement_checks = []
         intent_ids = {}
         for actor_id, raw in role_drafts.items():
             draft = ProgressionActorIntent.model_validate(raw)
             intent_id = content_hash({"step": baseline, "actor_id": actor_id})
             intent_ids[actor_id] = intent_id
             actor_ref = actor_refs[actor_id]
+            movement_check = _check_movement_feasibility(
+                draft,
+                source=source,
+                state=state,
+                role=source["role_briefs"][actor_id],
+                actor_id=actor_id,
+            )
+            if movement_check is not None:
+                movement_checks.append(movement_check)
             sim_draft = SimulationIntentDraft(
                 kind=draft.kind,
                 action=draft.action,
@@ -658,12 +668,17 @@ async def _run_one_step(
                     if draft.location_target
                     else None
                 ),
+                unresolved=bool(
+                    movement_check and movement_check["status"] == "uncertain"
+                ),
             )
             intent = sim_draft.bind(
                 intent_id=intent_id, actor=actor_ref, mode="world_progression_step"
             )
             intents.append(intent)
-            action_rows.append(draft.model_dump(mode="json"))
+            action_rows.append(
+                {**draft.model_dump(mode="json"), "intent_id": intent_id}
+            )
 
         intersection_result = detect_progression_intersections(
             action_rows,
@@ -686,8 +701,12 @@ async def _run_one_step(
                 "step_length": step_length,
                 "state_before": state,
                 "participant_intents": action_rows,
+                "movement_feasibility": movement_checks,
                 "structural_intersections": intersection_result,
                 "available_author_sources": source.get("author_source_ids", []),
+                "life_state_checks": source.get("life_state_checks", []),
+                "typed_object_validity": source.get("object_validity_notices", []),
+                "source_gaps": _progression_source_gaps(source),
                 "target_rule": (
                     "软目标默认；must_reach=true 的目标须保留明确状态，不得违背资料强推。"
                 ),
@@ -713,6 +732,11 @@ async def _run_one_step(
                                 "传闻标为 reported_claim，不能当事实。"
                                 "不得写 World、continuity、正文或 RP 知识。"
                                 "目标和秘密只在本层；报告因果路径、必要铺垫、不自然处与副线。"
+                                "仅按 movement_feasibility 中的 typed route 检查移动；"
+                                "缺少精确位置/路线时必须视为 uncertain。"
+                                "typed_object_validity 的 gap 是明确缺口；"
+                                "author_priority 按作者有效期，"
+                                "story_override 按同一地图声明的精确 Story 状态。"
                                 "遇到资料冲突或路线/行程/时间不确定时，"
                                 "标 uncertain 并说明未核验项。"
                             ),
@@ -843,6 +867,7 @@ async def _run_one_step(
             "step_length": step_length,
             "basis_changed": basis_changed,
             "actor_intents": action_rows,
+            "movement_feasibility": movement_checks,
             "intent_outcomes": [item.model_dump(mode="json") for item in finite.outcomes],
             "simulated_events": batch.events,
             "state_delta": [item.model_dump(mode="json") for item in batch.state_patches],
@@ -874,10 +899,137 @@ async def _run_one_step(
             "candidate_knowledge_updates": [
                 item.model_dump(mode="json") for item in resolution.knowledge_updates
             ],
+            "typed_object_validity": source.get("object_validity_notices", []),
+            "life_state_checks": source.get("life_state_checks", []),
+            "source_gaps": _progression_source_gaps(source),
             "rationale": resolution.rationale,
             "metrics": metrics,
             "state_after": state_after,
         }
+
+
+def _check_movement_feasibility(
+    intent: ProgressionActorIntent,
+    *,
+    source: dict,
+    state: dict,
+    role: dict,
+    actor_id: str,
+) -> dict | None:
+    if intent.effect != "move" or intent.location_target is None:
+        return None
+    actor_key = f"object:{actor_id}"
+    origin = state.get("locations", {}).get(actor_key)
+    destination = f"{intent.location_target.kind}:{intent.location_target.id}"
+    if origin == destination:
+        return {
+            "actor_id": actor_id,
+            "origin": origin,
+            "destination": destination,
+            "status": "already_at_destination",
+            "route_ids": [],
+            "basis": "exact_simulation_position",
+        }
+    if not origin:
+        return {
+            "actor_id": actor_id,
+            "origin": None,
+            "destination": destination,
+            "status": "uncertain",
+            "route_ids": [],
+            "reason": "exact_current_position_missing",
+        }
+    time_facts = (source.get("time_basis") or {}).get("facts") or []
+    if not time_facts:
+        return {
+            "actor_id": actor_id,
+            "origin": origin,
+            "destination": destination,
+            "status": "uncertain",
+            "route_ids": [],
+            "reason": "exact_cutoff_time_fact_missing",
+        }
+
+    cited_route_ids = set(intent.journey_route_ids)
+    visible_route_ids = set(role.get("known_route_ids") or [])
+    routes_by_id = {
+        str(item.get("route_ref_id")): item
+        for item in (source.get("map_state") or {}).get("routes", [])
+        if item.get("route_ref_id")
+    }
+    allowed = cited_route_ids & visible_route_ids
+    adjacency: dict[str, list[tuple[str, str]]] = {}
+    for route_id in sorted(allowed):
+        route = routes_by_id.get(route_id)
+        if route is None:
+            continue
+        route_origin = f"{route.get('origin_kind')}:{route.get('origin_id')}"
+        route_destination = (
+            f"{route.get('destination_kind')}:{route.get('destination_id')}"
+        )
+        adjacency.setdefault(route_origin, []).append((route_destination, route_id))
+
+    direct = [
+        (route_id, routes_by_id[route_id])
+        for next_location, route_id in adjacency.get(origin, [])
+        if next_location == destination and route_id in routes_by_id
+    ]
+    if direct:
+        route_id, route = direct[0]
+        typed_duration = route.get("duration")
+        typed_types = route.get("travel_type_evidence") or []
+        if not typed_duration or not typed_types:
+            return {
+                "actor_id": actor_id,
+                "origin": origin,
+                "destination": destination,
+                "status": "uncertain",
+                "route_ids": [item[0] for item in direct],
+                "reason": "typed_duration_or_travel_type_missing",
+            }
+        return {
+            "actor_id": actor_id,
+            "origin": origin,
+            "destination": destination,
+            "status": "route_evidence_available",
+            "route_ids": [item[0] for item in direct],
+            "basis": "actor_visible_current_map_routes_and_exact_cutoff_time",
+            "duration": typed_duration,
+            "travel_type_evidence": typed_types,
+            "access_conditions": route.get("access_conditions") or [],
+            "outcome_rule": "finite_model_must_assess_time_and_conditions",
+        }
+    return {
+        "actor_id": actor_id,
+        "origin": origin,
+        "destination": destination,
+        "status": "uncertain",
+        "route_ids": sorted(allowed),
+        "reason": (
+            "no_actor_visible_typed_route_path"
+            if allowed
+            else "route_not_cited_or_not_visible"
+        ),
+        "route_coverage": (source.get("map_state") or {}).get(
+            "coverage", "not_available"
+        ),
+    }
+
+
+def _progression_source_gaps(source: dict) -> list[str]:
+    gaps = list((source.get("map_state") or {}).get("unknowns") or [])
+    if source.get("validity_notice_limit_reached"):
+        gaps.append("object_validity_notice_limit_reached:100")
+    for check in source.get("life_state_checks") or []:
+        if check.get("status") != "verified_typed_fact":
+            gaps.append(
+                f"life_state_unknown:{check.get('participant_id')}:{check.get('reason')}"
+            )
+    if (source.get("author_brief") or {}).get("coverage") != "complete":
+        gaps.append("author_evidence_coverage_incomplete")
+    if not (source.get("time_basis") or {}).get("facts"):
+        gaps.append("exact_cutoff_time_fact_missing")
+    return sorted(set(gaps))
 
 
 def _resource_reference(

@@ -6,6 +6,8 @@ import json
 from collections.abc import Iterable
 from typing import Any
 
+from core.container import get
+from core.service_keys import WORLD_READ_OBJECT_VALIDITY_NOTICES
 from infrastructure.llm.collaboration import content_hash
 from modules.evidence.facade import read_object_dossier_brief
 from modules.story.director_state import build_scene_simulation_context
@@ -113,6 +115,89 @@ def _source_ids(brief: dict) -> set[str]:
     return result
 
 
+def _validity_notice_packet(notices: list[dict]) -> list[dict]:
+    """Keep typed author-only validity evidence without importing notice prose."""
+    result = []
+    for notice in notices:
+        typed_evidence = []
+        for evidence in notice.get("evidence") or []:
+            row = {"kind": evidence.get("kind")}
+            for key in (
+                "entry_id",
+                "relation_id",
+                "node_id",
+                "revision_id",
+                "declaration_id",
+                "declaration_kind",
+                "scene_index",
+                "event_id",
+                "author_confirmed",
+                "story_status",
+                "validity",
+                "identity_ref",
+            ):
+                if key in evidence:
+                    row[key] = evidence[key]
+            typed_evidence.append(row)
+        result.append(
+            {
+                "notice_key": notice.get("notice_key"),
+                "validity_decision": notice.get("validity_decision", "gap"),
+                "target": notice.get("target") or {},
+                "basis_fingerprint": notice.get("basis_fingerprint"),
+                "evidence": typed_evidence,
+            }
+        )
+    return result
+
+
+def _life_state_checks(author_state: dict, participants: list[ProgressionParticipant]):
+    dimensions = [
+        item
+        for item in author_state.get("dimensions", [])
+        if item.get("dimension") == "entities"
+    ]
+    dimension = dimensions[0] if dimensions else {}
+    facts = dimension.get("facts") or []
+    checks = []
+    for participant in participants:
+        exact = [
+            fact
+            for fact in facts
+            if fact.get("subject_id") == participant.id
+            and fact.get("field") == "life_status"
+            and fact.get("layer") == "fact"
+            and fact.get("confidence") == "confirmed"
+            and (fact.get("source") or {}).get("provenance", {}).get("status")
+            == "exact"
+        ]
+        if len(exact) == 1:
+            fact = exact[0]
+            checks.append(
+                {
+                    "participant_id": participant.id,
+                    "status": "verified_typed_fact",
+                    "value": fact.get("value"),
+                    "event_id": (fact.get("source") or {}).get("provenance", {}).get(
+                        "event_id"
+                    ),
+                }
+            )
+        else:
+            checks.append(
+                {
+                    "participant_id": participant.id,
+                    "status": "unknown",
+                    "reason": (
+                        "life_status_missing_or_ambiguous"
+                        if dimension.get("status") == "ok"
+                        else dimension.get("gap_reason") or "entity_state_unavailable"
+                    ),
+                }
+            )
+    return checks
+
+
 async def _latest_written_scene(db, novel_id: str) -> dict:
     chapter_index = await get_latest_effective_chapter_index(db, novel_id)
     if chapter_index < 1:
@@ -193,13 +278,18 @@ async def read_progression_source(
     ):
         raise ValueError("截止 Scene 上下文身份不匹配")
 
+    object_validity_notices = await get(WORLD_READ_OBJECT_VALIDITY_NOTICES)(
+        db, novel_id, {"scene_id": scene_id}
+    )
+    validity_notice_packet = _validity_notice_packet(object_validity_notices)
+
     author_state = _dump(
         await get_scene_state_view(
             db,
             novel_id,
             scene_id,
             viewpoint={"kind": "author"},
-            include_dimensions=["timeline"],
+            include_dimensions=["timeline", "entities"],
         )
     )
     timeline_dimensions = [
@@ -232,6 +322,7 @@ async def read_progression_source(
         "unsupported_dependencies": author_state.get("unsupported_dependencies", []),
         "source_fingerprint": author_state.get("state_fingerprint"),
     }
+    life_state_checks = _life_state_checks(author_state, participants)
 
     target_assets = await _read_targets(db, novel_id, targets)
     author_parts = []
@@ -404,6 +495,8 @@ async def read_progression_source(
             "time_basis": time_basis,
             "scene_id": scene_id,
             "author_brief": author_brief.get("fingerprint"),
+            "object_validity_notices": validity_notice_packet,
+            "life_state_checks": life_state_checks,
             "role_briefs": {
                 actor: value["brief"].get("fingerprint")
                 for actor, value in sorted(role_briefs.items())
@@ -420,6 +513,9 @@ async def read_progression_source(
         "latest_written_scene": latest,
         "scene_context": scene_context,
         "time_basis": time_basis,
+        "life_state_checks": life_state_checks,
+        "object_validity_notices": validity_notice_packet,
+        "validity_notice_limit_reached": len(object_validity_notices) >= 100,
         "author_brief": author_brief,
         "author_source_ids": sorted(_source_ids(author_brief)),
         "role_briefs": role_briefs,
@@ -440,6 +536,11 @@ async def read_progression_source(
             },
             "group_packets": "reader_visible_only",
             "map_routes": map_state.get("coverage", "not_compared"),
+            "object_validity": (
+                "limit_reached"
+                if len(object_validity_notices) >= 100
+                else "complete"
+            ),
         },
         "source_hash": source_hash,
     }

@@ -518,6 +518,7 @@ async def api_advance_progression(
             "novel_id": "novel_id",
             "scene_id": "scene_id",
             "root_id": "root_id",
+            "include_deleted": "include_deleted",
         },
     },
 )
@@ -527,12 +528,17 @@ async def api_progression_history(
     novel_id: str = Query(...),
     scene_id: str | None = Query(default=None),
     root_id: str | None = Query(default=None),
+    include_deleted: bool = Query(default=False),
 ):
     _enabled()
     await require_active_project(db, novel_id)
     try:
         return await read_progression_history(
-            db, novel_id, scene_id=scene_id, root_id=root_id
+            db,
+            novel_id,
+            scene_id=scene_id,
+            root_id=root_id,
+            include_deleted=include_deleted,
         )
     except Exception as error:
         raise _raise_http(error) from error

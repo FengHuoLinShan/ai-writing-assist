@@ -132,7 +132,8 @@ def _default_draft(hook: dict, asset_type: str, start: int, end: int) -> dict:
             "related_entity_ids": [],
         }
     return {
-        "title": hook.get("title") or "計画场景",
+        "scene_index": 0,
+        "title": hook.get("title") or "计划场景",
         "goal": hook.get("summary") or "",
         "core_conflict": "",
         "emotional_beat": "",
