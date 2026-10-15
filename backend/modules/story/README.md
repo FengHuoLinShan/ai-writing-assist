@@ -290,6 +290,7 @@ Story outline generation records only the revisions of World Bible pages actuall
 placed in its direct `world_bible_pages` input. Current/history reads compare these
 baselines through the World DI reader and return `canon_staleness` without changing
 content hashes, execution profiles, checkpoints, or publication snapshots. Legacy
-records remain silent. Extra pages inside Evidence confirmations and other World
+records remain silent. Manual revisions inherit the base revision’s page baselines;
+restoring a historical revision preserves its original baselines. Extra pages inside Evidence confirmations and other World
 consumers remain explicitly outside this first slice; Scene checkpoint unsupported
 dependencies are unchanged. See `docs/modules/07_outline.md` for the covered boundary.

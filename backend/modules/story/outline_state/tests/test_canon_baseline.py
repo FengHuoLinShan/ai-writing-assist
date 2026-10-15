@@ -6,7 +6,10 @@ import pytest
 from sqlalchemy import select
 
 from modules.story.outline_state.models import StoryOutlineRevision
-from modules.story.outline_state.story_outline_schemas import StoryOutlineRevisionCreate
+from modules.story.outline_state.story_outline_schemas import (
+    StoryOutlineRevisionApply,
+    StoryOutlineRevisionCreate,
+)
 from modules.story.outline_state.story_outline_service import StoryOutlineService
 from modules.story.outline_state.tests.test_story_outline import _payload
 from modules.world.facade import read_world_bible_page_revisions
@@ -141,6 +144,33 @@ async def test_outline_read_only_notice_preserves_content_provenance_and_hash(
         db_session, sample_novel_id, skip=0, limit=10, include_canon_staleness=True
     )
     assert listed.items[0].content_hash == before["content_hash"]
+    edited = await service.create_revision(
+        db_session,
+        sample_novel_id,
+        StoryOutlineRevisionCreate.model_validate(
+            _payload(
+                base_revision_id=str(created.id),
+                idempotency_key="manual-edit-keeps-canon-baseline",
+                title="作者修改后的总览",
+            )
+        ),
+    )
+    assert edited.provenance.world_bible_page_revisions == (
+        created.provenance.world_bible_page_revisions
+    )
+    restored = await service.apply_revision(
+        db_session,
+        sample_novel_id,
+        created.id,
+        StoryOutlineRevisionApply(
+            base_revision_id=edited.id,
+            idempotency_key="restore-keeps-canon-baseline",
+            confirmed=True,
+        ),
+    )
+    assert restored.provenance.world_bible_page_revisions == (
+        created.provenance.world_bible_page_revisions
+    )
 
 
 @pytest.mark.asyncio

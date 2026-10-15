@@ -5,7 +5,7 @@
 
 World background 在同一查询捕获实际页面 version_number 的 revision_id + revision_digest，避免消费后再查当前头。
 仅入选并进入 `world_bible_pages` 的页面登记，Top-K 省略页不登记，旧数据没有修订不造基线。
-生成任务保存基线到 context_provenance，采用预览时复制到总纲 provenance，恢复历史继承原基线。
+生成任务保存基线到 context_provenance，采用预览时复制到总纲 provenance，手工编辑继承基底的页面基线，恢复历史继承原基线。
 
 公开当前/历史/列表 API 显式启用只读批量比对，返回 canon_staleness；页面修订、取消采用或不存在算变化。
 内部领域读取默认不做动态比对，保护可能对整个 revision.model_dump 计算的指纹。
@@ -31,3 +31,5 @@ Story 扩展回归534通过，新增3项 SQLite断言最初因时区序列化差
 环境失败保留：初次浏览器缺PW_REUSE_EXISTING_SERVER=0；第二次缺匹配的Chromium，安装后成功。
 首次定向PG从root运行无法解析Alembic相对目录，随后未覆盖默认-m而仅deselected；最终在backend目录
 显式-m运行7项全部成功。不能把这些预检失败当成产品失败或把未执行当通过。
+
+提交后的补查发现手工编辑会丢失页面基线，已修正为继承 CAS 基底的页面基线；新内容的 execution profile 仍重新派生。49项大纲CRUD/生成/基线测试及真实PG3项（含手工编辑与历史恢复）通过。

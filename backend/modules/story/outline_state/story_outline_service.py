@@ -137,7 +137,18 @@ class StoryOutlineService:
 
         self._assert_base_revision(head, data.base_revision_id)
         content = self._content_payload(data)
-        provenance = self._with_execution_profile(data.provenance, content)
+        provenance = data.provenance
+        if data.base_revision_id and not provenance.world_bible_page_revisions:
+            base = await self.repository.get_revision(db, nid, data.base_revision_id)
+            if base is None:
+                raise StoryOutlineConflictError("StoryOutline base revision is missing")
+            inherited = StoryOutlineProvenance.model_validate(base.provenance_json)
+            provenance = provenance.model_copy(
+                update={
+                    "world_bible_page_revisions": inherited.world_bible_page_revisions
+                }
+            )
+        provenance = self._with_execution_profile(provenance, content)
         revision = StoryOutlineRevision(
             novel_id=nid,
             version_number=await self.repository.next_version_number(db, nid),
