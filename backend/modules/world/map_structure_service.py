@@ -1347,8 +1347,23 @@ class MapStructureService:
                 continue
             images.append(
                 {
-                    key: layer[key]
-                    for key in ("page_id", "role", "feature_id", "transform", "opacity")
+                    "space_id": (
+                        static_features[placement.feature_id].space_id
+                        if placement.feature_id
+                        else static_features[placement.anchors[0].feature_id].space_id
+                        if placement.role == "background" and placement.anchors
+                        else "main"
+                    ),
+                    **{
+                        key: layer[key]
+                        for key in (
+                            "page_id",
+                            "role",
+                            "feature_id",
+                            "transform",
+                            "opacity",
+                        )
+                    },
                 }
             )
         return {

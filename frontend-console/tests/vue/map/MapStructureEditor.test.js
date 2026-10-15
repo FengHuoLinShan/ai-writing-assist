@@ -79,6 +79,39 @@ describe("统一地图编辑器", () => {
     expect(wrapper.emitted('open-node')).toEqual([[nextId]])
   })
 
+  it('独立空间分别绘图，切换和全图搜索不修改地图', async () => {
+    const data = document()
+    data.schema_version = 2
+    data.spaces = [{ id: 'main', label: '现世' }, { id: 'dream', label: '梦境' }]
+    data.features[1].space_id = 'dream'
+    api.world.getNodeMap.mockResolvedValue(state(record(data)))
+    const wrapper = await render({ browseOnly: true })
+    expect(wrapper.findAll('.map-feature').map(item => item.attributes('data-feature-id'))).toEqual(['a', 'c'])
+    await wrapper.get('[aria-label="当前地图空间"]').setValue('dream')
+    expect(wrapper.findAll('.map-feature').map(item => item.attributes('data-feature-id'))).toEqual(['b'])
+    await wrapper.get('.map-locator input').setValue('临江城')
+    await button(wrapper, '临江城').trigger('click'); await flushPromises()
+    expect(wrapper.get('[aria-label="当前地图空间"]').element.value).toBe('main')
+    expect(wrapper.findAll('.map-feature').map(item => item.attributes('data-feature-id'))).toEqual(['a', 'c'])
+    expect(wrapper.vm.dirty).toBe(false)
+  })
+
+  it('读者空间选择仅使用已公开图元，不泄露作者空间名称', async () => {
+    const data = document()
+    data.schema_version = 2
+    data.spaces = [{ id: 'main', label: '现世' }, { id: 'dream', label: '未揭示空间名称' }]
+    data.features[1].space_id = 'dream'
+    api.world.getNodeMap.mockResolvedValue(state(record(data)))
+    api.world.previewReaderMap.mockResolvedValue({ chapter: 1, features: [data.features[0], data.features[1]], images: [], journeys: [] })
+    const wrapper = await render({ browseOnly: true })
+    await button(wrapper, '预览读者所见').trigger('click'); await flushPromises()
+    const select = wrapper.get('[aria-label="当前地图空间"]')
+    expect(select.text()).not.toContain('未揭示空间名称')
+    expect(select.text()).not.toContain('现世')
+    await select.setValue('dream')
+    expect(wrapper.findAll('.map-feature').map(item => item.attributes('data-feature-id'))).toEqual(['b'])
+  })
+
   it('默认先展示画布，详情按需打开，阅读预览只有一份', async () => {
     const wrapper = await render({ browseOnly: true })
     expect(wrapper.findAll('.map-reader')).toHaveLength(1)

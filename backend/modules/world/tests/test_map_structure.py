@@ -1805,3 +1805,40 @@ async def test_spatial_type_reference_rejects_foreign_mismatched_revision_and_ki
         )
     stored_node = await db_session.get(MapAtlasNode, uuid.UUID(node["id"]))
     assert str(stored_node.current_revision_id) == node["current_revision_id"]
+
+
+async def test_reader_image_keeps_its_coordinate_space_without_private_space_name(
+    db_session, test_project_id
+):
+    service, node = await create_map(db_session, test_project_id)
+    doc = document()
+    payload = doc.model_dump(mode="json")
+    payload["spaces"].append({"id": "dream", "label": "作者秘密空间名"})
+    for item in payload["features"]:
+        item["space_id"] = "dream"
+        item["reader_from_chapter"] = 1
+    page_id = uuid.uuid4()
+    placement = image_placement(page_id)
+    placement.reader_from_chapter = 1
+    placement.reader_image_hash = "a" * 64
+    payload["images"] = [placement.model_dump(mode="json")]
+    # A persisted adopted fixture; image publication/storage is tested separately.
+    row = await db_session.get(MapAtlasRevision, uuid.UUID(node["current_revision_id"]))
+    row.document = MapDocument.model_validate(payload).model_dump(mode="json")
+    row.geometry_hash = geometry_hash(MapDocument.model_validate(payload))
+    await db_session.flush()
+    layer = {
+        "page_id": str(page_id),
+        "role": "background",
+        "feature_id": None,
+        "transform": [1, 0, 0, 1, 0, 0],
+        "opacity": 1,
+        "state": "ready",
+        "image_hash": "a" * 64,
+    }
+    with patch.object(service, "image_layers", return_value=[layer]):
+        projection = await service.reader_preview(
+            db_session, test_project_id, node["id"], chapter=1
+        )
+    assert projection["images"][0]["space_id"] == "dream"
+    assert "作者秘密空间名" not in str(projection)

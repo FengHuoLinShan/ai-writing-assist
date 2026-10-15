@@ -73,6 +73,7 @@
     <template v-if="!referenceOnly">
       <div class="map-navigation">
         <div class="map-canvas-controls">
+          <label v-if="spaceChoices.length > 1">空间<select v-model="activeSpaceId" aria-label="当前地图空间" class="form-select" :disabled="busy"><option v-for="space in spaceChoices" :key="space.id" :value="space.id">{{ space.label }}</option></select></label>
           <label>缩放 <input v-model.number="zoom" aria-label="空间地图缩放" type="range" min="60" max="200" step="10" /></label>
           <button class="btn btn-sm" @click="zoom = 100">适合画布</button>
           <details v-if="!focused" class="map-legend"><summary>图例</summary><span>● 地点 ━ 河流 ┄ 道路 ▱ 区域</span></details>
@@ -261,6 +262,7 @@ const recovery = ref(null), backupError = ref(false), backedUp = ref(false), con
 const discardBackupOpen = ref(false), discardBackupTrigger = ref(null), discardBackupConfirm = ref(null), recoveryCorrupt = ref(false)
 const undoStack = ref([]), redoStack = ref([]), selectedId = ref(""), selectedVertex = ref(0), selectedSegment = ref(0), placing = ref(false)
 const canvas = ref(null), canvasWidth = ref(700), canvasHeight = ref(0), zoom = ref(100), referenceOnly = ref(false), dragBounds = ref(null)
+const activeSpaceId = ref("main")
 const focused = ref(false), mapQuery = ref(""), locatorMessage = ref(""), compareCandidateCurrent = ref(false)
 const selectedChangeKeys = ref([]), selectedFeatureIds = ref([]), comparisonLayers = ref([]), reviewNotice = ref(''), rehearsalStops = ref([]), scrollArea = ref(null)
 const adoptionPreview = ref(null), previewing = ref(false), imageBaseline = ref(null), imageBaselineStatus = ref('unknown'), panning = ref(false)
@@ -310,9 +312,17 @@ const discardCounts = computed(() => {
 })
 const incompleteGeometry = computed(() => doc.value.features.some(feature => feature.points.length > 0 && feature.points.length < (feature.kind === 'area' ? 3 : ['road', 'river'].includes(feature.kind) ? 2 : 1)))
 const readOnly = computed(() => Boolean(recovery.value || reader.value || candidateView.value || compareServer.value))
-const displayDocument = computed(() => reader.value ? { features: reader.value.features } : candidateView.value ? (compareCandidateCurrent.value ? revision.value?.document || emptyMap() : candidateView.value.document) : (compareServer.value && serverRevision.value ? serverRevision.value.document : doc.value))
+const rawDisplayDocument = computed(() => reader.value ? { features: reader.value.features } : candidateView.value ? (compareCandidateCurrent.value ? revision.value?.document || emptyMap() : candidateView.value.document) : (compareServer.value && serverRevision.value ? serverRevision.value.document : doc.value))
+const spaceChoices = computed(() => {
+  const document = rawDisplayDocument.value
+  const spaces = new Map((document.spaces || []).map(item => [item.id, item.label]))
+  for (const feature of document.features) if (!spaces.has(feature.space_id || 'main')) spaces.set(feature.space_id || 'main', (feature.space_id || 'main') === 'main' ? '主空间' : `独立空间 ${spaces.size + 1}`)
+  if (!spaces.size) spaces.set('main', '主空间')
+  return [...spaces].map(([id, label]) => ({ id, label }))
+})
+const displayDocument = computed(() => ({ ...rawDisplayDocument.value, features: rawDisplayDocument.value.features.filter(feature => (feature.space_id || 'main') === activeSpaceId.value) }))
 const displayedFeature = computed(() => displayDocument.value.features.find(feature => feature.id === selectedId.value))
-const matchingFeatures = computed(() => displayDocument.value.features.filter(feature => feature.label.toLocaleLowerCase().includes(mapQuery.value.trim().toLocaleLowerCase())))
+const matchingFeatures = computed(() => rawDisplayDocument.value.features.filter(feature => feature.label.toLocaleLowerCase().includes(mapQuery.value.trim().toLocaleLowerCase())))
 const candidateChanges = computed(() => candidateView.value ? mapChangeDetails(revision.value?.document || emptyMap(), candidateView.value.document) : [])
 const adoptionChanges = computed(() => candidateChanges.value.filter(change => adoptionPreview.value?.applied_change_keys.includes(change.key)))
 const rehearsal = computed(() => readOnly.value ? { message: '', legs: [], featureIds: [] } : rehearseMapRoute(doc.value, rehearsalStops.value, problems.value.flatMap(problem => problem.feature_ids)))
@@ -356,7 +366,7 @@ const labelPositions = computed(() => {
   }
   return result
 })
-const selectedFeature = computed(() => doc.value.features.find(f => f.id === selectedId.value))
+const selectedFeature = computed(() => doc.value.features.find(f => f.id === selectedId.value && (f.space_id || 'main') === activeSpaceId.value))
 const evidenceRoots = computed(() => {
   const ids = selectedFeature.value?.entity_id ? [selectedFeature.value.entity_id] : selectedLocationIds.value.length ? selectedLocationIds.value : props.node.location_entity_id ? [props.node.location_entity_id] : []
   return ids.map(id => ({ target_ref: { target_type: "core_entity", target_id: id, target_path: "" } }))
@@ -372,12 +382,18 @@ const childChoices = computed(() => props.knownNodes.filter(node => node.id !== 
 const annotations = computed(() => props.images.flatMap(page => page.annotations || []))
 const conflictChanges = computed(() => serverRevision.value ? mapChangeDetails(serverRevision.value.document, doc.value) : [])
 const saveLabel = computed(() => saving.value ? "正在处理地图操作…" : recovery.value ? "当前浏览已保存地图，本机编辑尚待处理" : dirty.value ? (backedUp.value ? "未保存到服务端 · 当前编辑已在本机备份" : "有未保存修改") : revision.value ? "已保存到服务端" : "空间结构尚未保存")
+function imageInActiveSpace(layer) {
+  if (reader.value) return (layer.space_id || 'main') === activeSpaceId.value
+  const placement = rawDisplayDocument.value.images?.find(item => item.page_id === layer.page_id)
+  const anchor = placement?.anchors?.[0]?.feature_id
+  return (rawDisplayDocument.value.features.find(item => item.id === anchor)?.space_id || 'main') === activeSpaceId.value
+}
 const backgrounds = computed(() => {
-  if (candidateView.value && !compareCandidateCurrent.value) return comparisonLayers.value.filter(layer => layer.role === 'background' && layer.state === 'ready' && layer.transform)
-  if (candidateView.value) return imageLayers.value.filter(layer => layer.role === 'background' && layer.state === 'ready' && layer.transform)
+  if (candidateView.value && !compareCandidateCurrent.value) return comparisonLayers.value.filter(layer => layer.role === 'background' && layer.state === 'ready' && layer.transform && imageInActiveSpace(layer))
+  if (candidateView.value) return imageLayers.value.filter(layer => layer.role === 'background' && layer.state === 'ready' && layer.transform && imageInActiveSpace(layer))
   if (compareServer.value) return []
   const layers = reader.value ? reader.value.images : imageLayers.value
-  return layers.filter(layer => layer.role === "background" && layer.transform && (reader.value || imageState(doc.value.images.find(i => i.page_id === layer.page_id)) === "ready")).map(layer => ({ ...layer, opacity: reader.value ? layer.opacity : doc.value.images.find(i => i.page_id === layer.page_id)?.opacity ?? layer.opacity }))
+  return layers.filter(layer => layer.role === "background" && layer.transform && imageInActiveSpace(layer) && (reader.value || imageState(doc.value.images.find(i => i.page_id === layer.page_id)) === "ready")).map(layer => ({ ...layer, opacity: reader.value ? layer.opacity : doc.value.images.find(i => i.page_id === layer.page_id)?.opacity ?? layer.opacity }))
 })
 const selectedIllustrations = computed(() => (reader.value ? reader.value.images : candidateView.value && !compareCandidateCurrent.value ? comparisonLayers.value : imageLayers.value).filter(layer => layer.role === "illustration" && (!layer.feature_id || layer.feature_id === selectedId.value) && (reader.value || layer.state === "ready")))
 
@@ -469,7 +485,7 @@ function mutate(change) {
 }
 function undo() { if (readOnly.value || !undoStack.value.length) return; redoStack.value.push(JSON.stringify(doc.value)); doc.value = JSON.parse(undoStack.value.pop()) }
 function redo() { if (readOnly.value || !redoStack.value.length) return; undoStack.value.push(JSON.stringify(doc.value)); doc.value = JSON.parse(redoStack.value.pop()) }
-function selectFeature(id) { inspectorOpen.value = Boolean(id); selectedId.value = id; selectedVertex.value = 0; selectedSegment.value = 0; if (!readOnly.value) emit('select-feature', id) }
+function selectFeature(id) { const feature = rawDisplayDocument.value.features.find(item => item.id === id); if (feature) activeSpaceId.value = feature.space_id || 'main'; inspectorOpen.value = Boolean(id); selectedId.value = id; selectedVertex.value = 0; selectedSegment.value = 0; if (!readOnly.value) emit('select-feature', id) }
 function locateChange(ids) {
   const id = ids.find(value => displayDocument.value.features.some(feature => feature.id === value))
   if (id) return locateFeature(id)
@@ -479,7 +495,7 @@ function rememberView() {
   if (!initialized.value || !alive || readOnly.value) return
   try {
     const key = backupKey().replace('novel_map_draft:', 'novel_map_view:')
-    localStorage.setItem(key, JSON.stringify({ selectedId: selectedId.value, zoom: zoom.value, focused: focused.value, left: scrollArea.value?.scrollLeft || 0, top: scrollArea.value?.scrollTop || 0, stops: rehearsalStops.value }))
+    localStorage.setItem(key, JSON.stringify({ selectedId: selectedId.value, spaceId: activeSpaceId.value, zoom: zoom.value, focused: focused.value, left: scrollArea.value?.scrollLeft || 0, top: scrollArea.value?.scrollTop || 0, stops: rehearsalStops.value }))
   } catch { /* View preferences are optional; document saving retains its own protection. */ }
 }
 async function restoreView() {
@@ -488,7 +504,8 @@ async function restoreView() {
     if (Number.isFinite(value.zoom)) zoom.value = Math.max(60, Math.min(200, value.zoom))
     focused.value = value.focused === true
     const id = props.initialFeatureId || value.selectedId
-    if (doc.value.features.some(feature => feature.id === id)) selectedId.value = id
+    if (doc.value.features.some(feature => feature.id === id)) { selectedId.value = id; activeSpaceId.value = doc.value.features.find(feature => feature.id === id).space_id || 'main' }
+    else if (spaceChoices.value.some(space => space.id === value.spaceId)) activeSpaceId.value = value.spaceId
     rehearsalStops.value = Array.isArray(value.stops) ? value.stops.filter(id => typeof id === 'string').slice(0, 20) : []
     await nextTick()
     if (!alive) return
@@ -502,6 +519,8 @@ function bindEntity(id) {
   changeFeature('entity_id', id || null)
 }
 async function locateFeature(id) {
+  const feature = rawDisplayDocument.value.features.find(item => item.id === id)
+  if (feature) activeSpaceId.value = feature.space_id || 'main'
   selectFeature(id)
   locatorMessage.value = displayedFeature.value?.points.length ? '' : '这个地点尚未定位，可在编辑工具中放置。'
   await nextTick()
@@ -595,7 +614,7 @@ function insertPoint() {
 }
 function addFeature() {
   const id = "mark:" + crypto.randomUUID()
-  mutate(document => document.features.push({ id, kind: newKind.value, label: newLabel.value.trim(), entity_id: null, target_node_id: null, points: [], locked: false, sources: [], depends_on: [], note: "", reader_from_chapter: null }))
+  mutate(document => document.features.push({ id, ...(document.schema_version === 2 ? { space_id: activeSpaceId.value } : {}), kind: newKind.value, label: newLabel.value.trim(), entity_id: null, target_node_id: null, points: [], locked: false, sources: [], depends_on: [], note: "", reader_from_chapter: null }))
   selectedId.value = id; newLabel.value = ""; placing.value = true
 }
 async function removeFeature() {
@@ -620,7 +639,7 @@ async function searchLocations() {
   } catch (err) { error.value = err.message || "地点读取失败，请重试" }
 }
 function addLocations() {
-  mutate(document => { for (const location of locations.value.filter(item => selectedLocationIds.value.includes(item.id))) if (!document.features.some(f => f.entity_id === location.id)) document.features.push({ id: "loc:" + location.id, kind: "location", label: location.name, entity_id: location.id, target_node_id: null, points: [], locked: false, sources: [], depends_on: [], note: "", reader_from_chapter: null }) })
+  mutate(document => { for (const location of locations.value.filter(item => selectedLocationIds.value.includes(item.id))) if (!document.features.some(f => f.entity_id === location.id)) document.features.push({ id: "loc:" + location.id, ...(document.schema_version === 2 ? { space_id: activeSpaceId.value } : {}), kind: "location", label: location.name, entity_id: location.id, target_node_id: null, points: [], locked: false, sources: [], depends_on: [], note: "", reader_from_chapter: null }) })
 }
 async function load(initial = false) {
   const token = ++epoch
@@ -992,8 +1011,10 @@ async function runToolbarAction(key) {
   const selectors = { add: ".map-edit-grid details", selected: ".map-inspector", "save-area": ".map-toolbar", recovery: ".map-recovery", conflict: ".map-conflict", comparison: '[aria-label="候选地图差异"], .map-conflict', candidates: ".map-candidates", progress: ".map-generation-feedback", rehearsal: ".map-rehearsal", "reader-settings": ".map-reader", find: ".map-locator", history: ".map-history-panel", problems: ".map-problems" }
   if (selectors[key]) return focusWorkspaceTool(toolsRoot.value, selectors[key])
 }
+watch(spaceChoices, choices => { if (!choices.some(space => space.id === activeSpaceId.value)) activeSpaceId.value = choices[0].id }, { immediate: true })
+watch(activeSpaceId, () => { selectedId.value = ''; placing.value = false; rehearsalStops.value = []; dragBounds.value = null; drag = null; if (scrollArea.value) { scrollArea.value.scrollLeft = 0; scrollArea.value.scrollTop = 0 } }, { flush: 'sync' })
 watch([dirty, revision, reader, focused, toolbar], () => emit("state", { nodeId: props.node.id, dirty: dirty.value, revision: revision.value, reader: Boolean(reader.value), focused: focused.value, toolbar: toolbar.value }), { immediate: true })
-watch([selectedId, zoom, focused, rehearsalStops], rememberView, { deep: true })
+watch([selectedId, activeSpaceId, zoom, focused, rehearsalStops], rememberView, { deep: true })
 watch([selectedId, busy, focused, readOnly], () => { sourcePickerOpen.value = false }, { flush: 'sync' })
 watch([candidateView, () => revision.value?.id, () => serverRevision.value?.id, selectedChangeKeys], () => { ++reviewEpoch; adoptionPreview.value = null; previewing.value = false }, { deep: true, flush: 'sync' })
 watch([() => imageForm.page_id, imageBaselineRevision, imageBaselineKind], loadImageBaseline)

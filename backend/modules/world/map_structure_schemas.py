@@ -652,6 +652,7 @@ class MapReaderFeature(SpatialModel):
 
 class MapReaderImage(SpatialModel):
     page_id: UUID
+    space_id: FeatureKey = "main"
     role: Literal["background", "illustration"]
     feature_id: FeatureKey | None
     transform: list[float] | None
