@@ -83,6 +83,10 @@ from modules.world.map_atlas_facade import (  # noqa: F401
     list_adopted_map_continuity_facts,
     read_map_node_heads,
 )
+from modules.world.map_spatial_clue_service import (  # noqa: F401
+    read_spatial_discovery_context,
+    stage_spatial_discovery,
+)
 from modules.world.project_vocabulary_service import (  # noqa: F401
     invalidate_model_vocabulary_evidence,
     persist_reviewed_model_vocabulary_proposal,
@@ -200,6 +204,8 @@ __all__ = [
     "list_auto_ingested_entities",
     "list_adopted_map_continuity_facts",
     "read_map_node_heads",
+    "read_spatial_discovery_context",
+    "stage_spatial_discovery",
     "read_world_bible_page_revisions",
     "read_project_vocabulary",
     "resolve_vocabulary_type_revisions",

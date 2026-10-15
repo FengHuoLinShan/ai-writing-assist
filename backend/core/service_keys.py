@@ -267,6 +267,12 @@ WORLD_LIST_ADOPTED_MAP_CONTINUITY_FACTS: ServiceKey[Callable[..., Any]] = Servic
 WORLD_READ_MAP_NODE_HEADS: ServiceKey[Callable[..., Any]] = ServiceKey(
     "world.read_map_node_heads"
 )
+WORLD_STAGE_SPATIAL_DISCOVERY: ServiceKey[Callable[..., Any]] = ServiceKey(
+    "world.stage_spatial_discovery"
+)
+WORLD_READ_SPATIAL_DISCOVERY_CONTEXT: ServiceKey[Callable[..., Any]] = ServiceKey(
+    "world.read_spatial_discovery_context"
+)
 WORLD_READ_BIBLE_PAGE_REVISIONS: ServiceKey[Callable[..., Any]] = ServiceKey(
     "world.read_bible_page_revisions"
 )
@@ -409,6 +415,8 @@ ALL_SERVICE_KEYS: tuple[ServiceKey[Any], ...] = (
     WORLD_LIST_ADOPTED_MAP_CONTINUITY_FACTS,
     WORLD_READ_MAP_CHAPTER_CONSUMERS,
     WORLD_READ_MAP_NODE_HEADS,
+    WORLD_STAGE_SPATIAL_DISCOVERY,
+    WORLD_READ_SPATIAL_DISCOVERY_CONTEXT,
     WORLD_READ_BIBLE_PAGE_REVISIONS,
     WORLD_WORLDBUILDING_REQUIRE_LEGACY_CANON_WRITE_ALLOWED,
     WORLD_WORLDBUILDING_MARK_SYNOPSIS_SOURCE_CHANGED,
