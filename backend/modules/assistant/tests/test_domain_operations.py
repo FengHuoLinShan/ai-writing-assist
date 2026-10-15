@@ -42,6 +42,76 @@ async def test_author_task_update_uses_existing_version_guard(
 
 
 @pytest.mark.asyncio
+async def test_confirmation_preflight_passes_only_server_stored_preview_to_prepare(
+    db_session, test_project_id
+):
+    from pydantic import BaseModel
+
+    owner_id = str(current_account_id())
+    run = AssistantRun(
+        novel_id=uuid.UUID(test_project_id),
+        owner_id=uuid.UUID(owner_id),
+        request_hash="c" * 64,
+        request_json={"context": {"scope": "project"}},
+        checkpoint_json={},
+    )
+    db_session.add(run)
+    await db_session.flush()
+    prepared_previews = []
+
+    class Args(BaseModel):
+        name: str
+
+    async def prepare(_db, _novel_id, args, *, context):
+        frozen = (context.internal_meta or {}).get("prepared_preview")
+        prepared_previews.append(frozen)
+        return {"title": args.name}
+
+    async def apply(_db, _novel_id, _args, _preview, *, context):
+        assert context.internal_meta["prepared_preview"] == {"title": "空间"}
+        return {"label": "已确认"}
+
+    operation = AssistantOperation("测试", Args, prepare, apply)
+    with container_scope({"assistant.operations": {"test.prepared": operation}}):
+        actions = await prepare_actions(
+            db_session,
+            test_project_id,
+            [
+                ProposedAction(
+                    key="edit",
+                    capability="test.prepared",
+                    title="更新空间",
+                    arguments={"name": "空间"},
+                )
+            ],
+            context=AssistantOperationContext(
+                str(run.id), owner_id, WorkContext(page="map", scope="project")
+            ),
+        )
+        batch = AssistantActionBatch(
+            novel_id=run.novel_id,
+            run_id=run.id,
+            actions_json=actions,
+            fingerprint=fingerprint(actions),
+        )
+        db_session.add(batch)
+        await db_session.flush()
+        result = await decide_batch(
+            db_session,
+            str(batch.id),
+            BatchDecision(
+                novel_id=test_project_id,
+                fingerprint=batch.fingerprint,
+                selected=["edit"],
+                confirmed=True,
+            ),
+            owner_id,
+        )
+    assert prepared_previews == [None, {"title": "空间"}]
+    assert result["results"][0]["status"] == "completed"
+
+
+@pytest.mark.asyncio
 @pytest.mark.parametrize("external_change", [False, True])
 async def test_partial_retry_revalidates_own_world_write_postcondition(
     db_session, test_project_id, external_change

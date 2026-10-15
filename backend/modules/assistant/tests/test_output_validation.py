@@ -81,6 +81,11 @@ def test_frozen_operation_scope_rejects_new_tools_and_changed_revisions():
             resolve_operations(manifest)
 
 
+def test_runtime_v6_is_a_fresh_frozen_operation_directory():
+    payload = {"runtime_version": "6", "operations": {}, "read_tools": {}}
+    assert runtime_protocol(payload) == payload
+
+
 def test_runtime_v4_freezes_new_operations_without_widening_old_manifests():
     from modules.world.assistant_vocabulary_tools import OPERATIONS_SPEC
 

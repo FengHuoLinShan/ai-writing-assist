@@ -50,7 +50,7 @@ def operation_manifest() -> dict:
 
 
 def runtime_protocol(payload: dict) -> dict:
-    if payload.get("runtime_version") in {"2", "3", "4", "5"}:
+    if payload.get("runtime_version") in {"2", "3", "4", "5", "6"}:
         return payload
     if payload.get("runtime_version") == "1":
         frozen = json.loads(Path(__file__).with_name("runtime_v1.json").read_text())
@@ -530,6 +530,7 @@ async def decide_batch(db, batch_id: str, decision: BatchDecision, owner_id: str
     for item in selected:
         if item["key"] in completed:
             continue
+        confirmation_meta["prepared_preview"] = item["preview"]
         if item.get("operation_manifest"):
             resolve_operations({item["capability"]: item["operation_manifest"]})
         if not set(item["depends_on"]).issubset(keys):
@@ -577,6 +578,7 @@ async def decide_batch(db, batch_id: str, decision: BatchDecision, owner_id: str
         previous_work, previous_refs = context.work, dict(context.evidence_refs)
         try:
             async with db.begin_nested():
+                confirmation_meta["prepared_preview"] = item["preview"]
                 operation = available[item["capability"]]
                 result = await operation.apply(
                     db,

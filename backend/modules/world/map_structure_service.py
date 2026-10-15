@@ -9,7 +9,9 @@ import uuid
 from sqlalchemy import and_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from core.container import get
 from core.errors import ConflictError, NotFoundError, ValidationError
+from core.service_keys import ASSISTANT_READ_MAP_AUTHOR_DECISION
 from infrastructure.tasks.facade import (
     get_completed_task_payload,
     list_task_lifecycle_contracts,
@@ -503,6 +505,19 @@ class MapStructureService:
         return text
 
     async def validate_document(self, db, novel_id, node, document: MapDocument):
+        for journey in document.journeys:
+            decision = journey.author_decision
+            if decision is None or decision.origin != "assistant":
+                continue
+            reader = get(ASSISTANT_READ_MAP_AUTHOR_DECISION)
+            verified = await reader(
+                db,
+                novel_id,
+                str(decision.run_id),
+                message_id=str(decision.message_id),
+            )
+            if verified != decision:
+                raise ConflictError("作者安排来源已变化，请重新核对")
         type_refs = _document_type_references(document)
         resolved_types = await resolve_spatial_vocabulary_references(
             db, novel_id, type_refs

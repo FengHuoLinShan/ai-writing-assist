@@ -1,5 +1,8 @@
 """Stable discussion service used by the World compatibility entry."""
 
+from modules.assistant.map_author_decision_service import (
+    read_map_author_decision as read_map_author_decision,
+)
 from modules.assistant.operation_scope import (
     require_operation_targets as require_operation_targets,
 )

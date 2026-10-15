@@ -242,6 +242,26 @@ class SpatialConstraint(ProjectTypeRevisionRef):
         return self
 
 
+class MapAuthorDecision(SpatialModel):
+    """Author-authored spatial arrangement; it is not a manuscript citation."""
+
+    origin: Literal["manual", "assistant"]
+    run_id: UUID | None = None
+    message_id: UUID | None = None
+    statement_hash: str | None = Field(default=None, pattern=r"^[a-f0-9]{64}$")
+
+    @model_validator(mode="after")
+    def validate_origin(self):
+        provenance = (self.run_id, self.message_id, self.statement_hash)
+        if self.origin == "assistant" and any(value is None for value in provenance):
+            raise ValueError(
+                "assistant-authored arrangements need a verified author message"
+            )
+        if self.origin == "manual" and any(value is not None for value in provenance):
+            raise ValueError("manual arrangements cannot claim assistant provenance")
+        return self
+
+
 class SpatialJourney(SpatialModel):
     id: FeatureKey
     origin: FeatureKey
@@ -259,7 +279,8 @@ class SpatialJourney(SpatialModel):
         default_factory=list, max_length=30
     )
     modality: ObservationModality = "event_observed"
-    sources: list[MapSource] = Field(min_length=1, max_length=8)
+    sources: list[MapSource] = Field(default_factory=list, max_length=8)
+    author_decision: MapAuthorDecision | None = None
     effective: SpatialValidity | None = None
 
     @field_validator("transport_label")
@@ -278,8 +299,10 @@ class SpatialJourney(SpatialModel):
         ):
             if (type_ref is None) != (revision_id is None):
                 raise ValueError("a journey type must pin both its identity and revision")
-        if not any(source.quote.strip() for source in self.sources):
-            raise ValueError("a journey needs at least one quoted source")
+        if not any(source.quote.strip() for source in self.sources) and (
+            self.author_decision is None
+        ):
+            raise ValueError("a journey needs quoted evidence or an author decision")
         return self
 
 

@@ -8,8 +8,15 @@ from modules.account.facade import current_account_id
 from modules.assistant.contracts import AssistantOperationContext, WorkContext
 from modules.world.assistant_map_tools import (
     AddKnownLocation,
+    AssistantSpaceArrangement,
     EditFeatureLabel,
+    EditMapStructure,
+    MapStructureEdit,
+    ReviewSpatialClues,
+    SpatialClueDecisionSelector,
+    UpdateMapNode,
 )
+from modules.world.map_atlas_schemas import MapAtlasNodeUpdate
 from modules.world.map_structure_schemas import MapNodeCreate, MapSaveRequest
 from modules.world.map_structure_service import MapStructureService
 from modules.world.models import CoreEntity
@@ -136,4 +143,115 @@ async def test_create_node_preview_names_the_exact_pinned_level_type(
                 level_type_revision_id=wrong_kind.revision_id,
             ),
             context=context,
+        )
+
+
+@pytest.mark.asyncio
+async def test_assistant_space_edit_saves_without_model_coordinates_or_provenance_fields(
+    db_session, test_project_id
+):
+    db, nid = db_session, test_project_id
+    service = MapStructureService()
+    node = await service.create_node(db, nid, MapNodeCreate(title="主界域"))
+    context = AssistantOperationContext(
+        str(uuid4()), str(current_account_id()), WorkContext(page="map", scope="project")
+    )
+    args = EditMapStructure(
+        node_id=UUID(node["id"]),
+        base_revision_id=UUID(node["current_revision_id"]),
+        edits=[
+            MapStructureEdit(
+                kind="add_space",
+                space=AssistantSpaceArrangement(id="dream", label="梦境"),
+            )
+        ],
+    )
+    operation = world_map_operations["map.edit_spatial_structure"]
+    preview = await operation.prepare(db, nid, args, context=context)
+    assert any(space["id"] == "dream" for space in preview["after"]["spaces"])
+    assert "points" not in str(operation.schema.model_json_schema())
+    assert "author_decision" not in str(operation.schema.model_json_schema())
+
+    result = await operation.apply(db, nid, args, preview, context=context)
+    revision = await service.revision(
+        db, nid, str(args.node_id), UUID(result["revision_id"])
+    )
+    assert any(space["id"] == "dream" for space in revision.document["spaces"])
+
+
+@pytest.mark.asyncio
+async def test_assistant_node_rename_preview_rolls_back_until_confirmed(
+    db_session, test_project_id
+):
+    db, nid = db_session, test_project_id
+    structure = MapStructureService()
+    node = await structure.create_node(db, nid, MapNodeCreate(title="旧名"))
+    current = await structure.node(db, nid, node["id"])
+    context = AssistantOperationContext(
+        str(uuid4()), str(current_account_id()), WorkContext(page="map", scope="project")
+    )
+    args = UpdateMapNode(
+        node_id=UUID(node["id"]),
+        update=MapAtlasNodeUpdate(expected_updated_at=current.updated_at, title="新名"),
+    )
+    operation = world_map_operations["map.update_node"]
+    preview = await operation.prepare(db, nid, args, context=context)
+    assert preview["before"]["title"] == "旧名"
+    assert preview["after"]["title"] == "新名"
+    assert (await structure.node(db, nid, node["id"])).title == "旧名"
+
+    await operation.apply(db, nid, args, preview, context=context)
+    assert (await structure.node(db, nid, node["id"])).title == "新名"
+
+
+@pytest.mark.asyncio
+async def test_assistant_clue_review_uses_exact_quote_and_rejects_ambiguous_selector(
+    monkeypatch, test_project_id
+):
+    from types import SimpleNamespace
+
+    from core.errors import ConflictError
+    from modules.world import assistant_map_tools
+
+    clues = [
+        SimpleNamespace(
+            id=uuid4(),
+            quote="黑港在群岛东侧",
+            scene_index=2,
+            status="pending_review",
+            fingerprint="a" * 64,
+        ),
+        SimpleNamespace(
+            id=uuid4(),
+            quote="黑港在群岛东侧",
+            scene_index=3,
+            status="pending_review",
+            fingerprint="b" * 64,
+        ),
+    ]
+
+    async def list_clues(*_args, **_kwargs):
+        return SimpleNamespace(items=clues, total_count=len(clues))
+
+    monkeypatch.setattr(assistant_map_tools, "list_spatial_clues", list_clues)
+    context = AssistantOperationContext(
+        str(uuid4()), str(current_account_id()), WorkContext(page="map", scope="project")
+    )
+    args = ReviewSpatialClues(
+        decisions=[
+            SpatialClueDecisionSelector(
+                quote="黑港在群岛东侧", scene_index=2, action="adopt"
+            )
+        ]
+    )
+    preview = await assistant_map_tools._clue_review_preview(
+        None, test_project_id, args, context=context
+    )
+    assert preview["decisions"][0]["clue_id"] == str(clues[0].id)
+    ambiguous = ReviewSpatialClues(
+        decisions=[SpatialClueDecisionSelector(quote="黑港在群岛东侧", action="adopt")]
+    )
+    with pytest.raises(ConflictError, match="无法唯一定位"):
+        await assistant_map_tools._clue_review_preview(
+            None, test_project_id, ambiguous, context=context
         )

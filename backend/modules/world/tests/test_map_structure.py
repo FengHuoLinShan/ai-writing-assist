@@ -6,7 +6,9 @@ from unittest.mock import patch
 import pytest
 from pydantic import ValidationError as SchemaError
 
+from core.container import container_scope
 from core.errors import ConflictError, NotFoundError, ValidationError
+from core.service_keys import ASSISTANT_READ_MAP_AUTHOR_DECISION
 from modules.world.map_atlas_models import (
     MapAtlasNode,
     MapAtlasPage,
@@ -22,6 +24,7 @@ from modules.world.map_structure_geometry import (
     render_structure_png,
 )
 from modules.world.map_structure_schemas import (
+    MapAuthorDecision,
     MapDocument,
     MapImagePlacement,
     MapNodeCreate,
@@ -1063,6 +1066,99 @@ async def test_reader_projection_includes_only_public_event_journeys(
     assert projection["journeys"][0]["duration"]["unit"] == "day"
     assert "sources" not in projection["journeys"][0]
     assert saved.document.journeys[0].id == "ferry-trip"
+
+
+def test_journey_accepts_author_arrangement_without_fabricated_quote():
+    decision = MapAuthorDecision(origin="manual")
+    journey = SpatialJourney(
+        id="planned-trip",
+        origin="harbor",
+        destination="pass",
+        transport_label="渡船",
+        author_decision=decision,
+    )
+    assert journey.sources == []
+    assert journey.author_decision == decision
+
+    with pytest.raises(SchemaError, match="quoted evidence or an author decision"):
+        SpatialJourney(
+            id="unsupported-trip",
+            origin="harbor",
+            destination="pass",
+            transport_label="渡船",
+        )
+    with pytest.raises(SchemaError, match="verified author message"):
+        MapAuthorDecision(origin="assistant", run_id=uuid.uuid4())
+
+
+@pytest.mark.asyncio
+async def test_assistant_arrangement_is_reverified_against_its_author_message(
+    db_session, test_project_id
+):
+    service, node = await create_map(db_session, test_project_id)
+    baseline = await service.save(
+        db_session,
+        test_project_id,
+        node["id"],
+        MapSaveRequest(base_revision_id=node["current_revision_id"], document=document()),
+    )
+    baseline = await service.revision(
+        db_session, test_project_id, node["id"], baseline.id
+    )
+    decision = MapAuthorDecision(
+        origin="assistant",
+        run_id=uuid.uuid4(),
+        message_id=uuid.uuid4(),
+        statement_hash="a" * 64,
+    )
+    document_with_journey = MapDocument.model_validate(
+        {
+            **baseline.document,
+            "journeys": [
+                {
+                    "id": "author-planned-trip",
+                    "origin": "harbor",
+                    "destination": "pass",
+                    "transport_label": "渡船",
+                    "author_decision": decision.model_dump(mode="json"),
+                }
+            ],
+        }
+    )
+
+    async def reader(_db, _novel_id, run_id, *, message_id=None):
+        assert run_id == str(decision.run_id)
+        assert message_id == str(decision.message_id)
+        return decision
+
+    with container_scope({ASSISTANT_READ_MAP_AUTHOR_DECISION: reader}):
+        saved = await service.save(
+            db_session,
+            test_project_id,
+            node["id"],
+            MapSaveRequest(
+                base_revision_id=str(baseline.id),
+                document=document_with_journey,
+            ),
+        )
+    assert saved.document.journeys[0].author_decision == decision
+
+    changed = decision.model_copy(update={"statement_hash": "b" * 64})
+
+    async def changed_reader(_db, _novel_id, _run_id, *, message_id=None):
+        return changed
+
+    with container_scope({ASSISTANT_READ_MAP_AUTHOR_DECISION: changed_reader}):
+        with pytest.raises(ConflictError, match="作者安排来源已变化"):
+            await service.save(
+                db_session,
+                test_project_id,
+                node["id"],
+                MapSaveRequest(
+                    base_revision_id=saved.id,
+                    document=document_with_journey,
+                ),
+            )
 
 
 @pytest.mark.asyncio

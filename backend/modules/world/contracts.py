@@ -108,6 +108,8 @@ from modules.world.schemas import RelationKind
 if TYPE_CHECKING:
     from sqlalchemy.ext.asyncio import AsyncSession
 
+    from modules.world.map_structure_schemas import MapAuthorDecision
+
 
 class WorldBuildMapAutoDraftsPort(Protocol):
     async def __call__(
@@ -137,6 +139,19 @@ class WorldReadMapSpatialAdvisoriesPort(Protocol):
     async def __call__(
         self, db: AsyncSession, request: MapSpatialAdvisoryRequest
     ) -> MapSpatialAdvisoryResponse: ...
+
+
+class MapAuthorDecisionReaderPort(Protocol):
+    """Read a verified author message reference without returning its text."""
+
+    async def __call__(
+        self,
+        db: AsyncSession,
+        novel_id: str,
+        run_id: str,
+        *,
+        message_id: str | None = None,
+    ) -> MapAuthorDecision: ...
 
 
 ENTITY_FUSION_CHECKPOINT_PAIR_BATCH_SIZE = 12
@@ -507,9 +522,11 @@ class GenerationBackgroundProvider(Protocol):
     ) -> dict[str, Any]: ...
 
 
-# ============================================================
+# =====================================================
+
 # 表格迁移（ADR-0030）— 作者在途项目资产迁移的 world 契约
-# ============================================================
+# =====================================================
+
 
 
 class AuthorNote(BaseModel):
@@ -713,6 +730,7 @@ class WorldAliasRelationTaskPort(Protocol):
 
 
 __all__ = [
+    "MapAuthorDecisionReaderPort",
     "MapAutoDraftBuildRequest",
     "MapAutoDraftBuildResult",
     "WorldBuildMapAutoDraftsPort",
