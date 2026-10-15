@@ -173,6 +173,8 @@ async def list_object_validity_notices(
         observation = (
             exact_story_field_observation(
                 story_view,
+                novel_id=novel_id,
+                cutoff_scene_id=scene_id,
                 entity_id=str(row.entity_id),
                 entity_type=str(entity_type),
                 field_key=str(row.story_field_key),
@@ -270,6 +272,8 @@ async def list_object_validity_notices(
         author_active, anchor_gap = _author_active(interval, temporal_scenes, cutoff)
         observation = exact_story_relation_observation(
             story_view,
+            novel_id=novel_id,
+            cutoff_scene_id=scene_id,
             relation_id=str(relation.id),
             cutoff_scene_index=scene_index,
         )

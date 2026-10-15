@@ -216,6 +216,35 @@ def test_custom_field_uses_latest_time_and_rejects_degraded_or_tied_proof() -> N
         == "story_field_identity_ambiguous"
     )
 
+    novel_id, scene_id = str(uuid4()), str(uuid4())
+    assert (
+        exact_story_field_observation(
+            _view(
+                "entities",
+                [newer],
+                novel_id=str(uuid4()),
+                scene_id=scene_id,
+                scene_index=5,
+            ),
+            **params,
+            novel_id=novel_id,
+            cutoff_scene_id=scene_id,
+        ).gap
+        == "story_view_cutoff_mismatch"
+    )
+
+
+def test_relation_observation_rejects_mismatched_cutoff_view() -> None:
+    novel_id, scene_id = str(uuid4()), str(uuid4())
+    result = exact_story_relation_observation(
+        _view("relations", [], novel_id=novel_id, scene_id=scene_id, scene_index=4),
+        novel_id=novel_id,
+        cutoff_scene_id=scene_id,
+        relation_id="relation-1",
+        cutoff_scene_index=5,
+    )
+    assert result.gap == "story_view_cutoff_mismatch"
+
 
 def test_relation_observation_requires_same_stable_relation_id() -> None:
     provenance = {

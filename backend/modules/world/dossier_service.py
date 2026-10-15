@@ -620,6 +620,8 @@ class WorldObjectDossierService:
                     else:
                         observation = exact_story_field_observation(
                             story_view,
+                            novel_id=str(nid),
+                            cutoff_scene_id=as_of_scene_id,
                             entity_id=str(entity.id),
                             entity_type=entity.entity_type,
                             field_key=row.story_field_key,

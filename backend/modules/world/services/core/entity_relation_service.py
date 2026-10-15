@@ -1280,6 +1280,8 @@ class EntityRelationService(
                     else:
                         observation = exact_story_relation_observation(
                             story_view,
+                            novel_id=str(nid),
+                            cutoff_scene_id=as_of_scene_id,
                             relation_id=str(relation.id),
                             cutoff_scene_index=int(cutoff_index),
                         )

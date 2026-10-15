@@ -50,6 +50,22 @@ class MapDeclarationValidityDecision:
     observation: StoryMapDeclarationObservation | None = None
 
 
+def _view_matches_cutoff(
+    view: Any, novel_id: str, scene_id: str, scene_index: int
+) -> bool:
+    def value(key: str) -> Any:
+        return view.get(key) if isinstance(view, dict) else getattr(view, key, None)
+
+    actual_index = value("scene_index")
+    return (
+        str(value("novel_id")) == str(parse_uuid(novel_id, "novel_id"))
+        and str(value("scene_id")) == str(parse_uuid(scene_id, "scene_id"))
+        and isinstance(actual_index, int)
+        and not isinstance(actual_index, bool)
+        and actual_index == scene_index
+    )
+
+
 def exact_story_map_declaration_observation(
     view: Any,
     *,
@@ -272,6 +288,8 @@ def resolve_map_declaration_validity(
 def exact_story_field_observation(
     view: Any,
     *,
+    novel_id: str | None = None,
+    cutoff_scene_id: str | None = None,
     entity_id: str,
     entity_type: str,
     field_key: str,
@@ -282,6 +300,12 @@ def exact_story_field_observation(
     The key is structural: World entity ID + declared Story field key. Text
     similarity never participates in selecting a Story observation.
     """
+    if (
+        novel_id is not None
+        and cutoff_scene_id is not None
+        and not _view_matches_cutoff(view, novel_id, cutoff_scene_id, cutoff_scene_index)
+    ):
+        return StoryFieldObservation(None, "story_view_cutoff_mismatch")
     dimensions = getattr(view, "dimensions", None)
     if dimensions is None and isinstance(view, dict):
         dimensions = view.get("dimensions")
@@ -393,10 +417,18 @@ def exact_story_field_observation(
 def exact_story_relation_observation(
     view: Any,
     *,
+    novel_id: str | None = None,
+    cutoff_scene_id: str | None = None,
     relation_id: str,
     cutoff_scene_index: int,
 ) -> StoryRelationObservation:
     """Resolve an exact Story relation ID only when its status has trusted proof."""
+    if (
+        novel_id is not None
+        and cutoff_scene_id is not None
+        and not _view_matches_cutoff(view, novel_id, cutoff_scene_id, cutoff_scene_index)
+    ):
+        return StoryRelationObservation(None, "story_view_cutoff_mismatch")
     dimensions = getattr(view, "dimensions", None)
     if dimensions is None and isinstance(view, dict):
         dimensions = view.get("dimensions")
