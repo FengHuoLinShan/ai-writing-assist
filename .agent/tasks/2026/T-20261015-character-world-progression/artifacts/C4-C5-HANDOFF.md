@@ -183,3 +183,18 @@ C5没有director_*.py或SceneDirectorPanel.vue改动；api/story.js仍本域写�
 ## 2026-10-16T06:39:58+08:00 执行检查点
 
 C4对象候选桥接首版已跑8PG/真实浏览器，但root指出仅candidate_events不覆盖表演/素材的kind=candidate新人物/地点refs，Sol正直接补真实结构化对象选择/去重和纯SPEC R3/HTTP trace。C5 Sol已直接修演员作者摘要泄漏、地图有效期gap、钩子重放回执与锁后重复采用，并发现实际app import的_task_meta缺失，继续修复；52定向通过仍不替代完整装配。第9项独立R4 resume由root按完整预算契约明确推进，同Root与未知累计不得重置。
+
+
+## 2026-10-16T06:59:09+08:00 当前执行检查点
+
+
+
+当前执行检查点（优先于上面的批次历史）：C4尾项Sol固定64a99091272e133d4df4ec3a5e2e50c4ad82d104，已无冲突合primary c579beb872e7f6193476ff4d0abd0d034810f95c，25文件1219+/37-。新人物/地点/物件/设定的结构化refs按精确ID去重，和剧情事件分别转World候选；R3纯SPEC/HTTP真实confirmed-executed trace与v13冻结已装配，旧v1–12保留，未进Goal R2自动allowlist。唯一head20261016_story_director_candidate_transfer。Sol Story170/Assistant+Writing248/Trace42/9PG+1Goal预算PG/3182前端及lint/build/docs/repo gates通过。root已看390/1280两图与真实浏览器日志，确认HTTP201、World陌生访客candidate无approved_by、刷新回读及390无溢出；18596/18597已停，旧review库释放保留。
+
+root在保留的operation_trace_report_primary_test_20261016正常从A4 upgrade到C4，head/ORM parity通过；新组合PG为43通过/2失败（15.47s）：新C4 test_director_candidate_transfer_postgres.py:285假定账户原trace偏好off，保留库中on使先前合法确认也被统计（4!=1）。这是测试隔离问题，未改产品；已授当前Sol C5该单文件写权，要求净fixture commit供root单独cherry与复验，不能放宽成>=1或改trace。原CREATE脚本不重跑，/tmp/map-c4-tail-primary-reuse-pg-20261016.py仅复用升级且已执行；失败日志/tmp/map-c4-tail-primary-pg-20261016.log。当前完整普通后端在session65443、/tmp/map-c4-tail-primary-backend-all-20261016.log，未提前宣称C4集成全绿；docs/repo gates已过。root确认与Sol64a的backend/frontend源码无净差，前端沿用同源3182及已看图证据。
+
+共享槽已正式移交Sol C5：其独占审修先固定并合c579为c6061dd77，只在数据库设计文档标题冲突由Sol保留C4+四C5表修正；首C5 migration父接C4，唯一head20261016_wp_cascade_guard，新world_progression_review_test_20261016已创建一次fresh upgrade成功，旧Luna库未动。现装配main/bootstrap/metadata/TaskRegistry/worker/9项目录/NOTICE/Flow/Writing真实commit触发/story.js并验PG/actualWorker/HTTP/browser。已直接修累计摘要泄角色、地图gap、钩子锁后重放、缺_task_meta import、同根R4 resume、原deadline80%检查、锁顺序、失败候选事件回灌、每步sum(a,b,c,d)必抛TypeError等；定向绿仍不替代实际Worker+PG。原root/start/deadline、所有已用/unknown计数不重置。
+
+C0 Sol独立审修继续：已安全创建dossier_template_interchange_review_test_20261016，fresh/head/parity与2PG/HTTP通过。发现并直接修同名dossier重复导入/异值不冲突、JSON来源修订及证据伪造、借用移除与条目创建并发；原JSON只有下载，现补作者文件预览/映射/确认UI。四新纯SPEC borrowed.read R0/borrowed.edit R3/manifest.preview R0/manifest.apply R3由该Sol实现，旧冻结不改，manual export独立明确边界，顶层冻结等C5后顺序组装。World facade/dossier/Imports/world.js仍该Sol独占。
+
+C4退出的子槽已启动新Luna/max luna_copilot_alignment，simulation-v3-director-impl/codex/copilot-mechanism-alignment-impl从c579实现C3真正forecast v2/人物弧计划实际/Evolution阅读notice；禁止其写C5共享顶层/Story.js/Writing commit/flows/推进/导演及C0 World hub。专库copilot_alignment_impl_test_20261016与18600/18601已分配但hold CREATE/upgrade，待C5线性迁移固定再接后继。A1章节重排/一般事件时间线仍下一批，准备树未派。

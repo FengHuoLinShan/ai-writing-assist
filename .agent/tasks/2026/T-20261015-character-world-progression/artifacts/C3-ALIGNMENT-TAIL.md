@@ -42,3 +42,8 @@ world_progression_review注册及TOML Story prefix；C0新Luna独占模板/档�
 ## 2026-10-16T06:39:58+08:00 执行检查点
 
 root已核实准备树干净并fast-forward至942c40746（产品3caf A4），仍未派发，无活动writer。后续开工仍须核最新primary与共享文件所有权。
+
+
+## 2026-10-16T06:59:09+08:00 当前执行检查点
+
+新Luna/max luna_copilot_alignment已从干净c579正式启动，实施forecast v2、作者人物弧计划/真实事件对照、Evolution阅读notice。仅独占所属领域，C5共享顶层/story.js/Writing commit/flows/推进与C0 World hub禁止抢写。copilot_alignment_impl_test_20261016/18600/18601分配，CREATE/upgrade待C5线性固定头，非已建。
