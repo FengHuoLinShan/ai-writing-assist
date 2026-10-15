@@ -993,3 +993,12 @@ it("移出依赖地点会使相关轮廓待定位，展示配置不改变空间�
   removeMapFeature(source, "a")
   expect(source.features.find(feature => feature.id === "area").points).toEqual([])
 })
+
+
+it("移出图元会一并移出引用它的行程声明，其他行程保持", () => {
+  const source = document()
+  source.schema_version = 2
+  source.journeys = [{ id: 'journey-a', origin: 'a', destination: 'b' }, { id: 'journey-c', origin: 'b', destination: 'c' }]
+  removeMapFeature(source, 'a')
+  expect(source.journeys.map(item => item.id)).toEqual(['journey-c'])
+})

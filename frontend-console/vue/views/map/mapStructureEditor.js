@@ -104,8 +104,14 @@ export function rehearseMapRoute(document, stops, blocked = []) {
   const excluded = new Set(blocked), graph = new Map(document.features.map(feature => [feature.id, []]))
   for (const relation of document.constraints || []) {
     if (!['connects', 'passes_through'].includes(relation.relation) || relation.path_kind === 'river') continue
+    // This local preview has no Scene cutoff or pinned vocabulary resolver.
+    // Keep claims requiring either check for the server's spatial query.
+    if ((relation.modality && relation.modality !== 'event_observed') || relation.effective || relation.type_ref || relation.path_type_ref) continue
     const route = [relation.subject, ...(relation.via || []), relation.target]
     if (route.some(id => excluded.has(id) || !features.get(id)?.points.length)) continue
+    const endpoints = route.map(id => features.get(id))
+    if (endpoints.some(item => (item.modality && item.modality !== 'event_observed') || item.effective || item.type_ref)) continue
+    if (new Set(endpoints.map(item => item.space_id || 'main')).size > 1) continue
     for (let i = 1; i < route.length; i++) {
       graph.get(route[i - 1])?.push({ target: route[i], relation })
       graph.get(route[i])?.push({ target: route[i - 1], relation })
@@ -148,6 +154,7 @@ export function mapBounds(features) {
 export function removeMapFeature(document, id) {
   document.features = document.features.filter(feature => feature.id !== id)
   document.constraints = document.constraints.filter(c => ![c.subject, c.target, ...c.via].includes(id))
+  if (document.journeys) document.journeys = document.journeys.filter(item => item.origin !== id && item.destination !== id)
   document.annotation_bindings = document.annotation_bindings.filter(binding => binding.feature_id !== id)
   for (const feature of document.features) {
     if (feature.depends_on.includes(id)) { feature.points = []; feature.reader_from_chapter = null }

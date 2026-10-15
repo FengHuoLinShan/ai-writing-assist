@@ -54,3 +54,18 @@ describe('只基于明确道路的临时排演', () => {
     expect(rehearseMapRoute(map(), ['旅馆', '另一个码头']).message).toContain('重新选择')
   })
 })
+
+describe('空间 v2 的本地排演边界', () => {
+  it.each(['character_statement', 'effective', 'relation_type', 'feature_type', 'feature_modality', 'cross_space'])('不能把%s当成已核实的全书通路', mode => {
+    const document = map()
+    document.schema_version = 2
+    document.constraints = [route('r', '旅馆', '码头')]
+    if (mode === 'character_statement') document.constraints[0].modality = 'character_statement'
+    if (mode === 'effective') document.constraints[0].effective = { start: { kind: 'scene', id: 'scene' } }
+    if (mode === 'relation_type') document.constraints[0].type_ref = 'typed-relation'
+    if (mode === 'feature_type') document.features[0].type_ref = 'typed-feature'
+    if (mode === 'feature_modality') document.features[0].modality = 'author_plan'
+    if (mode === 'cross_space') document.features[2].space_id = 'dream'
+    expect(rehearseMapRoute(document, ['旅馆', '码头']).legs).toEqual([])
+  })
+})
