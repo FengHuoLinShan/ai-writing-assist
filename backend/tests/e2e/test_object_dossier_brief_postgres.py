@@ -262,4 +262,3 @@ async def test_pattern_reader_rejects_future_and_stale_source_on_postgres(db_ses
     assert result["omitted_count"] == 2
     assert any("超出截止 Scene" in item for item in result["omissions"])
     assert any("证据已失效" in item for item in result["omissions"])
-
