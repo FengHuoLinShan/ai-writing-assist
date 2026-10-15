@@ -312,9 +312,29 @@ async def test_goal_http_plan_receives_only_executable_catalog(monkeypatch):
 
     assert len(requests) == 2
     selection_prompt = json.loads(requests[0].messages[1].content)
-    assert "story.plan_structure" not in {
-        item["id"] for item in selection_prompt["catalog"]
+    from modules.assistant.operations import catalog as current_operation_catalog
+
+    catalog = current_operation_catalog()
+    _available, unavailable = service._goal_planning_catalog(
+        catalog, include_schema=False
+    )
+    menu = selection_prompt["catalog"]
+    assert set(menu) == set(catalog) - {
+        item["operation_id"] for item in unavailable
     }
+    assert selection_prompt["catalog_value_fields"] == [
+        "label", "risk", "fee_if_nonfree"
+    ]
+    assert selection_prompt["catalog_fee_default"] == "free"
+    assert all(
+        len(value) in {2, 3}
+        and value[0] == catalog[operation_id].label
+        and value[1] == catalog[operation_id].risk_level
+        and (value[2] if len(value) == 3 else selection_prompt["catalog_fee_default"])
+        == catalog[operation_id].fee_category
+        for operation_id, value in menu.items()
+    )
+    assert "story.plan_structure" not in menu
     prompt = json.loads(requests[1].messages[1].content)
     offered = {item["operation_id"] for item in prompt["catalog"]}
     assert "evidence.project.search" in offered
