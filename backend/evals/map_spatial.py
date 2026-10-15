@@ -1021,6 +1021,21 @@ async def run_writing_pair(
                     baseline = list(options.get("map_spatial_baseline") or [])
                     if enabled and not baseline:
                         raise MapSpatialEvalError("带地图臂的Writing确认未加载空间版本")
+                    if enabled and binding.get("author_assistance"):
+                        from evals.map_spatial_scene_locations import ledger_path
+
+                        selected = _read_private_json(
+                            ledger_path(private_root, family_id)
+                        )["cases"][case_id]
+                        if not any(
+                            isinstance(item, dict)
+                            and item.get("node_id") == selected["node_id"]
+                            and item.get("revision_id") == selected["revision_id"]
+                            for item in baseline
+                        ):
+                            raise MapSpatialEvalError(
+                                "author-assisted开臂未实际消费所选地图node/head"
+                            )
                     if not enabled and baseline:
                         raise MapSpatialEvalError("不带地图臂意外加载了空间版本")
                     response = await WritingGenerationService().submit_generation(

@@ -577,7 +577,14 @@ async def test_lifecycle_default_refuses_before_manager_or_binding(tmp_path, mon
 @pytest.mark.asyncio
 @pytest.mark.parametrize(
     "drift,outcome",
-    [(False, "done"), (True, "done"), (False, "timeout"), (False, "attempted")],
+    [
+        (False, "done"),
+        (True, "done"),
+        (False, "timeout"),
+        (False, "attempted"),
+        (False, "author_baseline_missing"),
+        (False, "author_baseline_selected"),
+    ],
 )
 async def test_pair_freezes_both_confirmations_before_exact_worker_claim(
     tmp_path, monkeypatch, drift, outcome
@@ -592,6 +599,14 @@ async def test_pair_freezes_both_confirmations_before_exact_worker_claim(
     family = matrix["families"][0]
     case_id = next(iter(binding["case_bindings"]))
     case_scope = binding["case_bindings"][case_id]
+    if outcome.startswith("author_baseline"):
+        from evals.map_spatial_scene_locations import ledger_path
+
+        binding["author_assistance"] = {"condition": "author_assisted"}
+        _write_private_json(
+            ledger_path(root, family["family_id"]),
+            {"cases": {case_id: {"node_id": "selected-node", "revision_id": "head"}}},
+        )
     case_scope.update(
         scene_hash="scene",
         map_snapshot_hash="map",
@@ -650,6 +665,10 @@ async def test_pair_freezes_both_confirmations_before_exact_worker_claim(
             if drift and enabled
             else "same-core",
         }
+        if enabled and outcome == "author_baseline_selected":
+            options["map_spatial_baseline"] = [
+                {"node_id": "selected-node", "revision_id": "head"}
+            ]
         value = SimpleNamespace(id=str(uuid.uuid4()), compile_options=options)
         confirmations[value.id] = value
         calls.append(("confirm", enabled))
@@ -726,6 +745,10 @@ async def test_pair_freezes_both_confirmations_before_exact_worker_claim(
         assert ledger["runs"][f"{family['family_id']}/{case_id}"]["status"] == "unknown"
         with pytest.raises(MapSpatialEvalError, match="不自动重发"):
             await map_spatial.run_writing_pair(**args)
+    elif outcome == "author_baseline_missing":
+        with pytest.raises(MapSpatialEvalError, match="未实际消费所选地图"):
+            await map_spatial.run_writing_pair(**args)
+        assert not any(name == "run_exact" for name, _ in calls)
     elif drift:
         with pytest.raises(MapSpatialEvalError, match="core_context_hash"):
             await map_spatial.run_writing_pair(**args)

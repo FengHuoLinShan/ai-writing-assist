@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 import json
 import time
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Literal
 from uuid import UUID
@@ -33,7 +34,7 @@ from evals.map_spatial_guard import (
 
 
 class LocationDecision(BaseModel):
-    model_config = ConfigDict(extra="forbid")
+    model_config = ConfigDict(extra="forbid", str_strip_whitespace=True)
     case_id: str
     novel_id: UUID
     scene_id: UUID
@@ -93,6 +94,7 @@ def author_binding(root: Path, common: dict, cases: dict) -> dict | None:
     if (
         record.get("status") != "completed"
         or record.get("origin") != "agent_simulated"
+        or record.get("input_kind") != "author_added_scene_setting"
         or record.get("human_validated") is not False
         or record.get("patch_attempt_count") != 5
         or record.get("common_binding_sha256") != digest(common)
@@ -138,6 +140,18 @@ async def _json(client, method, path, payload=None):
     if response.status_code not in {200, 201}:
         raise MapSpatialEvalError(f"作者设定API拒绝: {method} HTTP{response.status_code}")
     return response.json()
+
+
+def _scene_response(value):
+    # SQLite round-trips UTC timestamps as naive; compare instants, not JSON spelling.
+    result = dict(value)
+    for key in ("updated_at",):
+        if result.get(key):
+            instant = datetime.fromisoformat(result[key].replace("Z", "+00:00"))
+            result[key] = (
+                instant if instant.tzinfo else instant.replace(tzinfo=UTC)
+            ).astimezone(UTC)
+    return result
 
 
 async def _idle(client, common, evolution):
@@ -402,6 +416,7 @@ async def apply_scene_locations(
                 _write_private_json(path, record)
                 changed = time.monotonic()
                 event["response"] = await _json(client, "PATCH", route, payload)
+                event["response_sha256"] = digest(event["response"])
                 _write_private_json(path, record)
                 after = await _json(client, "GET", route)
                 event.update(
@@ -409,15 +424,11 @@ async def apply_scene_locations(
                     after_scene_hash=digest(after),
                     elapsed_seconds=round(time.monotonic() - changed, 3),
                 )
-                if (
-                    after
-                    != {
-                        **before,
-                        "structure_meta": payload["structure_meta"],
-                        "updated_at": after.get("updated_at"),
-                    }
-                    or event["response"] != after
-                ):
+                if after != {
+                    **before,
+                    "structure_meta": payload["structure_meta"],
+                    "updated_at": after.get("updated_at"),
+                } or _scene_response(event["response"]) != _scene_response(after):
                     raise MapSpatialEvalError(
                         "Scene PATCH出现非目标metadata/source变化；无CAS保证，停止"
                     )
