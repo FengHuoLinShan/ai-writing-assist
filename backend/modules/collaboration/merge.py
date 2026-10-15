@@ -48,25 +48,6 @@ def operation_context(case, *, run_id, operation_id=None):
     )
 
 
-def whitespace_only(manifest, patches):
-    originals = {source.key: source.content for source in manifest.resources}
-    for patch in patches:
-        before = originals.get(patch.key)
-        if (
-            patch.kind != "writing_draft"
-            or patch.operation != "replace"
-            or set(patch.value) != set(before or {})
-        ):
-            return False
-        if any(
-            not isinstance(value, str)
-            or "".join(value.split()) != "".join(before[key].split())
-            for key, value in patch.value.items()
-        ):
-            return False
-    return bool(patches)
-
-
 def receipt_view(receipt, *, replayed=False):
     return {
         "receipt_id": str(receipt.id),
@@ -121,9 +102,7 @@ async def merge_workspace(db, novel_id, workspace_id, data):
     patches = [ResourcePatch.model_validate(value) for value in revision.patches_json]
     if not 1 <= len(patches) <= 16:
         raise ValidationError("一次采用需要一至十六项具体修改")
-    if not data.confirmed and not (
-        grant.merge_policy == "whitespace_only" and whitespace_only(manifest, patches)
-    ):
+    if not data.confirmed:
         raise ConflictError("请确认这一版具体修改", code="CONFIRMATION_REQUIRED")
     if {patch.key for patch in patches} - {ref.key for ref in grant.resources}:
         raise ConflictError("试改超出本次授权", code="GRANT_SCOPE_CONFLICT")
@@ -162,7 +141,7 @@ async def merge_workspace(db, novel_id, workspace_id, data):
             request_hash=request_hash,
             digest=revision.digest,
             authorizer_id=case.owner_id,
-            authorization="explicit" if data.confirmed else "whitespace_only",
+            authorization="explicit",
             results_json=results,
         )
         db.add(receipt)

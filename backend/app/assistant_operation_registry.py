@@ -21,6 +21,7 @@ from modules.assistant.map_spatial_advisories import (
 from modules.assistant.notice_disposition_operations import (
     OPERATIONS_SPEC as _NOTICE_DISPOSITIONS,
 )
+from modules.collaboration.assistant_tools import OPERATIONS_SPEC as _COLLABORATION_AUTHOR
 from modules.evidence.assistant_read_operations import OPERATIONS_SPEC as _EVIDENCE_READ
 from modules.evidence.compilation.assistant_dossier_tools import (
     OPERATIONS_SPEC as _EVIDENCE_OBJECT_DOSSIER,
@@ -28,6 +29,7 @@ from modules.evidence.compilation.assistant_dossier_tools import (
 from modules.evidence.forecast import OPERATIONS_SPEC as _EVIDENCE_FORECAST
 from modules.evolution.assistant_tools import OPERATIONS_SPEC as _EVOLUTION
 from modules.imports.assistant_tools import OPERATIONS_SPEC as _IMPORTS
+from modules.interaction.author_operations import OPERATIONS_SPEC as _INTERACTION_AUTHOR
 from modules.project.assistant_dedup_tool import OPERATIONS_SPEC as _PROJECT_DEDUP
 from modules.project.assistant_tools import OPERATIONS_SPEC as _PROJECT
 from modules.project.assistant_validity_tools import OPERATIONS_SPEC as _PROJECT_VALIDITY
@@ -381,3 +383,5 @@ world_dossier_operations = _materialize(_WORLD_DOSSIER)
 assistant_spatial_advisory_operations = _materialize(_SPATIAL_ADVISORIES)
 assistant_notice_operations = _materialize(_NOTICE_DISPOSITIONS)
 writing_a1_operations = _materialize(_WRITING_A1)
+interaction_author_operations = _materialize(_INTERACTION_AUTHOR)
+collaboration_author_operations = _materialize(_COLLABORATION_AUTHOR)

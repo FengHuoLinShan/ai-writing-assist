@@ -758,6 +758,7 @@ from modules.assistant import api as assistant_api  # noqa: E402
 from modules.assistant.notices_api import router as assistant_notices_router  # noqa: E402
 from modules.assistant.operation_api import router as assistant_operation_http_router  # noqa: E402
 from modules.collaboration import api as collaboration_api  # noqa: E402
+from modules.collaboration import author_operations_api as collaboration_author_api  # noqa: E402
 from modules.evidence import api as evidence_api  # noqa: E402
 from modules.evolution import api as evolution_api  # noqa: E402
 
@@ -768,6 +769,7 @@ from modules.imports.spreadsheet_migration import (  # noqa: E402
     api as spreadsheet_migration_api,  # noqa: E402
 )
 from modules.interaction import api as interaction_api  # noqa: E402
+from modules.interaction import author_api as interaction_author_api  # noqa: E402
 from modules.interaction.forecast_api import (  # noqa: E402
     router as interaction_forecast_router,  # noqa: E402
 )
@@ -789,6 +791,7 @@ app.include_router(assistant_api.router)
 app.include_router(assistant_operation_http_router)
 app.include_router(assistant_notices_router)
 app.include_router(collaboration_api.router)
+app.include_router(collaboration_author_api.router)
 app.include_router(project_router)
 app.include_router(local_agent_router)
 app.include_router(account_auth_router)
@@ -800,6 +803,7 @@ app.include_router(interaction_api.demo_router)
 app.include_router(spreadsheet_migration_api.router)
 app.include_router(imports_api.router)
 app.include_router(interaction_api.router)
+app.include_router(interaction_author_api.router)
 
 app.include_router(interaction_forecast_router)
 app.include_router(world_api.router)
@@ -964,11 +968,21 @@ def _install_operation_trace_route_adapters(application: FastAPI) -> None:
                 ),
                 None,
             )
+            body_author_project_id = next(
+                (
+                    getattr(value, "author_project_id", None)
+                    for value in kwargs.values()
+                    if hasattr(value, "author_project_id")
+                ),
+                None,
+            )
             novel_id = str(
                 kwargs.get("novel_id")
                 or kwargs.get("project_id")
                 or body_novel_id
+                or body_author_project_id
                 or arguments.get("novel_id")
+                or arguments.get("author_project_id")
                 or arguments.get("project_id")
                 or ""
             )

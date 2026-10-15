@@ -93,6 +93,7 @@ def runtime_protocol(payload: dict) -> dict:
         "9",
         "10",
         "11",
+        "12",
     }:
         return payload
     if payload.get("runtime_version") == "1":
@@ -770,7 +771,7 @@ async def decide_batch(db, batch_id: str, decision: BatchDecision, owner_id: str
         resolve_operations(
             runtime_protocol(run.request_json)["operations"],
             allow_stale=run.request_json.get("runtime_version")
-            in {"7", "8", "9", "10", "11"},
+            in {"7", "8", "9", "10", "11", "12"},
         )
         if run.request_json.get("runtime_version")
         else catalog()

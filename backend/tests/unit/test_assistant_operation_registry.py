@@ -518,6 +518,20 @@ C0C_VALIDITY_OPERATIONS = {
     "story.map_declaration_state.confirm",
     "world.relations.read",
 }
+A3_AUTHOR_OPERATIONS = {
+    "interaction.author.journeys.list",
+    "interaction.author.journey.settings",
+    "interaction.author.journey.rename",
+    "interaction.author.journey.archive",
+    "interaction.author.journey.restore",
+    "interaction.summary.refresh",
+    "collaboration.workspace.create",
+    "collaboration.workspace.edit",
+    "collaboration.workspace.inspect",
+    "collaboration.workspace.seal",
+    "collaboration.workspace.check",
+    "collaboration.workspace.atomic_adopt",
+}
 # Preserve the pre-C0c snapshot above. These seven contracts were deliberately
 # versioned after the response or nested request shape changed.
 C0C_REVISED_SNAPSHOT = {
@@ -572,7 +586,7 @@ def _pre_c0c_manifest():
     frozen = {
         name: value
         for name, value in operation_manifest().items()
-        if name not in C0C_VALIDITY_OPERATIONS
+        if name not in C0C_VALIDITY_OPERATIONS | A3_AUTHOR_OPERATIONS
     }
     for name in C0C_REVISED_SNAPSHOT:
         old = OPERATION_SNAPSHOT[name]
@@ -592,6 +606,7 @@ def test_bootstrap_operation_catalog_matches_snapshot():
         | C2_OBJECT_CONSUMER_OPERATIONS
         | C4_SCENE_DIRECTOR_OPERATIONS
         | C0C_VALIDITY_OPERATIONS
+        | A3_AUTHOR_OPERATIONS
     )
     mismatches = {
         name: {
@@ -654,6 +669,7 @@ def test_catalog_v2_metadata_and_trace_inventory_match_runtime_schemas():
         + len(C2_OBJECT_CONSUMER_OPERATIONS)
         + len(C4_SCENE_DIRECTOR_OPERATIONS)
         + len(C0C_VALIDITY_OPERATIONS)
+        + len(A3_AUTHOR_OPERATIONS)
     )
     assert set(operations) == set(manifest)
     for op_id, operation in operations.items():
@@ -741,6 +757,20 @@ def test_c0c_revised_operations_fail_closed_for_old_frozen_manifests():
     )
     with pytest.raises(ConflictError, match="工具版本不可用"):
         resolve_operations(frozen_v10)
+
+
+def test_v12_author_operations_do_not_enter_a_frozen_v11_directory():
+    from app.bootstrap import register_container_services
+    from modules.assistant.operations import operation_manifest, resolve_operations
+
+    register_container_services()
+    frozen_v11 = {
+        name: value
+        for name, value in operation_manifest().items()
+        if name not in A3_AUTHOR_OPERATIONS
+    }
+    assert not (set(resolve_operations(frozen_v11)) & A3_AUTHOR_OPERATIONS)
+    assert set(operation_manifest()) - set(frozen_v11) == A3_AUTHOR_OPERATIONS
 
 
 def test_inline_operation_metadata_requires_an_explicit_schema_trace_policy():

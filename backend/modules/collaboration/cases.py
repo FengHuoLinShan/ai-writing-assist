@@ -263,6 +263,7 @@ async def resume_run(db, novel_id, run_id):
     budget = AgentRunBudget.model_validate(run.budget_json)
     if (
         budget.pending_usage
+        or budget.usage_unknown
         or budget.remaining_seconds <= 0
         or budget.requests + 4 > grant.run_request_limit
         or case.requests_used + 4 > grant.request_limit
