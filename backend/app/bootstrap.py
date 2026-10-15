@@ -85,6 +85,7 @@ from core.service_keys import (
     WORLD_READ_MAP_SPATIAL_BRIEF,
     WORLD_READ_PROJECT_VOCABULARY,
     WORLD_STAGE_SPATIAL_DISCOVERY,
+    WORLD_BUILD_MAP_AUTO_DRAFTS,
     WORLD_READ_SPATIAL_DISCOVERY_CONTEXT,
     WORLD_READ_BIBLE_PAGE_REVISIONS,
     WORLD_LIST_CHARACTERS,
@@ -203,6 +204,7 @@ from modules.world import assistant_ports as _world_assistant
 from modules.world.facade import (
     read_spatial_discovery_context as _world_read_spatial_discovery_context,
     stage_spatial_discovery as _world_stage_spatial_discovery,
+    build_map_auto_drafts as _world_build_map_auto_drafts,
     read_map_spatial_brief as _world_read_map_spatial_brief,
 )
 from modules.world.assistant_tools import OPERATIONS as _WORLD_OPERATIONS
@@ -251,7 +253,7 @@ from modules.assistant.facade import (
     submit_comment_proposals as _assistant_submit_comment_proposals,
 )
 from modules.assistant.facade import (
-    trigger_editorial_post_adoption_rechecks as _assistant_editorial_post_adoption_rechecks,
+    trigger_editorial_post_adoption_rechecks as _assistant_post_adoption_rechecks,
 )
 from modules.assistant.facade import (
     run_discussion_scope as _assistant_run_discussion_scope,
@@ -467,6 +469,7 @@ def _container_services() -> Iterable[tuple[ServiceKey[Any], Any]]:
         (WORLD_READ_MAP_SPATIAL_BRIEF, _world_read_map_spatial_brief),
         (WORLD_READ_PROJECT_VOCABULARY, _world_read_project_vocabulary),
         (WORLD_STAGE_SPATIAL_DISCOVERY, _world_stage_spatial_discovery),
+        (WORLD_BUILD_MAP_AUTO_DRAFTS, _world_build_map_auto_drafts),
         (WORLD_READ_SPATIAL_DISCOVERY_CONTEXT, _world_read_spatial_discovery_context),
         (WORLD_READ_BIBLE_PAGE_REVISIONS, _world_read_bible_page_revisions),
         # AO-5 第二批：evidence(L2)/writing(L2) 消费 assistant facade 能力经这些
@@ -479,7 +482,7 @@ def _container_services() -> Iterable[tuple[ServiceKey[Any], Any]]:
         (ASSISTANT_MARK_EDITORIAL_READY, _assistant_mark_editorial_ready),
         (
             ASSISTANT_EDITORIAL_POST_ADOPTION_RECHECKS,
-            _assistant_editorial_post_adoption_rechecks,
+            _assistant_post_adoption_rechecks,
         ),
         # AO-5: evidence 编译与 world 地图经此只读 port 消费 story 场景事实，
         # world→story / evidence→story 的反向顶层导入清零。

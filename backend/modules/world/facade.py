@@ -83,6 +83,7 @@ from modules.world.map_atlas_facade import (  # noqa: F401
     list_adopted_map_continuity_facts,
     read_map_node_heads,
 )
+from modules.world.map_auto_draft_service import build_map_auto_drafts  # noqa: F401
 from modules.world.map_spatial_brief_service import (
     read_map_spatial_brief,
 )
@@ -210,6 +211,7 @@ __all__ = [
     "read_map_spatial_brief",
     "read_spatial_discovery_context",
     "stage_spatial_discovery",
+    "build_map_auto_drafts",
     "read_world_bible_page_revisions",
     "read_project_vocabulary",
     "resolve_vocabulary_type_revisions",
