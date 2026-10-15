@@ -3,7 +3,7 @@ id: T-20261015-map-enhancement-design
 title: 地图系统增强设计与分批实施（自动冷启动、参与创作决策、题材鲁棒性）
 status: active
 created: 2026-10-15T10:54:00+08:00
-updated: 2026-10-16T01:50:53+08:00
+updated: 2026-10-16T02:02:37+08:00
 ---
 
 # 地图系统增强设计
@@ -13,14 +13,14 @@ updated: 2026-10-16T01:50:53+08:00
 - 当前授权：2026-10-15 用户 `/goal` 要求执行 `codex/map-enhancement-plan` 的计划；Luna/max 子代理并行实现，Sol/high 按批次 review 与修复。只做本地开发验证；没有发布、真实数据破坏或对外发送授权。用户16:43补充“修复由sol子代理直接修”：后续代码修复均由Sol/high子代理直接执行。用户曾要求“由你收尾”；其后明确答复范围为三份计划全部实施，包括操作目录、对象档案、导演、世界推进。root继续负责分批拆解、集成、验证、任务记录与实际隔离评测；已明确确认采用“模拟作者显式指定Scene地点后做辅助Writing对比”。
 - 主工作区：`/Users/tywww/项目/ai-writing-assist/.worktrees/map-enhancement-plan`，分支 `codex/map-enhancement-plan`。原 Desktop 路径已失效；仓库实际已迁至 `/Users/tywww/项目/ai-writing-assist`。
 - 恢复时基线：设计提交 `3fd5ca29e`；刚 fetch 的 `origin/main=00d861283` 已无冲突合并为 `b74d7c28d`（本地），包含 G8c 与第三批评测/HTTPX2 变更。开始时主工作区干净，其他 worktree/WIP 保留。
-- 当前里程碑：A1首批15项纯插件335349f08经Sol实际组合/独立修复已在primary20635fde5/3441ab980；扩大回归发现API文件命名边界错误，由Sol原样重命名operation_api.py并提交6a31ba327。root在6a31重跑原组合2123 passed/1既有Pydantic warning（82.99s），RuntimeWarning转error无失败，专用A1 PG2 passed（0.46s）。v8冻结目录89项，旧v1–v7保留。新Luna scene_director已在map-assistant-structure/codex/scene-director-impl从ea8889f16（已审C4a业务b318）实施完整C4b；C2/Generic固定f6c3790ccb已交Sol在map-clue-review/codex/object-dossier-consumer-review独立合入/审修，尚未集成primary；除Settings启用与字段对齐证明外，还须修复现有Scene前端对V2表演选项/人物卡的消费与保存保真。Goal Luna checkpoint981819ec5经Sol无损合primary为1d2c2f137，再取已审命名修复af3b00836，继续A2专属引擎/真实组合与前端；不是已交付。C0c、A1后续、A3/A4、C5与真实/势力/RP门禁仍在范围，所有TASK保持active。
+- 当前里程碑：A1已审业务固定6a31ba327；root扩大回归2123 passed/1既有Pydantic warning，专用A1 PG2 passed。C2完整固定点f6c3790ccb已由Sol在map-clue-review合为c364deaee，继续独立修复；已回报字段证明、真实Settings与V2人物卡/反应UI修复及定向Evidence17/Story41/Vue20通过，尚未最终集成。新发现Assistant首次prepare无operation_id会被C2 R1错误拒绝，由Sol直接修并验证实际目录/HTTP/worker/根预算。Goal Luna在af3b00836继续A2行为测试/恢复/实际UI；C4b Luna在ea8889f16独立树实现导演协议、持久化、预算与任务，均非交付。C0c、A1后续、A3/A4、C5及真实/势力/RP门禁全部保留在范围；下一批的源代码核实与验收已记录到C0C-HANDOFF.md和A3-A4-HANDOFF.md。
 - 下一步：完成Sol C2/Generic审修与真实前端/API/PG组合，保留v1及V2选项来源；C4b导演和A2目标引擎继续并行，随后C0c/C5/A3/A4。真实质量和条件依赖单列，R3封存、holdout不读。
 - 范围：用户已明确“该分支三份计划全部实施，包括操作目录、对象档案、导演和世界推进”。执行地图M0–M5及两个配套完整计划；既有计划的条件依赖和真实质量门禁仍有效，不能冒称完成。
 - 依赖：M5 依赖独立势力路线图阶段 1，现有计划明确阶段 1 前不提供领地图层；不得读取旧无时效势力字段冒充完成。
 - 已落地共享前置：`6fcce3bfd` 把7种ObservationModality上移shared并保持Evolution兼容再出口（16测）；`16f64570a` 在既有Story scene-source port提供按当前顺序的锚点/替换链只读数据（5测）。两者ruff通过，后续纳入Sol审查。
 - 验证环境：主树独立backend/.venv（Python3.14.8、locked ci）及frontend node_modules；本任务专用PostgreSQL容器 `map-enhancement-test-20261015`、loopback65202、数据库 `map_enhancement_test`，基线完整Alembic升级已通过，未接触真实库。
 - 验证：实现前 `make docs-check` 已通过（152 ORM表、49ADR）；没有真实模型/真实稿件验证。
-- 最后核实：2026-10-16T01:50:53+08:00
+- 最后核实：2026-10-16T02:02:37+08:00
 
 ## 批次与分工
 
@@ -480,3 +480,12 @@ updated: 2026-10-16T01:50:53+08:00
 - 新Luna/max scene_director已在独立map-assistant-structure/codex/scene-director-impl从ea8889f16恢复，完整C4b预算/角色packet/表演/素材/参考/历史/一致性/UI在实施，不能把C4a过渡的一轮409作为最终上限。C2字段与Evidence编译正在另一树写，优先独立director模块；共享infra预算由Goal单写，接线与冲突由Sol处理。
 - C2仍未提交审修固定点。只读预审已确认Settings缺object_dossier_enabled_capabilities/character_pattern_enabled_capabilities导致真实env不能启用；generic legacy时点证明只比同对象同值而不比field/dimension，现有origin_place对Story state同值fixture也有问题，交Sol直接修复，不冒称安全时点链已闭合。C0c作者有效期规则/别名区间/动态文字状态仍另排；有向分级态度已存在基础schema，需按实际调用链核验而不重复建模。
 - root全部测试进程已结束，工程PG65202释放且保留所有专用DB；原map_enhancement_test仍旧head不改。无默认开发DB/评测65302/R3/holdout访问，无新增模型、push/PR/main合并/部署。
+
+## 2026-10-16T02:02:37+08:00 C2 审修、PG 排队与后续批次
+
+- primary业务仍6a31ba327，本次仅任务记录；Sol C2工作树合并点c364deaee的后续修复尚未报固定提交，定向结果是子代理报告，root尚未独立复验。
+- Sol确认并直接处理generic同值跨字段证明、不可配置的Settings、V2 UI选项/保存保真及首次prepare错误要求operation_id；需完整目录v9/实际HTTP/确认/worker/PG后才可集成。
+- PG65202当前Sol C2独占dossier_consumers_review_test_20261016；下一独占窗口排给Goal的goal_review_test_20261016，尚未发放，其他子代理不得连接。普通测试继续假DATABASE_URL。
+- C4b继续使用相同根信封；root只读指出旧unknown确认不能豁免后来新增unknown/incomplete，Luna已确认当前WIP需按新增provider attempt状态实现，待Sol最终独立审查。
+- C0c后续交接见 ../T-20261015-character-world-progression/artifacts/C0C-HANDOFF.md；A3/A4交接见 ../T-20261015-agent-operation-surface/artifacts/A3-A4-HANDOFF.md。尚未派发不等于范围移出，真实数周数据与未到势力依赖如实保留。
+- 无新模型调用、默认开发库访问、holdout解码、R3重跑或后台任务排空；未推送、未创建PR、未合并main、未部署。

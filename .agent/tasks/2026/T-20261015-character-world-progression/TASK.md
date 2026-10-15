@@ -3,7 +3,7 @@ id: T-20261015-character-world-progression
 title: 世界对象档案、场景导演、写作副驾驶与世界推进设计
 status: active
 created: 2026-10-15T16:00:00+08:00
-updated: 2026-10-16T01:50:53+08:00
+updated: 2026-10-16T02:02:37+08:00
 ---
 
 # 世界对象档案、场景导演、写作副驾驶与世界推进设计
@@ -22,7 +22,7 @@ updated: 2026-10-16T01:50:53+08:00
 ADR-0039 旧接口写回规则、共用词表与锚点、档案发现按 ADR-0036 §1 契约登记。
 修订经用户授权在第三个本地提交 `20d6f1eff` 中提交，未推送。
 2026-10-15 用户采纳 ADR-0039 至 ADR-0041（Accepted / 未实施）；ADR-0005、0025 补充说明与索引同步。
-用户已明确三份计划全部实施。A1首批15项纯插件335349f08经Sol实际组合/独立修复已在primary20635fde5/3441ab980；扩大回归发现API文件命名边界错误，由Sol原样重命名operation_api.py并提交6a31ba327。root在6a31重跑原组合2123 passed/1既有Pydantic warning（82.99s），RuntimeWarning转error无失败，专用A1 PG2 passed（0.46s）。v8冻结目录89项，旧v1–v7保留。新Luna scene_director已在map-assistant-structure/codex/scene-director-impl从ea8889f16（已审C4a业务b318）实施完整C4b；C2/Generic固定f6c3790ccb已交Sol在map-clue-review/codex/object-dossier-consumer-review独立合入/审修，尚未集成primary；除Settings启用与字段对齐证明外，还须修复现有Scene前端对V2表演选项/人物卡的消费与保存保真。Goal Luna checkpoint981819ec5经Sol无损合primary为1d2c2f137，再取已审命名修复af3b00836，继续A2专属引擎/真实组合与前端；不是已交付。C0c、A1后续、A3/A4、C5与真实/势力/RP门禁仍在范围，所有TASK保持active。
+用户已明确三份计划全部实施。A1已审业务固定6a31ba327；root扩大回归2123 passed/1既有Pydantic warning，专用A1 PG2 passed。C2完整固定点f6c3790ccb已由Sol在map-clue-review合为c364deaee，继续独立修复；已回报字段证明、真实Settings与V2人物卡/反应UI修复及定向Evidence17/Story41/Vue20通过，尚未最终集成。新发现Assistant首次prepare无operation_id会被C2 R1错误拒绝，由Sol直接修并验证实际目录/HTTP/worker/根预算。Goal Luna在af3b00836继续A2行为测试/恢复/实际UI；C4b Luna在ea8889f16独立树实现导演协议、持久化、预算与任务，均非交付。C0c、A1后续、A3/A4、C5及真实/势力/RP门禁全部保留在范围；下一批的源代码核实与验收已记录到C0C-HANDOFF.md和A3-A4-HANDOFF.md。
 
 ## 目标与验收
 
@@ -260,3 +260,12 @@ ADR-0039 旧接口写回规则、共用词表与锚点、档案发现按 ADR-003
 - Luna固定f6c3790ccb（137定向/Ruff/docs/61/517通过，树干净）包含当前30文件改动；早期f6中的loader/policy/tools等也需审，不能只cherry最后提交。Sol在保留原分支的map-clue-review新建object-dossier-consumer-review从primary d2ebc8f6d合入完整净差，初始3处合并冲突均交Sol直接处理，primary未改。
 - root定位真实UI调用方仍只识别旧扁平反应/人物卡，V2 performances及fact_basis/interpretations会被丢失或兜底展示。Sol独占useStorySceneWorkspace及相关card/reaction UI与测试，修复选定一个option到script消费/保存/再读的来源保真；不能将生成输出2–4方案的min2降掉适应单选，也不能把未选方案全视为作者采用。C4另树独立导演组件/入口继续，最终冲突Sol解决。
 - Sol本批独占工程PG65202新dossier_consumers_review_test_20261016，其他库保留。Settings两个参考开关与严格字段时点证明仍待直接修复；Assistant turn只有mapping、无实际consumer_action也要实际接线核验。未完成项不以137离线测试替代真实HTTP/PG/UI验收。
+
+## 2026-10-16T02:02:37+08:00 C2 审修、PG 排队与后续批次
+
+- primary业务仍6a31ba327，本次仅任务记录；Sol C2工作树合并点c364deaee的后续修复尚未报固定提交，定向结果是子代理报告，root尚未独立复验。
+- Sol确认并直接处理generic同值跨字段证明、不可配置的Settings、V2 UI选项/保存保真及首次prepare错误要求operation_id；需完整目录v9/实际HTTP/确认/worker/PG后才可集成。
+- PG65202当前Sol C2独占dossier_consumers_review_test_20261016；下一独占窗口排给Goal的goal_review_test_20261016，尚未发放，其他子代理不得连接。普通测试继续假DATABASE_URL。
+- C4b继续使用相同根信封；root只读指出旧unknown确认不能豁免后来新增unknown/incomplete，Luna已确认当前WIP需按新增provider attempt状态实现，待Sol最终独立审查。
+- C0c后续交接见 ../T-20261015-character-world-progression/artifacts/C0C-HANDOFF.md；A3/A4交接见 ../T-20261015-agent-operation-surface/artifacts/A3-A4-HANDOFF.md。尚未派发不等于范围移出，真实数周数据与未到势力依赖如实保留。
+- 无新模型调用、默认开发库访问、holdout解码、R3重跑或后台任务排空；未推送、未创建PR、未合并main、未部署。
