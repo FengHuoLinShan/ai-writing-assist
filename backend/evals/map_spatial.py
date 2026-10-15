@@ -892,6 +892,10 @@ async def _preflight_project_state(
             "pipeline_hash": pipeline_hash(),
             "domain_method_fingerprints": domain_method_fingerprints(),
             "map_revision_count": len(brief_data["items"]),
+            "map_source_refs": [
+                {"node_id": item["node_id"], "revision_id": item["revision_id"]}
+                for item in brief_data["items"]
+            ],
             "vocabulary_snapshot": vocabulary_data,
             "vocabulary_snapshot_hash": _canonical_hash(vocabulary_data),
             "human_validated": False,
@@ -1274,6 +1278,27 @@ def build_report(private_root: Path, output: Path) -> dict[str, Any]:
         if (eligibility := read_writing_eligibility(private_root, family["family_id"]))
         is not None
     }
+    from evals.map_spatial_scene_locations import ledger_path
+
+    report["author_assisted_inputs"] = {}
+    for family in matrix["families"]:
+        path = ledger_path(private_root, family["family_id"])
+        if path.exists():
+            record = _read_private_json(path)
+            report["author_assisted_inputs"][family["family_id"]] = {
+                key: record[key]
+                for key in (
+                    "status",
+                    "origin",
+                    "input_kind",
+                    "human_validated",
+                    "manifest_sha256",
+                    "patch_attempt_count",
+                    "elapsed_seconds",
+                    "model_requests",
+                    "atomic_cas",
+                )
+            }
     report["status"] = "prepared"
     report["output_written_at"] = datetime.now(UTC).isoformat()
     _write_private_json(output, report)
@@ -1295,6 +1320,7 @@ async def execute_command(action, options: dict) -> dict:
         "start_evolution": 90,
         "run_evolution": options.get("max_tasks", 2) * task_timeout + 120,
         "review_map_family": 1440,
+        "apply_scene_locations": 600,
         "freeze_binding": 120,
         "run_writing_pair": 2 * task_timeout + 120,
         "run_assistant_turn": task_timeout + 120,
@@ -1383,6 +1409,14 @@ def main() -> None:
     review_map.add_argument("--max-actions", type=int, default=20)
     review_map.add_argument("--timeout-seconds", type=int, default=30)
     review_map.add_argument("--execute", action="store_true")
+    locations = commands.add_parser(
+        "apply-scene-locations", help="apply five explicit synthetic-author decisions"
+    )
+    locations.add_argument("--private-root", type=Path, required=True)
+    locations.add_argument("--family-id", required=True)
+    locations.add_argument("--decisions", type=Path, required=True)
+    locations.add_argument("--manifest-sha256", required=True)
+    locations.add_argument("--execute", action="store_true")
     pair = commands.add_parser(
         "pair-writing", help="run one guarded product Writing pair"
     )
@@ -1456,6 +1490,7 @@ def main() -> None:
         "start-evolution",
         "run-evolution",
         "review-map",
+        "apply-scene-locations",
         "assistant-turn",
         "freeze-binding",
         "score",
@@ -1473,6 +1508,7 @@ def main() -> None:
             start_evolution,
         )
         from evals.map_spatial_control import score as score_request
+        from evals.map_spatial_scene_locations import apply_scene_locations
 
         options = vars(args).copy()
         options.pop("command")
@@ -1487,6 +1523,7 @@ def main() -> None:
                     "start-evolution": start_evolution,
                     "run-evolution": run_evolution,
                     "review-map": review_map_family,
+                    "apply-scene-locations": apply_scene_locations,
                     "assistant-turn": run_assistant_turn,
                     "freeze-binding": freeze_binding,
                     "score": score_request,

@@ -20,6 +20,12 @@ owner 必须正常 active，Project 标题以 `MAP-EVAL:<family-id>:` 开头，�
 
 最终 `freeze-binding` 回读实际无query地图brief，记录每Scene的 eligibility。无可信Scene地点且brief为空时报告 `unavailable/scene_location_unavailable`；已有地点但仍无brief时报告 `no_usable_map_brief`。任一case不可达只冻结独立的私有 `bindings/<family>-writing-eligibility.json` 诊断，Writing pair 为 `not_run`，不创建可执行最终binding/两臂任务，开发质量门仍阻断；report显示具体原因。这是覆盖/可达性缺口，不当作模型质量下降。不得猜选地点、改gold或把空图配对算通过。全部可达才冻结 post-Evolution Scene/card 和地图 head。Writing 两臂通过正常 Evidence `pinned_refs` 共同选择已验证的同一 canonical `source_range`，先同时入队并固定相同 source、Project、Scene、指令和非地图 context，再各运行精确 task，候选不采用。每次只接管 `pending/attempt=0` 的同项目 task，不 drain 队列；started/unknown/已执行 task 永不重发。方法 fingerprint 覆盖实际 Evolution、auto-draft、Assistant prompt/tool schema 和 Writing/Evidence；项目动态词表按状态冻结，不混入方法 hash。
 
+可选实验变体 `author_assisted` 在 review-map 完成、final freeze 前运行 `apply-scene-locations`。它是额外的 `author_added_scene_setting`，actor固定 `agent_simulated`、`human_validated=false`，不是原文自动抽取或人类签名。root在任何本轮SUT输出前先冻结作者地点意图，随后逐例明确提供已有canonical location UUID和实际采用map node/head；helper不按名称、alias、gold搜索或代选，也不要求地点名出现于当前Scene（严格更早已知地点可以是合法作者选择）。冲突、歧义或无对应UUID时不提供决定，配对not_run；不补World实体凑覆盖。
+
+私有0600 decisions JSON必须完整覆盖同common五case，包含固定顶层 `schema_version=1/origin/human_validated/family_id/decisions`；每决定指定 `case_id/novel_id/scene_id/current_scene_hash/source_refs/source_snapshot_hash/location_entity_id/node_id/revision_id/reason`。`current_scene_hash` 对正常GET Scene完整JSON作 `evals.map_spatial_guard.digest`，`manifest-sha256`是整个原JSON的同一canonical digest。原始理由只在private-root；不是gold标签。
+
+命令先核真实五Scene+结构完成、World/地图作者审核完成，拒绝running/unknown/已尝试未完成与其他pending写任务；仅允许未启动的 `publish_chapter` 索引派生保持原样，不运行或取消它。每例核exact source与完整卡、正常GET entity exact UUID canonical location、adopted未合并node的saved head和实际采用回执；只在两location key都空时，GET完整meta后新增 `location_entity_id`，正常PATCH整meta，再GET验证除该字段/更新时间外完全相同且source未变。最后要求正式Brief同node/head的“当前地点”确实消费该稳定UUID（node明确绑定该UUID时允许无entity_id的节点fallback）；一般mover-only Brief合法性不受影响。最多5 PATCH、0模型，独立 `author-scene-locations/<family>.json` 记录manifest/file/request/response/pre-post hash、逐次耗时与计数。没有生产CAS，前后检查和无后台worker只是隔离观测，不能证明原子并发；任何未知/漂移保留账本、不重发、不继续模型。final binding及reader固定manifest与ledger hash，额外5个作者输入/耗时独立报告，不混入World采用计数；两Writing臂共用相同Scene设定。零作者输入自动Scene地点仍未实现。
+
 管线 hash 也覆盖实际 Scene pipeline/task、主提交后的 optional stage、World 候选物化、最终结构 task 与可选额度实现。attempt 保存原计划授权的空间方法指纹；证据读取重新验证 canonical 切片。Writing 的 `range_hash` 是原文切片 hash，Evolution 的可选同名字段是整稿 hash 与 offsets 的身份 hash，两者按正式契约分别验证；draft、章节、整稿 hash、精确 offsets 和 content mode 必须全部一致。
 
 ## 命令

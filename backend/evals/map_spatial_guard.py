@@ -410,6 +410,10 @@ def read_binding(root: Path, family_id: str) -> dict:
     )
     if value.get("map_heads_sha256") != expected_heads:
         raise MapSpatialEvalError("实际地图head摘要与冻结记录不符")
+    from evals.map_spatial_scene_locations import author_binding
+
+    if value.get("author_assistance") != author_binding(root, common, cases):
+        raise MapSpatialEvalError("模拟作者额外输入的manifest/ledger已漂移")
     return value
 
 
@@ -877,6 +881,7 @@ async def product_evidence(db, root: Path, binding: dict, case_id: str) -> dict:
                 )
             },
         },
+        "author_assistance": binding.get("author_assistance"),
         "proxy_author_review": {
             "events": [
                 item

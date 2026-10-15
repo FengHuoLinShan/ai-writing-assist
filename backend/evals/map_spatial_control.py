@@ -1715,6 +1715,9 @@ async def review_map_family(
                         "scene_ids": source_scene_ids,
                         "action": action,
                         "status": adopted_revision.get("status"),
+                        "saved_revision_id": adopted_revision.get("id")
+                        if adopted_revision.get("status") == "saved"
+                        else None,
                         "response_sha256": digest(adopted_revision),
                         "human_validated": False,
                     }
@@ -1928,6 +1931,7 @@ async def freeze_binding(
         "source_refs",
         "map_revision_count",
         "map_brief_eligibility",
+        "map_source_refs",
     )
     case_globals = {
         key: value
@@ -2003,6 +2007,9 @@ async def freeze_binding(
         human_validated=False,
         frozen_at=datetime.now(UTC).isoformat(),
     )
+    from evals.map_spatial_scene_locations import author_binding
+
+    binding["author_assistance"] = author_binding(root, common, cases)
     binding["case_bindings"] = cases
     with private_lock(root):
         path = binding_path(root, family_id)

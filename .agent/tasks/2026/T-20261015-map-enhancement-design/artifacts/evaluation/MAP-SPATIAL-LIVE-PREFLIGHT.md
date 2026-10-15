@@ -47,6 +47,11 @@ root 仅在明确开始 pilot 后，通过正常 `PUT /api/account/settings/llm-
 .venv/bin/python -m evals.map_spatial run-evolution --private-root "$MAP_EVAL_PRIVATE_ROOT" --family-id map-xianxia-development-v1 --max-tasks 2 --execute
 .venv/bin/python -m evals.map_spatial run-evolution --private-root "$MAP_EVAL_PRIVATE_ROOT" --family-id map-xianxia-development-v1 --max-tasks 2 --execute
 .venv/bin/python -m evals.map_spatial review-map --private-root "$MAP_EVAL_PRIVATE_ROOT" --family-id map-xianxia-development-v1 --max-actions 20 --execute
+# 可选author-assisted变体：root逐例提供完整5个显式决定；未提供则保持source-only评测。
+# manifest canonical digest用 evals.map_spatial_guard.digest(原JSON)，文件0600且在本private-root。
+.venv/bin/python -m evals.map_spatial apply-scene-locations --private-root "$MAP_EVAL_PRIVATE_ROOT" --family-id map-xianxia-development-v1 \
+  --decisions "$MAP_EVAL_PRIVATE_ROOT/decisions/map-xianxia-development-v1.json" \
+  --manifest-sha256 '<root明确冻结的canonical digest>' --execute
 .venv/bin/python -m evals.map_spatial freeze-binding --private-root "$MAP_EVAL_PRIVATE_ROOT" --family-id map-xianxia-development-v1 \
   --scopes "$MAP_EVAL_PRIVATE_ROOT/scopes/map-xianxia-development-v1.json" --execute
 ```
@@ -71,13 +76,15 @@ Writing 两臂共同通过正常 Evidence `pinned_refs` 选择 preflight 已验�
 
 模型调用硬上界为 **296+root_limit**：seed 1、judge 5、Evolution 实际授权 root_limit、Writing 10×14、Assistant 5×30；独立连接验证另加1，为 **297+root_limit**。M为静态minimum，未包含后续World动态审查组；Q为child maximum。显式有限root_limit≥M+Q，额外headroom独立记录；即使有headroom也无完成保证，动态mandatory可能使可选空间留gap或主流程needs_budget。start固定原preview请求和quota，不给已启动run自动topup。现有生产运行信封计入 initial、agent/tool 子调用与重试；不将 task 数当模型请求数。并发 ≤2，任务串行；所有精确 task timeout 900s；教师/裁判固定 Sol/xhigh、attempts=1、模型 timeout 300s。代理作者 `review-map`/auto-draft 经源码确认是确定性查询、来源验证、几何布局，0 模型调用；Evolution World独立审查组计入root_limit。
 
-CLI 整命令 deadline 包含数据库及准备：setup300、共同/最终freeze各120、preview60、start90、Evolution每批`max_tasks×900+120`、review1440、Writingpair1920、Assistant1020、score360（秒）。上述一次 setup、两 preview、2/2/2 Evolution、一次 review 和五 case 总 **24810s**；正常验证另60s，合计 **24870s / 6h54m30s**，额外 review 续批每次另1440s。取消清理及进程启动另计，unknown 不续发。
+CLI 整命令 deadline 包含数据库及准备：setup300、共同/最终freeze各120、preview60、start90、Evolution每批`max_tasks×900+120`、review1440、Writingpair1920、Assistant1020、score360（秒）。上述一次 setup、两 preview、2/2/2 Evolution、一次 review 和五 case 总 **24810s**；正常验证另60s，合计 **24870s / 6h54m30s**，额外 review 续批每次另1440s。可选 `apply-scene-locations` 整命令deadline600s、0模型，选用时总wall上界加600s，即无验证25410s/含验证25470s（7h4m30s）。取消清理及进程启动另计，unknown 不续发。
 
 实际 snapshot context ceiling、hard input、输出 target 和每 task registry 限额进入私有账本。Codex `output_token_limit_enforced=False`，硬 token budget unsupported、token_limit=null；不伪造硬 token 限额或费用。`total_cost=unknown` 仍报告，不作为无计划阈值的质量准入；单 case 0机会可 n/a，整题材质量缺 coverage/unknown 仍失败。完整 25 开发 case 通过后才可冻结 gate 并单次独立 holdout。
 
 生产代码/方法/schema 在 root 集成后才冻结，后续漂移停止。原始输入/输出只留私有目录；Git 仅 hash 与去原文结果。本工程审修不代表真实 Codex 可用、五题材质量或真人作者验收。
 
 Writing eligibility已显式报告：setup 的 manual canonical Scene 只有来源 spans，没有 location metadata，也不会自动语义 enrichment。采用地图不等于该 Scene 已有可用地图参考；只有原正式来源支持的 Scene 地点、在场/位置事实满足正常 Brief/Evidence 门，才能形成带地图 baseline。缺可信位置且实际brief为空时记录 `unavailable/scene_location_unavailable`（有地点但无brief为 `no_usable_map_brief`）。任一case不可达时只生成私有 `bindings/<family>-writing-eligibility.json`，Writing pair=`not_run`，不生成可执行最终binding/任何两臂任务；report与开发gate记录覆盖阻断，不能把not_run当质量下降。正常开臂baseline非空与core相等守卫仍保留；不得猜地点、补填 location ID 或把省略冒称为地图增强质量通过。
+
+可选author-assisted条件另有5个明确 `author_added_scene_setting`，固定agent_simulated/human_validated=false，未声称原文自动推得Scene地点。root先冻结作者意图，之后仅用明确UUID，不按名称/alias/gold代选。normal GET canonical location和adopted/saved map node/head、actual review receipt与Brief当前地点必须对齐；完整Scene hash和exact source均验证，两location key已有任一值拒绝覆盖。正常Scene PATCH整meta无CAS；只增location_entity_id且再GET核对其余字段/source未变。记录私有独立manifest/request/response/pre-post hash、计数、耗时，至多5 PATCH。未知/漂移不重发、不推进模型；final binding/reader固定这些hash。允许保留pending/attempt0 publish_chapter索引任务，不运行/取消/排空；其他写者停止。一般mover-only合法Brief不受该实验焦点限制。完整manifest字段见dataset README。
 
 ## Sol 工程审修证据
 
