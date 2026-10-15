@@ -808,8 +808,10 @@ def author_read_tools(*, allow_web: bool, version: str = "2") -> list[Tool]:
     ]
     if allow_web:
         functions.extend(
-            [search_general_fact, read_web_source] if version == "3" else [research_fact]
+            [search_general_fact, read_web_source]
+            if version in {"3", "4"}
+            else [research_fact]
         )
-    if version == "3":
+    if version in {"3", "4"}:
         functions.extend([world_page_history, review_resolution_result])
     return [Tool(function, sequential=True) for function in functions]

@@ -238,6 +238,10 @@ async def test_author_turn_preview_confirm_and_replay(
     from modules.assistant.operations import catalog, resolve_operations
 
     run = await db_session.get(AssistantRun, uuid.UUID(operation))
+    assert run.request_json["runtime_version"] == "4"
+    assert {"search_general_fact", "read_web_source"}.issubset(
+        run.request_json["read_tools"]
+    )
     if runtime_version == "1":
         frozen = json.loads(
             Path(__file__).parents[1].joinpath("runtime_v1.json").read_text()
@@ -248,6 +252,16 @@ async def test_author_turn_preview_confirm_and_replay(
             "tools_hash": frozen["tools_hash"],
         }
     else:
+        from modules.assistant.evidence_tools import author_read_tools, fingerprint
+
+        run.request_json = {
+            **run.request_json,
+            "runtime_version": "2",
+            "read_tools": {
+                tool.name: fingerprint(tool.function_schema.json_schema)
+                for tool in author_read_tools(allow_web=True, version="2")
+            },
+        }
         frozen = run.request_json
     monkeypatch.setitem(catalog(), "project.future_tool", catalog()["project.add_task"])
     assert "project.future_tool" not in resolve_operations(frozen["operations"])

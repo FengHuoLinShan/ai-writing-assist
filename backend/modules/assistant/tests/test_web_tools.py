@@ -105,3 +105,12 @@ def test_old_tool_catalog_does_not_acquire_new_search_tools():
     assert {"search_general_fact", "read_web_source"}.issubset(
         {t.name for t in author_read_tools(allow_web=True, version="3")}
     )
+
+
+def test_runtime_v4_preserves_the_v3_read_tool_catalog():
+    v3 = author_read_tools(allow_web=True, version="3")
+    v4 = author_read_tools(allow_web=True, version="4")
+    assert {tool.name for tool in v4} == {tool.name for tool in v3}
+    assert {tool.name: tool.function_schema.json_schema for tool in v4} == {
+        tool.name: tool.function_schema.json_schema for tool in v3
+    }

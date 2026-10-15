@@ -47,7 +47,7 @@ def operation_manifest() -> dict:
 
 
 def runtime_protocol(payload: dict) -> dict:
-    if payload.get("runtime_version") in {"2", "3"}:
+    if payload.get("runtime_version") in {"2", "3", "4"}:
         return payload
     if payload.get("runtime_version") == "1":
         frozen = json.loads(Path(__file__).with_name("runtime_v1.json").read_text())
@@ -60,28 +60,33 @@ def runtime_protocol(payload: dict) -> dict:
 
 def resolve_operations(manifest: dict) -> dict[str, AssistantOperation]:
     current = operation_manifest()
-    # The map node level schema only widened to add "interior". Old frozen
-    # runs remain safe: every value they could supply still validates. Pin
-    # both hashes so any later schema change fails closed again.
-    compatible_map_node = (
-        {
-            "schema_hash": (
-                "afb6aa06a68c39a27026fc50565cdc87d72e266e569b362d95fdd23a428c2bc8"
-            ),
-            "revision": "1",
-        },
-        {
-            "schema_hash": (
-                "061686f1c3f683f833a391f1515de6fea596a0403a38f357390d53b5bc54e5e7"
-            ),
-            "revision": "1",
-        },
+    # MapNodeCreate only widened: "interior" was added to level, then two
+    # optional pinned type-reference fields. Legacy inputs remain valid; pin
+    # the exact hash pairs so any other schema change still fails closed.
+    map_node_hashes = (
+        "afb6aa06a68c39a27026fc50565cdc87d72e266e569b362d95fdd23a428c2bc8",
+        "061686f1c3f683f833a391f1515de6fea596a0403a38f357390d53b5bc54e5e7",
+        "657072d928d4057f92652ede400155475a7f913444bb6aebcc71b2f6a334b051",
     )
+    compatible_map_node = [
+        (
+            {"schema_hash": map_node_hashes[0], "revision": "1"},
+            {"schema_hash": map_node_hashes[1], "revision": "1"},
+        ),
+        (
+            {"schema_hash": map_node_hashes[1], "revision": "1"},
+            {"schema_hash": map_node_hashes[2], "revision": "1"},
+        ),
+        (
+            {"schema_hash": map_node_hashes[0], "revision": "1"},
+            {"schema_hash": map_node_hashes[2], "revision": "1"},
+        ),
+    ]
     if any(
         current.get(name) != value
         and not (
             name == "map.create_node"
-            and (value, current.get(name)) == compatible_map_node
+            and (value, current.get(name)) in compatible_map_node
         )
         for name, value in manifest.items()
     ):

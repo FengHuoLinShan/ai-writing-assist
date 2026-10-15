@@ -13,9 +13,11 @@ from infrastructure.llm.schemas import (
     LLMToolCall,
     LLMUsage,
 )
+from modules.assistant.contracts import AssistantOperation
 from modules.assistant.operations import (
     operation_manifest,
     resolve_operations,
+    runtime_protocol,
     validate_agent_answer,
 )
 from modules.assistant.schemas import AssistantAnswer
@@ -77,6 +79,32 @@ def test_frozen_operation_scope_rejects_new_tools_and_changed_revisions():
     with container_scope({"assistant.operations": changed}):
         with pytest.raises(ConflictError):
             resolve_operations(manifest)
+
+
+def test_runtime_v4_freezes_new_operations_without_widening_old_manifests():
+    from modules.world.assistant_vocabulary_tools import OPERATIONS_SPEC
+
+    operation = AssistantOperation(
+        label=OPERATIONS_SPEC["world.vocabulary.create"]["label"],
+        schema=OPERATIONS_SPEC["world.vocabulary.create"]["schema"],
+        prepare=OPERATIONS_SPEC["world.vocabulary.create"]["prepare"],
+        apply=OPERATIONS_SPEC["world.vocabulary.create"]["apply"],
+    )
+    with container_scope({"assistant.operations": dict(project_operations)}):
+        old_manifest = operation_manifest()
+    with container_scope(
+        {
+            "assistant.operations": {
+                **project_operations,
+                "world.vocabulary.create": operation,
+            }
+        }
+    ):
+        new_manifest = operation_manifest()
+        assert "world.vocabulary.create" not in resolve_operations(old_manifest)
+        assert "world.vocabulary.create" in resolve_operations(new_manifest)
+        payload = {"runtime_version": "4", "operations": new_manifest}
+        assert runtime_protocol(payload) is payload
 
 
 @pytest.mark.asyncio
