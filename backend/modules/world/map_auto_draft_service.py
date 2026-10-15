@@ -8,7 +8,7 @@ import uuid
 from dataclasses import asdict
 from typing import Any
 
-from sqlalchemy import or_, select
+from sqlalchemy import func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from core.errors import ConflictError, NotFoundError, ValidationError
@@ -17,6 +17,7 @@ from modules.project.facade import (
     require_active_project_exclusive,
 )
 from modules.world.map_atlas_models import MapAtlasNode, MapAtlasRevision
+from modules.world.map_atlas_service import MapAtlasService
 from modules.world.map_auto_draft_models import MapAutoDraftBatchRecord
 from modules.world.map_auto_draft_schemas import (
     MapAutoDraftBatchProgress,
@@ -133,19 +134,13 @@ def _marker_batch_id(value: str | None) -> uuid.UUID | None:
         return None
 
 
-def _revision_fingerprint(batch: MapAutoDraftBatchRecord, revision: MapAtlasRevision):
-    return _digest(
-        {
-            "batch_fingerprint": batch.input_fingerprint,
-            "revision_id": str(revision.id),
-            "node_id": str(revision.node_id),
-            "base_revision_id": str(revision.base_revision_id)
-            if revision.base_revision_id
-            else None,
-            "status": revision.status,
-            "geometry_hash": revision.geometry_hash,
-        }
-    )
+def auto_draft_review_base(revision: MapAtlasRevision) -> uuid.UUID | None:
+    """The saved head used for review CAS is separate from candidate lineage."""
+    summary = revision.change_summary or {}
+    if "auto_draft_review_base_revision_id" not in summary:
+        raise ConflictError("自动草图缺少正式比较基线，请重新生成")
+    value = summary["auto_draft_review_base_revision_id"]
+    return parse_uuid(value, "review_base_revision_id") if value else None
 
 
 def _response(batch: MapAutoDraftBatchRecord) -> MapAutoDraftBuildResult:
@@ -437,6 +432,9 @@ async def _hierarchy_edges(
     chosen: dict[uuid.UUID, dict] = {}
     conflicts: list[MapAutoDraftHierarchyConflict] = []
     for child_id, candidates in edges.items():
+        candidates.sort(
+            key=lambda item: (str(item["parent_id"]), item["source"], item["source_id"])
+        )
         highest = max(_PARENT_SOURCE_PRIORITY[item["source"]] for item in candidates)
         top = sorted(
             (
@@ -517,6 +515,31 @@ async def _entity_rows(
         )
     ).all()
     return {row.id: row for row in rows}
+
+
+async def _build_dependency_fingerprint(db, novel_id: str, inputs: list[dict]) -> str:
+    """Freeze identity and hierarchy inputs across committed shard calls."""
+    entities = {
+        entity.id: entity for item in inputs for entity in item["endpoints"].values()
+    }
+    parents, conflicts = await _hierarchy_edges(db, novel_id, set(entities), inputs)
+    parent_entities = await _entity_rows(
+        db, novel_id, {edge["parent_id"] for edge in parents.values()}
+    )
+    entities.update(parent_entities)
+    return _digest(
+        {
+            "clues": sorted(
+                (str(item["row"].id), item["row"].fingerprint) for item in inputs
+            ),
+            "entities": sorted(
+                (str(entity.id), entity.entity_type, entity.status)
+                for entity in entities.values()
+            ),
+            "parents": {str(child): edge for child, edge in parents.items()},
+            "conflicts": sorted(item.fingerprint for item in conflicts),
+        }
+    )
 
 
 async def _ensure_location_nodes(
@@ -820,6 +843,11 @@ async def _make_plan(
         redo_reason = None
         use_previous = previous is not None
         if previous is not None:
+            if (
+                auto_draft_review_base(previous) != node.current_revision_id
+                and force_redo_reason is None
+            ):
+                raise ConflictError("待审草图基于旧正式地图，请先审核旧草图或明确重做")
             previous_batch_id = _marker_batch_id(previous.context_fingerprint)
             prior_batch = (
                 await db.get(MapAutoDraftBatchRecord, previous_batch_id)
@@ -952,6 +980,9 @@ async def _make_plan(
         # tray provenance. Only currently valid rows become candidate sources.
         "clue_ids": [str(row.id) for row in clue_rows],
         "valid_clue_ids": [str(item["row"].id) for item in valid],
+        "dependency_fingerprint": await _build_dependency_fingerprint(
+            db, novel_id, valid
+        ),
         "shards": shards,
         "hierarchy": hierarchy_snapshot,
         "redo_reason": next(
@@ -1029,13 +1060,13 @@ async def _prior_source_clues_current(
         for row in rows
     ):
         return False
-    _valid, invalid = await _validated_clue_inputs(
+    valid, invalid = await _validated_clue_inputs(
         db,
         novel_id,
         list(rows),
         through_scene_index=through_scene_index,
     )
-    return not invalid
+    return not invalid and len(valid) == len(rows)
 
 
 async def _lock_project_for_map_write(db: AsyncSession, novel_id: str) -> None:
@@ -1115,7 +1146,6 @@ async def _project_candidate_entities(
             warnings.append("部分地点已失效，已降为文字并待重新映射")
         elif current.id != feature.entity_id:
             feature.entity_id = current.id
-            feature.label = current.name[:200]
             warnings.append("部分地点已融合，草图绑定跟随融合目标")
         if current is not None and current.status != "canonical":
             feature.note = (
@@ -1156,6 +1186,8 @@ async def prepare_auto_draft_adoption(
     ref = _batch_revision_ref(batch, revision.id)
     if ref is None or ref.get("status") != "candidate":
         raise ConflictError("自动草图候选已经結束，请刷新后再操作")
+    if auto_draft_review_base(revision) != node.current_revision_id:
+        raise ConflictError("候选基于旧地图，请重新生成或手动比较")
     clue_ids = {parse_uuid(item, "clue_id") for item in ref.get("source_clue_ids", [])}
     clue_rows = (
         (
@@ -1181,7 +1213,7 @@ async def prepare_auto_draft_adoption(
         raise ConflictError("自动草图来源、端点或复核已变化，请重新映射")
 
     baseline_row = await _load_revision(
-        db, novel_id, revision.node_id, revision.base_revision_id
+        db, novel_id, revision.node_id, auto_draft_review_base(revision)
     )
     baseline = (
         MapDocument.model_validate(baseline_row.document)
@@ -1218,15 +1250,13 @@ async def prepare_auto_draft_adoption(
             )[-1000:]
         else:
             feature.entity_id = entity.id
-            feature.label = entity.name[:200]
 
     # The auto builder may use working text to make an author-facing preview.
     # Only additions with canonical manuscript citations can enter a saved map.
     retained_features = []
     for feature in candidate.features:
         if f"feature:{feature.id}" not in baseline_items and (
-            (not feature.sources and feature.id not in stale_feature_ids)
-            or set(feature.depends_on) & stale_feature_ids
+            not feature.sources or set(feature.depends_on) & stale_feature_ids
         ):
             continue
         retained_features.append(feature)
@@ -1496,6 +1526,7 @@ async def _auto_draft_document(
     ]
     feature_sources: dict[uuid.UUID, list[MapSource]] = {}
     feature_modalities: dict[uuid.UUID, set[str]] = {}
+    feature_effective: dict[uuid.UUID, list] = {}
     source_by_clue: dict[uuid.UUID, MapSource | None] = {}
     for item in row_clues:
         row = item["row"]
@@ -1510,6 +1541,7 @@ async def _auto_draft_document(
             if entity_id is None:
                 continue
             feature_modalities.setdefault(entity_id, set()).add(str(clue.modality))
+            feature_effective.setdefault(entity_id, []).append(clue.attributes.effective)
             source = item["source"]
             if source is not None:
                 sources = feature_sources.setdefault(entity_id, [])
@@ -1567,6 +1599,14 @@ async def _auto_draft_document(
             sources=feature_sources.get(entity.id, [])[:8],
             note="候选地点，仅供作者审核；不会自动写入正式地图",
             modality=modality,
+            effective=next(
+                (
+                    value
+                    for value in feature_effective.get(entity.id, [])
+                    if value is not None
+                ),
+                None,
+            ),
         )
         document.features.append(feature)
         by_entity[str(entity.id)] = feature
@@ -1614,6 +1654,7 @@ async def _auto_draft_document(
                             {"label": value} for value in attrs.access_conditions
                         ],
                         modality=clue.modality,
+                        effective=attrs.effective,
                         sources=[source],
                     ),
                 )
@@ -1656,6 +1697,7 @@ async def _auto_draft_document(
                 target=feature_key_by_entity[str(target_entity_id)],
                 sources=[source] if source is not None else [],
                 modality=clue.modality,
+                effective=clue.attributes.effective,
             ),
         )
     document.constraints = list(constraints.values())
@@ -1782,12 +1824,16 @@ async def _process_batch(
         batch.stale_reason = "空间线索不属于草图对应的阅读运行，请重新生成"
         await db.flush()
         return _response(batch)
-    invalid_ids = {
-        item["row"].id for item in invalid if str(item["row"].id) in required_ids
-    }
-    if invalid_ids:
+    if invalid or set(valid_by_id) != required_ids:
         batch.status = "stale"
         batch.stale_reason = "草图依赖的原文、端点或类型已变化，请重新映射"
+        await db.flush()
+        return _response(batch)
+    if plan.get("dependency_fingerprint") != await _build_dependency_fingerprint(
+        db, novel_id, [valid_by_id[item] for item in sorted(current_run_ids, key=str)]
+    ):
+        batch.status = "stale"
+        batch.stale_reason = "草图依赖的地点身份或层级已变化，请重新生成"
         await db.flush()
         return _response(batch)
     start = batch.cursor
@@ -1878,7 +1924,7 @@ async def _process_batch(
         revision = MapAtlasRevision(
             novel_id=node.novel_id,
             node_id=node.id,
-            base_revision_id=node.current_revision_id,
+            base_revision_id=baseline_id,
             status="candidate",
             document=document.model_dump(mode="json"),
             geometry_hash=geometry_hash(document),
@@ -1887,6 +1933,11 @@ async def _process_batch(
             context_fingerprint=_batch_marker(batch.id, index),
             task_id=uuid.UUID(shard["task_id"]),
             writing_chapter_index=await current_writing_chapter_index(db, novel_id),
+            change_summary={
+                "auto_draft_review_base_revision_id": str(node.current_revision_id)
+                if node.current_revision_id
+                else None,
+            },
         )
         db.add(revision)
         await db.flush()
@@ -1895,7 +1946,7 @@ async def _process_batch(
             MapAutoDraftRevisionRef(
                 node_id=node.id,
                 revision_id=revision.id,
-                base_revision_id=node.current_revision_id,
+                base_revision_id=baseline_id,
                 status="candidate",
                 feature_count=len(document.features),
                 source_clue_ids=[
@@ -2022,126 +2073,141 @@ async def list_map_auto_drafts(
     *,
     node_id: str | None = None,
     limit: int = 100,
+    offset: int = 0,
 ) -> MapAutoDraftListResponse:
     await require_active_project(db, novel_id)
-    if not 1 <= limit <= 200:
+    if not 1 <= limit <= 200 or offset < 0:
         raise ValidationError("自动草图列表范围无效")
-    batches = (
-        await db.scalars(
-            select(MapAutoDraftBatchRecord)
-            .where(MapAutoDraftBatchRecord.novel_id == parse_uuid(novel_id, "novel_id"))
-            .order_by(
-                MapAutoDraftBatchRecord.created_at.desc(), MapAutoDraftBatchRecord.id
+    nid = parse_uuid(novel_id, "novel_id")
+    batches = list(
+        (
+            await db.scalars(
+                select(MapAutoDraftBatchRecord)
+                .where(MapAutoDraftBatchRecord.novel_id == nid)
+                .order_by(
+                    MapAutoDraftBatchRecord.created_at.desc(), MapAutoDraftBatchRecord.id
+                )
+                .limit(201)
             )
-            .limit(200)
+        ).all()
+    )
+    batches_truncated = len(batches) > 200
+    batches = batches[:200]
+    batches_by_id = {batch.id: batch for batch in batches}
+    conditions = [
+        MapAtlasRevision.novel_id == nid,
+        MapAtlasRevision.status.in_(["candidate", "superseded"]),
+        MapAtlasRevision.context_fingerprint.like(f"{_AUTO_DRAFT_CONTEXT_PREFIX}%"),
+    ]
+    if node_id:
+        conditions.append(MapAtlasRevision.node_id == parse_uuid(node_id, "node_id"))
+    total_count = await db.scalar(
+        select(func.count()).select_from(MapAtlasRevision).where(*conditions)
+    )
+    rows = (
+        await db.execute(
+            select(MapAtlasRevision, MapAtlasNode)
+            .join(
+                MapAtlasNode,
+                (MapAtlasNode.id == MapAtlasRevision.node_id)
+                & (MapAtlasNode.novel_id == MapAtlasRevision.novel_id),
+            )
+            .where(*conditions)
+            .order_by(MapAtlasRevision.created_at.desc(), MapAtlasRevision.id.desc())
+            .offset(offset)
+            .limit(limit)
         )
     ).all()
-    requested_node = parse_uuid(node_id, "node_id") if node_id else None
     items: list[MapAutoDraftListItem] = []
-    total_count = sum(
-        1
-        for batch in batches
-        for ref in batch.result_refs or []
-        if ref.get("status") in {"candidate", "superseded"}
-        and (requested_node is None or str(ref.get("node_id")) == str(requested_node))
-    )
-    for batch in batches:
-        for ref in batch.result_refs or []:
-            if ref.get("status") not in {"candidate", "superseded"}:
-                continue
-            parsed_node = parse_uuid(ref["node_id"], "node_id")
-            if requested_node is not None and parsed_node != requested_node:
-                continue
-            revision = await db.scalar(
-                select(MapAtlasRevision).where(
-                    MapAtlasRevision.novel_id == parse_uuid(novel_id, "novel_id"),
-                    MapAtlasRevision.node_id == parsed_node,
-                    MapAtlasRevision.id == parse_uuid(ref["revision_id"], "revision_id"),
+    for revision, node in rows:
+        batch_id = _marker_batch_id(revision.context_fingerprint)
+        batch = batches_by_id.get(batch_id)
+        if batch is None:
+            batch = await db.scalar(
+                select(MapAutoDraftBatchRecord).where(
+                    MapAutoDraftBatchRecord.novel_id == nid,
+                    MapAutoDraftBatchRecord.id == batch_id,
                 )
             )
-            node = await db.scalar(
-                select(MapAtlasNode).where(
-                    MapAtlasNode.novel_id == parse_uuid(novel_id, "novel_id"),
-                    MapAtlasNode.id == parsed_node,
-                )
-            )
-            if revision is None or node is None:
-                continue
-            document, warnings = await _project_candidate_entities(
-                db, novel_id, MapDocument.model_validate(revision.document)
-            )
-            source_clue_ids = [str(item) for item in ref.get("source_clue_ids", [])]
-            tray_clue_ids = [
-                str(item.get("clue_id"))
-                for item in batch.tray_items or []
-                if str(item.get("node_id")) == str(node.id)
-            ]
-            dependency_stale = False
-            dependency_ids = {
-                parse_uuid(item, "clue_id") for item in {*source_clue_ids, *tray_clue_ids}
-            }
-            if dependency_ids and batch.status != "stale":
-                dependency_rows = (
-                    await db.scalars(
-                        select(MapSpatialClueRecord).where(
-                            MapSpatialClueRecord.novel_id
-                            == parse_uuid(novel_id, "novel_id"),
-                            MapSpatialClueRecord.id.in_(dependency_ids),
-                        )
+            if batch is not None:
+                batches_by_id[batch.id] = batch
+        ref = _batch_revision_ref(batch, revision.id)
+        if batch is None or ref is None:
+            continue
+        document, warnings = await _project_candidate_entities(
+            db, novel_id, MapDocument.model_validate(revision.document)
+        )
+        source_clue_ids = [str(item) for item in ref.get("source_clue_ids", [])]
+        tray_clue_ids = [
+            str(item.get("clue_id"))
+            for item in batch.tray_items or []
+            if str(item.get("node_id")) == str(node.id)
+        ]
+        dependency_stale = False
+        dependency_ids = {
+            parse_uuid(item, "clue_id") for item in {*source_clue_ids, *tray_clue_ids}
+        }
+        if dependency_ids and batch.status != "stale":
+            dependency_rows = (
+                await db.scalars(
+                    select(MapSpatialClueRecord).where(
+                        MapSpatialClueRecord.novel_id == parse_uuid(novel_id, "novel_id"),
+                        MapSpatialClueRecord.id.in_(dependency_ids),
                     )
-                ).all()
-                if {row.id for row in dependency_rows} != dependency_ids:
-                    dependency_stale = True
-                else:
-                    _valid, invalid = await _validated_clue_inputs(
-                        db,
-                        novel_id,
-                        list(dependency_rows),
-                        through_scene_index=batch.through_scene_index,
-                    )
-                    dependency_stale = bool(invalid)
-            if dependency_stale:
-                warnings.append("草图依赖的来源或线索已变化，请重新映射")
-            pending = [
-                MapAutoDraftTrayItem.model_validate(item)
-                for item in _tray_dicts_for_node(batch, node.id)
-            ]
-            if batch.status == "running":
-                warnings.append("自动草图分片尚未完成；继续后才能审核采用")
-            if batch.status == "stale":
-                warnings.append(batch.stale_reason or "草图依赖已变化，请重新映射")
-            items.append(
-                MapAutoDraftListItem(
-                    batch_id=batch.id,
-                    node_id=node.id,
-                    node_title=node.title,
-                    revision_id=revision.id,
-                    base_revision_id=revision.base_revision_id,
-                    status=revision.status,
-                    fingerprint=batch.input_fingerprint,
-                    source_clue_ids=[uuid.UUID(item) for item in source_clue_ids],
-                    document=document,
-                    pending_tray=pending,
-                    conflicts=[
-                        MapAutoDraftHierarchyConflict.model_validate(item)
-                        for item in batch.conflicts or []
-                        if any(
-                            str(item.get("child_entity_id")) == str(feature.entity_id)
-                            for feature in document.features
-                        )
-                    ],
-                    redo_reason=(batch.plan_json or {}).get("redo_reason"),
-                    stale=batch.status == "stale" or dependency_stale,
-                    warnings=list(dict.fromkeys(warnings)),
                 )
+            ).all()
+            if {row.id for row in dependency_rows} != dependency_ids:
+                dependency_stale = True
+            else:
+                _valid, invalid = await _validated_clue_inputs(
+                    db,
+                    novel_id,
+                    list(dependency_rows),
+                    through_scene_index=batch.through_scene_index,
+                )
+                dependency_stale = bool(invalid) or len(_valid) != len(dependency_rows)
+        if dependency_stale:
+            warnings.append("草图依赖的来源或线索已变化，请重新映射")
+        pending = [
+            MapAutoDraftTrayItem.model_validate(item)
+            for item in _tray_dicts_for_node(batch, node.id)
+        ]
+        if batch.status == "running":
+            warnings.append("自动草图分片尚未完成；继续后才能审核采用")
+        if batch.status == "stale":
+            warnings.append(batch.stale_reason or "草图依赖已变化，请重新映射")
+        items.append(
+            MapAutoDraftListItem(
+                batch_id=batch.id,
+                node_id=node.id,
+                node_title=node.title,
+                node=MapAtlasService._node_dict(node, [], []),
+                revision_id=revision.id,
+                base_revision_id=revision.base_revision_id,
+                review_base_revision_id=auto_draft_review_base(revision),
+                status=revision.status,
+                fingerprint=batch.input_fingerprint,
+                source_clue_ids=[uuid.UUID(item) for item in source_clue_ids],
+                document=document,
+                pending_tray=pending,
+                conflicts=[
+                    MapAutoDraftHierarchyConflict.model_validate(item)
+                    for item in batch.conflicts or []
+                    if any(
+                        str(item.get("child_entity_id")) == str(feature.entity_id)
+                        for feature in document.features
+                    )
+                ],
+                redo_reason=(batch.plan_json or {}).get("redo_reason"),
+                stale=batch.status == "stale" or dependency_stale,
+                warnings=list(dict.fromkeys(warnings)),
             )
-            if len(items) >= limit:
-                break
-        if len(items) >= limit:
-            break
+        )
     return MapAutoDraftListResponse(
         items=items,
         total_count=total_count,
+        truncated=offset + len(items) < total_count,
+        batches_truncated=batches_truncated,
         batches=[
             MapAutoDraftBatchProgress(
                 batch_id=batch.id,
@@ -2174,7 +2240,8 @@ async def redo_map_auto_drafts(
         raise NotFoundError("自动草图批次不存在")
     if batch.input_fingerprint != request.expected_fingerprint:
         raise ConflictError("草图批次已经变化，请刷新后重做")
-    redo_key = f"{batch.build_key}:redo:{uuid.uuid4().hex[:12]}"[:120]
+    redo_suffix = f":redo:{uuid.uuid4().hex[:12]}"
+    redo_key = f"{batch.build_key[: 120 - len(redo_suffix)]}{redo_suffix}"
     source_clue_ids = sorted(
         {
             clue_id
@@ -2259,7 +2326,7 @@ async def _tray_item_context(
             else {"candidate"}
         )
         or _marker_batch_id(revision.context_fingerprint) != batch.id
-        or node.current_revision_id != revision.base_revision_id
+        or node.current_revision_id != auto_draft_review_base(revision)
     ):
         raise ConflictError("自动草图或正式基线已经变化，请重新比较")
     return batch, node, revision, tray, batch.plan_json or {}, batch.result_refs or []
@@ -2351,6 +2418,7 @@ async def _placement_document(
             sources=[canonical_source] if canonical_source is not None else [],
             note="作者手动放置；地点身份仍按 World 门禁审核",
             modality=clue.modality,
+            effective=clue.attributes.effective,
         )
         document.features.append(feature)
     else:
@@ -2406,7 +2474,7 @@ async def preview_map_auto_draft_tray_placement(
         batch_id=batch.id,
         node_id=node.id,
         candidate_revision_id=revision.id,
-        base_revision_id=revision.base_revision_id,
+        base_revision_id=node.current_revision_id,
         item_id=uuid.UUID(str(tray["item_id"])),
         preview_fingerprint=_tray_preview_fingerprint(
             batch, revision, tray, request, feature_id, document
@@ -2505,13 +2573,14 @@ async def place_map_auto_draft_tray_item(
     shard_index = int(candidate_marker.rsplit(":", 1)[-1])
     previous_ref = _batch_revision_ref(batch, revision.id)
     source_clue_ids = list((previous_ref or {}).get("source_clue_ids", []))
+    source_clue_ids = sorted({*source_clue_ids, str(tray["clue_id"])})
     await _mark_old_revision_superseded(db, novel_id, revision)
     from modules.world.services.common import current_writing_chapter_index
 
     new_revision = MapAtlasRevision(
         novel_id=node.novel_id,
         node_id=node.id,
-        base_revision_id=node.current_revision_id,
+        base_revision_id=revision.id,
         status="candidate",
         document=document.model_dump(mode="json"),
         geometry_hash=geometry_hash(document),
@@ -2520,6 +2589,11 @@ async def place_map_auto_draft_tray_item(
         context_fingerprint=_batch_marker(batch.id, shard_index),
         task_id=uuid.uuid4(),
         writing_chapter_index=await current_writing_chapter_index(db, novel_id),
+        change_summary={
+            "auto_draft_review_base_revision_id": str(node.current_revision_id)
+            if node.current_revision_id
+            else None,
+        },
     )
     db.add(new_revision)
     await db.flush()
@@ -2528,7 +2602,7 @@ async def place_map_auto_draft_tray_item(
         MapAutoDraftRevisionRef(
             node_id=node.id,
             revision_id=new_revision.id,
-            base_revision_id=node.current_revision_id,
+            base_revision_id=revision.id,
             status="candidate",
             feature_count=len(document.features),
             source_clue_ids=[uuid.UUID(value) for value in source_clue_ids],

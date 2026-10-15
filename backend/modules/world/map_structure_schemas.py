@@ -519,6 +519,8 @@ class MapRevisionResponse(SpatialModel):
     id: str
     node_id: str
     base_revision_id: str | None
+    is_auto_draft: bool = False
+    review_base_revision_id: str | None = None
     status: Literal["candidate", "saved", "rejected", "superseded"]
     document: MapDocument
     geometry_hash: str

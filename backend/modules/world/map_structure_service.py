@@ -326,6 +326,10 @@ class MapStructureService:
             id=str(row.id),
             node_id=str(row.node_id),
             base_revision_id=str(row.base_revision_id) if row.base_revision_id else None,
+            is_auto_draft=(row.context_fingerprint or "").startswith("auto-draft:"),
+            review_base_revision_id=(row.change_summary or {}).get(
+                "auto_draft_review_base_revision_id"
+            ),
             status=row.status,
             document=MapDocument.model_validate(row.document),
             geometry_hash=row.geometry_hash,
@@ -788,7 +792,7 @@ class MapStructureService:
 
         if node.current_revision_id != data.base_revision_id:
             raise ConflictError("地图已更新，请重新比较后再操作")
-        if row.status != "candidate" or row.base_revision_id != node.current_revision_id:
+        if row.status != "candidate":
             raise ConflictError("候选基于旧地图，请重新生成或手动比较")
         if (row.context_fingerprint or "").startswith("auto-draft:"):
             from modules.world.map_auto_draft_service import (
@@ -803,6 +807,8 @@ class MapStructureService:
                 data.change_keys,
                 source_validator=self.source,
             )
+        if row.base_revision_id != node.current_revision_id:
+            raise ConflictError("候选基于旧地图，请重新生成或手动比较")
         if not row.confirmation_id:
             raise ConflictError("候选缺少原参考资料确认，请重新生成")
         try:
@@ -914,6 +920,11 @@ class MapStructureService:
                     context_fingerprint=row.context_fingerprint,
                     task_id=uuid.uuid4(),
                     writing_chapter_index=result.writing_chapter_index,
+                    change_summary={
+                        "auto_draft_review_base_revision_id": result.id,
+                    }
+                    if (row.context_fingerprint or "").startswith("auto-draft:")
+                    else None,
                 )
                 # The remaining full candidate retains the same dependency-valid
                 # document and exact confirmation; only its comparison base changes.
@@ -932,12 +943,20 @@ class MapStructureService:
                     replacement=remaining,
                 )
             else:
-                row.status = "saved"
+                # Sanitizing an auto draft can remove working-only evidence or
+                # candidate bindings. Its original payload must not become a
+                # restorable saved revision; the saved result holds the reviewed map.
+                row.status = (
+                    "rejected"
+                    if (row.context_fingerprint or "").startswith("auto-draft:")
+                    and MapDocument.model_validate(row.document) != candidate
+                    else "saved"
+                )
                 from modules.world.map_auto_draft_service import (
                     update_auto_draft_review_ref,
                 )
 
-                await update_auto_draft_review_ref(db, novel_id, row, status="saved")
+                await update_auto_draft_review_ref(db, novel_id, row, status=row.status)
         await db.flush()
         return result
 

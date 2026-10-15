@@ -150,6 +150,9 @@ CONFIRMED 数据（名称、类型、`summary` 与少量确认属性；未确认
 - `knowledge_tags` / `character_knowledge_tags` / `asset_knowledge_tags` / `knowledge_tag_exclusions` / `knowledge_visibility_policies` / `reader_reveal_policies` / `creation_suggestion_queue` / `conflict_check_queue` — 知识标签、可见性和待处理工作队列
 - `map_atlas_nodes` / `map_atlas_revisions` / `map_atlas_runs` / `map_atlas_pages` / `map_atlas_annotations` — 统一地图目录、空间版本、图片与标注，详见 `docs/modules/15_map.md`
 - 地图册空间线索是 World Bible/RAG 的受限派生输入：服务端验证 source key、保留来源 hash，且不回写 World 事实。文本模型不生成坐标，程序从受限关系生成示意布局。
+- 演化自动草图按持久化游标分片，续跑重验来源、端点和层级；候选列表通过 `offset/limit` 与准确
+  `total_count` 提供完整审核入口，附真实 provisional 节点元数据。增量版本链与正式地图审核 CAS
+  分开；working 来源和未采用的地点不会经候选历史恢复进入正式地图，详见地图文档。
 
 作者主动发起的 World 模型入口统一消费 Evidence confirmation：生成中心、问世界、地图册、
 世界书人工语义操作和对象融合的 wire 均携带 action 精确匹配的 `context_confirmation_id`。

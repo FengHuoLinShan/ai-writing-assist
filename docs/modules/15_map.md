@@ -479,6 +479,10 @@ World 入口 `build_map_auto_drafts(db, novel_id, request)` 聚合一次阅读�
 `cursor`、`total_chunks` 和 `status` 支持作者端续跑；当前批次只有候选，没有图片或正式 head 写入。
 每个节点每批使用独立 `task_id`。同节点最多一条待审自动草图；增量基于当前待审草图、
 否则已保存版本、否则空白。旧候选在新候选落库时标为 `superseded`，已保存版本不修改。
+`base_revision_id` 始终指向实际增量基础（可以是旧草图）；作者审核使用单独冻结的
+`review_base_revision_id` 对正式 head 做 CAS，`is_auto_draft` 区分该合同与普通地图候选。
+续跑会重验来源、复核状态、地点身份和 World 层级；任一漂移使批次停在当前 cursor 并标 stale，
+不能把前后不同的输入拼成一个已完成批次。
 
 父子层级按已采用 World 关系、已保存地图层级、已独立复核线索、World 候选关系的优先级计算；
 冲突同时记录来源、展示待核托盘。每个分片最多 200 个图元和 400 个关系/行程，超过上限的地点
@@ -486,14 +490,21 @@ World 入口 `build_map_auto_drafts(db, novel_id, request)` 聚合一次阅读�
 布局沿用确定性地图几何算法并锁定已有点位。托盘地点必须先预览，再提交包含托盘 fingerprint、
 正式基线、用户点击坐标和预览 fingerprint 的确认请求；重复提交相同放置会返回已有候选，坐标不会
 由助手生成。
+图元、关系和行程保留线索的 modality 与 effective；托盘放置同样保留精确引文、来源 hash 和
+生效区间。增量和采用保留作者已有的名称、位置与锁定状态。
 
 作者采用自动草图仍走地图 revision 的比较、来源和 CAS 门禁。采用前重验每条线索、Scene、端点、
 复核与逐字引用；working 来源不能进入正式地图。World 候选地点可绑定在作者侧草图中，未采用时
 正式采用只保留待核文字标签；地点融合时绑定跟随目标，拒绝或删除后降为文字并提示重新映射。
+新图元即使降为文字也必须有 canonical 引文；净化前的完整草图不会变成可恢复的 saved 历史，
+只有通过审核的新版本保存为正式地图。
 拒绝或合并任一依赖线索会使批次标为 stale；正文来源变更在读取时也会显示为 stale。作者重做只会
 对目标分片从已保存基线重新生成候选。
 
-自动草图 API 位于 `/api/world/map-atlas/{novel_id}/auto-drafts`：GET 返回候选和每批进度；
+自动草图 API 位于 `/api/world/map-atlas/{novel_id}/auto-drafts`：GET 按 `offset`/`limit` 返回候选，
+`total_count` 为完整条目数，`truncated` 表示后面还有候选页。每条携带真实节点元数据 `node`，
+供仅有候选的 provisional 节点在独立审核入口打开，不加入正式地图目录。进度列表最多返回最新
+200 批，超出时 `batches_truncated=true`；候选分页仍能访问这些较早批次。
 POST `/build` 创建/续跑聚合批次，`/{batch_id}/resume` 兼容作者续跑，`/{batch_id}/redo` 确认整片重做。
 待放置地点通过 `/{batch_id}/nodes/{node_id}/revisions/{revision_id}/tray/{item_id}/preview|place`
 预览和确认。线索审核仍用上节的 `/spatial-clues/{clue_id}/review`，草图审核仍用

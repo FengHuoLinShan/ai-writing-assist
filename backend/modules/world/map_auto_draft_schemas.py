@@ -7,6 +7,7 @@ from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field
 
+from modules.world.map_atlas_schemas import MapAtlasNodeResponse
 from modules.world.map_spatial_clue_schemas import MapSpatialClueEndpoint
 from modules.world.map_structure_schemas import MapDocument, MapPoint
 
@@ -120,8 +121,10 @@ class MapAutoDraftListItem(MapAutoDraftModel):
     batch_id: UUID
     node_id: UUID
     node_title: str
+    node: MapAtlasNodeResponse
     revision_id: UUID
     base_revision_id: UUID | None = None
+    review_base_revision_id: UUID | None = None
     status: Literal["candidate", "superseded"]
     fingerprint: Sha256
     source_clue_ids: list[UUID] = Field(default_factory=list)
@@ -136,6 +139,8 @@ class MapAutoDraftListItem(MapAutoDraftModel):
 class MapAutoDraftListResponse(MapAutoDraftModel):
     items: list[MapAutoDraftListItem]
     total_count: int = Field(ge=0)
+    truncated: bool = False
+    batches_truncated: bool = False
     batches: list[MapAutoDraftBatchProgress] = Field(default_factory=list, max_length=200)
 
 

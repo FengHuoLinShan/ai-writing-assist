@@ -12,6 +12,7 @@ from modules.world.map_atlas_models import MapAtlasNode, MapAtlasRevision
 from modules.world.map_auto_draft_models import MapAutoDraftBatchRecord
 from modules.world.map_auto_draft_schemas import (
     MapAutoDraftBuildRequest,
+    MapAutoDraftRedoRequest,
     MapAutoDraftResumeRequest,
     MapAutoDraftTrayPlacementPreviewRequest,
     MapAutoDraftTrayPlacementRequest,
@@ -21,6 +22,7 @@ from modules.world.map_auto_draft_service import (
     list_map_auto_drafts,
     place_map_auto_draft_tray_item,
     preview_map_auto_draft_tray_placement,
+    redo_map_auto_drafts,
     resume_map_auto_drafts,
 )
 from modules.world.map_source_consumption import read_map_chapter_consumers
@@ -36,9 +38,14 @@ from modules.world.map_spatial_clue_service import (
     spatial_clue_review_hash,
     stage_spatial_discovery,
 )
-from modules.world.map_structure_schemas import MapPoint, MapRevisionReview
+from modules.world.map_structure_schemas import (
+    MapPoint,
+    MapRevisionReview,
+    MapSaveRequest,
+    SpatialValidity,
+)
 from modules.world.map_structure_service import MapStructureService
-from modules.world.models import CoreEntity
+from modules.world.models import CoreEntity, EntityRelation
 from modules.world.project_vocabulary_schemas import vocabulary_evidence_hash
 from modules.world.tests.test_map_spatial_clue_boundaries import _bound_batch, _source
 from modules.world.tests.test_map_spatial_clues import QUOTE_ONE, _clue
@@ -53,6 +60,8 @@ async def _stage_bound_clue(
     modality: str = "event_observed",
     entity_status: str = "canonical",
     scene=None,
+    effective=None,
+    kind="connection",
 ):
     scene, _draft, _span, binding, evidence = await _source(
         db, novel_id, mode=mode, scene=scene
@@ -85,6 +94,14 @@ async def _stage_bound_clue(
         state="canonical" if entity_status == "canonical" else "candidate",
     )
     clue.modality = modality
+    clue.kind = kind
+    clue.attributes.effective = (
+        SpatialValidity(start={"kind": "scene", "id": scene.id})
+        if effective is True
+        else effective
+    )
+    if kind == "journey":
+        clue.attributes.transport_label = "步行"
     clue.review.proposal_hash = spatial_clue_review_hash(clue)
     clue.review.evidence_hash = vocabulary_evidence_hash([evidence])
     batch = _bound_batch(novel_id, scene, binding, evidence, key=uuid.uuid4().hex[:1])
@@ -207,9 +224,7 @@ async def test_build_aggregates_to_one_deterministic_candidate_and_is_idempotent
 async def test_pending_verification_clue_has_no_map_or_tray_effect(
     db_session, project_novel_id
 ):
-    scene, _start, _end, clue_row = await _stage_bound_clue(
-        db_session, project_novel_id
-    )
+    scene, _start, _end, clue_row = await _stage_bound_clue(db_session, project_novel_id)
     clue_row.status = "pending_verification"
     await db_session.flush()
 
@@ -301,6 +316,16 @@ async def test_auto_adoption_keeps_candidate_world_place_as_text_until_canonical
     assert len(features) == 2
     assert all(item["entity_id"] is None and item["points"] == [] for item in features)
     assert all("待核" in item["note"] for item in features)
+    original = await db_session.get(MapAtlasRevision, revision.id)
+    assert original.status == "rejected"
+    with pytest.raises(ConflictError, match="只能恢复已保存"):
+        await MapStructureService().review(
+            db_session,
+            project_novel_id,
+            str(original.node_id),
+            str(original.id),
+            MapRevisionReview(action="restore", base_revision_id=saved.id),
+        )
 
 
 @pytest.mark.asyncio
@@ -343,6 +368,7 @@ async def test_incremental_batch_supersedes_candidate_and_preserves_positions(
     assert len(updated.revisions) == 1
     old_row = await db_session.get(MapAtlasRevision, first_revision.id)
     new_row = await db_session.get(MapAtlasRevision, updated.revisions[0].revision_id)
+    assert new_row.base_revision_id == old_row.id
     assert old_row.status == "superseded"
     assert new_row.task_id != first_revision.task_id
     new_points = {
@@ -362,11 +388,33 @@ async def test_incremental_batch_supersedes_candidate_and_preserves_positions(
     assert len(pending) == 1
     first_batch = await db_session.get(MapAutoDraftBatchRecord, first_result.batch_id)
     assert first_batch.result_refs[0]["status"] == "superseded"
+    listed = await list_map_auto_drafts(db_session, project_novel_id)
+    assert listed.items[0].node.id == str(new_row.node_id)
+    assert listed.items[0].node.current_revision_id is None
+    assert listed.items[0].node.status == "provisional"
+    assert listed.items[0].node.level == "region"
+    assert listed.items[0].review_base_revision_id is None
+    view = await MapStructureService().get_map(
+        db_session, project_novel_id, str(new_row.node_id)
+    )
+    assert view.candidates[0].is_auto_draft is True
+    assert view.candidates[0].base_revision_id == str(old_row.id)
+    assert view.candidates[0].review_base_revision_id is None
+    await MapStructureService().review(
+        db_session,
+        project_novel_id,
+        str(new_row.node_id),
+        str(new_row.id),
+        MapRevisionReview(action="adopt", base_revision_id=None),
+    )
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "drift", [None, "source", "verification", "identity", "hierarchy"]
+)
 async def test_batch_cursor_resumes_long_build_without_truncating_shards(
-    db_session, project_novel_id
+    db_session, project_novel_id, drift
 ):
     scene, _draft, _span, binding, evidence = await _source(db_session, project_novel_id)
     clues = []
@@ -432,6 +480,47 @@ async def test_batch_cursor_resumes_long_build_without_truncating_shards(
     assert first.cursor == 20
     assert first.total_chunks == 21
     assert len(first.revisions) == 20
+    if drift:
+        if drift == "source":
+            _draft.content_hash = "f" * 64
+        elif drift == "verification":
+            row = await db_session.get(MapSpatialClueRecord, staged.accepted[0].clue_id)
+            row.status = "pending_verification"
+        elif drift == "identity":
+            replacement = CoreEntity(
+                novel_id=uuid.UUID(project_novel_id),
+                entity_type="location",
+                name="新的东岸",
+                status="canonical",
+            )
+            db_session.add(replacement)
+            await db_session.flush()
+            end.status = "merged"
+            end.content_json = {"merged_into": str(replacement.id)}
+        else:
+            db_session.add(
+                EntityRelation(
+                    novel_id=uuid.UUID(project_novel_id),
+                    source_id=end.id,
+                    target_id=start.id,
+                    relation_kind="spatial",
+                    relation_type="located_at",
+                    status="canonical",
+                )
+            )
+        await db_session.flush()
+        resumed = await resume_map_auto_drafts(
+            db_session,
+            project_novel_id,
+            str(first.batch_id),
+            MapAutoDraftResumeRequest(
+                expected_fingerprint=first.fingerprint, confirmed=True
+            ),
+        )
+        assert resumed.status == "stale"
+        assert resumed.cursor == 20
+        assert len(resumed.revisions) == 20
+        return
     resumed = await build_map_auto_drafts(db_session, project_novel_id, request)
     assert resumed.status == "completed"
     replay = await resume_map_auto_drafts(
@@ -459,6 +548,18 @@ async def test_batch_cursor_resumes_long_build_without_truncating_shards(
     ).all()
     assert len(revisions) == 21
     assert len({revision.task_id for revision in revisions}) == 21
+    first_page = await list_map_auto_drafts(db_session, project_novel_id, limit=10)
+    last_page = await list_map_auto_drafts(
+        db_session, project_novel_id, limit=10, offset=20
+    )
+    assert first_page.total_count == last_page.total_count == 21
+    assert first_page.truncated is True
+    assert last_page.truncated is False
+    assert len(last_page.items) == 1
+    assert not (
+        {item.revision_id for item in first_page.items}
+        & {item.revision_id for item in last_page.items}
+    )
 
 
 @pytest.mark.asyncio
@@ -536,6 +637,66 @@ async def test_tray_place_requires_preview_and_is_idempotent(
         )["placed_feature_id"]
         == placed.placed_feature_id
     )
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("kind", ["connection", "journey", "tray"])
+async def test_drafts_keep_effective_range_and_exact_citation(
+    db_session, project_novel_id, kind
+):
+    scene, _start, _end, clue_row = await _stage_bound_clue(
+        db_session,
+        project_novel_id,
+        effective=True,
+        kind="connection" if kind == "tray" else kind,
+        modality="character_statement" if kind == "tray" else "event_observed",
+    )
+    validity = SpatialValidity(start={"kind": "scene", "id": scene.id})
+    draft = await db_session.get(
+        WritingDraft, uuid.UUID(clue_row.source_binding["draft_id"])
+    )
+    result = await build_map_auto_drafts(
+        db_session, project_novel_id, _build_request(scene, clue_row)
+    )
+    ref = result.revisions[0]
+    if kind == "tray":
+        tray = result.tray_items[0]
+        ref = next(item for item in result.revisions if item.node_id == tray.node_id)
+        args = (
+            db_session,
+            project_novel_id,
+            str(result.batch_id),
+            str(tray.node_id),
+            str(ref.revision_id),
+            str(tray.item_id),
+        )
+        request = MapAutoDraftTrayPlacementPreviewRequest(
+            expected_fingerprint=tray.fingerprint,
+            point=MapPoint(x=110, y=120),
+        )
+        preview = await preview_map_auto_draft_tray_placement(*args, request)
+        placed = await place_map_auto_draft_tray_item(
+            *args,
+            MapAutoDraftTrayPlacementRequest(
+                **request.model_dump(),
+                preview_fingerprint=preview.preview_fingerprint,
+                confirmed=True,
+            ),
+        )
+        ref = placed
+    revision = await db_session.get(MapAtlasRevision, ref.revision_id)
+    features = [item for item in revision.document["features"] if item["entity_id"]]
+    assert features
+    for feature in features:
+        assert feature["effective"] == validity.model_dump(mode="json")
+        assert feature["modality"] == (
+            "character_statement" if kind == "tray" else "event_observed"
+        )
+        assert feature["sources"][0]["quote"] == QUOTE_ONE
+        assert feature["sources"][0]["source_hash"] == draft.content_hash
+    if kind != "tray":
+        relations = revision.document["journeys" if kind == "journey" else "constraints"]
+        assert relations[0]["effective"] == validity.model_dump(mode="json")
 
 
 @pytest.mark.asyncio
@@ -677,3 +838,184 @@ async def test_http_list_exposes_resume_progress_and_candidate_preview(
     assert batch["status"] == "completed"
     assert batch["cursor"] == batch["total_chunks"] == 1
     assert payload["items"][0]["revision_id"] == str(result.revisions[0].revision_id)
+
+
+@pytest.mark.asyncio
+async def test_working_candidate_place_never_becomes_restorable_saved_content(
+    db_session, project_novel_id
+):
+    scene, _start, _end, clue = await _stage_bound_clue(
+        db_session, project_novel_id, mode="working", entity_status="candidate"
+    )
+    result = await build_map_auto_drafts(
+        db_session, project_novel_id, _build_request(scene, clue)
+    )
+    ref = result.revisions[0]
+    adopted = await MapStructureService().review(
+        db_session,
+        project_novel_id,
+        str(ref.node_id),
+        str(ref.revision_id),
+        MapRevisionReview(action="adopt", base_revision_id=None),
+    )
+    assert adopted.document.features == []
+    original = await db_session.get(MapAtlasRevision, ref.revision_id)
+    assert original.status == "rejected"
+    saved_rows = (
+        await db_session.scalars(
+            select(MapAtlasRevision).where(
+                MapAtlasRevision.node_id == ref.node_id,
+                MapAtlasRevision.status == "saved",
+            )
+        )
+    ).all()
+    assert len(saved_rows) == 1
+    assert saved_rows[0].document["features"] == []
+
+
+@pytest.mark.asyncio
+async def test_incremental_adoption_preserves_author_label_point_and_lock(
+    db_session, project_novel_id
+):
+    scene, start, end, clue = await _stage_bound_clue(db_session, project_novel_id)
+    first = await build_map_auto_drafts(
+        db_session, project_novel_id, _build_request(scene, clue)
+    )
+    ref = first.revisions[0]
+    service = MapStructureService()
+    adopted = await service.review(
+        db_session,
+        project_novel_id,
+        str(ref.node_id),
+        str(ref.revision_id),
+        MapRevisionReview(action="adopt", base_revision_id=None),
+    )
+    document = adopted.document.model_copy(deep=True)
+    feature = next(item for item in document.features if item.entity_id == start.id)
+    feature.label = "作者命名的码头"
+    feature.points = [MapPoint(x=90, y=95)]
+    feature.locked = True
+    saved = await service.save(
+        db_session,
+        project_novel_id,
+        str(ref.node_id),
+        MapSaveRequest(base_revision_id=adopted.id, document=document),
+    )
+    scene2, clue2 = await _stage_related_clue(
+        db_session,
+        project_novel_id,
+        scene_index=2,
+        start=start,
+        end=end,
+    )
+    built = await build_map_auto_drafts(
+        db_session,
+        project_novel_id,
+        MapAutoDraftBuildRequest(
+            run_id=clue.run_id,
+            build_key="incremental-label",
+            through_scene_id=scene2.id,
+            through_scene_index=scene2.scene_index,
+            clue_ids=[clue.id, clue2.id],
+        ),
+    )
+    next_ref = built.revisions[0]
+    adopted2 = await service.review(
+        db_session,
+        project_novel_id,
+        str(next_ref.node_id),
+        str(next_ref.revision_id),
+        MapRevisionReview(action="adopt", base_revision_id=saved.id),
+    )
+    kept = next(item for item in adopted2.document.features if item.entity_id == start.id)
+    assert kept.label == feature.label
+    assert kept.points == feature.points
+    assert kept.locked is True
+
+
+@pytest.mark.asyncio
+async def test_long_build_key_can_redo_and_old_batches_remain_reachable(
+    db_session, project_novel_id
+):
+    scene, _start, _end, clue = await _stage_bound_clue(db_session, project_novel_id)
+    request = _build_request(scene, clue)
+    request.build_key = "x" * 120
+    first = await build_map_auto_drafts(db_session, project_novel_id, request)
+    rebuilt = await redo_map_auto_drafts(
+        db_session,
+        project_novel_id,
+        str(first.batch_id),
+        MapAutoDraftRedoRequest(
+            expected_fingerprint=first.fingerprint,
+            reason="author_requested",
+            confirmed=True,
+        ),
+    )
+    assert rebuilt.batch_id != first.batch_id
+    assert rebuilt.revisions[0].revision_id != first.revisions[0].revision_id
+    for index in range(201):
+        db_session.add(
+            MapAutoDraftBatchRecord(
+                novel_id=uuid.UUID(project_novel_id),
+                run_id=clue.run_id,
+                build_key=f"empty-batch-{index}",
+                through_scene_id=str(scene.id),
+                through_scene_index=scene.scene_index,
+                input_fingerprint="a" * 64,
+                method_fingerprint="b" * 64,
+                status="completed",
+                cursor=0,
+                plan_json={},
+                result_refs=[],
+                tray_items=[],
+                conflicts=[],
+            )
+        )
+    await db_session.flush()
+    listed = await list_map_auto_drafts(db_session, project_novel_id, limit=1)
+    second = await list_map_auto_drafts(db_session, project_novel_id, limit=1, offset=1)
+    assert listed.total_count == second.total_count == 2
+    assert listed.batches_truncated is True
+    assert listed.truncated is True
+    assert second.truncated is False
+    assert listed.items[0].batch_id == rebuilt.batch_id
+    assert second.items[0].batch_id == first.batch_id
+
+
+@pytest.mark.asyncio
+async def test_g8a_saved_map_with_only_journey_sources_is_a_consumer(
+    db_session, project_novel_id
+):
+    scene, _start, _end, clue = await _stage_bound_clue(
+        db_session, project_novel_id, kind="journey"
+    )
+    built = await build_map_auto_drafts(
+        db_session, project_novel_id, _build_request(scene, clue)
+    )
+    ref = built.revisions[0]
+    service = MapStructureService()
+    adopted = await service.review(
+        db_session,
+        project_novel_id,
+        str(ref.node_id),
+        str(ref.revision_id),
+        MapRevisionReview(action="adopt", base_revision_id=None),
+    )
+    document = adopted.document.model_copy(deep=True)
+    for feature in document.features:
+        feature.sources = []
+    assert document.journeys[0].sources
+    saved = await service.save(
+        db_session,
+        project_novel_id,
+        str(ref.node_id),
+        MapSaveRequest(base_revision_id=adopted.id, document=document),
+    )
+    report = await read_map_chapter_consumers(
+        db_session,
+        project_novel_id,
+        chapter_index=1,
+        current_draft_id=str(uuid.uuid4()),
+        current_source_hash="f" * 64,
+    )
+    assert [item["revision_id"] for item in report["maps"]] == [saved.id]

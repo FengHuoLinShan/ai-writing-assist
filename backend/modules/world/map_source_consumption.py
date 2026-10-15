@@ -64,7 +64,7 @@ async def read_map_chapter_consumers(
         except ValidationError:
             unverified += 1
             continue
-        for item in [*document.features, *document.constraints]:
+        for item in [*document.features, *document.constraints, *document.journeys]:
             for source in item.sources:
                 if source.kind != "source_range":
                     continue
