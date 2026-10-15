@@ -168,11 +168,29 @@ async def test_strong_generic_roundtrip_restores_profile_snapshot(db_session) ->
     assert generic is not None
     assert generic.profile_type == "宗教/神祇"
     assert generic.status == "canonical"
-    assert generic.data_json["climate"] == "寒冷"
+    assert generic.source == "manual"
+    assert generic.confidence == 0.8
+    assert generic.evidence_refs_json == [{"kind": "note"}]
+    assert generic.extra_json["author_note"] == "保留"
+    projection = await service.dossier.generic_profile_projection(
+        db_session, entity, generic
+    )
+    assert projection["data_json"]["climate"] == "寒冷"
     assert location.status == "migrated"
     assert "location" in generic.extra_json["_type_migration_v1"]["snapshots"]
 
-    generic.data_json = {"教义": "守望星海"}
+    compatibility = await WorldProfileService().get_profile(
+        db_session, str(novel_id), str(entity_id)
+    )
+    await WorldProfileService().upsert_profile(
+        db_session,
+        str(novel_id),
+        str(entity_id),
+        WorldProfileUpsertRequest(
+            data_json={"教义": "守望星海"},
+            expected_dossier_revision=compatibility.expected_dossier_revision,
+        ),
+    )
     await service.transition(db_session, entity=entity, new_type="location")
     entity.entity_type = "location"
     await db_session.flush()
@@ -180,9 +198,18 @@ async def test_strong_generic_roundtrip_restores_profile_snapshot(db_session) ->
     assert location.status == "canonical"
     assert location.climate == "寒冷"
     assert location.resources_json == ["星砂"]
-    assert location.extra_json == {"author_note": "保留"}
+    assert location.extra_json["author_note"] == "保留"
+    assert location.extra_json["unmapped_generic"]["教义"] == "守望星海"
+    assert location.source == "manual"
+    assert location.confidence == 0.8
+    assert location.evidence_refs_json == [{"kind": "note"}]
     assert generic.status == "migrated"
     assert "宗教/神祇" in generic.extra_json["_type_migration_v1"]["snapshots"]
+    journal = generic.extra_json["_type_migration_v1"]
+    assert journal["history"][-1]["from_type"] == "宗教/神祇"
+    assert journal["history"][-1]["to_type"] == "location"
+    assert journal["snapshots"]["location"]["data"]["climate"] == "寒冷"
+    assert journal["snapshots"]["宗教/神祇"]["data"] == {"教义": "守望星海"}
 
 
 @pytest.mark.asyncio
@@ -403,6 +430,110 @@ async def test_profile_mutations_request_entity_and_profile_row_locks(db_session
         ("generic", True),
         ("strong", True),
     ]
+
+
+@pytest.mark.asyncio
+async def test_generic_to_strong_migration_preserves_unknowns_and_history(
+    db_session,
+) -> None:
+    novel_id = uuid.uuid4()
+    entity_id = uuid.uuid4()
+    entity = CoreEntity(
+        id=entity_id,
+        novel_id=novel_id,
+        entity_type="species",
+        name="雾生族",
+        status="canonical",
+    )
+    profile = GenericEntityProfile(
+        novel_id=novel_id,
+        entity_id=entity_id,
+        profile_type="species",
+        status="canonical",
+        source="imported",
+        confidence=0.73,
+        evidence_refs_json=[{"kind": "source", "id": "book:chapter-2"}],
+        data_json={
+            "origin_summary": "从雾海迁徙而来",
+            "unmapped_field": {"detail": ["保留"]},
+        },
+        extra_json={
+            "author_note": "旧备注",
+            "unmapped_generic": {"older_unknown": "keep"},
+        },
+    )
+    db_session.add_all([Project(id=novel_id, title="A"), entity, profile])
+    await db_session.flush()
+
+    result = await WorldProfileService().migrate_generic_to_strong(
+        db_session, str(novel_id), str(entity_id)
+    )
+
+    migrated = await db_session.get(SpeciesProfile, entity_id)
+    assert migrated is not None
+    assert migrated.status == "canonical"
+    assert migrated.origin_summary == "从雾海迁徙而来"
+    assert migrated.source == "imported"
+    assert migrated.confidence == 0.73
+    assert migrated.evidence_refs_json == [{"kind": "source", "id": "book:chapter-2"}]
+    assert migrated.extra_json["author_note"] == "旧备注"
+    assert migrated.extra_json["unmapped_generic"] == {
+        "unmapped_field": {"detail": ["保留"]},
+        "older_unknown": "keep",
+    }
+    assert profile.status == "migrated"
+    assert profile.data_json == {}
+    history = profile.extra_json["_generic_to_strong_history_v1"]
+    assert len(history) == 1
+    assert history[0]["source"] == "imported"
+    assert history[0]["confidence"] == 0.73
+    assert history[0]["evidence_refs_json"] == [
+        {"kind": "source", "id": "book:chapter-2"}
+    ]
+    assert history[0]["extra_json"]["unmapped_generic"] == {"older_unknown": "keep"}
+    assert result.fields["origin_summary"] == "从雾海迁徙而来"
+
+
+@pytest.mark.asyncio
+async def test_generic_to_strong_migration_keeps_existing_strong_values_and_unknowns(
+    db_session,
+) -> None:
+    novel_id = uuid.uuid4()
+    entity_id = uuid.uuid4()
+    entity = CoreEntity(
+        id=entity_id,
+        novel_id=novel_id,
+        entity_type="species",
+        name="雾生族",
+        status="canonical",
+    )
+    generic = GenericEntityProfile(
+        novel_id=novel_id,
+        entity_id=entity_id,
+        profile_type="species",
+        status="canonical",
+        data_json={"origin_summary": "通用来源", "unknown": "留存"},
+    )
+    strong = SpeciesProfile(
+        novel_id=novel_id,
+        entity_id=entity_id,
+        status="canonical",
+        origin_summary="强档案当前值",
+        extra_json={"unmapped_generic": {"strong_unknown": "保留"}},
+    )
+    db_session.add_all([Project(id=novel_id, title="A"), entity, generic, strong])
+    await db_session.flush()
+
+    await WorldProfileService().migrate_generic_to_strong(
+        db_session, str(novel_id), str(entity_id)
+    )
+
+    assert strong.origin_summary == "强档案当前值"
+    assert strong.extra_json["unmapped_generic"] == {
+        "unknown": "留存",
+        "strong_unknown": "保留",
+    }
+    assert generic.status == "migrated"
 
 
 @pytest.mark.asyncio

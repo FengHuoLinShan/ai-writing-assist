@@ -19,7 +19,10 @@ _ACTION_CAPABILITIES = {
     "writing.conflict_check.ai_review": "writing.conflict_check.ai_review",
     "story.character_card.generate": "story.character_card",
     "story.reaction.generate": "story.reaction",
+    "story.script.generate": "story.script",
     "story.one_click.simulate": "story.one_click",
+    "world.ask": "world.ask",
+    "assistant.turn": "assistant.turn",
 }
 
 

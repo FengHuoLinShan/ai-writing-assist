@@ -572,6 +572,158 @@ async def test_draft_entity_and_profile_are_excluded(facade_reads):
     assert any("尚未采用" in item for item in profile["omissions"])
 
 
+async def test_bridged_generic_revision_still_requires_story_cutoff_proof(facade_reads):
+    generic_entry_id = str(uuid4())
+
+    def generic_revision(value: str) -> dict:
+        dossier = _world_dossier()
+        dossier["entries"].append(
+            {
+                "id": generic_entry_id,
+                "entry_group_id": str(uuid4()),
+                "revision_number": 1,
+                "facing": {"kind": "core", "key": "geography"},
+                "facing_label": "地理",
+                "legacy_field_key": "generic_profile:" + "a" * 64,
+                "content": value,
+                "legacy_value": value,
+                "evidence": [],
+                "source_metadata": {
+                    "generic_profile_field_key": "origin_place",
+                    "generic_profile_mapped": True,
+                    "generic_profile_metadata": {
+                        "profile_status": "canonical",
+                        "source": "legacy_import",
+                    },
+                },
+                "source": "legacy_import",
+                "visibility": "secret",
+                "status": "active",
+                "effective_at_cutoff": True,
+            }
+        )
+        dossier["total_count"] = len(dossier["entries"])
+        return dossier
+
+    facade_reads["dossier"] = lambda: generic_revision("只有旧档案记载的城门习惯")
+    unproved = await ObjectDossierBriefService().load(
+        None,
+        _options(reveal_mode="author_full"),
+        entity_ids=[ENTITY_ID],
+        include_patterns=False,
+    )
+    assert all(
+        item.get("content") != "只有旧档案记载的城门习惯"
+        for item in unproved["world_items"]
+    )
+    assert any("时点事实证明" in item for item in unproved["omissions"])
+    assert any(
+        item.get("content") == "北门地下有密道" for item in unproved["world_items"]
+    )  # explicit author Dossier entries keep their own current revision semantics
+
+    modern = generic_revision("作者现时明确修订的档案")
+    modern["entries"][-1]["source"] = "author"
+    facade_reads["dossier"] = lambda: modern
+    explicit_author_revision = await ObjectDossierBriefService().load(
+        None,
+        _options(reveal_mode="author_full"),
+        entity_ids=[ENTITY_ID],
+        include_patterns=False,
+    )
+    assert any(
+        item.get("entry_id") == generic_entry_id
+        and item.get("content") == "作者现时明确修订的档案"
+        for item in explicit_author_revision["world_items"]
+    )
+
+    withdrawn_author_revision = generic_revision("已撤回采用的当前档案")
+    withdrawn_author_revision["entries"][-1]["source"] = "author"
+    withdrawn_author_revision["entries"][-1]["source_metadata"][
+        "generic_profile_metadata"
+    ]["profile_status"] = "draft"
+    facade_reads["dossier"] = lambda: withdrawn_author_revision
+    withdrawn = await ObjectDossierBriefService().load(
+        None,
+        _options(reveal_mode="author_full"),
+        entity_ids=[ENTITY_ID],
+        include_patterns=False,
+    )
+    assert all(
+        item.get("entry_id") != generic_entry_id for item in withdrawn["world_items"]
+    )
+
+    for reveal_mode in ("author_safe", "character"):
+        facade_reads["dossier"] = lambda: generic_revision("北门关闭")
+        safe_result = await ObjectDossierBriefService().load(
+            None,
+            _options(reveal_mode=reveal_mode),
+            entity_ids=[ENTITY_ID],
+            include_patterns=False,
+        )
+        assert all(
+            item.get("entry_id") != generic_entry_id
+            for item in safe_result["world_items"]
+        )
+
+    facade_reads["dossier"] = lambda: generic_revision("北门关闭")
+    proved = await ObjectDossierBriefService().load(
+        None,
+        _options(reveal_mode="author_full"),
+        entity_ids=[ENTITY_ID],
+        include_patterns=False,
+    )
+    assert any(
+        item.get("content") == "北门关闭"
+        and item.get("entry_id") == generic_entry_id
+        and item.get("kind") == "world_dossier"
+        for item in proved["world_items"]
+    )
+
+    def earlier_fact_story(*, character=False, reader=False):
+        view = _story_view(character=character, reader=reader)
+        view["dimensions"][0]["facts"][0]["occurred_at"] = {"scene_index": 1}
+        return view
+
+    facade_reads["story"] = earlier_fact_story
+    earlier = await ObjectDossierBriefService().load(
+        None,
+        _options(reveal_mode="author_full"),
+        entity_ids=[ENTITY_ID],
+        include_patterns=False,
+    )
+    assert any(
+        item.get("entry_id") == generic_entry_id for item in earlier["world_items"]
+    )
+
+    for change in (
+        lambda view: view["dimensions"][0]["facts"][0].update(
+            occurred_at={"scene_index": 3}
+        ),
+        lambda view: view["dimensions"][0]["facts"][0].update(confidence="unverified"),
+        lambda view: view["dimensions"][0]["facts"][0].update(value="城门已打开"),
+        lambda view: view["dimensions"][0]["facts"][0]["source"]["provenance"].update(
+            status="unverified", source_refs=[]
+        ),
+    ):
+        facade_reads["dossier"] = lambda: generic_revision("北门关闭")
+
+        def modified_story(*, character=False, reader=False):
+            view = _story_view(character=character, reader=reader)
+            change(view)
+            return view
+
+        facade_reads["story"] = modified_story
+        invalid = await ObjectDossierBriefService().load(
+            None,
+            _options(reveal_mode="author_full"),
+            entity_ids=[ENTITY_ID],
+            include_patterns=False,
+        )
+        assert all(
+            item.get("entry_id") != generic_entry_id for item in invalid["world_items"]
+        )
+
+
 async def test_evolution_provider_failure_is_not_hidden_as_missing_di(facade_reads):
     async def broken_provider(*_args, **_kwargs):
         raise RuntimeError("source store unavailable")

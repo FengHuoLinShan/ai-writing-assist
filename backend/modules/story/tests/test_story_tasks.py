@@ -19,7 +19,7 @@ from modules.story.generation import (
 from modules.story.schemas import (
     CardPreview,
     CharacterCardContent,
-    ReactionPreview,
+    ReactionPreviewV2,
     ScriptPreview,
     StoryCardTaskRequest,
     StoryOneClickTaskRequest,
@@ -291,7 +291,43 @@ class _StoryGeneration:
         )
 
     async def reaction_preview(self, _client, *, scene_context, character_ids, **_kwargs):
-        return ReactionPreview(scene_id=scene_context["scene_id"], proposals=[])
+        character_id = character_ids[0]
+        option = {
+            "option_id": "protect_first",
+            "motivation": "先保护同伴",
+            "source_fact_ids": ["story:goal"],
+            "action": "把同伴拉到门后",
+            "facial_expression": "眉心收紧",
+            "body_language": "侧身挡住门口",
+            "voice_and_dialogue": "压低声音说：先退后",
+            "inner_response": "担心门后还有人",
+            "attention": "盯着门闩的松动处",
+            "change": "由观察转为保护同伴",
+        }
+        return ReactionPreviewV2(
+            scene_id=scene_context["scene_id"],
+            proposals=[
+                {
+                    "character_id": character_id,
+                    "internal_pressure": "来不及确认两侧",
+                    "performances": [
+                        option,
+                        {
+                            **option,
+                            "option_id": "control_risk",
+                            "motivation": "抢先控制风险",
+                            "action": "先压住门闩",
+                            "facial_expression": "目光紧盯锁舌",
+                            "body_language": "一手按门一手护住工具",
+                            "voice_and_dialogue": "短促地说：我来压门",
+                            "inner_response": "害怕门被推开",
+                            "attention": "留意门外脚步",
+                            "change": "由观察转为抢险",
+                        },
+                    ],
+                }
+            ],
+        )
 
     async def script_preview(self, _client, *, scene_context, **_kwargs):
         return ScriptPreview(
@@ -339,7 +375,12 @@ async def test_all_story_handlers_start_from_v1_envelope(monkeypatch) -> None:
 
     async def _reveals(*_args, **kwargs):
         return {
-            str(character_id): {"markdown": "character-safe", "hash": "r" * 64}
+            str(character_id): {
+                "markdown": "character-safe",
+                "hash": "r" * 64,
+                "deterministic_facts": [{"fact_id": "story:goal", "value": "先保护同伴"}],
+                "reference_patterns": [],
+            }
             for character_id in kwargs["character_ids"]
         }
 

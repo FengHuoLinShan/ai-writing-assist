@@ -82,6 +82,97 @@ def _legacy_value_visible(
     )
 
 
+def _bridged_generic_value_visible(
+    *,
+    entity_id: str,
+    value: Any,
+    facts: list[dict[str, Any]],
+    scene_index: int,
+    current_checkpoint_ids: set[str],
+) -> bool:
+    target_hash = _hashable(value)
+    return any(
+        str(fact.get("subject_id") or "") == entity_id
+        and fact.get("layer") == "fact"
+        and fact.get("confidence") == "confirmed"
+        and fact.get("possibly_false") is not True
+        and _has_current_scene_source_proof(
+            fact,
+            scene_index=scene_index,
+            current_checkpoint_ids=current_checkpoint_ids,
+        )
+        and _hashable(fact.get("value")) == target_hash
+        for fact in facts
+    )
+
+
+def _has_current_scene_source_proof(
+    fact: dict[str, Any],
+    *,
+    scene_index: int,
+    current_checkpoint_ids: set[str],
+) -> bool:
+    occurred_at = fact.get("occurred_at")
+    occurred_index = (
+        occurred_at.get("scene_index") if isinstance(occurred_at, dict) else None
+    )
+    if (
+        isinstance(occurred_index, bool)
+        or not isinstance(occurred_index, int)
+        or occurred_index < 0
+        or occurred_index > scene_index
+    ):
+        return False
+    source = fact.get("source")
+    if (
+        not isinstance(source, dict)
+        or str(source.get("checkpoint_id") or "") not in current_checkpoint_ids
+    ):
+        return False
+    provenance = source.get("provenance")
+    if (
+        not isinstance(provenance, dict)
+        or provenance.get("status") != "exact"
+        or not provenance.get("event_id")
+        or str(provenance.get("field") or "") != str(fact.get("field") or "")
+    ):
+        return False
+    refs = provenance.get("source_refs")
+    if not isinstance(refs, list) or not refs:
+        return False
+    for ref in refs:
+        if not isinstance(ref, dict):
+            continue
+        start, end = ref.get("start_offset"), ref.get("end_offset")
+        chapter_index = ref.get("chapter_index")
+        version_number = ref.get("version_number")
+        hashes = (ref.get("source_hash"), ref.get("range_hash"))
+        if (
+            ref.get("draft_id")
+            and ref.get("content_mode") in {"canonical", "working"}
+            and isinstance(chapter_index, int)
+            and not isinstance(chapter_index, bool)
+            and chapter_index > 0
+            and isinstance(version_number, int)
+            and not isinstance(version_number, bool)
+            and version_number > 0
+            and isinstance(start, int)
+            and not isinstance(start, bool)
+            and start >= 0
+            and isinstance(end, int)
+            and not isinstance(end, bool)
+            and end > start
+            and all(
+                isinstance(value, str)
+                and len(value) == 64
+                and all(char in "0123456789abcdef" for char in value.lower())
+                for value in hashes
+            )
+        ):
+            return True
+    return False
+
+
 def _dossier_entry_visible(
     *,
     entity_id: str,
@@ -263,6 +354,9 @@ class ObjectDossierBriefService:
                 checkpoint_omissions.append("Story checkpoint 引用暂时无法读取")
 
         facts = _visible_facts(state_view)
+        current_checkpoint_ids = {
+            str(item.get("checkpoint_id") or "") for item in checkpoint_refs
+        }
         # Reader/character omissions may count hidden facts. Do not let their
         # existence change a safe brief's metadata or fingerprint.
         omissions = (
@@ -376,6 +470,50 @@ class ObjectDossierBriefService:
             for raw in dossier.get("entries") or []:
                 if not isinstance(raw, dict):
                     continue
+                generic_metadata = (raw.get("source_metadata") or {}).get(
+                    "generic_profile_metadata"
+                )
+                generic_bridge = isinstance(generic_metadata, dict) and isinstance(
+                    (raw.get("source_metadata") or {}).get("generic_profile_field_key"),
+                    str,
+                )
+                if generic_bridge:
+                    if generic_metadata.get("profile_status") != "canonical":
+                        if not safe_view:
+                            omitted_count += 1
+                            omissions.append("旧档案资料尚未采用")
+                        continue
+                generic_legacy = generic_bridge and raw.get("source") == "legacy_import"
+                if generic_legacy:
+                    if not (raw.get("source_metadata") or {}).get(
+                        "generic_profile_mapped"
+                    ):
+                        if not safe_view:
+                            unmapped_legacy_count += 1
+                        continue
+                    # Bridging an old JSON value into a dossier revision does not
+                    # invent a historical Scene interval. Keep the earlier
+                    # fail-closed rule until Story proves this value at cutoff.
+                    if not (
+                        _bridged_generic_value_visible(
+                            entity_id=entity_id,
+                            value=raw.get("legacy_value"),
+                            facts=facts,
+                            scene_index=scene_index,
+                            current_checkpoint_ids=current_checkpoint_ids,
+                        )
+                        or _bridged_generic_value_visible(
+                            entity_id=entity_id,
+                            value=raw.get("content"),
+                            facts=facts,
+                            scene_index=scene_index,
+                            current_checkpoint_ids=current_checkpoint_ids,
+                        )
+                    ):
+                        if not safe_view:
+                            omitted_count += 1
+                            omissions.append("旧档案字段缺少目标 Scene 的时点事实证明")
+                        continue
                 if raw.get("effective_at_cutoff") is not True or raw.get(
                     "anchor_problem"
                 ):

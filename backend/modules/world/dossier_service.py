@@ -152,6 +152,8 @@ DOSSIER_SOURCES = frozenset(
         "object_completion",
     }
 )
+GENERIC_PROFILE_FIELD_PREFIX = "generic_profile:"
+GENERIC_UNKNOWN_FACING_KEY = "legacy_unmapped"
 
 
 def _canonical_json(value: Any) -> str:
@@ -218,6 +220,7 @@ def _entry_response(
     row: WorldObjectDossierEntry,
     *,
     facing_label: str,
+    source_metadata: dict[str, Any] | None = None,
     anchor_problem: str | None = None,
     effective_at_cutoff: bool | None = None,
 ) -> DossierEntryResponse:
@@ -242,7 +245,9 @@ def _entry_response(
         tags=row.tags_json or [],
         evidence=evidence,
         legacy_value=row.legacy_value_json,
-        source_metadata=row.metadata_json or {},
+        source_metadata=(
+            row.metadata_json or {} if source_metadata is None else source_metadata
+        ),
         quote_text=row.quote_text,
         source=row.source,
         visibility=row.visibility,
@@ -465,15 +470,48 @@ class WorldObjectDossierService:
             raise ValidationError("内容证明筛选只能用于公开档案读取")
         entity = await self._entity(db, novel_id, entity_id)
         nid = parse_uuid(novel_id, "novel_id")
-        entries = await self.repo.list_active_for_entity(
+        active_entries = await self.repo.list_active_for_entity(
             db, nid, entity.id, visibility_filter=visibility_filter
         )
+        has_generic_bridge = any(
+            isinstance((row.metadata_json or {}).get("generic_profile_field_key"), str)
+            for row in active_entries
+        )
+        generic_profile = (
+            await db.scalar(
+                select(GenericEntityProfile).where(
+                    GenericEntityProfile.novel_id == entity.novel_id,
+                    GenericEntityProfile.entity_id == entity.id,
+                    GenericEntityProfile.profile_type == entity.entity_type,
+                )
+            )
+            if has_generic_bridge
+            else None
+        )
+        generic_profile_metadata = (
+            {
+                "profile_type": generic_profile.profile_type,
+                "profile_status": generic_profile.status,
+                "source": generic_profile.source,
+                "confidence": generic_profile.confidence,
+                "evidence_refs_json": generic_profile.evidence_refs_json or [],
+            }
+            if generic_profile is not None
+            else None
+        )
+        generic_unknown = [
+            row
+            for row in active_entries
+            if row.facing_key == GENERIC_UNKNOWN_FACING_KEY
+            and (row.legacy_field_key or "").startswith(GENERIC_PROFILE_FIELD_PREFIX)
+        ]
+        entries = [row for row in active_entries if row not in generic_unknown]
         if visible_contents is not None:
             allowed = set(visible_contents)
             entries = [row for row in entries if row.content in allowed]
         labels = await self._labels(db, nid, entries)
         legacy_profile_fields = (
-            await self._legacy_profile_fields(db, entity)
+            await self._legacy_profile_fields(db, entity, generic_unknown)
             if visibility_filter is None
             else []
         )
@@ -517,6 +555,18 @@ class WorldObjectDossierService:
                         CORE_FACING_LABELS.get(row.facing_key, row.facing_key)
                         if row.facing_kind == "core"
                         else labels.get(row.vocabulary_term_id, "未知面向")
+                    ),
+                    source_metadata=(
+                        {
+                            **(row.metadata_json or {}),
+                            "generic_profile_metadata": generic_profile_metadata,
+                        }
+                        if generic_profile_metadata is not None
+                        and isinstance(
+                            (row.metadata_json or {}).get("generic_profile_field_key"),
+                            str,
+                        )
+                        else None
                     ),
                     anchor_problem=anchor_problem,
                     effective_at_cutoff=effective,
@@ -569,7 +619,10 @@ class WorldObjectDossierService:
         )
 
     async def _legacy_profile_fields(
-        self, db: AsyncSession, entity: CoreEntity
+        self,
+        db: AsyncSession,
+        entity: CoreEntity,
+        generic_unknown: list[WorldObjectDossierEntry] | None = None,
     ) -> list[DossierLegacyProfileField]:
         """Project generic legacy data only through an explicitly linked template.
 
@@ -584,8 +637,10 @@ class WorldObjectDossierService:
                 GenericEntityProfile.status != "migrated",
             )
         )
-        if profile is None or not isinstance(profile.data_json, dict):
+        if profile is None:
             return []
+        generic_rows = await self._generic_profile_rows(db, entity)
+        shadowed_keys = {key for key, _row in generic_rows.items()}
         template = None
         if profile.template_id is not None:
             template = await db.scalar(
@@ -662,9 +717,18 @@ class WorldObjectDossierService:
             ),
         }
         projected: list[DossierLegacyProfileField] = []
-        for key, value in sorted(
-            profile.data_json.items(), key=lambda item: str(item[0])
-        ):
+        legacy_values = {
+            **(profile.data_json if isinstance(profile.data_json, dict) else {}),
+            **(
+                profile.extra_json.get("unmapped_generic", {})
+                if isinstance(profile.extra_json, dict)
+                and isinstance(profile.extra_json.get("unmapped_generic"), dict)
+                else {}
+            ),
+        }
+        for key, value in sorted(legacy_values.items(), key=lambda item: str(item[0])):
+            if str(key) in shadowed_keys:
+                continue
             field_definitions = definitions.get(str(key), [])
             raw = field_definitions[0] if len(field_definitions) == 1 else {}
             facing = None
@@ -703,7 +767,355 @@ class WorldObjectDossierService:
                     source_metadata=metadata,
                 )
             )
+        for row in generic_unknown or []:
+            field_key = (row.metadata_json or {}).get("generic_profile_field_key")
+            if not isinstance(field_key, str) or not field_key:
+                continue
+            projected.append(
+                DossierLegacyProfileField(
+                    profile_id=profile.id,
+                    profile_type=profile.profile_type,
+                    profile_status=profile.status,
+                    template_id=profile.template_id,
+                    template_version_number=(
+                        template.version_number if template is not None else None
+                    ),
+                    field_key=field_key,
+                    label="未映射的旧档案字段",
+                    value=(
+                        row.legacy_value_json
+                        if row.legacy_value_json is not None
+                        else row.content
+                    ),
+                    mapped=False,
+                    source_metadata={
+                        **metadata,
+                        "entry_id": str(row.id),
+                        "revision_id": str(row.id),
+                    },
+                )
+            )
         return projected
+
+    async def _generic_profile_rows(
+        self,
+        db: AsyncSession,
+        entity: CoreEntity,
+        *,
+        lock: bool = False,
+    ) -> dict[str, WorldObjectDossierEntry]:
+        statement = select(WorldObjectDossierEntry).where(
+            WorldObjectDossierEntry.novel_id == entity.novel_id,
+            WorldObjectDossierEntry.entity_id == entity.id,
+            WorldObjectDossierEntry.legacy_field_key.like(
+                f"{GENERIC_PROFILE_FIELD_PREFIX}%"
+            ),
+        )
+        if lock:
+            statement = statement.with_for_update()
+        rows = list((await db.scalars(statement)).all())
+        latest: dict[str, WorldObjectDossierEntry] = {}
+        for row in rows:
+            key = (row.metadata_json or {}).get("generic_profile_field_key")
+            if not isinstance(key, str) or not key:
+                continue
+            current = latest.get(key)
+            if current is None or (
+                row.revision_number,
+                row.created_at,
+                str(row.id),
+            ) > (
+                current.revision_number,
+                current.created_at,
+                str(current.id),
+            ):
+                latest[key] = row
+        return latest
+
+    async def generic_profile_projection(
+        self,
+        db: AsyncSession,
+        entity: CoreEntity,
+        profile: GenericEntityProfile | None,
+        *,
+        visibility_filter: str | None = None,
+        lock: bool = False,
+    ) -> dict[str, Any]:
+        """Return current legacy-shaped values from dossier revisions and unknown JSON."""
+        if profile is None:
+            return {"data_json": {}, "expected_revision": None, "fields": []}
+        current: dict[str, Any] = {}
+        if isinstance(profile.data_json, dict):
+            current.update(profile.data_json)
+        extra_unknown = (profile.extra_json or {}).get("unmapped_generic")
+        if isinstance(extra_unknown, dict):
+            current.update(extra_unknown)
+        latest = await self._generic_profile_rows(db, entity, lock=lock)
+        for key, row in latest.items():
+            if row.status == "active":
+                current[key] = (
+                    row.legacy_value_json
+                    if row.legacy_value_json is not None
+                    else row.content
+                )
+            else:
+                current.pop(key, None)
+
+        fields: list[DossierLegacyProfileField] = []
+        for key, row in sorted(latest.items()):
+            if row.status != "active" or (
+                visibility_filter is not None and row.visibility != visibility_filter
+            ):
+                continue
+            value = (
+                row.legacy_value_json
+                if row.legacy_value_json is not None
+                else row.content
+            )
+            mapped = row.facing_key != GENERIC_UNKNOWN_FACING_KEY
+            fields.append(
+                DossierLegacyProfileField(
+                    profile_id=profile.id,
+                    profile_type=profile.profile_type,
+                    profile_status=profile.status,
+                    template_id=profile.template_id,
+                    field_key=key,
+                    label=(
+                        CORE_FACING_LABELS.get(row.facing_key, row.facing_key)
+                        if row.facing_kind == "core"
+                        else "项目档案面向"
+                    ),
+                    facing=(
+                        DossierFacingRef(kind="core", key=row.facing_key)
+                        if row.facing_kind == "core"
+                        and row.facing_key != GENERIC_UNKNOWN_FACING_KEY
+                        else DossierFacingRef(
+                            kind="project", term_id=row.vocabulary_term_id
+                        )
+                        if row.facing_kind == "project" and row.vocabulary_term_id
+                        else None
+                    ),
+                    value=value,
+                    mapped=mapped,
+                    source_metadata={
+                        "profile_source": profile.source,
+                        "profile_confidence": profile.confidence,
+                        "profile_evidence_refs": profile.evidence_refs_json or [],
+                        "entry_id": str(row.id),
+                        "revision_id": str(row.id),
+                    },
+                )
+            )
+        revision_payload = {
+            "profile_type": profile.profile_type,
+            "status": profile.status,
+            "source": profile.source,
+            "confidence": profile.confidence,
+            "evidence_refs_json": profile.evidence_refs_json or [],
+            "extra_json": profile.extra_json or {},
+            "template_id": str(profile.template_id) if profile.template_id else None,
+            "data_json": current,
+            "dossier_revisions": sorted(
+                (
+                    str(row.id),
+                    row.status,
+                    row.revision_number,
+                    row.facing_kind,
+                    row.facing_key,
+                )
+                for row in latest.values()
+            ),
+        }
+        revision = hashlib.sha256(_canonical_json(revision_payload).encode()).hexdigest()
+        if visibility_filter is not None:
+            current = {item.field_key: item.value for item in fields}
+        return {
+            "data_json": current,
+            "expected_revision": revision,
+            "fields": fields,
+            "has_dossier_revisions": bool(latest),
+            "has_current_dossier_state": any(
+                row.status in {"active", "cleared"} for row in latest.values()
+            ),
+            "cleared_fields": sorted(
+                key for key, row in latest.items() if row.status == "cleared"
+            ),
+        }
+
+    async def _generic_template_facing(
+        self,
+        db: AsyncSession,
+        entity: CoreEntity,
+        profile: GenericEntityProfile,
+        field_key: str,
+    ) -> tuple[str, str, uuid.UUID | None, str] | None:
+        if profile.template_id is None:
+            return None
+        template = await db.scalar(
+            select(EntityProfileTemplate).where(
+                EntityProfileTemplate.novel_id == entity.novel_id,
+                EntityProfileTemplate.id == profile.template_id,
+                EntityProfileTemplate.profile_type == entity.entity_type,
+                EntityProfileTemplate.status == "active",
+            )
+        )
+        raw_fields = (
+            (template.template_schema_json or {}).get("fields", [])
+            if template is not None
+            else []
+        )
+        matches = [
+            raw
+            for raw in raw_fields
+            if isinstance(raw, dict) and raw.get("key") == field_key
+        ]
+        if len(matches) != 1:
+            return None
+        raw = matches[0]
+        try:
+            facing = DossierFacingRef.model_validate(raw.get("facing"))
+            facing_key, label = await self._validate_facing(
+                db, entity.novel_id, entity.entity_type, facing
+            )
+        except (PydanticValidationError, ValidationError, TypeError, ValueError):
+            return None
+        return facing.kind, facing_key, facing.term_id, label
+
+    async def replace_generic_profile_data(
+        self,
+        db: AsyncSession,
+        entity: CoreEntity,
+        profile: GenericEntityProfile,
+        data_json: dict[str, Any] | None,
+        *,
+        expected_revision: str | None = None,
+    ) -> str:
+        """Write a legacy JSON replacement as per-field dossier revisions."""
+        await require_active_project(db, str(entity.novel_id), allow_demo_readonly=False)
+        before = await self.generic_profile_projection(db, entity, profile, lock=True)
+        if (
+            expected_revision is not None
+            and expected_revision != before["expected_revision"]
+        ):
+            raise ConflictError(
+                "通用档案已变化，请刷新后重试",
+                code="world_profile_revision_stale",
+            )
+        desired = (
+            {}
+            if data_json is None
+            else {str(key): value for key, value in data_json.items()}
+        )
+        if any(not key for key in desired):
+            raise ValidationError("通用档案字段名不能为空")
+        latest = await self._generic_profile_rows(db, entity, lock=True)
+        current = dict(before["data_json"])
+        for key in sorted(set(current) | set(desired)):
+            wanted = desired.get(key)
+            wants_value = key in desired and wanted is not None
+            has_value = key in current
+            previous = latest.get(key)
+            if (
+                has_value
+                and wants_value
+                and _canonical_json(current[key]) == _canonical_json(wanted)
+            ):
+                if previous is not None:
+                    continue
+                await self._append_generic_profile_revision(
+                    db, entity, profile, key, current[key], previous=None
+                )
+                continue
+            if previous is None and has_value:
+                previous = await self._append_generic_profile_revision(
+                    db, entity, profile, key, current[key], previous=None
+                )
+            if wants_value:
+                await self._append_generic_profile_revision(
+                    db, entity, profile, key, wanted, previous=previous
+                )
+            elif previous is not None and previous.status == "active":
+                await self._append_generic_profile_revision(
+                    db, entity, profile, key, None, previous=previous, cleared=True
+                )
+        profile.data_json = {}
+        profile.extra_json = dict(profile.extra_json or {})
+        profile.extra_json.pop("unmapped_generic", None)
+        await db.flush()
+        after = await self.generic_profile_projection(db, entity, profile, lock=True)
+        return str(after["expected_revision"])
+
+    async def _append_generic_profile_revision(
+        self,
+        db: AsyncSession,
+        entity: CoreEntity,
+        profile: GenericEntityProfile,
+        field_key: str,
+        value: Any,
+        *,
+        previous: WorldObjectDossierEntry | None,
+        cleared: bool = False,
+    ) -> WorldObjectDossierEntry:
+        mapping = await self._generic_template_facing(db, entity, profile, field_key)
+        if previous is not None:
+            facing_kind = previous.facing_kind
+            facing_key = previous.facing_key
+            vocabulary_term_id = previous.vocabulary_term_id
+            entry_group_id = previous.entry_group_id
+            revision_number = previous.revision_number + 1
+            visibility = previous.visibility
+            previous.status = "superseded"
+        elif mapping is None:
+            facing_kind = "core"
+            facing_key = GENERIC_UNKNOWN_FACING_KEY
+            vocabulary_term_id = None
+            entry_group_id = uuid.uuid4()
+            revision_number = 1
+            visibility = "secret"
+        else:
+            facing_kind, facing_key, vocabulary_term_id, _label = mapping
+            entry_group_id = uuid.uuid4()
+            revision_number = 1
+            visibility = "secret"
+        profile_metadata = {
+            "profile_type": profile.profile_type,
+            "profile_status": profile.status,
+            "source": profile.source,
+            "confidence": profile.confidence,
+            "evidence_refs_json": profile.evidence_refs_json or [],
+        }
+        row = await self._make_revision(
+            db,
+            previous,
+            novel_id=entity.novel_id,
+            entity_id=entity.id,
+            entry_group_id=entry_group_id,
+            revision_number=revision_number,
+            facing_kind=facing_kind,
+            facing_key=facing_key,
+            vocabulary_term_id=vocabulary_term_id,
+            legacy_field_key=(
+                f"{GENERIC_PROFILE_FIELD_PREFIX}{hashlib.sha256(field_key.encode()).hexdigest()}"
+            ),
+            content=_display_value(value) if value is not None else "",
+            tags=[],
+            evidence=[],
+            quote_text=None,
+            visibility=visibility,
+            validity=None,
+            source="legacy_import",
+            reason="legacy_profile_writeback",
+            status="cleared" if cleared else "active",
+            legacy_value_json=value,
+            metadata_json={
+                **(previous.metadata_json or {} if previous else {}),
+                "generic_profile_field_key": field_key,
+                "generic_profile_metadata": profile_metadata,
+                "generic_profile_mapped": mapping is not None
+                or bool(previous and previous.facing_key != GENERIC_UNKNOWN_FACING_KEY),
+            },
+        )
+        return row
 
     async def history(
         self,

@@ -2,12 +2,15 @@
 
 from __future__ import annotations
 
+from copy import deepcopy
+from datetime import UTC, datetime
 from typing import Any
 
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from core.errors import NotFoundError, ValidationError
+from core.errors import ConflictError, NotFoundError, ValidationError
+from modules.world.dossier_service import WorldObjectDossierService
 from modules.world.models import (
     CoreEntity,
     EntityProfileTemplate,
@@ -22,6 +25,8 @@ from shared.utils import parse_uuid
 
 
 class WorldProfileService:
+    dossier = WorldObjectDossierService()
+
     async def list_profiles(
         self,
         db: AsyncSession,
@@ -80,7 +85,10 @@ class WorldProfileService:
             source_type="profile",
             source_id=entity_id,
         )
-        return self._profile_response(entity, profile)
+        if entity.entity_type in PROFILE_REGISTRY:
+            return self._profile_response(entity, profile)
+        projection = await self.dossier.generic_profile_projection(db, entity, profile)
+        return self._profile_response(entity, profile, projection=projection)
 
     async def migrate_generic_to_strong(
         self,
@@ -94,23 +102,86 @@ class WorldProfileService:
         generic = await self._get_generic(db, entity, lock=True)
         if generic is None:
             raise NotFoundError("Generic profile not found")
+        projection = await self.dossier.generic_profile_projection(
+            db, entity, generic, lock=True
+        )
+        migration_snapshot = {
+            "kind": "generic_to_strong",
+            "recorded_at": datetime.now(UTC).isoformat(),
+            "profile_type": generic.profile_type,
+            "status": generic.status,
+            "source": generic.source,
+            "confidence": generic.confidence,
+            "evidence_refs_json": deepcopy(generic.evidence_refs_json or []),
+            "extra_json": deepcopy(generic.extra_json or {}),
+            "template_id": str(generic.template_id) if generic.template_id else None,
+            "dossier_revision": projection["expected_revision"],
+        }
+        migration_snapshot["extra_json"].pop("_generic_to_strong_history_v1", None)
+        await self.dossier.replace_generic_profile_data(
+            db,
+            entity,
+            generic,
+            projection["data_json"],
+            expected_revision=projection["expected_revision"],
+        )
+        projection = await self.dossier.generic_profile_projection(
+            db, entity, generic, lock=True
+        )
         binding = PROFILE_REGISTRY[entity.entity_type]
         profile = await self._get_strong(db, entity, binding, lock=True)
         if profile is None:
+            mapped = {
+                key: value
+                for key, value in projection["data_json"].items()
+                if key in binding.fields
+            }
+            unmapped = {
+                key: value
+                for key, value in projection["data_json"].items()
+                if key not in binding.fields
+            }
             profile = binding.model(
                 novel_id=entity.novel_id,
                 entity_id=entity.id,
-                status="draft",
+                status=("draft" if generic.status == "migrated" else generic.status),
                 source=generic.source,
                 confidence=generic.confidence,
                 evidence_refs_json=generic.evidence_refs_json or [],
                 extra_json={
                     **(generic.extra_json or {}),
-                    "unmapped_generic": generic.data_json or {},
+                    "unmapped_generic": unmapped,
                 },
+                **mapped,
             )
             db.add(profile)
+        else:
+            for key, value in projection["data_json"].items():
+                if key in binding.fields and getattr(profile, key, None) in (
+                    None,
+                    [],
+                    {},
+                    "",
+                ):
+                    setattr(profile, key, value)
+            unmapped = {
+                key: value
+                for key, value in projection["data_json"].items()
+                if key not in binding.fields
+            }
+            if unmapped:
+                profile_extra = deepcopy(profile.extra_json or {})
+                profile_extra["unmapped_generic"] = {
+                    **unmapped,
+                    **deepcopy(profile_extra.get("unmapped_generic") or {}),
+                }
+                profile.extra_json = profile_extra
+        generic.extra_json = dict(generic.extra_json or {})
+        history = list(generic.extra_json.get("_generic_to_strong_history_v1") or [])
+        history.append(migration_snapshot)
+        generic.extra_json["_generic_to_strong_history_v1"] = history
         generic.status = "migrated"
+        generic.data_json = {}
         await db.flush()
         from modules.world.services.worldbuilding.synopsis_invalidation import (
             mark_synopsis_source_changed,
@@ -237,6 +308,25 @@ class WorldProfileService:
             )
             db.add(profile)
         payload = data.model_dump(exclude_unset=True)
+        expected_revision = payload.pop("expected_dossier_revision", None)
+        if expected_revision is not None:
+            current = await self.dossier.generic_profile_projection(
+                db, entity, profile, lock=True
+            )
+            if expected_revision != current["expected_revision"]:
+                raise ConflictError(
+                    "通用档案已变化，请刷新后重试",
+                    code="world_profile_revision_stale",
+                )
+        for field in (
+            "status",
+            "source",
+            "confidence",
+            "evidence_refs_json",
+            "extra_json",
+        ):
+            if field in payload:
+                setattr(profile, field, payload[field])
         if "data_json" in payload:
             template = await db.scalar(
                 select(EntityProfileTemplate).where(
@@ -247,16 +337,12 @@ class WorldProfileService:
             )
             if template is not None:
                 profile.template_id = template.id
-        for field in (
-            "status",
-            "source",
-            "confidence",
-            "evidence_refs_json",
-            "extra_json",
-            "data_json",
-        ):
-            if field in payload and payload[field] is not None:
-                setattr(profile, field, payload[field])
+            await self.dossier.replace_generic_profile_data(
+                db,
+                entity,
+                profile,
+                payload["data_json"],
+            )
         return profile
 
     async def _profile_for_entity(
@@ -267,11 +353,21 @@ class WorldProfileService:
         if entity.entity_type in PROFILE_REGISTRY:
             registry = PROFILE_REGISTRY[entity.entity_type]
             profile = await self._get_strong(db, entity, registry)
+            projection = None
         else:
             profile = await self._get_generic(db, entity)
-        return self._profile_response(entity, profile)
+            projection = await self.dossier.generic_profile_projection(
+                db, entity, profile
+            )
+        return self._profile_response(entity, profile, projection=projection)
 
-    def _profile_response(self, entity: CoreEntity, profile) -> WorldProfileResponse:
+    def _profile_response(
+        self,
+        entity: CoreEntity,
+        profile,
+        *,
+        projection: dict | None = None,
+    ) -> WorldProfileResponse:
         if profile is None:
             return WorldProfileResponse(
                 entity_id=str(entity.id),
@@ -287,7 +383,7 @@ class WorldProfileService:
                 fields[field] = getattr(profile, field, None)
             profile_kind = "strong"
         else:
-            data_json = profile.data_json or {}
+            data_json = (projection or {}).get("data_json", profile.data_json or {})
             profile_kind = "generic"
         return WorldProfileResponse(
             entity_id=str(entity.id),
@@ -300,6 +396,7 @@ class WorldProfileService:
             evidence_refs_json=getattr(profile, "evidence_refs_json", []) or [],
             extra_json=getattr(profile, "extra_json", {}) or {},
             data_json=data_json,
+            expected_dossier_revision=(projection or {}).get("expected_revision"),
             fields=fields,
             created_at=getattr(profile, "created_at", None),
             updated_at=getattr(profile, "updated_at", None),

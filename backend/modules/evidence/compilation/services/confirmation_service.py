@@ -10,7 +10,7 @@ from typing import Any
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from core.container import get
-from core.errors import ConflictError
+from core.errors import ConflictError, ValidationError
 from core.service_keys import (
     STORY_SCENE_SOURCE,
 )
@@ -910,6 +910,18 @@ def resolve_retrieval_purpose(
     *,
     reveal_mode: str,
 ) -> str:
+    operation_purposes = {
+        "story.character_card.generate": "story_character_card",
+        "story.reaction.generate": "story_character_reaction",
+        "story.script.generate": "story_scene_script",
+    }
+    operation_purpose = operation_purposes.get(action)
+    if operation_purpose is not None:
+        if requested not in {"generic_context", operation_purpose}:
+            raise ValidationError(
+                "retrieval purpose does not match the confirmed Story operation"
+            )
+        return operation_purpose
     if requested != "generic_context":
         return requested
     if reveal_mode == "character":

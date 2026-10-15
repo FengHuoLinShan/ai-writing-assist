@@ -207,10 +207,10 @@ def test_card_v1_payload_remains_readable_and_v2_requires_source_references():
         )
 
 
-def test_reaction_motivations_are_optional_but_source_bound_and_two_to_four():
+def test_reaction_v1_history_stays_readable_and_v2_requires_distinct_performances():
     from pydantic import ValidationError
 
-    from modules.story.schemas import ReactionProposal
+    from modules.story.schemas import ReactionProposal, ReactionProposalV2
 
     character_id = uuid.uuid4()
     motivation = {
@@ -223,18 +223,68 @@ def test_reaction_motivations_are_optional_but_source_bound_and_two_to_four():
         "intended_action": "先核对门闩",
         "internal_pressure": "时间不足",
     }
-    valid = ReactionProposal(
+    legacy_empty = ReactionProposal(
+        **base,
+        motivations=[],
+    )
+    assert legacy_empty.motivations == []
+    legacy = ReactionProposal(
         **base,
         motivations=[motivation, {**motivation, "statement": "担心同伴受伤"}],
     )
-    assert len(valid.motivations) == 2
+    assert len(legacy.motivations) == 2
     with pytest.raises(ValidationError, match="omitted or contain 2 to 4"):
         ReactionProposal(**base, motivations=[motivation])
+
+    option = {
+        "option_id": "goal_first",
+        "motivation": "先保住同伴",
+        "source_fact_ids": ["story:fear"],
+        "action": "把同伴拉到门后",
+        "facial_expression": "眉心收紧",
+        "body_language": "侧身挡住门口",
+        "voice_and_dialogue": "压低声音说：先退后",
+        "inner_response": "担心门后还有人",
+        "attention": "盯着门闩的松动处",
+        "change": "由观察转为保护同伴",
+    }
+    valid_v2 = ReactionProposalV2(
+        character_id=character_id,
+        internal_pressure="来不及确认两侧",
+        performances=[
+            option,
+            {
+                **option,
+                "option_id": "risk_first",
+                "motivation": "抢先控制风险",
+                "action": "先压住门闩",
+                "facial_expression": "目光紧盯锁舌",
+                "body_language": "一手按门一手护住工具",
+                "voice_and_dialogue": "短促地说：我来压门",
+                "inner_response": "害怕门被推开",
+                "attention": "留意门外脚步",
+                "change": "由观察转为抢险",
+            },
+        ],
+    )
+    assert valid_v2.schema_version == "story.reaction.v2"
+    with pytest.raises(ValidationError, match="at least 2 items"):
+        ReactionProposalV2(
+            character_id=character_id,
+            internal_pressure="来不及确认",
+            performances=[option],
+        )
+    with pytest.raises(ValidationError, match="distinct motivations"):
+        ReactionProposalV2(
+            character_id=character_id,
+            internal_pressure="来不及确认",
+            performances=[option, {**option, "option_id": "other"}],
+        )
 
 
 @pytest.mark.asyncio
 async def test_reaction_rejects_unknown_source_id():
-    from modules.story.schemas import ReactionPreview
+    from modules.story.schemas import ReactionPreviewV2
 
     class Client:
         model_name = "test"
@@ -249,23 +299,37 @@ async def test_reaction_rejects_unknown_source_id():
                     ],
                     verdict="pass",
                 )
-            return ReactionPreview(
+            return ReactionPreviewV2(
                 scene_id=scene_id,
+                schema_version="story.reaction.v2",
                 proposals=[
                     {
                         "character_id": character_id,
-                        "intended_action": "核对门闩",
-                        "internal_pressure": "時間不足",
-                        "motivations": [
+                        "internal_pressure": "时间不足",
+                        "performances": [
                             {
-                                "category": "fear",
-                                "statement": "担心潮门失守",
+                                "option_id": "fear_first",
+                                "motivation": "担心潮门失守",
                                 "source_fact_ids": ["story:not-in-scope"],
+                                "action": "先核对门闩",
+                                "facial_expression": "眉心紧锁",
+                                "body_language": "手按门闩",
+                                "voice_and_dialogue": "说：等等",
+                                "inner_response": "担心门失守",
+                                "attention": "看向门闩",
+                                "change": "开始检查",
                             },
                             {
-                                "category": "goal",
-                                "statement": "想守住仓库",
+                                "option_id": "goal_first",
+                                "motivation": "想守住仓库",
                                 "source_fact_ids": ["story:known-goal"],
+                                "action": "移到仓库门前",
+                                "facial_expression": "抿紧嘴唇",
+                                "body_language": "把肩膀抵在门上",
+                                "voice_and_dialogue": "说：先护住货物",
+                                "inner_response": "不愿失去仓库",
+                                "attention": "留意货架后方",
+                                "change": "转而守住仓库",
                             },
                         ],
                     }

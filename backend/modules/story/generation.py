@@ -18,7 +18,7 @@ from modules.story.schemas import (
     CharacterCardFact,
     CharacterCardInterpretation,
     CharacterCardPattern,
-    ReactionPreview,
+    ReactionPreviewV2,
     ScriptPreview,
     StorySchema,
 )
@@ -372,7 +372,7 @@ class StoryGenerationService:
         deterministic_facts: list[dict[str, Any]] | None = None,
         reference_patterns: list[dict[str, Any]] | None = None,
         reference_dimensions: tuple[str, ...] = (),
-    ) -> ReactionPreview:
+    ) -> ReactionPreviewV2:
         deterministic_facts = deterministic_facts or []
         reference_patterns = reference_patterns or []
         request = self._request(
@@ -387,17 +387,18 @@ class StoryGenerationService:
                 "deterministic_facts": deterministic_facts,
                 "reference_patterns": reference_patterns,
                 "generation_rule": (
-                    "motivations 可省略，填写时必须有 2–4 条；每条至少引用一个"
-                    "source_fact_ids 或 source_pattern_ids，且只能使用本输入中的 ID。"
-                    "Evolution pattern 是推论，不是事实。"
+                    "每个人物输出 2–4 个彼此不同的 performances。每个选项都要有不同动机，"
+                    "并分别具体写动作、表情、肢体、声音与台词、内心反应、注意力和反应变化。"
+                    "每个选项至少引用一个 source_fact_ids 或 source_pattern_ids，"
+                    "只能使用本输入中的 ID；Evolution pattern 是推论，不是事实。"
                 ),
             },
-            schema=ReactionPreview,
+            schema=ReactionPreviewV2,
         )
         output = await self._run(
             client,
             request,
-            ReactionPreview,
+            ReactionPreviewV2,
             step_name="story.reaction.generate.structured",
         )
         output, review = await self._govern_preview(
@@ -407,17 +408,21 @@ class StoryGenerationService:
             context_markdown=context_markdown,
             scene_context=scene_context,
             request=request,
-            schema=ReactionPreview,
+            schema=ReactionPreviewV2,
             output=output,
             reference_dimensions=reference_dimensions,
         )
         allowed_fact_ids = {str(item.get("fact_id")) for item in deterministic_facts}
         allowed_pattern_ids = {str(item.get("pattern_id")) for item in reference_patterns}
+        expected_character_ids = {str(item) for item in character_ids}
+        actual_character_ids = {str(item.character_id) for item in output.proposals}
+        if actual_character_ids != expected_character_ids:
+            raise ValueError("reaction proposal characters do not match request")
         for proposal in output.proposals:
-            for motivation in proposal.motivations:
-                if not set(motivation.source_fact_ids).issubset(allowed_fact_ids):
+            for performance in proposal.performances:
+                if not set(performance.source_fact_ids).issubset(allowed_fact_ids):
                     raise ValueError("reaction motivation references an unknown fact id")
-                if not set(motivation.source_pattern_ids).issubset(allowed_pattern_ids):
+                if not set(performance.source_pattern_ids).issubset(allowed_pattern_ids):
                     raise ValueError(
                         "reaction motivation references an unknown pattern id"
                     )

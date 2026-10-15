@@ -771,11 +771,21 @@ pattern section 明确标为解释而非事实。Context snapshot 保留入选�
 只读操作，直接调用此 Evidence facade；HTTP 和 Assistant 都核对 active project，不接受
 执行上下文之外的 `novel_id`。
 
-旧 `GenericEntityProfile.data_json` 目前只经显式关联的活动 `EntityProfileTemplate` key/facing
-只读映射；仅在 `author_full` 模式，且目标 Scene 的已确认时点事实能佐证其值时，映射字段才进入简报，避免用今日
-profile 填补历史。未知 key 原样留在 World 旧读取 API，聚合响应只记录未映射数量，不把它们当作正史，
-也不删除或重写旧 JSON。此切片尚未把旧 Character/profile 写入口桥接到档案 revision/CAS，
-也未迁移全部旧读取消费者；后续 C0 必须逐个完成该兼容闭环。
+旧 `GenericEntityProfile.data_json` 写入现经同一 Dossier 服务追加 `legacy_import` 修订；旧 GET/list
+只读投影当前修订，纯 GET 不物化。活动模板中唯一且有效的 key/facing 映射保留面向，未映射字段留在
+秘密区并作为未映射数量报告。旧导入修订没有伪造 Scene 有效期；进入 `author_full` 简报仍要求目标 Scene
+的当前 Story checkpoint 中存在同主体、同值、confirmed、非 possibly-false 且有 exact 正文区间来源的 fact。
+secret 与未映射值不进入 safe/character 投影；通过 Dossier API 的后续显式作者修订按自身来源处理。
+兼容旧 PUT 的 `expected_dossier_revision` 可省略：提供时 stale 返回 409，缺省时 entity/Profile 行锁只保证串行
+且旧式整份 JSON 替换仍为最后写者胜出；这不是旧客户端的乐观 CAS 保证。Dossier 原生更新仍必须带 revision CAS。
+Dossier 当前读投影会从 GenericEntityProfile 只读刷新状态和来源元数据，旧修订不会掩盖 profile 转为 draft/migrated。
+legacy_import 的 Story 截止证明仍有字段级绑定缺口：当前门禁核对主体和值以及 Story fact 自己的精确来源，尚未
+将 Story `field` 与 Generic `field_key` 对齐；在独立修复审查前不能视作完成字段级时点证明。
+
+Story card/reaction 的手动确认由固定 action 解析 retrieval purpose，并拒绝 action 与 purpose 不匹配：card 为
+`story_character_card`、reaction 为 `story_character_reaction`；Story script 为 `story_scene_script`。
+Story 人物生成确认必须绑定唯一 Scene cutoff；card 还要求同项目目标人物 POV，reaction 只接受 author-safe 确认。
+对象简报/倾向仍是可选参考，开关未显式配置时关闭，不参与核心资料缺口判定。
 
 ## 逐源证据与预算状态（B8）
 

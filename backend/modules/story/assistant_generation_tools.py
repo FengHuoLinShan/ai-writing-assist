@@ -111,8 +111,19 @@ async def _prepare_generation(
             novel_id=novel_id,
             action=action,
             confirmation_id=str(confirmation_id),
+            consumer_action=action,
         )
         fixed_options = dict(fixed.compile_options or {})
+        from modules.story.task_submission import (
+            validate_story_generation_confirmation,
+        )
+
+        validate_story_generation_confirmation(
+            fixed_options,
+            action=action,
+            scene_id=scene_id,
+            character_ids=character_ids,
+        )
         if str(fixed_options.get("scene_id") or "") != scene_id:
             raise ConflictError("原资料确认不属于本场景")
         fixed_characters = {
@@ -191,12 +202,14 @@ async def _submit_preview(
         raise ConflictError("场景或资料确认已变化，请重新查看预览")
     confirmation_id = preview["context_confirmation_id"]
     if not confirmation_id:
+        confirmation_parameters = dict(preview["context_parameters"])
+        confirmation_parameters.pop("consumer_action", None)
         confirmation = await confirm_context(
             db,
             ContextConfirmationRequest(
                 novel_id=novel_id,
                 action=action,
-                **preview["context_parameters"],
+                **confirmation_parameters,
                 expected_context_fingerprint=preview["context_fingerprint"],
             ),
         )
@@ -301,9 +314,9 @@ async def _read_reaction_result(db, novel_id, reference):
     )
 
 
-def _metadata(schema, *, description, produces, target_type):
+def _metadata(schema, *, description, produces, target_type, op_version="1"):
     return {
-        "op_version": "1",
+        "op_version": op_version,
         "description": description,
         "risk_level": "R1",
         "fee_category": "possible_model_charge",
@@ -351,8 +364,10 @@ OPERATIONS_SPEC = {
         "read_result": _read_reaction_result,
         **_metadata(
             GenerateCharacterReactions,
+            op_version="2",
             description=(
-                "按各人物独立 POV 资料生成反应预览；动机需引用当前确认范围中的来源 ID。"
+                "按各人物独立 POV 资料生成 2–4 种不同动机与完整表演卡；"
+                "每种动机均引用当前确认范围中的来源 ID。"
             ),
             produces="preview_only_sourced_character_reactions",
             target_type="story_character_reaction",

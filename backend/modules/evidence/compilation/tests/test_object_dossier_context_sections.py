@@ -25,6 +25,9 @@ def test_object_reference_switches_are_separate_and_default_off():
         == "story.character_card"
     )
     assert object_dossier_capability("story.reaction.generate") == "story.reaction"
+    assert object_dossier_capability("story.script.generate") == "story.script"
+    assert object_dossier_capability("world.ask") == "world.ask"
+    assert object_dossier_capability("assistant.turn") == "assistant.turn"
 
 
 def test_character_projection_never_renders_pattern_even_if_provider_returns_one():

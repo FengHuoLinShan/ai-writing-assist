@@ -370,7 +370,7 @@ class StoryTaskRequest(StorySchema):
     additional_notes: Annotated[
         str | None, StringConstraints(strip_whitespace=True, max_length=4000)
     ] = None
-    accepted_reactions: list[ReactionProposal] = Field(
+    accepted_reactions: list[ReactionProposal | ReactionProposalV2] = Field(
         default_factory=list, max_length=24
     )
     accepted_beats: list[ScriptBeat] = Field(default_factory=list, max_length=100)
@@ -421,7 +421,7 @@ class StoryOneClickTaskRequest(StorySchema):
     additional_notes: Annotated[
         str | None, StringConstraints(strip_whitespace=True, max_length=4000)
     ] = None
-    accepted_reactions: list[ReactionProposal] = Field(
+    accepted_reactions: list[ReactionProposal | ReactionProposalV2] = Field(
         default_factory=list, max_length=24
     )
     accepted_beats: list[ScriptBeat] = Field(default_factory=list, max_length=100)
@@ -486,6 +486,8 @@ class CardPreview(StorySchema):
 
 
 class ReactionProposal(StorySchema):
+    """Legacy reaction payload retained for saved and accepted v1 history."""
+
     character_id: uuid.UUID
     known_information: list[StoryText] = Field(default_factory=list, max_length=40)
     subjective_judgment: StoryText | None = None
@@ -511,8 +513,88 @@ class ReactionProposal(StorySchema):
 
 
 class ReactionPreview(StorySchema):
+    """Legacy v1 result shape retained for reading earlier task payloads."""
+
     scene_id: uuid.UUID
     proposals: list[ReactionProposal] = Field(default_factory=list, max_length=24)
+    warnings: list[StoryText] = Field(default_factory=list, max_length=20)
+    knowledge_review: dict[str, Any] | None = None
+
+
+class ReactionPerformanceOption(StorySchema):
+    """One source-bound, fully staged way the character may react."""
+
+    option_id: StoryKey
+    motivation: StoryText
+    source_fact_ids: list[str] = Field(default_factory=list, max_length=16)
+    source_pattern_ids: list[str] = Field(default_factory=list, max_length=8)
+    action: StoryText
+    facial_expression: StoryText
+    body_language: StoryText
+    voice_and_dialogue: StoryText
+    inner_response: StoryText
+    attention: StoryText
+    change: StoryText
+    confidence: float = Field(default=0.0, ge=0.0, le=1.0)
+
+    @model_validator(mode="after")
+    def require_unique_sources(self) -> ReactionPerformanceOption:
+        if not (self.source_fact_ids or self.source_pattern_ids):
+            raise ValueError("reaction options require at least one source id")
+        if len(set(self.source_fact_ids)) != len(self.source_fact_ids):
+            raise ValueError("source_fact_ids must be unique")
+        if len(set(self.source_pattern_ids)) != len(self.source_pattern_ids):
+            raise ValueError("source_pattern_ids must be unique")
+        return self
+
+
+class ReactionProposalV2(StorySchema):
+    """New source-bound performance-card format; v1 stays readable above."""
+
+    schema_version: Literal["story.reaction.v2"] = "story.reaction.v2"
+    character_id: uuid.UUID
+    known_information: list[StoryText] = Field(default_factory=list, max_length=40)
+    subjective_judgment: StoryText | None = None
+    goal: StoryText | None = None
+    conflict: StoryText | None = None
+    internal_pressure: StoryText
+    performances: list[ReactionPerformanceOption] = Field(min_length=2, max_length=4)
+
+    @model_validator(mode="after")
+    def require_distinct_performances(self) -> ReactionProposalV2:
+        def normalize(value: str) -> str:
+            return " ".join(value.casefold().split())
+
+        motivations = [normalize(item.motivation) for item in self.performances]
+        if len(set(motivations)) != len(motivations):
+            raise ValueError("reaction performances must use distinct motivations")
+        signatures = [
+            tuple(
+                normalize(getattr(item, field))
+                for field in (
+                    "action",
+                    "facial_expression",
+                    "body_language",
+                    "voice_and_dialogue",
+                    "inner_response",
+                    "attention",
+                    "change",
+                )
+            )
+            for item in self.performances
+        ]
+        if len(set(signatures)) != len(signatures):
+            raise ValueError("reaction performances must be behaviorally distinct")
+        option_ids = [item.option_id for item in self.performances]
+        if len(set(option_ids)) != len(option_ids):
+            raise ValueError("reaction option ids must be unique")
+        return self
+
+
+class ReactionPreviewV2(StorySchema):
+    schema_version: Literal["story.reaction.v2"] = "story.reaction.v2"
+    scene_id: uuid.UUID
+    proposals: list[ReactionProposalV2] = Field(default_factory=list, max_length=24)
     warnings: list[StoryText] = Field(default_factory=list, max_length=20)
     knowledge_review: dict[str, Any] | None = None
 
@@ -541,7 +623,9 @@ class ScriptPreview(StorySchema):
 class OneClickOutput(StorySchema):
     scene_id: uuid.UUID
     cards: list[CardPreview] = Field(default_factory=list, max_length=24)
-    reactions: list[ReactionProposal] = Field(default_factory=list, max_length=24)
+    reactions: list[ReactionProposal | ReactionProposalV2] = Field(
+        default_factory=list, max_length=24
+    )
     script: ScriptPreview
 
 

@@ -4,6 +4,8 @@ import pytest
 
 from modules.imports.models import ImportedChapter, ImportRecord
 from modules.world.models import CoreEntity, EntityRelation, Event
+from modules.world.schemas import WorldProfileUpsertRequest
+from modules.world.services.worldbuilding.profile_service import WorldProfileService
 from modules.world.world_background import WorldBackgroundAggregation
 
 
@@ -55,6 +57,10 @@ async def test_background_limited_queries_have_stable_tie_breaks() -> None:
             self.statements.append(str(statement))
             return _EmptyResult()
 
+        async def scalars(self, statement):
+            self.statements.append(str(statement))
+            return _EmptyResult()
+
     db = CapturingSession()
 
     await WorldBackgroundAggregation().build(
@@ -63,9 +69,7 @@ async def test_background_limited_queries_have_stable_tie_breaks() -> None:
         limit=1,
     )
 
-    relation_sql = next(
-        item for item in db.statements if "FROM entity_relations" in item
-    )
+    relation_sql = next(item for item in db.statements if "FROM entity_relations" in item)
     knowledge_sql = next(
         item for item in db.statements if "FROM character_knowledge" in item
     )
@@ -125,6 +129,47 @@ async def test_background_keeps_events_with_missing_locations_and_relation_fallb
     summaries = "\n".join(item.summary for item in bundle.entries)
     assert f"location_entity_id={missing_location}" in summaries
     assert str(missing_location) in summaries
+
+
+@pytest.mark.asyncio
+async def test_generic_background_uses_dossier_projection_and_hides_legacy_secrets(
+    db_session, project_novel_id
+) -> None:
+    novel_id = uuid.UUID(project_novel_id)
+    entity = CoreEntity(
+        novel_id=novel_id,
+        entity_type="custom_species",
+        name="灰雾族",
+        status="canonical",
+    )
+    db_session.add(entity)
+    await db_session.flush()
+    await WorldProfileService().upsert_profile(
+        db_session,
+        project_novel_id,
+        str(entity.id),
+        WorldProfileUpsertRequest(
+            status="canonical",
+            data_json={"secret_setting": "不得进入公开背景"},
+        ),
+    )
+
+    aggregation = WorldBackgroundAggregation()
+    safe = await aggregation._profile_summaries(
+        db_session,
+        novel_id,
+        entity_ids={entity.id},
+        reveal_mode="author_safe",
+    )
+    full = await aggregation._profile_summaries(
+        db_session,
+        novel_id,
+        entity_ids={entity.id},
+        reveal_mode="author_full",
+    )
+
+    assert entity.id not in safe
+    assert full[entity.id] == "data_json.secret_setting=不得进入公开背景"
 
 
 @pytest.mark.asyncio
