@@ -127,6 +127,10 @@ CAPABILITY_BINDINGS: dict[str, tuple[str, ...]] = {
     "modules/evolution/llm_sampler.py": (
         "evolution.scene_observe",
         "evolution.state_review",
+        "evolution.details_discover",
+        "evolution.details_review",
+        "evolution.spatial_discover",
+        "evolution.spatial_review",
         "imports.scene_enrichment",
         "imports.entity_extraction",
         "imports.structure_analysis",

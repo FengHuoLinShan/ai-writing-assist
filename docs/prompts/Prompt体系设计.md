@@ -767,6 +767,10 @@ Evolution `SceneSample` 可用 `subject_surface`，禁止猜测实体 ID；主�
 
 Evolution 细节发现 `evolution.discovery.v2` 和独立复核 `evolution.discovery.review.v1`
 使用 `discovery.py` 的来源绑定生成/复核 Prompt，以及 DiscoveryOutput/DiscoveryReview。
+可选阅读登记分别为 `evolution.details_discover/details_review`；保留原 method ID、journal 和旧运行
+指纹。空间发现与独立复核另登记 `evolution.spatial_discover/spatial_review`，只处理当前 Scene
+和更早已提交资料，不由模型输出坐标；作者阅读授权冻结步骤及其根预算内额度。
+静态能力登记不代表步骤已执行或质量已验收，运行必须保留真实生成与独立复核的两份 journal。
 v2 按确切来源区间和观察/完整主题上下文分批，历史候选先按已有主题、解析后的 World 对象 ID、
 字面表面名排序且每场最多 64 条；逐类别输出条件行为、线索、承诺、语言习惯、外在特征的
 `category_coverage`。缺失类别状态由宿主解释为未检查，不会伪装成已检查未检出。
