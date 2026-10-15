@@ -1,0 +1,116 @@
+{
+  "kind": "g6b_preflight_ledger",
+  "updated_at": "2026-10-15T08:36:25+08:00",
+  "baseline_commit": "d2ab2dbf3c78785a24d3f419002fbb13b36bc99c",
+  "status": "blocked_before_model_calls",
+  "calibration_passed": null,
+  "human_validated": false,
+  "blocking": false,
+  "model_requests_issued": 0,
+  "model_failures": 0,
+  "unknown_requests_this_run": 0,
+  "usage_status": "not_applicable_no_model_request",
+  "historical_ledgers_modified": false,
+  "live_guard_changed": false,
+  "payload_redacted": true,
+  "private_artifacts_directory": "/Users/tywww/.codex/private/g6b-recalibration-20261015",
+  "connection_preflight": {
+    "checked_at": "2026-10-15T08:32:19.468365+08:00",
+    "read_only": true,
+    "model_requests": 0,
+    "app_env": "development",
+    "auth_mode": "local",
+    "cli_override_configured": false,
+    "local_chatgpt_identity_readable": true,
+    "db_revision": [
+      "20261006_event_soft_delete"
+    ],
+    "owner_codex_connection_found": false,
+    "owner_runtime_error": "账户模型尚未连接或验证，请先在账户设置中连接",
+    "owner_author_project_found": true,
+    "project_id_sha256": "b0ddf8cab5a7549e34c0489b92b33019f68c51f457a7f4d2033fad67337ab63e",
+    "project_snapshot": {
+      "provider_id": "deepseek",
+      "model": "deepseek-flash",
+      "connection_verified": null,
+      "native_wrapper": null
+    },
+    "project_snapshot_sha256": "e96013b63c0ebac6499e6ce7bf46ac7ba147a4b70605d0d6d1db7c3dcaa8a1f1"
+  },
+  "cli_login_observation": {
+    "command": "/opt/homebrew/bin/codex login status",
+    "exit_code": 1,
+    "error": "failed to parse model_catalog_json path /Users/tywww/.codex/model-catalog-luna-500k.json as JSON: missing field base_instructions at line 135 column 5",
+    "evidence_kind": "observed tool output, not a model receipt",
+    "model_request_started": false
+  },
+  "current_migration_head": "20261014_model_scope_budget",
+  "blockers": [
+    "CLI model catalog fails configuration parsing",
+    "Configured database owner has no verified Codex connection",
+    "Project facade snapshot resolves DeepSeek, not Luna/max",
+    "Configured shared database is behind current schema; no dedicated G6b runtime identified"
+  ],
+  "private_evidence": [
+    {
+      "file": "ask-world-offline-gate.json",
+      "sha256": "800f3778b8227c1b0dc0b421fa38773e9202f344d07a2b23a34d27ade2940bec"
+    },
+    {
+      "file": "ask-world-offline.log",
+      "sha256": "46e4861db946c0a934e18548f0c6cdd10c65c3c5b23d8fd02d4a3255f79f1146"
+    },
+    {
+      "file": "cli-login-observation.json",
+      "sha256": "5252379af1dc7db4bc7aaa48ac54bdb2a59416c945dc3d560c8d86c6d3daa947"
+    },
+    {
+      "file": "connection-preflight.json",
+      "sha256": "7db799f2ef9c3b1f1eaebc86bbe7e7f32a2d1c86d5c8bf40d4f5ef64ddabf1c4"
+    },
+    {
+      "file": "offline-manifest.json",
+      "sha256": "d3049a003728c94b8912a8106719e87093be4729606b6f6c6bfe4be80f066014"
+    },
+    {
+      "file": "offline-tests.log",
+      "sha256": "ec71959eedc8095f8cd55fb6e305015a78dc12c416fd8dfb79db6c5279ed1747"
+    }
+  ],
+  "offline_manifest_sha256": "258cc88d45981fd56ae8e9c85fa6f88cdf78205c15bc8f809b35dd07a86b1be9",
+  "validation": {
+    "related_contracts": {
+      "passed": 345,
+      "skipped": 2,
+      "command": "cd backend && uv run --locked --extra ci -- pytest evals/tests modules/project/tests/test_llm_runtime.py modules/project/tests/test_codex_runtime.py tests/account_project_preferences/test_llm_connections.py infrastructure/llm/tests/test_codex_provider.py infrastructure/llm/tests/test_codex_identity_admission.py -m 'not real_llm and not external_data' --timeout=120 -q",
+      "skip_reasons": [
+        "optional rank_bm25 not installed",
+        "optional mcp not installed"
+      ]
+    },
+    "ask_world_api": {
+      "passed": 9,
+      "deselected": 69
+    },
+    "ask_world_offline_gate": {
+      "ready": true,
+      "case_count": 23,
+      "failures": []
+    },
+    "docs_check_before": true,
+    "docs_check_final": true,
+    "diff_check_final": true
+  },
+  "preparation_scope": {
+    "teacher_seeded_cases": 30,
+    "luna_debug_cases": 34,
+    "holdout_model_calls": 0,
+    "other_evaluator_roles_calibrated": false
+  },
+  "plan_source": {
+    "worktree": "/Users/tywww/Desktop/项目/ai-writing-assist/.worktrees/audit-followup",
+    "path": "docs/plans/2026-10-14-audit-followup-wave2.md",
+    "local_commit": "db1b3ba6d",
+    "sha256": "22e5c75ea0c2e2034ceb73f27988ca6784005375ff0a2d1982efd2a6865060c4"
+  }
+}

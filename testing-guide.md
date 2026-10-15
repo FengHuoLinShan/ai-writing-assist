@@ -33,6 +33,13 @@ Codex 执行器；被测业务生成经 `backend/evals/project_executor.py` 的 
 Luna/max 后运行不带教师的诊断，不能宣称完成语义教师审查。旧教师校准与 holdout
 证据按原模型保留，不直接用于证明 Luna 效果。
 
+G6b 的显式 Ask World 校准可向 `CodexStructuredExecutor` 提供
+`AskWorldCalibrationScope`：每次调用重新通过 Project facade 构建和恢复同一已验证
+Luna/max 快照，只允许 Sol/xhigh 的 `eval.ask_world.teacher_calibration`，且
+`attempts=1`。其他入口仍被暂停守卫拒绝；此范围不解禁 reviewer、scene-gold 或 holdout。
+校准在独立开发库/合成项目执行，启动前先落仓库外 pending 请求账本，保留原生请求、
+输出及失败/unknown，禁止自动重发；结果与真人验收分开报告。
+
 ## 技术覆盖离线实验
 
 `make eval-technical-coverage` 使用 Python 3.13 与锁定的 `ci/eval/experiments` extras，
@@ -634,7 +641,8 @@ P8 固定比较范围按指定 head 的 Git blob 计数，不读取其他 checko
 
 作者控制链由 `frontend-console/e2e/creative-rebase.spec.js` 使用真实 API/PG/worker 与合成 provider 覆盖：历史来源、保管/所有权、有限条件比较与冻结授权、窄屏抽屉交接、改稿冲突三方重建采用。合成结果只验证控制与隔离，文学质量另记。
 
-`evals.rp_matrix` 冻结 6 开发来源族和 3 独立留出来源族，各 30 轮，两臂独立旅程，基线 compiler/retrieval 固定 Git 来源、原准备包布局相同；记录关键原文回读、秘密/未来 canary、开场/重抽/分支/length续写和必需来源失效。质量与总费用门分开，含准备、审查与返修费用，裁判费另列；开发不过不打开留出，已用留出不可调参再当未见样本。
+`evals.rp_matrix` 自 R3（2026-10-15）起标为冻结历史：绑定 DeepSeek 专用凭据链，
+不迁移、不发起新调用，仅用于解释既有账本与脱敏快照。其历史方案冻结 6 开发来源族和 3 独立留出来源族，各 30 轮，两臂独立旅程，基线 compiler/retrieval 固定 Git 来源、原准备包布局相同；记录关键原文回读、秘密/未来 canary、开场/重抽/分支/length续写和必需来源失效。质量与总费用门分开，含准备、审查与返修费用，裁判费另列；开发不过不打开留出，已用留出不可调参再当未见样本。
 
 用户授权的代理作者评阅使用 `human_validated=false`，必须看实际输出。旧 140 笔短程布局 smoke 不能核销完整矩阵。原始账本和正文留仓库外私有目录，仓库只提交脱敏哈希、计量与结论；未知用量保留上界与失败，累计 USD 20 不重置。
 
