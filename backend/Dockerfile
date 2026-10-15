@@ -1,12 +1,14 @@
 FROM python:3.14.8-slim-bookworm@sha256:48b13b003dda20b16f9442b8475aa05fe21bf6579a8c881db92ffb4d8fd20f83 AS build
 
-ARG UV_VERSION=0.12.3
+ARG UV_VERSION=0.13.1
 
 ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
     UV_COMPILE_BYTECODE=1 \
     UV_LINK_MODE=copy \
     UV_NO_CACHE=1 \
+    UV_PYTHON=/usr/local/bin/python \
+    UV_PYTHON_DOWNLOADS=never \
     PATH="/app/.venv/bin:${PATH}"
 
 RUN python -m pip install --no-cache-dir "uv==${UV_VERSION}"
