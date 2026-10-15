@@ -9,11 +9,13 @@ from unittest.mock import patch
 from uuid import UUID
 
 import pytest
+import pytest_asyncio
 import sqlalchemy as sa
 from alembic.migration import MigrationContext
 from alembic.operations import Operations
 from sqlalchemy import select
 
+from core import database
 from core.errors import ConflictError, NotFoundError
 from modules.account.context import bind_principal, reset_principal
 from modules.account.contracts import AccountPrincipal
@@ -29,6 +31,17 @@ from modules.project.models import Project
 from modules.story.notice_sources import _scene_issues
 from modules.writing.notice_sources import decide_conflict_notice
 from modules.writing.recompute import WritingRecomputeService
+
+
+@pytest_asyncio.fixture(autouse=True)
+async def _release_notice_test_manager():
+    """Notice source reads must not leak their manager into later DB tests."""
+    original_manager = database._manager
+    yield
+    created_manager = database._manager
+    if created_manager is not None and created_manager is not original_manager:
+        await created_manager.close()
+        database.reset_manager()
 
 
 def test_notice_disposition_migration_creates_and_drops_only_its_tables():
