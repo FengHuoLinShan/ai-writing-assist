@@ -93,3 +93,30 @@ A3 作者侧 Interaction / Collaboration、地图与势力后续能力仍需实�
 - UI Sol已在map-clue-review/codex/copilot-ui-integration-review提交73d3cadb第一轮C3b/C2b审修；
   248文件/3134前端、27后端source/unified定向与lint/build门通过。待C0b分页/demo安全净fix和
   工程PG再followup同Sol做真实HTTP/并行独立session联调，当前暂结束释放实施槽。
+
+
+## 2026-10-16 当前后续入口补充
+
+- primary19589fa11（业务代码a18b80cd5）已集成C0b安全审修和C3b/C2b真实组合，
+  root86后端/3专用PG/3134前端及lint/build通过；本文开头旧A0b状态仅为历史。
+- A2现有稳定执行契约在 `modules/assistant/contracts.py`，不是core：
+  `AssistantOperationContext` 已有run_id/owner/work/operation_id/llm_snapshot/internal_meta
+  及trace_actor_type（支持goal）。操作注册装配在 `app/assistant_operation_registry.py`，
+  已严格校验纯SPEC和trace参数声明。目标引擎复用这些契约，但不要调用conversation
+  `decide_batch`冒充goal状态机或改变原确认上限。
+- 当前 `operations.execute_suggestion` 是已有根累计调用示例：固定 operation_id、
+  `_execution_mode=inline_only` 与 `_parent_task_id`、领域任务回执、`workflow_budget`
+  以及 `read_result`。A2及C2新R1操作需证明没有独立排队后脱离父预算的付费路径。
+- `infrastructure/llm/workflow_budget.py:AIRunEnvelope` 已提供并发串行计量、checkpoint
+  失败拒绝provider I/O、deadline/usage/unknown与step回执。复用运行信封，并将目标自己的
+  根限制与80%停点持久化；不可复用 `AgentRunBudget` 旧author默认12请求当作者目标预算，
+  也不能为目标随意提高旧author/RP/background默认值。
+- A1章节重排暂无领域服务，不可直接改chapter_index；该字段参与版本唯一键、正文来源、
+  批注、Story场景与Evolution冻结读取。保留独立领域切片，不在插件里ORM模拟。
+  当前时间线可复用 `story.edit_information_plan` 的伏笔/揭示章节字段，应明确覆盖边界。
+- A3仍需作者侧Interaction配置/旅程/摘要刷新及Collaboration试改/原子采用准备；
+  不向RP角色运行时开放作者工具，不以“准备”代替真正的计费授权或R3确认。
+- A4现有 `/operation-traces/aggregate` 与 `export` 只有事件频次及已过180天归档的序列。
+  报表实施需正确聚合当前明细序列（按会话/DB序号及声明窗口）并与归档合并，
+  还要给接受/拒绝/先改后接受、恢复率、耗时用量与留痕缺口；无法测量的分母标未知。
+  不能把“没有明细序列”当无人使用，更不能用合成测试假装已累积数周真实数据或选择真实top3。

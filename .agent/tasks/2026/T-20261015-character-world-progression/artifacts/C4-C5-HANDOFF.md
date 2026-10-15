@@ -67,3 +67,21 @@ ADR-0040、ADR-0041 为准；不是新的授权或验收豁免。
 实现按C4a、C4b、C5分批Luna/max提交，逐批Sol/high审查并直接修复；所有必要实现仍属于
 原三份计划，不因拆批变成可选项。先收到C0b/C2与C3b可审查提交并检查接口，再启动C4a。
 不得重试封存R3、读取holdout或自行增加模型请求；真实评测由root在最终固定代码后重新预检。
+
+
+## 2026-10-16 当前固定点与剩余C0
+
+- C0b与C3b/C2b已在primary19589fa11（业务a18b80cd5）；root86后端/3专用PG/
+  3134前端/lint/build组合通过。C2后端与Generic读写/类型迁移由新的Luna
+  dossier_consumers在world-object-dossier-impl从5217f5310恢复，尚未交付。
+- C4a Luna实现4cbc97e35已交Sol/high固定点审修，尚未集成。Sol实证typed object/map_node
+  没核验owner/novel/真实来源、未知位置observer被视为同地两处问题，正在直接修复与专用PG验证。
+  C4b必须从审修后的协议继续。Luna原代码的API/worker多轮409仅为暂时边界，不能保留成最终产品上限。
+- 后续C4b独立导演运行/轮次/参考存储，读Evidence统一简报；不要把旧rehearsal记录或
+  SceneScriptFile改名冒充导演历史，也不把新导演产物接入adopted_scripts/正文事实依据。
+  本文上方完整C4b/C5验收不因基础协议完成而缩减。
+- root逐项核对C0发现作者有效期覆盖的项目读规则/默认关闭开关与结构化冲突提醒仍缺；
+  有向态度、别名生效区间及项目自定义文字状态字段也要实证盘点，不把注册静态字段或
+  DossierValidity锚点过滤当这些能力已实现。C2/Generic首切片后另排C0c，仍属本次范围。
+- C1真实长篇前置、M5势力阶段1与RP迁移评测仍未通过；工程可用切片与这些门禁分列。
+  R3和holdout封存，不添加模型请求；新真实评测只在最终固定代码及完整预算预检后由root协调。
