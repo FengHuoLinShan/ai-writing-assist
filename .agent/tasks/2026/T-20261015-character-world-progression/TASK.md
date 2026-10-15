@@ -3,7 +3,7 @@ id: T-20261015-character-world-progression
 title: 世界对象档案、场景导演、写作副驾驶与世界推进设计
 status: active
 created: 2026-10-15T16:00:00+08:00
-updated: 2026-10-15T22:30:37+08:00
+updated: 2026-10-15T22:44:27+08:00
 ---
 
 # 世界对象档案、场景导演、写作副驾驶与世界推进设计
@@ -22,7 +22,7 @@ updated: 2026-10-15T22:30:37+08:00
 ADR-0039 旧接口写回规则、共用词表与锚点、档案发现按 ADR-0036 §1 契约登记。
 修订经用户授权在第三个本地提交 `20d6f1eff` 中提交，未推送。
 2026-10-15 用户采纳 ADR-0039 至 ADR-0041（Accepted / 未实施）；ADR-0005、0025 补充说明与索引同步。
-用户现明确授权三份计划全部实施，包括对象档案、导演和世界推进；本任务进入C0–C5分批实现。主树ba20固定地图真实评测，其他代码先用独立树：world-object-dossier-impl（codex/world-object-dossier-impl，Luna/max，先C0）与simulation-v3-director-impl（codex/simulation-v3-director-impl，Luna/max，先C3，后C4/C5）。均base ba20dc79388133ee903e5522e9cf30ceae2905ba。首批可审查提交后由Sol/high直接review和修复；root仅集成验证并唯一写TASK。下一步：C0完成字段/消费者映射和真实World条目、CAS兼容API闭环；C3接现有真实来源、Story结构问题、独立CAS处置及失败占位，再接前端。
+用户已明确三份计划全部实施，包括档案、导演和世界推进；本任务执行C0–C5。当前主树158cbe57b已集成C3a及Sol修复2a4be54b6/cd9162d41/158cbe57b、R3结构修复af89bcbf1，797项Story/Evolution/统一通知回归通过。C3 app接线/UI/G8a/editorial详细导航仍待交付。C0a原23e322e01（40目标测试）进入map-spatial-eval-review/codex/world-object-dossier-review，Sol/high直接审修；Luna/max在world-object-dossier-impl新分支codex/object-dossier-evidence-impl，以23e为基线做C0b/C2 Evidence聚合、参考维度和人物卡。GenericEntityProfile迁移与消费者切换仍是明确欠项，不能提前标全C0完成。A0b Luna独占共享composition，其他代理提供pure模块及接线清单；root仅集成验证和唯一TASK写入。C3前端/C4/C5继续推进；C1长期P4、势力阶段及RP评测依赖保持真实边界。
 
 ## 目标与验收
 
@@ -130,3 +130,12 @@ ADR-0039 旧接口写回规则、共用词表与锚点、档案发现按 ADR-003
 
 - C3a 69b77838298e7fcda225ef798151a75127c98d23交Sol/high sol_review_unified_notices（map-spatial-eval-review/codex/map-full-plan-integration-review）；7定向/Ruff/import/docs158表/SQLite迁移通过，PG/app接线/UI/G8a/editorial队列详细导航仍待后批。C0 Luna继续World条目/模板/Character兼容和Story注册；Evidence统一聚合/ledger DI为C0b/C2未完成项，C4/C5依此继续。
 - root主树fd372d5f2仅任务记录提交，新两批尚未集成；代码问题由Sol直接修。本地开发继续，未推送或部署。
+
+## 2026-10-15T22:44:27+08:00 审修集成与第二批交接
+
+- 主树HEAD158cbe57b，TASK更新前干净。A0a修复：legacy forecast v3快照保留两字段；v7按实际操作兼容关闭；团队冻结不可执行项仍可describe；恢复地图编辑真实schema hash。root在dabc0b319跑Assistant/Imports/World相关扩大回归1217 passed（33.81s）。
+- C3五真实来源的Sol修复含延后到期恢复、分页更多披露、处置读timeout、静态trace字段与demo只读写拒绝。R3未解析关系主题留在batch receipt，公开作者GET /api/evolution/reading的structure_review显示数量/内容/逐Scene证据，不猜实体、不关strict。root在158cbe57b跑统一通知+全Story+Evolution workflow为797 passed（21.61s）。C3新API/DI尚待组合根接线，不当产品闭环。
+- 原A0b WIP与旧审查分支保留；Sol只读复制新目标分支且核哈希+17烟测，Luna继续实施。C0a23e进入Sol独立审修，C0b/C2 Luna并行，禁止共享文件双写。三migration链待统一，新C0/C3/trace尚未PG验收。
+- R3封存停止，本批未重跑真实请求、未改实验DB/原始回执/种子或holdout。真实质量未通过、human_validated=false；本地工程绿色不等于作者验收。没有push/PR/main合并/部署。
+
+- 文档门禁：158cbe57b的inventory通过（12模块/158表/61任务/16路由/49ADR）；直接BASE_REF检查列出CLAUDE.md、模块总览html/drawio、05_memory.md四个未改文件，root已逐项核对并用脚本支持的no-change-reason通过影响检查，理由为稳定导航/现有12模块61方向未变，A0/C3/R3不改Memory事件与checkpoint写入所有权。C0 typed state尚未集成，后续须重核并更新相关文档；不把此理由沿用到未来实现。

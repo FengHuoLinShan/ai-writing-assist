@@ -3,7 +3,7 @@ id: T-20261015-map-enhancement-design
 title: 地图系统增强设计与分批实施（自动冷启动、参与创作决策、题材鲁棒性）
 status: active
 created: 2026-10-15T10:54:00+08:00
-updated: 2026-10-15T22:30:37+08:00
+updated: 2026-10-15T22:44:27+08:00
 ---
 
 # 地图系统增强设计
@@ -13,14 +13,14 @@ updated: 2026-10-15T22:30:37+08:00
 - 当前授权：2026-10-15 用户 `/goal` 要求执行 `codex/map-enhancement-plan` 的计划；Luna/max 子代理并行实现，Sol/high 按批次 review 与修复。只做本地开发验证；没有发布、真实数据破坏或对外发送授权。用户16:43补充“修复由sol子代理直接修”：后续代码修复均由Sol/high子代理直接执行。用户曾要求“由你收尾”；其后明确答复范围为三份计划全部实施，包括操作目录、对象档案、导演、世界推进。root继续负责分批拆解、集成、验证、任务记录与实际隔离评测；已明确确认采用“模拟作者显式指定Scene地点后做辅助Writing对比”。
 - 主工作区：`/Users/tywww/项目/ai-writing-assist/.worktrees/map-enhancement-plan`，分支 `codex/map-enhancement-plan`。原 Desktop 路径已失效；仓库实际已迁至 `/Users/tywww/项目/ai-writing-assist`。
 - 恢复时基线：设计提交 `3fd5ca29e`；刚 fetch 的 `origin/main=00d861283` 已无冲突合并为 `b74d7c28d`（本地），包含 G8c 与第三批评测/HTTPX2 变更。开始时主工作区干净，其他 worktree/WIP 保留。
-- 当前里程碑：primary HEAD fd372d5f27533529a0bc567a04b80db8c53e345d（仅三TASK记录，生产实现仍ba20/abe），地图六域4561pass及eval435pass既有证据保留；R3真实运行结构失败未通过质量gate。新A0a f7ba93e8bc5e428a8aef76b6d483ef4236049220 与C3a69b77838298e7fcda225ef798151a75127c98d23尚未集成，分别进入两个Sol/high独立审修树；C0 Luna/max继续实现。无push/PR/main合并/部署。
-- 下一步：R3五Scene已完成，但第6个structure任务因unresolved reveal target失败，harness按协议unknown且未重发；已正常POST engine→read_only/epoch3停止run，5 main receipts、失败task及其他任务不变，私有diagnostic-stop-20261015-r3.json与failure快照完整。Writing/Assistant/judge未运行，真实质量未通过，holdout不解码。下一可用Sol/high批次只读判定结构失败是否真实实现缺陷或模型质量失败；不得删strict目标校验或伪造completed绕过。当前继续A0/C0/C3隔离实现，R3已封存，不再有live runner；首批提交后可开始集成审修，再推进A1–A4/C1–C5。
+- 当前里程碑：primary HEAD `158cbe57b`，A0a目录v7及Sol兼容性修复、C3a通知后端及Sol修复、R3结构失败根因修复已集成本地。A0扩大回归1217pass、C3/Story/Evolution回归797pass；地图旧4561pass限旧版本。C0a23e322e01正在Sol/high审修；两个Luna/max分别继续A0b trace和C0b/C2三层聚合。没有push/PR/main合并/部署。
+- 下一步：收C0a Sol直接修复并集成；A0b追踪/路由ratchet及C0b/C2聚合每个可审查切片继续交Sol。新服务组合根接线、线性迁移和隔离PG验证后继续A1/A2、C3前端/C4/C5。R3正常停止封存，5主回执不变，Writing/Assistant/judge未运行、holdout不读取；不重试旧实验，下一真实评测须新pipeline身份。
 - 范围：用户已明确“该分支三份计划全部实施，包括操作目录、对象档案、导演和世界推进”。执行地图M0–M5及两个配套完整计划；既有计划的条件依赖和真实质量门禁仍有效，不能冒称完成。
 - 依赖：M5 依赖独立势力路线图阶段 1，现有计划明确阶段 1 前不提供领地图层；不得读取旧无时效势力字段冒充完成。
 - 已落地共享前置：`6fcce3bfd` 把7种ObservationModality上移shared并保持Evolution兼容再出口（16测）；`16f64570a` 在既有Story scene-source port提供按当前顺序的锚点/替换链只读数据（5测）。两者ruff通过，后续纳入Sol审查。
 - 验证环境：主树独立backend/.venv（Python3.14.8、locked ci）及frontend node_modules；本任务专用PostgreSQL容器 `map-enhancement-test-20261015`、loopback65202、数据库 `map_enhancement_test`，基线完整Alembic升级已通过，未接触真实库。
 - 验证：实现前 `make docs-check` 已通过（152 ORM表、49ADR）；没有真实模型/真实稿件验证。
-- 最后核实：2026-10-15T21:56:18+08:00
+- 最后核实：2026-10-15T22:44:27+08:00
 
 ## 批次与分工
 
@@ -363,3 +363,12 @@ updated: 2026-10-15T22:30:37+08:00
 ## 2026-10-15T22:31:24+08:00 Sol确定R3结构失败根因
 
 - sol_review_unified_notices只读冻结generate/review journal确认两条reveals均supported；reading_structure._simple_structure_to_parsed把揭示主题title当target_name，而persist_structure_drafts传空entity/character映射且strict=True，任意非空reveal均必然ValueError，是确定性实现缺陷。Sol正在单独离线复现与直接修，保留strict和内容/provenance，不猜World实体、不静默丢候选冒称已保存。原R3失败/stop/账本保持，无付费重试，后续实跑须新pipeline。
+
+## 2026-10-15T22:44:27+08:00 审修集成与第二批交接
+
+- 主树HEAD158cbe57b，TASK更新前干净。A0a修复：legacy forecast v3快照保留两字段；v7按实际操作兼容关闭；团队冻结不可执行项仍可describe；恢复地图编辑真实schema hash。root在dabc0b319跑Assistant/Imports/World相关扩大回归1217 passed（33.81s）。
+- C3五真实来源的Sol修复含延后到期恢复、分页更多披露、处置读timeout、静态trace字段与demo只读写拒绝。R3未解析关系主题留在batch receipt，公开作者GET /api/evolution/reading的structure_review显示数量/内容/逐Scene证据，不猜实体、不关strict。root在158cbe57b跑统一通知+全Story+Evolution workflow为797 passed（21.61s）。C3新API/DI尚待组合根接线，不当产品闭环。
+- 原A0b WIP与旧审查分支保留；Sol只读复制新目标分支且核哈希+17烟测，Luna继续实施。C0a23e进入Sol独立审修，C0b/C2 Luna并行，禁止共享文件双写。三migration链待统一，新C0/C3/trace尚未PG验收。
+- R3封存停止，本批未重跑真实请求、未改实验DB/原始回执/种子或holdout。真实质量未通过、human_validated=false；本地工程绿色不等于作者验收。没有push/PR/main合并/部署。
+
+- 文档门禁：158cbe57b的inventory通过（12模块/158表/61任务/16路由/49ADR）；直接BASE_REF检查列出CLAUDE.md、模块总览html/drawio、05_memory.md四个未改文件，root已逐项核对并用脚本支持的no-change-reason通过影响检查，理由为稳定导航/现有12模块61方向未变，A0/C3/R3不改Memory事件与checkpoint写入所有权。C0 typed state尚未集成，后续须重核并更新相关文档；不把此理由沿用到未来实现。

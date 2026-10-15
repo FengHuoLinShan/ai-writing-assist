@@ -3,7 +3,7 @@ id: T-20261015-agent-operation-surface
 title: 全模块 AI 操作入口、目标运行与操作留痕设计
 status: active
 created: 2026-10-15T14:30:00+08:00
-updated: 2026-10-15T22:30:37+08:00
+updated: 2026-10-15T22:44:27+08:00
 ---
 
 # 全模块 AI 操作入口、目标运行与操作留痕设计
@@ -19,7 +19,7 @@ updated: 2026-10-15T22:30:37+08:00
 2026-10-15 技术评审后按推荐修订 ADR-0038：目录项事务形态、目标运行 `goal` 模式与每项目唯一索引、
 高频操作留痕合并或豁免。修订经用户授权在第三个本地提交 `20d6f1eff` 中提交，未推送。
 2026-10-15 用户采纳 ADR-0038（Accepted / 未实施）；ADR-0023 补充说明与索引同步。
-用户现明确授权三份计划全部实施；本任务进入A0–A4分批实现。主树HEAD ba20dc79388133ee903e5522e9cf30ceae2905ba暂为地图真实评测固定版本，代码先在隔离树 /Users/tywww/项目/ai-writing-assist/.worktrees/map-operation-catalog-impl（codex/map-operation-catalog-impl，同base）实现。Luna/max负责A0，之后Sol/high review并直接修复；root负责集成验证，TASK唯一写入。当前下一步：完成六legacy插件纯SPEC收口、目录v2、find/describe、写路由绑定棘轮、隐私trace生命周期闭环；A1/A2/A3依批次继续。A4报表可以实现，基于数周真实数据选前三模式不能虚构。
+用户已明确三份计划全部实施；本任务执行A0–A4。当前主树158cbe57b：A0a原f7ba经Sol审修已集成63ad693df/dabc0b319，1217项相关回归通过。A0b原WIP完整留在map-operation-catalog-impl/f7ba；Sol只读复制至map-advisory-review，新分支codex/map-operation-trace-impl、净基线8d936b517，六tracked与三new文件哈希一致、17烟测通过。Luna/max只在新目标树继续A0b，独占共享composition/Assistant core；需接C3真实来源/API/处置SPEC及C0后续SPEC。root负责集成验证与唯一TASK写入，Sol/high独立review并直接修。A1/A2/A3后续继续；A4可做报表，但数周真实数据和前三模式选择不可虚构。
 
 ## 目标与验收
 
@@ -97,3 +97,12 @@ updated: 2026-10-15T22:30:37+08:00
 
 - A0a f7ba93e8bc5e428a8aef76b6d483ef4236049220已交Sol/high sol_review_operation_catalog（map-advisory-review/codex/operation-catalog-v2-review）；干净归档29定向/Ruff/docs通过。trace与写路由A0b WIP完整保留原Luna树，尚未提交/集成，下一批继续。共享装配还需接C3a/C0新SPEC，不能把A0a当全A0。
 - root主树fd372d5f2仅任务记录提交，新两批尚未集成；代码问题由Sol直接修。本地开发继续，未推送或部署。
+
+## 2026-10-15T22:44:27+08:00 审修集成与第二批交接
+
+- 主树HEAD158cbe57b，TASK更新前干净。A0a修复：legacy forecast v3快照保留两字段；v7按实际操作兼容关闭；团队冻结不可执行项仍可describe；恢复地图编辑真实schema hash。root在dabc0b319跑Assistant/Imports/World相关扩大回归1217 passed（33.81s）。
+- C3五真实来源的Sol修复含延后到期恢复、分页更多披露、处置读timeout、静态trace字段与demo只读写拒绝。R3未解析关系主题留在batch receipt，公开作者GET /api/evolution/reading的structure_review显示数量/内容/逐Scene证据，不猜实体、不关strict。root在158cbe57b跑统一通知+全Story+Evolution workflow为797 passed（21.61s）。C3新API/DI尚待组合根接线，不当产品闭环。
+- 原A0b WIP与旧审查分支保留；Sol只读复制新目标分支且核哈希+17烟测，Luna继续实施。C0a23e进入Sol独立审修，C0b/C2 Luna并行，禁止共享文件双写。三migration链待统一，新C0/C3/trace尚未PG验收。
+- R3封存停止，本批未重跑真实请求、未改实验DB/原始回执/种子或holdout。真实质量未通过、human_validated=false；本地工程绿色不等于作者验收。没有push/PR/main合并/部署。
+
+- 文档门禁：158cbe57b的inventory通过（12模块/158表/61任务/16路由/49ADR）；直接BASE_REF检查列出CLAUDE.md、模块总览html/drawio、05_memory.md四个未改文件，root已逐项核对并用脚本支持的no-change-reason通过影响检查，理由为稳定导航/现有12模块61方向未变，A0/C3/R3不改Memory事件与checkpoint写入所有权。C0 typed state尚未集成，后续须重核并更新相关文档；不把此理由沿用到未来实现。
