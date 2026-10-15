@@ -5,6 +5,9 @@ manifests. It must not contain the local novel source text.
 
 作者编辑台的原创冻结样本与单人 AI 评阅量表见 [editorial/README.md](editorial/README.md)。
 
+地图冷启动、类型涌现、写作对比和助手指令的五题材清单见
+[map_spatial/README.md](map_spatial/README.md)；当前仅为未物化、未评分的骨架。
+
 ## Local corpus
 
 - Pilot: `/Users/tywww/Desktop/项目/wirting skill/诡秘之主_第一部 小丑_前60章.txt`
