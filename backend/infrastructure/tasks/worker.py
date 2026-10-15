@@ -50,6 +50,7 @@ from infrastructure.llm.retry import (
 from infrastructure.llm.schemas import (
     AI_RUN_ENVELOPE_KEY,
     AIRunEnvelopeV1,
+    AIRunEnvelopeV4,
     AIRunStatus,
     AITaskIdentityV1,
     read_ai_run_envelope,
@@ -423,6 +424,29 @@ class TaskRunEnvelopeKeeper:
                     "registered task capability",
                     run_id=payload.root_capability_id,
                 )
+            if isinstance(payload, AIRunEnvelopeV4) or (
+                declared == "assistant.turn"
+                and "_assistant_catalog_budget_v1" in (self._task.meta or {})
+            ):
+                policy = (
+                    self._registry.resolve_run_budget_policy(
+                        self._task.task_type, self._task
+                    )
+                    if self._registry is not None
+                    else None
+                )
+                if (
+                    not isinstance(payload, AIRunEnvelopeV4)
+                    or policy is None
+                    or policy.get("budget_mode") != "assistant_catalog"
+                    or policy.get("scope_fingerprint") != payload.scope_fingerprint
+                    or policy.get("authorized_step_capabilities")
+                    != payload.authorized_step_capabilities
+                ):
+                    raise AIRunIdentityError(
+                        "assistant catalog child scope drifted during recovery",
+                        run_id=payload.run_id,
+                    )
             # 自动 requeue / stale 恢复 / manual resume 继续累计同一 run：只把
             # 执行载体换成当前 attempt 并重新打开，不重置计数、额度或 deadline。
             payload = payload.model_copy(

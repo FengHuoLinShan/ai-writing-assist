@@ -19,9 +19,9 @@ from infrastructure.llm.agent_runtime import (
     run_project_agent,
 )
 from infrastructure.llm.capabilities import capability_from_execution_snapshot
-from infrastructure.llm.schemas import LLMCallRequest, LLMMessage
+from infrastructure.llm.schemas import AIRunEnvelopeV4, LLMCallRequest, LLMMessage
 from infrastructure.llm.web_search import search_snapshot, search_snapshot_matches
-from infrastructure.llm.workflow_budget import workflow_budget
+from infrastructure.llm.workflow_budget import current_ai_run_envelope, workflow_budget
 from infrastructure.tasks.facade import (
     enqueue_operation_task,
     list_task_lifecycle_contracts,
@@ -107,6 +107,37 @@ _V7_INSTRUCTIONS = _INSTRUCTIONS.replace(
     "R0 只读目录操作可通过 read_operation 读取；其余只读复核直接调用 "
     "review_assets，生成领域回执，",
 )
+
+_CATALOG_CHILD_STEPS = {
+    "story.character_card.generate": "story.character_card",
+    "story.reaction.generate": "story.reaction",
+}
+
+
+def _assistant_catalog_budget_scope(
+    runtime_version: str, frozen_operations: dict
+) -> dict | None:
+    """Derive child steps only from C2 operations actually frozen for this run."""
+    if runtime_version != "9" or not isinstance(frozen_operations, dict):
+        return None
+    current = operation_manifest()
+    children = sorted(
+        step
+        for op_id, step in _CATALOG_CHILD_STEPS.items()
+        if op_id in frozen_operations
+        and op_id in current
+        and current[op_id]["metadata"]["ai_available"] is True
+        and current[op_id]["metadata"]["permission"] == "suggest"
+        and fingerprint(frozen_operations[op_id]) == fingerprint(current[op_id])
+    )
+    if not children:
+        return None
+    return {
+        "scope_fingerprint": fingerprint(
+            {"runtime_version": runtime_version, "operations": frozen_operations}
+        ),
+        "authorized_step_capabilities": children,
+    }
 
 
 def display_sources(references, keys):
@@ -577,6 +608,12 @@ class AssistantService:
                 **payload["context"],
                 "source_hash": draft.content_hash,
             }
+        frozen_operations = {
+            name: value
+            for name, value in operation_manifest().items()
+            if operation_names is None or name in operation_names
+        }
+        catalog_budget_scope = _assistant_catalog_budget_scope("9", frozen_operations)
         run = AssistantRun(
             id=data.operation_id,
             novel_id=data.novel_id,
@@ -591,11 +628,7 @@ class AssistantService:
                 "web_search": search_snapshot()
                 if data.allow_web and data.web_backend == "searxng-v1"
                 else None,
-                "operations": {
-                    name: value
-                    for name, value in operation_manifest().items()
-                    if operation_names is None or name in operation_names
-                },
+                "operations": frozen_operations,
                 "read_tools": {
                     tool.name: fingerprint(tool.function_schema.json_schema)
                     for tool in author_read_tools(allow_web=True, version="9")
@@ -621,7 +654,14 @@ class AssistantService:
                 task_type="assistant_turn",
                 novel_id=novel_id,
                 request_payload=payload,
-                meta={"run_id": str(run.id)},
+                meta={
+                    "run_id": str(run.id),
+                    **(
+                        {"_assistant_catalog_budget_v1": catalog_budget_scope}
+                        if catalog_budget_scope
+                        else {}
+                    ),
+                },
             )
         except ValueError as exc:
             raise ConflictError(
@@ -992,6 +1032,26 @@ class AssistantService:
         )
         protocol = runtime_protocol(payload)
         runtime_version = str(payload.get("runtime_version", "2"))
+        frozen_scope = _assistant_catalog_budget_scope(
+            runtime_version, protocol["operations"]
+        )
+        if frozen_scope != (task.meta or {}).get("_assistant_catalog_budget_v1"):
+            raise ConflictError(
+                "助手目录的子能力授权已变化",
+                code="assistant_runtime_changed",
+            )
+        if frozen_scope is not None:
+            envelope = current_ai_run_envelope()
+            snapshot = envelope.snapshot() if envelope is not None else None
+            if not isinstance(snapshot, AIRunEnvelopeV4) or (
+                snapshot.scope_fingerprint != frozen_scope["scope_fingerprint"]
+                or snapshot.authorized_step_capabilities
+                != frozen_scope["authorized_step_capabilities"]
+            ):
+                raise ConflictError(
+                    "助手运行缺少当前冻结目录的子能力授权",
+                    code="assistant_runtime_changed",
+                )
         operations = resolve_operations(
             protocol["operations"], allow_stale=runtime_version in {"7", "8", "9"}
         )

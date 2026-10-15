@@ -13,6 +13,7 @@ from sqlalchemy import func, select
 from core.config import get_settings
 from infrastructure.llm import web_search
 from infrastructure.llm.schemas import LLMCallResponse, LLMToolCall, LLMUsage
+from infrastructure.llm.workflow_budget import ai_run_scope, new_ai_run_envelope
 from infrastructure.tasks.models import AsyncTask
 from modules.assistant.models import AssistantActionBatch, AssistantRun
 from modules.assistant.service import AssistantService
@@ -264,6 +265,13 @@ async def test_author_turn_preview_confirm_and_replay(
             },
         }
         frozen = run.request_json
+    # This fixture rewrites a new v9 run into a historic runtime; its v9-only
+    # server-issued child scope must leave with the rewritten runtime.
+    task.meta = {
+        key: value
+        for key, value in task.meta.items()
+        if key != "_assistant_catalog_budget_v1"
+    }
     monkeypatch.setitem(catalog(), "project.future_tool", catalog()["project.add_task"])
     assert "project.future_tool" not in resolve_operations(frozen["operations"])
     task.status = "running"
@@ -372,6 +380,16 @@ async def test_submit_requires_connection_and_rejects_caller_authority(
         json={**body, "owner_id": str(uuid.uuid4())},
     )
     assert denied.status_code == 422
+    forged_scope = await async_client.post(
+        f"/api/assistant/sessions/{session_id}/turns",
+        json={
+            **body,
+            "_assistant_catalog_budget_v1": {
+                "authorized_step_capabilities": ["story.reaction"]
+            },
+        },
+    )
+    assert forged_scope.status_code == 422
     missing = await async_client.post(
         f"/api/assistant/sessions/{session_id}/turns", json=body
     )
@@ -648,7 +666,18 @@ async def test_legacy_history_reaches_model_only_within_authorized_scope(
     task = await db_session.get(AsyncTask, uuid.UUID(operation))
     task.status = "running"
     await db_session.flush()
-    result = await AssistantService().execute(db_session, task)
+    with ai_run_scope(
+        new_ai_run_envelope(
+            operation_id=str(task.id),
+            run_id=str(task.id),
+            root_capability_id="assistant.turn",
+            novel_id=test_project_id,
+            request_limit=30,
+            budget_mode="assistant_catalog",
+            **task.meta["_assistant_catalog_budget_v1"],
+        )
+    ):
+        result = await AssistantService().execute(db_session, task)
     assert result["status"] == "completed"
     text = "\n".join(seen)
     for content in ("旧共创消息", "旧手工决定"):

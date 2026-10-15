@@ -22,11 +22,14 @@ from infrastructure.llm.agent_runtime import AgentRunBudget
 from infrastructure.llm.schemas import (
     AI_RUN_RECENT_ATTEMPT_LIMIT,
     AIChargeState,
+    AIGoalScopeAuthorizationV1,
     AIRequestOutcome,
     AIRunAuthorizationReason,
     AIRunAuthorizationV1,
     AIRunEnvelopeV1,
     AIRunEnvelopeV2,
+    AIRunEnvelopeV3,
+    AIRunEnvelopeV4,
     AIRunStatus,
     AIStepAttemptV1,
     AIStepCallKind,
@@ -245,6 +248,7 @@ def new_ai_run_envelope(
     request_limit: int | None,
     budget_mode: str | None = None,
     scope_fingerprint: str | None = None,
+    authorized_step_capabilities: list[str] | None = None,
     token_limit: int | None = None,
     deadline_at: datetime | None = None,
     previous_run_id: str | None = None,
@@ -253,8 +257,61 @@ def new_ai_run_envelope(
     started_at: datetime | None = None,
 ) -> AIRunEnvelope:
     """按领域冻结的额度与 deadline 建立 v1 运行账本。"""
-    if budget_mode not in {None, "bounded", "confirmed_scope"}:
+    if budget_mode not in {
+        None,
+        "bounded",
+        "confirmed_scope",
+        "goal",
+        "assistant_catalog",
+    }:
         raise ValueError("run budget policy must be declared")
+    if budget_mode == "assistant_catalog":
+        if root_capability_id != "assistant.turn" or not scope_fingerprint:
+            raise ValueError("assistant catalog run requires a frozen scope")
+        return AIRunEnvelope(
+            AIRunEnvelopeV4(
+                operation_id=operation_id,
+                run_id=run_id,
+                previous_run_id=previous_run_id,
+                root_capability_id="assistant.turn",
+                novel_id=novel_id,
+                task=task,
+                started_at=started_at or datetime.now(UTC),
+                deadline_at=deadline_at,
+                request_limit=request_limit,
+                token_limit=token_limit,
+                legacy_untracked=legacy_untracked,
+                usage_complete=not legacy_untracked,
+                scope_fingerprint=scope_fingerprint,
+                authorized_step_capabilities=sorted(
+                    set(authorized_step_capabilities or ())
+                ),
+            )
+        )
+    if budget_mode == "goal":
+        if root_capability_id != "assistant.goal.run" or not scope_fingerprint:
+            raise ValueError("goal run envelopes require their own frozen scope")
+        return AIRunEnvelope(
+            AIRunEnvelopeV3(
+                operation_id=operation_id,
+                run_id=run_id,
+                previous_run_id=previous_run_id,
+                root_capability_id=root_capability_id,
+                novel_id=novel_id,
+                task=task,
+                started_at=started_at or datetime.now(UTC),
+                deadline_at=deadline_at,
+                request_limit=request_limit,
+                token_limit=token_limit,
+                legacy_untracked=legacy_untracked,
+                usage_complete=not legacy_untracked,
+                budget_mode="goal",
+                scope_fingerprint=scope_fingerprint,
+                authorized_step_capabilities=sorted(
+                    set(authorized_step_capabilities or ())
+                ),
+            )
+        )
     return AIRunEnvelope(
         (AIRunEnvelopeV2 if budget_mode is not None else AIRunEnvelopeV1)(
             **(
@@ -427,6 +484,21 @@ class AIRunEnvelope:
                     "confirmed_scope cannot authorize a different model",
                     run_id=self.run_id,
                 )
+        if isinstance(self._envelope, AIRunEnvelopeV4):
+            if self._envelope.requests_unknown:
+                raise AIRunBudgetExceededError(
+                    "assistant catalog has an unknown charge; author review is required",
+                    run_id=self.run_id,
+                )
+            if (
+                self._envelope.request_limit
+                and self._envelope.requests_started * 5
+                >= self._envelope.request_limit * 4
+            ):
+                raise AIRunBudgetExceededError(
+                    "assistant catalog run reached the 80 percent stop point",
+                    run_id=self.run_id,
+                )
         if self._envelope.request_budget_exhausted():
             raise AIRunBudgetExceededError(
                 "run request limit reached; only an explicit author authorization "
@@ -595,6 +667,38 @@ class AIRunEnvelope:
                 authorized_at=self._clock(),
             ),
         )
+        await self._notify_tolerant()
+
+    @_serialized
+    async def authorize_goal_scope(
+        self,
+        authorized_step_capabilities: list[str],
+        *,
+        scope_fingerprint: str,
+    ) -> None:
+        """Freeze a capability set from an explicit author-approved goal plan."""
+        if not isinstance(self._envelope, AIRunEnvelopeV3):
+            raise AIRunIdentityError(
+                "only goal v3 envelopes accept goal capability scope",
+                run_id=self.run_id,
+            )
+        capabilities = sorted(set(authorized_step_capabilities))
+        current = set(self._envelope.authorized_step_capabilities)
+        if not current <= set(capabilities):
+            raise AIRunIdentityError(
+                "goal scope cannot remove capabilities from an active frozen envelope",
+                run_id=self.run_id,
+            )
+        revision = len(self._envelope.scope_authorizations) + 1
+        authorization = AIGoalScopeAuthorizationV1(
+            revision=revision,
+            scope_fingerprint=scope_fingerprint,
+            authorized_step_capabilities=capabilities,
+            authorized_at=self._clock(),
+        )
+        self._envelope.authorized_step_capabilities = capabilities
+        self._envelope.scope_fingerprint = scope_fingerprint
+        self._envelope.scope_authorizations.append(authorization)
         await self._notify_tolerant()
 
     @_serialized

@@ -588,6 +588,107 @@ class AIRunEnvelopeV2(AIRunEnvelopeV1):
         return self
 
 
+class AIGoalScopeAuthorizationV1(BaseModel):
+    """Author-approved capability widening for one frozen goal plan scope."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    revision: int = Field(ge=1)
+    scope_fingerprint: str = Field(pattern="^[a-f0-9]{64}$")
+    authorized_step_capabilities: list[str] = Field(min_length=1, max_length=100)
+    authorized_at: datetime
+
+    @field_validator("authorized_at")
+    @classmethod
+    def require_aware_authorized_at(cls, value: datetime) -> datetime:
+        if value.tzinfo is None:
+            raise ValueError("goal scope authorization timestamp must be timezone-aware")
+        return value
+
+
+class AIRunEnvelopeV3(AIRunEnvelopeV1):
+    """Goal-only v3 envelope with an author-frozen registered capability set.
+
+    v1 and v2 retain their existing validators and capability rule. A goal run
+    may add only server-resolved capability IDs after each explicit author
+    approval; arbitrary model or request values never enter this allowlist.
+    """
+
+    version: Literal[3] = 3
+    budget_mode: Literal["goal"] = "goal"
+    scope_fingerprint: str = Field(pattern="^[a-f0-9]{64}$")
+    authorized_step_capabilities: list[str] = Field(default_factory=list, max_length=100)
+    scope_authorizations: list[AIGoalScopeAuthorizationV1] = Field(default_factory=list)
+
+    @field_validator("authorized_step_capabilities")
+    @classmethod
+    def require_unique_goal_capabilities(cls, value: list[str]) -> list[str]:
+        if len(value) != len(set(value)) or any(
+            not capability
+            or len(capability) > 160
+            or not re.fullmatch(r"[A-Za-z0-9_.:-]+", capability)
+            for capability in value
+        ):
+            raise ValueError("goal capability scope is invalid")
+        return value
+
+    @model_validator(mode="after")
+    def validate_goal_scope(self) -> AIRunEnvelopeV3:
+        if self.root_capability_id != "assistant.goal.run":
+            raise ValueError("v3 run envelopes are reserved for assistant goal runs")
+        if not self.scope_fingerprint:
+            raise ValueError("goal envelope requires a frozen scope fingerprint")
+        revisions = [item.revision for item in self.scope_authorizations]
+        if revisions != list(range(1, len(revisions) + 1)):
+            raise ValueError("goal scope authorization revisions must be monotonic")
+        if self.scope_authorizations and (
+            self.scope_authorizations[-1].scope_fingerprint != self.scope_fingerprint
+            or self.scope_authorizations[-1].authorized_step_capabilities
+            != self.authorized_step_capabilities
+        ):
+            raise ValueError("goal capability set must match its latest authorization")
+        return self
+
+    def step_capability_allowed(self, capability_id: str) -> bool:
+        return (
+            capability_id == self.root_capability_id
+            or capability_id.startswith(INFRASTRUCTURE_CAPABILITY_PREFIX)
+            or capability_id in self.authorized_step_capabilities
+        )
+
+
+_ASSISTANT_CATALOG_CHILD_CAPABILITIES = frozenset(
+    {"story.character_card", "story.reaction"}
+)
+
+
+class AIRunEnvelopeV4(AIRunEnvelopeV1):
+    """Assistant turn with only its server-frozen C2 catalog child capabilities."""
+
+    version: Literal[4] = 4
+    budget_mode: Literal["assistant_catalog"] = "assistant_catalog"
+    root_capability_id: Literal["assistant.turn"] = "assistant.turn"
+    scope_fingerprint: str = Field(pattern=r"^[a-f0-9]{64}$")
+    authorized_step_capabilities: list[str] = Field(min_length=1, max_length=2)
+
+    @field_validator("authorized_step_capabilities")
+    @classmethod
+    def require_exact_registered_children(cls, value: list[str]) -> list[str]:
+        if (
+            value != sorted(set(value))
+            or not set(value) <= _ASSISTANT_CATALOG_CHILD_CAPABILITIES
+        ):
+            raise ValueError("assistant catalog child capabilities are invalid")
+        return value
+
+    def step_capability_allowed(self, capability_id: str) -> bool:
+        return (
+            capability_id == self.root_capability_id
+            or capability_id.startswith(INFRASTRUCTURE_CAPABILITY_PREFIX)
+            or capability_id in self.authorized_step_capabilities
+        )
+
+
 class AIRunEnvelopeVersionError(ValueError):
     """信封版本无法识别；调用方必须失败关闭而不是猜测。"""
 
@@ -606,6 +707,10 @@ def read_ai_run_envelope(payload: Any) -> AIRunEnvelopeV1 | None:
             return None
         if version == 2:
             return AIRunEnvelopeV2.model_validate(payload)
+        if version == 3:
+            return AIRunEnvelopeV3.model_validate(payload)
+        if version == 4:
+            return AIRunEnvelopeV4.model_validate(payload)
         if version != AI_RUN_ENVELOPE_VERSION:
             raise AIRunEnvelopeVersionError(
                 f"unsupported AI run envelope version {version!r}"

@@ -22,6 +22,9 @@ from infrastructure.llm.schemas import (
     AIRequestOutcome,
     AIRunAuthorizationReason,
     AIRunEnvelopeV1,
+    AIRunEnvelopeV2,
+    AIRunEnvelopeV3,
+    AIRunEnvelopeV4,
     AIRunEnvelopeVersionError,
     AIRunStatus,
     AIStepCallKind,
@@ -101,6 +104,104 @@ class _FakeClient:
 
 
 class TestEnvelopeContract:
+    def test_assistant_catalog_v4_is_exact_and_old_envelopes_stay_closed(self):
+        ledger = new_ai_run_envelope(
+            operation_id="op-c2",
+            run_id="run-c2",
+            root_capability_id="assistant.turn",
+            novel_id="novel-c2",
+            request_limit=30,
+            budget_mode="assistant_catalog",
+            scope_fingerprint="a" * 64,
+            authorized_step_capabilities=["story.character_card", "story.reaction"],
+            started_at=_STARTED_AT,
+        )
+        snapshot = ledger.snapshot()
+        assert isinstance(snapshot, AIRunEnvelopeV4)
+        assert snapshot.step_capability_allowed("story.character_card")
+        assert snapshot.step_capability_allowed("story.reaction")
+        assert not snapshot.step_capability_allowed("world.chat")
+        assert not snapshot.step_capability_allowed("story.script")
+        assert snapshot.started_at == _STARTED_AT
+        assert read_ai_run_envelope(snapshot.model_dump(mode="json")) == snapshot
+        old_v1 = _raw_envelope(root_capability_id="assistant.turn")
+        assert not old_v1.step_capability_allowed("story.character_card")
+        old_v2 = AIRunEnvelopeV2(
+            operation_id="op-old",
+            run_id="run-old",
+            root_capability_id="assistant.turn",
+            novel_id="novel-c2",
+            started_at=_STARTED_AT,
+            request_limit=30,
+            budget_mode="bounded",
+        )
+        assert not old_v2.step_capability_allowed("story.reaction")
+        goal = AIRunEnvelopeV3(
+            operation_id="op-goal",
+            run_id="run-goal",
+            root_capability_id="assistant.goal.run",
+            novel_id="novel-c2",
+            started_at=_STARTED_AT,
+            request_limit=30,
+            scope_fingerprint="b" * 64,
+        )
+        assert not goal.step_capability_allowed("story.character_card")
+        with pytest.raises(ValidationError):
+            AIRunEnvelopeV4(
+                **snapshot.model_dump(exclude={"authorized_step_capabilities"}),
+                authorized_step_capabilities=["world.chat"],
+            )
+
+    async def test_assistant_catalog_v4_stops_at_eighty_percent_or_unknown(self):
+        async def one_call(ledger):
+            with (
+                ai_run_scope(ledger),
+                managed_step_scope(_step(capability_id="story.character_card")),
+            ):
+                reservation = await ledger.reserve()
+                await ledger.settle(reservation, usage=LLMUsage(total_tokens=1))
+
+        ledger = new_ai_run_envelope(
+            operation_id="op-c2",
+            run_id="run-c2",
+            root_capability_id="assistant.turn",
+            novel_id="novel-c2",
+            request_limit=5,
+            budget_mode="assistant_catalog",
+            scope_fingerprint="a" * 64,
+            authorized_step_capabilities=["story.character_card"],
+        )
+        for _ in range(4):
+            await one_call(ledger)
+        with (
+            ai_run_scope(ledger),
+            managed_step_scope(_step(capability_id="story.character_card")),
+        ):
+            with pytest.raises(AIRunBudgetExceededError, match="80 percent"):
+                await ledger.reserve()
+        assert ledger.snapshot().requests_started == 4
+
+        unknown = new_ai_run_envelope(
+            operation_id="op-unknown",
+            run_id="run-unknown",
+            root_capability_id="assistant.turn",
+            novel_id="novel-c2",
+            request_limit=5,
+            budget_mode="assistant_catalog",
+            scope_fingerprint="a" * 64,
+            authorized_step_capabilities=["story.character_card"],
+        )
+        with (
+            ai_run_scope(unknown),
+            managed_step_scope(_step(capability_id="story.character_card")),
+        ):
+            reservation = await unknown.reserve()
+            await unknown.settle(reservation, usage=None, error_kind="timeout")
+            with pytest.raises(AIRunBudgetExceededError, match="unknown charge"):
+                await unknown.reserve()
+        assert unknown.snapshot().requests_started == 1
+        assert unknown.snapshot().requests_unknown == 1
+
     def test_round_trip_preserves_ledger(self) -> None:
         envelope = _raw_envelope(
             deadline_at=_STARTED_AT + timedelta(minutes=5),
@@ -262,17 +363,18 @@ class TestRunLedger:
 
     async def test_step_capability_drift_is_rejected(self) -> None:
         ledger = _ledger()
-        with ai_run_scope(ledger), managed_step_scope(
-            _step(capability_id="world.chat")
-        ):
+        with ai_run_scope(ledger), managed_step_scope(_step(capability_id="world.chat")):
             with pytest.raises(AIRunIdentityError):
                 await ledger.reserve()
         assert ledger.snapshot().requests_started == 0
 
     async def test_infrastructure_helper_step_is_allowed(self) -> None:
         ledger = _ledger()
-        with ai_run_scope(ledger), managed_step_scope(
-            _step(step_name="repair", capability_id="infrastructure.format_repair")
+        with (
+            ai_run_scope(ledger),
+            managed_step_scope(
+                _step(step_name="repair", capability_id="infrastructure.format_repair")
+            ),
         ):
             reservation = await ledger.reserve()
             await ledger.settle(reservation, usage=LLMUsage(total_tokens=1))
@@ -375,9 +477,7 @@ class TestRunLedger:
         assert snapshot.requests_unknown == 1
         assert snapshot.usage_complete is False
         assert snapshot.charge_state is AIChargeState.possible
-        assert [a.outcome for a in snapshot.recent_attempts] == [
-            AIRequestOutcome.unknown
-        ]
+        assert [a.outcome for a in snapshot.recent_attempts] == [AIRequestOutcome.unknown]
 
         with pytest.raises(AIRunStateError):
             await ledger.settle(reservation, usage=LLMUsage(total_tokens=1))
@@ -754,9 +854,10 @@ class TestCheckpointAuthorityAndDiscard:
         assert snapshot.requests_started == AI_RUN_RECENT_ATTEMPT_LIMIT + 2
         assert len(snapshot.recent_attempts) == AI_RUN_RECENT_ATTEMPT_LIMIT
         assert snapshot.recent_attempts_overflow == 2
-        assert [
-            attempt.request_index for attempt in snapshot.recent_attempts[-2:]
-        ] == [AI_RUN_RECENT_ATTEMPT_LIMIT + 2, AI_RUN_RECENT_ATTEMPT_LIMIT + 3]
+        assert [attempt.request_index for attempt in snapshot.recent_attempts[-2:]] == [
+            AI_RUN_RECENT_ATTEMPT_LIMIT + 2,
+            AI_RUN_RECENT_ATTEMPT_LIMIT + 3,
+        ]
 
     async def test_discard_rejects_an_already_settled_reservation(self) -> None:
         ledger = _ledger()

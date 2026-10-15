@@ -44,6 +44,7 @@ from infrastructure.llm.workflow_budget import (
     ai_run_scope,
     current_ai_run_envelope,
     managed_step_scope,
+    new_ai_run_envelope,
 )
 
 _STARTED_AT = datetime(2026, 9, 15, 10, 0, tzinfo=UTC)
@@ -249,6 +250,53 @@ def native_search_enabled(monkeypatch: pytest.MonkeyPatch) -> None:
         "infrastructure.llm.native_search.verified_native_search",
         lambda _provider_id, _model: "test-protocol",
     )
+
+
+@pytest.mark.asyncio
+async def test_assistant_catalog_stops_before_provider_io_at_eighty_percent_or_unknown():
+    provider = _TextProvider()
+    client = _client(provider, max_attempts=1)
+    ledger = new_ai_run_envelope(
+        operation_id="op-c2",
+        run_id="run-c2",
+        root_capability_id="assistant.turn",
+        novel_id="novel-1",
+        request_limit=5,
+        budget_mode="assistant_catalog",
+        scope_fingerprint="a" * 64,
+        authorized_step_capabilities=["story.character_card"],
+    )
+    with ai_run_scope(ledger), managed_step_scope(
+        _step(capability_id="story.character_card")
+    ):
+        for _ in range(4):
+            await client.generate(_request())
+        with pytest.raises(AIRunBudgetExceededError, match="80 percent"):
+            await client.generate(_request())
+    assert len(provider.requests) == 4
+    assert ledger.snapshot().requests_started == 4
+
+    failed_provider = _TextProvider(failures=1)
+    failed_client = _client(failed_provider, max_attempts=1)
+    unknown = new_ai_run_envelope(
+        operation_id="op-unknown",
+        run_id="run-unknown",
+        root_capability_id="assistant.turn",
+        novel_id="novel-1",
+        request_limit=5,
+        budget_mode="assistant_catalog",
+        scope_fingerprint="a" * 64,
+        authorized_step_capabilities=["story.character_card"],
+    )
+    with ai_run_scope(unknown), managed_step_scope(
+        _step(capability_id="story.character_card")
+    ):
+        with pytest.raises(LLMTimeoutError):
+            await failed_client.generate(_request())
+        with pytest.raises(AIRunBudgetExceededError, match="unknown charge"):
+            await failed_client.generate(_request())
+    assert len(failed_provider.requests) == 1
+    assert unknown.snapshot().requests_unknown == 1
 
 
 @pytest.mark.asyncio

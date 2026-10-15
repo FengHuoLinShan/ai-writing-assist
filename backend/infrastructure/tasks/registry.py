@@ -174,6 +174,7 @@ class TaskRegistry:
         if not isinstance(policy, dict) or policy.get("budget_mode") not in {
             "bounded",
             "confirmed_scope",
+            "assistant_catalog",
         }:
             raise ValueError("invalid declared run budget policy")
         return policy

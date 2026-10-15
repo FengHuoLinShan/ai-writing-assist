@@ -136,6 +136,10 @@ Embedding、streaming 和 `generate_simple()` 不是本 harness 的默认迁移�
 `infrastructure.llm.schemas.AIRunEnvelopeV1` 定义 run 级累计账本与 step 回执，
 `infrastructure.llm.workflow_budget.AIRunEnvelope` 负责累计，`ai_run_scope()` 与
 `managed_step_scope()` 通过 ContextVar 把运行身份与当前 step 注入 provider 调用链。
+Goal v3 使用独立作者授权的冻结能力范围；Assistant 目录 v4 仅允许从服务端冻结的
+v9 目录导出的两项 C2 Story 子能力，子任务沿父 run 计数、期限和启动时间。
+恢复对比任务私有范围与信封，执行再核目录指纹；v4 在未知扣费或 80% 请求阈值后
+拒绝下一次 provider 预留，v1/v2 原有能力规则不扩宽。
 自动重试、恢复、requeue 与 manual resume 累加同一 run；只有作者显式续算或确认可能重复扣费
 才增加请求额度，且不移动 deadline。已取得含 usage 完整回执（含失败请求）记 `recorded`；已发出
 但结果或用量证据不完整记 `possible`；预算或 deadline 拒绝记 `none`，且拒绝发生在任何计数之前。
