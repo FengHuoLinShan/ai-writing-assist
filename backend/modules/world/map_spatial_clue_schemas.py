@@ -11,6 +11,7 @@ from modules.world.map_structure_schemas import SpatialQuantityRange, SpatialVal
 from modules.world.project_vocabulary_schemas import (
     ModelVocabularyProposal,
     VocabularyEvidence,
+    VocabularyTermFields,
     VocabularyTraits,
 )
 from shared.observation import ObservationModality
@@ -116,7 +117,9 @@ class MapSpatialClueEndpoint(SpatialClueModel):
     @model_validator(mode="after")
     def validate_endpoint(self) -> MapSpatialClueEndpoint:
         bound = self.entity_id is not None and self.state is not None
-        unresolved = self.entity_id is None and self.state is None and self.surface is not None
+        unresolved = (
+            self.entity_id is None and self.state is None and self.surface is not None
+        )
         if bound == unresolved:
             raise ValueError("endpoint must be a bound entity or one unresolved surface")
         if bound and self.surface is not None:
@@ -132,6 +135,13 @@ class MapSpatialClueTypeRef(SpatialClueModel):
     type_ref: UUID
     type_revision_id: UUID
     kind: SpatialVocabularyKind
+
+
+class MapSpatialClueTypeProposalDraft(VocabularyTermFields):
+    """First-scene proposal, persisted only as an emerging, non-computable term."""
+
+    kind: SpatialVocabularyKind
+    proposal_run_id: UUID
 
 
 class MapSpatialClueCallRef(SpatialClueModel):
@@ -192,6 +202,7 @@ class MapSpatialClue(SpatialClueModel):
     type_ref: UUID | None = None
     type_revision_id: UUID | None = None
     type_kind: SpatialVocabularyKind | None = None
+    type_proposal_draft: MapSpatialClueTypeProposalDraft | None = None
     type_proposal: ModelVocabularyProposal | None = None
     modality: ObservationModality
     quote: str = Field(min_length=1, max_length=2000)
@@ -210,8 +221,15 @@ class MapSpatialClue(SpatialClueModel):
             item is not None for item in type_fields
         ):
             raise ValueError("a type reference must pin identity, revision, and kind")
-        if self.type_proposal is not None and any(item is not None for item in type_fields):
+        if self.type_proposal is not None and any(
+            item is not None for item in type_fields
+        ):
             raise ValueError("a clue cannot carry both a fixed type and a type proposal")
+        if self.type_proposal_draft is not None and (
+            self.type_proposal is not None
+            or any(item is not None for item in type_fields)
+        ):
+            raise ValueError("a clue can carry only one fixed or proposed type")
         if (
             self.type_proposal is not None
             and self.type_proposal.kind not in SpatialVocabularyKind.__args__
@@ -335,6 +353,18 @@ class MapSpatialClueDecisionRequest(SpatialClueModel):
         return self
 
 
+class MapSpatialClueEvidenceResponse(SpatialClueModel):
+    scene_id: str
+    quote: str
+
+
+class MapSpatialClueTypeProposalResponse(VocabularyTermFields):
+    kind: SpatialVocabularyKind
+    evidence: list[MapSpatialClueEvidenceResponse] = Field(
+        default_factory=list, max_length=32
+    )
+
+
 class MapSpatialClueResponse(SpatialClueModel):
     """Author-facing clue data; internal run/reviewer identities stay private."""
 
@@ -350,6 +380,9 @@ class MapSpatialClueResponse(SpatialClueModel):
     target: MapSpatialClueEndpoint | None = None
     relation: str | None = None
     type_ref: UUID | None = None
+    type_revision_id: UUID | None = None
+    type_kind: SpatialVocabularyKind | None = None
+    type_proposal: MapSpatialClueTypeProposalResponse | None = None
     modality: ObservationModality
     quote: str
     attributes: MapSpatialClueAttributes
@@ -373,6 +406,7 @@ __all__ = [
     "MapSpatialClueDecisionRequest",
     "MapSpatialClueEndpoint",
     "MapSpatialClueEndpointIdentity",
+    "MapSpatialClueEvidenceResponse",
     "MapSpatialClueKind",
     "MapSpatialClueListResponse",
     "MapSpatialClueRejection",
@@ -385,6 +419,8 @@ __all__ = [
     "MapSpatialClueStageResult",
     "MapSpatialClueStatus",
     "MapSpatialClueTypeRef",
+    "MapSpatialClueTypeProposalDraft",
+    "MapSpatialClueTypeProposalResponse",
     "MapSpatialClueVerdict",
     "SpatialVocabularyKind",
 ]
