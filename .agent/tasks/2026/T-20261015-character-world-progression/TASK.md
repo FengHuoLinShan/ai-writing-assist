@@ -3,7 +3,7 @@ id: T-20261015-character-world-progression
 title: 世界对象档案、场景导演、写作副驾驶与世界推进设计
 status: active
 created: 2026-10-15T16:00:00+08:00
-updated: 2026-10-16T06:40:37+08:00
+updated: 2026-10-16T06:44:53+08:00
 ---
 
 # 世界对象档案、场景导演、写作副驾驶与世界推进设计
@@ -38,7 +38,7 @@ C5 Luna已固定实现0f2dfa692，随后只cherry已审Sol8ca fixture为`ac4e08a
 
 新Sol/high sol_review_world_progression已在map-clue-review/codex/world-progression-review从3caf无冲突合ac4为be600ee05，正直接修guard和领域/预算/知识。新专库world_progression_review_test_20261016及18594/18595已分配，待C4新迁移固定后才fresh升级，避免先应用C5再插祖先导致版本假完整；Luna旧库保留不用。该Sol暂不写共享顶层/目录/worker/env/api/story.js或C0 facade。当前另一Sol仍独占author-operations-review做C4候选桥接、顶层组合与api/story.js；新专库director_candidate_review_test_20261016及18596/18597已分配。C4固定后root再移交共享槽给C5 Sol完成真正装配与PG/HTTP/浏览器。
 
-C0模板互通Luna/max已启动：world-object-dossier-impl/codex/dossier-template-interchange-impl由旧干净978a树fast-forward到f5c6，保留旧分支。负责自定义类型显式借八类内核（含既有faction）、版本化五题材预设、真正CSV/XLSX/JSON预览采用/撤销与作者UI。新专库dossier_template_interchange_impl_test_20261016及18592/18593已分配，创建须回报；不得借其他专库。root独占TASK和共享任务artifacts。
+C0模板互通Luna/max已固定b4381119fc032137575f68b72ff69aa4acca9412并退出，树干净，18592/18593已停。候选含八类内核显式借用、五题材v2、CSV/XLSX/JSON预览采用撤销与作者UI，101后端/34Vue/1PG E2E/1浏览器及lint/build/docs通过。专库dossier_template_interchange_impl_test_20261016已创建，head20261016_interaction_summary_task_pointer，无新migration，保留合成项目ee824c87-3905-4dfb-954b-7f85ef1da84d。新Sol/high sol_review_dossier_interchange在map-spatial-eval-review/codex/dossier-template-interchange-review从干净primary10b4合候选，独占World facade/dossier/template/Imports/world.js；root发现新增author PUT/manifest preview/apply尚无纯SPEC/真实路由trace，已要求Sol直接补版本化接口并保持旧冻结，作者手动export不能开放为AI外发。新专库dossier_template_interchange_review_test_20261016与18598/18599分配该Sol，尚未报告创建。共享顶层先C4后C5，该C0 Sol先独立域，不争写权。root独占TASK和共享任务artifacts。
 
 剩余C3前瞻表演格式/人物弧计划实际/演化阅读提醒、A1真实章节重排/一般Story时间线将继续分批Luna实施、Sol直接审修；root又核对C4新引入对象一键转World候选尚缺闭环，已列Sol直接补的尾项，不能用已通过的部分测试替代。C1长篇、M5势力、RP迁移、A4数周数据条件门禁如实保留。C0c/C4已审工程证据保留各handoff；真实地图R3仍诊断封存，holdout不解码，后续采用“模拟作者显式指定Scene地点”评测口径。零新真实模型请求，未push/PR/main合并/部署。
 
@@ -46,7 +46,7 @@ C0模板互通Luna/max已启动：world-object-dossier-impl/codex/dossier-templa
 
 本轮审查更新：C4 Sol首版8PG/真实浏览器已通过，但root发现只从candidate_events转实体不足以覆盖表演/素材中的新人物和地点refs，现由Sol直接补event-free结构化对象转入及R3纯SPEC/真实trace；旧路径证据不当最终。C5 Sol已修角色收到作者累计摘要、地图有效期断档仍参与路线、钩子读取错回执与锁后未复核导致重复采用；52项定向后端通过。实际app导入又发现continuous从tasks导入不存在_task_meta，正在归位修复。root已明确要求第9项独立R4 resume与UI，保持同Root/start/deadline及所有累计计数、当前unknown确认集合和持久半步checkpoint，新unknown再次停点，不能重置或换根。C0 Luna作者专用模板接口与旧AI schema分离，省略借用继承旧值；101后端/34Vue/lint/build及1专库E2E通过，继续CSV/XLSX/JSON与真实UI验证，尚未交Sol。其专库已创建，当前head待最终回报。
 
-下一步：Sol先固定C4候选桥接，再将共享槽移交C5 Sol完成装配与审修，C0 Luna继续模板互通。之后C3/A1实施与C0审修继续分批；条件门禁如实保留。
+下一步：Sol先固定C4候选桥接，再将共享槽移交C5 Sol完成装配与审修，C0 Sol继续模板互通独立审修。之后C3/A1实施继续分批；条件门禁如实保留。
 
 批次验收见[完整范围对账](artifacts/FULL-SCOPE-ACCEPTANCE.md)。
 
