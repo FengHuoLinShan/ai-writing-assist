@@ -620,7 +620,8 @@ async def run_team(service, db, task, run_id, payload, deps, profile) -> Assista
                                         or key == "imports.accept_review"
                                     )
                                 }
-                                if runtime_version not in {"7", "8", "9", "10", "11", "12"}
+                                if runtime_version
+                                not in {"7", "8", "9", "10", "11", "12"}
                                 and frozen["id"]
                                 in {"cross_revision", "world_stress", "import_consult"}
                                 else {},

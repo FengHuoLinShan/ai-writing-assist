@@ -1,7 +1,7 @@
 """pin exact summary task on its interaction journey
 
 Revision ID: 20261016_interaction_summary_task_pointer
-Revises: 20261016_assistant_goal_runs
+Revises: 20261016_dossier_story_field_key
 Create Date: 2026-10-16
 """
 
@@ -12,7 +12,7 @@ import sqlalchemy as sa
 from alembic import op
 
 revision: str = "20261016_interaction_summary_task_pointer"
-down_revision: str | None = "20261016_assistant_goal_runs"
+down_revision: str | None = "20261016_dossier_story_field_key"
 branch_labels: str | Sequence[str] | None = None
 depends_on: str | Sequence[str] | None = None
 

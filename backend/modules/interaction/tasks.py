@@ -44,6 +44,16 @@ _CHECKPOINT_SECONDS = 2.0
 _MAX_URGENT_SUMMARY_PASSES = 4
 
 
+def _author_summary_budget_enabled(task) -> bool:
+    return bool((task.meta or {}).get("author_project_id"))
+
+
+def _summary_run_deadline(task) -> int | None:
+    # Legacy RP-triggered summaries retain their original unbounded run.
+    # Only the author's separately confirmed, source-bound task gets R4 time.
+    return 1800 if _author_summary_budget_enabled(task) else None
+
+
 async def checkpoint_interaction_run_envelope(session, task, envelope: dict) -> None:
     """Mirror the queue receipt into the owning InteractionGenerationAttempt."""
     from modules.interaction.models import InteractionGenerationAttempt
@@ -325,10 +335,14 @@ async def handle_interaction_story_generate(db, task):
     recovery_policy="auto_requeue",
     max_attempts=2,
     # A = 2 次 task attempt × [2 次内层重试 ×（1 主请求 + 1 次格式修复）]
-    # = 8；900s 是单 provider timeout，整条重试/requeue 链没有既有总时限。
+    # = 8；author task 新增 1800s 累计 deadline，900s 仍是单 provider timeout。
     root_capability_id="interaction.summary_refresh",
     run_request_limit=8,
-    run_deadline_seconds=None,
+    run_deadline_seconds=_summary_run_deadline,
+    unknown_charge_policy=lambda task: (
+        "stop_before_replay" if _author_summary_budget_enabled(task) else None
+    ),
+    run_eighty_percent_stop=_author_summary_budget_enabled,
 )
 async def handle_interaction_summary_refresh(db, task):
     prepared = None

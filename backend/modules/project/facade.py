@@ -154,6 +154,21 @@ async def get_any_project_context(
     return context
 
 
+async def get_archived_interaction_project_ref(
+    db: AsyncSession, novel_id: str, *, owner_id: str
+) -> InteractionProjectContract | None:
+    """Owner-scoped identity for an archived RP journey, without restoring it.
+
+    The caller must first validate its current active author project and owner.
+    """
+    project = await _repo.get_deleted(
+        db, uuid.UUID(novel_id), uuid.UUID(owner_id), project_kind="interaction"
+    )
+    if project is None:
+        return None
+    return InteractionProjectContract(novel_id=str(project.id), owner_id=project.owner_id)
+
+
 async def validate_configured_public_demo_project(
     db: AsyncSession,
     novel_id: str,

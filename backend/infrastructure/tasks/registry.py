@@ -71,6 +71,8 @@ class TaskRegistry:
         run_deadline_seconds: float | Any = None,
         run_id: str | Any = None,
         run_envelope_checkpoint: Any = None,
+        unknown_charge_policy: str | None | Callable[[Any], str | None] = None,
+        run_eighty_percent_stop: bool | Callable[[Any], bool] = False,
     ) -> None:
         """注册一个任务类型的处理器
 
@@ -112,6 +114,11 @@ class TaskRegistry:
         ):
             raise TypeError("generic_submit_schema must be a Pydantic BaseModel class")
         normalized_capability = normalize_root_capability_id(root_capability_id)
+        if not callable(unknown_charge_policy) and unknown_charge_policy not in {
+            None,
+            "stop_before_replay",
+        }:
+            raise ValueError("unknown_charge_policy is invalid")
         self._handlers[task_type] = handler
         self._definitions[task_type] = TaskDefinition(
             task_type=task_type,
@@ -127,6 +134,8 @@ class TaskRegistry:
             run_deadline_seconds=run_deadline_seconds,
             run_id=run_id,
             run_envelope_checkpoint=run_envelope_checkpoint,
+            unknown_charge_policy=unknown_charge_policy,
+            run_eighty_percent_stop=run_eighty_percent_stop,
         )
         if normalized_capability is not None:
             self._root_capabilities[task_type] = normalized_capability
@@ -178,6 +187,24 @@ class TaskRegistry:
         }:
             raise ValueError("invalid declared run budget policy")
         return policy
+
+    def resolve_unknown_charge_policy(self, task_type: str, task: Any) -> str | None:
+        definition = self._definitions.get(task_type)
+        value = definition.unknown_charge_policy if definition else None
+        if callable(value):
+            value = value(task)
+        if value not in {None, "stop_before_replay"}:
+            raise ValueError("unknown_charge_policy is invalid")
+        return value
+
+    def resolve_run_eighty_percent_stop(self, task_type: str, task: Any) -> bool:
+        definition = self._definitions.get(task_type)
+        value = definition.run_eighty_percent_stop if definition else False
+        if callable(value):
+            value = value(task)
+        if not isinstance(value, bool):
+            raise ValueError("run_eighty_percent_stop must be boolean")
+        return value
 
     def resolve_run_request_limit(self, task_type: str, task: Any) -> int | None:
         """解析该任务一次 run 的请求额度；未声明返回 None（不建立信封）。"""
@@ -279,6 +306,8 @@ def task_handler(
     run_deadline_seconds: float | Any = None,
     run_id: str | Any = None,
     run_envelope_checkpoint: Any = None,
+    unknown_charge_policy: str | None | Callable[[Any], str | None] = None,
+    run_eighty_percent_stop: bool | Callable[[Any], bool] = False,
 ) -> Callable[[Callable[..., Any]], Callable[..., Any]]:
     """装饰器：将函数注册为指定任务类型的处理器
 
@@ -304,6 +333,8 @@ def task_handler(
             run_deadline_seconds=run_deadline_seconds,
             run_id=run_id,
             run_envelope_checkpoint=run_envelope_checkpoint,
+            unknown_charge_policy=unknown_charge_policy,
+            run_eighty_percent_stop=run_eighty_percent_stop,
         )
         return func
 

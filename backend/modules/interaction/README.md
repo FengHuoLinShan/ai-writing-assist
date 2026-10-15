@@ -210,11 +210,11 @@ selection epoch 仍匹配的第一个结果可成为当前路径。Prompt、回�
 作者侧只列出来源修订显式指向当前作者项目、且作者/旅程消费者/来源修订均属于当前账户的旅程。
 可切换可选行动提示、重命名、归档和恢复；不开放持续续写、联网、多角色配置、历史删除、分享
 或公开导出。归档仍保留旅程历史。摘要整理预览冻结当前选定路径、来源修订指纹、项目模型快照，
-展示真实输入估算、模型费用类别、Interaction 根请求额度和恢复语义；预览不排队。当前
-`interaction_summary_refresh` 是 V1 envelope，虽然保留 8 请求、2 次 Task attempt 与同一
-`started_at`，但未知用量后的 task 专属作者核对停点尚不可用；确认入口因此返回
-`ROOT_BUDGET_ADAPTER_UNAVAILABLE`，不入队、不调用模型。Sol 完成局部 Task/handler 适配后才能
-开放该执行入口。
+展示真实输入估算、模型费用类别、Interaction 根请求额度和恢复语义；预览不排队。
+作者单独确认的 `interaction_summary_refresh` 在首次领取时冻结 1800 秒 deadline，按有界
+V2 累计账本执行；同一 Task 的两次 attempt 保留起点和用量。一旦出现未知计费，局部策略
+阻断后续请求并停止重排；8 请求上界在第 7 次后触发 80% 停点。既有 RP 自动摘要任务
+仍沿用原来的无统一 deadline 与重试合同。
 
 所有浏览器 API 从当前 account principal 解析 owner；跨 owner、错误 kind、已归档不可写和
 不属于该旅程的 node/attempt 统一拒绝。永久删除必须先归档并提交完整标题确认。

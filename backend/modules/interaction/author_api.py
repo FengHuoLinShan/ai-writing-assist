@@ -39,6 +39,13 @@ async def _confirm(db, op_id: str, data):
     if not getattr(args, "confirmed", False):
         raise ConflictError("执行前需要明确确认", code="CONFIRMATION_REQUIRED")
     await require_active_project_exclusive(db, str(args.author_project_id))
+    if op_id == "interaction.summary.refresh":
+        # Recheck the exact TaskFacade receipt before a fresh preview. A
+        # completed summary is no longer due but its receipt still exists.
+        result = await spec["apply"](
+            db, str(args.author_project_id), args, None, context=None
+        )
+        return {"operation_id": op_id, "result": result}
     preview = await spec["prepare"](
         db,
         str(args.author_project_id),

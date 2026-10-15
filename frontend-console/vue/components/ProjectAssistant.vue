@@ -1,24 +1,24 @@
 <template>
-  <div v-if="state.enabled" v-show="open" ref="overlayRef" class="project-assistant" :class="{ 'project-assistant--mobile': narrow }">
+  <div v-if="state.enabled || projectId" v-show="open" ref="overlayRef" class="project-assistant" :class="{ 'project-assistant--mobile': narrow }">
     <button v-if="narrow" type="button" class="project-assistant-backdrop" aria-label="关闭项目助手" @click="close"></button>
     <aside id="project-assistant-panel" ref="dialogRef" class="project-assistant-panel" :role="narrow ? 'dialog' : 'complementary'" :aria-modal="narrow || undefined" aria-label="项目助手" tabindex="-1" @keydown="handleKeydown" @focusin="onFocusin">
       <header class="project-assistant-header"><div><strong>项目助手</strong><p>查资料、理思路，准备可审阅的修改。</p></div><button class="btn btn-sm" type="button" aria-label="关闭项目助手" @click="close">关闭</button></header>
       <div class="project-assistant-tabs" role="group" aria-label="助手页面">
-        <button type="button" :aria-pressed="activeTab === 'chat'" @click="switchTab('chat')">讨论</button>
-        <button type="button" :aria-pressed="activeTab === 'care'" @click="switchTab('care')">提醒</button>
-        <button type="button" :aria-pressed="activeTab === 'editorial'" @click="switchTab('editorial')">编辑台</button>
-        <button type="button" :aria-pressed="activeTab === 'forecast'" @click="openForecast">下一步</button>
-        <button type="button" :aria-pressed="activeTab === 'creative'" @click="openCreative">试改</button>
+        <button v-if="state.enabled" type="button" :aria-pressed="activeTab === 'chat'" @click="switchTab('chat')">讨论</button>
+        <button v-if="state.enabled" type="button" :aria-pressed="activeTab === 'care'" @click="switchTab('care')">提醒</button>
+        <button v-if="state.enabled" type="button" :aria-pressed="activeTab === 'editorial'" @click="switchTab('editorial')">编辑台</button>
+        <button v-if="state.enabled" type="button" :aria-pressed="activeTab === 'forecast'" @click="openForecast">下一步</button>
+        <button v-if="state.enabled" type="button" :aria-pressed="activeTab === 'creative'" @click="openCreative">试改</button>
         <button v-if="projectId" type="button" :aria-pressed="activeTab === 'rp'" @click="switchTab('rp')">RP旅程</button>
         <button v-if="goalAvailable" type="button" :aria-pressed="activeTab === 'goal'" @click="switchTab('goal')">目标</button>
       </div>
-      <ProactiveCare v-show="activeTab === 'care'" :target-id="projectId" standalone @locate="locateAssistantSource" @editorial="openEditorialFromNotice" />
-      <EditorialDesk v-show="activeTab === 'editorial'" :project-id="projectId" :active="open && activeTab === 'editorial'" :focus-chapter="editorialFocusChapter" :focus-issue-id="editorialFocusIssueId" />
+      <ProactiveCare v-if="state.enabled" v-show="activeTab === 'care'" :target-id="projectId" standalone @locate="locateAssistantSource" @editorial="openEditorialFromNotice" />
+      <EditorialDesk v-if="state.enabled" v-show="activeTab === 'editorial'" :project-id="projectId" :active="open && activeTab === 'editorial'" :focus-chapter="editorialFocusChapter" :focus-issue-id="editorialFocusIssueId" />
       <div v-if="activeTab === 'forecast'" class="project-assistant-history"><ForecastDock :project-id="projectId" :context="experimentContext" :active="open" standalone /></div>
       <div v-if="activeTab === 'creative'" class="project-assistant-history"><CreativeExperiments ref="creativeRef" :project-id="projectId" :context="experimentContext" :active="open" /></div>
       <div v-if="activeTab === 'rp'" class="project-assistant-history"><InteractionAuthorPanel :project-id="projectId" :active="open && activeTab === 'rp'" /></div>
       <div v-show="activeTab === 'goal'" class="project-assistant-goal"><GoalRunsPanel :project-id="projectId" :source-session-id="state.sessionId" :active="open && activeTab === 'goal'" @availability="goalAvailable = $event" /></div>
-      <div v-show="activeTab === 'chat'" class="project-assistant-chat">
+      <div v-if="state.enabled" v-show="activeTab === 'chat'" class="project-assistant-chat">
       <div class="project-assistant-sessions"><label for="assistant-session">讨论</label><select id="assistant-session" :value="state.sessionId || ''" :disabled="state.busy || state.loading" @change="assistant.selectSession($event.target.value)"><option v-if="!state.sessionId" value="">新的讨论</option><option v-for="session in state.sessions" :key="session.id" :value="session.id">{{ session.title }}</option></select><button type="button" class="btn btn-sm" :disabled="state.busy" @click="assistant.newSession">新讨论</button></div>
       <div v-if="state.error" class="project-assistant-error" role="alert">{{ state.error }}</div>
       <button v-if="state.pendingSubmission && state.error" class="btn" type="button" :disabled="state.busy" @click="assistant.recoverSubmission">恢复上次提交</button>
@@ -105,7 +105,7 @@ function openForecast() { if (activeTab.value === "creative" && creativeRef.valu
 function openCreative() { try { experimentContext.value = withIntent(capture(true)); activeTab.value = "creative" } catch (error) { state.error = error.message } }
 let media
 const close = () => { if (activeTab.value !== "creative" || creativeRef.value?.canLeave?.() !== false) emit("close") }
-const { overlayRef, dialogRef, onKeydown, onFocusin } = useModalDialog({ isOpen: () => props.open && state.enabled && narrow.value, requestClose: close })
+const { overlayRef, dialogRef, onKeydown, onFocusin } = useModalDialog({ isOpen: () => props.open && (state.enabled || props.projectId) && narrow.value, requestClose: close })
 const hints = ["检查当前章节的前后设定", "帮我整理已有正文", "把接下来要处理的事项理清楚"]
 const running = computed(() => ["pending", "running"].includes(state.run?.status))
 const batch = computed(() => state.run?.result?.batch)
@@ -167,8 +167,14 @@ const removeOpener = registerProjectAssistantOpener(async request => {
   activeTab.value = "chat"
   emit("open")
 })
-watch(() => props.projectId, value => { activeTab.value = "chat"; goalAvailable.value = false; loadPromise = assistant.load(value) }, { immediate: true })
-watch(() => state.enabled, value => emit("availability", value))
+watch(() => props.projectId, value => {
+  activeTab.value = state.enabled ? "chat" : "rp"
+  goalAvailable.value = false
+  loadPromise = Promise.resolve(assistant.load(value)).then(() => {
+    if (state.enabled && !props.open && activeTab.value === "rp") activeTab.value = "chat"
+  })
+}, { immediate: true })
+watch(() => [state.enabled, props.projectId], ([enabled, projectId]) => emit("availability", Boolean(enabled || projectId)), { immediate: true })
 watch(() => props.open, async value => { if (value && !state.input && !state.context) { try { state.context = capture() } catch (error) { state.error = error.message } } if (value) await nextTick() })
 onMounted(() => { media = globalThis.matchMedia?.("(max-width: 1100px)"); syncMedia(); media?.addEventListener?.("change", syncMedia) })
 onBeforeUnmount(() => { disposed = true; removeOpener(); assistant.dispose(); media?.removeEventListener?.("change", syncMedia) })

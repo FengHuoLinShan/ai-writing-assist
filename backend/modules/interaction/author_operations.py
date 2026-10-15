@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+from types import SimpleNamespace
 from typing import Literal
 from uuid import UUID
 
@@ -16,14 +17,13 @@ from sqlalchemy import select
 
 from core.errors import ConflictError, NotFoundError
 from infrastructure.llm.capabilities import capability_from_execution_snapshot
-from infrastructure.llm.schemas import AI_RUN_ENVELOPE_VERSION
 from infrastructure.tasks.facade import (
     enqueue_operation_task,
     get_operation_task,
     list_task_lifecycle_contracts,
 )
 from infrastructure.tasks.registry import TaskRegistry
-from modules.account.facade import current_account_id
+from modules.account.facade import current_account_id, is_demo_readonly_principal
 from modules.interaction.generation import InteractionGenerationWorkflow
 from modules.interaction.models import InteractionJourney, InteractionSourceRevision
 from modules.interaction.services import InteractionService, path_hash
@@ -31,6 +31,7 @@ from modules.interaction.source_service import InteractionSourceService
 from modules.project.facade import (
     build_project_llm_execution_snapshot,
     get_any_project_context,
+    get_archived_interaction_project_ref,
 )
 
 SUMMARY_TASK_TYPE = "interaction_summary_refresh"
@@ -95,6 +96,8 @@ async def _bound_journey(
     author_project_id = str(args.author_project_id)
     if author_project_id != str(novel_id):
         raise NotFoundError("作品项目不存在")
+    if is_demo_readonly_principal():
+        raise NotFoundError("作品项目不存在")
     author_project = await _sources.require_author_project(db, author_project_id)
     journey = await _service._owned_journey(
         db,
@@ -114,10 +117,17 @@ async def _bound_journey(
     ):
         raise NotFoundError("旅程不属于当前作品")
     consumer_project = await get_any_project_context(db, str(journey.novel_id))
+    if consumer_project is None and (status == "archived" or not require_active_consumer):
+        consumer_project = await get_archived_interaction_project_ref(
+            db, str(journey.novel_id), owner_id=owner_id
+        )
     if (
         consumer_project is None
         or str(consumer_project.owner_id) != owner_id
-        or consumer_project.project_kind != "interaction"
+        or (
+            getattr(consumer_project, "project_kind", "interaction")
+            != "interaction"
+        )
     ):
         raise NotFoundError("旅程不存在")
     return author_project, consumer_project, journey, revision
@@ -136,18 +146,20 @@ def _journey_card(author_project, consumer_project, journey, revision):
         if journey.latest_activity_at
         else None,
         "source": {
-            "author_project_id": str(author_project.project_id),
+            "author_project_id": str(author_project.novel_id),
             "revision_id": str(revision.id),
             "fingerprint": revision.fingerprint,
             "version_number": revision.version_number,
             "stale": revision.status != "ready",
         },
         # Expose a distinct consumer identity for author confirmation and audits.
-        "consumer_project_id": str(consumer_project.project_id),
+        "consumer_project_id": str(consumer_project.novel_id),
     }
 
 
 async def _list_journeys(db, novel_id, args, *, context=None):
+    if is_demo_readonly_principal():
+        raise NotFoundError("作品项目不存在")
     author_project_id = str(args.author_project_id)
     if author_project_id != str(novel_id):
         raise NotFoundError("作品项目不存在")
@@ -162,7 +174,7 @@ async def _list_journeys(db, novel_id, args, *, context=None):
             InteractionJourney.owner_id == current_account_id(),
             InteractionJourney.status == args.status,
             InteractionSourceRevision.owner_id == current_account_id(),
-            InteractionSourceRevision.source_novel_id == author_project.project_id,
+            InteractionSourceRevision.source_novel_id == author_project.novel_id,
         )
         .order_by(
             InteractionJourney.latest_activity_at.desc(), InteractionJourney.id.desc()
@@ -170,6 +182,11 @@ async def _list_journeys(db, novel_id, args, *, context=None):
         .limit(50)
     )
     items = []
+    latest_revision = await _sources._repo.latest_source_revision(
+        db,
+        source_novel_id=UUID(str(author_project.novel_id)),
+        owner_id=current_account_id(),
+    )
     for row in rows:
         try:
             _author, consumer, journey, revision = await _bound_journey(
@@ -182,11 +199,6 @@ async def _list_journeys(db, novel_id, args, *, context=None):
             # A stale or malformed cross-project reference is never projected.
             continue
         item = _journey_card(author_project, consumer, journey, revision)
-        latest_revision = await _sources._repo.latest_source_revision(
-            db,
-            source_novel_id=UUID(str(author_project.project_id)),
-            owner_id=current_account_id(),
-        )
         item["source"]["latest_revision_id"] = (
             str(latest_revision.id) if latest_revision is not None else None
         )
@@ -292,7 +304,7 @@ async def _state_prepare(db, novel_id, args, *, context=None):
     return {
         "journey_id": str(journey.id),
         "author_project_id": str(args.author_project_id),
-        "consumer_project_id": str(consumer.project_id),
+        "consumer_project_id": str(consumer.novel_id),
         "source_revision_id": str(revision.id),
         "source_fingerprint": revision.fingerprint,
         "status": journey.status,
@@ -377,20 +389,32 @@ async def _summary_preview(db, novel_id, args, *, context=None):
         )
     task_definition = TaskRegistry().get_definition(SUMMARY_TASK_TYPE)
     root = TaskRegistry().get_root_capability(SUMMARY_TASK_TYPE)
+    author_task = SimpleNamespace(meta={"author_project_id": str(args.author_project_id)})
+    author_deadline = TaskRegistry().resolve_run_deadline_seconds(
+        SUMMARY_TASK_TYPE, author_task
+    )
+    unknown_policy = TaskRegistry().resolve_unknown_charge_policy(
+        SUMMARY_TASK_TYPE, author_task
+    )
+    eighty_percent_stop = TaskRegistry().resolve_run_eighty_percent_stop(
+        SUMMARY_TASK_TYPE, author_task
+    )
     if (
         task_definition is None
         or root != SUMMARY_ROOT_CAPABILITY
         or task_definition.recovery_policy != "auto_requeue"
         or task_definition.max_attempts != 2
         or task_definition.run_request_limit != 8
-        or task_definition.run_deadline_seconds is not None
+        or author_deadline != 1800
+        or unknown_policy != "stop_before_replay"
+        or not eighty_percent_stop
     ):
         raise ConflictError(
             "摘要刷新预算或恢复契约不可用", code="SUMMARY_TASK_CONTRACT_UNAVAILABLE"
         )
     safe = {
         "author_project_id": str(args.author_project_id),
-        "consumer_project_id": str(consumer.project_id),
+        "consumer_project_id": str(consumer.novel_id),
         "journey_id": str(journey.id),
         "source_revision_id": str(revision.id),
         "source_fingerprint": revision.fingerprint,
@@ -408,12 +432,13 @@ async def _summary_preview(db, novel_id, args, *, context=None):
         "retry_transient_llm_errors": task_definition.retry_transient_llm_errors,
         "fix_attempts_per_request": 1,
         "max_provider_requests_per_run": 8,
+        "eighty_percent_stop_after_requests": 7,
         "root_capability_id": root,
-        "envelope_version": AI_RUN_ENVELOPE_VERSION,
+        "envelope_version": 2,
         "started_at_semantics": (
             "首次worker领取时冻结；同一Task的attempt与恢复沿用原起点和累计用量。"
         ),
-        "deadline_seconds": task_definition.run_deadline_seconds,
+        "deadline_seconds": author_deadline,
         "token_limit": task_definition.run_token_limit,
         "input_ceiling_tokens": capability_from_execution_snapshot(
             snapshot
@@ -427,17 +452,13 @@ async def _summary_preview(db, novel_id, args, *, context=None):
         "provider": (snapshot.get("profile") or {}).get("provider_id"),
         "model": (snapshot.get("profile") or {}).get("model"),
         "possible_charge": True,
-        "execution_block_reason": (
-            "当前 Interaction V1 运行信封在 unknown charge 后没有此 task 专属的"
-            "作者核对停点；适配完成前只提供预算与资料预览，不会入队。"
-        ),
+        "execution_block_reason": None,
         "scope_note": (
             "只整理当前选定路径中已覆盖范围之后的旧故事段；"
             "新近尾段会保留。不会重读作品正文。"
         ),
         "snapshot_fingerprint": _fingerprint(snapshot),
     }
-    unknown_policy = getattr(task_definition, "unknown_charge_policy", "unavailable")
     safe["unknown_charge_policy"] = unknown_policy
     safe["unknown_charge_stop_available"] = unknown_policy == "stop_before_replay"
     safe["execution_ready"] = safe["unknown_charge_stop_available"]
@@ -483,13 +504,13 @@ async def _submit_summary_task(db, args, preview, *, operation_id: str):
         active = await list_task_lifecycle_contracts(
             db,
             task_ids=[str(journey.summary_refresh_task_id)],
-            novel_id=str(consumer.project_id),
+            novel_id=str(consumer.novel_id),
             max_heartbeat_gap=0,
         )
         contract = active.get(str(journey.summary_refresh_task_id))
         if contract and contract.status in {"pending", "running"}:
             raise ConflictError("已有摘要整理正在进行", code="SUMMARY_REFRESH_ACTIVE")
-    snapshot = await build_project_llm_execution_snapshot(db, str(consumer.project_id))
+    snapshot = await build_project_llm_execution_snapshot(db, str(consumer.novel_id))
     if _fingerprint(snapshot) != preview["snapshot_fingerprint"]:
         raise ConflictError(
             "模型或费用配置已变化，请重新准备", code="SUMMARY_PREVIEW_STALE"
@@ -498,14 +519,17 @@ async def _submit_summary_task(db, args, preview, *, operation_id: str):
         db,
         operation_id=operation_id,
         task_type=SUMMARY_TASK_TYPE,
-        novel_id=str(consumer.project_id),
+        novel_id=str(consumer.novel_id),
         request_payload=payload,
         meta={
-            "novel_id": str(consumer.project_id),
+            "novel_id": str(consumer.novel_id),
             "journey_id": str(journey.id),
             "path_hash": preview["selected_path_hash"],
             "selected_leaf_node_id": preview["selected_leaf_node_id"],
             "started_overview_epoch": preview["overview_epoch"],
+            "author_project_id": str(args.author_project_id),
+            "source_revision_id": preview["source_revision_id"],
+            "source_fingerprint": preview["source_fingerprint"],
             "llm_execution_snapshot": snapshot,
         },
     )
@@ -522,15 +546,15 @@ async def _submit_summary_task(db, args, preview, *, operation_id: str):
 
 
 async def _summary_apply(db, novel_id, args, preview, *, context=None):
-    if context is not None and getattr(context, "trace_actor_type", None) == "goal":
+    if context is not None:
         raise ConflictError(
             (
                 "摘要刷新仍使用 Interaction 自有预算根；"
-                "目标预算适配不可用，请在旅程工作台单独确认。"
+                "请在旅程工作台单独核对资料与预算并确认。"
             ),
             code="ROOT_BUDGET_ADAPTER_UNAVAILABLE",
         )
-    if (context is None and not args.confirmed) or not args.expected_preview_hash:
+    if not args.confirmed or not args.expected_preview_hash:
         raise ConflictError(
             "请单独确认这次可能计费的摘要整理", code="CONFIRMATION_REQUIRED"
         )
@@ -552,7 +576,7 @@ async def _summary_apply(db, novel_id, args, preview, *, context=None):
             db,
             operation_id=str(operation_id),
             task_type=SUMMARY_TASK_TYPE,
-            novel_id=str(consumer.project_id),
+            novel_id=str(consumer.novel_id),
             request_payload=request,
         )
         if existing is not None:
@@ -572,7 +596,9 @@ async def _summary_apply(db, novel_id, args, preview, *, context=None):
         for_update=True,
     )
     current = await _summary_preview(db, novel_id, args, context=context)
-    if current != preview or current["preview_hash"] != args.expected_preview_hash:
+    if (preview is not None and current != preview) or (
+        current["preview_hash"] != args.expected_preview_hash
+    ):
         raise ConflictError(
             "路径、来源或模型快照已变化，请重新准备", code="SUMMARY_PREVIEW_STALE"
         )
@@ -607,7 +633,7 @@ async def _summary_read_result(db, novel_id, args, *, context=None):
         db,
         operation_id=str(operation_id),
         task_type=SUMMARY_TASK_TYPE,
-        novel_id=str(consumer.project_id),
+        novel_id=str(consumer.novel_id),
         request_payload=payload,
     )
     if task is None:
@@ -616,7 +642,7 @@ async def _summary_read_result(db, novel_id, args, *, context=None):
         await list_task_lifecycle_contracts(
             db,
             task_ids=[task.task_id],
-            novel_id=str(consumer.project_id),
+            novel_id=str(consumer.novel_id),
             max_heartbeat_gap=0,
         )
     ).get(task.task_id)

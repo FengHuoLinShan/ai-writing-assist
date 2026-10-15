@@ -9,6 +9,7 @@ from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from typing import Any
 
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from infrastructure.llm.capabilities import (
@@ -29,6 +30,7 @@ from infrastructure.llm.schemas import (
     LLMStreamChunk,
 )
 from infrastructure.llm.token_estimation import estimate_token_count
+from infrastructure.llm.workflow_budget import AIRunIdentityError
 from infrastructure.tasks.facade import enqueue_task, require_task_checkpoint_session
 from modules.evidence.facade import (
     INTERACTION_SOURCE_CONTEXT_MAX_TOKENS,
@@ -39,6 +41,7 @@ from modules.interaction.models import (
     InteractionJourney,
     InteractionMessageNode,
     InteractionOverviewRevision,
+    InteractionSourceRevision,
     InteractionSummarySegment,
 )
 from modules.interaction.prompts import (
@@ -72,9 +75,42 @@ from modules.interaction.services import (
 )
 from modules.project.contracts import ProjectLLMConfigurationError
 from modules.project.facade import (
+    get_any_project_context,
     require_interaction_project,
     restore_project_llm_execution_settings,
 )
+
+
+async def _validate_author_summary_binding(db, task, journey) -> None:
+    """Fence the author-confirmed R4 task to its original owner and source."""
+    meta = dict(task.meta or {})
+    if "author_project_id" not in meta:
+        return  # Existing RP-triggered summary tasks have their own contract.
+    try:
+        author_id = uuid.UUID(str(meta["author_project_id"]))
+        revision_id = uuid.UUID(str(meta["source_revision_id"]))
+        fingerprint = str(meta["source_fingerprint"])
+    except (KeyError, TypeError, ValueError) as exc:
+        raise AIRunIdentityError("author summary binding is incomplete") from exc
+    author = await get_any_project_context(db, str(author_id))
+    revision = await db.scalar(
+        select(InteractionSourceRevision).where(
+            InteractionSourceRevision.id == revision_id,
+            InteractionSourceRevision.source_novel_id == author_id,
+            InteractionSourceRevision.owner_id == journey.owner_id,
+        )
+    )
+    if (
+        author is None
+        or author.project_kind != "author"
+        or str(author.owner_id) != str(journey.owner_id)
+        or journey.source_revision_id != revision_id
+        or journey.summary_refresh_task_id != task.id
+        or revision is None
+        or revision.status != "ready"
+        or revision.fingerprint != fingerprint
+    ):
+        raise AIRunIdentityError("author summary source or task changed")
 
 
 async def _noop_generate(_plan, _generator_keys) -> str:
@@ -1349,6 +1385,7 @@ class InteractionGenerationWorkflow:
         )
         if journey is None:
             raise RuntimeError("interaction journey is not active")
+        await _validate_author_summary_binding(db, task, journey)
         current_path = await self._repo.get_selected_path(db, journey=journey)
         if (
             path_hash(current_path) != expected_path_hash
@@ -1356,7 +1393,11 @@ class InteractionGenerationWorkflow:
             or str(current_path[-1].id) != selected_leaf_node_id
             or journey.overview_epoch != started_epoch
         ):
-            if current_path and await self._summary_is_due(db, journey, current_path):
+            if (
+                "author_project_id" not in meta
+                and current_path
+                and await self._summary_is_due(db, journey, current_path)
+            ):
                 await _enqueue_overview_refresh_task(
                     db,
                     journey=journey,
@@ -1569,6 +1610,7 @@ class InteractionGenerationWorkflow:
         )
         if journey is None:
             raise RuntimeError("interaction journey is not active")
+        await _validate_author_summary_binding(db, task, journey)
         origin_attempt = None
         if prepared.origin_attempt_id is not None:
             if self._is_inline(task):
@@ -1602,6 +1644,7 @@ class InteractionGenerationWorkflow:
         ):
             if (
                 not self._is_inline(task)
+                and "author_project_id" not in (task.meta or {})
                 and current_path
                 and await self._summary_is_due(db, journey, current_path)
             ):

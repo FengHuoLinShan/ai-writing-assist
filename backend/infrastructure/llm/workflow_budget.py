@@ -30,7 +30,6 @@ from infrastructure.llm.schemas import (
     AIRunEnvelopeV2,
     AIRunEnvelopeV3,
     AIRunEnvelopeV4,
-    AIGoalScopeAuthorizationV1,
     AIRunStatus,
     AIStepAttemptV1,
     AIStepCallKind,
@@ -375,11 +374,15 @@ class AIRunEnvelope:
         clock: Callable[[], datetime] | None = None,
         monotonic: Callable[[], float] | None = None,
         on_change: Callable[[AIRunEnvelopeV1], Awaitable[None]] | None = None,
+        stop_on_unknown_charge: bool = False,
+        stop_at_eighty_percent: bool = False,
     ) -> None:
         self._envelope = envelope.model_copy(deep=True)
         self._clock = clock or (lambda: datetime.now(UTC))
         self._monotonic = monotonic or time.monotonic
         self._on_change = on_change
+        self._stop_on_unknown_charge = stop_on_unknown_charge
+        self._stop_at_eighty_percent = stop_at_eighty_percent
         self._lock = asyncio.Lock()
         self._persist_error: BaseException | None = None
         self._next_request_index = (
@@ -485,12 +488,13 @@ class AIRunEnvelope:
                     "confirmed_scope cannot authorize a different model",
                     run_id=self.run_id,
                 )
-        if isinstance(self._envelope, AIRunEnvelopeV4):
+        if isinstance(self._envelope, AIRunEnvelopeV4) or self._stop_on_unknown_charge:
             if self._envelope.requests_unknown:
                 raise AIRunBudgetExceededError(
                     "assistant catalog has an unknown charge; author review is required",
                     run_id=self.run_id,
                 )
+        if isinstance(self._envelope, AIRunEnvelopeV4) or self._stop_at_eighty_percent:
             if (
                 self._envelope.request_limit
                 and self._envelope.requests_started * 5

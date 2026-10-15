@@ -54,7 +54,7 @@
             {{ selected.source.stale ? '资料版本较旧' : `资料 v${selected.source.version_number}` }}
           </span>
         </div>
-        <p class="interaction-author__binding">关联范围：作品项目 {{ selected.source.author_project_id.slice(0, 8) }}… → RP 旅程空间 {{ selected.consumer_project_id.slice(0, 8) }}… · 来源修订 {{ selected.source.revision_id.slice(0, 8) }}…（v{{ selected.source.version_number }}，指纹 {{ selected.source.fingerprint.slice(0, 12) }}…）。旅程与作品分开保存；此处设置不会扩大 RP 角色权限。</p>
+        <p class="interaction-author__binding">这段旅程使用当前作品的资料版本 {{ selected.source.version_number }}。旅程故事与作品分开保存；这里的设置不会扩大角色权限。</p>
 
         <template v-if="selected.status === 'active'">
           <section class="interaction-author__card" aria-label="旅程显示设置">
@@ -80,18 +80,17 @@
             <button class="btn btn-sm" type="button" :disabled="busy || Boolean(summaryJob)" @click="prepareSummary">查看资料与预算</button>
             <div v-if="summaryPreview" class="interaction-author__preview" aria-label="摘要整理预览">
               <p><strong>本次范围</strong>：{{ summaryPreview.segment_node_count }} 个旧故事节点；保留最近 {{ summaryPreview.protected_tail_node_count }} 个节点。</p>
-              <p>估算输入 {{ formatNumber(summaryPreview.estimated_input_tokens) }} tokens；单次输入上限 {{ formatNumber(summaryPreview.input_ceiling_tokens) }}，输出上限 {{ formatNumber(summaryPreview.output_limit_tokens) }}。</p>
-              <p>运行根 {{ summaryPreview.root_capability_id }}：最多 {{ summaryPreview.request_limit }} 次模型请求；任务最多 {{ summaryPreview.max_attempts }} 次尝试，恢复策略 {{ summaryPreview.recovery_policy }}。每次 provider timeout {{ timeoutLabel(summaryPreview.provider_timeout_seconds) }}。累计 token 上限：{{ summaryPreview.token_limit ?? '未设置' }}；总 deadline：{{ timeoutLabel(summaryPreview.deadline_seconds) }}。</p>
-              <p>模型：{{ summaryPreview.provider || '当前连接' }} · {{ summaryPreview.model || '当前模型' }}。费用类别：可能产生模型费用。</p>
+              <p>本次最多允许 {{ summaryPreview.request_limit }} 次模型请求；达到 {{ summaryPreview.eighty_percent_stop_after_requests }} 次后会停下。最长运行 {{ timeoutLabel(summaryPreview.deadline_seconds) }}，超时或费用结果不明时不会自动重试。</p>
+              <p>使用当前旅程的 {{ summaryPreview.model || '已连接模型' }}。模型请求可能产生费用，预览本身不会调用模型。</p>
               <p v-if="summaryPreview.source_stale" class="interaction-author__warning">作品已有更新资料版本；本次仍固定使用 RP 旅程引用的来源版本，不读取新版正文。</p>
-              <p class="interaction-author__warning">{{ summaryPreview.execution_block_reason }}</p>
+              <p v-if="summaryPreview.execution_block_reason" class="interaction-author__warning">{{ summaryPreview.execution_block_reason }}</p>
               <button v-if="summaryPreview.execution_ready" class="btn btn-primary btn-sm" type="button" :disabled="busy || Boolean(summaryJob)" @click="confirmSummary">单独确认并开始模型整理</button>
               <button v-else class="btn btn-primary btn-sm" type="button" disabled :title="summaryPreview.execution_block_reason">当前不能开始模型整理</button>
               <button class="btn btn-sm" type="button" :disabled="busy" @click="summaryPreview = null; saveDraft()">关闭预览</button>
             </div>
             <div v-if="summaryJob" class="interaction-author__preview" aria-live="polite">
               <p role="status">{{ summaryStatusLabel }}</p>
-              <p v-if="summaryJob.task_id">任务回执：{{ summaryJob.task_id }}</p>
+              <p v-if="summaryJob.task_id">这次整理已有保存的任务记录，离开后可回来查看。</p>
               <button v-if="summaryJob.confirmPayload && !summaryJob.task_id" class="btn btn-sm" type="button" :disabled="busy" @click="recoverSummary">核对上次确认结果</button>
               <button v-if="['done', 'completed', 'failed', 'not_submitted'].includes(summaryJob.status)" class="btn btn-sm" type="button" :disabled="busy" @click="clearSummaryJob">关闭状态</button>
             </div>
@@ -116,10 +115,10 @@
       <h3>核对后确认</h3>
       <p>{{ pendingOperation.preview.effect }}</p>
       <dl v-if="pendingOperation.preview.before || pendingOperation.preview.after">
-        <div v-if="pendingOperation.preview.before"><dt>当前</dt><dd>{{ pretty(pendingOperation.preview.before) }}</dd></div>
-        <div v-if="pendingOperation.preview.after"><dt>变更后</dt><dd>{{ pretty(pendingOperation.preview.after) }}</dd></div>
+        <div v-if="pendingOperation.preview.before"><dt>当前</dt><dd>{{ describeChange(pendingOperation.preview.before) }}</dd></div>
+        <div v-if="pendingOperation.preview.after"><dt>变更后</dt><dd>{{ describeChange(pendingOperation.preview.after) }}</dd></div>
       </dl>
-      <p v-if="pendingOperation.preview.source_fingerprint" class="interaction-author__binding">来源指纹：{{ pendingOperation.preview.source_fingerprint.slice(0, 12) }}…；消费者空间：{{ pendingOperation.preview.consumer_project_id }}</p>
+      <p v-if="pendingOperation.preview.source_fingerprint" class="interaction-author__binding">操作只影响这段旅程，作品资料仍保留在原来的版本。</p>
       <div class="interaction-author__actions">
         <button class="btn btn-primary btn-sm" type="button" :disabled="busy" @click="confirmOperation">{{ busy ? '正在保存…' : '确认这项变更' }}</button>
         <button class="btn btn-sm" type="button" :disabled="busy" @click="pendingOperation = null; saveDraft()">返回编辑</button>
@@ -466,9 +465,13 @@ function clearSummaryJob() {
   saveDraft()
 }
 
-function formatNumber(value) { return Number(value || 0).toLocaleString() }
 function timeoutLabel(value) { return value == null ? "未设置总时限" : `${formatNumber(value)} 秒` }
-function pretty(value) { return JSON.stringify(value, null, 2) }
+function formatNumber(value) { return Number(value || 0).toLocaleString() }
+function describeChange(value) {
+  if (typeof value?.title === "string") return value.title
+  if (typeof value?.action_options_enabled === "boolean") return value.action_options_enabled ? "显示可选行动" : "隐藏可选行动"
+  return "旅程状态将按预览更新"
+}
 
 function accountInvalidated() {
   generation++
@@ -491,7 +494,7 @@ watch(() => props.projectId, () => {
   draftActionOptions.value = true
   if (props.active) void load()
 })
-watch(() => props.active, active => { if (active) void load() })
+watch(() => props.active, active => { if (active) void load() }, { immediate: true })
 
 globalThis.addEventListener?.(ACCOUNT_INVALIDATED_EVENT, accountInvalidated)
 onBeforeUnmount(() => {

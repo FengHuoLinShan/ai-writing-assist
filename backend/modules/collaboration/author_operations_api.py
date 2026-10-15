@@ -55,6 +55,16 @@ async def _confirm(db, novel_id: UUID, op_id: str, data):
     if not args.expected_preview_hash:
         raise ConflictError("缺少本次预览指纹", code="PREVIEW_REQUIRED")
     await require_active_project_exclusive(db, str(novel_id))
+    if op_id in {
+        "collaboration.workspace.create",
+        "collaboration.workspace.check",
+        "collaboration.workspace.atomic_adopt",
+    }:
+        # Each domain service checks its immutable operation receipt first.
+        # Recomputing a preview here would reject a successful retry after
+        # the workspace, check, or adopted sources changed.
+        result = await spec["apply"](db, str(novel_id), args, None, context=None)
+        return {"operation_id": op_id, "result": result}
     preview = await spec["prepare"](db, str(novel_id), args, context=None)
     if _hash_preview(preview) != args.expected_preview_hash:
         raise ConflictError("预览已变化，请重新核对", code="PREVIEW_STALE")

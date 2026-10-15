@@ -12,7 +12,6 @@ from sqlalchemy import select
 
 from core.errors import ConflictError, NotFoundError, ValidationError
 from infrastructure.llm.collaboration import content_hash
-from infrastructure.llm.schemas import AI_RUN_ENVELOPE_VERSION
 from infrastructure.llm.token_estimation import estimate_token_count
 from infrastructure.tasks.registry import TaskRegistry
 from modules.account.facade import current_account_id
@@ -402,7 +401,7 @@ async def _check_prepare(db, novel_id, args, *, context=None):
         "task_max_attempts": definition.max_attempts,
         "task_recovery_policy": definition.recovery_policy,
         "task_deadline_seconds": definition.run_deadline_seconds,
-        "envelope_version": AI_RUN_ENVELOPE_VERSION,
+        "envelope_version": 2,
         "task_token_limit": definition.run_token_limit,
         "domain_token_limit": None,
         "domain_budget_started_at_semantics": (
@@ -430,11 +429,11 @@ async def _check_prepare(db, novel_id, args, *, context=None):
 
 
 async def _check_apply(db, novel_id, args, preview, *, context=None):
-    if context is not None and getattr(context, "trace_actor_type", None) == "goal":
+    if context is not None:
         raise ConflictError(
             (
                 "Collaboration 试改使用独立 collaboration.run 根；"
-                "目标预算适配不可用，请在创作试验工作台单独确认。"
+                "请在创作试验工作台单独核对资料与预算并确认。"
             ),
             code="ROOT_BUDGET_ADAPTER_UNAVAILABLE",
         )
@@ -566,6 +565,11 @@ async def _atomic_prepare(db, novel_id, args, *, context=None):
 
 
 async def _atomic_apply(db, novel_id, args, preview, *, context=None):
+    if context is not None and getattr(context, "trace_actor_type", None) == "goal":
+        raise ConflictError(
+            "这次跨域采用需作者核对完整差异并单独确认",
+            code="DOMAIN_CONFIRMATION_REQUIRED",
+        )
     if context is None and (not args.confirmed or not args.expected_preview_hash):
         raise ConflictError(
             "每次采用都需要作者确认刚核对的预览", code="CONFIRMATION_REQUIRED"

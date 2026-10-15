@@ -259,6 +259,10 @@ from app.assistant_operation_registry import writing_generation_operations
 from app.assistant_operation_registry import writing_operations
 from app.assistant_operation_registry import world_opening_operations
 from app.assistant_operation_registry import world_author_operations
+from app.assistant_operation_registry import (
+    collaboration_author_operations,
+    interaction_author_operations,
+)
 from app.assistant_operation_registry import world_map_operations
 from app.assistant_operation_registry import world_cocreation_operations
 from app.assistant_operation_registry import world_outcome_operations
@@ -469,6 +473,8 @@ def _container_services() -> Iterable[tuple[ServiceKey[Any], Any]]:
                 **world_dossier_operations,
                 **world_validity_operations,
                 **writing_a1_operations,
+                **interaction_author_operations,
+                **collaboration_author_operations,
             },
         ),
         (ASSISTANT_OPERATION_TRACE, _record_operation_trace),
