@@ -94,9 +94,12 @@ class MapSpatialEvaluationScope:
             CalibrationResult,
             JudgeResult,
             calibration_prompt,
+            digest,
+            evidence_path,
             judge_prompt,
             product_evidence,
             read_binding,
+            read_common_binding,
             require_calibration,
             require_development_gate,
             verify_runtime,
@@ -107,7 +110,11 @@ class MapSpatialEvaluationScope:
                 "Map evaluation is closed without explicit execution authorization"
             )
 
-        binding = read_binding(self.private_root, self.binding["family_id"])
+        binding = (
+            read_common_binding(self.private_root, self.binding["family_id"])
+            if self.phase == "teacher_calibration"
+            else read_binding(self.private_root, self.binding["family_id"])
+        )
         if binding != self.binding:
             raise CodexExecutionError("Map evaluation binding changed")
         await verify_runtime(self.db, binding)
@@ -137,6 +144,15 @@ class MapSpatialEvaluationScope:
                 evidence = await product_evidence(
                     self.db, self.private_root, binding, self.case_id
                 )
+                from evals.map_spatial import _read_private_json
+
+                frozen_evidence = _read_private_json(
+                    evidence_path(self.private_root, binding, self.case_id)
+                )
+                if digest(frozen_evidence) != digest(evidence):
+                    raise CodexExecutionError(
+                        "Map judge product evidence differs from its frozen artifact"
+                    )
                 if prompt != judge_prompt(
                     self.private_root, binding, self.case_id, evidence
                 ):
