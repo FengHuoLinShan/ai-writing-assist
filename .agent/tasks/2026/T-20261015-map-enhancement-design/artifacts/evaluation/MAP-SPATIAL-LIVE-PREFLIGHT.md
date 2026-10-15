@@ -82,8 +82,10 @@ Writing 可达性仍须实际核对：setup 的 manual canonical Scene 只有来
 
 - 已修实际失败：错网络 API 可首写错误库；fresh-process DI 重复/未初始化；Assistant submit/worker 能力未同时启用及错误 retrieve hint；Writing 无 task timeout；五个不同 source spans 被误当全族同值；Evolution 最后 task 完成未在同次收尾；费用 unknown 额外硬阻断与配对分母权重。
 - 增补正式 World promote 与独立地图重新预览/CAS，费用、工具历史与 token 硬限保持诚实。生产默认开关未改。
-- 最终本地 `evals/tests`：373 passed / 2 skipped；其中地图相关 59 项。Ruff check/format、docs impact（七份既有 authority 逐项说明 no-change）、`git diff --check`、模块导入门均通过；导入棘轮61/9/0/517不增长。
+- 联合代码 HEAD `abe911c3594564cdabcfb4139ff939956feada39` 的 `make eval-fast`：386 passed / 2 skipped；其中地图评测四文件 72 项。本次相关文件 Ruff check/format、docs impact（七份既有 authority 逐项说明 no-change）、`git diff --check`、模块导入门均通过；导入棘轮61/9/0/517不增长。
 - SQLite/真实 ASGI 验证 Project/draft/五 Scene spans，以及 clue review→auto-draft→candidate-location 原 promote（hash stale/跨项目/缺理解来源拒绝）→独立地图重新 preview→旧 head CAS 拒绝→正常保存。模型入口在该链被显式禁止；仅产生正常 pending 派生任务，没有伪造 done Task。
+- 同一 HEAD 的完整 Evolution、eval、World 冷启动/合并历史/助手层级/brief/advisory、Story 空间提示与 Writing 产品链联合回归：1061 passed / 2 skipped / 1 deselected（83.81s），均为 SQLite/受控 provider，无真实模型或 PG。Writing 正向地图消费测试使用明确可信 Scene 地点；source-only Scene 对照如实省略地图，未冒称 setup 四域整链全部可达。
 - 新增正常 ASGI preview/start→持久 run→五 Scene 加一个结构 task 的精确 TaskWorker 回归，provider 边界使用受控响应。独立会话在采样前看到原授权方法/阶段版本，正式读取 facade 与完整 Evolution 产品证据 guard 校验真实 attempt、主回执、可选收尾、两 journal 和当前 canonical 切片；不手造 done task。旧诊断 pilot 的阶段版本/方法遗漏、5-task 上限和两种 range hash 错比属于实际链发现的缺陷，旧账本不补写；修复后的真实评测使用新 private root/Project/请求身份。
 - fresh Python 进程验证正常 app composition 和 ASGI 只读路由，禁止真实数据库连接且不启动 lifespan。控制器测试另覆盖 exact task IDs、2/2/2 Evolution、timeout/已尝试 task 拒绝、unknown 禁止重发、能力恢复、未校准/无权限/错误 owner 和冻结指纹漂移。
+- 全 eval Ruff check 通过；扩大到整个 eval 目录的 format 检查发现四份本次未改动文件已有格式漂移（`rp_source_families.py`、`test_editorial_dataset.py`、`test_rp_matrix.py`、`world_design_review.py`），未扩大改动。
 - 未运行：真实 PG 并发/CAS、真实四域 TaskWorker 的整链与 Codex/teacher/judge。工程 orchestration 的 task 替身只证明调度边界；真实模型产物、语义质量、费用、真实 owner 连接和人类作者验收仍须 root pilot，不能以本节工程绿色替代。
