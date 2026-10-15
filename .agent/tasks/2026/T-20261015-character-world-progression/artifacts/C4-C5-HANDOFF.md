@@ -106,3 +106,9 @@ ADR-0040、ADR-0041 为准；不是新的授权或验收豁免。
 - Task 名 story_scene_director，根能力 story.scene_director，never_retry/max_attempts=1/retry_transient=false；请求、token、时限来自作者冻结预算，run_id=director_root_id，checkpoint 镜像同一 root ledger。最终 TaskRegistry/root-capability/confirmation 与 NoticeSource story.scene_director 都由 Sol 组合，不扩旧 RP 能力或重置开始时间。
 - 正式 director_reference 已在 Luna 树实现独立 loader/section/KnowledgeScopeDimension/confirmation IDs 与写作提交时冻结副本。DI 接线：modules.evidence.compilation.contracts.EVIDENCE_READ_STORY_DIRECTOR_REFERENCES（键 evidence.read_story_director_references）→ modules.story.facade.read_scene_director_references_for_writing。默认空 NOVELCRAFT_DIRECTOR_REFERENCE_ENABLED_CAPABILITIES，只允许 writing.generate、writing.targeted_revision；缺失或陈旧副本只提示，不改变核心 stale 指纹或采用资格。
 - 独立 Sol 必审：新增未知费用不能继承旧 attempt 的确认而被绕过；80%时间、同根分支并发与原 deadline；旧人物卡任意自由文字不得绕过 Evidence 知情证明进入角色 packet；模型 fact/pattern IDs 必须属于该角色的当前可知 packet 和冻结来源。Luna 已自行收窄旧卡文本，不能因此省略独立验证。
+
+## C5 下一批不得遗漏的入口与门禁
+
+- 从已审 C4 固定点复用共用协议和知情 packet；由 Story 持有新推进运行/步骤与不可变历史，不把导演回合改名当推进。根开关 STORY_WORLD_PROGRESSION_ENABLED 默认关闭；目录中准备运行为 R4、已授权根内推进一步 R1、读取 R0、钩子结构预览/采用 R3，费用与授权语义分别核验。
+- Assistant 的 world_progression_review 引导流程按 ADR-0032 正式注册且默认关闭；钩子接真实 story.plan_structure 滚动窗口预览，交汇起点向导演传显式假设。人物近况只进入作者备注的确认入口。推进记录不进入 Writing 检索、Evolution 阅读或 RP。
+- 持续推进提醒需要真实持续授权预算/读入新章的触发及统一 NoticeSource，不能用静态提示冒充轻量自由推进，也不能后台另起脱离授权的预算。模型推荐步长须来自可说明的模型/步推进量观测；无实测时明确样本缺口，不伪造测量值。长篇、题材与真人验收仍单列。
