@@ -628,6 +628,20 @@ async def test_tray_place_requires_preview_and_is_idempotent(
     )
     assert feature["points"] == [point.model_dump(mode="json")]
     assert feature["locked"] is True
+    assert new_revision.base_revision_id == old_revision.id
+    review_preview = await MapStructureService().review_preview(
+        db_session,
+        project_novel_id,
+        str(tray.node_id),
+        str(placed.revision_id),
+        MapRevisionReview(
+            action="adopt",
+            base_revision_id=None,
+            change_keys=[f"feature:{placed.placed_feature_id}"],
+        ),
+    )
+    assert review_preview.base_revision_id is None
+    assert review_preview.applied_change_keys == [f"feature:{placed.placed_feature_id}"]
     updated_batch = await db_session.get(MapAutoDraftBatchRecord, result.batch_id)
     assert (
         next(

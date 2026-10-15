@@ -27,6 +27,21 @@ import {
   // ============================================================
 
 export const world = {
+    async listMapAutoDrafts(novelId, options = {}) {
+      return contractFetch("world.listMapAutoDrafts", { novelId }, options)
+    },
+    async resumeMapAutoDrafts(novelId, batchId, payload) {
+      return contractJson("world.resumeMapAutoDrafts", { novelId, batchId }, {}, payload)
+    },
+    async redoMapAutoDrafts(novelId, batchId, payload) {
+      return contractJson("world.redoMapAutoDrafts", { novelId, batchId }, {}, payload)
+    },
+    async previewAutoDraftTrayPlacement(novelId, batchId, nodeId, revisionId, itemId, payload) {
+      return contractJson("world.previewAutoDraftTrayPlacement", { novelId, batchId, nodeId, revisionId, itemId }, {}, payload)
+    },
+    async placeAutoDraftTrayItem(novelId, batchId, nodeId, revisionId, itemId, payload) {
+      return contractJson("world.placeAutoDraftTrayItem", { novelId, batchId, nodeId, revisionId, itemId }, {}, payload)
+    },
     async listSpatialClues(novelId, options = {}) {
       return contractFetch("world.listSpatialClues", { novelId }, options)
     },

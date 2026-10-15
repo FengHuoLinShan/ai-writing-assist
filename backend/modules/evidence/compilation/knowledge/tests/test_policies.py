@@ -70,6 +70,10 @@ EXPECTED_CAPABILITIES = (
     # Evolution
     "evolution.scene_observe",
     "evolution.state_review",
+    "evolution.details_discover",
+    "evolution.details_review",
+    "evolution.spatial_discover",
+    "evolution.spatial_review",
     # Interaction
     "interaction.story_generate",
     "interaction.summary_refresh",

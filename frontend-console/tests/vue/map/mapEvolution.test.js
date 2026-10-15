@@ -73,7 +73,7 @@ describe('空间 v2 的本地排演边界', () => {
 it('v2空间、行程、模态、范围与固定词表修订均可逐项比较采用', () => {
   const before = map(), after = structuredClone(before)
   after.schema_version = 2
-  after.spaces = [{ id: 'dream', label: '梦境' }]
+  after.spaces = [...before.spaces, { id: 'dream', label: '梦境' }]
   after.features[0].modality = 'author_plan'
   after.features[0].type_ref = 'type-a'; after.features[0].type_revision_id = 'revision-a'
   after.features[0].effective = { start: { kind: 'scene', id: 'scene-a' } }
@@ -86,4 +86,10 @@ it('v2空间、行程、模态、范围与固定词表修订均可逐项比较�
   expect(changes[2].fields).toContainEqual({ title: '声明耗时', before: '尚未加入', after: '0—20 分钟' })
   expect(changes[2].fields.find(item => item.title === '通行条件').after).toBe('凭通行牌')
   expect(changes[2].featureIds).toEqual(['旅馆', '码头'])
+})
+
+it('空白v2与服务端默认主空间相同，JSON字段顺序和空类型不产生虚假审核项', () => {
+  const before = emptyMap(), after = structuredClone(before)
+  after.spaces = [{ type_ref: null, type_revision_id: null, id: 'main', label: '主空间' }]
+  expect(mapChangeDetails(before, after)).toEqual([])
 })

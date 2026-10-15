@@ -1,0 +1,54 @@
+import { execFileSync } from 'node:child_process'
+import { resolve } from 'node:path'
+import { test, expect } from './fixtures.js'
+import { API_BASE } from './helpers/api-client.js'
+import { openWorkbench } from './helpers/workbench.js'
+
+async function checked(response) { expect(response.ok(), await response.text()).toBeTruthy(); return response.json() }
+
+test('阅读草图候选独立展示，托盘选点经预览确认后进入地图审核', async ({ page, request, projectFactory, browserErrors }, testInfo) => {
+  const project = await projectFactory({ title: `E2E map auto draft ${Date.now()}` })
+  const backend = resolve('../backend')
+  execFileSync(resolve(backend, '.venv/bin/python'), ['-m', 'tests.support.map_auto_draft_browser_fixture', project.id], { cwd: backend, env: { ...process.env, APP_ENV: 'test', AUTH_MODE: 'local' }, encoding: 'utf8' })
+  const base = `${API_BASE}/world/map-atlas/${project.id}`
+  expect((await checked(await request.get(`${base}/atlas`))).nodes).toHaveLength(0)
+  await page.setViewportSize({ width: 390, height: 844 })
+  await openWorkbench(page, project, 'map')
+  const panel = page.locator('.auto-drafts')
+  await panel.locator(':scope > summary').click()
+  await expect(panel).toHaveAttribute('open', '')
+  await expect(panel).toContainText('分片整理完成')
+  await panel.getByText(/^待放置托盘/).first().click()
+  await panel.getByRole('button', { name: '在草图上选择位置', exact: true }).first().click()
+  const placement = panel.getByRole('region', { name: '待放置地点定位' })
+  const canvas = placement.getByRole('group', { name: '待放置位置，点击或按 Enter 选点、方向键微调' })
+  await canvas.focus(); await canvas.press('Enter'); await canvas.press('ArrowRight')
+  await placement.getByRole('button', { name: '预览放置影响', exact: true }).click()
+  await expect(placement).toContainText('图元 0 → 1 个')
+  await expect(page.getByRole('button', { name: '从本作品开始 RP', exact: true })).toBeDisabled()
+  expect((await checked(await request.get(`${base}/atlas`))).nodes).toHaveLength(0)
+  await page.screenshot({ path: testInfo.outputPath('auto-draft-placement-390.png'), fullPage: true })
+  await placement.getByRole('button', { name: '确认放入草图候选', exact: true }).click()
+  await page.getByRole('button', { name: '确认放置', exact: true }).click()
+  await expect(panel).toContainText('已放入新的草图候选')
+  const listed = await checked(await request.get(`${base}/auto-drafts?limit=20&offset=0`))
+  const placed = listed.items.find(item => item.document.features.length === 1)
+  expect(placed.document.features[0]).toMatchObject({ locked: true, modality: 'character_statement', effective: { start: { kind: 'scene' } } })
+  expect(placed.node.current_revision_id).toBeNull()
+  const article = panel.locator('.draft-item').filter({ hasText: placed.node_title }).first()
+  await article.getByRole('button', { name: '打开地图逐项审核', exact: true }).click()
+  await expect(page.getByLabel('自动草图审核上下文')).toBeVisible()
+  await expect(page.getByLabel('候选地图差异')).toContainText('正在查看空间候选')
+  await expect(page.getByRole('button', { name: '恢复为新版本', exact: true })).toHaveCount(0)
+  expect((await checked(await request.get(`${base}/atlas`))).nodes).toHaveLength(0)
+  await page.getByRole('button', { name: /^核对所选/ }).click()
+  await expect(page.getByLabel('即将采用的修改')).toBeVisible()
+  await page.getByRole('button', { name: /^确认采用共/ }).click()
+  const state = await checked(await request.get(`${base}/nodes/${placed.node_id}/map`))
+  expect(state.revision.status).toBe('saved')
+  expect(state.revision.document.features).toHaveLength(1)
+  await expect(page.locator('.atlas-tree')).toContainText(placed.node_title)
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true)
+  await page.screenshot({ path: testInfo.outputPath('auto-draft-adopted-390.png'), fullPage: true })
+  expect(browserErrors).toEqual([])
+})

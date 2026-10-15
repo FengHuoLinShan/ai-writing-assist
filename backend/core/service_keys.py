@@ -40,10 +40,10 @@ if TYPE_CHECKING:
     )
     from modules.story.scene_source_port import SceneSourcePort
     from modules.world.contracts import (
+        MapAuthorDecisionReaderPort,
         WorldAliasRelationTaskPort,
         WorldBuildMapAutoDraftsPort,
         WorldReadMapSpatialBriefPort,
-        MapAuthorDecisionReaderPort,
     )
     from modules.world.services.worldbuilding.adoption_package_service import (
         WorldAdoptionPackageService,

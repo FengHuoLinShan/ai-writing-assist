@@ -859,7 +859,7 @@ class MapStructureService:
         )
         return MapReviewPreview(
             candidate_revision_id=str(row.id),
-            base_revision_id=str(row.base_revision_id) if row.base_revision_id else None,
+            base_revision_id=str(data.base_revision_id) if data.base_revision_id else None,
             applied_change_keys=applied,
             expanded_change_keys=expanded,
         )

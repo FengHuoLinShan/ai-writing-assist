@@ -108,6 +108,38 @@ describe("AI 地图册工作台", () => {
     expect(wrapper.find(".atlas-tabs").exists()).toBe(false)
   })
 
+  it('没有正式地图的自动草图以真实节点进入审核，目录和地图册计数不混入候选', async () => {
+    const data = { schema_version: 1, layout_version: 1, features: [], constraints: [], images: [], annotation_bindings: [] }
+    const node = { id: 'auto-node', title: '候选港口', level: 'city', status: 'provisional', parent_id: null, current_revision_id: null, pages: [], children: [] }
+    const candidate = { id: 'auto-revision', node_id: node.id, status: 'candidate', is_auto_draft: true, base_revision_id: null, review_base_revision_id: null, document: data, problems: [] }
+    api.world.getNodeMap.mockResolvedValue({ node_id: node.id, revision: null, candidates: [candidate], image_layers: [] })
+    api.world.previewMapRevision = vi.fn().mockResolvedValue({ document: data, image_layers: [], problems: [] })
+    const wrapper = mount(MapWorkspaceView, { props: { projectId: 'novel-1' } })
+    await flushPromises()
+    const panel = wrapper.findComponent({ name: 'MapAutoDraftPanel' })
+    const panelElement = panel.element
+    panel.vm.$emit('state', { busy: true, dirty: false }); await flushPromises()
+    expect(wrapper.findComponent({ name: 'MapAutoDraftPanel' }).element).toBe(panelElement)
+    panel.vm.$emit('state', { busy: false, dirty: false }); await flushPromises()
+    expect(wrapper.findComponent({ name: 'MapAutoDraftPanel' }).element).toBe(panelElement)
+    panel.vm.$emit('review', { node_id: node.id, node, revision_id: candidate.id })
+    await flushPromises()
+    expect(wrapper.get('[aria-label="自动草图审核上下文"]').text()).toContain('候选港口')
+    expect(wrapper.text()).toContain('正在查看空间候选')
+    expect(wrapper.find('.atlas-tree').exists()).toBe(false)
+    expect(wrapper.find('.atlas-tabs').exists()).toBe(false)
+    expect(api.world.getNodeMap).toHaveBeenCalledWith('novel-1', 'auto-node')
+    expect(wrapper.findAll('button').some(item => item.text() === '恢复为新版本')).toBe(false)
+    const close = wrapper.findAll('button').find(item => item.text() === '返回地图目录')
+    expect(wrapper.vm.structureState).toMatchObject({ busy: false })
+    expect(wrapper.vm.vocabularyLocked).toBe(false)
+    expect(close.attributes('disabled')).toBeUndefined()
+    expect(wrapper.findComponent({ name: 'MapStructureEditor' }).vm.canLeave()).toBe(true)
+    await close.trigger('click'); await flushPromises()
+    expect(wrapper.find('[aria-label="自动草图审核上下文"]').exists()).toBe(false)
+    expect(wrapper.text()).toContain('你的地图册还是空的')
+  })
+
   it.each([
     ["空地图册", tree([], "atlas"), null, false],
     ["已有地图册", tree([page({ review_status: "adopted" })], "atlas"), null, false],

@@ -58,8 +58,8 @@
       <p>{{ formatDate(candidateView.created_at) }} · 对照基线：{{ formatDate(revision?.created_at) }}</p>
       <p>与当前已保存地图比较；这些变化尚未应用。采用或恢复时会再次核对来源与版本。</p>
       <MapChangeReview v-model="selectedChangeKeys" :changes="candidateChanges" :selectable="candidateView.status === 'candidate' && !recovery" @locate="locateChange" />
-      <p v-if="candidateView.status === 'candidate' && candidateView.base_revision_id !== revision?.id" role="alert">此候选基于较早地图，仅供比较；请重新整理需要更新的部分。</p>
-      <button v-if="candidateView.status === 'candidate' && !adoptionPreview" class="btn btn-primary" :disabled="busy || previewing || dirty || Boolean(recovery) || !selectedChangeKeys.length || candidateView.base_revision_id !== revision?.id" @click="previewAdoption">{{ previewing ? '正在核对采用范围…' : '核对所选 ' + selectedChangeKeys.length + ' 项修改' }}</button>
+      <p v-if="candidateView.status === 'candidate' && reviewBase(candidateView) !== (revision?.id || null)" role="alert">此候选基于较早地图，仅供比较；请重新整理需要更新的部分。</p>
+      <button v-if="candidateView.status === 'candidate' && !adoptionPreview" class="btn btn-primary" :disabled="busy || previewing || dirty || Boolean(recovery) || !selectedChangeKeys.length || reviewBase(candidateView) !== (revision?.id || null)" @click="previewAdoption">{{ previewing ? '正在核对采用范围…' : '核对所选 ' + selectedChangeKeys.length + ' 项修改' }}</button>
       <div v-if="adoptionPreview" class="map-adoption-preview" aria-label="即将采用的修改">
         <strong>将采用 {{ adoptionPreview.applied_change_keys.length }} 项修改</strong>
         <p>请核对实际生效范围；标有“关联修改”的内容会一并采用，未列出的修改继续保留为候选。</p>
@@ -667,9 +667,16 @@ async function load(initial = false) {
     else if (!dirty.value && !candidateView.value) problems.value = result.revision?.problems || []
     await loadLayerImages()
     if (initial && props.initialRevisionId && props.initialRevisionId !== result.revision?.id) {
+      let target = result.candidates.find(item => item.id === props.initialRevisionId)
+      if (!target) {
+        const records = await api.world.listMapRevisions(props.projectId, props.node.id)
+        if (!alive || token !== epoch) return
+        target = records.find(item => item.id === props.initialRevisionId)
+      }
+      if (!target) throw new Error('此版本不在可访问记录中，请从草图或地图历史重新打开。')
       const preview = await api.world.previewMapRevision(props.projectId, props.node.id, props.initialRevisionId)
       if (!alive || token !== epoch) return
-      await viewCandidate({ ...preview, id: props.initialRevisionId, status: 'saved' }, preview)
+      await viewCandidate(target, preview)
     }
   } catch (err) { if (alive && token === epoch) error.value = lastLoadError = err.message || "地图读取失败" }
   finally { if (alive && token === epoch) { loading.value = false; if (taskRunning.value) { clearTimeout(pollTimer); pollTimer = setTimeout(() => load(), 2500) } } }
@@ -753,9 +760,10 @@ async function viewCandidate(value, existingPreview = null) {
   } catch (err) { if (alive && token === comparisonEpoch && candidateView.value?.id === value.id) error.value = err.message || '版本图片读取失败，结构仍可比较' }
 }
 function exitCandidate() { comparisonReturn?.focus?.(); comparisonReturn?.scrollIntoView?.({ block: 'nearest' }); ++comparisonEpoch; candidateView.value = null; compareCandidateCurrent.value = false; problems.value = serverRevision.value?.problems || revision.value?.problems || [] }
+function reviewBase(value) { return value.is_auto_draft ? value.review_base_revision_id : value.base_revision_id }
 async function previewAdoption() {
   const value = candidateView.value, baseId = revision.value?.id || null, keys = [...selectedChangeKeys.value]
-  if (!value || value.status !== 'candidate' || value.base_revision_id !== baseId || busy.value || dirty.value || recovery.value || !keys.length) return
+  if (!value || value.status !== 'candidate' || reviewBase(value) !== baseId || busy.value || dirty.value || recovery.value || !keys.length) return
   const token = ++reviewEpoch
   adoptionPreview.value = null; previewing.value = true; error.value = ''; reviewNotice.value = ''
   try {
@@ -1021,7 +1029,7 @@ async function runToolbarAction(key) {
 }
 watch(spaceChoices, choices => { if (!choices.some(space => space.id === activeSpaceId.value)) activeSpaceId.value = choices[0].id }, { immediate: true })
 watch(activeSpaceId, () => { selectedId.value = ''; placing.value = false; rehearsalStops.value = []; dragBounds.value = null; drag = null; if (scrollArea.value) { scrollArea.value.scrollLeft = 0; scrollArea.value.scrollTop = 0 } }, { flush: 'sync' })
-watch([dirty, revision, reader, focused, toolbar, metadataBusy], () => emit("state", { nodeId: props.node.id, dirty: dirty.value, busy: metadataBusy.value || loading.value || saving.value, revision: revision.value, reader: Boolean(reader.value), focused: focused.value, toolbar: toolbar.value }), { immediate: true })
+watch([dirty, revision, reader, focused, toolbar, metadataBusy, loading, saving], () => emit("state", { nodeId: props.node.id, dirty: dirty.value, busy: metadataBusy.value || loading.value || saving.value, revision: revision.value, reader: Boolean(reader.value), focused: focused.value, toolbar: toolbar.value }), { immediate: true })
 watch([selectedId, activeSpaceId, zoom, focused, rehearsalStops], rememberView, { deep: true })
 watch([selectedId, busy, focused, readOnly], () => { sourcePickerOpen.value = false }, { flush: 'sync' })
 watch([candidateView, () => revision.value?.id, () => serverRevision.value?.id, selectedChangeKeys], () => { ++reviewEpoch; adoptionPreview.value = null; previewing.value = false }, { deep: true, flush: 'sync' })

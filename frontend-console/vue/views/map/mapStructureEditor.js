@@ -1,4 +1,4 @@
-export const emptyMap = () => ({ schema_version: 1, layout_version: 1, features: [], constraints: [], images: [], annotation_bindings: [] })
+export const emptyMap = () => ({ schema_version: 2, layout_version: 1, spaces: [{ id: 'main', label: '主空间' }], features: [], constraints: [], journeys: [], images: [], annotation_bindings: [] })
 export const copyMap = value => JSON.parse(JSON.stringify(value))
 export const pointsAttribute = points => points.map(point => `${point.x},${point.y}`).join(" ")
 export const mapRelationLabels = { inside: "位于区域内", north: "在北侧", south: "在南侧", east: "在东侧", west: "在西侧", northeast: "在东北", northwest: "在西北", southeast: "在东南", southwest: "在西南", adjacent: "相邻", connects: "有已知道路连接", passes_through: "路线经过", along_street: "位于这条街上", entrance_to: "是此处的入口", faces: "朝向此处" }
@@ -24,7 +24,12 @@ export function mapSourceSelections(features, constraints = []) {
   return [...refs.values()]
 }
 
-const equal = (a, b) => JSON.stringify(a ?? null) === JSON.stringify(b ?? null)
+const equal = (a, b) => {
+  if (a == null || b == null) return (a ?? null) === (b ?? null)
+  if (Array.isArray(a) || Array.isArray(b)) return Array.isArray(a) && Array.isArray(b) && a.length === b.length && a.every((item, index) => equal(item, b[index]))
+  if (typeof a === 'object' && typeof b === 'object') return [...new Set([...Object.keys(a), ...Object.keys(b)])].every(key => equal(a[key], b[key]))
+  return a === b
+}
 const featureKinds = { location: '地点', landmark: '地标', road: '道路', river: '河流', area: '区域' }
 const modalityLabels = { event_observed: '已观察事件', character_statement: '人物说法', belief: '人物认知', hypothesis: '待核实理解', figurative: '修辞', author_plan: '作者计划', unclear: '尚不明确' }
 const pinnedType = (ref, revision) => ref ? `词条 ${ref} · 修订 ${revision}` : '未关联类型'

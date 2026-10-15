@@ -150,7 +150,9 @@ describe("统一地图编辑器", () => {
   })
 
   it("成果链接打开指定历史版进行比较而不替换当前编辑", async () => {
-    api.world.previewMapRevision.mockResolvedValue({ document: { ...emptyMap(), features: [feature("old", "旧港口", 10, 10)] }, image_layers: [], problems: [] })
+    const historical = record({ ...emptyMap(), features: [feature("old", "旧港口", 10, 10)] }, nextId)
+    api.world.listMapRevisions.mockResolvedValue([historical])
+    api.world.previewMapRevision.mockResolvedValue({ document: historical.document, image_layers: [], problems: [] })
     const wrapper = await render({ initialRevisionId: nextId })
     await flushPromises()
     expect(api.world.previewMapRevision).toHaveBeenCalledWith(projectId, nodeId, nextId)
@@ -158,6 +160,33 @@ describe("统一地图编辑器", () => {
     expect(wrapper.text()).toContain("旧港口")
     expect(api.world.saveMapRevision).not.toHaveBeenCalled()
     expect(wrapper.vm.revision.id).toBe(revisionId)
+  })
+
+  it('草图成果链接保留真实候选状态，审核CAS与增量基础版本分开', async () => {
+    const candidate = { ...record({ ...document(), features: [...document().features, feature('new', '新港', 200, 200)] }, nextId), status: 'candidate', is_auto_draft: true, base_revision_id: 'superseded-candidate', review_base_revision_id: revisionId }
+    api.world.getNodeMap.mockResolvedValue({ ...state(record()), candidates: [candidate] })
+    const wrapper = await render({ initialRevisionId: nextId })
+    expect(wrapper.text()).toContain('正在查看空间候选')
+    expect(wrapper.text()).not.toContain('此候选基于较早地图')
+    expect(button(wrapper, '恢复为新版本')).toBeUndefined()
+    const preview = wrapper.findAll('button').find(item => item.text().startsWith('核对所选'))
+    expect(preview.attributes('disabled')).toBeUndefined()
+    await preview.trigger('click'); await flushPromises()
+    expect(api.world.previewMapReview).toHaveBeenCalledWith(projectId, nodeId, nextId, expect.objectContaining({ base_revision_id: revisionId }))
+  })
+
+  it('没有正式head的草图以null审核基线预览，未查明的版本不伪装历史', async () => {
+    const candidate = { ...record(document(), nextId), status: 'candidate', is_auto_draft: true, base_revision_id: 'earlier-candidate', review_base_revision_id: null }
+    api.world.getNodeMap.mockResolvedValue({ ...state(null), candidates: [candidate] })
+    const wrapper = await render({ initialRevisionId: nextId })
+    const preview = wrapper.findAll('button').find(item => item.text().startsWith('核对所选'))
+    await preview.trigger('click'); await flushPromises()
+    expect(api.world.previewMapReview).toHaveBeenCalledWith(projectId, nodeId, nextId, expect.objectContaining({ base_revision_id: null }))
+    wrapper.unmount()
+    api.world.getNodeMap.mockResolvedValue(state(record()))
+    const missing = await render({ initialRevisionId: nextId })
+    expect(missing.text()).toContain('此版本不在可访问记录中')
+    expect(missing.text()).not.toContain('正在查看历史地图')
   })
 
   it("无需图片连接即可编辑保存，文字使用安全的 SVG 文本", async () => {

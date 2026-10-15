@@ -12,9 +12,10 @@
       </div>
 
     </header>
-    <ProjectVocabularyPanel v-if="projectId" v-show="!structureState.reader && !structureState.focused" :key="projectId" :project-id="projectId" :disabled="busy || loading || structureState.dirty || structureState.busy || annotationDirty || promptDirty || uploadDraftDirty || uploading || spatialClueState.dirty || spatialClueState.busy" @state="vocabularyState = $event" @changed="vocabularyRevision++" />
-    <MapSpatialCluePanel v-if="projectId" v-show="!structureState.reader && !structureState.focused" :key="projectId" :project-id="projectId" :disabled="busy || loading || structureState.dirty || structureState.busy || annotationDirty || promptDirty || uploadDraftDirty || uploading || vocabularyState.dirty || vocabularyState.busy" @state="spatialClueState = $event" />
-    <p v-if="vocabularyLocked" role="status">{{ spatialClueState.dirty || spatialClueState.busy ? '请先提交或收起空间线索复核，再继续修改地图。' : '请先保存或收起项目类型编辑，再继续修改地图。' }}</p>
+    <ProjectVocabularyPanel v-if="projectId" v-show="!structureState.reader && !structureState.focused" :key="projectId + ':vocabulary'" :project-id="projectId" :disabled="busy || loading || structureState.dirty || structureState.busy || annotationDirty || promptDirty || uploadDraftDirty || uploading || spatialClueState.dirty || spatialClueState.busy || autoDraftState.dirty || autoDraftState.busy" @state="vocabularyState = $event" @changed="vocabularyRevision++" />
+    <MapSpatialCluePanel v-if="projectId" v-show="!structureState.reader && !structureState.focused" :key="projectId + ':clues'" :project-id="projectId" :disabled="busy || loading || structureState.dirty || structureState.busy || annotationDirty || promptDirty || uploadDraftDirty || uploading || vocabularyState.dirty || vocabularyState.busy || autoDraftState.dirty || autoDraftState.busy" @state="spatialClueState = $event" />
+    <MapAutoDraftPanel v-if="projectId" v-show="!structureState.reader && !structureState.focused" :key="projectId + ':auto-drafts'" ref="autoDraftPanel" :project-id="projectId" :disabled="busy || loading || structureState.dirty || structureState.busy || annotationDirty || promptDirty || uploadDraftDirty || uploading || vocabularyState.dirty || vocabularyState.busy || spatialClueState.dirty || spatialClueState.busy" @state="autoDraftState = $event" @review="reviewAutoDraft" @changed="onAutoDraftChanged" />
+    <p v-if="vocabularyLocked" role="status">{{ autoDraftState.dirty || autoDraftState.busy ? '请先完成或取消托盘地点定位，再继续修改地图。' : spatialClueState.dirty || spatialClueState.busy ? '请先提交或收起空间线索复核，再继续修改地图。' : '请先保存或收起项目类型编辑，再继续修改地图。' }}</p>
     <p v-if="mapCapabilities?.upload?.available === false" class="atlas-alert" role="status">{{ mapCapabilities.upload.reason }} 空间示意仍可编辑，画面说明可复制后在外部使用。</p>
 
 
@@ -92,15 +93,16 @@
       <p>图片已保留在拒绝历史中，原地图册没有改变。</p>
     </section>
 
+    <section v-if="selectedAutoDraft && !structureState.focused" class="card atlas-auto-context" aria-label="自动草图审核上下文"><strong>自动草图 · {{ selectedAutoDraft.node.title }}</strong><p>此节点在草图审核后才会进入正式地图目录。</p><button class="btn btn-sm" :disabled="vocabularyLocked || busy || structureState.busy" @click="closeAutoDraft">返回地图目录</button></section>
     <section v-if="loading" class="card atlas-empty" aria-live="polite">正在读取地图册…</section>
-    <section v-else-if="!visibleNodes.length" class="card atlas-empty">
+    <section v-else-if="!visibleNodes.length && !selectedAutoDraft" class="card atlas-empty">
       <h2>{{ emptyTitle }}</h2>
       <p>{{ emptyText }}</p>
     </section>
 
-    <section v-else-if="currentRun?.status !== 'prompt_review'" class="atlas-browser" role="tabpanel" :aria-label="tab === 'review' ? '本次生成结果' : '我的地图册'">
-      <label class="atlas-mobile-picker">地图<select class="form-select" :value="activeNodeId" @change="selectNode(visibleNodes.find(item => item.node.id === $event.target.value).node)"><option v-for="item in visibleNodes" :key="item.node.id" :value="item.node.id">{{ item.node.title }}</option></select></label>
-      <aside class="card atlas-tree" aria-label="地图层级">
+    <section v-else-if="currentRun?.status !== 'prompt_review'" class="atlas-browser" :class="{ 'atlas-browser--candidate-only': !visibleNodes.length }" role="tabpanel" :aria-label="tab === 'review' ? '本次生成结果' : '我的地图册'">
+      <label v-if="visibleNodes.length" class="atlas-mobile-picker">地图<select class="form-select" :value="activeNodeId" @change="selectNode(visibleNodes.find(item => item.node.id === $event.target.value).node)"><option v-for="item in visibleNodes" :key="item.node.id" :value="item.node.id">{{ item.node.title }}</option></select></label>
+      <aside v-if="visibleNodes.length" class="card atlas-tree" aria-label="地图层级">
         <button
           v-for="item in visibleNodes"
           :key="item.node.id"
@@ -123,7 +125,7 @@
 
         <button v-if="!structureEnabled && structureLevels.includes(activeNode.level)" class="btn btn-sm" @click="editStructureNodeId = activeNode.id">补建空间示意</button>
         <div v-if="structureEnabled" :inert="vocabularyLocked || undefined">
-          <MapStructureEditor :key="projectId + ':' + activeNode.id + ':' + vocabularyRevision" ref="structureEditor" external-tools :project-id="projectId" :node="activeNode" :known-nodes="adoptedNodes" :images="nodeImages" :has-reference="Boolean(activePage)" :initial-feature-id="initialFeatureId" :initial-revision-id="initialRevisionId" :review-image-id="tab === 'review' && activePage?.review_status === 'candidate' ? activePage.id : ''" :evidence-refs="focusedSelection.refs.value" @pin-evidence="focusedSelection.add" @clear-evidence="focusedSelection.clear" @saved="refreshAtlasOnly" @open-node="openMapNode" @select-feature="persistFeatureFocus" @reference-visible="referenceVisible = $event" @state="updateStructureState" />
+          <MapStructureEditor :key="projectId + ':' + activeNode.id + ':' + vocabularyRevision" ref="structureEditor" external-tools :project-id="projectId" :node="activeNode" :known-nodes="adoptedNodes" :images="nodeImages" :has-reference="Boolean(activePage)" :initial-feature-id="initialFeatureId" :initial-revision-id="selectedAutoDraft?.revision_id || initialRevisionId" :review-image-id="tab === 'review' && activePage?.review_status === 'candidate' ? activePage.id : ''" :evidence-refs="focusedSelection.refs.value" @pin-evidence="focusedSelection.add" @clear-evidence="focusedSelection.clear" @saved="onMapSaved" @open-node="openMapNode" @select-feature="persistFeatureFocus" @reference-visible="referenceVisible = $event" @state="updateStructureState" />
         </div>
         <template v-if="activePage && !structureState.reader">
         <label v-if="tab === 'atlas' && oldPages.length && (!structureEnabled || referenceVisible)" class="atlas-compare-toggle"><input v-model="compareAdopted" :disabled="Boolean(annotationEdit)" type="checkbox" />对比已有图片</label>
@@ -321,6 +323,7 @@ import { focusWorkspaceTool } from "../../components/workspaceTools.js"
 import MapStructureEditor from "./MapStructureEditor.vue"
 import ProjectVocabularyPanel from "./ProjectVocabularyPanel.vue"
 import MapSpatialCluePanel from "./MapSpatialCluePanel.vue"
+import MapAutoDraftPanel from "./MapAutoDraftPanel.vue"
 import { useEvidenceSelection } from "../../composables/useEvidenceSelection.js"
 import { useModalDialog } from "../../composables/useModalDialog.js"
 import { confirmAiReference } from "../../../shared/aiReferenceModal.js"
@@ -337,7 +340,10 @@ const structureEditor = ref(null)
 const structureState = ref({ dirty: false, revision: null })
 const vocabularyState = ref({ dirty: false, busy: false })
 const spatialClueState = ref({ dirty: false, busy: false })
-const vocabularyLocked = computed(() => vocabularyState.value.dirty || vocabularyState.value.busy || spatialClueState.value.dirty || spatialClueState.value.busy)
+const autoDraftState = ref({ dirty: false, busy: false })
+const selectedAutoDraft = ref(null)
+const autoDraftPanel = ref(null)
+const vocabularyLocked = computed(() => vocabularyState.value.dirty || vocabularyState.value.busy || spatialClueState.value.dirty || spatialClueState.value.busy || autoDraftState.value.dirty || autoDraftState.value.busy)
 const vocabularyRevision = ref(0)
 const editStructureNodeId = ref(null)
 const toolsRoot = ref(null)
@@ -403,8 +409,8 @@ const activeTree = computed(() => tab.value === "review" ? review.value : atlas.
 const visibleNodes = computed(() => flattenNodes(activeTree.value.nodes || []))
 const visiblePages = computed(() => visibleNodes.value.flatMap(({ node }) => node.pages || []))
 const activePage = computed(() => { const pages = activeNode.value?.pages || []; return pages.find(page => page.id === activePageId.value) || pages[0] || null })
-const activeNode = computed(() => visibleNodes.value.find(({ node }) => node.id === activeNodeId.value)?.node || null)
-const structureEnabled = computed(() => Boolean(activeNode.value && structureLevels.includes(activeNode.value.level) && (activeNode.value.current_revision_id || editStructureNodeId.value === activeNode.value.id)))
+const activeNode = computed(() => selectedAutoDraft.value?.node || visibleNodes.value.find(({ node }) => node.id === activeNodeId.value)?.node || null)
+const structureEnabled = computed(() => Boolean(activeNode.value && structureLevels.includes(activeNode.value.level) && (activeNode.value.current_revision_id || selectedAutoDraft.value?.node.id === activeNode.value.id || editStructureNodeId.value === activeNode.value.id)))
 const nodeImages = computed(() => (adoptedNodes.value.find(node => node.id === activeNode.value?.id)?.pages || []).filter(page => page.review_status === 'adopted'))
 const adoptedNode = computed(() => flattenNodes(atlas.value.nodes || []).find(({ node }) => node.id === activePage.value?.node_id)?.node || null)
 const oldPages = computed(() => (adoptedNode.value?.pages || []).filter(page => page.id !== activePage.value?.id))
@@ -497,7 +503,7 @@ async function createMap() {
   try {
     const node = await api.world.createMapNode(props.projectId, { title: newMap.title.trim(), level: newMap.level, parent_id: newMap.parent_id || null })
     creatingMap.value = false; newMap.title = ''; structureState.value = { dirty: false, revision: null }
-    await refreshAtlasOnly(); tab.value = 'atlas'; activeNodeId.value = node.id; activePageId.value = null
+    await refreshAtlasOnly(); selectedAutoDraft.value = null; tab.value = 'atlas'; activeNodeId.value = node.id; activePageId.value = null
   } catch (err) { setError(err) } finally { busy.value = false }
 }
 async function refreshAtlasOnly() {
@@ -505,11 +511,29 @@ async function refreshAtlasOnly() {
   const result = await api.world.getMapAtlas(projectId)
   if (mounted && projectId === props.projectId) atlas.value = result
 }
+async function reviewAutoDraft(draft) {
+  if (vocabularyLocked.value || !draft.node || !await canLeaveStructure()) return
+  selectedAutoDraft.value = draft; tab.value = 'atlas'; activeNodeId.value = draft.node_id; activePageId.value = null; initialFeatureId.value = ''; initialRevisionId.value = draft.revision_id
+  vocabularyRevision.value++
+}
+async function closeAutoDraft() {
+  if (vocabularyLocked.value || !await canLeaveStructure()) return
+  selectedAutoDraft.value = null; initialRevisionId.value = ''; syncSelection()
+}
+async function onMapSaved() {
+  await refreshAtlasOnly()
+  if (selectedAutoDraft.value && adoptedNodes.value.some(node => node.id === selectedAutoDraft.value.node_id)) { selectedAutoDraft.value = null; initialRevisionId.value = '' }
+  await autoDraftPanel.value?.refresh?.()
+}
+async function onAutoDraftChanged() {
+  await refreshAtlasOnly()
+  if (selectedAutoDraft.value) { selectedAutoDraft.value = null; initialRevisionId.value = ''; syncSelection() }
+}
 async function openMapNode(nodeId) {
   if (!await canLeaveStructure()) return
   tab.value = 'atlas'
   const node = adoptedNodes.value.find(node => node.id === nodeId)
-  if (node) { activeNodeId.value = node.id; activePageId.value = node.pages?.[0]?.id || null }
+  if (node) { selectedAutoDraft.value = null; initialRevisionId.value = ''; activeNodeId.value = node.id; activePageId.value = node.pages?.[0]?.id || null }
 }
 function flattenNodes(nodes, depth = 0, result = []) {
   for (const node of nodes) {
@@ -534,7 +558,7 @@ function historyStatusLabel(page) {
   if (page.generation_status === "retry_requires_confirmation") return "需确认费用后重试"
   return "等待决定"
 }
-async function selectNode(node) { if (node.id === activeNodeId.value) return; if (!await canLeaveStructure()) return; referenceVisible.value = false; if (currentRun.value?.status === "prompt_review" && !await savePrompt()) return; activeNodeId.value = node.id; const page = node.pages?.find(item => item.review_status === "candidate") || node.pages?.[0]; activePageId.value = page?.id || null }
+async function selectNode(node) { if (node.id === activeNodeId.value && !selectedAutoDraft.value) return; if (!await canLeaveStructure()) return; selectedAutoDraft.value = null; initialRevisionId.value = ''; referenceVisible.value = false; if (currentRun.value?.status === "prompt_review" && !await savePrompt()) return; activeNodeId.value = node.id; const page = node.pages?.find(item => item.review_status === "candidate") || node.pages?.[0]; activePageId.value = page?.id || null }
 function annotationStyle(item) {
   const position = annotationEdit.value?.id === item.id ? annotationEdit.value : item
   return { left: `${position.position_x * 100}%`, top: `${position.position_y * 100}%` }
@@ -657,6 +681,12 @@ async function loadAll(preferredRunId = null) {
     currentRun.value = selectedRun
     review.value = selectedReview
     if (preferredRunId || (!activeNodeId.value && selectedRun && (selectedRun.status === "failed" || selectedReview.nodes.some(node => node.pages?.some(page => page.review_status !== "adopted"))))) tab.value = "review"
+    if (!selectedAutoDraft.value && activeNodeId.value && !flattenNodes(savedAtlas.nodes).some(({ node }) => node.id === activeNodeId.value) && api.world.listMapAutoDrafts) {
+      const drafts = await api.world.listMapAutoDrafts(projectId, { node_id: activeNodeId.value, limit: 200, offset: 0 })
+      if (!mounted || epoch !== dataEpoch || projectId !== props.projectId) return
+      const draft = drafts.items.find(item => initialRevisionId.value ? item.revision_id === initialRevisionId.value : item.status === 'candidate')
+      if (draft?.node) { selectedAutoDraft.value = draft; tab.value = 'atlas' }
+    }
     syncSelection()
     await loadPrompts()
     schedulePoll()
@@ -664,6 +694,7 @@ async function loadAll(preferredRunId = null) {
   } catch (err) { if (epoch === dataEpoch) setError(err) } finally { if (epoch === dataEpoch) loading.value = false }
 }
 function syncSelection() {
+  if (selectedAutoDraft.value) return
   if (!visibleNodes.value.some(({ node }) => node.id === activeNodeId.value)) activeNodeId.value = visibleNodes.value[0]?.node.id || null
   const pages = activeNode.value?.pages || []
   if (!pages.some(page => page.id === activePageId.value)) activePageId.value = pages[0]?.id || null
@@ -987,13 +1018,14 @@ async function viewRun(runId) {
 async function selectTab(value) {
   if (value !== tab.value && !await canLeaveStructure()) return
   if (currentRun.value?.status === "prompt_review" && !await savePrompt()) return
-  tab.value = value
+  selectedAutoDraft.value = null; initialRevisionId.value = ''; tab.value = value
 }
 
 function persistMapFocus() {
   if (loading.value) return
   const query = getRouteQuery()
   if (query.get('node_id') !== activeNodeId.value) { query.delete('feature_id'); initialFeatureId.value = ''; query.delete('revision_id'); initialRevisionId.value = '' }
+  if (selectedAutoDraft.value) query.set('revision_id', selectedAutoDraft.value.revision_id)
   if (activeNodeId.value) query.set('node_id', activeNodeId.value); else query.delete('node_id')
   if (tab.value === 'review') query.set('atlas_view', 'review'); else query.delete('atlas_view')
   getRouter()?.commitCurrentQuery?.(query, 'replace')
@@ -1008,6 +1040,7 @@ function returnToWriting() {
   if (fromChapter) getRouter()?.navigate('writing', null, true, new URLSearchParams({ novel_id: props.projectId, chapter_index: String(fromChapter) }))
 }
 watch([activeNodeId, tab], persistMapFocus)
+watch(() => props.projectId, () => { selectedAutoDraft.value = null; autoDraftState.value = { dirty: false, busy: false } })
 watch([() => props.projectId, activePageId, tab, compareAdopted], () => { annotationEdit.value = null; annotationEditError.value = '' })
 watch(tab, () => { compareAdopted.value = false; syncSelection(); nextTick(loadImages) })
 watch(activePageId, () => { activeNodeId.value = activePage.value?.node_id || activeNodeId.value; nextTick(loadImages) })
@@ -1023,9 +1056,10 @@ watch(activeNode, (node, previous) => {
   nodeEdit.title = node.title; nodeEdit.parent_id = node.parent_id || null; nodeEdit.level = node.level; nodeEdit.before_node_id = "__keep__"
 })
 useLeaveGuard(async () => {
-  if (vocabularyState.value.busy || spatialClueState.value.busy) return false
+  if (vocabularyState.value.busy || spatialClueState.value.busy || autoDraftState.value.busy) return false
   if (vocabularyState.value.dirty && !await confirmAsync("项目类型尚未保存，确认放弃编辑并离开吗？", "确认离开", { confirmAction: getConfirmAction() })) return false
   if (spatialClueState.value.dirty && !await confirmAsync("空间线索的复核说明尚未提交，确认放弃并离开吗？", "确认离开", { confirmAction: getConfirmAction() })) return false
+  if (autoDraftState.value.dirty && !await confirmAsync("托盘地点位置尚未提交，确认放弃并离开吗？", "确认离开", { confirmAction: getConfirmAction() })) return false
   if (!await canLeaveStructure()) return false
   if (uploading.value) return false
   if (promptDirty.value && !await confirmAsync("画面说明还没有保存，确定离开吗？", "确认离开", { confirmAction: getConfirmAction() })) return false
@@ -1049,7 +1083,7 @@ const mapMoreTools = computed(() => {
   ].filter(item => !mapToolActions.value.some(action => action.key === item.key))
 })
 const mapToolActions = computed(() => {
-  if (vocabularyLocked.value) return [{ key: "vocabulary", label: spatialClueState.value.dirty || spatialClueState.value.busy ? "请先完成空间线索复核" : "请先完成项目类型编辑", primary: true, disabled: true }]
+  if (vocabularyLocked.value) return [{ key: "vocabulary", label: autoDraftState.value.dirty || autoDraftState.value.busy ? "请先完成托盘地点定位" : spatialClueState.value.dirty || spatialClueState.value.busy ? "请先完成空间线索复核" : "请先完成项目类型编辑", primary: true, disabled: true }]
   if (loading.value) return [{ key: "loading", label: "正在读取地图…", primary: true, disabled: true }]
   const child = currentMapToolbar.value
   if (child?.protected) return child.actions
@@ -1116,6 +1150,8 @@ watch(activeNodeId, () => { structureState.value = { dirty: false, revision: nul
 .atlas-compare-toggle{display:flex;align-items:center;gap:var(--space-2);min-height:44px;margin-top:var(--space-2);font-size:var(--text-sm)}
 .atlas-mobile-picker{display:none}.atlas-tree button{overflow-wrap:normal;word-break:normal;text-wrap:pretty}.atlas-tree button>span{display:block}.atlas-page-header h2{margin-block:0;font-size:var(--text-lg)}.atlas-header h1{margin-block:0}
 @media(max-width:900px){.atlas-mobile-picker{display:flex;align-items:center;gap:8px}.atlas-mobile-picker select{flex:1;min-width:0;width:0}.atlas-browser>.atlas-tree{display:none}.atlas-workspace{gap:8px;padding:0}.atlas-page{padding:8px}.atlas-header,.atlas-page-header{display:none}}
+.atlas-workspace .atlas-browser--candidate-only{grid-template-columns:minmax(0,1fr)}
+.atlas-auto-context{padding:1rem;overflow-wrap:anywhere}.atlas-auto-context p{color:var(--text-secondary)}
 </style>
 
 <style src="./map-redesign.css"></style>
