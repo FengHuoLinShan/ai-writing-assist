@@ -4,6 +4,25 @@ import uuid
 
 import pytest
 from httpx import AsyncClient
+from sqlalchemy import select
+
+from core.errors import NotFoundError
+from modules.account.context import bind_principal, reset_principal
+from modules.account.contracts import AccountPrincipal
+from modules.account.models import Account
+from modules.project.models import Project
+from modules.world.dossier_service import WorldObjectDossierService
+from modules.world.models import WorldObjectDossierEntry
+from modules.world.project_vocabulary_schemas import VocabularyTermCreate
+from modules.world.project_vocabulary_service import (
+    archive_project_vocabulary_term,
+    create_project_vocabulary_term,
+)
+from modules.world.schemas.dossier import (
+    DossierEntryCreate,
+    DossierFacingRef,
+    DossierTemplateUpsert,
+)
 
 
 async def _project_and_character(async_client: AsyncClient) -> tuple[str, dict]:
@@ -65,6 +84,14 @@ async def test_character_legacy_fields_coalesce_and_null_clears(
     assert read_first_page.json()["total_count"] == 2
     assert read_first_page.json()["omitted_count"] == 1
     assert read_second_page.json()["entries"][0]["content"] == "左眉有浅疤"
+    beyond_end = await async_client.get(
+        f"/api/world/entities/{entity_id}/dossier",
+        params={**params, "limit": 1, "offset": 100},
+    )
+    assert beyond_end.status_code == 200
+    assert beyond_end.json()["entries"] == []
+    assert beyond_end.json()["total_count"] == 2
+    assert beyond_end.json()["unknown"] is False
 
     note = await async_client.put(
         character_url,
@@ -358,3 +385,187 @@ async def test_invalid_temporal_cutoff_fails_closed(async_client: AsyncClient) -
         },
     )
     assert response.status_code == 400, response.text
+
+
+@pytest.mark.asyncio
+async def test_restore_rechecks_scene_anchor_after_source_disappears(
+    async_client: AsyncClient, db_session
+) -> None:
+    novel_id, entity = await _project_and_character(async_client)
+    url = f"/api/world/entities/{entity['id']}/dossier/entries"
+    params = {"novel_id": novel_id}
+    original = await async_client.post(
+        url,
+        params=params,
+        json={"facing": {"kind": "core", "key": "history"}, "content": "旧设定"},
+    )
+    assert original.status_code == 201, original.text
+    first = original.json()
+    updated = await async_client.patch(
+        f"{url}/{first['id']}",
+        params=params,
+        json={"expected_revision_id": first["id"], "content": "新设定"},
+    )
+    assert updated.status_code == 200, updated.text
+    old_row = await db_session.scalar(
+        select(WorldObjectDossierEntry).where(
+            WorldObjectDossierEntry.id == uuid.UUID(first["id"])
+        )
+    )
+    old_row.start_anchor_kind = "scene"
+    old_row.start_anchor_id = uuid.uuid4()
+    await db_session.flush()
+    rejected = await async_client.post(
+        f"/api/world/entities/{entity['id']}/dossier/groups/{first['entry_group_id']}/restore",
+        params=params,
+        json={
+            "revision_id": first["id"],
+            "expected_current_revision_id": updated.json()["id"],
+        },
+    )
+    assert rejected.status_code == 400, rejected.text
+    history = await async_client.get(
+        f"/api/world/entities/{entity['id']}/dossier/history", params=params
+    )
+    assert history.json()["total_count"] == 2
+
+
+@pytest.mark.asyncio
+async def test_restore_preserves_structured_legacy_character_value(
+    async_client: AsyncClient,
+) -> None:
+    novel_id, entity = await _project_and_character(async_client)
+    params = {"novel_id": novel_id}
+    character_url = f"/api/world/characters/{entity['id']}"
+    current = await async_client.get(character_url, params=params)
+    first = await async_client.put(
+        character_url,
+        params=params,
+        json={
+            "behavior_rules": [{"description": "先听后答"}],
+            "expected_updated_at": current.json()["updated_at"],
+        },
+    )
+    assert first.status_code == 200, first.text
+    history_url = f"/api/world/entities/{entity['id']}/dossier/history"
+    history = await async_client.get(history_url, params=params)
+    first_revision = next(
+        row
+        for row in history.json()["entries"]
+        if row["legacy_field_key"] == "behavior_rules"
+    )
+    second = await async_client.put(
+        character_url,
+        params=params,
+        json={
+            "behavior_rules": [{"description": "先答后听"}],
+            "expected_updated_at": first.json()["updated_at"],
+        },
+    )
+    assert second.status_code == 200, second.text
+    history = await async_client.get(history_url, params=params)
+    current_revision = next(
+        row
+        for row in history.json()["entries"]
+        if row["legacy_field_key"] == "behavior_rules" and row["status"] == "active"
+    )
+    restored = await async_client.post(
+        f"/api/world/entities/{entity['id']}/dossier/groups/{first_revision['entry_group_id']}/restore",
+        params=params,
+        json={
+            "revision_id": first_revision["id"],
+            "expected_current_revision_id": current_revision["id"],
+        },
+    )
+    assert restored.status_code == 200, restored.text
+    response = await async_client.get(character_url, params=params)
+    assert response.json()["behavior_rules"] == [{"description": "先听后答"}]
+
+
+@pytest.mark.asyncio
+async def test_restore_does_not_reactivate_archived_project_facing(
+    async_client: AsyncClient, db_session
+) -> None:
+    novel_id, entity = await _project_and_character(async_client)
+    term = await create_project_vocabulary_term(
+        db_session,
+        novel_id,
+        VocabularyTermCreate(kind="dossier_facing", name="私人约定"),
+    )
+    params = {"novel_id": novel_id}
+    url = f"/api/world/entities/{entity['id']}/dossier/entries"
+    created = await async_client.post(
+        url,
+        params=params,
+        json={
+            "facing": {"kind": "project", "term_id": str(term.id)},
+            "content": "旧约定",
+        },
+    )
+    assert created.status_code == 201, created.text
+    first = created.json()
+    updated = await async_client.patch(
+        f"{url}/{first['id']}",
+        params=params,
+        json={"expected_revision_id": first["id"], "content": "新约定"},
+    )
+    assert updated.status_code == 200, updated.text
+    await archive_project_vocabulary_term(
+        db_session, novel_id, str(term.id), term.revision_id
+    )
+    rejected = await async_client.post(
+        f"/api/world/entities/{entity['id']}/dossier/groups/{first['entry_group_id']}/restore",
+        params=params,
+        json={
+            "revision_id": first["id"],
+            "expected_current_revision_id": updated.json()["id"],
+        },
+    )
+    assert rejected.status_code == 409, rejected.text
+
+
+@pytest.mark.asyncio
+async def test_demo_readonly_identity_cannot_write_dossier(db_session) -> None:
+    owner = Account(status="active", support_code="DOSSIER-DEMO")
+    db_session.add(owner)
+    await db_session.flush()
+    project = Project(
+        owner_id=owner.id,
+        title="演示作品",
+        language="zh",
+        default_reveal_policy="author_safe",
+        settings={},
+    )
+    db_session.add(project)
+    await db_session.flush()
+    token = bind_principal(
+        AccountPrincipal(
+            account_id=owner.id,
+            status="active",
+            identity_type="demo_readonly",
+            support_code=owner.support_code,
+            access_scope="demo_readonly",
+            demo_project_id=project.id,
+        )
+    )
+    try:
+        service = WorldObjectDossierService()
+        with pytest.raises(NotFoundError):
+            await service.create_entry(
+                db_session,
+                str(project.id),
+                str(uuid.uuid4()),
+                DossierEntryCreate(
+                    facing=DossierFacingRef(kind="core", key="history"),
+                    content="不得写入",
+                ),
+            )
+        with pytest.raises(NotFoundError):
+            await service.upsert_template(
+                db_session,
+                str(project.id),
+                "character",
+                DossierTemplateUpsert(fields=[]),
+            )
+    finally:
+        reset_principal(token)

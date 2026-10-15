@@ -11,7 +11,7 @@ from modules.story.continuity.field_provenance import (
     is_registered_state_field,
 )
 from modules.story.continuity.scene_projection import SceneMemoryProjectionService
-from modules.story.continuity.schemas import RelationAttitude
+from modules.story.continuity.schemas import RelationAttitude, RelationInPanorama
 from modules.story.facade import RelationAttitude as FacadeRelationAttitude
 
 
@@ -60,6 +60,18 @@ def test_projection_records_registered_typed_fields_only() -> None:
         ("emotion", entity_id, "character"),
         ("current_goal", entity_id, "character"),
     }
+    untyped_event = SimpleNamespace(
+        snapshot_after=payload,
+        event_type="entity_updated",
+        entity_id=entity_id,
+        entity_type=None,
+    )
+    assert (
+        SceneMemoryProjectionService._assigned_motif_fields(
+            state, "entities", untyped_event
+        )
+        == ()
+    )
 
 
 def test_relation_attitude_is_directed_and_graded() -> None:
@@ -76,6 +88,18 @@ def test_relation_attitude_is_directed_and_graded() -> None:
             source_entity_id="character-a",
             target_entity_id="character-a",
             label="信任",
+        )
+    with pytest.raises(ValidationError):
+        RelationInPanorama(
+            id="relation-1",
+            source_id="character-a",
+            target_id="faction-b",
+            relation_type="trust",
+            attitude=RelationAttitude(
+                source_entity_id="faction-b",
+                target_entity_id="character-a",
+                label="戒备",
+            ),
         )
 
 

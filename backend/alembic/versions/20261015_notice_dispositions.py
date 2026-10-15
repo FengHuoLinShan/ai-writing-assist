@@ -33,14 +33,14 @@ def upgrade() -> None:
         sa.Column(
             "created_at",
             sa.DateTime(timezone=True),
-            server_default=sa.func.now(),
+            server_default=sa.func.timezone("utc", sa.func.now()),
             nullable=False,
         ),
         sa.Column(
             "updated_at",
             sa.DateTime(timezone=True),
-            server_default=sa.func.now(),
-            nullable=False,
+            server_default=sa.func.timezone("utc", sa.func.now()),
+            nullable=True,
         ),
         sa.CheckConstraint(
             "status IN ('read','snoozed','ignored')",
@@ -50,6 +50,7 @@ def upgrade() -> None:
             "row_version >= 1", name="ck_assistant_notice_disposition_version"
         ),
         sa.PrimaryKeyConstraint("id"),
+        sa.ForeignKeyConstraint(["novel_id"], ["projects.id"], ondelete="CASCADE"),
         sa.UniqueConstraint(
             "novel_id",
             "source_id",
@@ -57,7 +58,12 @@ def upgrade() -> None:
             "basis_fingerprint",
             name="uq_assistant_notice_disposition_basis",
         ),
-        {"comment": "统一提醒展示处置，按来源依据指纹隔离"},
+        comment="统一提醒展示处置，按来源依据指纹隔离",
+    )
+    op.create_index(
+        "ix_assistant_notice_dispositions_novel_id",
+        "assistant_notice_dispositions",
+        ["novel_id"],
     )
     op.create_index(
         "ix_assistant_notice_dispositions_novel_status",
@@ -77,26 +83,32 @@ def upgrade() -> None:
         sa.Column(
             "created_at",
             sa.DateTime(timezone=True),
-            server_default=sa.func.now(),
+            server_default=sa.func.timezone("utc", sa.func.now()),
             nullable=False,
         ),
         sa.Column(
             "updated_at",
             sa.DateTime(timezone=True),
-            server_default=sa.func.now(),
-            nullable=False,
+            server_default=sa.func.timezone("utc", sa.func.now()),
+            nullable=True,
         ),
         sa.CheckConstraint(
             "row_version >= 1", name="ck_assistant_notice_category_mute_version"
         ),
         sa.PrimaryKeyConstraint("id"),
+        sa.ForeignKeyConstraint(["novel_id"], ["projects.id"], ondelete="CASCADE"),
         sa.UniqueConstraint(
             "novel_id",
             "source_id",
             "category",
             name="uq_assistant_notice_category_mute",
         ),
-        {"comment": "作者按来源和类别设置的统一提醒静默状态"},
+        comment="作者按来源和类别设置的统一提醒静默状态",
+    )
+    op.create_index(
+        "ix_assistant_notice_category_mutes_novel_id",
+        "assistant_notice_category_mutes",
+        ["novel_id"],
     )
     op.create_index(
         "ix_assistant_notice_category_mutes_novel_muted",
@@ -107,10 +119,18 @@ def upgrade() -> None:
 
 def downgrade() -> None:
     op.drop_index(
+        "ix_assistant_notice_category_mutes_novel_id",
+        table_name="assistant_notice_category_mutes",
+    )
+    op.drop_index(
         "ix_assistant_notice_category_mutes_novel_muted",
         table_name="assistant_notice_category_mutes",
     )
     op.drop_table("assistant_notice_category_mutes")
+    op.drop_index(
+        "ix_assistant_notice_dispositions_novel_id",
+        table_name="assistant_notice_dispositions",
+    )
     op.drop_index(
         "ix_assistant_notice_dispositions_novel_status",
         table_name="assistant_notice_dispositions",

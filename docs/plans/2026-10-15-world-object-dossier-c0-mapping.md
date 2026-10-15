@@ -25,6 +25,7 @@
 同一面向可有多条当前档案条目；数据库只保证每个条目组有一个当前修订，不限制一个旧字段键下的当前条目数。旧人物响应仅聚合显式带 `legacy_field_key` 的条目，按创建时间、组 UUID、修订号和条目 UUID 稳定排序；文本用换行连接，`behavior_rules` 列表按项合并。旧接口改写时，把该键下所有当前条目标为过时并追加一个新修订；恢复仍追加修订。自由条目不携带旧键时不会误并入 `desire` 或 `fear`，两字段共享 `desire_fear` 面向但始终按不同旧键读取。
 
 CoreEntity 的 `public_info` 汇总公开条目，`hidden_truth` 汇总秘密条目。其余固定类型 Profile 列按迁移映射到内核面向；数组与对象值在条目正文中保留可读显示，同时原 JSON 值留在 `legacy_value`，Profile 的 `source`、`confidence`、`evidence_refs_json` 和 `extra_json` 留在 `source_metadata`。自定义 `GenericEntityProfile.data_json` 在模板字段 key 与正式档案面向建立确定映射前仍由旧 Profile 服务保存，不伪造新词表项。别名仍由 `core_entities.content_json.aliases` 持有。
+旧 Profile 的当前地点控制者、物件所有者、秘密持有知情者和揭示状态保留在原列，不回填 World 稳定档案；这些是按故事时点变化的状态，后续由 Story 截止点投影读取。
 
 ## 后端 `current_*` 命中与处置
 

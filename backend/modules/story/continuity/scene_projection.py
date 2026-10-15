@@ -799,8 +799,10 @@ class SceneMemoryProjectionService:
         event_type = str(event.event_type)
         object_type = str(getattr(event, "entity_type", None) or "")
         typed_object_type = "relation" if dimension == "relations" else object_type
-        typed_registered = state_fields_for_dimension(
-            dimension, typed_object_type or None
+        typed_registered = (
+            state_fields_for_dimension(dimension, typed_object_type)
+            if typed_object_type
+            else ()
         )
         if not motif_registered and not typed_registered:
             return ()
