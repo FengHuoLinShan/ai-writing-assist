@@ -88,6 +88,9 @@ from modules.world.map_atlas_facade import (  # noqa: F401
     read_map_spatial_advisories,
 )
 from modules.world.map_auto_draft_service import build_map_auto_drafts  # noqa: F401
+from modules.world.map_evaluation_read_service import (
+    read_map_spatial_evaluation_artifacts as read_map_spatial_evaluation_artifacts,
+)
 from modules.world.map_notification_service import (
     read_map_notification_signals as read_map_notification_signals,
 )
@@ -221,6 +224,7 @@ __all__ = [
     "stage_spatial_discovery",
     "build_map_auto_drafts",
     "read_map_cold_start_drafts",
+    "read_map_spatial_evaluation_artifacts",
     "read_map_notification_signals",
     "read_world_bible_page_revisions",
     "read_project_vocabulary",

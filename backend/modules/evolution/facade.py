@@ -16,6 +16,9 @@ from modules.evolution.invalidation import (
 from modules.evolution.map_assistant_read_service import (
     read_map_cold_start_status as read_map_cold_start_status,
 )
+from modules.evolution.map_evaluation_read_service import (
+    read_map_spatial_evaluation_receipts as read_map_spatial_evaluation_receipts,
+)
 from modules.evolution.ownership import switch_project_engine
 from modules.evolution.reading import (
     read_committed_understanding,
@@ -73,6 +76,7 @@ __all__ = [
     "record_writing_source_change",
     "receipt_view",
     "read_map_cold_start_status",
+    "read_map_spatial_evaluation_receipts",
     "register_scene_consumption",
     "CONSUMPTION_REGISTRY_STATE_KEY",
     "read_consumption_records",
