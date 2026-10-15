@@ -47,6 +47,9 @@ from modules.story.assistant_structure_workflow import (
 )
 from modules.story.assistant_tools import OPERATIONS_SPEC as _STORY
 from modules.story.director_operations import OPERATIONS_SPEC as _STORY_DIRECTOR
+from modules.story.world_progression_operations import (
+    OPERATIONS_SPEC as _STORY_WORLD_PROGRESSION,
+)
 from modules.world.assistant_author_operations import OPERATIONS_SPEC as _WORLD_AUTHOR
 from modules.world.assistant_cocreation_tools import OPERATIONS_SPEC as _WORLD_COCREATION
 from modules.world.assistant_dossier_tools import OPERATIONS_SPEC as _WORLD_DOSSIER
@@ -361,6 +364,7 @@ story_planning_operations = _materialize(_STORY_PLANNING)
 story_scene_operations = _materialize(_STORY_SCENE)
 story_state_operations = _materialize(_STORY_STATE)
 story_director_operations = _materialize(_STORY_DIRECTOR)
+story_world_progression_operations = _materialize(_STORY_WORLD_PROGRESSION)
 story_generation_operations = _materialize(_STORY_GENERATION)
 world_opening_operations = _materialize(_WORLD_OPENING)
 world_map_operations = _materialize(_WORLD_MAP)

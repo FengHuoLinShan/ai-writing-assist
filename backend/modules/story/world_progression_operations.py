@@ -16,6 +16,7 @@ from modules.story.world_progression_schemas import (
     ProgressionAdvanceRequest,
     ProgressionBudgetPreviewRequest,
     ProgressionCompareRequest,
+    ProgressionContinuousAuthorizationReadRequest,
     ProgressionHistoryRequest,
     ProgressionHookAdoptRequest,
     ProgressionHookPreviewRequest,
@@ -134,6 +135,7 @@ async def _prepare_history(db, novel_id, args, *, context=None):
         novel_id,
         scene_id=args.scene_id,
         root_id=str(args.root_id) if args.root_id else None,
+        include_deleted=args.include_deleted,
     )
 
 
@@ -477,7 +479,7 @@ OPERATIONS_SPEC = {
     ),
     "story.world_progression.read_continuous_authorization": _operation(
         label="查看持续推进授权",
-        schema=ProgressionHistoryRequest,
+        schema=ProgressionContinuousAuthorizationReadRequest,
         prepare=_read_continuous,
         permission="read",
         description="只读查看当前根的持续授权与原预算，不触发任务或改变授权。",

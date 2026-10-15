@@ -549,7 +549,7 @@ async def run_team(service, db, task, run_id, payload, deps, profile) -> Assista
     discovery_tools = []
     previous_operations = deps.operations
     previous_catalog_snapshot = deps.operation_catalog_snapshot
-    if runtime_version in {"7", "8", "9", "10", "11", "12", "13"}:
+    if runtime_version in {"7", "8", "9", "10", "11", "12", "13", "14"}:
         from modules.assistant.operations import operation_discovery_tools
 
         plan_operations = {
@@ -595,7 +595,8 @@ async def run_team(service, db, task, run_id, payload, deps, profile) -> Assista
                             "先用 find_operations 和 describe_operation 查找并核对"
                             "方案操作，"
                             "只提出本轮可执行目录中的能力。"
-                            if runtime_version in {"7", "8", "9", "10", "11", "12", "13"}
+                            if runtime_version
+                            in {"7", "8", "9", "10", "11", "12", "13", "14"}
                             else ""
                         ),
                     ),
@@ -621,7 +622,7 @@ async def run_team(service, db, task, run_id, payload, deps, profile) -> Assista
                                     )
                                 }
                                 if runtime_version
-                                not in {"7", "8", "9", "10", "11", "12", "13"}
+                                not in {"7", "8", "9", "10", "11", "12", "13", "14"}
                                 and frozen["id"]
                                 in {"cross_revision", "world_stress", "import_consult"}
                                 else {},

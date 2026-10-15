@@ -699,8 +699,10 @@ async def api_progression_history(
 @router.post(
     "/branches/{branch_id}/metadata",
     openapi_extra={
-        "x-novelcraft-operation-id": "story.world_progression.edit_history",
-        "x-novelcraft-operation-trace-fields": _trace_fields(ProgressionMetadataRequest),
+        "x-novelcraft-operation-exemption": (
+            "Author-only history label, star and note edits use branch version CAS; "
+            "they are not available to assistant operations."
+        )
     },
 )
 async def api_progression_metadata(
@@ -724,8 +726,10 @@ async def api_progression_metadata(
 @router.post(
     "/branches/{branch_id}/delete",
     openapi_extra={
-        "x-novelcraft-operation-id": "story.world_progression.delete_history",
-        "x-novelcraft-operation-trace-fields": _trace_fields(ProgressionDeleteRequest),
+        "x-novelcraft-operation-exemption": (
+            "Author-only confirmed soft deletion revokes matching standing consent; "
+            "assistant operations cannot delete candidate history."
+        )
     },
 )
 async def api_delete_progression_branch(
@@ -760,8 +764,10 @@ async def api_delete_progression_branch(
 @router.post(
     "/branches/{branch_id}/restore",
     openapi_extra={
-        "x-novelcraft-operation-id": "story.world_progression.restore_history",
-        "x-novelcraft-operation-trace-fields": _trace_fields(ProgressionDeleteRequest),
+        "x-novelcraft-operation-exemption": (
+            "Author-only 30-day recovery of a soft-deleted branch; assistant "
+            "operations cannot restore or rebind standing consent."
+        )
     },
 )
 async def api_restore_progression_branch(
@@ -837,12 +843,10 @@ async def api_read_continuous_authorization(
 @router.put(
     "/roots/{root_id}/branches/{branch_id}/continuous-authorization",
     openapi_extra={
-        "x-novelcraft-operation-id": (
-            "story.world_progression.set_continuous_authorization"
-        ),
-        "x-novelcraft-operation-trace-fields": _trace_fields(
-            ProgressionContinuousAuthorizationRequest
-        ),
+        "x-novelcraft-operation-exemption": (
+            "Author-only persistent spending consent with fresh Evidence confirmation, "
+            "revision CAS and the original root budget; AI cannot grant itself consent."
+        )
     },
 )
 async def api_set_continuous_authorization(

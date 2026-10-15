@@ -2,20 +2,25 @@
 
 from __future__ import annotations
 
+import os
 from datetime import UTC, datetime
 from uuid import NAMESPACE_URL, UUID, uuid5
 
 from sqlalchemy import select
 
+from core.container import get as container_get
 from core.errors import ConflictError
+from core.service_keys import EVOLUTION_READ_COMPLETED_CHAPTERS
 from infrastructure.llm.collaboration import content_hash
 from infrastructure.llm.schemas import read_ai_run_envelope
 from infrastructure.llm.workflow_budget import AIRunEnvelope
 from infrastructure.tasks.facade import (
+    enqueue_coalesced_task,
     enqueue_task_with_optional_operation,
     get_operation_task,
 )
 from infrastructure.tasks.models import AsyncTask
+from infrastructure.tasks.registry import task_handler
 from modules.evidence.facade import require_fresh_confirmation
 from modules.story.generation import STORY_ONE_CLICK_ACTION
 from modules.story.world_progression_context import read_progression_source
@@ -37,6 +42,82 @@ from modules.story.world_progression_tasks import (
 
 SOURCE_ID = "story.world_progression"
 _MIN_DEPARTED_STEPS = 2
+_READ_COMMIT_CHECK_TASK = "story_world_progression_read_commit_check"
+
+
+def _progression_enabled() -> bool:
+    return os.getenv("STORY_WORLD_PROGRESSION_ENABLED", "false").strip().lower() in {
+        "1",
+        "true",
+        "yes",
+        "on",
+    }
+
+
+async def _completed_read_chapters(
+    db, novel_id: str, *, exclude_chapter_indices: list[int] | None = None
+) -> list[int]:
+    reader = container_get(EVOLUTION_READ_COMPLETED_CHAPTERS)
+    return await reader(db, novel_id, exclude_chapter_indices=exclude_chapter_indices)
+
+
+async def invalidate_world_progression_authorization_for_reorder(
+    db, *, novel_id: str
+) -> bool:
+    """Revoke index-based standing consent in the same chapter reorder transaction."""
+    authorization = await db.scalar(
+        select(StoryWorldProgressionAuthorization)
+        .where(StoryWorldProgressionAuthorization.novel_id == UUID(novel_id))
+        .with_for_update()
+    )
+    if authorization is None or not authorization.enabled:
+        return False
+    authorization.enabled = False
+    authorization.revision += 1
+    authorization.participant_ids_json = []
+    authorization.root_id = None
+    authorization.branch_id = None
+    authorization.context_confirmation_id = None
+    authorization.read_count_initialized = False
+    await db.flush()
+    return True
+
+
+async def queue_progression_read_check(db, *, novel_id: str) -> str | None:
+    """Place a free check in the successful read transaction.
+
+    The standing grant is an opt-in gate. A rollback also removes this outbox row.
+    The worker proves complete canonical reads after the transaction closes.
+    """
+    if not _progression_enabled():
+        return None
+    authorization = await db.scalar(
+        select(StoryWorldProgressionAuthorization.id).where(
+            StoryWorldProgressionAuthorization.novel_id == UUID(novel_id),
+            StoryWorldProgressionAuthorization.enabled.is_(True),
+        )
+    )
+    if authorization is None:
+        return None
+    receipt = await enqueue_coalesced_task(
+        db,
+        task_type=_READ_COMMIT_CHECK_TASK,
+        scope=("completed-chapters",),
+        mode="one_pending_follower",
+        meta={"novel_id": novel_id},
+        novel_id=novel_id,
+    )
+    return receipt.task_id
+
+
+@task_handler(_READ_COMMIT_CHECK_TASK, recovery_policy="restart_origin")
+async def handle_progression_chapter_commit_check(db, task) -> dict:
+    novel_id = str((task.meta or {}).get("novel_id") or "")
+    if not novel_id or novel_id != str(task.novel_id):
+        raise ValueError("章节推进检查缺少作品身份")
+    return await consider_progression_after_chapter_commit(
+        db, novel_id=novel_id, latest_effective_chapter=0
+    )
 
 
 def _budget_view(root) -> dict:
@@ -120,9 +201,10 @@ async def set_continuous_authorization(
         if active is not None and active.status in {"pending", "running"}:
             raise ConflictError("原推进根仍在运行；完成或暂停后再授权持续提醒")
 
-    from modules.writing.facade import get_latest_effective_chapter_index
-
-    latest_chapter = await get_latest_effective_chapter_index(db, data.novel_id)
+    completed_chapters = (
+        await _completed_read_chapters(db, data.novel_id) if data.enabled else []
+    )
+    latest_chapter = max(completed_chapters, default=0)
     if current is None:
         current = StoryWorldProgressionAuthorization(
             novel_id=UUID(data.novel_id),
@@ -139,6 +221,9 @@ async def set_continuous_authorization(
     current.participant_ids_json = sorted(selected) if data.enabled else []
     current.every_new_chapters = data.every_new_chapters
     current.last_seen_chapter = latest_chapter
+    current.counted_read_chapters_json = completed_chapters if data.enabled else []
+    current.last_triggered_read_count = len(completed_chapters) if data.enabled else 0
+    current.read_count_initialized = bool(data.enabled)
     current.root_id = root.id if data.enabled else None
     current.branch_id = branch.id if data.enabled else None
     current.context_confirmation_id = (
@@ -156,6 +241,8 @@ async def set_continuous_authorization(
         "branch_id": str(current.branch_id) if current.branch_id else None,
         "budget": _budget_view(root),
         "last_seen_chapter": current.last_seen_chapter,
+        "completed_read_chapter_count": len(current.counted_read_chapters_json),
+        "new_read_chapters_since_trigger": 0,
     }
 
 
@@ -175,6 +262,8 @@ async def read_continuous_authorization(db, novel_id: str) -> dict:
             "root_id": None,
             "branch_id": None,
             "budget": None,
+            "completed_read_chapter_count": 0,
+            "new_read_chapters_since_trigger": 0,
         }
     root = None
     if row.root_id:
@@ -193,6 +282,12 @@ async def read_continuous_authorization(db, novel_id: str) -> dict:
         "root_id": str(row.root_id) if row.root_id else None,
         "branch_id": str(row.branch_id) if row.branch_id else None,
         "last_seen_chapter": row.last_seen_chapter,
+        "completed_read_chapter_count": len(row.counted_read_chapters_json or []),
+        "new_read_chapters_since_trigger": max(
+            0,
+            len(row.counted_read_chapters_json or [])
+            - int(row.last_triggered_read_count or 0),
+        ),
         "budget": _budget_view(root) if root is not None else None,
     }
 
@@ -200,23 +295,14 @@ async def read_continuous_authorization(db, novel_id: str) -> dict:
 async def consider_progression_after_chapter_commit(
     db, *, novel_id: str, latest_effective_chapter: int
 ) -> dict:
-    """Enqueue one light free step after N new effective chapters.
+    """Enqueue a light step only after N distinct whole chapters were read.
 
-    Writing calls this only after its chapter transaction commits. Notice GETs
-    never invoke it, and every provider request remains under the original root.
+    The chapter argument is a receipt-derived display hint, never the counter.
+    The Evolution read receipt and free outbox commit together before this runs.
     """
-    authorization = await db.scalar(
-        select(StoryWorldProgressionAuthorization).where(
-            StoryWorldProgressionAuthorization.novel_id == UUID(novel_id)
-        )
-    )
-    if authorization is None or not authorization.enabled:
+    del latest_effective_chapter
+    if not _progression_enabled():
         return {"status": "disabled", "task_id": None}
-    if latest_effective_chapter <= int(authorization.last_seen_chapter or 0):
-        return {"status": "no_new_chapters", "task_id": None}
-    interval = int(authorization.every_new_chapters or 1)
-    if latest_effective_chapter - int(authorization.last_seen_chapter or 0) < interval:
-        return {"status": "waiting_for_chapters", "task_id": None}
     authorization = await db.scalar(
         select(StoryWorldProgressionAuthorization)
         .where(StoryWorldProgressionAuthorization.novel_id == UUID(novel_id))
@@ -224,10 +310,29 @@ async def consider_progression_after_chapter_commit(
         .execution_options(populate_existing=True)
     )
     if authorization is None or not authorization.enabled:
-        return {"status": "authorization_changed", "task_id": None}
-    if latest_effective_chapter - int(authorization.last_seen_chapter or 0) < int(
+        return {"status": "disabled", "task_id": None}
+    if not authorization.read_count_initialized:
+        authorization.enabled = False
+        authorization.revision += 1
+        await db.flush()
+        return {"status": "read_count_requires_reauthorization", "task_id": None}
+    previous = set(authorization.counted_read_chapters_json or [])
+    completed = set(
+        await _completed_read_chapters(
+            db, novel_id, exclude_chapter_indices=sorted(previous)
+        )
+    )
+    new_chapters = completed - previous
+    already_pending = len(previous) - int(authorization.last_triggered_read_count or 0)
+    if not new_chapters and already_pending < int(authorization.every_new_chapters or 1):
+        return {"status": "no_new_read_chapters", "task_id": None}
+    counted = sorted(previous | new_chapters)
+    authorization.counted_read_chapters_json = counted
+    authorization.last_seen_chapter = max(counted, default=0)
+    if len(counted) - int(authorization.last_triggered_read_count or 0) < int(
         authorization.every_new_chapters or 1
     ):
+        await db.flush()
         return {"status": "waiting_for_chapters", "task_id": None}
     root = await db.scalar(
         select(StoryWorldProgressionRoot)
@@ -299,7 +404,7 @@ async def consider_progression_after_chapter_commit(
     authorized_ids = set(map(str, authorization.participant_ids_json or []))
     eligible = sorted(long_away & authorized_ids)
     if not eligible:
-        authorization.last_seen_chapter = latest_effective_chapter
+        authorization.last_triggered_read_count = len(counted)
         await db.flush()
         return {"status": "no_long_away_unfinished_actor", "task_id": None}
 
@@ -318,7 +423,7 @@ async def consider_progression_after_chapter_commit(
     operation_id = str(
         uuid5(
             NAMESPACE_URL,
-            f"world-progression:{root.id}:{authorization.revision}:{latest_effective_chapter}",
+            f"world-progression:{root.id}:{authorization.revision}:{len(counted)}",
         )
     )
     branch_id = uuid5(NAMESPACE_URL, f"{operation_id}:branch")
@@ -369,7 +474,7 @@ async def consider_progression_after_chapter_commit(
             "queued" if existing.status in {"pending", "running"} else root.status
         )
         authorization.branch_id = existing_branch.id
-        authorization.last_seen_chapter = latest_effective_chapter
+        authorization.last_triggered_read_count = len(counted)
         await db.flush()
         return {
             "status": existing.status,
@@ -401,7 +506,8 @@ async def consider_progression_after_chapter_commit(
     )
     meta["continuous_authorization_revision"] = authorization.revision
     meta["continuous_authorized_participant_ids"] = sorted(authorized_ids)
-    meta["continuous_trigger_chapter"] = latest_effective_chapter
+    meta["continuous_trigger_chapter"] = max(completed, default=0)
+    meta["continuous_trigger_read_count"] = len(counted)
     receipt = await enqueue_task_with_optional_operation(
         db,
         operation_id=operation_id,
@@ -418,7 +524,7 @@ async def consider_progression_after_chapter_commit(
     child.current_task_id = UUID(str(receipt.task_id))
     child.status = "queued"
     authorization.branch_id = child.id
-    authorization.last_seen_chapter = latest_effective_chapter
+    authorization.last_triggered_read_count = len(counted)
     authorization.trigger_count += 1
     await db.flush()
     return {

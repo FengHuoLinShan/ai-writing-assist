@@ -81,6 +81,9 @@ from core.service_keys import (
     SOURCE_CHANGED,
     STORY_GET_SCENE_CONTRACT,
     STORY_SCENE_SOURCE,
+    STORY_QUEUE_WORLD_PROGRESSION_READ_CHECK,
+    EVOLUTION_READ_COMPLETED_CHAPTERS,
+    STORY_INVALIDATE_WORLD_PROGRESSION_FOR_REORDER,
     WORLD_ASSISTANT_CHAT,
     WORLD_ASSISTANT_CHAT_INTENT,
     WORLD_ASSISTANT_OUTCOME_STATES,
@@ -251,6 +254,7 @@ from app.assistant_operation_registry import story_planning_operations
 from app.assistant_operation_registry import story_scene_operations
 from app.assistant_operation_registry import story_state_operations
 from app.assistant_operation_registry import story_director_operations
+from app.assistant_operation_registry import story_world_progression_operations
 from app.assistant_operation_registry import story_generation_operations
 from app.assistant_operation_registry import story_structure_operations
 from app.assistant_operation_registry import writing_candidate_operations
@@ -359,6 +363,7 @@ def _register_orm_models() -> None:
     import modules.local_agent.models  # noqa: F401, I001
     import modules.project.models  # noqa: F401, I001
     import modules.story.models  # noqa: F401, I001
+    import modules.story.world_progression_models  # noqa: F401, I001
     import modules.story.continuity.models  # noqa: F401, I001
     import modules.story.outline_state.models  # noqa: F401, I001
     import modules.project.settings_models  # noqa: F401, I001
@@ -387,8 +392,22 @@ def _container_services() -> Iterable[tuple[ServiceKey[Any], Any]]:
     from modules.assistant.operation_trace_service import (
         record_operation_trace as _record_operation_trace,
     )
+    from modules.story.world_progression_continuous import (
+        invalidate_world_progression_authorization_for_reorder,
+        queue_progression_read_check,
+    )
+    from modules.evolution.facade import read_completed_chapter_indices
 
     return (
+        (
+            STORY_QUEUE_WORLD_PROGRESSION_READ_CHECK,
+            queue_progression_read_check,
+        ),
+        (EVOLUTION_READ_COMPLETED_CHAPTERS, read_completed_chapter_indices),
+        (
+            STORY_INVALIDATE_WORLD_PROGRESSION_FOR_REORDER,
+            invalidate_world_progression_authorization_for_reorder,
+        ),
         (
             ASSISTANT_FORECAST_INSTRUCTIONS,
             {
@@ -457,6 +476,7 @@ def _container_services() -> Iterable[tuple[ServiceKey[Any], Any]]:
                 **story_scene_operations,
                 **story_state_operations,
                 **story_director_operations,
+                **story_world_progression_operations,
                 **story_generation_operations,
                 **world_opening_operations,
                 **imports_operations,

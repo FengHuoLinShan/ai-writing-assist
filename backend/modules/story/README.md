@@ -430,11 +430,13 @@ Scene 顺序、状态、章节引用和 `replaced_by_scene_ids`。查询按 `nov
 不进入 Writing 检索、Evolution 阅读或 RP。
 
 `world_progression_operations.OPERATIONS_SPEC` 是纯目录数据：history/compare/budget preview 为 R0，
-沿已确认根推进一步为 R1，独立根预算启动为 R4，钩子采用为 R3。AI 没有历史删除或持续授权写操作；
+沿已确认根推进一步为 R1，独立根预算启动与半步恢复为 R4，钩子采用为 R3。AI 没有历史删除或持续授权写操作；
 Assistant R1 必须证明普通作者回合、同一 Scene、参与者与资料确认。钩子先调用
 `story.plan_structure` 的 rolling-window prepare 只读预览，再按来源重验与 CAS 创建可编辑剧情线、
 篇章或计划 Scene。持续提醒的 `NOTICE_SOURCE_SPEC` 仅由合并器读取，不会从 GET 启动任务；
-章节提交触发器需由应用组合根注册到 Writing 的 post-commit 入口。
+Evolution 成功 Scene 回执同事务投递免费检查，提交后只把全部 Scene 成功覆盖当前 canonical 版本的章节计入 N；
+部分读取、失败、序号跳跃和同章改版重读不新增章数。仅原根剩余额度与作者 standing grant 可启动轻量步骤，
+GET、Writing 发布与失败回执均不会触发计费。章节重排撤销原序号授权，作者须重新确认。
 
 作者时点快照消费 C0c 的 `WORLD_READ_OBJECT_VALIDITY_NOTICES`：对象/关系字段按相同 typed 身份与
 字段核对；地图路线只读当前 adopted/saved revision、原始 FeatureKey、有效期与 Story 精确覆盖，
@@ -442,6 +444,5 @@ Assistant R1 必须证明普通作者回合、同一 Scene、参与者与资料�
 角色可见且意图引用的当前路线、可信截止时间与 typed 行程资料；路线存在本身不代表移动成功，
 资料缺失时 `simulation_v3` 结算为 uncertain，不用坐标或地名推断。
 
-此处只声明 Story 域路由、handler、操作规格与提醒来源。TaskRegistry/root capability、app router、
-Assistant 操作目录、NoticeSource 和 Writing post-commit 的接线由组合根负责；接线前不能将模块声明
-当作已可通过 app HTTP/worker 使用。
+Story 域路由、TaskRegistry/root capability、9 项 Assistant 操作目录和 NoticeSource 均由应用组合根登记；
+Evolution 成功回执经稳定 DI 端口投递免费检查，Story 只通过 Evolution 只读投影核验整章完成。

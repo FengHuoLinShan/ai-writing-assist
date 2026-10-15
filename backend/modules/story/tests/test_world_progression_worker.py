@@ -74,8 +74,10 @@ class _Manager:
 
 
 @pytest.mark.asyncio
-async def test_world_progression_worker_persists_offline_steps(test_engine, monkeypatch):
-    expected_calls = 2
+async def test_world_progression_worker_persists_offline_steps(
+    test_engine, monkeypatch, *, seed_project=False, step_count=1
+):
+    expected_calls = 2 * step_count
     actor, novel_id, scene_id, root_id, branch_id = [uuid.uuid4() for _ in range(5)]
     source = {
         "source_hash": "a" * 64,
@@ -162,10 +164,16 @@ async def test_world_progression_worker_persists_offline_steps(test_engine, monk
         "targets": [],
         "mode": "free",
         "step_length": "auto",
-        "run_policy": "one_step",
-        "steps": None,
+        "run_policy": "one_step" if step_count == 1 else "n_steps",
+        "steps": None if step_count == 1 else step_count,
     }
     async with sessions.begin() as db:
+        if seed_project:
+            import modules.account.models  # noqa: F401
+            from modules.project.models import Project
+
+            db.add(Project(id=novel_id, title="世界推进离线 Worker 测试"))
+            await db.flush()
         db.add(
             StoryWorldProgressionRoot(
                 id=root_id,
@@ -180,6 +188,7 @@ async def test_world_progression_worker_persists_offline_steps(test_engine, monk
                 status="queued",
             )
         )
+        await db.flush()
         db.add(
             StoryWorldProgressionBranch(
                 id=branch_id,

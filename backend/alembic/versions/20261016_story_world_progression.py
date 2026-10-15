@@ -1,7 +1,7 @@
 """Persist Story world-progression roots, branches, immutable steps, and consent.
 
 Revision ID: 20261016_story_world_progression
-Revises: 20261016_dossier_story_field_key
+Revises: 20261016_story_director_candidate_transfer
 Create Date: 2026-10-16
 """
 
@@ -12,7 +12,7 @@ import sqlalchemy as sa
 from alembic import op
 
 revision: str = "20261016_story_world_progression"
-down_revision: str | None = "20261016_dossier_story_field_key"
+down_revision: str | None = "20261016_story_director_candidate_transfer"
 branch_labels: str | Sequence[str] | None = None
 depends_on: str | Sequence[str] | None = None
 

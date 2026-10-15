@@ -464,6 +464,7 @@ async def handle_world_progression(db, task):
             basis_changed=basis_changed,
         )
         last_step_id = str(row.id)
+        last_output_hash = row.output_hash
         completed += 1
         branch.pending_step_json = {}
         branch.parent_step_id = row.id
@@ -495,7 +496,7 @@ async def handle_world_progression(db, task):
             source=source,
             state=state_after,
             parent_step_id=last_step_id,
-            parent_output_hash=row.output_hash,
+            parent_output_hash=last_output_hash,
             step_length=root_request.get("step_length", "auto"),
         )
         branch.pending_step_json = pending

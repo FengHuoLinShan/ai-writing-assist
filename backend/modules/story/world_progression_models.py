@@ -198,6 +198,15 @@ class StoryWorldProgressionAuthorization(Base, UUIDMixin, TimestampMixin, NovelM
     )
     every_new_chapters: Mapped[int] = mapped_column(Integer, nullable=False, default=3)
     last_seen_chapter: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    counted_read_chapters_json: Mapped[list[int]] = mapped_column(
+        JSON, nullable=False, default=list
+    )
+    last_triggered_read_count: Mapped[int] = mapped_column(
+        Integer, nullable=False, default=0
+    )
+    read_count_initialized: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, default=False
+    )
     context_confirmation_id: Mapped[str | None] = mapped_column(
         String(128), nullable=True
     )

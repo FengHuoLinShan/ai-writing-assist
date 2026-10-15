@@ -105,6 +105,9 @@ export const story = {
     async advanceWorldProgression(rootId, payload = {}) {
       return post(`/story/world-progression/roots/${rootId}/steps`, payload)
     },
+    async resumeWorldProgression(rootId, branchId, payload = {}) {
+      return post(`/story/world-progression/roots/${rootId}/branches/${branchId}/resume`, payload)
+    },
     async worldProgressionHistory(novelId, params = {}) {
       return request(withQuery("/story/world-progression/history", { novel_id: novelId, ...params }), { cache: "no-store" })
     },

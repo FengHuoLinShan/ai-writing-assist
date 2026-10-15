@@ -246,11 +246,23 @@ class ProgressionHistoryRequest(ProgressionModel):
     novel_id: str
     scene_id: str | None = None
     root_id: uuid.UUID | None = None
+    include_deleted: bool = False
 
     @field_validator("novel_id", "scene_id")
     @classmethod
     def valid_identity(cls, value: str | None) -> str | None:
         return _uuid(value) if value is not None else None
+
+
+class ProgressionContinuousAuthorizationReadRequest(ProgressionModel):
+    novel_id: str
+    root_id: uuid.UUID
+    branch_id: uuid.UUID
+
+    @field_validator("novel_id")
+    @classmethod
+    def valid_project(cls, value: str) -> str:
+        return _uuid(value)
 
 
 class ProgressionCompareRequest(ProgressionModel):
