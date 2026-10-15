@@ -154,6 +154,27 @@ def test_world_cocreation_can_propose_but_source_questions_remain_answers() -> N
     assert chat.adoption_gate == ask.adoption_gate == "display_only"
 
 
+def test_map_spatial_is_advisory_only_for_creation_and_question_capabilities() -> None:
+    capabilities = (
+        "writing.generate",
+        "writing.targeted_revision",
+        "writing.semantic_review",
+        "writing.conflict_check.ai_review",
+        "story.script",
+        "story.one_click",
+        "world.ask",
+        "assistant.turn",
+    )
+    for capability in capabilities:
+        policy = require_capability_policy(capability)
+        assert policy.advisory_dimensions == ("map_spatial",)
+        assert "map_spatial" not in policy.required_dimensions
+
+    map_generation = require_capability_policy("world.map_structure.generate")
+    assert "map_spatial" in map_generation.required_dimensions
+    assert map_generation.advisory_dimensions == ()
+
+
 def test_rp_capabilities_declare_held_release_notes() -> None:
     story = require_capability_policy("interaction.story_generate")
     assert "release_state=held" in story.notes

@@ -4,7 +4,10 @@ import uuid
 
 import pytest
 
-from modules.evidence.compilation.knowledge.llm_schemas import AuditVerdictOutput
+from modules.evidence.compilation.knowledge.llm_schemas import (
+    AuditDimensionCheck,
+    AuditVerdictOutput,
+)
 from modules.story.generation import StoryGenerationService
 
 
@@ -63,3 +66,58 @@ def _required_dimensions(messages) -> list[str]:
                     if item.strip()
                 ]
     return []
+
+
+@pytest.mark.asyncio
+async def test_script_review_records_missing_map_as_advisory_omission(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    import modules.evidence.contracts as evidence_contracts
+    from modules.story.schemas import ScriptPreview
+
+    run_audit = evidence_contracts.run_knowledge_audit
+    captured: dict[str, object] = {}
+
+    async def capture_audit(*args, **kwargs):  # noqa: ANN002, ANN003, ANN202
+        captured["scope_build"] = kwargs["scope_build"]
+        captured["plan"] = kwargs["plan"]
+        return await run_audit(*args, **kwargs)
+
+    monkeypatch.setattr(evidence_contracts, "run_knowledge_audit", capture_audit)
+
+    class Client:
+        model_name = "test"
+
+        async def generate_structured(self, request, schema, **_kwargs):
+            if schema is AuditVerdictOutput:
+                return schema(
+                    findings=[],
+                    dimensions=[
+                        AuditDimensionCheck(dimension=dimension, checked=True)
+                        for dimension in _required_dimensions(request.messages)
+                    ],
+                    verdict="pass",
+                )
+            return ScriptPreview(
+                scene_id=scene_id,
+                script_text="他停在门前。",
+                narrative_plan="等待回应",
+            )
+
+    scene_id = uuid.uuid4()
+    result = await StoryGenerationService().script_preview(
+        Client(),
+        context_markdown="前文片段",
+        scene_context={"scene_id": str(scene_id)},
+        character_ids=[],
+    )
+
+    assert result.knowledge_review["status"] == "passed"
+    scope_build = captured["scope_build"]
+    assert scope_build.receipt.policy_version == 2
+    assert scope_build.receipt.scope_complete is True
+    assert scope_build.receipt.omitted == ()
+    assert [item.dimension for item in scope_build.receipt.advisory_omitted] == [
+        "map_spatial"
+    ]
+    assert captured["plan"].policy_version == 2

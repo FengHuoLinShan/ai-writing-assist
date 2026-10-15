@@ -13,7 +13,7 @@ from typing import Any
 
 from infrastructure.stable_hash import stable_hash
 
-KNOWLEDGE_POLICY_VERSION = 1
+KNOWLEDGE_POLICY_VERSION = 2
 """知识治理契约版本；随确认冻结，旧记录按当时版本回放。"""
 
 
@@ -172,7 +172,7 @@ class KnowledgeSubject:
 
 @dataclass(frozen=True)
 class KnowledgeDimensionCoverage:
-    """单个必查维度的覆盖情况；omitted 的维度不能签署 PASS。"""
+    """单个维度的覆盖情况；必查维度的 omitted 不能签署 PASS。"""
 
     dimension: str
     covered_by: tuple[str, ...] = ()
@@ -199,11 +199,38 @@ class KnowledgeDimensionCoverage:
 
 
 @dataclass(frozen=True)
+class KnowledgeAdvisoryOmission:
+    """参考维度未纳入本次范围的可审计说明，不参与完整性裁决。"""
+
+    dimension: str
+    reason: str
+    source_key: str | None = None
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "dimension": self.dimension,
+            "reason": self.reason,
+            "source_key": self.source_key,
+        }
+
+    @classmethod
+    def from_dict(cls, payload: dict[str, Any]) -> KnowledgeAdvisoryOmission:
+        data = _require_mapping(payload, "advisory omission")
+        source_key = data.get("source_key")
+        return cls(
+            dimension=str(data["dimension"]),
+            reason=str(data.get("reason") or ""),
+            source_key=str(source_key) if source_key else None,
+        )
+
+
+@dataclass(frozen=True)
 class KnowledgeScopeReceipt:
     """冻结任务范围回执：任务范围内完整、可回读的来源清单与判定。
 
     「完整」指冻结任务范围内每个来源都出现在 included/excluded/omitted 之一；
-    excluded 为作者显式排除（不得回流），omitted 为预算或不可读缺失（不能签 PASS）。
+    excluded 为作者显式排除（不得回流），omitted 为必查来源的预算或不可读缺失。
+    参考维度的省略单独记入 advisory_omitted，不影响范围完整性。
     """
 
     policy_version: int
@@ -213,6 +240,7 @@ class KnowledgeScopeReceipt:
     included: tuple[KnowledgeSourceEntry, ...] = ()
     excluded: tuple[KnowledgeSourceEntry, ...] = ()
     omitted: tuple[KnowledgeSourceEntry, ...] = ()
+    advisory_omitted: tuple[KnowledgeAdvisoryOmission, ...] = ()
     coverage: tuple[KnowledgeDimensionCoverage, ...] = ()
     authority_fingerprint: str = ""
     generator_fingerprint: str = ""
@@ -239,7 +267,7 @@ class KnowledgeScopeReceipt:
         return bool(self.omitted) or any(item.omitted for item in self.coverage)
 
     def _fingerprint_payload(self) -> dict[str, Any]:
-        return {
+        payload = {
             "policy_version": self.policy_version,
             "capability": self.capability,
             "novel_id": self.novel_id,
@@ -253,6 +281,11 @@ class KnowledgeScopeReceipt:
             "scope_complete": self.scope_complete,
             "continuation": self.continuation,
         }
+        if self.policy_version >= 2:
+            payload["advisory_omitted"] = [
+                item.to_dict() for item in self.advisory_omitted
+            ]
+        return payload
 
     def receipt_fingerprint(self) -> str:
         """范围回执指纹；任何来源/判定/指纹字段漂移都会改变结果。"""
@@ -274,6 +307,10 @@ class KnowledgeScopeReceipt:
                 "omitted": [entry.to_dict() for entry in self.omitted],
             }
         )
+        if self.policy_version >= 2:
+            payload["advisory_omitted"] = [
+                item.to_dict() for item in self.advisory_omitted
+            ]
         return {
             "kind": "knowledge_scope_receipt",
             **payload,
@@ -299,6 +336,14 @@ class KnowledgeScopeReceipt:
             ),
             omitted=tuple(
                 KnowledgeSourceEntry.from_dict(item) for item in data.get("omitted") or ()
+            ),
+            advisory_omitted=(
+                tuple(
+                    KnowledgeAdvisoryOmission.from_dict(item)
+                    for item in data.get("advisory_omitted") or ()
+                )
+                if version >= 2
+                else ()
             ),
             coverage=tuple(
                 KnowledgeDimensionCoverage.from_dict(item)
@@ -512,6 +557,7 @@ class KnowledgeAuditReceipt:
     findings: tuple[KnowledgeAuditFinding, ...] = ()
     coverage: tuple[KnowledgeDimensionCoverage, ...] = ()
     checked_at: str = ""
+    advisory_omitted: tuple[KnowledgeAdvisoryOmission, ...] = ()
 
     def blocking_findings(self) -> tuple[KnowledgeAuditFinding, ...]:
         return tuple(
@@ -525,7 +571,7 @@ class KnowledgeAuditReceipt:
         return counts
 
     def _fingerprint_payload(self) -> dict[str, Any]:
-        return {
+        payload = {
             "policy_version": self.policy_version,
             "capability": self.capability,
             "receipt_fingerprint": self.receipt_fingerprint,
@@ -535,6 +581,11 @@ class KnowledgeAuditReceipt:
             "findings": [item.to_dict() for item in self.findings],
             "coverage": [item.to_dict() for item in self.coverage],
         }
+        if self.policy_version >= 2:
+            payload["advisory_omitted"] = [
+                item.to_dict() for item in self.advisory_omitted
+            ]
+        return payload
 
     def audit_fingerprint(self) -> str:
         return knowledge_canonical_hash(
@@ -542,11 +593,9 @@ class KnowledgeAuditReceipt:
         )
 
     def to_dict(self) -> dict[str, Any]:
-        return {
-            "kind": "knowledge_audit_receipt",
-            **self._fingerprint_payload(),
-            "checked_at": self.checked_at,
-        }
+        payload = self._fingerprint_payload()
+        payload["checked_at"] = self.checked_at
+        return {"kind": "knowledge_audit_receipt", **payload}
 
     @classmethod
     def from_dict(cls, payload: dict[str, Any]) -> KnowledgeAuditReceipt:
@@ -568,6 +617,14 @@ class KnowledgeAuditReceipt:
                 for item in data.get("coverage") or ()
             ),
             checked_at=str(data.get("checked_at") or ""),
+            advisory_omitted=(
+                tuple(
+                    KnowledgeAdvisoryOmission.from_dict(item)
+                    for item in data.get("advisory_omitted") or ()
+                )
+                if version >= 2
+                else ()
+            ),
         )
 
 

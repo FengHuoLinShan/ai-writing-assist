@@ -391,10 +391,19 @@ async def test_repeated_chapter_refs_audit_every_excerpt_without_duplicate_dispo
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     from modules.world.schemas import WorldBibleSourceRef
-    from modules.world.services.worldbuilding.knowledge_governance import (
-        govern_world_output,
-        world_scope_entries,
-    )
+    from modules.world.services.worldbuilding import knowledge_governance
+
+    govern_world_output = knowledge_governance.govern_world_output
+    world_scope_entries = knowledge_governance.world_scope_entries
+    run_audit = knowledge_governance.run_knowledge_audit
+    captured: dict[str, object] = {}
+
+    async def capture_audit(*args, **kwargs):  # noqa: ANN002, ANN003, ANN202
+        captured["scope_build"] = kwargs["scope_build"]
+        captured["plan"] = kwargs["plan"]
+        return await run_audit(*args, **kwargs)
+
+    monkeypatch.setattr(knowledge_governance, "run_knowledge_audit", capture_audit)
 
     fake = _install_fake_llm(monkeypatch)
     refs = [
@@ -422,6 +431,14 @@ async def test_repeated_chapter_refs_audit_every_excerpt_without_duplicate_dispo
         task_instruction="根据两个正文片段回答。",
     )
     assert result["status"] == "passed"
+    scope_build = captured["scope_build"]
+    assert scope_build.receipt.policy_version == 2
+    assert scope_build.receipt.scope_complete is True
+    assert scope_build.receipt.omitted == ()
+    assert [item.dimension for item in scope_build.receipt.advisory_omitted] == [
+        "map_spatial"
+    ]
+    assert captured["plan"].policy_version == 2
     prompt = "\n".join(message.content for message in fake.audit_requests[0].messages)
     assert context in prompt
 

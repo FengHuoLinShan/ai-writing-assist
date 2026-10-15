@@ -80,6 +80,23 @@ def _scope_build():
     return policy, build
 
 
+def _advisory_scope_build():
+    policy = require_capability_policy("assistant.turn")
+    compiled = CompiledContext(
+        sections=[
+            _section(
+                "world_entities",
+                [{"type": "world_entity", "id": "a", "label": "作者组织"}],
+            )
+        ]
+    )
+    build = build_scope_receipt(
+        compiled, policy, KnowledgeSubject(subject_type="author"), novel_id="novel-1"
+    )
+    require_scope_complete(build)
+    return policy, build
+
+
 class FakeGovernedClient:
     """按 schema 类型分发的合成 provider：导演处置与审查裁决均可脚本化。"""
 
@@ -435,6 +452,154 @@ async def test_all_dimensions_checked_keeps_server_verdict() -> None:
         policy.required_dimensions
     )
     assert all(not item.omitted for item in outcome.audit.coverage)
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("verdict", ["blocked", "unverifiable", "not_checked"])
+async def test_advisory_finding_cannot_block_or_lower_verdict(verdict: str) -> None:
+    policy, build = _advisory_scope_build()
+    audit = AuditVerdictOutput(
+        findings=[
+            AuditFindingOutput(
+                kind="missing_required",
+                severity="blocker",
+                dimension="map_spatial",
+                message="本场没有地图参考",
+            )
+        ],
+        dimensions=[
+            *[
+                AuditDimensionCheck(dimension=dimension, checked=True)
+                for dimension in policy.required_dimensions
+            ],
+            AuditDimensionCheck(
+                dimension="map_spatial", checked=False, note="没有地图来源"
+            ),
+        ],
+        verdict=verdict,
+    )
+    client = FakeGovernedClient(audit_outputs=[audit])
+
+    outcome = await run_governed_generation(
+        client,
+        policy=policy,
+        scope_build=build,
+        hooks=_hooks("生成正文"),
+    )
+
+    assert outcome.passed
+    assert outcome.audit.verdict == "pass"
+    assert outcome.audit.findings[0].severity == "minor"
+    assert [item.dimension for item in outcome.audit.advisory_omitted] == ["map_spatial"]
+    review = knowledge_review_payload(audit=outcome.audit)
+    assert review["advisory_omitted"][0]["message"] == "参考信息未纳入本次范围，仅作提醒"
+    map_coverage = next(
+        item for item in outcome.audit.coverage if item.dimension == "map_spatial"
+    )
+    assert map_coverage.omitted is True
+
+
+@pytest.mark.asyncio
+async def test_required_source_finding_stays_blocking_when_mislabeled_advisory() -> None:
+    policy, build = _advisory_scope_build()
+    audit = AuditVerdictOutput(
+        findings=[
+            AuditFindingOutput(
+                kind="conflict",
+                severity="blocker",
+                dimension="map_spatial",
+                source_key="world_entity:a",
+                message="世界对象事实冲突",
+            )
+        ],
+        dimensions=[
+            AuditDimensionCheck(dimension=dimension, checked=True)
+            for dimension in policy.required_dimensions
+        ],
+        verdict="pass",
+    )
+    client = FakeGovernedClient(audit_outputs=[audit, audit])
+
+    outcome = await run_governed_generation(
+        client,
+        policy=policy,
+        scope_build=build,
+        hooks=_hooks("存在冲突的正文"),
+    )
+
+    assert outcome.status == "blocked"
+    assert outcome.audit.verdict == "blocked"
+    assert outcome.audit.findings[0].severity == "blocker"
+
+
+@pytest.mark.asyncio
+async def test_advisory_omission_does_not_mask_unchecked_required_dimension() -> None:
+    policy, build = _advisory_scope_build()
+    required_dimensions = list(policy.required_dimensions)
+    audit = AuditVerdictOutput(
+        findings=[
+            AuditFindingOutput(
+                kind="missing_required",
+                severity="blocker",
+                dimension="map_spatial",
+                message="缺少地图参考",
+            )
+        ],
+        dimensions=[
+            *[
+                AuditDimensionCheck(dimension=dimension, checked=True)
+                for dimension in required_dimensions[:-1]
+            ],
+            AuditDimensionCheck(dimension="map_spatial", checked=False),
+        ],
+        verdict="blocked",
+    )
+    client = FakeGovernedClient(audit_outputs=[audit])
+
+    outcome = await run_governed_generation(
+        client,
+        policy=policy,
+        scope_build=build,
+        hooks=_hooks("生成正文"),
+    )
+
+    assert outcome.audit.verdict == "unverifiable"
+    assert outcome.status == "blocked"
+
+
+def test_review_projection_discloses_budget_omission_without_hidden_source_key() -> None:
+    from modules.evidence.compilation.knowledge.contracts import (
+        KnowledgeAdvisoryOmission,
+        KnowledgeAuditReceipt,
+    )
+
+    receipt = KnowledgeAuditReceipt(
+        policy_version=2,
+        capability="writing.generate",
+        receipt_fingerprint="scope-fp",
+        plan_fingerprint="plan-fp",
+        output_hash="output-hash",
+        verdict="pass",
+        advisory_omitted=(
+            KnowledgeAdvisoryOmission(
+                dimension="map_spatial",
+                source_key="map_source:hidden",
+                reason="参考资料因预算逐出",
+            ),
+        ),
+    )
+
+    review = knowledge_review_payload(audit=receipt, visible_keys=())
+
+    assert review["advisory_omitted"] == [
+        {
+            "dimension": "map_spatial",
+            "dimension_label": "空间结构与地理",
+            "reason": "参考资料因预算逐出",
+            "message": "参考信息因预算未全部使用",
+            "source_key": None,
+        }
+    ]
 
 
 @pytest.mark.asyncio

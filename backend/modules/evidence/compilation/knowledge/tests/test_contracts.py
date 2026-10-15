@@ -6,6 +6,7 @@ import pytest
 
 from modules.evidence.compilation.knowledge.contracts import (
     KNOWLEDGE_POLICY_VERSION,
+    KnowledgeAdvisoryOmission,
     KnowledgeAuditFinding,
     KnowledgeAuditReceipt,
     KnowledgeContractError,
@@ -101,6 +102,41 @@ def test_scope_receipt_fingerprint_drifts_on_any_change() -> None:
     )
     for variant in (changed_subject, changed_coverage, changed_hash):
         assert variant.receipt_fingerprint() != base.receipt_fingerprint()
+
+
+def test_advisory_omissions_are_versioned_and_fingerprinted_separately() -> None:
+    base = _receipt()
+    omitted = _receipt(
+        advisory_omitted=(
+            KnowledgeAdvisoryOmission(
+                dimension="map_spatial",
+                source_key="map_source:m1",
+                reason="超过预算",
+            ),
+        )
+    )
+
+    assert base.policy_version == KNOWLEDGE_POLICY_VERSION == 2
+    assert not base.has_omissions()
+    assert omitted.has_omissions() is False
+    assert omitted.receipt_fingerprint() != base.receipt_fingerprint()
+    restored = KnowledgeScopeReceipt.from_dict(omitted.to_dict())
+    assert restored == omitted
+    assert restored.advisory_omitted == omitted.advisory_omitted
+
+
+def test_v1_scope_receipt_round_trip_preserves_original_fingerprint() -> None:
+    legacy = _receipt(policy_version=1)
+    payload = legacy.to_dict()
+
+    assert "advisory_omitted" not in payload
+    assert legacy.receipt_fingerprint() == (
+        "5ae4980591d5cbcc1b0168131af92beed0f34f6429dcf655b0b88938ad1e1a1e"
+    )
+    restored = KnowledgeScopeReceipt.from_dict(payload)
+    assert restored.policy_version == 1
+    assert restored.to_dict() == payload
+    assert restored.receipt_fingerprint() == legacy.receipt_fingerprint()
 
 
 def test_scope_receipt_omission_blocks_completeness() -> None:
@@ -268,6 +304,7 @@ def test_audit_receipt_blocking_and_counts() -> None:
     assert receipt.audit_fingerprint() == (
         KnowledgeAuditReceipt.from_dict(receipt.to_dict()).audit_fingerprint()
     )
+    assert receipt.to_dict()["advisory_omitted"] == []
     # 输出 hash 变化必须改变回执指纹（绑定输出的核心语义）
     drifted = KnowledgeAuditReceipt(
         policy_version=KNOWLEDGE_POLICY_VERSION,
@@ -279,3 +316,28 @@ def test_audit_receipt_blocking_and_counts() -> None:
         findings=receipt.findings,
     )
     assert drifted.audit_fingerprint() != receipt.audit_fingerprint()
+
+
+def test_v1_audit_receipt_ignores_v2_advisory_field_and_keeps_fingerprint() -> None:
+    legacy = KnowledgeAuditReceipt(
+        policy_version=1,
+        capability="world.ask",
+        receipt_fingerprint="scope",
+        plan_fingerprint="plan",
+        output_hash="output",
+        verdict="pass",
+        checked_at="2026-10-15T00:00:00Z",
+    )
+    payload = legacy.to_dict()
+
+    assert "advisory_omitted" not in payload
+    assert legacy.audit_fingerprint() == (
+        "a7362ebba97dd776d2a772ad7f093b6314f650150a40609519b69afe6b0df998"
+    )
+    payload["advisory_omitted"] = [
+        {"dimension": "map_spatial", "reason": "超过预算", "source_key": None}
+    ]
+    restored = KnowledgeAuditReceipt.from_dict(payload)
+    assert restored.policy_version == 1
+    assert restored.advisory_omitted == ()
+    assert restored.audit_fingerprint() == legacy.audit_fingerprint()

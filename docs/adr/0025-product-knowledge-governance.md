@@ -54,7 +54,8 @@
    result 与领域 provenance JSON；不持久化完整隐藏上下文、Prompt 或秘密，不新增数据库
    表或 migration。每次 provider 调用前、最终写入和采用前重验 scope/policy/source/output
    指纹。
-8. 新任务冻结 `knowledge_policy_version=1`；在途旧任务按原快照结束并标记
+8. 声明参考维度的能力冻结 `knowledge_policy_version=2`；没有参考维度且语义未变的能力
+   继续使用 v1。在途旧任务按原快照结束并标记
    `legacy_unchecked`；旧已采用资产不追溯改写，旧待采用 AI 资产采用前必须通过当前重查。
 
 知识导演、审查与返修 step 归属宿主能力的统一运行信封；分片序号不进入 step 名，回执按
@@ -76,3 +77,6 @@
 - 补充说明（2026-10-15）：ADR-0037 §1 修订第 4 条对参考维度的适用：参考维度缺失或省略单独记录、
   不进 `omitted`、不影响 `scope_complete`，审查只出提示；必查维度的规则不变。ADR-0040 追加
   `object_dossier`、`character_pattern`、`director_reference` 三个参考维度，规则相同。
+- 实施记录（2026-10-15）：声明参考维度的知识治理 receipt/policy 升为 v2，增加独立参考省略记录；
+  没有语义变化的能力继续使用 v1。旧 receipt 保留原读取与指纹语义。地图简报尚未接线，
+  登记 `map_spatial` 不会加载资料或启用功能。

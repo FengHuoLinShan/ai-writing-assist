@@ -1,12 +1,13 @@
 {
   "id": "knowledge_audit",
-  "version": 1,
+  "version": 2,
   "owner": "evidence",
   "schema_model": "modules.evidence.compilation.knowledge.llm_schemas.AuditVerdictOutput",
   "declared_prompt_fields": [
     "findings",
     "findings.kind",
     "findings.severity",
+    "findings.dimension",
     "findings.message",
     "findings.excerpt",
     "findings.source_key",
@@ -31,6 +32,7 @@
     "findings",
     "findings.kind",
     "findings.severity",
+    "findings.dimension",
     "findings.message",
     "findings.excerpt",
     "findings.source_key",

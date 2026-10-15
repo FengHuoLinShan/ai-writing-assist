@@ -105,6 +105,26 @@ def knowledge_review_payload(
         # 带问题采用与质量追溯需要钉住"当时按哪个政策版本、核的是哪份输出"。
         payload["policy_version"] = audit.policy_version
         payload["output_hash"] = audit.output_hash
+        if audit.policy_version >= 2:
+            visible = set(visible_keys)
+            payload["advisory_omitted"] = [
+                {
+                    "dimension": item.dimension,
+                    "dimension_label": KNOWLEDGE_DIMENSIONS.get(
+                        item.dimension, item.dimension
+                    ),
+                    "reason": item.reason,
+                    "message": (
+                        "参考信息因预算未全部使用"
+                        if "预算" in item.reason or "截断" in item.reason
+                        else "参考信息未纳入本次范围，仅作提醒"
+                    ),
+                    "source_key": (
+                        item.source_key if item.source_key in visible else None
+                    ),
+                }
+                for item in audit.advisory_omitted
+            ]
     for item in payload["coverage"]:
         item["dimension_label"] = KNOWLEDGE_DIMENSIONS.get(
             item["dimension"], item["dimension"]

@@ -575,6 +575,7 @@ from modules.evidence.compilation.knowledge import (  # noqa: F401,E402
     GovernedGenerationOutcome,
     GovernedWorkflowHooks,
     GroupSource,
+    KnowledgeAdvisoryOmission,
     KnowledgeAuditFinding,
     KnowledgeAuditReceipt,
     KnowledgeContractError,

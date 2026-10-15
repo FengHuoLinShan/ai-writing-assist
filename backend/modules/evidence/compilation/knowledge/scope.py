@@ -14,6 +14,8 @@ from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any
 
 from modules.evidence.compilation.knowledge.contracts import (
+    KNOWLEDGE_POLICY_VERSION,
+    KnowledgeAdvisoryOmission,
     KnowledgeContractError,
     KnowledgeDimensionCoverage,
     KnowledgeDirectorDisposition,
@@ -25,6 +27,7 @@ from modules.evidence.compilation.knowledge.contracts import (
 from modules.evidence.compilation.knowledge.policies import (
     KNOWLEDGE_DIMENSIONS,
     CapabilityKnowledgePolicy,
+    get_capability_policy,
 )
 from modules.evidence.compilation.services.compiled_context import selection_ref_key
 
@@ -40,6 +43,7 @@ REFERENCE_USAGES = frozenset({REFERENCE_USAGE_CREATION, REFERENCE_USAGE_AUDIT_ON
 _MAX_TOKEN_GROUPS_PER_SOURCE = 32
 
 SECTION_DIMENSION_MAP: dict[str, str] = {
+    "map_spatial": "map_spatial",
     "world_entities": "world_entities",
     "reader_visible_world": "reader_reveal",
     "reader_visible_manuscript": "prior_prose",
@@ -155,7 +159,8 @@ def build_scope_receipt(
 
     - included：编译产物中的全部来源（权威包），按 source_key 规范化排序；
     - excluded：作者显式排除（excluded_items / excluded section），不得回流；
-    - omitted：预算驱逐或不可读来源，必查维度命中即 scope_complete=False；
+    - omitted：预算驱逐或不可读来源；必查来源省略会让 scope 不完整；
+    - advisory_omitted：参考维度缺失、排除或被预算省略，不阻断范围完整性；
     - generator_keys：默认等于 included，审计专用引用与不可见集从中扣除。
     """
     dimension_map = dict(SECTION_DIMENSION_MAP)
@@ -165,7 +170,8 @@ def build_scope_receipt(
     entries: dict[str, KnowledgeSourceEntry] = {}
     entry_dimensions: dict[str, set[str]] = {}
     excluded_keys: set[str] = set()
-    omitted_keys: set[str] = set()
+    omitted_dimensions: dict[str, dict[str, str]] = {}
+    omitted_unknown_keys: set[str] = set()
 
     entry_tokens: dict[str, int | None] = {}
     entry_state: dict[str, tuple[str, str]] = {}
@@ -252,6 +258,13 @@ def build_scope_receipt(
                 entry_state[key] = (state, state_reason)
         if dimension:
             entry_dimensions[key].add(dimension)
+        if state == "omitted":
+            if dimension:
+                omitted_dimensions.setdefault(key, {}).setdefault(
+                    dimension, state_reason or "预算逐出或不可读"
+                )
+            else:
+                omitted_unknown_keys.add(key)
         if token_group and token_count is not None:
             entry_groups[key][token_group] = {
                 "key": token_group,
@@ -317,10 +330,11 @@ def build_scope_receipt(
                     excluded_keys.add(key)
 
     for item in compiled.excluded_items:
+        dimension = dimension_map.get(item.key.partition(":")[0], "")
         for source in item.sources or [item.source]:
             _absorb(
                 source,
-                "",
+                dimension,
                 token_count=item.token_count,
                 content=item.content,
                 token_group=item.key,
@@ -330,10 +344,11 @@ def build_scope_receipt(
             if key:
                 excluded_keys.add(key)
     for item in compiled.omitted_items:
+        dimension = dimension_map.get(item.key.partition(":")[0], "")
         for source in item.sources or [item.source]:
             _absorb(
                 source,
-                "",
+                dimension,
                 token_count=item.token_count,
                 content=item.content,
                 token_group=item.key,
@@ -342,8 +357,6 @@ def build_scope_receipt(
                 state_reason=item.omission_reason or "预算逐出或不可读",
             )
             key = source_key_of(source)
-            if key:
-                omitted_keys.add(key)
 
     audit_only_keys: set[str] = set()
     for section in compiled.sections:
@@ -381,10 +394,17 @@ def build_scope_receipt(
     excluded = tuple(
         entry for entry in included_with_dimensions if entry.source_key in excluded_keys
     )
+    advisory_dimensions = set(policy.advisory_dimensions)
+    blocking_omitted_keys = {
+        key
+        for key, dimensions in omitted_dimensions.items()
+        if set(dimensions) - advisory_dimensions
+    } | omitted_unknown_keys
     omitted = tuple(
         entry
         for entry in included_with_dimensions
-        if entry.source_key in omitted_keys and entry.source_key not in excluded_keys
+        if entry.source_key in blocking_omitted_keys
+        and entry.source_key not in excluded_keys
     )
     included_final = tuple(
         entry
@@ -398,6 +418,11 @@ def build_scope_receipt(
             entry.source_key
             for entry in included_with_dimensions
             if dimension in entry.dimensions
+        }
+        omitted_for_dimension = {
+            key
+            for key, dimensions in omitted_dimensions.items()
+            if dimension in dimensions
         }
         candidates = all_keys - excluded_keys
         if candidates:
@@ -416,7 +441,7 @@ def build_scope_receipt(
                     omission_reason="必查维度来源被作者显式排除",
                 )
             )
-        elif all_keys & omitted_keys:
+        elif all_keys & omitted_for_dimension:
             coverage.append(
                 KnowledgeDimensionCoverage(
                     dimension=dimension,
@@ -432,6 +457,74 @@ def build_scope_receipt(
                     covered_by=(),
                     omission_reason="冻结范围内无该维度来源",
                 )
+            )
+
+    advisory_omitted: dict[tuple[str, str | None], KnowledgeAdvisoryOmission] = {}
+    for dimension in policy.advisory_dimensions:
+        keys = {
+            entry.source_key
+            for entry in included_with_dimensions
+            if dimension in entry.dimensions
+        }
+        if not keys:
+            advisory_omitted[(dimension, None)] = KnowledgeAdvisoryOmission(
+                dimension=dimension,
+                reason="冻结范围内无该参考维度来源",
+            )
+            continue
+        for key in sorted(keys & excluded_keys):
+            advisory_omitted[(dimension, key)] = KnowledgeAdvisoryOmission(
+                dimension=dimension,
+                source_key=key,
+                reason="作者显式排除参考资料",
+            )
+        for key in sorted(keys - excluded_keys):
+            reason = omitted_dimensions.get(key, {}).get(dimension)
+            if reason:
+                advisory_omitted[(dimension, key)] = KnowledgeAdvisoryOmission(
+                    dimension=dimension,
+                    source_key=key,
+                    reason=reason,
+                )
+    for item in compiled.omitted_items:
+        dimension = dimension_map.get(item.key.partition(":")[0], "")
+        if dimension in advisory_dimensions and not any(
+            source_key_of(source) for source in item.sources or [item.source]
+        ):
+            advisory_omitted[(dimension, None)] = KnowledgeAdvisoryOmission(
+                dimension=dimension,
+                reason=item.omission_reason or "参考资料因预算或可读性省略",
+            )
+    for item in compiled.excluded_items:
+        dimension = dimension_map.get(item.key.partition(":")[0], "")
+        if dimension in advisory_dimensions and not any(
+            source_key_of(source) for source in item.sources or [item.source]
+        ):
+            advisory_omitted[(dimension, None)] = KnowledgeAdvisoryOmission(
+                dimension=dimension,
+                reason="作者显式排除参考资料",
+            )
+    for section in compiled.sections:
+        dimension = dimension_map.get(section.key, "")
+        if dimension not in advisory_dimensions:
+            continue
+        if section.excluded and not any(
+            source_key_of(source) for source in section.sources
+        ):
+            reason = "作者显式排除参考资料"
+        elif section.truncated_reason:
+            reason = section.truncated_reason
+        else:
+            continue
+        advisory_omitted[(dimension, None)] = KnowledgeAdvisoryOmission(
+            dimension=dimension, reason=reason
+        )
+    for section_key in evicted_keys | truncated_keys:
+        dimension = dimension_map.get(section_key, "")
+        if dimension in advisory_dimensions:
+            advisory_omitted[(dimension, None)] = KnowledgeAdvisoryOmission(
+                dimension=dimension,
+                reason="参考资料因预算省略或截断",
             )
 
     allowed_keys = {entry.source_key for entry in included_final}
@@ -455,17 +548,29 @@ def build_scope_receipt(
         }
     )
 
-    truncated = any(section.truncated_reason for section in compiled.sections)
+    truncated = any(
+        section.truncated_reason
+        and dimension_map.get(section.key, "") not in advisory_dimensions
+        for section in compiled.sections
+    )
     scope_complete = not omitted and not truncated
 
+    policy_version = KNOWLEDGE_POLICY_VERSION if policy.advisory_dimensions else 1
     receipt = KnowledgeScopeReceipt(
-        policy_version=1,
+        policy_version=policy_version,
         capability=policy.capability_id,
         novel_id=novel_id,
         subject=subject,
         included=included_final,
         excluded=excluded,
         omitted=omitted,
+        advisory_omitted=tuple(
+            advisory_omitted[key]
+            for key in sorted(
+                advisory_omitted,
+                key=lambda item: (item[0], item[1] or ""),
+            )
+        ),
         coverage=tuple(coverage),
         authority_fingerprint=authority_fingerprint,
         generator_fingerprint=generator_fingerprint,
@@ -490,8 +595,12 @@ def require_scope_complete(build: KnowledgeScopeBuild) -> None:
             problems.append(f"存在预算或可读性 omission：{keys}")
         else:
             problems.append("编译产物存在截断，范围不完整")
+    policy = get_capability_policy(receipt.capability)
+    required_dimensions = set(policy.required_dimensions) if policy is not None else None
     for item in receipt.coverage:
-        if item.omitted:
+        if item.omitted and (
+            required_dimensions is None or item.dimension in required_dimensions
+        ):
             problems.append(f"必查维度 {item.dimension} 被排除：{item.omission_reason}")
     ensure_no_excluded_backflow(build)
     if problems:

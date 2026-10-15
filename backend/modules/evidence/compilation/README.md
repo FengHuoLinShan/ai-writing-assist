@@ -9,6 +9,14 @@ resume 不重置累计账本；planner/nomination 的 step timeout 保持原样�
 `KnowledgeAuditReceipt`；它们的 provider step 只继承宿主 capability 的运行信封，不建立第二账本。
 运行信封中只保存稳定 step 名、计数和脱敏指纹，不保存编译正文或 Prompt。
 
+声明参考维度的能力使用知识治理 v2 receipt/policy，以区分必查维度与参考维度；
+没有参考维度且语义未变化的能力继续使用 v1。参考维度省略单列
+`advisory_omitted`，不进入 `omitted`，不影响 `scope_complete` 或
+`require_scope_complete`；scope 与 audit receipt 均记录该字段，作者 review payload 投影原因并
+隐藏不可见 source key。审查 coverage 仍只要求必查维度完整。v1 receipt 继续按原字段和指纹语义
+回读。当前 `map_spatial` 仅登记为参考维度，地图简报 loader、上下文接入和逐能力开关尚未接入，
+因此本批不会向任何 LLM 上下文加载地图。
+
 ## 定位
 
 Evidence 的 compilation 子域决定本次 AI 操作能看到哪些资料、哪些资料要被裁剪，以及哪些

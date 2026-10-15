@@ -543,6 +543,17 @@ omitted）与哈希基底标记；可得正文参与 hash，预算逐出保留�
 来源。不可分多源块使用 shared token_groups，复算按 group key 去重，独立数量
 才进入 token_count。账本不保存原文；增加审计字段本身不改变确认指纹。
 
+### 参考知识维度（2026-10-15）
+
+声明参考维度的能力使用知识策略 v2 区分必查维度与参考维度；没有参考维度且语义未变化的能力
+继续使用 v1。参考维度缺失、为空、被作者排除或被预算省略时，
+写入独立 `advisory_omitted`，不进入必查 `omitted`，不影响 `scope_complete` /
+`require_scope_complete`。scope 与 audit receipt 均记录省略，作者 review payload 显示预算省略
+提示并按可见范围隐藏 source key。旧 v1 receipt 仍按旧字段与指纹回读。审查 coverage 会显示
+参考维度未检查，但只有必查维度缺失、重复或 `checked=false` 才能降为 `unverifiable`；参考维度
+finding 的阻断级别由服务端压为提示。首个登记项 `map_spatial` 尚未接入 loader 或生成上下文，
+不代表功能已开启。
+
 ### 第一阶段整改后的读取边界
 
 Scene Lens 完整返回对象字段、位置/知识来源、逐项未知、新鲜度与状态指纹；POV 知识只读本 Scene 的角色投影，World 名称不能补今天事实。来源可沿同项目父 checkpoint 和 event 回读，历史依据不是当前事实。私有 RP 缓存的全行容量、PG 并发、匿名禁用、撤权清理与备份恢复冷启动见 [compilation README](../../backend/modules/evidence/compilation/README.md)；冻结来源的检索保留不同原文范围，关键证据与知识边界独立验收。

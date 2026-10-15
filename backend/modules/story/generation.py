@@ -72,8 +72,10 @@ class StoryGenerationService:
         生成者包=编译上下文+场景上下文（服务端已裁剪），权威对照同源。
         """
         from modules.evidence.contracts import (
+            KNOWLEDGE_POLICY_VERSION,
             REPAIR_INSTRUCTION_TEMPLATE,
             GovernedWorkflowHooks,
+            KnowledgeAdvisoryOmission,
             KnowledgeDirectorDisposition,
             KnowledgeDirectorPlan,
             KnowledgeScopeBuild,
@@ -108,18 +110,31 @@ class StoryGenerationService:
                 dimensions=("scene_state", "character_knowledge"),
             ),
         )
+        available_dimensions = {
+            dimension for entry in entries for dimension in entry.dimensions
+        }
+        advisory_omitted = tuple(
+            KnowledgeAdvisoryOmission(
+                dimension=dimension,
+                reason="本次范围未提供该参考维度来源",
+            )
+            for dimension in policy.advisory_dimensions
+            if dimension not in available_dimensions
+        )
+        policy_version = KNOWLEDGE_POLICY_VERSION if policy.advisory_dimensions else 1
         receipt = KnowledgeScopeReceipt(
-            policy_version=1,
+            policy_version=policy_version,
             capability=policy.capability_id,
             novel_id=str(novel_id or "story"),
             subject=KnowledgeSubject(subject_type="author"),
             included=entries,
+            advisory_omitted=advisory_omitted,
             scope_complete=True,
             authority_fingerprint=f"{context_digest}{scene_digest}",
             generator_fingerprint=f"{context_digest}{scene_digest}",
         )
         plan = KnowledgeDirectorPlan(
-            policy_version=1,
+            policy_version=policy_version,
             capability=policy.capability_id,
             receipt_fingerprint=receipt.receipt_fingerprint(),
             dispositions=tuple(

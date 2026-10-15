@@ -66,6 +66,10 @@ def _author_policy():
     return require_capability_policy("world.generation.suggestion")
 
 
+def _advisory_policy():
+    return require_capability_policy("assistant.turn")
+
+
 def _subject() -> KnowledgeSubject:
     return KnowledgeSubject(subject_type="author")
 
@@ -92,6 +96,8 @@ def test_manifest_normalized_and_complete_by_default() -> None:
     assert "world_bible_page:p1" in keys
     assert receipt.scope_complete is True
     assert not receipt.omitted
+    assert receipt.policy_version == 1
+    assert "advisory_omitted" not in receipt.to_dict()
     assert generator_set(build) == set(keys)
     coverage = {item.dimension: item for item in receipt.coverage}
     assert coverage["world_entities"].covered_by == ("world_entity:a", "world_entity:b")
@@ -120,6 +126,138 @@ def test_budget_omission_blocks_scope() -> None:
     )
     assert build.receipt.scope_complete is False
     assert [entry.source_key for entry in build.receipt.omitted] == ["world_entity:b"]
+    with pytest.raises(KnowledgeContractError, match="omission"):
+        require_scope_complete(build)
+
+
+def test_missing_advisory_dimension_is_recorded_without_blocking_scope() -> None:
+    build = build_scope_receipt(
+        CompiledContext(
+            sections=[_section("world_entities", [_source("world_entity", "a")])]
+        ),
+        _advisory_policy(),
+        _subject(),
+        novel_id="novel-1",
+    )
+
+    assert build.receipt.scope_complete is True
+    assert not build.receipt.omitted
+    assert [
+        (item.dimension, item.source_key, item.reason)
+        for item in build.receipt.advisory_omitted
+    ] == [("map_spatial", None, "冻结范围内无该参考维度来源")]
+    require_scope_complete(build)
+
+
+def test_budget_omission_of_advisory_dimension_does_not_enter_omitted() -> None:
+    omitted_map = ContextItem(
+        key="map_spatial:map-1",
+        content="海港与旧城相连",
+        source=_source("map_source", "map-1"),
+        selection_state="omitted",
+        omission_reason="超过预算后无可用条目预算",
+    )
+    build = build_scope_receipt(
+        CompiledContext(
+            sections=[_section("world_entities", [_source("world_entity", "a")])],
+            omitted_items=[omitted_map],
+        ),
+        _advisory_policy(),
+        _subject(),
+        novel_id="novel-1",
+    )
+
+    assert build.receipt.scope_complete is True
+    assert not build.receipt.omitted
+    assert [
+        (item.dimension, item.source_key, item.reason)
+        for item in build.receipt.advisory_omitted
+    ] == [
+        (
+            "map_spatial",
+            "map_source:map-1",
+            "超过预算后无可用条目预算",
+        )
+    ]
+    require_scope_complete(build)
+
+
+def test_author_excluded_advisory_dimension_is_recorded_without_blocking() -> None:
+    source = _source("map_source", "map-1")
+    build = build_scope_receipt(
+        CompiledContext(
+            sections=[
+                _section("world_entities", [_source("world_entity", "a")]),
+                _section("map_spatial", [source], excluded=True),
+            ]
+        ),
+        _advisory_policy(),
+        _subject(),
+        novel_id="novel-1",
+    )
+
+    assert build.receipt.scope_complete is True
+    assert not build.receipt.omitted
+    assert [entry.source_key for entry in build.receipt.excluded] == ["map_source:map-1"]
+    assert [
+        (item.dimension, item.source_key, item.reason)
+        for item in build.receipt.advisory_omitted
+    ] == [("map_spatial", "map_source:map-1", "作者显式排除参考资料")]
+    require_scope_complete(build)
+
+
+def test_advisory_omission_does_not_hide_required_omission_for_shared_source() -> None:
+    shared = _source("world_entity", "shared")
+    build = build_scope_receipt(
+        CompiledContext(
+            sections=[_section("world_entities", [shared])],
+            omitted_items=[
+                ContextItem(
+                    key="map_spatial:shared",
+                    content="同一对象出现在地图参考中",
+                    source=shared,
+                    selection_state="omitted",
+                    omission_reason="超过 token 预算后按低优先级移除",
+                )
+            ],
+        ),
+        _advisory_policy(),
+        _subject(),
+        novel_id="novel-1",
+    )
+
+    assert build.receipt.scope_complete is True
+    assert not build.receipt.omitted
+    assert [
+        item.source_key
+        for item in build.receipt.advisory_omitted
+        if item.dimension == "map_spatial"
+    ] == ["world_entity:shared"]
+    require_scope_complete(build)
+
+
+def test_required_omission_still_blocks_when_policy_has_advisory_dimension() -> None:
+    omitted_world = ContextItem(
+        key="world_entities:entity-1",
+        content="世界事实",
+        source=_source("world_entity", "entity-1"),
+        selection_state="omitted",
+        omission_reason="超过预算后无可用条目预算",
+    )
+    build = build_scope_receipt(
+        CompiledContext(
+            sections=[_section("map_spatial", [_source("map_source", "map-1")])],
+            omitted_items=[omitted_world],
+        ),
+        _advisory_policy(),
+        _subject(),
+        novel_id="novel-1",
+    )
+
+    assert build.receipt.scope_complete is False
+    assert [entry.source_key for entry in build.receipt.omitted] == [
+        "world_entity:entity-1"
+    ]
     with pytest.raises(KnowledgeContractError, match="omission"):
         require_scope_complete(build)
 
