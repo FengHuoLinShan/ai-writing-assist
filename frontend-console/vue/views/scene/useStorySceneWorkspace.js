@@ -1015,8 +1015,10 @@ export function useStorySceneWorkspace({ projectId, selectedItem, selectedSceneI
   async function startSimulation(options = {}) {
     const targetScene = scene.value
     if (!targetScene?.id || simulationRunning.value) return false
-    const characterIds = options.rehearsal ? options.characterIds : characters.value.map((item) => item.id).filter((id) => id && !id.startsWith("character-"))
-    if (!characterIds?.length || (options.rehearsal && characterIds.length > 3)) {
+    const characterIds = options.rehearsal
+      ? (options.characterIds || []).filter((id) => id && !id.startsWith("character-"))
+      : characters.value.map((item) => item.id).filter((id) => id && !id.startsWith("character-"))
+    if (!characterIds?.length) {
       loadError.value = "先在场景管理关联人物或建立人物卡，再开始一键推演"
       toast(loadError.value, "warning")
       return false
@@ -1060,7 +1062,7 @@ export function useStorySceneWorkspace({ projectId, selectedItem, selectedSceneI
         operation_id: submission.operationId,
         submit_authorized: !options.rehearsal,
         use_round_candidates: !options.rehearsal,
-        ...(options.rehearsal ? { simulation_protocol: options.protocol || "rehearsal_v1", ...(options.seed ? { simulation_seed: options.seed } : {}), rehearsal_rounds: options.rounds || 2,
+        ...(options.rehearsal ? { simulation_protocol: "simulation_v3", simulation_seed: options.seed, rehearsal_rounds: 1,
           ...(options.parentId ? { parent_rehearsal_id: options.parentId, fork_round: options.forkRound, parent_round_hash: options.parentHash } : {}) } : {}),
         additional_notes: additionalNotes(),
         accepted_reactions: acceptedReactionPayload(simulation.value),

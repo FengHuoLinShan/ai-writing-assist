@@ -161,9 +161,14 @@ Story 生成预览与 Imports Phase 1c/3 均保留组级回执。P20/总纲采�
 ## 有限排演与分叉
 
 ADR-0027 增加 `story_simulation_runs` / `story_simulation_steps` 两张领域历史表，复用原
-one-click task。人物独立意图 → 环境结果 → 按观察者投影 → 下一回合，最终剧本仍是候选。
-回放复用不可变完成回合；分叉绑定准确父回合 hash 和来源，来源变化拒绝继续。Scene 工作台
-可选人物、回合和观察视角，并从完成回合另试发展；默认关闭，不改变旧卡片/剧本采用流。
+one-click task。Story 新建排演使用 `simulation_v3`，共用类型化身份、人物意图、有限结算、
+`StateDelta`、`ResolutionBatch` 与确定性回放；协议层没有参与者、地点、受众或回合数上限。
+旧 `rehearsal_v1` / `observation_v2` 运行保持只读、按原协议展示，不迁移、不跨协议分叉；
+`observation_v2` 可用原差量校验回放，`rehearsal_v1` 只有历史事件视图。
+Interaction 的 `team_v1` 与 `observation_v2` 仍按原入口策略执行，`max_actors` 不变。通用 OneClick
+的旧目录请求继续走 `legacy`；未来目录接入 v3 时需显式版本/路由，不得默默重解释冻结运行。
+现有 Scene 排演入口现提交单回合 v3；连续推进须待共享根预算与再次授权入口，归入后续 C4b。
+Scene 工作台的导演模式、素材组合和作者介入属于后续 C4b，当前协议基础不代表导演功能已完成。
 排演的人物意图、环境裁决与剧本生成均使用项目账户连接；本机 CLI 按
 [ADR-0029](../adr/0029-local-cli-image-only.md) 只用于图片生成。共享 Story 输入入口在 Context 重物化与账户客户端恢复前拒绝带
 `_local_agent` 或 `agent_llm_execution_snapshot` 的遗留任务，包含同时保留有效账户快照的
@@ -172,9 +177,9 @@ one-click task。人物独立意图 → 环境结果 → 按观察者投影 → 
 ## 创作试验的结构与观察边界
 
 Story 为 Collaboration 提供 Scene、伏笔/揭示安排的冻结可编辑字段与原领域操作 port。
-试改独立保存，采用仍验证当前结构版本。`observations.py` 区分输入刺激、私有意图、
-可观察事件和可重放的 ResolutionBatch；说法不是事实，未知资源或唯一资源冲突不宣告成功。
-`observation_v2` 不重新解释旧 rehearsal_v1。读者推测与作者安排分开，派生前瞻不是新信息计划。
+试改独立保存，采用仍验证当前结构版本。`observations.py` 保留 RP `observation_v2` 的输入刺激与观察语义；
+`simulation_v3.py` 提供 Story 共用意图、有限结算、差量和回放。说法不是事实，未知资源、路线或唯一资源冲突不宣告成功。
+读者推测与作者安排分开，派生前瞻不是新信息计划。
 
 ## 地图消费者与派生流生命周期
 

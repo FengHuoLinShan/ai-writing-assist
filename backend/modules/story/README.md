@@ -238,19 +238,26 @@ P20、人物卡/反应/剧本预览、总纲与 Scene fusion 在输出后复核�
 
 ## 有限排演（ADR-0027）
 
-`simulation_protocol=rehearsal_v1` 仍使用原 one-click task 与 confirmation，最多三人、每次一至三轮。
-人物分别读取自己的 Evidence 包和上一轮观察；环境只裁决动作结果，服务器投影公开/私下/耳语事件。
-`story_simulation_runs`、`story_simulation_steps` 保存来源、完成回合与分叉，回放不重新生成。
-回合不可变；分叉校验原回合 hash 与当前来源，不修改父排演。叙述只消费已裁决事件，仍是待审预览。
-旧 one-click 默认不消费本轮候选；新客户端显式使用 `simulation_candidates`，不冒充 `accepted_reactions`。
-启用见 development-guide；工程验证与模型自然性验收分别记录。
+Story 新建的排演使用 `simulation_v3`。通用 `/tasks/one-click` 默认仍是 `legacy`，
+以保留现有操作目录的请求与幂等键；新排演需显式走 Scene rehearsal 入口和 v3。
+该入口拒绝新建旧协议，旧排演只读。当前一次提交一回合；连续推进待共享根预算与再次授权接线。
+协议在 Story 共用 `SimulationReference`、
+`SimulationIntent`、有限结算、`StateDelta`、`ResolutionBatch` 与 `replay_batch`；
+现有对象和地图节点用各自 ID，候选和文字标签保持独立命名空间。协议模型不限制参与者、
+位置、目的地、受众或回合数量。每轮仍是待审候选；意图不等于成功。
+
+`story_simulation_runs` / `story_simulation_steps` 保存协议、来源、完成回合与分支；回放只重放已存差量，
+不重新调用模型。Story 不再新建或续跑 `rehearsal_v1` / `observation_v2`，旧记录按原协议只读，
+不跨协议重解释或分叉。Interaction 的 `team_v1` 与 `observation_v2` 入口继续使用原适配，
+其 `max_actors` 继续由 Interaction 入口策略控制。v1–v7 冻结目录后续如接新排演，必须显式版本化协议和路由，
+不能按新默认重解释旧运行。启用见 development-guide；工程验证与模型自然性验收分别记录。
 
 ## 创作试验的结构与观察边界
 
 Story 为 Collaboration 提供 Scene、伏笔/揭示安排的冻结可编辑字段与原领域操作 port。
-试改独立保存，采用仍验证当前结构版本。`observations.py` 区分输入刺激、私有意图、
-可观察事件和可重放的 ResolutionBatch；说法不是事实，未知资源或唯一资源冲突不宣告成功。
-`observation_v2` 不重新解释旧 rehearsal_v1。读者推测与作者安排分开，派生前瞻不是新信息计划。
+试改独立保存，采用仍验证当前结构版本。`observations.py` 保留 RP `observation_v2` 的输入刺激、私有意图和可观察事件语义；
+`simulation_v3.py` 承载共享意图、有限结算、差量和回放算法。说法不是事实，未知资源、路线或唯一资源冲突
+不宣告成功。旧 `rehearsal_v1` / `observation_v2` 记录按原协议只读，不迁移。
 
 ### DS Flash 档位调优（2026-09-21）
 
@@ -299,7 +306,14 @@ _cleanable 边界）。
 
 ## 只读条件比较与历史来源
 
-`facade.compare_scene_state_trial` 复用同 Scene 状态与角色知识，通过 `ResolutionBatch/replay_batch` 在内存比较保管转交和三条件锁。原状态/有限假设逐条件返回当前值、所需值、来源及未知；不把自然语言或缺证据行动视作成功，不授予口令知识、不改 owner，不写事件或正文。Grant 必须携比较 digest，执行与采用重验；接口和范围见 [M5 契约](../../../docs/plans/2026-10-07-m5-trial-change-comparison-contract.md)。
+`facade.compare_scene_state_trial` 通过 `simulation_v3` 的 state-trial mode 与共享 `ResolutionBatch/replay_batch`
+在内存比较保管转交和三条件锁。HTTP 接口、三值裁决、来源归因、owner 与零事件写入保持；
+`resolution.protocol` 与比较 digest 随意图/batch schema 迁至 `simulation_v3`，方法指纹从
+`scene-key-lock-v1` 升为 `scene-key-lock-v2:simulation_v3`（
+`e324598864c4b73c79a6abd5794a3f7ac183d0480f6ecf05fd5a3ad9ecdc764e` →
+`c12dae97d3cfd40e8095e9fbafa1592ece96acb412f595f0c6a470ac73cea5b3`），旧 digest 不可复用。原状态/有限假设逐条件返回
+当前值、所需值、来源及未知；不把自然语言或缺证据行动视作成功，不授予口令知识、不改 owner，不写事件或正文。
+Grant 必须携比较 digest，执行与采用重验；接口和范围见 [M5 契约](../../../docs/plans/2026-10-07-m5-trial-change-comparison-contract.md)。
 
 历史来源经同项目 `scene-checkpoints/{id}` 与 `events/by-id` 显式回读，不能替代 current 投影。POV 知识来自本场 Story character 视图；受限事实需 knowledge 值匹配，不能用当前 World 状态、误信或关系提及补齐。
 

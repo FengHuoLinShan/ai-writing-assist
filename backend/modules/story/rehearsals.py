@@ -52,21 +52,19 @@ async def run_rehearsal(
     db, task, data, *, client, authority, scene_context, character_reveals
 ):
     from modules.story.facade import get_scene_story_context
-    from modules.story.observations import seeded_state
+    from modules.story.simulation_v3 import SimulationReference, SimulationV3Context
 
+    if data.simulation_protocol != "simulation_v3":
+        raise ConflictError("旧协议排演只读；Story 不再新建或续跑旧协议")
+    if data.rehearsal_rounds != 1:
+        raise ConflictError("当前一次只提交一回合；连续推进需新的预算与授权入口")
     novel_id, run_id = data.novel_id, str(task.id)
     source_hash = content_hash(
         {
-            **(
-                {
-                    "protocol": data.simulation_protocol,
-                    "seed": data.simulation_seed.model_dump(mode="json")
-                    if data.simulation_seed
-                    else None,
-                }
-                if data.simulation_protocol == "observation_v2"
-                else {}
-            ),
+            "protocol": data.simulation_protocol,
+            "seed": data.simulation_seed.model_dump(mode="json")
+            if data.simulation_seed
+            else None,
             "scene": scene_context["context_hash"],
             "characters": {
                 key: value["hash"] for key, value in character_reveals.items()
@@ -89,6 +87,8 @@ async def run_rehearsal(
         await db.flush()
         if data.parent_rehearsal_id:
             parent = await _run(db, novel_id, str(data.parent_rehearsal_id))
+            if parent.request_json.get("simulation_protocol") != data.simulation_protocol:
+                raise ConflictError("旧协议历史只读；不能跨协议重解释或分叉")
             prefix = [
                 step
                 for step in await _steps(db, novel_id, str(parent.id))
@@ -131,11 +131,17 @@ async def run_rehearsal(
         character.character_id: character.name for character in characters.characters
     }
     steps = await _steps(db, novel_id, run_id)
-    state = (
-        deepcopy(steps[-1].state_json)
-        if steps
-        else seeded_state(data.simulation_seed, packets)
-    )
+    if steps:
+        state = deepcopy(steps[-1].state_json)
+    else:
+        context = data.simulation_seed or SimulationV3Context(
+            participants=[
+                SimulationReference(kind="object", id=actor) for actor in packets
+            ]
+        )
+        if not isinstance(context, SimulationV3Context):
+            raise ConflictError("simulation_v3 requires typed simulation references")
+        state = context.initial_state()
     pending = dict(row.request_json.get("pending_round") or {})
     lock = asyncio.Lock()
 
@@ -209,7 +215,7 @@ async def run_rehearsal(
                 "intents": result["intents"],
                 "resolution_batch": result["resolution_batch"],
             }
-            if data.simulation_protocol == "observation_v2"
+            if data.simulation_protocol in {"observation_v2", "simulation_v3"}
             else result["intents"],
             events_json=result["events"],
             state_json=result["state"],
@@ -302,16 +308,31 @@ async def replay_rehearsal(db, novel_id, run_id):
         replay_batch,
         seeded_state,
     )
+    from modules.story.simulation_v3 import SimulationReference, SimulationV3Context
 
     row = await _run(db, novel_id, run_id)
-    if row.request_json.get("simulation_protocol") != "observation_v2":
+    protocol = row.request_json.get("simulation_protocol")
+    if protocol not in {"observation_v2", "simulation_v3"}:
         raise ConflictError("这份旧排演没有可重放的状态差量，仍可查看原回合")
-    state = seeded_state(
-        SimulationSeed.model_validate(row.request_json["simulation_seed"])
-        if row.request_json.get("simulation_seed")
-        else None,
-        row.request_json["character_ids"],
-    )
+    if protocol == "observation_v2":
+        state = seeded_state(
+            SimulationSeed.model_validate(row.request_json["simulation_seed"])
+            if row.request_json.get("simulation_seed")
+            else None,
+            row.request_json["character_ids"],
+        )
+    else:
+        context = (
+            SimulationV3Context.model_validate(row.request_json["simulation_seed"])
+            if row.request_json.get("simulation_seed")
+            else SimulationV3Context(
+                participants=[
+                    SimulationReference(kind="object", id=actor)
+                    for actor in row.request_json["character_ids"]
+                ]
+            )
+        )
+        state = context.initial_state()
     rounds = []
     for step in await _steps(db, novel_id, run_id):
         batch = ResolutionBatch.model_validate(step.intents_json["resolution_batch"])

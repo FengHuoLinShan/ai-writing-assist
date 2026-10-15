@@ -295,6 +295,10 @@ class StoryCardTaskRequest(StorySchema):
 
 
 from modules.story.observations import SimulationSeed  # noqa: E402
+from modules.story.simulation_v3 import (  # noqa: E402
+    SimulationReference,
+    SimulationV3Context,
+)
 
 
 class StoryOneClickTaskRequest(StorySchema):
@@ -302,7 +306,7 @@ class StoryOneClickTaskRequest(StorySchema):
 
     novel_id: str
     scene_id: str
-    character_ids: list[str] = Field(default_factory=list, max_length=24)
+    character_ids: list[str] = Field(default_factory=list)
     context_confirmation_id: str = Field(min_length=1, max_length=128)
     operation_id: uuid.UUID | None = None
     additional_notes: Annotated[
@@ -314,25 +318,58 @@ class StoryOneClickTaskRequest(StorySchema):
     accepted_beats: list[ScriptBeat] = Field(default_factory=list, max_length=100)
     submit_authorized: bool = False
     use_round_candidates: bool = False
-    simulation_protocol: Literal["legacy", "rehearsal_v1", "observation_v2"] = "legacy"
-    simulation_seed: SimulationSeed | None = None
-    rehearsal_rounds: int = Field(default=2, ge=1, le=3)
+    simulation_protocol: Literal[
+        "legacy", "rehearsal_v1", "observation_v2", "simulation_v3"
+    ] = "legacy"
+    simulation_seed: SimulationSeed | SimulationV3Context | None = None
+    rehearsal_rounds: int = Field(default=2, ge=1)
     narrator_character_id: uuid.UUID | None = None
     parent_rehearsal_id: uuid.UUID | None = None
-    fork_round: int = Field(default=0, ge=0, le=100)
+    fork_round: int = Field(default=0, ge=0)
     parent_round_hash: str | None = Field(default=None, pattern=r"^[a-f0-9]{64}$")
 
     @model_validator(mode="after")
     def bounded_rehearsal(self):
-        if self.simulation_seed and self.simulation_protocol != "observation_v2":
+        if self.simulation_protocol == "simulation_v3":
+            if "rehearsal_rounds" not in self.model_fields_set:
+                self.rehearsal_rounds = 1
+            if not self.character_ids:
+                raise ValueError("simulation_v3 needs at least one selected actor")
+            if self.simulation_seed and not isinstance(
+                self.simulation_seed, SimulationV3Context
+            ):
+                raise ValueError("simulation_v3 requires typed simulation references")
+            if isinstance(self.simulation_seed, SimulationV3Context):
+                selected = {
+                    SimulationReference(kind="object", id=value).state_key
+                    for value in self.character_ids
+                }
+                declared = {
+                    participant.state_key
+                    for participant in self.simulation_seed.participants
+                }
+                if declared != selected:
+                    raise ValueError(
+                        "simulation context participants must match selected actors"
+                    )
+            if (
+                self.narrator_character_id
+                and str(self.narrator_character_id) not in self.character_ids
+            ):
+                raise ValueError("叙述视角必须属于本轮人物")
+        elif self.simulation_seed and self.simulation_protocol != "observation_v2":
             raise ValueError("旧协议不能重新解释试验初始状态")
-        if self.simulation_seed:
+        if self.simulation_seed and self.simulation_protocol == "observation_v2":
             from modules.story.observations import seeded_state
 
+            if not isinstance(self.simulation_seed, SimulationSeed):
+                raise ValueError("observation_v2 requires its original simulation seed")
             seeded_state(self.simulation_seed, self.character_ids)
         if self.simulation_protocol in {"rehearsal_v1", "observation_v2"}:
             if not 1 <= len(self.character_ids) <= 3:
                 raise ValueError("排演每轮需要一至三名人物")
+            if self.rehearsal_rounds > 3 or self.fork_round > 100:
+                raise ValueError("旧协议保持原有轮次限制")
             if (
                 self.narrator_character_id
                 and str(self.narrator_character_id) not in self.character_ids
@@ -342,8 +379,15 @@ class StoryOneClickTaskRequest(StorySchema):
                 self.parent_rehearsal_id and self.fork_round < 1
             ):
                 raise ValueError("分叉需要原回合及准确来源版本")
+        elif self.simulation_protocol == "simulation_v3":
+            if bool(self.parent_rehearsal_id) != bool(self.parent_round_hash) or (
+                self.parent_rehearsal_id and self.fork_round < 1
+            ):
+                raise ValueError("分叉需要原回合及准确来源版本")
         elif self.parent_rehearsal_id:
             raise ValueError("旧推演不能携带排演分叉")
+        elif self.simulation_protocol == "legacy" and len(self.character_ids) > 24:
+            raise ValueError("普通一键操作最多选择二十四名人物")
         return self
 
     @field_validator("novel_id", "scene_id")

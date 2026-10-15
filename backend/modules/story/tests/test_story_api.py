@@ -6,7 +6,9 @@ from unittest.mock import patch
 
 import pytest
 from httpx import AsyncClient
+from pydantic import ValidationError
 
+from modules.story.models import StorySimulationRun
 from modules.story.schemas import StoryOneClickTaskRequest, StoryTaskResponse
 
 
@@ -106,7 +108,7 @@ async def test_story_scene_alias_rejects_path_body_mismatch(
 
 
 @pytest.mark.asyncio
-async def test_rehearsal_submission_stays_on_the_project_connection(
+async def test_legacy_one_click_keeps_the_frozen_operation_request_shape(
     db_session, test_project_id, monkeypatch
 ):
     from modules.story import api
@@ -131,8 +133,7 @@ async def test_rehearsal_submission_stays_on_the_project_connection(
         scene_id=str(uuid.uuid4()),
         character_ids=[str(uuid.uuid4())],
         context_confirmation_id="synthetic",
-        simulation_protocol="rehearsal_v1",
-        rehearsal_rounds=1,
+        simulation_protocol="legacy",
     )
     await api._enqueue_confirmed_task(
         db_session,
@@ -141,5 +142,182 @@ async def test_rehearsal_submission_stays_on_the_project_connection(
         task_type="story_one_click",
     )
     assert captured["llm_execution_snapshot"] == {"gateway": True}
+    assert "simulation_protocol" not in captured["request"]
+    assert "rehearsal_rounds" not in captured["request"]
+    assert "fork_round" not in captured["request"]
     assert not any(key.startswith("_local") for key in captured)
     assert "agent_llm_execution_snapshot" not in captured
+
+
+@pytest.mark.asyncio
+async def test_rehearsal_http_uses_simulation_v3_without_actor_cap(
+    async_client: AsyncClient,
+) -> None:
+    novel_id = await _create_project(async_client, "Story simulation v3")
+    scene_id = str(uuid.uuid4())
+    actor_ids = [str(uuid.uuid4()) for _ in range(5)]
+    with (
+        patch(
+            "core.config.get_settings",
+            autospec=True,
+            return_value=SimpleNamespace(story_rehearsal_enabled=True),
+        ),
+        patch(
+            "modules.story.api._enqueue_confirmed_task",
+            autospec=True,
+            return_value=StoryTaskResponse(task_id="v3-task", status="pending"),
+        ) as enqueue,
+    ):
+        response = await async_client.post(
+            f"/api/story/scenes/{scene_id}/rehearsals",
+            json={
+                "novel_id": novel_id,
+                "scene_id": scene_id,
+                "character_ids": actor_ids,
+                "context_confirmation_id": "v3-confirmation",
+                "simulation_protocol": "simulation_v3",
+                "rehearsal_rounds": 1,
+            },
+        )
+
+    assert response.status_code == 202
+    assert enqueue.await_args.args[1].simulation_protocol == "simulation_v3"
+    assert enqueue.await_args.args[1].rehearsal_rounds == 1
+
+
+@pytest.mark.asyncio
+async def test_rehearsal_http_rejects_multi_round_submission_without_budget_preview(
+    async_client: AsyncClient,
+) -> None:
+    novel_id = await _create_project(async_client, "Story v3 round budget")
+    scene_id = str(uuid.uuid4())
+    with patch(
+        "core.config.get_settings",
+        autospec=True,
+        return_value=SimpleNamespace(story_rehearsal_enabled=True),
+    ):
+        response = await async_client.post(
+            f"/api/story/scenes/{scene_id}/rehearsals",
+            json={
+                "novel_id": novel_id,
+                "scene_id": scene_id,
+                "character_ids": [str(uuid.uuid4())],
+                "context_confirmation_id": "v3-confirmation",
+                "simulation_protocol": "simulation_v3",
+                "rehearsal_rounds": 2,
+            },
+        )
+
+    assert response.status_code == 409
+    assert "当前一次只提交一回合" in response.json()["detail"]
+
+
+@pytest.mark.asyncio
+async def test_scene_rehearsal_route_returns_read_only_conflict_for_old_protocol(
+    async_client: AsyncClient,
+) -> None:
+    novel_id = await _create_project(async_client, "Story old rehearsal route")
+    scene_id = str(uuid.uuid4())
+    response = await async_client.post(
+        f"/api/story/scenes/{scene_id}/rehearsals",
+        json={
+            "novel_id": novel_id,
+            "scene_id": scene_id,
+            "character_ids": [str(uuid.uuid4())],
+            "context_confirmation_id": "old-confirmation",
+            "simulation_protocol": "observation_v2",
+            "rehearsal_rounds": 1,
+        },
+    )
+
+    assert response.status_code == 409
+    assert "旧协议排演只读" in response.json()["detail"]
+
+
+def test_one_click_catalog_default_stays_legacy_and_v3_round_default_is_versioned():
+    common = {
+        "novel_id": str(uuid.uuid4()),
+        "scene_id": str(uuid.uuid4()),
+        "character_ids": [str(uuid.uuid4())],
+        "context_confirmation_id": "catalog-confirmation",
+    }
+    catalog_request = StoryOneClickTaskRequest(**common)
+    assert catalog_request.simulation_protocol == "legacy"
+
+    v3_request = StoryOneClickTaskRequest(
+        **common,
+        simulation_protocol="simulation_v3",
+    )
+    assert v3_request.rehearsal_rounds == 1
+
+    for protocol in ("rehearsal_v1", "observation_v2"):
+        with pytest.raises(ValidationError, match="一至三名人物"):
+            StoryOneClickTaskRequest(
+                **{
+                    **common,
+                    "character_ids": [str(uuid.uuid4()) for _ in range(4)],
+                },
+                simulation_protocol=protocol,
+            )
+
+
+@pytest.mark.asyncio
+async def test_one_click_rejects_new_old_protocol_and_old_history_cannot_cross_fork(
+    async_client: AsyncClient,
+    db_session,
+    test_project_id: str,
+) -> None:
+    scene_id, actor_id, run_id = (uuid.uuid4() for _ in range(3))
+    old_run = StorySimulationRun(
+        id=run_id,
+        novel_id=uuid.UUID(test_project_id),
+        scene_id=scene_id,
+        parent_id=None,
+        fork_round=0,
+        source_hash="b" * 64,
+        request_json={
+            "novel_id": test_project_id,
+            "scene_id": str(scene_id),
+            "character_ids": [str(actor_id)],
+            "context_confirmation_id": "legacy-confirmation",
+            "simulation_protocol": "rehearsal_v1",
+            "rehearsal_rounds": 1,
+            "fork_round": 0,
+            "parent_rehearsal_id": None,
+            "parent_round_hash": None,
+        },
+        budget_json={},
+        result_json={"preview_only": True},
+    )
+    db_session.add(old_run)
+    await db_session.flush()
+
+    old_create = await async_client.post(
+        "/api/story/tasks/one-click",
+        json={
+            "novel_id": test_project_id,
+            "scene_id": str(scene_id),
+            "character_ids": [str(actor_id)],
+            "context_confirmation_id": "legacy-confirmation",
+            "simulation_protocol": "rehearsal_v1",
+            "rehearsal_rounds": 1,
+        },
+    )
+    assert old_create.status_code == 409
+
+    fork = await async_client.post(
+        f"/api/story/rehearsals/{run_id}/forks",
+        json={
+            "novel_id": test_project_id,
+            "scene_id": str(scene_id),
+            "character_ids": [str(actor_id)],
+            "context_confirmation_id": "v3-confirmation",
+            "simulation_protocol": "simulation_v3",
+            "rehearsal_rounds": 1,
+            "parent_rehearsal_id": str(run_id),
+            "fork_round": 1,
+            "parent_round_hash": "c" * 64,
+        },
+    )
+    assert fork.status_code == 409
+    assert "不能跨协议重解释" in fork.json()["detail"]
