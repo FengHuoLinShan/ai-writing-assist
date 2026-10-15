@@ -63,6 +63,18 @@ class AskWorldCalibrationScope:
         await self.db.rollback()
 
 
+@dataclass(frozen=True)
+class G7ReviewScope:
+    """G6d/G7b opt-in, independent of the consumed Ask World calibration."""
+
+    db: AsyncSession
+    novel_id: str
+    snapshot: dict
+
+    async def verify(self) -> None:
+        await AskWorldCalibrationScope(self.db, self.novel_id, self.snapshot).verify()
+
+
 def require_live_eval_calibration() -> NoReturn:
     """Reject new standalone model execution before any irreversible side effects."""
     raise CodexExecutionError(
@@ -105,7 +117,7 @@ class CodexStructuredExecutor:
         command: str = "codex",
         timeout_seconds: float = 300.0,
         attempts: int = 2,
-        calibration: AskWorldCalibrationScope | None = None,
+        calibration: AskWorldCalibrationScope | G7ReviewScope | None = None,
     ) -> None:
         model = model or os.environ.get("EVAL_CODEX_MODEL", EVAL_TEACHER_MODEL)
         if model not in allowed_models:
@@ -124,7 +136,7 @@ class CodexStructuredExecutor:
             raise ValueError("attempts must be positive")
         if calibration is not None and attempts != 1:
             raise ValueError(
-                "G6b calibration never automatically retries a model request"
+                "Evaluation calibration never automatically retries a model request"
             )
         self.model = model
         self.reasoning_effort = reasoning_effort
@@ -171,13 +183,18 @@ class CodexStructuredExecutor:
     ) -> StructuredResultT:
         if self.calibration is None:
             require_live_eval_calibration()
+        allowed_step = (
+            "eval.g7.source_field_review"
+            if isinstance(self.calibration, G7ReviewScope)
+            else "eval.ask_world.teacher_calibration"
+        )
         if (
             self.model != EVAL_TEACHER_MODEL
             or self.reasoning_effort != EVAL_TEACHER_REASONING_EFFORT
-            or step_name != "eval.ask_world.teacher_calibration"
+            or step_name != allowed_step
         ):
             raise CodexExecutionError(
-                "G6b only permits the pinned Ask World teacher step"
+                f"Evaluation scope only permits its pinned teacher step: {allowed_step}"
             )
         await self.calibration.verify()
         executable = shutil.which(self.command)

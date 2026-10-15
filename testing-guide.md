@@ -675,3 +675,15 @@ codex_luna_runtime_test）后运行 `python -m evals.codex_luna --output /privat
 100 个来源与协议案例通过真实账户/project facade，默认 2 并发；未完成/未知案例不自动重发。
 不额外统计用量或费用，仅保留产品原生回执及评测结果。结果原文、耗时和分数在仓库外；
 合成质量分数、离线工程验证、真实文学/作者验收分别报告，不互相替代。
+
+### G7 最终快照源化字段复核（G6d）
+
+`backend/evals/g7_review/` 提供 physical/JSON 覆盖清单、不可变快照/真实字段/来源区间绑定、
+结构化复核与引用校验。调用方显式传入新运行的 project manifest，并将 Scene-local
+`visible_until_*` 绑定为 `as_of`；通用校验器不替调用方证明该领域绑定。局部来源未提及只算材料不足，
+不能据此宣称抽取错误；presence 不等于 accuracy，0/false 非空。
+
+`G7ReviewScope` 仅放行 `eval.g7.source_field_review` 的 Sol/xhigh、attempts=1，每次重验同一已验证
+owner/Project Luna/max snapshot；与 Ask World 教师 scope 隔离，其余独立入口继续暂停。
+合成校准冻结与去原文回执见 `T-20261015-audit-wave3/G7-FREEZE.json`、`G7-CALIBRATION.json`，
+seeded 32/32、独立 debug 12/12，unknown=0。它不证明真实稿件质量，`human_validated=false`。
