@@ -116,11 +116,12 @@ async def test_confirmation_preflight_passes_only_server_stored_preview_to_prepa
 async def test_partial_retry_revalidates_own_world_write_postcondition(
     db_session, test_project_id, external_change
 ):
+    from app.assistant_operation_registry import world_operations
     from infrastructure.llm.agent_runtime import AgentRunBudget
     from modules.assistant.evidence_tools import AssistantToolContext
     from modules.evidence.facade import inspect_novel_target
     from modules.story.tests.test_story_service import _character
-    from modules.world.assistant_tools import OPERATIONS, EditEntity
+    from modules.world.assistant_tools import EditEntity
     from modules.world.schemas import CoreEntityUpdate
     from modules.world.services.core.entity_service import WorldEntityService
 
@@ -166,7 +167,7 @@ async def test_partial_retry_revalidates_own_world_write_postcondition(
     with container_scope(
         {
             "assistant.operations": {
-                **OPERATIONS,
+                **world_operations,
                 "test.todo": AssistantOperation("待办", Args, preview, apply),
             }
         }

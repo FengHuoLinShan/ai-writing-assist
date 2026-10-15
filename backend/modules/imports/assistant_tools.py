@@ -9,7 +9,6 @@ from pydantic import BaseModel, ConfigDict, Field, model_validator
 from sqlalchemy import select
 
 from core.errors import ConflictError, ValidationError
-from modules.assistant.contracts import AssistantOperation
 from modules.imports.facade import start_deep_import, start_deep_import_stage
 from modules.imports.models import ImportWorkflowRun
 from modules.imports.schemas import TargetedCompletionTarget
@@ -383,31 +382,37 @@ async def _apply_review_decision(db, novel_id, args, preview, *, context=None):
     }
 
 
-OPERATIONS = {
-    "imports.accept_review": AssistantOperation(
-        "采用明确选中的整理结果",
-        AcceptReviewGroup,
-        _review_decision_preview,
-        _apply_review_decision,
-    ),
-    "imports.resolve_review": AssistantOperation(
-        "查证并整理已有导入候选，只保留关键决定",
-        ResolveImportReview,
-        _resolution_preview,
-        _resolve_review,
-    ),
-    "imports.complete_targets": AssistantOperation(
-        "按原范围对指定对象专项查漏",
-        CompleteSelectedTargets,
-        _completion_preview,
-        _complete_targets,
-    ),
-    "imports.resume": AssistantOperation(
-        "继续原授权的整理流程", ResumeOrganization, _resume_preview, _resume
-    ),
-    "imports.organize": AssistantOperation(
-        "整理已有正文", OrganizeManuscript, _prepare, _apply
-    ),
+OPERATIONS_SPEC = {
+    "imports.accept_review": {
+        "label": "采用明确选中的整理结果",
+        "schema": AcceptReviewGroup,
+        "prepare": _review_decision_preview,
+        "apply": _apply_review_decision,
+    },
+    "imports.resolve_review": {
+        "label": "查证并整理已有导入候选，只保留关键决定",
+        "schema": ResolveImportReview,
+        "prepare": _resolution_preview,
+        "apply": _resolve_review,
+    },
+    "imports.complete_targets": {
+        "label": "按原范围对指定对象专项查漏",
+        "schema": CompleteSelectedTargets,
+        "prepare": _completion_preview,
+        "apply": _complete_targets,
+    },
+    "imports.resume": {
+        "label": "继续原授权的整理流程",
+        "schema": ResumeOrganization,
+        "prepare": _resume_preview,
+        "apply": _resume,
+    },
+    "imports.organize": {
+        "label": "整理已有正文",
+        "schema": OrganizeManuscript,
+        "prepare": _prepare,
+        "apply": _apply,
+    },
 }
 
 

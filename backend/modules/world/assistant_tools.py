@@ -13,7 +13,6 @@ from core.errors import ConflictError, ValidationError
 from core.service_keys import (
     ASSISTANT_REQUIRE_OPERATION_TARGETS,
 )
-from modules.assistant.contracts import AssistantOperation
 from modules.world.schemas import (
     CoreEntityCreate,
     CoreEntityUpdate,
@@ -312,23 +311,41 @@ async def _page_apply(db, novel_id, args, preview, *, context=None):
     }
 
 
-OPERATIONS = {
-    "world.add_alias": AssistantOperation(
-        "附加对象别名", AddAlias, _alias_preview, _alias_apply
-    ),
-    "world.add_relation": AssistantOperation(
-        "连接已有对象", AddRelation, _relation_preview, _relation_apply
-    ),
-    "world.adopt_package": AssistantOperation(
-        "采用已核对的世界资料方案", AdoptPackage, _package_preview, _package_apply
-    ),
-    "world.create_entity": AssistantOperation(
-        "创建世界对象", CreateEntity, _create_preview, _create_apply
-    ),
-    "world.edit_entity": AssistantOperation(
-        "修改世界对象", EditEntity, _edit_preview, _edit_apply
-    ),
-    "world.create_page_draft": AssistantOperation(
-        "保存世界资料工作稿", CreatePageDraft, _page_preview, _page_apply
-    ),
+OPERATIONS_SPEC = {
+    "world.add_alias": {
+        "label": "附加对象别名",
+        "schema": AddAlias,
+        "prepare": _alias_preview,
+        "apply": _alias_apply,
+    },
+    "world.add_relation": {
+        "label": "连接已有对象",
+        "schema": AddRelation,
+        "prepare": _relation_preview,
+        "apply": _relation_apply,
+    },
+    "world.adopt_package": {
+        "label": "采用已核对的世界资料方案",
+        "schema": AdoptPackage,
+        "prepare": _package_preview,
+        "apply": _package_apply,
+    },
+    "world.create_entity": {
+        "label": "创建世界对象",
+        "schema": CreateEntity,
+        "prepare": _create_preview,
+        "apply": _create_apply,
+    },
+    "world.edit_entity": {
+        "label": "修改世界对象",
+        "schema": EditEntity,
+        "prepare": _edit_preview,
+        "apply": _edit_apply,
+    },
+    "world.create_page_draft": {
+        "label": "保存世界资料工作稿",
+        "schema": CreatePageDraft,
+        "prepare": _page_preview,
+        "apply": _page_apply,
+    },
 }
