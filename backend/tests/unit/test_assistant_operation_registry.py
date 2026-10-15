@@ -478,13 +478,32 @@ OPERATION_SNAPSHOT.update(
 )
 
 
+A1_FIRST_WAVE_OPERATIONS = {
+    "world.entity.transition_type",
+    "world.entity.fuse",
+    "world.history.set_note",
+    "world.entity.restore_revision",
+    "story.scene.reorder",
+    "story.scene.merge",
+    "story.scene.split",
+    "writing.chapter.rename",
+    "writing.chapter.mark_editorial_ready",
+    "writing.comment.set_status",
+    "writing.conflict_check.create",
+    "evidence.project.search",
+    "evidence.source.read",
+    "evidence.knowledge.preview_scope",
+    "evolution.prepare_reading",
+}
+
+
 def test_bootstrap_operation_catalog_matches_snapshot():
     from app.bootstrap import register_container_services
     from core.container import get
 
     register_container_services()
     catalog = get("assistant.operations")
-    assert set(catalog) == set(OPERATION_SNAPSHOT)
+    assert set(catalog) == set(OPERATION_SNAPSHOT) | A1_FIRST_WAVE_OPERATIONS
     mismatches = {
         name: {
             "actual": (
@@ -496,6 +515,7 @@ def test_bootstrap_operation_catalog_matches_snapshot():
             "expected": OPERATION_SNAPSHOT[name],
         }
         for name, operation in catalog.items()
+        if name in OPERATION_SNAPSHOT
         if (
             operation.label,
             operation.permission,
@@ -537,7 +557,11 @@ def test_catalog_v2_metadata_and_trace_inventory_match_runtime_schemas():
     register_container_services()
     operations = get("assistant.operations")
     manifest = operation_manifest()
-    assert len(operations) == len(manifest) == 74
+    assert (
+        len(operations)
+        == len(manifest)
+        == len(OPERATION_SNAPSHOT) + len(A1_FIRST_WAVE_OPERATIONS)
+    )
     assert set(operations) == set(manifest)
     for op_id, operation in operations.items():
         frozen = manifest[op_id]
@@ -554,6 +578,21 @@ def test_catalog_v2_metadata_and_trace_inventory_match_runtime_schemas():
             "metadata",
             "schema",
         }
+
+
+def test_v8_additions_do_not_appear_in_a_frozen_v7_directory():
+    from app.bootstrap import register_container_services
+    from modules.assistant.operations import operation_manifest, resolve_operations
+
+    register_container_services()
+    frozen_v7 = {
+        name: value
+        for name, value in operation_manifest().items()
+        if name not in A1_FIRST_WAVE_OPERATIONS
+    }
+    resolved = resolve_operations(frozen_v7, allow_stale=True)
+    assert set(resolved) == set(OPERATION_SNAPSHOT)
+    assert not (set(resolved) & A1_FIRST_WAVE_OPERATIONS)
 
 
 def test_inline_operation_metadata_requires_an_explicit_schema_trace_policy():

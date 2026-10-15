@@ -1,6 +1,8 @@
 # A1 首批领域插件与路由接线
 
-本文只记录 A1 第一波插件、行为证据和 Sol 的组合接线入口；产品范围仍以操作入口计划、ADR-0038 与 `A1-A2-HANDOFF.md` 为准。A1/A2/A3/A4 仍是三份计划要求的完整实施范围。
+本文记录 A1 第一波插件及 Sol 组合接线。15 项已进入 Assistant v8 新运行目录，旧 v1–v7
+冻结清单不自动扩权；对应 HTTP 操作标签和窄入口已接通。产品范围仍以操作入口计划、ADR-0038
+与 `A1-A2-HANDOFF.md` 为准，后续 A1/A2/A3/A4 未因此完成。
 
 ## 本地插件
 
@@ -24,7 +26,26 @@
 | Evidence | `evidence.knowledge.preview_scope` | R0；经 Evidence inspection、owner、novel、排除与可见截止校验，仅预览。 |
 | Evolution | `evolution.prepare_reading` | 复用 `workflow.preview_reading` 覆盖 bootstrap/append/continue/revise/scoped_recompute；apply 只返回其授权预览，不启动任务或模型调用。 |
 
-仍复用而不重复注册：`story.edit_information_plan` 已能修改伏笔的 seed/reinforce/payoff 章节以及揭示阶段 `chapter_index`，覆盖伏笔/揭示**计划时间线**；`evolution.prepare_spatial_reading` 与 `evolution.prepare_spatial_rescan` 保持原入口。本批没有更改 App registry、`main.py`、bootstrap、service keys、Assistant 核心、HTTP route binding 表、Alembic 或任何既有 v1–v7 冻结清单/golden；这些新目录项须由 Sol 装配到下一冻结版本，旧快照仍应按现有规则 fail closed。
+仍复用而不重复注册：`story.edit_information_plan` 已能修改伏笔的 seed/reinforce/payoff 章节以及揭示阶段 `chapter_index`，覆盖伏笔/揭示**计划时间线**；`evolution.prepare_spatial_reading` 与 `evolution.prepare_spatial_rescan` 保持原入口。本批没有新增 Alembic 表或 service key；旧 v1–v7 快照与黄金指纹保留，新作者运行改为 v8。
+
+## 已完成组合接线
+
+- `app/assistant_operation_registry.py` 与 `app/bootstrap.py` 物化全部 15 项，总目录从 74 增至 89。
+  `modules/assistant/service.py` 新运行使用 v8 全 schema/metadata 快照；teams、恢复与读工具按 v8
+  传播，旧版本从各自冻结清单解析，新增项不进入旧运行。
+- 同语义的现有 World 融合/历史备注/恢复、Story 排序/合并、Writing 编辑准备/批注、Evolution
+  阅读预览路由标注操作 ID 与逐字段留痕映射。Evolution 路由只记 `previewed`，不会产生作者
+  已授权启动的假事件；融合/合并的 `confirmed=false` 不记成作者已确认。
+- `modules/assistant/operation_http.py` 增加类型迁移、Scene 窄拆分、章节改名、当前草稿冲突检查的
+  作者预览与相同指纹确认入口，并加 Evidence 的三个 R0 窄读入口。宽体对象编辑、正文
+  checkpoint、任意正文冲突检查和 Evidence 原宽路由不冒充窄操作。R0 不走 apply。
+- `app/main.py` 的 HTTP 留痕从明确映射的 Pydantic 字段提取摘要；不会将 body 中的正文、
+  owner、visibility、原始 Request 或未声明字段原值写入 trace。新入口受当前 owner/未回收
+  项目预门禁，最终 commit 成功才留下同事务 `executed`。新路由逐项登记，没有扩大旧未绑定
+  路由 baseline。
+- 原 confirmation 仅选定对象/草稿的部分字段或来源范围时，`evidence.knowledge.preview_scope`
+  拒绝整目标投影，防止 selected 资产 ID 被当作所有内容的授权；精确 `evidence.source.read`
+  仍按所选范围、excluded 和 omitted 逐项核对。无原确认的作者只读范围保持原样。
 
 Sol 接线时的代码组合点：
 
@@ -34,9 +55,10 @@ Sol 接线时的代码组合点：
 4. 当前 `/api/evidence/compilation/evidence/*` handler 的 body 参数名为 `request`，`backend/app/main.py::_trace_route_arguments` 会跳过 `request`，route argument map 不能覆盖这条跳过逻辑。Sol 接线时须为这些读取路由添加窄的 body-to-operation trace 提取，且只取目录 schema 的字段，绝不记录原始 request 或正文。
 5. v1–v7 冻结内容不能追加本批目录项。下一目录版本由 Sol 决定；需检查 `backend/modules/assistant/operations.py` 的 `runtime_protocol/resolve_operations`、`backend/modules/assistant/service.py` 的新运行快照，以及目标运行 `teams/runner.py` / `teams/plans.py` 的版本分派。旧运行目录变化时继续 fail closed。
 
-## 路由接线清单
+## 原始路由建议与实际收口
 
-以下是现有 handler 与建议的 operation ID 映射，不表示本分支已经绑定 HTTP 路由。Sol 在 route binding 表和组合根装配后，还需用真实路由测试验证 handler 与 operation 共享领域服务/校验；不要将这些 operation 追加进旧版本冻结快照。
+下表保留插件提交时的原始映射建议。类型转换、Scene 拆分、章节改名、冲突检查和三条 Evidence
+读操作现在走上述新窄入口；表内旧宽路由仍保留原作者工作台用途，不作为这些新操作绑定。
 
 | 操作 | 现有路由 | 接线要求 |
 |---|---|---|
@@ -63,7 +85,7 @@ Evidence API handler 参数名为 `request`，而当前 HTTP trace 通用提取�
 
 - Writing 章节重排：当前没有能够安全重排章节、同步 Scene/来源索引并维持引用有效性的稳定领域服务。本批不直接改 `chapter_index` 或 ORM；需另一个领域切片，并在其服务、来源/Scene 关联、CAS 和回滚语义明确后接入。
 - 一般事实时间线编辑：现有 `GET /api/novels/{novel_id}/memories/events/{entity_id}/timeline` 只读；continuity 的已确认事件 facade 当前是内部入口，没有作者侧公开写路由/操作。本批仅复用伏笔/揭示**计划时间字段**，不把 Scene 排序当作事实时间线。
-- 上述路由绑定尚未提交；中心 registry/HTTP 标注与冻结版本由 Sol 负责。
+- 本文记录的是首批 15 项目录与 HTTP 接线，不包含未来 A1 章节重排或一般事实时间线服务。
 - A1 后续模块、A2 目标运行、A3 Interaction/Collaboration/地图与势力、A4 留痕报表均未由本提交完成。完整 A1 也不能仅凭本首批闭合项宣称完成。
 
 ## 离线行为验证

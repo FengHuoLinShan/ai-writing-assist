@@ -60,7 +60,7 @@ def _catalog_metadata(operation: AssistantOperation) -> dict:
 
 
 def operation_manifest(*, legacy: bool = False) -> dict:
-    """Return a v7 frozen directory or the exact pre-v7 two-field shape."""
+    """Return a v7+ frozen directory or the exact pre-v7 two-field shape."""
     result = {}
     for name, operation in catalog().items():
         entry = {
@@ -82,7 +82,7 @@ def operation_manifest(*, legacy: bool = False) -> dict:
 
 
 def runtime_protocol(payload: dict) -> dict:
-    if payload.get("runtime_version") in {"2", "3", "4", "5", "6", "7"}:
+    if payload.get("runtime_version") in {"2", "3", "4", "5", "6", "7", "8"}:
         return payload
     if payload.get("runtime_version") == "1":
         frozen = json.loads(Path(__file__).with_name("runtime_v1.json").read_text())
@@ -758,7 +758,7 @@ async def decide_batch(db, batch_id: str, decision: BatchDecision, owner_id: str
     available = (
         resolve_operations(
             runtime_protocol(run.request_json)["operations"],
-            allow_stale=run.request_json.get("runtime_version") == "7",
+            allow_stale=run.request_json.get("runtime_version") in {"7", "8"},
         )
         if run.request_json.get("runtime_version")
         else catalog()
@@ -799,7 +799,10 @@ async def decide_batch(db, batch_id: str, decision: BatchDecision, owner_id: str
     confirmation_meta = {"confirmation_preflight": True, "confirmed_previews": []}
     trace_status = {"incomplete_count": 0}
     operation_context = AssistantOperationContext(
-        str(run.id), owner_id, context.work, internal_meta=confirmation_meta,
+        str(run.id),
+        owner_id,
+        context.work,
+        internal_meta=confirmation_meta,
         trace_status=trace_status,
     )
     if run.request_json.get("forecast_parent"):
@@ -917,7 +920,11 @@ async def decide_batch(db, batch_id: str, decision: BatchDecision, owner_id: str
             operation = available[item["capability"]]
             if operation.transaction_mode == "multi_stage":
                 await _record_batch_event(
-                    db, run, item, operation, "outcome_unknown",
+                    db,
+                    run,
+                    item,
+                    operation,
+                    "outcome_unknown",
                     error_code="operation_apply_failed",
                 )
                 results.append(
@@ -946,7 +953,11 @@ async def decide_batch(db, batch_id: str, decision: BatchDecision, owner_id: str
             operation = available[item["capability"]]
             if operation.transaction_mode == "multi_stage":
                 await _record_batch_event(
-                    db, run, item, operation, "outcome_unknown",
+                    db,
+                    run,
+                    item,
+                    operation,
+                    "outcome_unknown",
                     error_code="operation_apply_failed",
                 )
                 results.append(
@@ -988,7 +999,11 @@ async def decide_batch(db, batch_id: str, decision: BatchDecision, owner_id: str
     batch.status = (
         "outcome_unknown"
         if outcome_unknown
-        else "partial" if failed else "completed" if selected else "declined"
+        else "partial"
+        if failed
+        else "completed"
+        if selected
+        else "declined"
     )
     run.status = "completed"
     if run.session_id:

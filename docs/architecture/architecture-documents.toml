@@ -57,7 +57,7 @@ kind = "business"
 source_roots = ["backend/modules/assistant"]
 design_docs = ["docs/modules/20_assistant.md"]
 code_docs = ["backend/modules/assistant/README.md"]
-api_prefixes = ["/api/assistant", "/api/assistant/unified-notices", "/flows", "/forecasts"]
+api_prefixes = ["/api/assistant", "/api/assistant/operation-http", "/api/assistant/unified-notices", "/flows", "/forecasts"]
 
 [[components]]
 name = "local_agent"

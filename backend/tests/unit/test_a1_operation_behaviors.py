@@ -571,6 +571,37 @@ def test_evidence_confirmation_source_read_requires_selected_and_non_omitted_ran
 
 
 @pytest.mark.asyncio
+async def test_evidence_scope_preview_cannot_expand_a_partial_confirmation(
+    db_session, monkeypatch
+):
+    from modules.evidence import assistant_read_operations as operations
+
+    novel_id = await _project(db_session)
+    inspected = []
+
+    async def full_target(*_args, **_kwargs):
+        inspected.append(True)
+        return {"visible": True, "item": {"content": "未选中的整段正文"}}
+
+    monkeypatch.setattr(operations, "inspect_novel_target", full_target)
+    args = operations.PreviewKnowledgeScope(
+        target={"target_type": "writing_draft", "target_id": str(uuid.uuid4())}
+    )
+    with pytest.raises(ConflictError, match="不能展开整个目标"):
+        await operations._preview_scope(
+            db_session,
+            novel_id,
+            args,
+            context=_context(
+                "writing",
+                context_confirmation_id=uuid.uuid4(),
+                context_confirmation_action="writing.generate",
+            ),
+        )
+    assert not inspected
+
+
+@pytest.mark.asyncio
 async def test_evolution_reading_operation_only_returns_its_own_authorization_preview(
     monkeypatch,
 ):

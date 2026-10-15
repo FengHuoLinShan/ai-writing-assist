@@ -124,7 +124,16 @@ async def post_writing_comment(db: DbSession, draft_id: UUID, data: WritingComme
     return await create_comment(db, draft_id, data)
 
 
-@router.patch("/comments/{comment_id}")
+@router.patch(
+    "/comments/{comment_id}",
+    openapi_extra={
+        "x-novelcraft-operation-id": "writing.comment.set_status",
+        "x-novelcraft-operation-trace-fields": {
+            "comment_id": "comment_id",
+            "status": "data.status",
+        },
+    },
+)
 async def patch_writing_comment(
     db: DbSession, comment_id: UUID, data: WritingCommentUpdate
 ):
@@ -662,7 +671,17 @@ async def get_draft(
     )
 
 
-@router.post("/drafts/{draft_id}/editorial-ready", response_model=WritingDraftResponse)
+@router.post(
+    "/drafts/{draft_id}/editorial-ready",
+    response_model=WritingDraftResponse,
+    openapi_extra={
+        "x-novelcraft-operation-id": "writing.chapter.mark_editorial_ready",
+        "x-novelcraft-operation-trace-fields": {
+            "draft_id": "draft_id",
+            "expected_content_hash": "data.expected_content_hash",
+        },
+    },
+)
 async def mark_editorial_ready(
     db: DbSession,
     draft_id: str,

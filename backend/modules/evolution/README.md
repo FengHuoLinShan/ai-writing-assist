@@ -6,6 +6,10 @@ V4 长期计划（`docs/plans/novelcraft-v4/plans/01-EVOLUTION.md`）的演化�
 与生产 LLM 采样接线。默认导入仍使用 deep_import；显式启用演化的项目由共享
 owner 门禁封锁旧写入，入口替代和真实质量验收仍独立推进。
 
+Assistant v8 的 `evolution.prepare_reading` 只复用 `workflow.preview_reading` 计算阅读范围和
+额度；HTTP 仅记录预览，不调用 `start_reading`、模型或 worker。作者仍须在 Evolution 工作台
+独立授权启动；原空间阅读与补扫准备入口保持原语义。
+
 项目偏好中的“逐场景理解 · 试用”经 `/api/evolution`（`api.py` / `workflow.py`）提供范围预览、明确确认、
 bootstrap/append 顺序执行和状态/恢复。已有场景前缀可复用；尚无场景的正文末尾通过
 Imports 纯规划/切分/提交原语准备边界，不创建旧 workflow owner。计划持久化于

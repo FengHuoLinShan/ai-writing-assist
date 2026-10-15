@@ -19,6 +19,10 @@ Story outline_state 子域负责把事实层资产组织成“可执行的剧情
 Scene stage 负责。旧 `candidate` 仅兼容读取，不再允许
 作为新 Scene 写入状态；`needs_review` 是注意原因，不是第二套生命周期。
 
+Assistant v8 首批登记 Scene 完整重排、合并与受限拆分：排序需覆盖当前作品全部有效 Scene，
+合并/拆分经作者 R3 确认且重验预览。窄拆分不接受任意 `draft_scenes`；伏笔/揭示操作只改
+计划章节，不写入已发生事实时间线。
+
 当前活跃对象：
 
 - `story_outline_heads` / `story_outline_revisions`：小说总纲当前指针与不可变版本

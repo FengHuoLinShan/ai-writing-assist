@@ -217,6 +217,10 @@ async def _read_source(db, novel_id, args, *, context=None):
 
 async def _preview_scope(db, novel_id, args, *, context=None):
     work = await _require_owned_author_project(db, novel_id, context)
+    if work.context_confirmation_id:
+        # A selected asset ID does not prove every field or source range of
+        # that asset was selected in the compiled confirmation.
+        raise ConflictError("原资料确认只允许精确回读已选来源，不能展开整个目标")
     target_ref = TargetRef.model_validate(args.target.model_dump())
     await get(ASSISTANT_REQUIRE_OPERATION_TARGETS)(
         db,

@@ -168,6 +168,11 @@ one-click task。Story 新建排演使用 `simulation_v3`，共用类型化身�
 公开演示不能读取或重放作者私有排演。
 旧 `rehearsal_v1` / `observation_v2` 运行保持只读、按原协议展示，不迁移、不跨协议分叉；
 `observation_v2` 可用原差量校验回放，`rehearsal_v1` 只有历史事件视图。
+
+Assistant v8 首批另注册 Scene 完整排序、合并及窄拆分操作；执行前重验当前作品的 Scene 集合、
+来源与影响预览，合并/拆分须作者 R3 确认。旧可带 `draft_scenes` 的宽拆分路由保持原作者工作台
+用途，不扩大为 AI 的窄操作。伏笔/揭示计划章节调整仍由原 `story.edit_information_plan` 承担，
+不是一般事实时间线编辑。
 Interaction 的 `team_v1` 与 `observation_v2` 仍按原入口策略执行，`max_actors` 不变。通用 OneClick
 的旧目录请求继续走 `legacy`；未来目录接入 v3 时需显式版本/路由，不得默默重解释冻结运行。
 现有 Scene 排演入口现提交单回合 v3；连续推进须待共享根预算与再次授权入口，归入后续 C4b。

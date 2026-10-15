@@ -13,6 +13,13 @@ evidence 是小说证据的唯一领域实现：indexing 子域负责 chunk、�
 预算、confirmation、snapshot、trace 与 hidden guard。原 RAG/Context 表名和持久化 task type
 保留兼容；canonical HTTP 已收敛到 `/api/evidence/{indexing,compilation}/*`，不再存在两套服务或写入路径。
 
+Assistant v8 的三个 A1 只读目录项复用 compilation facade；`/api/assistant/operation-http/evidence/*`
+是作者范围的窄入口，不接收自报 owner、visibility 或任意前后文窗口。助手运行若携带原资料确认，
+检索只返回原确认资料，来源回读须仍处于 selected 且未 excluded/omitted 的精确范围；当前 Scene
+截止继续由冻结 WorkContext 控制。
+仅凭目标 ID 命中原确认不足以展开整对象或整草稿：有原确认时目标范围预览拒绝整目标投影，
+作者可改用精确来源回读；无确认的正常作者检索仍按当前可见范围工作。
+
 当前有两条能力线：
 
 - `index_chapter_with_report()` / `retrieve()`：维护 chunk、embedding、索引新鲜度与混合召回

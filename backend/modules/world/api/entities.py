@@ -548,6 +548,11 @@ async def create_entity_fusion_suggestions(
 @router.post(
     "/entities/fusion-suggestions/apply",
     response_model=EntityFusionApplyResponse,
+    openapi_extra={
+        "x-novelcraft-operation-id": "world.entity.fuse",
+        "x-novelcraft-operation-confirmation-field": "data.confirmed",
+        "x-novelcraft-operation-trace-fields": {"suggestions": "data.suggestions"},
+    },
 )
 async def apply_entity_fusion_suggestions(
     db: DbSession,

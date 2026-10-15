@@ -231,15 +231,19 @@ from app.assistant_operation_registry import (
 )
 from app.notice_source_registry import notice_sources as _assistant_notice_sources
 from app.assistant_operation_registry import project_dedup_operations
+from app.assistant_operation_registry import evidence_read_operations
 from app.assistant_operation_registry import project_operations
 from app.assistant_operation_registry import story_information_operations
 from app.assistant_operation_registry import story_operations
 from app.assistant_operation_registry import story_planning_operations
+from app.assistant_operation_registry import story_scene_operations
 from app.assistant_operation_registry import story_structure_operations
 from app.assistant_operation_registry import writing_candidate_operations
+from app.assistant_operation_registry import writing_a1_operations
 from app.assistant_operation_registry import writing_generation_operations
 from app.assistant_operation_registry import writing_operations
 from app.assistant_operation_registry import world_opening_operations
+from app.assistant_operation_registry import world_author_operations
 from app.assistant_operation_registry import world_map_operations
 from app.assistant_operation_registry import world_cocreation_operations
 from app.assistant_operation_registry import world_outcome_operations
@@ -429,16 +433,20 @@ def _container_services() -> Iterable[tuple[ServiceKey[Any], Any]]:
                 **story_operations,
                 **story_structure_operations,
                 **story_planning_operations,
+                **story_scene_operations,
                 **world_opening_operations,
                 **imports_operations,
                 **evidence_forecast_operations,
+                **evidence_read_operations,
                 **world_map_operations,
                 **evolution_operations,
                 **assistant_spatial_advisory_operations,
                 **world_vocabulary_operations,
                 **world_review_operations,
+                **world_author_operations,
                 **assistant_notice_operations,
                 **world_dossier_operations,
+                **writing_a1_operations,
             },
         ),
         (ASSISTANT_OPERATION_TRACE, _record_operation_trace),

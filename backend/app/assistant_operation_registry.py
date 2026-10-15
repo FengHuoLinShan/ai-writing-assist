@@ -21,6 +21,7 @@ from modules.assistant.map_spatial_advisories import (
 from modules.assistant.notice_disposition_operations import (
     OPERATIONS_SPEC as _NOTICE_DISPOSITIONS,
 )
+from modules.evidence.assistant_read_operations import OPERATIONS_SPEC as _EVIDENCE_READ
 from modules.evidence.forecast import OPERATIONS_SPEC as _EVIDENCE_FORECAST
 from modules.evolution.assistant_tools import OPERATIONS_SPEC as _EVOLUTION
 from modules.imports.assistant_tools import OPERATIONS_SPEC as _IMPORTS
@@ -30,10 +31,12 @@ from modules.story.assistant_information_tools import (
     OPERATIONS_SPEC as _STORY_INFORMATION,
 )
 from modules.story.assistant_planning_tools import OPERATIONS_SPEC as _STORY_PLANNING
+from modules.story.assistant_scene_operations import OPERATIONS_SPEC as _STORY_SCENE
 from modules.story.assistant_structure_workflow import (
     OPERATIONS_SPEC as _STORY_STRUCTURE,
 )
 from modules.story.assistant_tools import OPERATIONS_SPEC as _STORY
+from modules.world.assistant_author_operations import OPERATIONS_SPEC as _WORLD_AUTHOR
 from modules.world.assistant_cocreation_tools import OPERATIONS_SPEC as _WORLD_COCREATION
 from modules.world.assistant_dossier_tools import OPERATIONS_SPEC as _WORLD_DOSSIER
 from modules.world.assistant_map_tools import OPERATIONS_SPEC as _WORLD_MAP
@@ -47,6 +50,7 @@ from modules.world.assistant_tools import OPERATIONS_SPEC as _WORLD
 from modules.world.assistant_vocabulary_tools import (
     OPERATIONS_SPEC as _WORLD_VOCABULARY,
 )
+from modules.writing.assistant_a1_operations import OPERATIONS_SPEC as _WRITING_A1
 from modules.writing.assistant_candidate_tools import (
     OPERATIONS_SPEC as _WRITING_CANDIDATE,
 )
@@ -341,14 +345,17 @@ project_operations = _materialize(_PROJECT)
 story_operations = _materialize(_STORY)
 story_structure_operations = _materialize(_STORY_STRUCTURE)
 story_planning_operations = _materialize(_STORY_PLANNING)
+story_scene_operations = _materialize(_STORY_SCENE)
 world_opening_operations = _materialize(_WORLD_OPENING)
 world_map_operations = _materialize(_WORLD_MAP)
 world_vocabulary_operations = _materialize(_WORLD_VOCABULARY)
 evidence_forecast_operations = _materialize(_EVIDENCE_FORECAST)
+evidence_read_operations = _materialize(_EVIDENCE_READ)
 
 evolution_operations = _materialize(_EVOLUTION)
 imports_operations = _materialize(_IMPORTS)
 world_operations = _materialize(_WORLD)
+world_author_operations = _materialize(_WORLD_AUTHOR)
 world_page_operations = _materialize(_WORLD_PAGE)
 world_outcome_operations = _materialize(_WORLD_OUTCOME)
 world_cocreation_operations = _materialize(_WORLD_COCREATION)
@@ -357,3 +364,4 @@ world_dossier_operations = _materialize(_WORLD_DOSSIER)
 
 assistant_spatial_advisory_operations = _materialize(_SPATIAL_ADVISORIES)
 assistant_notice_operations = _materialize(_NOTICE_DISPOSITIONS)
+writing_a1_operations = _materialize(_WRITING_A1)

@@ -258,6 +258,10 @@ Story 新建的排演使用 `simulation_v3`。通用 `/tasks/one-click` 默认�
 ## 创作试验的结构与观察边界
 
 Story 为 Collaboration 提供 Scene、伏笔/揭示安排的冻结可编辑字段与原领域操作 port。
+Assistant v8 首批 `story.scene.reorder/merge/split` 复用 Scene Workbench：完整 Scene 集合、
+来源和内容基线在准备与执行时重验；合并/拆分为 R3 作者确认。窄拆分 HTTP 入口只接受
+章节/正文偏移与新 Scene 标题/状态，不接受旧宽体 `draft_scenes`。已有
+`story.edit_information_plan` 仅编辑伏笔/揭示的计划章节字段，不等于任意事实时间线。
 试改独立保存，采用仍验证当前结构版本。`observations.py` 保留 RP `observation_v2` 的输入刺激、私有意图和可观察事件语义；
 `simulation_v3.py` 承载共享意图、有限结算、差量和回放算法。说法不是事实，未知资源、路线或唯一资源冲突
 不宣告成功。旧 `rehearsal_v1` / `observation_v2` 记录按原协议只读，不迁移。
