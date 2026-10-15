@@ -1199,3 +1199,60 @@ async def test_candidate_location_hash_never_grants_cross_project_adoption(
     assert response.status_code == 404, response.text
     await db_session.refresh(entity)
     assert entity.status == "candidate"
+
+
+@pytest.mark.asyncio
+async def test_assistant_space_rejection_cannot_reject_other_space_changes(
+    db_session, project_novel_id
+):
+    from app.assistant_operation_registry import world_map_operations
+    from modules.account.facade import current_account_id
+    from modules.assistant.contracts import AssistantOperationContext, WorkContext
+    from modules.world.assistant_map_tools import ReviewAutoDraftGroup
+    from modules.world.map_structure_geometry import geometry_hash
+    from modules.world.map_structure_schemas import MapDocument, MapSpace
+
+    scene, _start, _end, clue = await _stage_bound_clue(db_session, project_novel_id)
+    result = await build_map_auto_drafts(
+        db_session, project_novel_id, _build_request(scene, clue)
+    )
+    ref = result.revisions[0]
+    revision = await db_session.get(MapAtlasRevision, ref.revision_id)
+    document = MapDocument.model_validate(revision.document)
+    document.spaces.append(MapSpace(id="interior", label="室内"))
+    document.features.append(
+        document.features[0].model_copy(
+            update={"id": "inner-place", "space_id": "interior"}
+        )
+    )
+    revision.document = document.model_dump(mode="json")
+    revision.geometry_hash = geometry_hash(document)
+    await db_session.flush()
+    context = AssistantOperationContext(
+        str(uuid.uuid4()),
+        str(current_account_id()),
+        WorkContext(page="map", scope="project"),
+    )
+    operation = world_map_operations["map.review_auto_draft_group"]
+    with pytest.raises(ConflictError, match="还包含其他空间"):
+        await operation.prepare(
+            db_session,
+            project_novel_id,
+            ReviewAutoDraftGroup(
+                scope_kind="space", scope_id="interior", action="reject"
+            ),
+            context=context,
+        )
+    assert revision.status == "candidate"
+    whole = await operation.prepare(
+        db_session,
+        project_novel_id,
+        ReviewAutoDraftGroup(
+            scope_kind="hierarchy", scope_id=str(ref.node_id), action="reject"
+        ),
+        context=context,
+    )
+    from modules.world.map_structure_review import changed_items
+
+    assert whole["affected_count"] == len(changed_items(MapDocument(), document))
+    assert whole["affected_count"] > 2  # Whole rejection includes the other space.

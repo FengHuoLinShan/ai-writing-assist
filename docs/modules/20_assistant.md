@@ -91,7 +91,7 @@ v6 只读工具 `map_journey`、`map_object_position` 只从空间简报中的�
 给出答案；缺失、同名歧义返回 `unknown`。`map_spatial_advisories` 通过 World typed port 读取提醒，
 附版本和来源，给出 Writing 候选入口或地图结构修改预览两种路径。正文定向返修继续要求原审稿与
 资料确认，提醒本身不替代审稿。逐项静默是绑定当前提醒/修订指纹的 Assistant notice，引用前重验
-版本和来源，静默不改变 World 判断。所有地图参考消费仍受 `MAP_SPATIAL_ENABLED_CAPABILITIES`
+版本、来源以及原确认中选定的地图修订；新确认未选择该地图或确认后该修订被省略时，不能用旧提醒指纹恢复内容。没有实际核对的地图版本时返回 `unknown`，不显示无问题。静默不改变 World 判断。所有地图参考消费仍受 `MAP_SPATIAL_ENABLED_CAPABILITIES`
 控制，默认关闭，真实质量与作者验收尚未完成。
 
 ### 整理导入结果

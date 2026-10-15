@@ -33,6 +33,39 @@ def fingerprint(value: Any) -> str:
     return stable_hash(value)
 
 
+def fixed_reference_context(confirmed):
+    compiled = confirmed.compiled
+    map_section = next(
+        (section for section in compiled.sections if section.key == "map_spatial"),
+        None,
+    )
+    map_spatial = None
+    if map_section is not None:
+        map_spatial = {
+            "scene_id": (map_section.retrieval_metadata or {}).get("scene_id"),
+            "chapter_index": (map_section.retrieval_metadata or {}).get("chapter_index"),
+            "items": [
+                {
+                    **dict(item.source or {}),
+                    "node_id": (item.source or {}).get("node_id")
+                    or (item.source or {}).get("id"),
+                    "content": item.content,
+                }
+                for item in map_section.materialize_items().items
+                if item.selection_state not in {"excluded", "omitted"}
+            ],
+            "omitted_count": int(
+                (map_section.retrieval_metadata or {}).get("omitted_count") or 0
+            ),
+        }
+    return {
+        "title": "已确认的参考资料",
+        "text": evidence.render_compiled_context(compiled),
+        "confirmation_id": str(confirmed.confirmation.id),
+        "map_spatial": map_spatial,
+    }
+
+
 @dataclass
 class AssistantToolContext:
     db: Any
@@ -97,40 +130,7 @@ class AssistantToolContext:
                 action=self.work.context_confirmation_action,
                 confirmation_id=str(self.work.context_confirmation_id),
             )
-            compiled = confirmed.compiled
-            map_section = next(
-                (
-                    section
-                    for section in compiled.sections
-                    if section.key == "map_spatial"
-                ),
-                None,
-            )
-            map_spatial = None
-            if map_section is not None:
-                map_spatial = {
-                    "scene_id": (map_section.retrieval_metadata or {}).get("scene_id"),
-                    "chapter_index": (map_section.retrieval_metadata or {}).get(
-                        "chapter_index"
-                    ),
-                    "items": [
-                        {
-                            **dict(item.source or {}),
-                            "content": item.content,
-                        }
-                        for item in map_section.materialize_items().items
-                        if item.selection_state not in {"excluded", "omitted"}
-                    ],
-                    "omitted_count": int(
-                        (map_section.retrieval_metadata or {}).get("omitted_count") or 0
-                    ),
-                }
-            self.fixed_context = {
-                "title": "已确认的参考资料",
-                "text": evidence.render_compiled_context(compiled),
-                "confirmation_id": str(self.work.context_confirmation_id),
-                "map_spatial": map_spatial,
-            }
+            self.fixed_context = fixed_reference_context(confirmed)
         return project
 
     @property

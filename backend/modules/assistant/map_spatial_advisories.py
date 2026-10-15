@@ -10,11 +10,18 @@ from sqlalchemy.exc import SQLAlchemyError
 from core.config import get_settings
 from core.container import get
 from core.errors import ConflictError, DomainError
-from core.service_keys import WORLD_READ_MAP_SPATIAL_ADVISORIES
+from core.service_keys import (
+    ASSISTANT_REQUIRE_OPERATION_TARGETS,
+    WORLD_READ_MAP_SPATIAL_ADVISORIES,
+)
 from infrastructure.llm.workflow_budget import budgeted_tool
 from infrastructure.stable_hash import stable_hash
-from modules.assistant.evidence_tools import AssistantToolContext
+from modules.assistant.evidence_tools import (
+    AssistantToolContext,
+    fixed_reference_context,
+)
 from modules.assistant.models import AssistantNotice
+from modules.evidence.facade import prepare_confirmed_ai_action
 
 
 async def _read(db, novel_id, work):
@@ -37,6 +44,15 @@ def _identity(scene_id, item):
     return stable_hash({"scene_id": scene_id, "item": item})
 
 
+def _allowed_revisions(fixed_context):
+    if fixed_context is None:
+        return None
+    return {
+        (str(item.get("node_id") or item.get("id")), str(item.get("revision_id")))
+        for item in (fixed_context.get("map_spatial") or {}).get("items", [])
+    }
+
+
 @budgeted_tool
 async def map_spatial_advisories(ctx: RunContext[AssistantToolContext]) -> dict:
     """解释当前场景的空间提醒；给出正文候选、地图预览和逐项静默入口。"""
@@ -54,14 +70,7 @@ async def map_spatial_advisories(ctx: RunContext[AssistantToolContext]) -> dict:
         }
     if result is None:
         return {"status": "unknown", "items": [], "reason": "当前没有可核验的场景位置"}
-    if deps.fixed_context is not None:
-        fixed = deps.fixed_context.get("map_spatial") or {}
-        allowed = {
-            (str(item.get("node_id")), str(item.get("revision_id")))
-            for item in fixed.get("items", [])
-        }
-    else:
-        allowed = None
+    allowed = _allowed_revisions(deps.fixed_context)
     rows = [
         item
         for item in result.items
@@ -129,16 +138,20 @@ async def map_spatial_advisories(ctx: RunContext[AssistantToolContext]) -> dict:
             }
         )
     await deps.db.commit()
+    covered = [
+        entry.model_dump(mode="json")
+        for entry in result.map_revisions
+        if allowed is None or (str(entry.node_id), str(entry.revision_id)) in allowed
+    ]
+    unknowns = list(result.unknowns)
+    if not covered:
+        unknowns.append("本次确认没有可核对的地图版本，未判断空间是否一致。")
     return {
-        "status": "known" if items else "unknown" if result.unknowns else "clear",
+        "status": "known" if items else "unknown" if unknowns else "clear",
         "items": items,
-        "unknowns": result.unknowns,
+        "unknowns": unknowns,
         "omitted_count": result.omitted_count,
-        "map_revisions": [
-            entry.model_dump(mode="json")
-            for entry in result.map_revisions
-            if allowed is None or (str(entry.node_id), str(entry.revision_id)) in allowed
-        ],
+        "map_revisions": covered,
         "silenced_count": len(dismissed),
         "authority": "只作提醒，不拦截写作",
     }
@@ -152,12 +165,29 @@ class SilenceSpatialAdvisory(BaseModel):
 async def _silence_preview(db, novel_id, args, *, context=None):
     if context is None:
         raise ConflictError("静默提醒需要当前助手的场景范围")
+    allowed = None
+    if context.work.context_confirmation_id:
+        prepared = await prepare_confirmed_ai_action(
+            db,
+            novel_id=novel_id,
+            action=context.work.context_confirmation_action,
+            confirmation_id=str(context.work.context_confirmation_id),
+        )
+        allowed = _allowed_revisions(fixed_reference_context(prepared))
     result = await _read(db, novel_id, context.work)
     if result is None:
         raise ConflictError("当前没有可核验的空间提醒")
     for item in result.items:
         value = item.model_dump(mode="json")
         if _identity(result.scene_id, value) == args.fingerprint:
+            if (
+                allowed is not None
+                and (str(item.node_id), str(item.revision_id)) not in allowed
+            ):
+                raise ConflictError("该地图版本不在当前确认范围中，请重新选择资料")
+            await get(ASSISTANT_REQUIRE_OPERATION_TARGETS)(
+                db, novel_id, context, [("map_atlas_node", item.node_id)]
+            )
             return {
                 "target_key": "spatial-advisory:" + args.fingerprint,
                 "scene_id": result.scene_id,
