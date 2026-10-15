@@ -15,6 +15,7 @@ from infrastructure.tasks.facade import (
 )
 from modules.evolution.ledger_contracts import LEDGER_CATEGORY_LABELS
 from modules.evolution.models import EvolutionRun
+from modules.evolution.optional_steps import optional_step_enabled
 from modules.evolution.pipeline import SceneSourceBinding, load_current_source
 from modules.evolution.state_review import has_unreconciled_scene_calls
 from modules.evolution.store import PostgresAttemptStore
@@ -176,7 +177,11 @@ async def _plan(db, novel_id, request):
         "structure_version": previous.get("structure_version", 0) if run else 1,
         "discovery_version": previous.get("discovery_version", 0)
         if run
-        else ((2 if native else 1) if request.discover_details else 0),
+        else (
+            (2 if native else 1)
+            if optional_step_enabled(request, "details")
+            else 0
+        ),
         "request": request.model_dump(
             mode="json", exclude={"expected_fingerprint", "authorization_confirmed"}
         ),
@@ -382,7 +387,11 @@ async def _plan_recompute(db, novel_id, request, run, store):
         "enrichment_version": 1,
         "world_version": 3 if native else 2,
         "structure_version": 1,
-        "discovery_version": (2 if native else 1) if request.discover_details else 0,
+        "discovery_version": (
+            (2 if native else 1)
+            if optional_step_enabled(request, "details")
+            else 0
+        ),
         "request": request.model_dump(
             mode="json", exclude={"expected_fingerprint", "authorization_confirmed"}
         ),
