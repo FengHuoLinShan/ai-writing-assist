@@ -20,6 +20,7 @@ from pydantic import BaseModel, ConfigDict, Field, model_validator
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from infrastructure.llm.collaboration import content_hash
+from shared.observation import ObservationModality as ObservationModality
 
 EVOLUTION_CONTRACT_VERSION = 1
 """本契约层的稳定版本；解释内核或字段语义变化必须提升版本并保留旧版本读取。"""
@@ -117,15 +118,6 @@ class StoryPosition(BaseModel):
 # 观察
 # ---------------------------------------------------------------------------
 
-ObservationModality = Literal[
-    "event_observed",  # 叙述者视角观察到的事件
-    "character_statement",  # 角色陈述：说话内容不等于事实
-    "belief",  # 角色信念/误信
-    "hypothesis",  # 推测、待证
-    "author_plan",  # 作者规划、大纲层信息
-    "figurative",  # 比喻/非字面表达
-    "unclear",  # 无法判定
-]
 ObservationDisposition = Literal[
     "recorded",
     "deduplicated",
