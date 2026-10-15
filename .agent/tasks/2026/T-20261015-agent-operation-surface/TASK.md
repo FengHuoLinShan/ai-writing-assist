@@ -3,7 +3,7 @@ id: T-20261015-agent-operation-surface
 title: 全模块 AI 操作入口、目标运行与操作留痕设计
 status: active
 created: 2026-10-15T14:30:00+08:00
-updated: 2026-10-16T00:20:00+08:00
+updated: 2026-10-16T00:42:00+08:00
 ---
 
 # 全模块 AI 操作入口、目标运行与操作留痕设计
@@ -19,7 +19,7 @@ updated: 2026-10-16T00:20:00+08:00
 2026-10-15 技术评审后按推荐修订 ADR-0038：目录项事务形态、目标运行 `goal` 模式与每项目唯一索引、
 高频操作留痕合并或豁免。修订经用户授权在第三个本地提交 `20d6f1eff` 中提交，未推送。
 2026-10-15 用户采纳 ADR-0038（Accepted / 未实施）；ADR-0023 补充说明与索引同步。
-用户已明确三份计划全部实施，本任务执行A0–A4。primary32e63b630已集成A0回归Sol净修复，root原扩大套2178通过，原9fail消除且RuntimeWarning转error无失败；仍有一项既有Pydantic schema warning。C0b首聚合和Sol净fix78808780f/582955cd3尚未集成，root发现隐藏条数/排序可影响safe分页覆盖，交该Sol继续直接修分页前可见投影。backend C2 f6 WIP已接Sol初版净fix3c556dfd0/b5beb7131（35相邻测试通过），等最新安全补丁与已审primary组合后恢复Luna；不能提前宣称C0/C2完成。C3b+C2b前端原53aaec35c/a212d9faa在map-clue-review/codex/copilot-ui-integration-review由Sol直接审修，C4a新Luna/max在map-assistant-structure实施。A1–A4、C1/P4、C4b/C5、势力与RP真实门禁仍按原计划推进或保留条件。仅本地，无push/PR/main合并/部署。
+用户已明确三份计划全部实施，本任务执行A0–A4。primary4c04bb982已集成C0b全部安全审修及目录模板修订2；root扩大回归3030 passed/3 deselected/1既有Pydantic warning（70.35s），RuntimeWarning转error无失败。A0前扩大2178与当前6PG、C0最终2PG均另有root证据。C0b角色/公开分页前过滤、Story reader正向投影、demo拒绝已验证；C0完整Generic桥接及C2仍未完成。SolUI在map-clue-review组合审修，七独立来源真实PG HTTP1通过，继续浏览器联调。backend C2 f6安全恢复点5217f5310干净，等槽位恢复Luna。C4a与A1分别由Luna/max在map-assistant-structure、map-assistant-operations并行实施；A2/A3/A4、C4b/C5和外部真实/势力/RP条件门禁保留。
 
 ## 目标与验收
 
@@ -176,3 +176,23 @@ updated: 2026-10-16T00:20:00+08:00
   busy/reload、模板重读丢草稿和409二次GET晚响应，直接修复并对齐author_full作者管理请求。
 - C4a Luna已锁45项旧协议/HTTP状态试验基线，保留unresolved_outcomes的actor_id旧语义，
   正迁移协议与Story新建入口；RP保留v2。当前没有新真实模型或评测数据访问。
+
+
+## 2026-10-16T00:42:00+08:00 C0b集成及主树组合验证
+
+- C0b原/审修五笔在primary为5aef92090、04dfbe9b4、3fced27ae、9e44a2391、b9307c4df；
+  35937082b的安全reader回归已入20901345a。源PG2项在最终b930由root复验通过0.38s；
+  A0 6PG在32e复验通过0.61s。各测试仅专用工程DB，无默认开发库/评测库访问。
+- 初次扩大2fail/3014pass交Sol直接修29995771d，集成为4c04bb982：另一个Story run测试
+  fixture补session_id；template新增key令操作公开schema变化，明确revision/op_version=2，
+  旧v7修订1仍可describe但不能执行，不偷换旧schema。root修后3030pass/3deselect/1既有
+  Pydantic warning，70.35s，日志/tmp/map-c0b-primary-regression-fixed-20261016.log。
+- C0 Sol解8处组合冲突并保留backend f6全部人物卡/Reaction/optional loader，5b4623987有
+  60相邻测试与61/517通过；另由SolUI移299到该树为5217f5310，当前干净，尚待Luna续写。
+- 工程PG65202已由C0释放给SolUI，专用copilot_integration_review_test_20261016 head；
+  新真实7来源独立Session HTTP1测试通过（含来源失败隔离/read持久化/mute/demo零写入），
+  与C0组合及真实浏览器继续，UI尚未入primary。
+- C4a必要调用方范围追加SceneRehearsalPanel/useStorySceneWorkspace最小v3接线，默认一轮，
+  旧历史只读；Interaction ensemble.py仅显式锁rehearsal_v1以保留team_v1，不改RP策略/上限。
+  A1 Luna已快进primary4c后新增纯SPEC，没带待审UI栈，不与Sol共享写。
+- 没有新模型调用、R3重试、holdout读取、push、PR、main合并或部署。全部剩余授权工作继续。

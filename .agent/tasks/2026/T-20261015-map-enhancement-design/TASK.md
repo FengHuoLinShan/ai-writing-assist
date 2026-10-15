@@ -3,7 +3,7 @@ id: T-20261015-map-enhancement-design
 title: 地图系统增强设计与分批实施（自动冷启动、参与创作决策、题材鲁棒性）
 status: active
 created: 2026-10-15T10:54:00+08:00
-updated: 2026-10-16T00:20:00+08:00
+updated: 2026-10-16T00:42:00+08:00
 ---
 
 # 地图系统增强设计
@@ -13,14 +13,14 @@ updated: 2026-10-16T00:20:00+08:00
 - 当前授权：2026-10-15 用户 `/goal` 要求执行 `codex/map-enhancement-plan` 的计划；Luna/max 子代理并行实现，Sol/high 按批次 review 与修复。只做本地开发验证；没有发布、真实数据破坏或对外发送授权。用户16:43补充“修复由sol子代理直接修”：后续代码修复均由Sol/high子代理直接执行。用户曾要求“由你收尾”；其后明确答复范围为三份计划全部实施，包括操作目录、对象档案、导演、世界推进。root继续负责分批拆解、集成、验证、任务记录与实际隔离评测；已明确确认采用“模拟作者显式指定Scene地点后做辅助Writing对比”。
 - 主工作区：`/Users/tywww/项目/ai-writing-assist/.worktrees/map-enhancement-plan`，分支 `codex/map-enhancement-plan`。原 Desktop 路径已失效；仓库实际已迁至 `/Users/tywww/项目/ai-writing-assist`。
 - 恢复时基线：设计提交 `3fd5ca29e`；刚 fetch 的 `origin/main=00d861283` 已无冲突合并为 `b74d7c28d`（本地），包含 G8c 与第三批评测/HTTPX2 变更。开始时主工作区干净，其他 worktree/WIP 保留。
-- 当前里程碑：primary32e63b630已集成A0扩大回归Sol净fix6962d51c1；root安全DATABASE_URL/RuntimeWarning转error下2178 passed、1既有Pydantic warning（84.30s），原9fail已消除。C0b净fix788+582仍待分页前可见投影安全补丁，暂未集成；C3b/C2b由Sol在组合审查树直接修，C4a由新Luna/max实施。
-- 下一步：收C0b分页前公开/角色可见投影修复后集成；Sol再把已审primary合入backend C2 f6 WIP，解冲突并恢复Luna C2/Generic闭环。Sol UI继续C3b+C2b真实装配/异步草稿修复；C4a协议随后审修，A1/A2和C4b/C5接续。R3封存不重试、holdout不读取。
+- 当前里程碑：primary4c04bb982已集成C0b全部安全审修及目录模板修订2；root扩大回归3030 passed/3 deselected/1既有Pydantic warning（70.35s），RuntimeWarning转error无失败。A0前扩大2178与当前6PG、C0最终2PG均另有root证据。C0b角色/公开分页前过滤、Story reader正向投影、demo拒绝已验证；C0完整Generic桥接及C2仍未完成。SolUI在map-clue-review组合审修，七独立来源真实PG HTTP1通过，继续浏览器联调。backend C2 f6安全恢复点5217f5310干净，等槽位恢复Luna。C4a与A1分别由Luna/max在map-assistant-structure、map-assistant-operations并行实施；A2/A3/A4、C4b/C5和外部真实/势力/RP条件门禁保留。
+- 下一步：收SolUI真实PG/浏览器组合审修后集成C3b+C2b；恢复Luna backend C2/Generic，再按批次审修C4a/A1并推进A2、C4b/C5。C4a补现有Scene排演UI必要调用方，不允许只留下旧协议409；RP旧team_v1/v2仍独立门禁。R3封存、holdout不读。
 - 范围：用户已明确“该分支三份计划全部实施，包括操作目录、对象档案、导演和世界推进”。执行地图M0–M5及两个配套完整计划；既有计划的条件依赖和真实质量门禁仍有效，不能冒称完成。
 - 依赖：M5 依赖独立势力路线图阶段 1，现有计划明确阶段 1 前不提供领地图层；不得读取旧无时效势力字段冒充完成。
 - 已落地共享前置：`6fcce3bfd` 把7种ObservationModality上移shared并保持Evolution兼容再出口（16测）；`16f64570a` 在既有Story scene-source port提供按当前顺序的锚点/替换链只读数据（5测）。两者ruff通过，后续纳入Sol审查。
 - 验证环境：主树独立backend/.venv（Python3.14.8、locked ci）及frontend node_modules；本任务专用PostgreSQL容器 `map-enhancement-test-20261015`、loopback65202、数据库 `map_enhancement_test`，基线完整Alembic升级已通过，未接触真实库。
 - 验证：实现前 `make docs-check` 已通过（152 ORM表、49ADR）；没有真实模型/真实稿件验证。
-- 最后核实：2026-10-16T00:20:00+08:00
+- 最后核实：2026-10-16T00:42:00+08:00
 
 ## 批次与分工
 
@@ -440,3 +440,23 @@ updated: 2026-10-16T00:20:00+08:00
   busy/reload、模板重读丢草稿和409二次GET晚响应，直接修复并对齐author_full作者管理请求。
 - C4a Luna已锁45项旧协议/HTTP状态试验基线，保留unresolved_outcomes的actor_id旧语义，
   正迁移协议与Story新建入口；RP保留v2。当前没有新真实模型或评测数据访问。
+
+
+## 2026-10-16T00:42:00+08:00 C0b集成及主树组合验证
+
+- C0b原/审修五笔在primary为5aef92090、04dfbe9b4、3fced27ae、9e44a2391、b9307c4df；
+  35937082b的安全reader回归已入20901345a。源PG2项在最终b930由root复验通过0.38s；
+  A0 6PG在32e复验通过0.61s。各测试仅专用工程DB，无默认开发库/评测库访问。
+- 初次扩大2fail/3014pass交Sol直接修29995771d，集成为4c04bb982：另一个Story run测试
+  fixture补session_id；template新增key令操作公开schema变化，明确revision/op_version=2，
+  旧v7修订1仍可describe但不能执行，不偷换旧schema。root修后3030pass/3deselect/1既有
+  Pydantic warning，70.35s，日志/tmp/map-c0b-primary-regression-fixed-20261016.log。
+- C0 Sol解8处组合冲突并保留backend f6全部人物卡/Reaction/optional loader，5b4623987有
+  60相邻测试与61/517通过；另由SolUI移299到该树为5217f5310，当前干净，尚待Luna续写。
+- 工程PG65202已由C0释放给SolUI，专用copilot_integration_review_test_20261016 head；
+  新真实7来源独立Session HTTP1测试通过（含来源失败隔离/read持久化/mute/demo零写入），
+  与C0组合及真实浏览器继续，UI尚未入primary。
+- C4a必要调用方范围追加SceneRehearsalPanel/useStorySceneWorkspace最小v3接线，默认一轮，
+  旧历史只读；Interaction ensemble.py仅显式锁rehearsal_v1以保留team_v1，不改RP策略/上限。
+  A1 Luna已快进primary4c后新增纯SPEC，没带待审UI栈，不与Sol共享写。
+- 没有新模型调用、R3重试、holdout读取、push、PR、main合并或部署。全部剩余授权工作继续。
