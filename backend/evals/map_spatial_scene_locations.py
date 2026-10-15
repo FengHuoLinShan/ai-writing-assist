@@ -172,12 +172,24 @@ async def _idle(client, common, evolution):
         or (item.get("status") != "done" and item.get("attempt", 0) > 0)
         or (
             item.get("status") == "pending"
-            and (item.get("task_type") != "publish_chapter" or item.get("attempt") != 0)
+            and (
+                item.get("task_type") not in {"publish_chapter", "rag_index_chapter"}
+                or item.get("attempt") != 0
+            )
         )
         for item in tasks.get("items", [])
     ):
         raise MapSpatialEvalError("存在其他写者或未核清任务，禁止替换Scene metadata")
-    return {"reading_sha256": digest(reading), "tasks_sha256": digest(tasks)}
+    return {
+        "reading_sha256": digest(reading),
+        "tasks_sha256": digest(tasks),
+        "deferred_index_tasks": [
+            {key: item[key] for key in ("id", "task_type", "status", "attempt")}
+            for item in tasks.get("items", [])
+            if item.get("status") == "pending"
+            and item.get("task_type") in {"publish_chapter", "rag_index_chapter"}
+        ],
+    }
 
 
 async def _source_and_contract(common, decision):
