@@ -175,7 +175,7 @@ function previewText(section) {
   return value.length > 240 ? `${value.slice(0, 240)}…` : value
 }
 function statusLabel(status) {
-  return ({ system: "本次要求", canonical: "已采用", working: "工作稿", candidate: "待处理", review: "待处理", mixed: "多种来源", director_only: "仅复核", audit_only: "仅复核", unknown: "状态未说明" })[status] || "状态未说明"
+  return ({ system: "本次要求", canonical: "已采用", adopted: "已采用", working: "工作稿", candidate: "待处理", review: "待处理", mixed: "多种来源", director_only: "仅复核", audit_only: "仅复核", unknown: "状态未说明" })[status] || "状态未说明"
 }
 function sourceLabel(source) { return authorText(source?.label || ({ character: "人物", entity: "世界资料", rag: "正文资料", chapter: "章节", scene: "场景", task: "本次任务" })[source?.type] || "来源资料") }
 function sourceKey(section, source) { return `${section.key}:${source?.type || "source"}:${source?.id || source?.label || "unknown"}` }

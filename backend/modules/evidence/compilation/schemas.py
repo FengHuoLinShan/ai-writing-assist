@@ -372,6 +372,7 @@ class ContextSectionItem(BaseModel):
     status: Literal[
         "system",
         "canonical",
+        "adopted",
         "working",
         "candidate",
         "mixed",
