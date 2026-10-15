@@ -237,6 +237,51 @@ async def _setup_family_via_client(
             record["project_id"] = novel_id
             _write_private_json(setup_path, record)
 
+        reading_response = await asyncio.wait_for(
+            client.get(f"/api/evolution/reading?novel_id={novel_id}"),
+            timeout=client.timeout.read,
+        )
+        if reading_response.status_code != 200:
+            raise MapSpatialEvalError("新项目理解状态无法读取；setup不可重试")
+        reading = reading_response.json()
+        engine = reading.get("engine", {})
+        epoch = engine.get("epoch")
+        if (
+            reading.get("run") is not None
+            or engine.get("engine") != "legacy"
+            or type(epoch) is not int
+            or epoch < 1
+        ):
+            raise MapSpatialEvalError("新项目理解状态不符合预期；不能停止已有流程")
+        switched = await _post_product_json(
+            client,
+            f"/api/evolution/engine?novel_id={novel_id}",
+            {
+                "engine": "evolution",
+                "expected_epoch": epoch,
+                "stop_active": False,
+                "authorization_confirmed": True,
+            },
+        )
+        if (
+            switched.get("engine") != "evolution"
+            or switched.get("epoch") != epoch + 1
+            or switched.get("schema_floor") != 2
+            or any(
+                switched.get(key) != 0
+                for key in (
+                    "stopped_imports",
+                    "stopped_evolution_runs",
+                    "cancelled_tasks",
+                )
+            )
+        ):
+            raise MapSpatialEvalError("正常引擎切换回执不符合空项目约束；setup不可重试")
+        with private_lock(root):
+            record = _read_private_json(setup_path)
+            record["engine_switch"] = switched
+            _write_private_json(setup_path, record)
+
         preset = await _post_product_json(
             client,
             f"/api/world/project-vocabulary/{novel_id}/presets",

@@ -26,6 +26,8 @@ root 仅在明确开始 pilot 后，通过正常 `PUT /api/account/settings/llm-
 
 用同一终端环境运行；不要并行创建其他族。
 
+`setup-family` 创建 Project 后通过正常 GET `/api/evolution/reading` 读取 epoch、确认没有 run，再 POST `/api/evolution/engine`（`engine=evolution`、读取的 `expected_epoch`、`stop_active=false`、`authorization_confirmed=true`），保存真实切换回执。不会停止已有流程。该步骤不调用模型；源文、LLM snapshot 与地图未改变。随后才创建 canonical 正文与五 Scene，并冻结 common。
+
 ```bash
 .venv/bin/python -m evals.map_spatial setup-family --family-id map-xianxia-development-v1 --execute
 .venv/bin/python -m evals.map_spatial freeze-common --family-id map-xianxia-development-v1 --execute

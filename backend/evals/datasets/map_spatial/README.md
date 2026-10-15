@@ -16,7 +16,7 @@ Holdout 在五开发族 25 case 的全部原始评分与质量门实际通过前
 
 owner 必须正常 active，Project 标题以 `MAP-EVAL:<family-id>:` 开头，使用正常账户 verified Codex `gpt-6-luna/max` facade / snapshot。连接验证单列一次模型调用；失败/unknown 不自动回退或重试。生产地图能力默认关闭；Writing 两臂及 Assistant 提交/worker 的能力覆盖只在评测进程内生效，退出或失败后恢复。Assistant `task_hint=unknown`，只传原请求和真实 Scene 位置，不注入 gold/目标。
 
-`setup-family` 经 Project、词表预设、Writing draft 与 Scene API 建立一个项目、一个 canonical draft、同章五个不同 Scene 与精确 spans。`freeze-common` 冻结空地图、owner、snapshot、Scene 身份与来源，随后每族一次四 seed Sol/xhigh 校准。Evolution 正常 enrichment 可以改变 Scene card，不得改变来源。演化完成后，代理作者只通过原 clue review、World promote（正式 can_adopt/source hash/来源前缀门）、auto-draft 与独立地图 preview/CAS 做合成项目决定。World 地点采用与地图采用分别记账，不采用真实作者数据。
+`setup-family` 经 Project、词表预设、Writing draft 与 Scene API 建立一个项目、一个 canonical draft、同章五个不同 Scene 与精确 spans。创建 Project 后先正常 GET `/api/evolution/reading` 读取 epoch、确认没有 run，再 POST `/api/evolution/engine` 切到 Evolution（`expected_epoch`、`stop_active=false`、`authorization_confirmed=true`）；私有 setup 保存实际切换回执，已有流程或不符回执直接停止。`freeze-common` 冻结空地图、owner、snapshot、Scene 身份与来源，随后每族一次四 seed Sol/xhigh 校准。Evolution 正常 enrichment 可以改变 Scene card，不得改变来源。演化完成后，代理作者只通过原 clue review、World promote（正式 can_adopt/source hash/来源前缀门）、auto-draft 与独立地图 preview/CAS 做合成项目决定。World 地点采用与地图采用分别记账，不采用真实作者数据。
 
 最终 `freeze-binding` 冻结 post-Evolution Scene/card 和地图 head。Writing 两臂先同时入队并固定相同 source、Project、Scene、指令和非地图 context，再各运行精确 task，候选不采用。每次只接管 `pending/attempt=0` 的同项目 task，不 drain 队列；started/unknown/已执行 task 永不重发。方法 fingerprint 覆盖实际 Evolution、auto-draft、Assistant prompt/tool schema 和 Writing/Evidence；项目动态词表按状态冻结，不混入方法 hash。
 

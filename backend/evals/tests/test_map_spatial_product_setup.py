@@ -11,8 +11,18 @@ from evals.tests.test_map_spatial import _fixture
 
 @pytest.mark.asyncio
 async def test_setup_family_uses_real_project_draft_and_scene_apis(
-    tmp_path, monkeypatch, async_client, db_session
+    tmp_path, monkeypatch, async_client, db_session, account_llm_connection
 ):
+    import uuid
+
+    from sqlalchemy import func, select
+
+    from infrastructure.tasks.models import AsyncTask
+
+    async def no_model(*args, **kwargs):
+        pytest.fail("setup and readonly preview must never call a model")
+
+    monkeypatch.setattr("infrastructure.llm.client.LLMClient.generate", no_model)
     root, _, matrix = _fixture(tmp_path, monkeypatch)
     family = next(
         row
@@ -46,6 +56,14 @@ async def test_setup_family_uses_real_project_draft_and_scene_apis(
     assert result["status"] == "completed"
     setup, scopes = _validated_setup(root, family, source)
     assert setup["project_id"] == result["novel_id"]
+    assert setup["engine_switch"] == {
+        "engine": "evolution",
+        "epoch": 2,
+        "schema_floor": 2,
+        "stopped_imports": 0,
+        "stopped_evolution_runs": 0,
+        "cancelled_tasks": 0,
+    }
     assert len(setup["scenes"]) == 5
     assert len({scope["scene_id"] for scope in scopes.values()}) == 5
     from evals.map_spatial import scene_source_refs
@@ -63,6 +81,137 @@ async def test_setup_family_uses_real_project_draft_and_scene_apis(
         assert refs[0]["content_mode"] == "canonical"
         assert refs[0]["start_offset"] < refs[0]["end_offset"]
         assert refs[0]["source_hash"] == setup["scenes"][case["case_id"]]["source_hash"]
+
+    status = await async_client.get(
+        f"/api/evolution/reading?novel_id={result['novel_id']}"
+    )
+    assert status.status_code == 200
+    assert status.json()["engine"] == {
+        "engine": "evolution",
+        "epoch": 2,
+        "schema_floor": 2,
+    }
+    assert status.json()["run"] is None
+    task_count = await db_session.scalar(select(func.count()).select_from(AsyncTask))
+    preview = await async_client.post(
+        f"/api/evolution/reading/preview?novel_id={result['novel_id']}",
+        json={
+            "operation_id": str(uuid.uuid4()),
+            "end_chapter": 1,
+            "request_limit": 100,
+            "budget_mode": "bounded",
+            "discover_spatial": True,
+        },
+    )
+    assert preview.status_code == 200, preview.text
+    assert preview.json()["scene_count"] == 5
+    assert preview.json()["spatial_discovery_enabled"] is True
+    assert (
+        await db_session.scalar(select(func.count()).select_from(AsyncTask)) == task_count
+    )
+    assert not await db_session.scalar(
+        select(AsyncTask.id).where(AsyncTask.status != "pending")
+    )
+
+
+@pytest.mark.asyncio
+async def test_normal_engine_switch_preserves_existing_source_and_llm_snapshot(
+    async_client, db_session, test_project_id, account_llm_connection, monkeypatch
+):
+    import uuid
+
+    from evals.map_spatial import scene_source_refs
+    from modules.project.facade import build_project_llm_execution_snapshot
+
+    async def no_model(*args, **kwargs):
+        pytest.fail("engine switch and readonly previews must never call a model")
+
+    monkeypatch.setattr("infrastructure.llm.client.LLMClient.generate", no_model)
+    content = "合成地图正文：钟楼位于城门外。"
+    published = await async_client.post(
+        "/api/writing/drafts",
+        json={
+            "novel_id": test_project_id,
+            "chapter_index": 1,
+            "title": "合成引擎切换来源",
+            "content": content,
+        },
+    )
+    assert published.status_code == 201, published.text
+    draft = published.json()["draft"]
+    created = await async_client.post(
+        f"/api/outline/scenes?novel_id={test_project_id}",
+        json={
+            "scene_index": 0,
+            "title": "引擎切换前的Scene",
+            "source": "manual",
+            "chapter_ids": ["1"],
+            "scene_chunks": [
+                {
+                    "chapter_index": 1,
+                    "start_offset": 0,
+                    "end_offset": len(content),
+                    "source_draft_id": draft["id"],
+                    "source_content_hash": draft["content_hash"],
+                }
+            ],
+            "status": "canonical",
+        },
+    )
+    assert created.status_code == 201, created.text
+    scene_id = created.json()["id"]
+    refs_before = await scene_source_refs(
+        db_session, test_project_id, scene_id, 1, content
+    )
+    snapshot_before = await build_project_llm_execution_snapshot(
+        db_session, test_project_id
+    )
+    request = {"end_chapter": 1, "request_limit": 100, "discover_spatial": True}
+    preview_path = f"/api/evolution/reading/preview?novel_id={test_project_id}"
+    rejected = await async_client.post(
+        preview_path, json={**request, "operation_id": str(uuid.uuid4())}
+    )
+    assert rejected.status_code == 409
+    assert rejected.json()["error"] == "understanding_owner_changed"
+    status = await async_client.get(f"/api/evolution/reading?novel_id={test_project_id}")
+    assert status.status_code == 200
+    assert status.json()["run"] is None
+    epoch = status.json()["engine"]["epoch"]
+    switch = {
+        "engine": "evolution",
+        "expected_epoch": epoch,
+        "stop_active": False,
+        "authorization_confirmed": True,
+    }
+    switched = await async_client.post(
+        f"/api/evolution/engine?novel_id={test_project_id}", json=switch
+    )
+    assert switched.status_code == 200, switched.text
+    assert switched.json() == {
+        "engine": "evolution",
+        "epoch": epoch + 1,
+        "schema_floor": 2,
+        "stopped_imports": 0,
+        "stopped_evolution_runs": 0,
+        "cancelled_tasks": 0,
+    }
+    assert (
+        await build_project_llm_execution_snapshot(db_session, test_project_id)
+        == snapshot_before
+    )
+    assert (
+        await scene_source_refs(db_session, test_project_id, scene_id, 1, content)
+        == refs_before
+    )
+    admitted = await async_client.post(
+        preview_path, json={**request, "operation_id": str(uuid.uuid4())}
+    )
+    assert admitted.status_code == 200, admitted.text
+    assert admitted.json()["scene_count"] == 1
+    stale = await async_client.post(
+        f"/api/evolution/engine?novel_id={test_project_id}", json=switch
+    )
+    assert stale.status_code == 409
 
 
 @pytest.mark.asyncio

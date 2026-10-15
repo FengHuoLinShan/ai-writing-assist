@@ -1,5 +1,6 @@
 """Driver safety and quality gates; synthetic products only, no real model IO."""
 
+import json
 import os
 import subprocess
 import sys
@@ -14,6 +15,60 @@ from evals import map_spatial_control as control
 from evals.map_spatial import MapSpatialEvalError
 from evals.map_spatial_guard import Metric, summarize_metric
 from evals.tests.test_map_spatial_guard import URL, binding_fixture, completed_calibration
+
+
+@pytest.mark.parametrize(
+    "reading",
+    [
+        {"engine": {"engine": "legacy", "epoch": 1}, "run": {"status": "active"}},
+        {"engine": {"engine": "legacy", "epoch": True}, "run": None},
+        {"engine": {"engine": "read_only", "epoch": 2}, "run": None},
+    ],
+)
+@pytest.mark.asyncio
+async def test_setup_rejects_unexpected_engine_without_switch_or_retry(
+    tmp_path, monkeypatch, reading
+):
+    import httpx
+
+    from evals.map_spatial import _read_private_json
+    from evals.tests.test_map_spatial import _fixture
+
+    root, _, matrix = _fixture(tmp_path, monkeypatch)
+    family = matrix["families"][0]
+    monkeypatch.setattr(
+        control,
+        "_load_family_source",
+        lambda *_args, **_kwargs: {"project_setup": {"chapter_index": 1}},
+    )
+    seen = []
+
+    def route(request):
+        seen.append((request.method, request.url.path))
+        if request.method == "POST" and request.url.path == "/api/projects":
+            return httpx.Response(201, json={**json.loads(request.content), "id": "new"})
+        if request.method == "GET" and request.url.path == "/api/evolution/reading":
+            return httpx.Response(200, json=reading)
+        pytest.fail("unexpected engine state must not trigger a switch or other mutation")
+
+    async with httpx.AsyncClient(
+        transport=httpx.MockTransport(route), base_url="http://test"
+    ) as client:
+        with pytest.raises(MapSpatialEvalError, match="不能停止已有流程"):
+            await control._setup_family_via_client(
+                private_root=root, family_id=family["family_id"], client=client
+            )
+        assert (
+            _read_private_json(control._setup_record_path(root, family["family_id"]))[
+                "status"
+            ]
+            == "unknown"
+        )
+        with pytest.raises(MapSpatialEvalError, match="不可重复创建项目"):
+            await control._setup_family_via_client(
+                private_root=root, family_id=family["family_id"], client=client
+            )
+    assert seen == [("POST", "/api/projects"), ("GET", "/api/evolution/reading")]
 
 
 @pytest.mark.parametrize(
