@@ -770,6 +770,32 @@ describe("导出图片包", () => {
     expect(panel.text()).toContain("「导出作品」导出的是文字，由服务端生成")
   })
 
+  it("已生成的分包下载列表保留离开保护", async () => {
+    const confirm = vi.fn(() => false)
+    setBridgeOverrides({ confirm })
+    let guard
+    const wrapper = mount(ProjectSettingsView, {
+      props: makeProps(),
+      global: {
+        stubs: { ImageExportPanel: { template: "<div />", data: () => ({ busy: false, hasDownloadPackages: true }) } },
+        provide: { [ISLAND_LEAVE_GUARD]: fn => { guard = fn } },
+      },
+    })
+    await flushPromises()
+    expect(guard()).toBe(false)
+    expect(confirm).toHaveBeenCalledWith("图片包下载列表将在离开后清除，请确认已经保存全部文件。确定离开吗？")
+    await wrapper.get('[data-tab="deep"]').trigger("click")
+    expect(wrapper.get('[data-tab="author"]').attributes("aria-selected")).toBe("true")
+    expect(confirm).toHaveBeenLastCalledWith("切换页签会清除图片包下载列表，请确认已经保存全部文件。确定继续吗？")
+    await wrapper.get('[data-tab="author"]').trigger("keydown", { key: "ArrowRight" })
+    expect(wrapper.get('[data-tab="author"]').attributes("aria-selected")).toBe("true")
+    confirm.mockReturnValue(true)
+    expect(guard()).toBe(true)
+    await wrapper.get('[data-tab="author"]').trigger("keydown", { key: "ArrowRight" })
+    expect(wrapper.get('[data-tab="deep"]').attributes("aria-selected")).toBe("true")
+    wrapper.unmount()
+  })
+
   it("图片包生成中触发离开确认并说明不会留下半成品文件", async () => {
     const confirm = vi.fn(() => false)
     setBridgeOverrides({ confirm })

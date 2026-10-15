@@ -46,7 +46,8 @@ PostgreSQL dump 不包含两个 MinIO bucket 的图片。数据库与对象各�
    PNG/WebP 可解码、metadata 与 key 的 novel_id。两类来源共用恢复入口，先与目标 DB 的 novel_id/bucket/key/hash/size 引用核对，禁止跨项目导入；
    图片包不恢复 DB，author_export 不宣称 DB 快照一致。所有本地文件先校验，才开始远端写入；恢复仍可中途失败，
    不承诺跨对象事务。ZIP 与服务器目录采用相同布局，经 `object_backup.py unpack` 严格白名单解包并校验。
-   G4b 的 UI 和浏览器打包尚未实现，G4c 自动同步需要独立授权。
+   G4b 已提供单项目 owner 导出 UI：浏览器计算摘要、解码校验并打包地图页、蒙版及对象 full/thumbnail；
+   部分失败可重试，作者确认后才下载标注缺项的包，取消或离开中止下载。G4c 自动同步需要独立授权。
 
 ## 结果与限制
 

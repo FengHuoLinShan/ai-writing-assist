@@ -355,8 +355,18 @@ function onTabKeydown(event, key) {
   event.preventDefault()
   const nextKey = TABS[nextIndex]?.key
   if (!nextKey) return
-  tab.value = nextKey
-  focusTab(nextKey)
+  if (selectTab(nextKey)) focusTab(nextKey)
+}
+
+function selectTab(key) {
+  if (key === tab.value) return true
+  if (imageExportPanel.value?.hasDownloadPackages) {
+    if (!getConfirm()("切换页签会清除图片包下载列表，请确认已经保存全部文件。确定继续吗？")) return false
+  } else if (imageExportBusy()) {
+    if (!getConfirm()("图片包还在生成中，切换页签会中止导出。确定继续吗？")) return false
+  }
+  tab.value = key
+  return true
 }
 
 function gotoGlobalSettings() {
@@ -553,7 +563,7 @@ function hasUnsavedChanges() {
 }
 
 function hasBlockingWork() {
-  return hasUnsavedChanges() || imageExportBusy()
+  return hasUnsavedChanges() || imageExportBusy() || imageExportPanel.value?.hasDownloadPackages
 }
 
 watch(authorForm, () => {
@@ -569,9 +579,13 @@ watch(deepImportForm, () => {
 useLeaveGuard(() => (
   !hasBlockingWork()
   || getConfirm()(
-    imageExportBusy() && !hasUnsavedChanges()
-      ? "图片包还在生成中，离开会中止导出且不会留下文件。确定离开吗？"
-      : "项目偏好有未保存修改，确定放弃并离开吗？",
+    imageExportPanel.value?.hasDownloadPackages
+      ? (hasUnsavedChanges()
+          ? "项目偏好有未保存修改，图片包下载列表也将被清除。确定放弃修改并离开吗？"
+          : "图片包下载列表将在离开后清除，请确认已经保存全部文件。确定离开吗？")
+      : (imageExportBusy() && !hasUnsavedChanges()
+          ? "图片包还在生成中，离开会中止导出且不会留下文件。确定离开吗？"
+          : "项目偏好有未保存修改，确定放弃并离开吗？"),
   )
 ))
 
@@ -778,7 +792,7 @@ onBeforeUnmount(() => {
         :aria-selected="tab === item.key"
         aria-controls="project-settings-tab-panel"
         :tabindex="tab === item.key ? 0 : -1"
-        @click="tab = item.key"
+        @click="selectTab(item.key)"
         @keydown="onTabKeydown($event, item.key)"
       >{{ item.label }}</button>
     </nav>

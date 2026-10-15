@@ -12,8 +12,9 @@
 World 模块在需要世界对象图片或地图册页面时调用（见
 `backend/modules/world/README.md`）。项目助手、已登录 RP、前瞻分析、创作协作、
 连续性检查、场景排演等当前新建文本任务使用项目账户模型连接；旧的 `local_agent` 快照字段
-出现在 Project 恢复快照里会失败关闭（`Local CLI no longer runs project text tasks`）；
-旧 `task_snapshot_client` 第二道门与文字客户端已删除。
+出现在可恢复任务里会失败关闭（`Local CLI no longer runs project text tasks`）。
+Story 执行入口额外拒绝旧本机任务标记及排演副快照；`task_snapshot_client` 已删除，
+不会因账户主快照可恢复而静默回退到网关模型或重放本机副作用。
 
 服务端 `run_local_agent` 的历史 invocation 实现仍保留，但已无生产入口。文字客户端、
 产品工具中继端点、伴随进程文字执行分支与工具 shim 已删除；伴随进程对非图片 job 直接失败。
@@ -87,8 +88,8 @@ Codex/Pi 可在启动伴随进程前通过 `NOVELCRAFT_CODEX_MODEL` / `NOVELCRAF
 回写）已随本机文字审批退役删除；图片任务的批准走图片审批端点与
 `task_awaiting_local_approval` 队列门，历史回执读取保留。
 
-旧文字快照的恢复只有 Project 恢复门一道失败关闭（`open_project_snapshot_llm_client`
-对含 `local_agent` 的快照一律拒绝），不再存在第二道 `task_snapshot_client` 门
-（该门已随本机文字路径删除）。图片执行与历史回执读取仍保留；历史回执 `usage` 可能为
+Project 恢复入口拒绝含 `local_agent` 的快照；Story 共享输入入口在读取 Context 和恢复
+账户客户端前拒绝旧本机任务标记及 `agent_llm_execution_snapshot` 副快照。
+旧 `task_snapshot_client` 第二道门已删除。图片执行与历史回执读取仍保留；历史回执 `usage` 可能为
 `null`（未知），不能当作零，也不等同于 Project 账户模型 AI 用量诊断。
 删除既有文字 job/receipt/schema 前需先确定历史任务的处置范围。
