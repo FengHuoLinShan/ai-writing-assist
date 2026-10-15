@@ -3,7 +3,7 @@ id: T-20261015-map-enhancement-design
 title: 地图系统增强设计与分批实施（自动冷启动、参与创作决策、题材鲁棒性）
 status: active
 created: 2026-10-15T10:54:00+08:00
-updated: 2026-10-15T22:16:25+08:00
+updated: 2026-10-15T22:30:37+08:00
 ---
 
 # 地图系统增强设计
@@ -13,7 +13,7 @@ updated: 2026-10-15T22:16:25+08:00
 - 当前授权：2026-10-15 用户 `/goal` 要求执行 `codex/map-enhancement-plan` 的计划；Luna/max 子代理并行实现，Sol/high 按批次 review 与修复。只做本地开发验证；没有发布、真实数据破坏或对外发送授权。用户16:43补充“修复由sol子代理直接修”：后续代码修复均由Sol/high子代理直接执行。用户曾要求“由你收尾”；其后明确答复范围为三份计划全部实施，包括操作目录、对象档案、导演、世界推进。root继续负责分批拆解、集成、验证、任务记录与实际隔离评测；已明确确认采用“模拟作者显式指定Scene地点后做辅助Writing对比”。
 - 主工作区：`/Users/tywww/项目/ai-writing-assist/.worktrees/map-enhancement-plan`，分支 `codex/map-enhancement-plan`。原 Desktop 路径已失效；仓库实际已迁至 `/Users/tywww/项目/ai-writing-assist`。
 - 恢复时基线：设计提交 `3fd5ca29e`；刚 fetch 的 `origin/main=00d861283` 已无冲突合并为 `b74d7c28d`（本地），包含 G8c 与第三批评测/HTTPX2 变更。开始时主工作区干净，其他 worktree/WIP 保留。
-- 当前里程碑：primary HEADba20dc79388133ee903e5522e9cf30ceae2905ba（Sol最后role协议f14→287955212、独立回归574→ba20，未改生产），root联合435passed2skipped24.92s、全eval Ruff/10format/docs inventory/diff通过；Sol同码435pass2skip25.35s及BASE_REF七authority说明/import61/9/0/517通过。生产仍abe911c35，六域4561pass2skip4deselect166.97s证据保持。只有本TASK未提交，无推送/PR/main合并/部署。
+- 当前里程碑：primary HEAD fd372d5f27533529a0bc567a04b80db8c53e345d（仅三TASK记录，生产实现仍ba20/abe），地图六域4561pass及eval435pass既有证据保留；R3真实运行结构失败未通过质量gate。新A0a f7ba93e8bc5e428a8aef76b6d483ef4236049220 与C3a69b77838298e7fcda225ef798151a75127c98d23尚未集成，分别进入两个Sol/high独立审修树；C0 Luna/max继续实现。无push/PR/main合并/部署。
 - 下一步：R3五Scene已完成，但第6个structure任务因unresolved reveal target失败，harness按协议unknown且未重发；已正常POST engine→read_only/epoch3停止run，5 main receipts、失败task及其他任务不变，私有diagnostic-stop-20261015-r3.json与failure快照完整。Writing/Assistant/judge未运行，真实质量未通过，holdout不解码。下一可用Sol/high批次只读判定结构失败是否真实实现缺陷或模型质量失败；不得删strict目标校验或伪造completed绕过。当前继续A0/C0/C3隔离实现，R3已封存，不再有live runner；首批提交后可开始集成审修，再推进A1–A4/C1–C5。
 - 范围：用户已明确“该分支三份计划全部实施，包括操作目录、对象档案、导演和世界推进”。执行地图M0–M5及两个配套完整计划；既有计划的条件依赖和真实质量门禁仍有效，不能冒称完成。
 - 依赖：M5 依赖独立势力路线图阶段 1，现有计划明确阶段 1 前不提供领地图层；不得读取旧无时效势力字段冒充完成。
@@ -351,3 +351,15 @@ updated: 2026-10-15T22:16:25+08:00
 - root经正常GET reading核epoch2，再POST engine(read_only,expected_epoch2,stop_active=true,authorization_confirmed=true)返回200/epoch3/stopped_runs1/cancelled_tasks0。前后5 main receipts哈希一致，原failed task内容与其他publish/rag pending任务状态也完全一致；private diagnostic-{before-stop,final}-snapshot、stop-response与stop receipt均0600。控制记录diagnostic_stopped/previous_status unknown，不伪造completed。停止0模型请求。
 - R3 teacher实际4/4通过、五Scene读取已执行；World地图审核、显式作者UUID步骤、Writing双臂、Assistant、judge均not_run，完整质量gate未通过/humanfalse。实际SUT请求数及金额仍unknown，原root51与总upper347上界不等于实际花费。保留所有原资料/gold/BOUNDS与holdout未解码。
 - 当前无live付费runner，主树仍ba20仅三份TASK修改，新的A0/C0/C3代码尚在各自隔离树。后续Sol应先只读诊断结构失败；若为模型无效输出就记录质量失败，不能为过评测删除有效strict断言。无需重复跑同一R3或复用旧seed/binding。
+
+## 2026-10-15T22:30:37+08:00 A0a/C3a提交与Sol并行审修
+
+- A0a Luna提交f7ba93e8bc5e428a8aef76b6d483ef4236049220：64项目录/六插件纯SPEC/v7发现冻结/v1–v6兼容。干净归档29定向/Ruff/docs156表通过。A0b trace migration/model/service/DI/config等WIP留原map-operation-catalog-impl，不stash/reset/清理，不把混合树验证冒充净commit。Sol/high sol_review_operation_catalog在复用干净map-advisory-review、新branch codex/operation-catalog-v2-review从ba20 cherry后独立审修。旧codex/map-eval-author-review与604260提交保留。
+- C3a Luna提交69b77838298e7fcda225ef798151a75127c98d23：5真实providers（Story结构，Writing冲突与失效，Assistant主动与前瞻）、独立session/失败占位、处置与类别静默。7 tests/Ruff/import61/517/docs158表及SQLite migrate up/down通过；app共享接线、PG和前端未完成，G8a未接、editorial队列具体导航/处置未闭环。Sol/high sol_review_unified_notices在map-spatial-eval-review、codex/map-full-plan-integration-review审修；同时只读R3两个精确diagnostics JSON triage，禁止读其余gold/holdout或发模型。
+- R3新增private diagnostics/r3-structure-journal.json保留generate与review:0两次sampled原始数据，可离线定位strict unresolved target；不以合法失败校验当待删除缺陷。无新业务请求。
+- C0本批为World设定条目/模板/Character兼容与Story状态注册，Evidence三层聚合和ledger只读DI端口待下一C0b/C2闭环，不能称整个C0已完成。root与Luna已核多条当前条目必须允许同一legacy字段并存、legacy整体写回只收拢该组、desire/fear分键、null/no-op/CAS。档案SPEC留World领域目录。
+- 下一步：收Sol两批直接修复及精确验证；再同步A0b并接组合根，C0提交后Sol审、开C0b/C2，再C3b前端/G8a与C4/C5。所有新migration最终单Sol统一线性链并做PG fresh/ORM parity/CAS门，不由root手改冲突。
+
+## 2026-10-15T22:31:24+08:00 Sol确定R3结构失败根因
+
+- sol_review_unified_notices只读冻结generate/review journal确认两条reveals均supported；reading_structure._simple_structure_to_parsed把揭示主题title当target_name，而persist_structure_drafts传空entity/character映射且strict=True，任意非空reveal均必然ValueError，是确定性实现缺陷。Sol正在单独离线复现与直接修，保留strict和内容/provenance，不猜World实体、不静默丢候选冒称已保存。原R3失败/stop/账本保持，无付费重试，后续实跑须新pipeline。

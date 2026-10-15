@@ -3,7 +3,7 @@ id: T-20261015-agent-operation-surface
 title: 全模块 AI 操作入口、目标运行与操作留痕设计
 status: active
 created: 2026-10-15T14:30:00+08:00
-updated: 2026-10-15T22:16:25+08:00
+updated: 2026-10-15T22:30:37+08:00
 ---
 
 # 全模块 AI 操作入口、目标运行与操作留痕设计
@@ -92,3 +92,8 @@ updated: 2026-10-15T22:16:25+08:00
 - 仅本地提交与隔离验证授权；未push/PR/main合并/部署。无新的真实模型/私有评测根/真实数据库访问授权给这些实现代理。工程检查与真实作者验收分开报告。
 
 - 2026-10-15T22:16:25+08:00：地图R3五Scene完成后结构任务严格目标解析失败，已正常停止封存，真实质量未通过；当前无live runner，新功能首批提交审查后可集成，后续评测需新pipeline身份，不复用旧实验。
+
+## 2026-10-15T22:30:37+08:00 首批交付与独立审修
+
+- A0a f7ba93e8bc5e428a8aef76b6d483ef4236049220已交Sol/high sol_review_operation_catalog（map-advisory-review/codex/operation-catalog-v2-review）；干净归档29定向/Ruff/docs通过。trace与写路由A0b WIP完整保留原Luna树，尚未提交/集成，下一批继续。共享装配还需接C3a/C0新SPEC，不能把A0a当全A0。
+- root主树fd372d5f2仅任务记录提交，新两批尚未集成；代码问题由Sol直接修。本地开发继续，未推送或部署。

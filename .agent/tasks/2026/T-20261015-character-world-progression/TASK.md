@@ -3,7 +3,7 @@ id: T-20261015-character-world-progression
 title: 世界对象档案、场景导演、写作副驾驶与世界推进设计
 status: active
 created: 2026-10-15T16:00:00+08:00
-updated: 2026-10-15T22:16:25+08:00
+updated: 2026-10-15T22:30:37+08:00
 ---
 
 # 世界对象档案、场景导演、写作副驾驶与世界推进设计
@@ -125,3 +125,8 @@ ADR-0039 旧接口写回规则、共用词表与锚点、档案发现按 ADR-003
 - 仅本地提交与隔离验证授权；未push/PR/main合并/部署。无新的真实模型/私有评测根/真实数据库访问授权给这些实现代理。工程检查与真实作者验收分开报告。
 
 - 2026-10-15T22:16:25+08:00：地图R3五Scene完成后结构任务严格目标解析失败，已正常停止封存，真实质量未通过；当前无live runner，新功能首批提交审查后可集成，后续评测需新pipeline身份，不复用旧实验。
+
+## 2026-10-15T22:30:37+08:00 首批交付与独立审修
+
+- C3a 69b77838298e7fcda225ef798151a75127c98d23交Sol/high sol_review_unified_notices（map-spatial-eval-review/codex/map-full-plan-integration-review）；7定向/Ruff/import/docs158表/SQLite迁移通过，PG/app接线/UI/G8a/editorial队列详细导航仍待后批。C0 Luna继续World条目/模板/Character兼容和Story注册；Evidence统一聚合/ledger DI为C0b/C2未完成项，C4/C5依此继续。
+- root主树fd372d5f2仅任务记录提交，新两批尚未集成；代码问题由Sol直接修。本地开发继续，未推送或部署。
