@@ -107,6 +107,10 @@ def _sheet_entry(
         "kind_suggested": kind == suggested.get("kind"),
         "header_row": int(header_row or 0),
         "default_entity_type": (mapping_sheet or {}).get("default_entity_type"),
+        "dossier_profile_type": (mapping_sheet or {}).get(
+            "dossier_profile_type", (mapping_sheet or {}).get("default_entity_type")
+        ),
+        "facing_mappings": (mapping_sheet or {}).get("facing_mappings", {}),
         "row_count": int(manifest_sheet.get("row_count", 0)),
         "columns": columns,
         "sample_rows": sample_rows,
@@ -120,8 +124,7 @@ def _serialize_session(
     with_preview: bool = True,
 ) -> dict[str, Any]:
     mapping_sheets = {
-        sheet.get("sheet_key"): sheet
-        for sheet in session.mapping_json.get("sheets", [])
+        sheet.get("sheet_key"): sheet for sheet in session.mapping_json.get("sheets", [])
     }
     sheets: list[dict[str, Any]] = []
     files: list[dict[str, Any]] = []
@@ -148,9 +151,10 @@ def _serialize_session(
     ai_blocked = 0
     for operation in ("outline", "cleanup"):
         for group in (session.ai_result_json or {}).get(operation, []) or []:
-            if isinstance(group, dict) and (group.get("governance") or {}).get(
-                "status"
-            ) != "passed":
+            if (
+                isinstance(group, dict)
+                and (group.get("governance") or {}).get("status") != "passed"
+            ):
                 ai_blocked += 1
 
     preview = None
@@ -210,9 +214,7 @@ def _list_item(session: Any) -> dict[str, Any]:
     return {
         "id": str(session.id),
         "status": session.status,
-        "file_names": [
-            file.get("file_name", "") for file in session.file_manifest
-        ],
+        "file_names": [file.get("file_name", "") for file in session.file_manifest],
         "counts": {key: int(value) for key, value in counts.items()},
         "created_at": session.created_at.isoformat() if session.created_at else "",
         "applied_at": session.applied_at.isoformat() if session.applied_at else None,

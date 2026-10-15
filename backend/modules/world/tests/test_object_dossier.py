@@ -12,7 +12,12 @@ from modules.account.contracts import AccountPrincipal
 from modules.account.models import Account
 from modules.project.models import Project
 from modules.world.dossier_service import WorldObjectDossierService
-from modules.world.models import GenericEntityProfile, WorldObjectDossierEntry
+from modules.world.models import (
+    Character,
+    CoreEntity,
+    GenericEntityProfile,
+    WorldObjectDossierEntry,
+)
 from modules.world.project_vocabulary_schemas import VocabularyTermCreate
 from modules.world.project_vocabulary_service import (
     archive_project_vocabulary_term,
@@ -21,6 +26,7 @@ from modules.world.project_vocabulary_service import (
 from modules.world.schemas.dossier import (
     DossierEntryCreate,
     DossierFacingRef,
+    DossierTemplateAuthorUpsert,
     DossierTemplateUpsert,
 )
 
@@ -277,6 +283,435 @@ async def test_dossier_template_is_versioned_and_same_value_is_idempotent(
     history = await async_client.get(f"{url}/history", params=params)
     assert history.status_code == 200, history.text
     assert history.json()["total_count"] == 2
+
+
+@pytest.mark.asyncio
+async def test_custom_type_borrows_namespaced_core_facings_without_type_conversion(
+    async_client: AsyncClient,
+    db_session,
+) -> None:
+    assert set(DossierFacingRef.model_json_schema()["properties"]) == {
+        "kind",
+        "key",
+        "term_id",
+    }
+    assert (
+        "borrowed_facings" not in DossierTemplateUpsert.model_json_schema()["properties"]
+    )
+    assert (
+        "borrowed_facings"
+        in DossierTemplateAuthorUpsert.model_json_schema()["properties"]
+    )
+    project = await async_client.post("/api/projects", json={"title": "灵兽档案"})
+    assert project.status_code == 201, project.text
+    novel_id = project.json()["id"]
+    params = {"novel_id": novel_id}
+    entity_response = await async_client.post(
+        "/api/world/entities",
+        params=params,
+        json={"entity_type": "spirit_beast", "name": "照夜", "status": "canonical"},
+    )
+    assert entity_response.status_code == 201, entity_response.text
+    entity = entity_response.json()
+
+    create_url = f"/api/world/entities/{entity['id']}/dossier/entries"
+    rejected = await async_client.post(
+        create_url,
+        params=params,
+        json={"facing": {"kind": "core", "key": "appearance"}, "content": "月白鳞片"},
+    )
+    assert rejected.status_code == 400
+
+    template_url = "/api/world/dossier-templates/spirit_beast"
+    author_template_url = f"{template_url}/author"
+    saved = await async_client.put(
+        author_template_url,
+        params=params,
+        json={
+            "fields": [],
+            "borrowed_facings": [
+                {"kind": "core", "key": "borrowed:character:appearance"},
+                {"kind": "core", "key": "borrowed:species:appearance"},
+            ],
+        },
+    )
+    assert saved.status_code == 200, saved.text
+    assert saved.json()["version_number"] == 1
+
+    old_ai_edit = await WorldObjectDossierService().upsert_template(
+        db_session,
+        novel_id,
+        "spirit_beast",
+        DossierTemplateUpsert(
+            expected_version_number=1,
+            fields=[],
+            display_schema={"legacy_ai_edit": True},
+        ),
+    )
+    assert "borrowed_facings" not in old_ai_edit.model_dump(mode="json")
+    author_read = await async_client.get(author_template_url, params=params)
+    assert author_read.status_code == 200, author_read.text
+    assert {item["key"] for item in author_read.json()["borrowed_facings"]} == {
+        "borrowed:character:appearance",
+        "borrowed:species:appearance",
+    }
+    history = await async_client.get(f"{template_url}/history", params=params)
+    assert history.json()["items"][0]["snapshot"]["format_version"] == 2
+
+    facets = await async_client.get(
+        f"/api/world/entities/{entity['id']}/dossier/facets", params=params
+    )
+    borrowed = [
+        item
+        for item in facets.json()["items"]
+        if str(item["facing"].get("key", "")).startswith("borrowed:")
+    ]
+    assert {item["facing"]["key"] for item in borrowed} == {
+        "borrowed:character:appearance",
+        "borrowed:species:appearance",
+    }
+
+    for source_type, content in (
+        ("character", "主人曾救下一名幼崽"),
+        ("species", "夜间能辨认灵脉纹路"),
+    ):
+        response = await async_client.post(
+            create_url,
+            params=params,
+            json={
+                "facing": {
+                    "kind": "core",
+                    "key": f"borrowed:{source_type}:appearance",
+                },
+                "content": content,
+            },
+        )
+        assert response.status_code == 201, response.text
+        assert response.json()["facing"]["key"] == f"borrowed:{source_type}:appearance"
+
+    core_entity = await db_session.get(CoreEntity, uuid.UUID(entity["id"]))
+    assert core_entity is not None and core_entity.entity_type == "spirit_beast"
+    character = await db_session.scalar(
+        select(Character).where(
+            Character.novel_id == uuid.UUID(novel_id),
+            Character.entity_id == uuid.UUID(entity["id"]),
+        )
+    )
+    assert character is None
+
+    template_update = await async_client.put(
+        author_template_url,
+        params=params,
+        json={
+            "expected_version_number": 2,
+            "fields": [],
+            "borrowed_facings": [{"kind": "core", "key": "borrowed:species:appearance"}],
+        },
+    )
+    assert template_update.status_code == 400, template_update.text
+    dossier = await async_client.get(
+        f"/api/world/entities/{entity['id']}/dossier", params=params
+    )
+    character_entry = next(
+        item
+        for item in dossier.json()["entries"]
+        if item["facing"]["key"] == "borrowed:character:appearance"
+    )
+    clear_character = await async_client.patch(
+        f"/api/world/entities/{entity['id']}/dossier/entries/{character_entry['id']}",
+        params=params,
+        json={"expected_revision_id": character_entry["id"], "content": ""},
+    )
+    assert clear_character.status_code == 200, clear_character.text
+    template_update = await async_client.put(
+        author_template_url,
+        params=params,
+        json={
+            "expected_version_number": 2,
+            "fields": [],
+            "borrowed_facings": [{"kind": "core", "key": "borrowed:species:appearance"}],
+        },
+    )
+    assert template_update.status_code == 200, template_update.text
+    rejected_restore = await async_client.post(
+        f"/api/world/entities/{entity['id']}/dossier/groups/{character_entry['entry_group_id']}/restore",
+        params=params,
+        json={
+            "revision_id": character_entry["id"],
+            "expected_current_revision_id": clear_character.json()["id"],
+        },
+    )
+    assert rejected_restore.status_code == 400, rejected_restore.text
+    rejected_removed_face = await async_client.post(
+        create_url,
+        params=params,
+        json={
+            "facing": {
+                "kind": "core",
+                "key": "borrowed:character:appearance",
+            },
+            "content": "不能再新增这类面向",
+        },
+    )
+    assert rejected_removed_face.status_code == 400
+    dossier = await async_client.get(
+        f"/api/world/entities/{entity['id']}/dossier", params=params
+    )
+    assert len(dossier.json()["entries"]) == 1
+
+
+@pytest.mark.asyncio
+async def test_dossier_manifest_roundtrip_requires_cross_project_maps(
+    async_client: AsyncClient,
+) -> None:
+    source_project = await async_client.post(
+        "/api/projects", json={"title": "清单来源项目"}
+    )
+    assert source_project.status_code == 201, source_project.text
+    source_novel_id = source_project.json()["id"]
+    source_term = await async_client.post(
+        f"/api/world/project-vocabulary/{source_novel_id}/terms",
+        json={"kind": "dossier_facing", "name": "修行境界"},
+    )
+    assert source_term.status_code == 201, source_term.text
+    source_entity = await async_client.post(
+        "/api/world/entities",
+        params={"novel_id": source_novel_id},
+        json={"entity_type": "character", "name": "清单人物", "status": "canonical"},
+    )
+    assert source_entity.status_code == 201, source_entity.text
+    source_entity_id = source_entity.json()["id"]
+    template = await async_client.put(
+        "/api/world/dossier-templates/character",
+        params={"novel_id": source_novel_id},
+        json={
+            "fields": [
+                {
+                    "facing": {"kind": "project", "term_id": source_term.json()["id"]},
+                    "label": "修行境界",
+                }
+            ]
+        },
+    )
+    assert template.status_code == 200, template.text
+    source_entry = await async_client.post(
+        f"/api/world/entities/{source_entity_id}/dossier/entries",
+        params={"novel_id": source_novel_id},
+        json={
+            "facing": {"kind": "project", "term_id": source_term.json()["id"]},
+            "content": "已至筑基后期",
+            "visibility": "secret",
+        },
+    )
+    assert source_entry.status_code == 201, source_entry.text
+
+    exported = await async_client.get(
+        f"/api/world/entities/{source_entity_id}/dossier/manifest",
+        params={"novel_id": source_novel_id},
+    )
+    assert exported.status_code == 200, exported.text
+    manifest = exported.json()
+    assert manifest["format"] == "novelcraft.world.dossier-manifest"
+    assert manifest["source_entity_id"] == source_entity_id
+    assert manifest["template"]["source_version_number"] == 1
+    assert manifest["entries"][0]["visibility"] == "secret"
+    assert manifest["entries"][0]["source_revision_id"] == source_entry.json()["id"]
+
+    same_project_target = await async_client.post(
+        "/api/world/entities",
+        params={"novel_id": source_novel_id},
+        json={"entity_type": "character", "name": "清单副本", "status": "canonical"},
+    )
+    assert same_project_target.status_code == 201, same_project_target.text
+    same_project_request = {
+        "manifest": manifest,
+        "expected_template_version_number": 1,
+        "template_mapping_confirmed": True,
+        "confirmed": True,
+    }
+    preview_url = (
+        f"/api/world/entities/{same_project_target.json()['id']}/dossier/manifest/preview"
+    )
+    apply_url = (
+        f"/api/world/entities/{same_project_target.json()['id']}/dossier/manifest/apply"
+    )
+    preview = await async_client.post(
+        preview_url,
+        params={"novel_id": source_novel_id},
+        json={
+            key: value
+            for key, value in same_project_request.items()
+            if key != "confirmed"
+        },
+    )
+    assert preview.status_code == 200, preview.text
+    assert preview.json()["can_apply"] is True
+    assert preview.json()["create_count"] == 1
+    first_apply = await async_client.post(
+        apply_url,
+        params={"novel_id": source_novel_id},
+        json={
+            **same_project_request,
+            "expected_preview_hash": preview.json()["preview_hash"],
+        },
+    )
+    assert first_apply.status_code == 200, first_apply.text
+    assert first_apply.json()["applied_count"] == 1
+
+    repeated_preview = await async_client.post(
+        preview_url,
+        params={"novel_id": source_novel_id},
+        json={
+            key: value
+            for key, value in same_project_request.items()
+            if key != "confirmed"
+        },
+    )
+    assert repeated_preview.status_code == 200, repeated_preview.text
+    assert repeated_preview.json()["already_imported_count"] == 1
+    repeated_apply = await async_client.post(
+        apply_url,
+        params={"novel_id": source_novel_id},
+        json={
+            **same_project_request,
+            "expected_preview_hash": repeated_preview.json()["preview_hash"],
+        },
+    )
+    assert repeated_apply.status_code == 200, repeated_apply.text
+    assert repeated_apply.json()["applied_count"] == 0
+
+    target_entity_id = same_project_target.json()["id"]
+    target_read = await async_client.get(
+        f"/api/world/entities/{target_entity_id}/dossier",
+        params={"novel_id": source_novel_id},
+    )
+    imported_entry = target_read.json()["entries"][0]
+    edited = await async_client.patch(
+        f"/api/world/entities/{target_entity_id}/dossier/entries/{imported_entry['id']}",
+        params={"novel_id": source_novel_id},
+        json={
+            "expected_revision_id": imported_entry["id"],
+            "content": "作者已经改过的内容",
+        },
+    )
+    assert edited.status_code == 200, edited.text
+    changed_preview_request = {
+        key: value for key, value in same_project_request.items() if key != "confirmed"
+    }
+    changed_preview = await async_client.post(
+        preview_url,
+        params={"novel_id": source_novel_id},
+        json=changed_preview_request,
+    )
+    assert changed_preview.status_code == 200, changed_preview.text
+    assert changed_preview.json()["can_apply"] is False
+    assert changed_preview.json()["conflicts"][0]["reason"] == "already_changed"
+    skipped_request = {
+        **changed_preview_request,
+        "skip_conflicts": [source_entry.json()["id"]],
+    }
+    skipped_preview = await async_client.post(
+        preview_url,
+        params={"novel_id": source_novel_id},
+        json=skipped_request,
+    )
+    assert skipped_preview.status_code == 200, skipped_preview.text
+    assert skipped_preview.json()["can_apply"] is True
+    assert skipped_preview.json()["skipped_count"] == 1
+    skipped_apply = await async_client.post(
+        apply_url,
+        params={"novel_id": source_novel_id},
+        json={
+            **skipped_request,
+            "confirmed": True,
+            "expected_preview_hash": skipped_preview.json()["preview_hash"],
+        },
+    )
+    assert skipped_apply.status_code == 200, skipped_apply.text
+    assert skipped_apply.json()["updated_count"] == 0
+
+    target_project = await async_client.post(
+        "/api/projects", json={"title": "清单目标项目"}
+    )
+    assert target_project.status_code == 201, target_project.text
+    target_novel_id = target_project.json()["id"]
+    target_term = await async_client.post(
+        f"/api/world/project-vocabulary/{target_novel_id}/terms",
+        json={"kind": "dossier_facing", "name": "修行境界"},
+    )
+    assert target_term.status_code == 201, target_term.text
+    target_entity = await async_client.post(
+        "/api/world/entities",
+        params={"novel_id": target_novel_id},
+        json={"entity_type": "character", "name": "跨项目副本", "status": "canonical"},
+    )
+    assert target_entity.status_code == 201, target_entity.text
+    target_template = await async_client.put(
+        "/api/world/dossier-templates/character",
+        params={"novel_id": target_novel_id},
+        json={
+            "fields": [
+                {
+                    "facing": {"kind": "project", "term_id": target_term.json()["id"]},
+                    "label": "修行境界",
+                }
+            ]
+        },
+    )
+    assert target_template.status_code == 200, target_template.text
+    cross_preview_url = (
+        f"/api/world/entities/{target_entity.json()['id']}/dossier/manifest/preview"
+    )
+    cross_apply_url = (
+        f"/api/world/entities/{target_entity.json()['id']}/dossier/manifest/apply"
+    )
+    unmapped = await async_client.post(
+        cross_preview_url,
+        params={"novel_id": target_novel_id},
+        json={
+            "manifest": manifest,
+            "expected_template_version_number": 1,
+            "template_mapping_confirmed": True,
+        },
+    )
+    assert unmapped.status_code == 400
+
+    cross_request = {
+        "manifest": manifest,
+        "facing_mappings": [
+            {
+                "source": {"kind": "project", "term_id": source_term.json()["id"]},
+                "target": {"kind": "project", "term_id": target_term.json()["id"]},
+            }
+        ],
+        "expected_template_version_number": 1,
+        "template_mapping_confirmed": True,
+    }
+    cross_preview = await async_client.post(
+        cross_preview_url,
+        params={"novel_id": target_novel_id},
+        json=cross_request,
+    )
+    assert cross_preview.status_code == 200, cross_preview.text
+    assert cross_preview.json()["can_apply"] is True
+    cross_apply = await async_client.post(
+        cross_apply_url,
+        params={"novel_id": target_novel_id},
+        json={
+            **cross_request,
+            "confirmed": True,
+            "expected_preview_hash": cross_preview.json()["preview_hash"],
+        },
+    )
+    assert cross_apply.status_code == 200, cross_apply.text
+    read_target = await async_client.get(
+        f"/api/world/entities/{target_entity.json()['id']}/dossier",
+        params={"novel_id": target_novel_id},
+    )
+    imported = read_target.json()["entries"][0]
+    assert imported["content"] == "已至筑基后期"
+    assert imported["visibility"] == "secret"
+    assert imported["facing"]["term_id"] == target_term.json()["id"]
 
 
 @pytest.mark.asyncio

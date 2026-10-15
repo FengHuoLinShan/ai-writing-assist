@@ -331,8 +331,7 @@ class SpreadsheetMigrationService:
         """默认 AI 整理范围，对齐前端 MigrationAiStep 的预选规则：
         非隐藏的大纲类表 + 实体表的作者备注列。"""
         mapping_sheets = {
-            sheet["sheet_key"]: sheet
-            for sheet in session.mapping_json.get("sheets", [])
+            sheet["sheet_key"]: sheet for sheet in session.mapping_json.get("sheets", [])
         }
         outline_keys: list[str] = []
         cleanup: list[dict[str, str]] = []
@@ -505,9 +504,7 @@ class SpreadsheetMigrationService:
             allowed = STORY_COLUMN_TARGETS
         for column_key, target in columns.items():
             if target not in allowed:
-                raise ValidationError(
-                    f"列 {column_key} 的目标 {target} 不适用于该表类型"
-                )
+                raise ValidationError(f"列 {column_key} 的目标 {target} 不适用于该表类型")
 
     async def save_decisions(
         self,
@@ -586,15 +583,10 @@ class SpreadsheetMigrationService:
         session: ImportMigrationSession,
     ) -> None:
         """对照任务最终状态修正 ai_status，避免长期停在 running。"""
-        if (
-            session.ai_status not in {"queued", "running"}
-            or session.ai_task_id is None
-        ):
+        if session.ai_status not in {"queued", "running"} or session.ai_task_id is None:
             return
         row = (
-            await db.execute(
-                select(AsyncTask).where(AsyncTask.id == session.ai_task_id)
-            )
+            await db.execute(select(AsyncTask).where(AsyncTask.id == session.ai_task_id))
         ).scalar_one_or_none()
         if row is None:
             session.ai_status = "failed"
@@ -666,9 +658,7 @@ class SpreadsheetMigrationService:
             written_chapter_policy=options.get(
                 "written_chapter_policy", "reference_only"
             ),
-            outline_head_policy=options.get(
-                "outline_head_policy", "create_if_missing"
-            ),
+            outline_head_policy=options.get("outline_head_policy", "create_if_missing"),
         )
         entity_refs: dict[str, str | None] = {
             entity.item_key: (
@@ -702,8 +692,7 @@ class SpreadsheetMigrationService:
         self, session: ImportMigrationSession
     ) -> list[planning.SheetContext]:
         mapping_sheets = {
-            sheet["sheet_key"]: sheet
-            for sheet in session.mapping_json.get("sheets", [])
+            sheet["sheet_key"]: sheet for sheet in session.mapping_json.get("sheets", [])
         }
         contexts: list[planning.SheetContext] = []
         for file in session.file_manifest:
@@ -719,7 +708,9 @@ class SpreadsheetMigrationService:
                         kind=mapped["kind"],
                         header_row=int(mapped.get("header_row", 0)),
                         default_entity_type=mapped.get("default_entity_type"),
+                        dossier_profile_type=mapped.get("dossier_profile_type"),
                         columns=dict(mapped.get("columns", {})),
+                        facing_mappings=dict(mapped.get("facing_mappings", {})),
                         rows=list(session.rows_json.get(key, [])),
                     )
                 )
@@ -931,9 +922,7 @@ class SpreadsheetMigrationService:
     def _decision_label(session: ImportMigrationSession, item_key: str) -> str:
         decision = session.decisions_json.get(item_key)
         action = (
-            str(decision.get("action", "auto"))
-            if isinstance(decision, dict)
-            else "auto"
+            str(decision.get("action", "auto")) if isinstance(decision, dict) else "auto"
         )
         return _DECISION_LABELS.get(action, "auto")
 
@@ -1030,6 +1019,9 @@ class SpreadsheetMigrationService:
         return {
             "created": sum(1 for c in world_changes if c.operation == "create"),
             "filled": sum(1 for c in world_changes if c.operation == "fill_empty"),
+            "dossier_entries": sum(
+                1 for c in world_changes if c.operation == "dossier_create"
+            ),
             "adopted": sum(1 for c in world_changes if c.operation == "promote"),
             "relations": sum(1 for c in world_changes if c.kind == "relation"),
             "structures": len(story_changes),

@@ -2,7 +2,7 @@
  * 表格迁移组件测试 — ImportDrawer 页签（正文 accept 不变）、映射步骤与预览步骤。
  */
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest"
-import { mount } from "@vue/test-utils"
+import { flushPromises, mount } from "@vue/test-utils"
 import ImportDrawer from "../../../vue/views/project/components/ImportDrawer.vue"
 import MigrationSheetMappingStep from "../../../vue/views/project/components/spreadsheetMigration/MigrationSheetMappingStep.vue"
 import MigrationPreviewStep from "../../../vue/views/project/components/spreadsheetMigration/MigrationPreviewStep.vue"
@@ -30,6 +30,12 @@ beforeEach(() => {
   globalThis.api.imports.list = vi.fn(async () => ({ items: [] }))
   globalThis.api.imports.migrations = globalThis.api.imports.migrations || {}
   globalThis.api.imports.migrations.list = vi.fn(async () => ({ items: [], total: 0 }))
+  globalThis.api.world = globalThis.api.world || {}
+  globalThis.api.world.listDossierFacetsForType = vi.fn(async (profileType) => ({
+    items: profileType === "character"
+      ? [{ facing: { kind: "core", key: "appearance" }, label: "外貌", source: "core" }]
+      : [],
+  }))
 })
 
 afterEach(() => {
@@ -96,7 +102,7 @@ describe("MigrationSheetMappingStep", () => {
   }
 
   it("渲染列映射并可改投目标", async () => {
-    const wrapper = mount(MigrationSheetMappingStep, { props: { session: makeSession(), saving: false } })
+    const wrapper = mount(MigrationSheetMappingStep, { props: { session: makeSession(), projectId: "p1", saving: false } })
     const select = wrapper.find('[data-action="sm-target-f0s0-c1"]')
     expect(select.exists()).toBe(true)
     await select.setValue("hidden_truth")
@@ -108,7 +114,7 @@ describe("MigrationSheetMappingStep", () => {
   })
 
   it("空表头目标列表随表类型收窄", () => {
-    const wrapper = mount(MigrationSheetMappingStep, { props: { session: makeSession(), saving: false } })
+    const wrapper = mount(MigrationSheetMappingStep, { props: { session: makeSession(), projectId: "p1", saving: false } })
     const options = wrapper.findAll('[data-action="sm-target-f0s0-c0"] option')
     const values = options.map((option) => option.attributes("value"))
     expect(values).toContain("name")
@@ -119,13 +125,13 @@ describe("MigrationSheetMappingStep", () => {
   it("保存映射携带默认实体类型，缺省时省略该字段", async () => {
     const withDefault = makeSession()
     withDefault.sheets[0].default_entity_type = "character"
-    const wrapper = mount(MigrationSheetMappingStep, { props: { session: withDefault, saving: false } })
+    const wrapper = mount(MigrationSheetMappingStep, { props: { session: withDefault, projectId: "p1", saving: false } })
     await wrapper.find('[data-action="sm-save-mapping"]').trigger("click")
     let emitted = wrapper.emitted("save")
     expect(emitted[0][0].sheets[0].default_entity_type).toBe("character")
 
     const withoutDefault = mount(MigrationSheetMappingStep, {
-      props: { session: makeSession(), saving: false },
+      props: { session: makeSession(), projectId: "p1", saving: false },
     })
     await withoutDefault.find('[data-action="sm-save-mapping"]').trigger("click")
     emitted = withoutDefault.emitted("save")
@@ -143,13 +149,40 @@ describe("MigrationSheetMappingStep", () => {
         { column_key: "c1", header: "性格", target: "personality", target_suggested: true },
       ],
     }
-    const wrapper = mount(MigrationSheetMappingStep, { props: { session, saving: false } })
+    const wrapper = mount(MigrationSheetMappingStep, { props: { session, projectId: "p1", saving: false } })
     const values = wrapper
       .findAll('[data-action="sm-target-f0s0-c1"] option')
       .map((option) => option.attributes("value"))
     expect(values).not.toContain("role")
     expect(values).toContain("personality")
     expect(values.indexOf("personality")).toBeGreaterThan(values.indexOf("ignore"))
+  })
+
+  it("档案面向列要求作者选择对象类型、面向与可见范围", async () => {
+    const session = makeSession()
+    session.sheets[0].default_entity_type = "character"
+    const wrapper = mount(MigrationSheetMappingStep, {
+      props: { session, projectId: "p1", saving: false },
+    })
+    await wrapper.find('[data-action="sm-target-f0s0-c1"]').setValue("dossier_facing")
+    await flushPromises()
+    const selectors = wrapper.findAll('.sm-mapping__column select')
+    const faceSelect = wrapper.findAll('.sm-mapping__column label select')[0]
+    expect(wrapper.text()).toContain("档案对象类型")
+    await faceSelect.setValue("core:character:appearance")
+    const visibility = wrapper.findAll('.sm-mapping__column label select')[1]
+    await visibility.setValue("secret")
+    await wrapper.find('[data-action="sm-save-mapping"]').trigger("click")
+    const payload = wrapper.emitted("save")[0][0].sheets[0]
+    expect(payload.dossier_profile_type).toBe("character")
+    expect(payload.facing_mappings.c1).toEqual({
+      kind: "core",
+      key: "appearance",
+      source_entity_type: "character",
+      visibility: "secret",
+    })
+    expect(payload.columns.c1).toBe("dossier_facing")
+    expect(selectors.length).toBeGreaterThan(0)
   })
 })
 
