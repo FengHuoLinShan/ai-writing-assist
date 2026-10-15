@@ -1,6 +1,6 @@
 # ADR-0036 — 世界演化可选阅读步骤契约与空间发现（地图自动冷启动）
 
-- **状态**: Accepted / 未实施（产品方向由用户 2026-10-15 裁定；技术评审修订后由用户 2026-10-15 采纳）
+- **状态**: Accepted / 实施中（空间模型、类型词表及演化空间发现工程已落地；五题材质量评测、启用与作者验收仍待完成；产品方向由用户 2026-10-15 裁定；技术评审修订后由用户 2026-10-15 采纳）
 - **日期**: 2026-10-15
 - **关联追踪**: ADR-0012（统一地图）、ADR-0013（operation receipt）、ADR-0025（知识治理）、
   ADR-0031（依赖方向）、ADR-0035（空间模型 v2 与涌现类型）、ADR-0039（对象档案发现，本契约的第二个实例）、
@@ -109,7 +109,7 @@ journal、缺口、指纹、补扫和预算，规则会分叉，预算不足时�
 
 ### 2. 空间发现：第一个新增实例
 
-- 开关 `ReadingRequest.discover_spatial`（名称待实施确定）；journal 前缀 `scene_spatial_*`。
+- 开关 `ReadingRequest.discover_spatial`（已登记，默认关闭）；journal 前缀 `scene_spatial_*`。
 - 能力：`evolution.spatial_discover`（抽取空间线索）、`evolution.spatial_review`（独立复核）。
 - 产出归地图域，经 world 的地图 facade 写入（§6）。
 

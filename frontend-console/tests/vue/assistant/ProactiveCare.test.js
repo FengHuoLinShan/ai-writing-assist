@@ -2,6 +2,7 @@ import { afterEach, beforeEach, expect, it, vi } from "vitest"
 import { flushPromises, mount } from "@vue/test-utils"
 import ProactiveCare from "../../../vue/components/ProactiveCare.vue"
 import { resetBridgeOverrides, setBridgeOverrides } from "../../../vue/bridge/index.js"
+import { locateAssistantSource } from "../../../vue/shared/assistantNavigation.js"
 
 let wrapper, api
 beforeEach(() => {
@@ -13,6 +14,20 @@ beforeEach(() => {
   setBridgeOverrides({ api: { assistant: api } })
 })
 afterEach(() => { wrapper?.unmount(); resetBridgeOverrides() })
+
+it("opens the map workbench from a coalesced map reminder", async () => {
+  const source = { type: "map_changes", page: "map", automatic_adoption: false, provider_requests: 0 }
+  api.careNotices.mockResolvedValue({ items: [{ id: "map-notice", title: "地图资料有待核对", status: "unread", source }] })
+  const navigate = vi.fn()
+  setBridgeOverrides({ router: { navigate } })
+  wrapper = mount(ProactiveCare, { props: { targetId: "p1", onLocate: locateAssistantSource } })
+  await flushPromises()
+  await wrapper.findAll("button").find(button => button.text() === "查看来源").trigger("click")
+  expect(wrapper.emitted("locate")).toEqual([[source]])
+  expect(navigate).toHaveBeenCalledWith("map", null, true, expect.any(URLSearchParams))
+  expect(Object.fromEntries(navigate.mock.calls[0][3])).toEqual({})
+  expect(api.decideCareNotice).not.toHaveBeenCalled()
+})
 
 it("does not claim saved or discard policy edits on failure and reminder refresh", async () => {
   wrapper = mount(ProactiveCare, { props: { targetId: "p1" } })

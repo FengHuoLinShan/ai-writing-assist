@@ -94,3 +94,15 @@ it('详情展开事件晚到时入口等待领域状态，读取期间不会吞�
   await button(wrapper, '开始地图引导').trigger('click'); await flushPromises()
   expect(api.assistant.guidedFlowStart).toHaveBeenCalledTimes(1)
 })
+
+it('勾选地点后结束引导会释放待处理状态，地图工作台可以继续使用', async () => {
+  api.assistant.guidedFlowLatest.mockResolvedValue(view('locations', { candidate_locations: [{ entity_id: 'place', name: '渡口', status: 'candidate' }] }))
+  const wrapper = mount(MapColdStartPanel, { props: { projectId: 'p' } })
+  await open(wrapper)
+  await wrapper.get('input[type="checkbox"]').setValue(true)
+  expect(wrapper.emitted('state').at(-1)[0].dirty).toBe(true)
+  await button(wrapper, '结束本次引导').trigger('click'); await flushPromises()
+  expect(api.assistant.guidedFlowAbandon).toHaveBeenCalledWith('p', 'flow-map')
+  expect(wrapper.emitted('state').at(-1)[0]).toEqual({ dirty: false, busy: false })
+  expect(wrapper.find('input[type="checkbox"]').exists()).toBe(false)
+})

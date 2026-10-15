@@ -273,6 +273,14 @@ async def _create_term(
     db.add(revision)
     term.current_revision_id = revision.id
     await db.flush()
+    if (
+        term.source == "model"
+        and not term.author_confirmed
+        and change_reason.startswith("model")
+    ):
+        from modules.world.map_notification_service import mark_map_changed
+
+        await mark_map_changed(db, term.novel_id, "project_vocabulary_term", term.id)
     return term, revision
 
 
@@ -301,6 +309,14 @@ async def _append_revision(
     term.status = status
     term.redirect_to_id = redirect_to_id
     await db.flush()
+    if (
+        term.source == "model"
+        and not term.author_confirmed
+        and change_reason.startswith("model")
+    ):
+        from modules.world.map_notification_service import mark_map_changed
+
+        await mark_map_changed(db, term.novel_id, "project_vocabulary_term", term.id)
     return term, revision
 
 

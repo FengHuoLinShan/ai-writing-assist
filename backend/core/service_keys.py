@@ -45,6 +45,7 @@ if TYPE_CHECKING:
         WorldAliasRelationTaskPort,
         WorldBuildMapAutoDraftsPort,
         WorldReadMapColdStartDraftsPort,
+        WorldReadMapNotificationSignalsPort,
         WorldReadMapSpatialAdvisoriesPort,
         WorldReadMapSpatialBriefPort,
     )
@@ -76,6 +77,9 @@ EVOLUTION_READ_MAP_COLD_START_STATUS: ServiceKey[EvolutionReadMapColdStartStatus
 )
 WORLD_READ_MAP_COLD_START_DRAFTS: ServiceKey[WorldReadMapColdStartDraftsPort] = (
     ServiceKey("world.read_map_cold_start_drafts")
+)
+WORLD_READ_MAP_NOTIFICATION_SIGNALS: ServiceKey[WorldReadMapNotificationSignalsPort] = (
+    ServiceKey("world.read_map_notification_signals")
 )
 SOURCE_CHANGED: ServiceKey[Callable[..., Any]] = ServiceKey("source.changed")
 ASSISTANT_PROACTIVE_SUBMITTERS: ServiceKey[dict[str, Callable[..., Any]]] = ServiceKey(
@@ -383,6 +387,7 @@ ALL_SERVICE_KEYS: tuple[ServiceKey[Any], ...] = (
     ASSISTANT_READ_MAP_AUTHOR_DECISION,
     EVOLUTION_READ_MAP_COLD_START_STATUS,
     WORLD_READ_MAP_COLD_START_DRAFTS,
+    WORLD_READ_MAP_NOTIFICATION_SIGNALS,
     EVIDENCE_CONFIRMATION_READS,
     ASSISTANT_FORECAST_INSTRUCTIONS,
     ASSISTANT_FORECAST_PERSONAS,

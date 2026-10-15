@@ -1956,6 +1956,9 @@ async def _process_batch(
     if batch.status == "running" and batch.cursor >= len(plan.get("shards", [])):
         batch.status = "completed"
     await db.flush()
+    from modules.world.map_notification_service import mark_map_changed
+
+    await mark_map_changed(db, novel_id, "map_auto_draft_batch", batch.id)
     return _response(batch)
 
 

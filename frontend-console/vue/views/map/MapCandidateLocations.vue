@@ -38,7 +38,7 @@ async function adopt() {
   } finally { if (alive && epoch === token) busy.value = false }
 }
 watch(() => props.projectId, () => { epoch++; selected.value = []; completed.value = []; busy.value = false; error.value = '' })
-onBeforeUnmount(() => { alive = false; epoch++ })
+onBeforeUnmount(() => { alive = false; epoch++; emit('state', { selected: false, busy: false }) })
 </script>
 
 <template>

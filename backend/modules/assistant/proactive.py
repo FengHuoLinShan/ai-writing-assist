@@ -183,6 +183,14 @@ async def mark_changed(db, novel_id, asset_type, asset_id, *, related_scene_ids=
         "world_entity": "core_entity",
         "world_bible_page_draft": "world_bible_draft",
     }.get(asset_type, asset_type)
+    from modules.assistant import map_notices
+
+    if asset_type in map_notices.ASSETS:
+        await map_notices.record_change(
+            db, novel_id, asset_type, asset_id, related_scene_ids
+        )
+        if asset_type != "outline_scene":
+            return
     domain = _DOMAINS.get(asset_type)
     if domain is None:
         return
@@ -757,8 +765,14 @@ async def list_notices(db, novel_id, *, interaction=False):
     dirty = (watch.dirty_json or {}) if watch else {}
     stale_reviews = {}
     editorial_stale_ids = set()
+    map_visible = {}
     for row in rows:
         reference = row.result_ref_json or {}
+        if reference.get("type") == "map_changes":
+            from modules.assistant.map_notices import visible_summary
+
+            map_visible[row.id] = await visible_summary(db, str(novel_id), row, watch)
+            continue
         if reference.get("type") == "editorial_issue":
             from modules.assistant.editorial_models import EditorialIssue, EditorialReview
             from modules.writing.facade import get_latest_draft_for_chapter
@@ -811,13 +825,15 @@ async def list_notices(db, novel_id, *, interaction=False):
             {
                 "id": str(row.id),
                 "title": row.title,
-                "summary": row.summary,
+                "summary": (map_visible.get(row.id) or {}).get("summary", row.summary),
                 "kind": row.kind,
                 "status": "unread"
                 if row.status == "snoozed" and row.wake_at and _aware(row.wake_at) <= now
                 else row.status,
                 "sources": row.sources_json,
-                "source": row.result_ref_json,
+                "source": (map_visible.get(row.id) or {}).get(
+                    "source", row.result_ref_json
+                ),
                 "can_recheck": bool(
                     row.result_ref_json.get("task_id")
                     or row.result_ref_json.get("change_key")
@@ -840,6 +856,10 @@ async def list_notices(db, novel_id, *, interaction=False):
             }
             for row in rows
             if row.result_ref_json.get("type") != "forecast"
+            and (
+                row.result_ref_json.get("type") != "map_changes"
+                or map_visible.get(row.id)
+            )
             and (row.status != "snoozed" or (row.wake_at and _aware(row.wake_at) <= now))
         ]
     }

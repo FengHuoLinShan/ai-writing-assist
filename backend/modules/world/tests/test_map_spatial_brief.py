@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import uuid
+from dataclasses import replace
 from types import SimpleNamespace
 
 import pytest
@@ -335,6 +336,62 @@ async def test_spatial_brief_is_scene_bounded_and_uses_explicit_location_and_pre
     assert "未来城" not in brief.items[0].content
     assert "传闻地点" not in brief.items[0].content
 
+    for exclusion in (
+        f"writing_draft:{fact['source']['provenance']['source_refs'][0]['draft_id']}",
+        "writing_chapter:2",
+        f"source_range:{fact['source']['provenance']['source_refs'][0]['range_hash']}",
+        f"project_vocabulary_term:{mobile_type.id}",
+        f"project_vocabulary_revision:{mobile_type.revision_id}",
+    ):
+        excluded_position = await read_map_spatial_brief(
+            db_session,
+            MapSpatialBriefRequest(
+                novel_id=test_project_id,
+                scene_id=scene_id,
+                excluded_ids=[exclusion],
+            ),
+        )
+        assert excluded_position.items
+        excluded_payload = json.loads(excluded_position.items[0].content)
+        assert excluded_payload["当前地点"][0]["label"] == "临江城"
+        assert excluded_payload["移动对象最后位置"] == [], exclusion
+
+    # The normal Evidence loader forwards frozen selection source_refs as draft
+    # exclusions; exercise that adapter with the same real map reader.
+    from core.config import get_settings
+    from modules.evidence.compilation.contracts import (
+        CompileOptions,
+        StructureContextBundle,
+    )
+    from modules.evidence.compilation.services.loaders import map_spatial_loader
+
+    settings = replace(
+        get_settings(), map_spatial_enabled_capabilities=("writing.generate",)
+    )
+    monkeypatch.setattr(map_spatial_loader, "get_settings", lambda: settings)
+    options = CompileOptions(
+        novel_id=test_project_id,
+        task="续写当前场景",
+        scope="project",
+        scene_id=scene_id,
+        consumer_action="writing.generate",
+        excluded_refs=[
+            {
+                "kind": "source",
+                "source_ref": fact["source"]["provenance"]["source_refs"][0],
+            }
+        ],
+    )
+    bundle = StructureContextBundle(
+        novel_id=test_project_id, task=options.task, scope="project"
+    )
+    await map_spatial_loader.MapSpatialLoader().load(db_session, options, bundle)
+    assert bundle.map_spatial_brief["items"]
+    assert (
+        json.loads(bundle.map_spatial_brief["items"][0]["content"])["移动对象最后位置"]
+        == []
+    )
+
     earlier_cutoff = await read_map_spatial_brief(
         db_session,
         MapSpatialBriefRequest(
@@ -414,6 +471,16 @@ async def test_brief_never_guesses_scene_location_and_honors_node_exclusion(
     assert empty.items == []
     assert excluded.items == []
     assert excluded_entity.items == []
+    excluded_revision = await read_map_spatial_brief(
+        db_session,
+        MapSpatialBriefRequest(
+            novel_id=test_project_id,
+            scene_id=scene_id,
+            query_text="临江城",
+            excluded_ids=[f"map_atlas_revision:{saved.id}"],
+        ),
+    )
+    assert excluded_revision.items == []
 
 
 @pytest.mark.asyncio

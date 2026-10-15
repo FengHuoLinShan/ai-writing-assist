@@ -743,6 +743,18 @@ class MapStructureService:
         node.current_revision_id = row.id
         await MapAtlasService()._adopt_ancestors(db, node)
         await db.flush()
+        from modules.world.map_notification_service import mark_map_changed
+
+        scene_ids = {
+            str(anchor.id)
+            for item in [*document.features, *document.constraints, *document.journeys]
+            if item.effective is not None
+            for anchor in (item.effective.start, item.effective.end)
+            if anchor is not None and anchor.kind == "scene"
+        }
+        await mark_map_changed(
+            db, novel_id, "map_atlas_node", node.id, scene_ids=sorted(scene_ids)[:20]
+        )
         return self.response(row)
 
     async def history(self, db, novel_id, node_id):

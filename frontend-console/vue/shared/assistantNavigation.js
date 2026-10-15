@@ -20,6 +20,7 @@ export function openAssistantDestination(destination, context = {}) {
 }
 
 export function locateAssistantSource(source) {
+  if (source.type === "map_changes") return openAssistantDestination("map")
   const location = source.location || source.source_ref || source
   const target = source.target || source.target_ref || (source.source_ref ? { type: "writing_draft", id: source.source_ref.draft_id } : source)
   const type = target.type || target.target_type
