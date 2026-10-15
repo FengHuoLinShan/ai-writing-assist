@@ -15,6 +15,9 @@ from infrastructure.llm.schemas import LLMCallRequest, LLMMessage
 from modules.story.schemas import (
     CardPreview,
     CharacterCardContent,
+    CharacterCardFact,
+    CharacterCardInterpretation,
+    CharacterCardPattern,
     ReactionPreview,
     ScriptPreview,
     StorySchema,
@@ -41,7 +44,7 @@ STORY_OUTPUT_MAX_CHARS = 48_000
 
 
 class _CardOutput(StorySchema):
-    content: CharacterCardContent
+    interpretations: list[CharacterCardInterpretation] = []
     warnings: list[str] = []
 
 
@@ -64,6 +67,7 @@ class StoryGenerationService:
         request: LLMCallRequest,
         schema: type[StorySchema],
         output: StorySchema,
+        reference_dimensions: tuple[str, ...] = (),
     ) -> tuple[StorySchema, dict[str, Any]]:
         """全知审查预览输出（ADR-0025）：audit → ≤1 次同 schema 返修 → 复审。
 
@@ -92,6 +96,7 @@ class StoryGenerationService:
         scene_digest = hashlib.sha256(
             json.dumps(scene_context, ensure_ascii=False, sort_keys=True).encode("utf-8")
         ).hexdigest()
+        base_dimensions = {"world_rules", "scene_state", "character_knowledge"}
         entries = (
             KnowledgeSourceEntry(
                 source_key=f"compiled_context:{context_digest[:12]}",
@@ -99,7 +104,7 @@ class StoryGenerationService:
                 source_id="server",
                 content_hash=context_digest,
                 label="编译的权威上下文",
-                dimensions=("world_rules", "scene_state"),
+                dimensions=tuple(sorted(base_dimensions | set(reference_dimensions))),
             ),
             KnowledgeSourceEntry(
                 source_key=f"scene_context:{scene_digest[:12]}",
@@ -294,10 +299,23 @@ class StoryGenerationService:
         scene_context: dict[str, Any],
         character_id: str,
         additional_notes: str | None = None,
+        deterministic_facts: list[dict[str, Any]] | None = None,
+        reference_patterns: list[dict[str, Any]] | None = None,
+        reference_dimensions: tuple[str, ...] = (),
     ) -> CardPreview:
+        deterministic_facts = deterministic_facts or []
+        reference_patterns = reference_patterns or []
         target = {
             "character_id": character_id,
             "additional_notes": additional_notes or "",
+            "deterministic_facts": deterministic_facts,
+            "reference_patterns": reference_patterns,
+            "generation_rule": (
+                "只返回 interpretations；不复制或改写事实。每条解释至少引用一个"
+                "source_fact_ids 或 source_pattern_ids，且只能使用本输入中的 ID。"
+                "Evolution pattern 是推论而非事实。当前目标/状态/情绪不能代表"
+                "Story Scene 时点真源。"
+            ),
         }
         request = self._request(
             client,
@@ -322,10 +340,23 @@ class StoryGenerationService:
             request=request,
             schema=_CardOutput,
             output=output,
+            reference_dimensions=reference_dimensions,
+        )
+        fact_basis = [
+            CharacterCardFact.model_validate(item) for item in deterministic_facts
+        ]
+        pattern_basis = [
+            CharacterCardPattern.model_validate(item) for item in reference_patterns
+        ]
+        content = CharacterCardContent(
+            version="character_card.v2",
+            fact_basis=fact_basis,
+            pattern_basis=pattern_basis,
+            interpretations=output.interpretations,
         )
         return CardPreview(
             character_id=character_id,
-            content=output.content,
+            content=content,
             warnings=output.warnings,
             knowledge_review=review,
         )
@@ -338,7 +369,12 @@ class StoryGenerationService:
         scene_context: dict[str, Any],
         character_ids: list[str],
         additional_notes: str | None = None,
+        deterministic_facts: list[dict[str, Any]] | None = None,
+        reference_patterns: list[dict[str, Any]] | None = None,
+        reference_dimensions: tuple[str, ...] = (),
     ) -> ReactionPreview:
+        deterministic_facts = deterministic_facts or []
+        reference_patterns = reference_patterns or []
         request = self._request(
             client,
             purpose="per_character_reaction_proposals",
@@ -348,6 +384,13 @@ class StoryGenerationService:
                 "scene_id": scene_context.get("scene_id"),
                 "character_ids": character_ids,
                 "additional_notes": additional_notes or "",
+                "deterministic_facts": deterministic_facts,
+                "reference_patterns": reference_patterns,
+                "generation_rule": (
+                    "motivations 可省略，填写时必须有 2–4 条；每条至少引用一个"
+                    "source_fact_ids 或 source_pattern_ids，且只能使用本输入中的 ID。"
+                    "Evolution pattern 是推论，不是事实。"
+                ),
             },
             schema=ReactionPreview,
         )
@@ -366,7 +409,18 @@ class StoryGenerationService:
             request=request,
             schema=ReactionPreview,
             output=output,
+            reference_dimensions=reference_dimensions,
         )
+        allowed_fact_ids = {str(item.get("fact_id")) for item in deterministic_facts}
+        allowed_pattern_ids = {str(item.get("pattern_id")) for item in reference_patterns}
+        for proposal in output.proposals:
+            for motivation in proposal.motivations:
+                if not set(motivation.source_fact_ids).issubset(allowed_fact_ids):
+                    raise ValueError("reaction motivation references an unknown fact id")
+                if not set(motivation.source_pattern_ids).issubset(allowed_pattern_ids):
+                    raise ValueError(
+                        "reaction motivation references an unknown pattern id"
+                    )
         return output.model_copy(update={"knowledge_review": review})
 
     async def script_preview(
@@ -380,6 +434,7 @@ class StoryGenerationService:
         accepted_reactions: list[dict[str, Any]] | None = None,
         accepted_beats: list[dict[str, Any]] | None = None,
         simulation_candidates: dict[str, Any] | None = None,
+        reference_dimensions: tuple[str, ...] = (),
     ) -> ScriptPreview:
         request = self._request(
             client,
@@ -420,5 +475,6 @@ class StoryGenerationService:
             request=request,
             schema=ScriptPreview,
             output=output,
+            reference_dimensions=reference_dimensions,
         )
         return output.model_copy(update={"knowledge_review": review})

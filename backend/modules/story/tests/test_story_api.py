@@ -113,6 +113,8 @@ async def test_rehearsal_submission_stays_on_the_project_connection(
 
     captured = {}
 
+    from modules.story import task_submission
+
     async def fresh(*_args, **_kwargs):
         return None
 
@@ -123,9 +125,9 @@ async def test_rehearsal_submission_stays_on_the_project_connection(
         captured.update(kwargs["meta"])
         return SimpleNamespace(task_id=str(uuid.uuid4()), status="pending", reused=True)
 
-    monkeypatch.setattr(api, "require_fresh_confirmation", fresh)
-    monkeypatch.setattr(api, "build_project_llm_execution_snapshot", snapshot)
-    monkeypatch.setattr(api, "enqueue_task_with_optional_operation", enqueue)
+    monkeypatch.setattr(task_submission, "require_fresh_confirmation", fresh)
+    monkeypatch.setattr(task_submission, "build_project_llm_execution_snapshot", snapshot)
+    monkeypatch.setattr(task_submission, "enqueue_task_with_optional_operation", enqueue)
     data = StoryOneClickTaskRequest(
         novel_id=test_project_id,
         scene_id=str(uuid.uuid4()),
@@ -143,3 +145,52 @@ async def test_rehearsal_submission_stays_on_the_project_connection(
     assert captured["llm_execution_snapshot"] == {"gateway": True}
     assert not any(key.startswith("_local") for key in captured)
     assert "agent_llm_execution_snapshot" not in captured
+
+
+@pytest.mark.asyncio
+async def test_assistant_story_task_keeps_the_root_provider_snapshot(
+    db_session, test_project_id, monkeypatch
+):
+    from modules.story import task_submission
+    from modules.story.schemas import StoryCardTaskRequest
+
+    captured = {}
+
+    async def fresh(*_args, **_kwargs):
+        return None
+
+    async def no_existing(*_args, **_kwargs):
+        return None
+
+    async def no_fallback(*_args, **_kwargs):
+        raise AssertionError("assistant snapshot must not be replaced")
+
+    async def enqueue(*_args, **kwargs):
+        captured.update(kwargs["meta"])
+        return SimpleNamespace(task_id="task-1", status="pending", reused=True)
+
+    monkeypatch.setattr(task_submission, "require_fresh_confirmation", fresh)
+    monkeypatch.setattr(task_submission, "get_operation_task", no_existing)
+    monkeypatch.setattr(
+        task_submission, "build_project_llm_execution_snapshot", no_fallback
+    )
+    monkeypatch.setattr(task_submission, "enqueue_task_with_optional_operation", enqueue)
+    request = StoryCardTaskRequest(
+        novel_id=test_project_id,
+        scene_id=str(uuid.uuid4()),
+        character_id=str(uuid.uuid4()),
+        context_confirmation_id="confirmation-1",
+        operation_id=uuid.uuid4(),
+        confirmed=True,
+    )
+    snapshot = {"novel_id": test_project_id, "gateway": "root-run-snapshot"}
+    result = await task_submission.enqueue_confirmed_story_task(
+        db_session,
+        request,
+        action="story.character_card.generate",
+        task_type="story_character_card_generate",
+        llm_execution_snapshot=snapshot,
+    )
+    assert result.task_id == "task-1"
+    assert captured["llm_execution_snapshot"] == snapshot
+    assert captured["action"] == "story.character_card.generate"

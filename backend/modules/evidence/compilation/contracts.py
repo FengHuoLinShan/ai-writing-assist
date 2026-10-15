@@ -45,6 +45,35 @@ class EvolutionObjectPatternReadPort(Protocol):
     ) -> dict: ...
 
 
+class WorldObjectDossierReadPort(Protocol):
+    """Narrow read-only adapter to the stable World dossier facade."""
+
+    async def __call__(
+        self,
+        db: AsyncSession,
+        *,
+        novel_id: str,
+        entity_id: str,
+        as_of_scene_id: str,
+        limit: int,
+        offset: int,
+    ) -> dict: ...
+
+
+class StoryObjectStateReadPort(Protocol):
+    """POV- and cutoff-aware Story state/checkpoint projection for Evidence."""
+
+    async def __call__(
+        self,
+        db: AsyncSession,
+        *,
+        novel_id: str,
+        scene_id: str,
+        viewpoint: dict,
+        include_checkpoints: bool,
+    ) -> dict: ...
+
+
 INTERACTION_SOURCE_CONTEXT_MAX_TOKENS = 16_000
 SCENE_WORLD_STATE_ACTIONS = frozenset(
     {
@@ -524,6 +553,8 @@ class StructureContextBundle:
     """来自 World adopted-map facade 的有界只读空间参考。"""
     object_dossier_brief: dict | None = None
     """Evidence-owned projection of World dossiers, Story cutoff state and L3 patterns."""
+    object_reference_dimensions: list[str] = field(default_factory=list)
+    """Optional reference dimensions explicitly enabled for this consumer action."""
     memory_records: list = field(default_factory=list)
     """长期记忆记录列表"""
     scene_checkpoint_set: dict | None = None

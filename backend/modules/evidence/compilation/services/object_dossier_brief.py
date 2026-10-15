@@ -4,11 +4,14 @@ from __future__ import annotations
 
 from typing import Any
 
+from core.container import get
 from infrastructure.stable_hash import stable_hash
 from modules.evidence.compilation.contracts import (
     CompileOptions,
     EvolutionObjectPatternReadPort,
 )
+from modules.project.facade import require_active_project
+from modules.world.facade import read_world_object_dossier
 
 MAX_OBJECTS = 16
 MAX_DOSSIER_ENTRIES = 48
@@ -144,8 +147,6 @@ class ObjectDossierBriefService:
         include_patterns: bool,
         only_adopted_patterns: bool = False,
     ) -> dict[str, Any]:
-        from modules.project.facade import require_active_project
-
         await require_active_project(db, options.novel_id)
         scene_id = options.scene_id
         if not scene_id:
@@ -256,8 +257,6 @@ class ObjectDossierBriefService:
             ]
             if degraded:
                 omissions.append("部分角色时点状态来源待复核")
-
-        from modules.world.facade import read_world_object_dossier
 
         selected_ids = sorted({str(item) for item in entity_ids})[:MAX_OBJECTS]
         omitted_count = max(0, len(set(entity_ids)) - len(selected_ids))
@@ -530,8 +529,6 @@ class ObjectDossierBriefService:
                 try:
                     provider = self._evolution_pattern_reader
                     if provider is None:
-                        from core.container import get
-
                         provider = get("evidence.read_evolution_object_patterns")
                 except KeyError:
                     omissions.append("Evolution 台账只读 DI 尚未接线，未回退读取其他数据")

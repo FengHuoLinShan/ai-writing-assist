@@ -62,6 +62,40 @@ def _text_hash(value: str) -> str:
     return hashlib.sha256(value.encode("utf-8")).hexdigest()
 
 
+def _card_reference_basis(
+    compiled, *, scene_id: str
+) -> tuple[list[dict], list[dict], tuple[str, ...]]:
+    """Extract source-addressable references from the already compiled POV scope."""
+    facts: list[dict] = []
+    patterns: list[dict] = []
+    dimensions: set[str] = set()
+    for section in getattr(compiled, "sections", []) or []:
+        if section.key not in {"role_profile", "object_dossier", "character_pattern"}:
+            continue
+        if getattr(section, "excluded", False):
+            continue
+        metadata = section.retrieval_metadata or {}
+        facts.extend(
+            dict(item)
+            for item in metadata.get("fact_basis", [])
+            if isinstance(item, dict)
+        )
+        patterns.extend(
+            dict(item)
+            for item in metadata.get("pattern_basis", [])
+            if isinstance(item, dict)
+        )
+        dimensions.update(
+            str(item)
+            for item in metadata.get("reference_dimensions", [])
+            if item in {"object_dossier", "character_pattern"}
+        )
+    for fact in facts:
+        if fact.get("kind") == "story_state":
+            fact["as_of_scene_id"] = scene_id
+    return facts, patterns, tuple(sorted(dimensions))
+
+
 def _parse_task_request(meta: dict[str, Any], request_model: type[Any]) -> Any:
     """Validate only request fields from a task meta envelope.
 
@@ -203,8 +237,14 @@ async def _compile_character_reveals(
             }
             for section in getattr(compiled, "sections", []) or []
         ]
+        deterministic_facts, reference_patterns, reference_dimensions = (
+            _card_reference_basis(compiled, scene_id=scene_id)
+        )
         reveals[str(character_id)] = {
             "markdown": rendered,
+            "deterministic_facts": deterministic_facts,
+            "reference_patterns": reference_patterns,
+            "reference_dimensions": reference_dimensions,
             "known_actor_ids": sorted(
                 {
                     str(item.source.get("id"))
@@ -232,6 +272,15 @@ async def _compile_character_reveals(
             },
         }
     return reveals
+
+
+def _require_character_reveal(
+    character_reveals: dict[str, dict[str, Any]], character_id: str
+) -> dict[str, Any]:
+    reveal = character_reveals.get(str(character_id))
+    if not reveal or not str(reveal.get("markdown") or "").strip():
+        raise ValueError("缺少该人物的 POV 可见资料，已停止生成")
+    return reveal
 
 
 def _character_scene_context(
@@ -492,18 +541,21 @@ async def handle_story_character_card_generate(db, task):
     )
     generation = StoryGenerationService()
     task.update_progress(0.1)
-    reveal = character_reveals.get(str(data.character_id)) or {}
+    reveal = _require_character_reveal(character_reveals, str(data.character_id))
     async with _open_client(settings, data.novel_id) as client:
         with managed_llm_provenance_scope() as records:
             preview = await generation.card_preview(
                 client,
-                context_markdown=str(reveal.get("markdown") or context_markdown),
+                context_markdown=str(reveal["markdown"]),
                 scene_context=_character_scene_context(
                     story_context,
                     str(data.character_id),
                 ),
                 character_id=data.character_id,
                 additional_notes=data.additional_notes,
+                deterministic_facts=list(reveal.get("deterministic_facts") or []),
+                reference_patterns=list(reveal.get("reference_patterns") or []),
+                reference_dimensions=tuple(reveal.get("reference_dimensions") or ()),
             )
         _record_provenance(task, records)
     task.update_progress(1.0)
@@ -548,16 +600,19 @@ async def handle_story_reaction_propose(db, task):
             proposals = []
             warnings: list[str] = []
             for character_id in character_ids:
-                reveal = character_reveals.get(character_id) or {}
+                reveal = _require_character_reveal(character_reveals, character_id)
                 character_preview = await generation.reaction_preview(
                     client,
-                    context_markdown=str(reveal.get("markdown") or context_markdown),
+                    context_markdown=str(reveal["markdown"]),
                     scene_context=_character_scene_context(
                         story_context,
                         character_id,
                     ),
                     character_ids=[character_id],
                     additional_notes=data.additional_notes,
+                    deterministic_facts=list(reveal.get("deterministic_facts") or []),
+                    reference_patterns=list(reveal.get("reference_patterns") or []),
+                    reference_dimensions=tuple(reveal.get("reference_dimensions") or ()),
                 )
                 proposals.extend(character_preview.proposals)
                 warnings.extend(character_preview.warnings)
@@ -681,24 +736,30 @@ async def handle_story_one_click(db, task):
             reactions = []
             warnings: list[str] = []
             for character_id in character_ids:
-                reveal = character_reveals.get(character_id) or {}
+                reveal = _require_character_reveal(character_reveals, character_id)
                 character_scene_context = _character_scene_context(
                     story_context,
                     character_id,
                 )
                 card = await generation.card_preview(
                     client,
-                    context_markdown=str(reveal.get("markdown") or context_markdown),
+                    context_markdown=str(reveal["markdown"]),
                     scene_context=character_scene_context,
                     character_id=character_id,
                     additional_notes=data.additional_notes,
+                    deterministic_facts=list(reveal.get("deterministic_facts") or []),
+                    reference_patterns=list(reveal.get("reference_patterns") or []),
+                    reference_dimensions=tuple(reveal.get("reference_dimensions") or ()),
                 )
                 reaction = await generation.reaction_preview(
                     client,
-                    context_markdown=str(reveal.get("markdown") or context_markdown),
+                    context_markdown=str(reveal["markdown"]),
                     scene_context=character_scene_context,
                     character_ids=[character_id],
                     additional_notes=data.additional_notes,
+                    deterministic_facts=list(reveal.get("deterministic_facts") or []),
+                    reference_patterns=list(reveal.get("reference_patterns") or []),
+                    reference_dimensions=tuple(reveal.get("reference_dimensions") or ()),
                 )
                 cards.append(card)
                 reactions.extend(reaction.proposals)

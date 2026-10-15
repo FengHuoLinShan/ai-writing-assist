@@ -100,6 +100,16 @@ World, Memory, or Writing changes. One-click card freshness is based on a
 source hash of the outline projection, stable compiled-context sections/text,
 and character ID, excluding the card itself.
 
+Generated CharacterCards use `character_card.v2`: the server fixes a deterministic fact basis with
+World entry/revision, Story checkpoint/source and stable character-profile references; the model may
+only add interpretations citing IDs from that basis. Optional reviewed Evolution patterns remain a
+separate interpretation basis, never facts. Legacy `character_card.v1` payloads remain readable.
+Reaction proposals may include 2–4 motivations; every included motivation cites at least one fact or
+pattern ID from that character's independently compiled POV scope. Missing or unknown source IDs stop
+the preview. Character `current_goal`, `current_state`, and `current_emotion` remain author notes and
+are not substituted for Story's Scene-time state. The Assistant card/reaction operations launch the
+existing preview-only tasks under the current run's model snapshot and usage envelope.
+
 Scene asset reads batch-load card and script revisions with two bounded `IN`
 queries. The common Story baseline is hashed once, then per-script exclusion
 hashes are derived in memory; basis hashes and stale decisions remain identical.

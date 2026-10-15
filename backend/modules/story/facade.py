@@ -25,6 +25,9 @@ from modules.story.service import (
     StoryNotFoundError,
     StoryService,
 )
+from modules.story.task_submission import (
+    enqueue_confirmed_story_task as _enqueue_confirmed_story_task,
+)
 
 _service = StoryService()
 
@@ -124,6 +127,11 @@ async def get_character_card(
     card_id: str,
 ):
     return await _service.get_card(db, novel_id, card_id)
+
+
+async def enqueue_confirmed_story_task(db: AsyncSession, data, **options):
+    """Submit a fresh-confirmation-bound Story task from HTTP or Assistant."""
+    return await _enqueue_confirmed_story_task(db, data, **options)
 
 
 async def list_character_cards(
@@ -397,6 +405,36 @@ async def persist_one_click_character_cards(
     )
 
 
+async def read_object_dossier_state(
+    db: AsyncSession,
+    *,
+    novel_id: str,
+    scene_id: str,
+    viewpoint: dict[str, str],
+    include_checkpoints: bool,
+) -> dict[str, Any]:
+    """Return cutoff state and, for authors only, current checkpoint references."""
+    state_view = await get_scene_state_view(
+        db,
+        novel_id,
+        scene_id,
+        viewpoint=viewpoint,
+    )
+    checkpoint_set = None
+    if include_checkpoints:
+        checkpoint_set = await get_scene_checkpoints(db, novel_id, scene_id)
+    return {
+        "state_view": state_view.model_dump(mode="json")
+        if hasattr(state_view, "model_dump")
+        else state_view,
+        "checkpoint_set": (
+            checkpoint_set.model_dump(mode="json")
+            if hasattr(checkpoint_set, "model_dump")
+            else checkpoint_set
+        ),
+    }
+
+
 __all__ = [
     "STORY_CARD_TASK",
     "STORY_CHARACTER_CARD_ACTION",
@@ -416,7 +454,9 @@ __all__ = [
     "create_manual_character_card",
     "create_scene_script_file",
     "create_scene_script_revision",
+    "enqueue_confirmed_story_task",
     "get_character_card",
+    "read_object_dossier_state",
     "get_scene_script_file",
     "get_scene_story_assets",
     "get_scene_story_basis_hash",

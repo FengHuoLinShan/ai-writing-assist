@@ -754,6 +754,14 @@ fact 精确相等的 World 条目；secret、belief-only 匹配、观察和 Evol
 角色模式不会调用 Evolution port。reader 模式不返回对象档案与台账。作者接口默认
 `include_patterns=false`；该选项是本次读取授权，和写作 capability 的默认关闭开关分开。
 
+写作编译器还可把聚合投影加入 `object_dossier` 与 `character_pattern` 两个独立 P3 section。
+消费开关按 capability 分别配置、默认空集关闭；它们只作可排除参考，超预算时先逐出，不能
+挤掉核心资料。角色模式只渲染 Story POV 可见的稳定事实，绝不渲染 Evolution pattern；
+pattern section 明确标为解释而非事实。Context snapshot 保留入选档案 revision、checkpoint
+和台账引用。Assistant 的 `evidence.object_dossier_brief.read` 是同 request schema 的 R0/free
+只读操作，直接调用此 Evidence facade；HTTP 和 Assistant 都核对 active project，不接受
+执行上下文之外的 `novel_id`。
+
 旧 `GenericEntityProfile.data_json` 目前只经显式关联的活动 `EntityProfileTemplate` key/facing
 只读映射；未知 key 原样留在 World 旧读取 API，聚合响应只记录未映射数量，不把它们当作正史，
 也不删除或重写旧 JSON。此切片尚未把旧 Character/profile 写入口桥接到档案 revision/CAS，

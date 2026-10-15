@@ -25,7 +25,12 @@ from modules.story.schemas import (
     StoryOneClickTaskRequest,
     StoryTaskRequest,
 )
-from modules.story.tasks import _character_card_source_hashes, _parse_task_request
+from modules.story.tasks import (
+    _card_reference_basis,
+    _character_card_source_hashes,
+    _parse_task_request,
+    _require_character_reveal,
+)
 
 NOVEL_ID = str(uuid.uuid4())
 SCENE_ID = str(uuid.uuid4())
@@ -170,6 +175,68 @@ def test_character_card_source_hash_uses_stable_per_character_reveal() -> None:
     )
     assert first == second
     assert first[CHARACTER_ID] != changed[CHARACTER_ID]
+
+
+def test_story_generation_fails_closed_when_pov_scope_is_missing() -> None:
+    with pytest.raises(ValueError, match="缺少该人物的 POV 可见资料"):
+        _require_character_reveal({}, CHARACTER_ID)
+    with pytest.raises(ValueError, match="缺少该人物的 POV 可见资料"):
+        _require_character_reveal({CHARACTER_ID: {"markdown": "  "}}, CHARACTER_ID)
+
+
+def test_card_basis_keeps_profile_notes_out_of_scene_time_and_preserves_refs():
+    compiled = SimpleNamespace(
+        sections=[
+            SimpleNamespace(
+                key="role_profile",
+                excluded=False,
+                retrieval_metadata={
+                    "fact_basis": [
+                        {
+                            "fact_id": f"character_profile:{CHARACTER_ID}:personality",
+                            "kind": "character_profile",
+                            "value": "谨慎",
+                        }
+                    ]
+                },
+            ),
+            SimpleNamespace(
+                key="object_dossier",
+                excluded=False,
+                retrieval_metadata={
+                    "fact_basis": [
+                        {
+                            "fact_id": "story:checkpoint-fact",
+                            "kind": "story_state",
+                            "value": "北门关闭",
+                        }
+                    ],
+                    "reference_dimensions": ["object_dossier"],
+                },
+            ),
+            SimpleNamespace(
+                key="character_pattern",
+                excluded=False,
+                retrieval_metadata={
+                    "pattern_basis": [
+                        {
+                            "pattern_id": "pattern:entry:revision",
+                            "statement": "倾向先核对门闩",
+                        }
+                    ],
+                    "reference_dimensions": ["character_pattern"],
+                },
+            ),
+        ]
+    )
+
+    facts, patterns, dimensions = _card_reference_basis(compiled, scene_id=SCENE_ID)
+    profile = next(item for item in facts if item["kind"] == "character_profile")
+    state = next(item for item in facts if item["kind"] == "story_state")
+    assert "as_of_scene_id" not in profile
+    assert state["as_of_scene_id"] == SCENE_ID
+    assert patterns[0]["pattern_id"] == "pattern:entry:revision"
+    assert dimensions == ("character_pattern", "object_dossier")
 
 
 class _Compiled:
