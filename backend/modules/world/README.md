@@ -63,6 +63,12 @@ Evidence 的只读 port 可按 `visibility_filter=public` 在分页、计数和�
 角色读取还可用 `visible_contents` 限定同 Scene 已获事实证明的文本。旧 profile 无逐字段公开标记，
 这两种安全投影均不返回它。原作者管理读口不传筛选参数，仍显示完整档案。
 
+`GenericEntityProfile.data_json` 旧 PUT 经 Dossier 领域服务按字段追加修订；明确模板映射的字段保留面向，
+未知字段进入 `legacy_unmapped` 秘密区。旧 GET/list 与 `WorldBackground` 只读投影当前修订，纯 GET 不物化或写入。
+兼容旧 PUT 可省略 `expected_dossier_revision`；提供时以当前 Dossier 投影基线 CAS，过期返回 409；省略时行锁
+串行化写入但整份 JSON 仍是最后写者胜出。PATCH 省略 `data_json` 保持不变，显式 `null` 清除当前值并留修订历史。
+桥接的 `legacy_import` 修订没有伪造 Scene 时间锚；进入作者完整 Evidence 简报前仍需当前 Scene 的已确认、有正文区间来源的 Story fact 证明同主体同值。Story fact 自身来源精确，但它的字段与 Generic 字段 key 尚未在 Evidence 门禁中对齐，字段级证明由后续 Sol 固定点审修。后续显式作者修订按其自身来源读取。
+
 - `GET /api/world/entities/{id}/dossier` 读取当前设定或指定 Scene 截止点；`GET .../dossier/history`
   提供条目修订历史。
 - `POST /api/world/entities/{id}/dossier/entries` 新增条目；`PATCH .../dossier/entries/{revision_id}`
@@ -77,9 +83,9 @@ Evidence 的只读 port 可按 `visibility_filter=public` 在分页、计数和�
   “不是按章状态”；按 Scene 的状态读取仍由 Story 提供。
 
 逐字段旧值映射和 22 个后端、6 个前端调用方处置见
-[C0 mapping](../../../docs/plans/2026-10-15-world-object-dossier-c0-mapping.md)。Evidence 的三层聚合、
-对象简报、Evolution 只读 DI 键以及 Story/Evidence/Writing/导演接入属于后续 C1/C2；本 World facade
-不代替统一接口。
+[C0 mapping](../../../docs/plans/2026-10-15-world-object-dossier-c0-mapping.md)。Generic Profile 兼容写/读投影已接入
+Dossier 领域服务；作者有效期策略、剧情覆盖有效期规则与提示、态度/别名有效期和自定义类型字段状态仍由后续
+C0 批次收尾。Evidence 对象简报与可选 Story 档案参考已接入；其它 Story/前端消费端以及 Evolution、导演接入仍按 C1/C2 队列完成。
 
 ### 对象图片
 

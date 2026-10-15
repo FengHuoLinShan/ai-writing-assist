@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import uuid
 from copy import deepcopy
 from datetime import UTC, datetime
 from typing import Any
@@ -10,6 +11,7 @@ from sqlalchemy import String, cast, func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from core.errors import ConflictError, NotFoundError
+from modules.world.dossier_service import WorldObjectDossierService
 from modules.world.map_atlas_models import MapAtlasNode
 from modules.world.models import (
     AssetKnowledgeTag,
@@ -35,6 +37,8 @@ _ACTIVE_QUEUE_STATUSES = {"pending", "open", "draft", "active"}
 
 class EntityTypeTransitionService:
     """唯一允许把既有 CoreEntity 从一种类型切换到另一种类型的入口。"""
+
+    dossier = WorldObjectDossierService()
 
     async def transition(
         self,
@@ -401,11 +405,39 @@ class EntityTypeTransitionService:
             )
             db.add(generic)
 
+        generic_projection = await self.dossier.generic_profile_projection(
+            db, entity, generic, lock=True
+        )
+        if generic.status != "migrated":
+            await self.dossier.replace_generic_profile_data(
+                db,
+                entity,
+                generic,
+                generic_projection["data_json"],
+                expected_revision=generic_projection["expected_revision"],
+            )
+            generic_projection = await self.dossier.generic_profile_projection(
+                db, entity, generic, lock=True
+            )
+
         extra = deepcopy(generic.extra_json or {})
         journal = deepcopy(extra.get(_MIGRATION_KEY) or {"snapshots": {}, "history": []})
         snapshots = journal.setdefault("snapshots", {})
         if source is not None and getattr(source, "status", None) != "migrated":
-            snapshots[old_type] = self._snapshot(source, old_type)
+            snapshots[old_type] = self._snapshot(
+                source,
+                old_type,
+                generic_data=(
+                    generic_projection["data_json"]
+                    if isinstance(source, GenericEntityProfile)
+                    else None
+                ),
+                cleared_generic_fields=(
+                    generic_projection["cleared_fields"]
+                    if isinstance(source, GenericEntityProfile)
+                    else None
+                ),
+            )
         source_snapshot = snapshots.get(old_type)
         target_snapshot = snapshots.get(new_type)
 
@@ -425,18 +457,50 @@ class EntityTypeTransitionService:
                     entity_id=entity.id,
                 )
                 db.add(target)
+            restore_snapshot = deepcopy(target_snapshot or source_snapshot)
+            if (
+                target_snapshot is not None
+                and source_snapshot is not None
+                and source_snapshot.get("profile_kind") == "generic"
+            ):
+                merged_data = {
+                    **deepcopy(source_snapshot.get("data") or {}),
+                    **deepcopy(target_snapshot.get("data") or {}),
+                }
+                for key in source_snapshot.get("cleared_generic_fields") or []:
+                    if key not in PROFILE_REGISTRY[new_type].fields:
+                        merged_data.pop(str(key), None)
+                restore_snapshot = {
+                    **target_snapshot,
+                    "data": merged_data,
+                    "extra_json": {
+                        **deepcopy(target_snapshot.get("extra_json") or {}),
+                    },
+                }
             self._restore_strong(
                 target,
                 new_type,
-                target_snapshot or source_snapshot,
-                first_entry=target_snapshot is None,
+                restore_snapshot,
             )
             if source is not None and source is not target:
                 source.status = "migrated"
             generic.status = "migrated"
             generic.profile_type = new_type
         else:
-            self._restore_generic(generic, new_type, target_snapshot or source_snapshot)
+            restore_snapshot = target_snapshot or source_snapshot
+            has_current_dossier_state = generic_projection["has_current_dossier_state"]
+            restore_data = (
+                generic_projection["data_json"]
+                if has_current_dossier_state
+                else (restore_snapshot or {}).get("data", generic_projection["data_json"])
+            )
+            self._restore_generic(generic, new_type, restore_snapshot)
+            await self.dossier.replace_generic_profile_data(
+                db,
+                entity,
+                generic,
+                restore_data,
+            )
             if source is not None and source is not generic:
                 source.status = "migrated"
 
@@ -461,7 +525,13 @@ class EntityTypeTransitionService:
         return (await db.execute(stmt)).scalar_one_or_none()
 
     @staticmethod
-    def _snapshot(profile: Any, profile_type: str) -> dict[str, Any]:
+    def _snapshot(
+        profile: Any,
+        profile_type: str,
+        *,
+        generic_data: dict[str, Any] | None = None,
+        cleared_generic_fields: list[str] | None = None,
+    ) -> dict[str, Any]:
         is_strong = profile_type in PROFILE_REGISTRY and not isinstance(
             profile, GenericEntityProfile
         )
@@ -471,7 +541,9 @@ class EntityTypeTransitionService:
                 for field in PROFILE_REGISTRY[profile_type].fields
             }
             if is_strong
-            else deepcopy(profile.data_json or {})
+            else deepcopy(
+                generic_data if generic_data is not None else (profile.data_json or {})
+            )
         )
         extra = deepcopy(profile.extra_json or {})
         extra.pop(_MIGRATION_KEY, None)
@@ -484,6 +556,17 @@ class EntityTypeTransitionService:
                 getattr(profile, "evidence_refs_json", []) or []
             ),
             "data": data,
+            "unmapped_data": (
+                deepcopy(profile.data_json or {})
+                if isinstance(profile, GenericEntityProfile)
+                else None
+            ),
+            "cleared_generic_fields": list(cleared_generic_fields or []),
+            "template_id": (
+                str(profile.template_id)
+                if isinstance(profile, GenericEntityProfile) and profile.template_id
+                else None
+            ),
             "extra_json": extra,
         }
 
@@ -502,8 +585,6 @@ class EntityTypeTransitionService:
         profile: Any,
         profile_type: str,
         snapshot: dict[str, Any] | None,
-        *,
-        first_entry: bool,
     ) -> None:
         self._restore_common(profile, snapshot)
         snapshot = snapshot or {}
@@ -514,8 +595,14 @@ class EntityTypeTransitionService:
                 setattr(profile, field, data[field])
         extra = deepcopy(snapshot.get("extra_json") or {})
         unmapped = {key: value for key, value in data.items() if key not in fields}
-        if first_entry and unmapped:
-            extra["unmapped_generic"] = unmapped
+        if unmapped:
+            extra["unmapped_generic"] = {
+                **deepcopy(extra.get("unmapped_generic") or {}),
+                **unmapped,
+            }
+        for key in snapshot.get("cleared_generic_fields") or []:
+            if key not in fields:
+                extra.get("unmapped_generic", {}).pop(str(key), None)
         profile.extra_json = extra
 
     def _restore_generic(
@@ -527,7 +614,12 @@ class EntityTypeTransitionService:
         self._restore_common(profile, snapshot)
         snapshot = snapshot or {}
         profile.profile_type = profile_type
-        profile.data_json = deepcopy(snapshot.get("data") or {})
+        profile.template_id = (
+            uuid.UUID(str(snapshot["template_id"]))
+            if snapshot.get("template_id")
+            else None
+        )
+        profile.data_json = deepcopy(snapshot.get("unmapped_data") or {})
         profile.extra_json = deepcopy(snapshot.get("extra_json") or {})
 
 

@@ -32,17 +32,41 @@ async def test_card_review_sees_scene_target_and_context_tail_and_repair_sees_dr
                     verdict="blocked" if len(self.audits) == 1 else "pass",
                 )
             self.generations.append(request)
-            return schema(content={"personality": "谨慎", "current_goal": "守住码头"})
+            return schema(
+                interpretations=[
+                    {
+                        "category": "goal",
+                        "statement": "守住码头",
+                        "source_fact_ids": ["story:known-goal"],
+                    }
+                ]
+            )
 
     client = Client()
+    character_id = str(uuid.uuid4())
     result = await StoryGenerationService().card_preview(
         client,
         context_markdown="前文" * 13000 + "尾部规则：潮门不能运送生命。",
         scene_context={"scene_id": "scene-1", "situation": "盐料只剩一日"},
-        character_id=str(uuid.uuid4()),
+        character_id=character_id,
         additional_notes="保留焦虑但不让他逃离岗位",
+        deterministic_facts=[
+            {
+                "fact_id": "story:known-goal",
+                "kind": "story_state",
+                "layer": "fact",
+                "subject_id": character_id,
+                "dimension": "entities",
+                "field": "current_goal",
+                "value": "守住码头",
+                "checkpoint_id": "checkpoint-1",
+            }
+        ],
     )
     assert result.knowledge_review["status"] == "passed"
+    assert result.content.version == "character_card.v2"
+    assert result.content.fact_basis[0].fact_id == "story:known-goal"
+    assert result.content.interpretations[0].source_fact_ids == ["story:known-goal"]
     assert len(client.generations) == len(client.audits) == 2
     for prompt in client.audits:
         assert "尾部规则：潮门不能运送生命。" in prompt
@@ -121,3 +145,214 @@ async def test_script_review_records_missing_map_as_advisory_omission(
         "map_spatial"
     ]
     assert captured["plan"].policy_version == 2
+
+
+@pytest.mark.asyncio
+async def test_card_rejects_unavailable_source_id():
+    class Client:
+        model_name = "test"
+
+        async def generate_structured(self, _request, schema, **_kwargs):
+            if schema is AuditVerdictOutput:
+                return schema(
+                    findings=[],
+                    dimensions=[
+                        {"dimension": item, "checked": True}
+                        for item in _required_dimensions(_request.messages)
+                    ],
+                    verdict="pass",
+                )
+            return schema(
+                interpretations=[
+                    {
+                        "category": "personality",
+                        "statement": "看似谨慎",
+                        "source_fact_ids": ["story:not-in-scope"],
+                    }
+                ]
+            )
+
+    character_id = str(uuid.uuid4())
+    with pytest.raises(ValueError, match="unknown fact id"):
+        await StoryGenerationService().card_preview(
+            Client(),
+            context_markdown="可见人物资料",
+            scene_context={"scene_id": "scene"},
+            character_id=character_id,
+            deterministic_facts=[
+                {
+                    "fact_id": "story:known-goal",
+                    "kind": "story_state",
+                    "layer": "fact",
+                    "subject_id": character_id,
+                    "dimension": "entities",
+                    "field": "goal",
+                    "value": "守门",
+                }
+            ],
+        )
+
+
+def test_card_v1_payload_remains_readable_and_v2_requires_source_references():
+    from pydantic import ValidationError
+
+    from modules.story.schemas import CharacterCardContent
+
+    legacy = CharacterCardContent.model_validate({"personality": "谨慎"})
+    assert legacy.version == "character_card.v1"
+    with pytest.raises(ValidationError, match="require at least one source id"):
+        CharacterCardContent(
+            version="character_card.v2",
+            interpretations=[{"category": "personality", "statement": "谨慎"}],
+        )
+
+
+def test_reaction_v1_history_stays_readable_and_v2_requires_distinct_performances():
+    from pydantic import ValidationError
+
+    from modules.story.schemas import ReactionProposal, ReactionProposalV2
+
+    character_id = uuid.uuid4()
+    motivation = {
+        "category": "fear",
+        "statement": "他担心潮门失守",
+        "source_fact_ids": ["story:fear"],
+    }
+    base = {
+        "character_id": character_id,
+        "intended_action": "先核对门闩",
+        "internal_pressure": "时间不足",
+    }
+    legacy_empty = ReactionProposal(
+        **base,
+        motivations=[],
+    )
+    assert legacy_empty.motivations == []
+    legacy = ReactionProposal(
+        **base,
+        motivations=[motivation, {**motivation, "statement": "担心同伴受伤"}],
+    )
+    assert len(legacy.motivations) == 2
+    with pytest.raises(ValidationError, match="omitted or contain 2 to 4"):
+        ReactionProposal(**base, motivations=[motivation])
+
+    option = {
+        "option_id": "goal_first",
+        "motivation": "先保住同伴",
+        "source_fact_ids": ["story:fear"],
+        "action": "把同伴拉到门后",
+        "facial_expression": "眉心收紧",
+        "body_language": "侧身挡住门口",
+        "voice_and_dialogue": "压低声音说：先退后",
+        "inner_response": "担心门后还有人",
+        "attention": "盯着门闩的松动处",
+        "change": "由观察转为保护同伴",
+    }
+    valid_v2 = ReactionProposalV2(
+        character_id=character_id,
+        internal_pressure="来不及确认两侧",
+        performances=[
+            option,
+            {
+                **option,
+                "option_id": "risk_first",
+                "motivation": "抢先控制风险",
+                "action": "先压住门闩",
+                "facial_expression": "目光紧盯锁舌",
+                "body_language": "一手按门一手护住工具",
+                "voice_and_dialogue": "短促地说：我来压门",
+                "inner_response": "害怕门被推开",
+                "attention": "留意门外脚步",
+                "change": "由观察转为抢险",
+            },
+        ],
+    )
+    assert valid_v2.schema_version == "story.reaction.v2"
+    with pytest.raises(ValidationError, match="at least 2 items"):
+        ReactionProposalV2(
+            character_id=character_id,
+            internal_pressure="来不及确认",
+            performances=[option],
+        )
+    with pytest.raises(ValidationError, match="distinct motivations"):
+        ReactionProposalV2(
+            character_id=character_id,
+            internal_pressure="来不及确认",
+            performances=[option, {**option, "option_id": "other"}],
+        )
+
+
+@pytest.mark.asyncio
+async def test_reaction_rejects_unknown_source_id():
+    from modules.story.schemas import ReactionPreviewV2
+
+    class Client:
+        model_name = "test"
+
+        async def generate_structured(self, request, schema, **_kwargs):
+            if schema is AuditVerdictOutput:
+                return schema(
+                    findings=[],
+                    dimensions=[
+                        {"dimension": item, "checked": True}
+                        for item in _required_dimensions(request.messages)
+                    ],
+                    verdict="pass",
+                )
+            return ReactionPreviewV2(
+                scene_id=scene_id,
+                schema_version="story.reaction.v2",
+                proposals=[
+                    {
+                        "character_id": character_id,
+                        "internal_pressure": "时间不足",
+                        "performances": [
+                            {
+                                "option_id": "fear_first",
+                                "motivation": "担心潮门失守",
+                                "source_fact_ids": ["story:not-in-scope"],
+                                "action": "先核对门闩",
+                                "facial_expression": "眉心紧锁",
+                                "body_language": "手按门闩",
+                                "voice_and_dialogue": "说：等等",
+                                "inner_response": "担心门失守",
+                                "attention": "看向门闩",
+                                "change": "开始检查",
+                            },
+                            {
+                                "option_id": "goal_first",
+                                "motivation": "想守住仓库",
+                                "source_fact_ids": ["story:known-goal"],
+                                "action": "移到仓库门前",
+                                "facial_expression": "抿紧嘴唇",
+                                "body_language": "把肩膀抵在门上",
+                                "voice_and_dialogue": "说：先护住货物",
+                                "inner_response": "不愿失去仓库",
+                                "attention": "留意货架后方",
+                                "change": "转而守住仓库",
+                            },
+                        ],
+                    }
+                ],
+            )
+
+    scene_id = uuid.uuid4()
+    character_id = uuid.uuid4()
+    with pytest.raises(ValueError, match="unknown fact id"):
+        await StoryGenerationService().reaction_preview(
+            Client(),
+            context_markdown="角色可见事实",
+            scene_context={"scene_id": str(scene_id)},
+            character_ids=[str(character_id)],
+            deterministic_facts=[
+                {
+                    "fact_id": "story:known-goal",
+                    "kind": "story_state",
+                    "layer": "fact",
+                    "subject_id": str(character_id),
+                    "dimension": "entities",
+                    "field": "goal",
+                    "value": "守住仓库",
+                }
+            ],
+        )

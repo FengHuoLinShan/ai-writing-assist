@@ -12,6 +12,7 @@ from modules.world.contracts import (
     WorldBackgroundBundleContract,
     WorldBackgroundEntryContract,
 )
+from modules.world.dossier_service import WorldObjectDossierService
 from modules.world.models import (
     CharacterKnowledge,
     CoreEntity,
@@ -56,16 +57,21 @@ class WorldBackgroundAggregation:
             statuses.append("draft")
         entries: list[WorldBackgroundEntryContract] = []
 
-        profile_summaries = await self._profile_summaries(db, nid)
-        event_summaries = await self._event_summaries(db, nid)
-
         entities = await db.execute(
             select(CoreEntity)
             .where(CoreEntity.novel_id == nid, CoreEntity.status.in_(statuses))
             .order_by(CoreEntity.importance.desc(), CoreEntity.name.asc())
             .limit(limit)
         )
-        for entity in entities.scalars().all():
+        entity_rows = list(entities.scalars().all())
+        profile_summaries = await self._profile_summaries(
+            db,
+            nid,
+            entity_ids={item.id for item in entity_rows},
+            reveal_mode=reveal_mode,
+        )
+        event_summaries = await self._event_summaries(db, nid)
+        for entity in entity_rows:
             profile_summary = profile_summaries.get(entity.id)
             event_summary = event_summaries.get(entity.id)
             if reveal_mode == "author_full":
@@ -315,6 +321,9 @@ class WorldBackgroundAggregation:
         cls,
         db: AsyncSession,
         novel_id,
+        *,
+        entity_ids: set | None = None,
+        reveal_mode: str = "author_safe",
     ) -> dict:
         summaries: dict = {}
         for model in (
@@ -324,14 +333,14 @@ class WorldBackgroundAggregation:
             RuleProfile,
             ItemProfile,
             SecretProfile,
-            GenericEntityProfile,
         ):
-            result = await db.execute(
-                select(model).where(
-                    model.novel_id == novel_id,
-                    model.status.in_({"canonical", "confirmed"}),
-                )
-            )
+            conditions = [
+                model.novel_id == novel_id,
+                model.status.in_({"canonical", "confirmed"}),
+            ]
+            if entity_ids is not None:
+                conditions.append(model.entity_id.in_(entity_ids))
+            result = await db.execute(select(model).where(*conditions))
             for row in result.scalars().all():
                 fields: list[str] = []
                 for column in row.__table__.columns:
@@ -353,6 +362,43 @@ class WorldBackgroundAggregation:
                     fields.append(f"{column.name}={value}")
                 if fields:
                     summaries[row.entity_id] = "；".join(fields)
+        generic_statement = select(GenericEntityProfile).where(
+            GenericEntityProfile.novel_id == novel_id,
+            GenericEntityProfile.status.in_({"canonical", "confirmed"}),
+        )
+        if entity_ids is not None:
+            generic_statement = generic_statement.where(
+                GenericEntityProfile.entity_id.in_(entity_ids)
+            )
+        generic_profiles = list((await db.scalars(generic_statement)).all())
+        generic_entity_ids = {profile.entity_id for profile in generic_profiles}
+        generic_entities = {
+            entity.id: entity
+            for entity in (
+                await db.scalars(
+                    select(CoreEntity).where(
+                        CoreEntity.novel_id == novel_id,
+                        CoreEntity.id.in_(generic_entity_ids),
+                    )
+                )
+            ).all()
+        }
+        dossier = WorldObjectDossierService()
+        for profile in generic_profiles:
+            entity = generic_entities.get(profile.entity_id)
+            if entity is None:
+                continue
+            projection = await dossier.generic_profile_projection(
+                db,
+                entity,
+                profile,
+                visibility_filter=("public" if reveal_mode == "author_safe" else None),
+            )
+            data = projection["data_json"]
+            if data:
+                summaries[profile.entity_id] = "；".join(
+                    f"data_json.{key}={value}" for key, value in sorted(data.items())
+                )
         return summaries
 
     @staticmethod

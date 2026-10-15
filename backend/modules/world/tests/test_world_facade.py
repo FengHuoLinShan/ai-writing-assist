@@ -187,7 +187,7 @@ async def test_world_background_keeps_status_and_reveal_modes_independent(
 
     aggregation = WorldBackgroundAggregation()
 
-    async def profile_summaries(_db, _novel_id):
+    async def profile_summaries(_db, _novel_id, **_kwargs):
         return {canonical.id: "地点档案"}
 
     async def event_summaries(_db, _novel_id):
