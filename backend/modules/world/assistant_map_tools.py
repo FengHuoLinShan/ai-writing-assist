@@ -375,6 +375,8 @@ async def _node_preview(db, novel_id, args, *, context=None):
 
 
 async def _node_apply(db, novel_id, args, preview, *, context=None):
+    if await _node_preview(db, novel_id, args, context=context) != preview:
+        raise ConflictError("地图父节点或地点已变化，请重新查看方案")
     row = await MapStructureService().create_node(db, novel_id, args)
     return {"type": "map_atlas_node", "id": str(row["id"]), "label": "已创建空白地图"}
 
@@ -413,6 +415,9 @@ async def _review_preview(db, novel_id, args, *, context=None):
         "base_revision_id": str(node.current_revision_id)
         if node.current_revision_id
         else None,
+        "affected_count": len(set(result.applied_change_keys) | set(result.expanded_change_keys))
+        if args.action == "adopt"
+        else max(1, len(result.document.features) + len(result.document.constraints) + len(result.document.journeys)),
         "changes": result.model_dump(mode="json")
         if hasattr(result, "model_dump")
         else result,
@@ -702,7 +707,7 @@ async def _auto_draft_group_preview(db, novel_id, args, *, context=None):
             await service.preview_revision(
                 db, novel_id, str(node.id), str(item.revision_id)
             )
-            count = 1
+            count = len(selected_keys)
         affected += count
         decisions.append(
             {
@@ -846,6 +851,7 @@ async def _structure_edit_preview(db, novel_id, args, *, context=None):
         "base_revision_id": str(node.current_revision_id)
         if node.current_revision_id
         else None,
+        "affected_count": len(args.edits),
         "before": before,
         "after": document.model_dump(mode="json"),
         "author_decision": author_decision.model_dump(mode="json")

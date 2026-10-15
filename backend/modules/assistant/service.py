@@ -561,7 +561,7 @@ class AssistantService:
             request_json=frozen_payload
             | {
                 "llm_snapshot": snapshot,
-                "runtime_version": "5",
+                "runtime_version": "6",
                 **({"team": team} if team else {}),
                 "web_search": search_snapshot()
                 if data.allow_web and data.web_backend == "searxng-v1"
@@ -573,7 +573,7 @@ class AssistantService:
                 },
                 "read_tools": {
                     tool.name: fingerprint(tool.function_schema.json_schema)
-                    for tool in author_read_tools(allow_web=True, version="5")
+                    for tool in author_read_tools(allow_web=True, version="6")
                     if tool.name != "map_spatial_brief"
                     or "assistant.turn" in get_settings().map_spatial_enabled_capabilities
                 },
@@ -1030,7 +1030,7 @@ class AssistantService:
                     payload.get("allow_web", False)
                     and (
                         search_snapshot_matches(payload.get("web_search"))
-                        if payload.get("runtime_version") in {"3", "4", "5"}
+                        if payload.get("runtime_version") in {"3", "4", "5", "6"}
                         else verified_native_search(profile.provider_id, profile.model)
                     )
                 ),

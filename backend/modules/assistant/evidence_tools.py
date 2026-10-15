@@ -1054,13 +1054,13 @@ def author_read_tools(*, allow_web: bool, version: str = "2") -> list[Tool]:
     if allow_web:
         functions.extend(
             [search_general_fact, read_web_source]
-            if version in {"3", "4", "5"}
+            if version in {"3", "4", "5", "6"}
             else [research_fact]
         )
-    if version in {"3", "4", "5"}:
+    if version in {"3", "4", "5", "6"}:
         functions.extend([world_page_history, review_resolution_result])
-    if version in {"4", "5"}:
+    if version in {"4", "5", "6"}:
         functions.append(project_vocabulary)
-    if version == "5":
+    if version in {"5", "6"}:
         functions.append(map_spatial_brief)
     return [Tool(function, sequential=True) for function in functions]
