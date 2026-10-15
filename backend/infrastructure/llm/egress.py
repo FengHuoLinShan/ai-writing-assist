@@ -9,6 +9,7 @@ from collections.abc import Awaitable, Callable
 from urllib.parse import urlsplit
 
 import httpx
+import httpx2
 
 from core.config import Settings, get_settings
 from infrastructure.llm.profiles import PROVIDER_TEMPLATES
@@ -89,17 +90,22 @@ def validate_user_llm_base_url(
 def build_public_llm_request_guard(
     *,
     resolve_dns: bool,
-) -> Callable[[httpx.Request], Awaitable[None]]:
-    """Build an httpx request hook that rechecks every request and redirect."""
+) -> Callable[[httpx.Request | httpx2.Request], Awaitable[None]]:
+    """Build a request hook for both HTTPX health probes and HTTPX2 SDK calls that rechecks every request and redirect."""
 
-    async def guard(request: httpx.Request) -> None:
+    async def guard(request: httpx.Request | httpx2.Request) -> None:
+        connection_error = (
+            httpx2.ConnectError
+            if isinstance(request, httpx2.Request)
+            else httpx.ConnectError
+        )
         settings = get_settings()
         if settings.auth_mode.strip().lower() != "public":
             return
         try:
             validate_user_llm_base_url(str(request.url), settings=settings)
         except ValueError as exc:
-            raise httpx.ConnectError(
+            raise connection_error(
                 "LLM endpoint is not permitted in public mode",
                 request=request,
             ) from exc
@@ -116,7 +122,7 @@ def build_public_llm_request_guard(
                 type=socket.SOCK_STREAM,
             )
         except OSError as exc:
-            raise httpx.ConnectError(
+            raise connection_error(
                 "LLM endpoint DNS resolution failed",
                 request=request,
             ) from exc
@@ -126,12 +132,12 @@ def build_public_llm_request_guard(
             try:
                 resolved_ips.add(ipaddress.ip_address(raw))
             except ValueError as exc:
-                raise httpx.ConnectError(
+                raise connection_error(
                     "LLM endpoint resolved to an invalid address",
                     request=request,
                 ) from exc
         if not resolved_ips or any(not address.is_global for address in resolved_ips):
-            raise httpx.ConnectError(
+            raise connection_error(
                 "LLM endpoint did not resolve to a public destination",
                 request=request,
             )
