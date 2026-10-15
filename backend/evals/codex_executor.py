@@ -75,6 +75,82 @@ class G7ReviewScope:
         await AskWorldCalibrationScope(self.db, self.novel_id, self.snapshot).verify()
 
 
+@dataclass(frozen=True)
+class MapSpatialEvaluationScope:
+    """Map-only opt-in bound to one isolated owner, phase and immutable request."""
+
+    db: AsyncSession
+    private_root: Path
+    binding: dict
+    phase: str
+    case_id: str
+    execute: bool = False
+
+    async def authorize(self, prompt: str, response_model, step_name: str) -> None:
+        from evals.map_spatial import load_matrix
+        from evals.map_spatial_guard import (
+            CALIBRATION_STEP,
+            JUDGE_STEP,
+            CalibrationResult,
+            JudgeResult,
+            calibration_prompt,
+            judge_prompt,
+            product_evidence,
+            read_binding,
+            require_calibration,
+            require_development_gate,
+            verify_runtime,
+        )
+
+        if not self.execute or os.environ.get("MAP_SPATIAL_EVAL_ALLOW_LIVE") != "1":
+            raise CodexExecutionError(
+                "Map evaluation is closed without explicit execution authorization"
+            )
+
+        binding = read_binding(self.private_root, self.binding["family_id"])
+        if binding != self.binding:
+            raise CodexExecutionError("Map evaluation binding changed")
+        await verify_runtime(self.db, binding)
+        if self.phase == "teacher_calibration":
+            if (
+                step_name != CALIBRATION_STEP
+                or response_model is not CalibrationResult
+                or binding["split"] != "development"
+                or self.case_id != "seeded-v1"
+                or prompt != calibration_prompt(binding)
+            ):
+                raise CodexExecutionError(
+                    "Map scope only permits its fixed seeded calibration"
+                )
+        elif self.phase in {"development_judge", "holdout_judge"}:
+            if step_name != JUDGE_STEP or response_model is not JudgeResult:
+                raise CodexExecutionError(
+                    "Map scope only permits the map judge schema/step"
+                )
+            if (self.phase == "holdout_judge") != (binding["split"] == "holdout"):
+                raise CodexExecutionError("Map evaluation split/phase mismatch")
+            if binding["split"] == "holdout":
+                require_development_gate(self.private_root, load_matrix())
+            else:
+                require_calibration(self.private_root, binding)
+            try:
+                evidence = await product_evidence(
+                    self.db, self.private_root, binding, self.case_id
+                )
+                if prompt != judge_prompt(
+                    self.private_root, binding, self.case_id, evidence
+                ):
+                    raise CodexExecutionError(
+                        "Map judge input differs from actual product evidence"
+                    )
+            finally:
+                await self.db.rollback()
+        else:
+            raise CodexExecutionError("Map scope does not authorize that phase")
+        # Recheck owner/snapshot immediately before invocation, after evidence reads.
+        await verify_runtime(self.db, binding)
+
+
 def require_live_eval_calibration() -> NoReturn:
     """Reject new standalone model execution before any irreversible side effects."""
     raise CodexExecutionError(
@@ -117,7 +193,10 @@ class CodexStructuredExecutor:
         command: str = "codex",
         timeout_seconds: float = 300.0,
         attempts: int = 2,
-        calibration: AskWorldCalibrationScope | G7ReviewScope | None = None,
+        calibration: AskWorldCalibrationScope
+        | G7ReviewScope
+        | MapSpatialEvaluationScope
+        | None = None,
     ) -> None:
         model = model or os.environ.get("EVAL_CODEX_MODEL", EVAL_TEACHER_MODEL)
         if model not in allowed_models:
@@ -183,6 +262,10 @@ class CodexStructuredExecutor:
     ) -> StructuredResultT:
         if self.calibration is None:
             require_live_eval_calibration()
+        if isinstance(self.calibration, MapSpatialEvaluationScope):
+            return await self._generate_map_scoped(
+                prompt, response_model, step_name=step_name
+            )
         allowed_step = (
             "eval.g7.source_field_review"
             if isinstance(self.calibration, G7ReviewScope)
@@ -207,6 +290,42 @@ class CodexStructuredExecutor:
             step_name=step_name,
         )
         return response_model.model_validate_json(payload)
+
+    async def _generate_map_scoped(self, prompt, response_model, *, step_name):
+        from evals.map_spatial_guard import finish_request, start_request
+
+        if (
+            self.model != EVAL_TEACHER_MODEL
+            or self.reasoning_effort != EVAL_TEACHER_REASONING_EFFORT
+            or self.command != "codex"
+        ):
+            raise CodexExecutionError("Map evaluation requires Sol/xhigh")
+        scope = self.calibration
+        await scope.authorize(prompt, response_model, step_name)
+        executable = shutil.which(self.command)
+        if executable is None:
+            raise CodexExecutionError("Map evaluation Codex CLI is unavailable")
+        schema = _strict_json_schema(response_model.model_json_schema())
+        path = start_request(
+            scope.private_root,
+            scope.binding,
+            scope.phase,
+            scope.case_id,
+            prompt,
+            step_name,
+            schema,
+            self.meta,
+        )
+        payload = None
+        try:
+            payload = await self._invoke(executable, prompt, schema, step_name=step_name)
+            result = response_model.model_validate_json(payload)
+        except BaseException:
+            # Unknown requests stay consumed. Never use the executor retry allowance.
+            finish_request(scope.private_root, path, payload, completed=False)
+            raise
+        finish_request(scope.private_root, path, payload, completed=True)
+        return result
 
     async def _invoke(
         self,
@@ -351,7 +470,7 @@ class CodexStructuredExecutor:
                 raise CodexExecutionError("Codex did not confirm the pinned model")
             if not output_path.exists():
                 raise CodexExecutionError("Codex did not write the structured response")
-            return output_path.read_text(encoding="utf-8")
+            return output_path.read_bytes().decode("utf-8")
 
 
 def _strict_json_schema(schema: dict[str, object]) -> dict[str, object]:

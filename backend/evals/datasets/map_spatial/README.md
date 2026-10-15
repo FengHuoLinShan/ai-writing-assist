@@ -1,65 +1,50 @@
 # 地图空间题材评测
 
-`matrix.json` 冻结了五题材的 10 个独立资料族：修仙、西幻、都市、科幻、悬疑各有 5 个开发案例和 5 个单次留出案例。正文与期望只保存在仓库外的私有目录 `/Users/tywww/.codex/private/map-spatial-evaluation-20261015/`，目录权限为 `0700`、文件为 `0600`；仓库只记录 SHA-256、冻结状态和指标定义。任何复核或评分仍是 `not_run`，代理结果始终 `human_validated=false`。
+`matrix.json` 冻结五题材（修仙、西幻、都市、科幻、悬疑）的 10 个独立资料族，每族 5 个案例，共 25 个开发案例与 25 个单次留出案例。正文、期望、请求和输出仅在仓库外私有目录 `/Users/tywww/.codex/private/map-spatial-evaluation-20261015/`，目录 `0700`、文件 `0600`。仓库只保留材料哈希与合同；教师/评分均为 `not_run`，`human_validated=false`。
 
-每个资料族独立原创，分别覆盖矩阵列出的五种压力现象。私有 `source.json` 含逐字原文、Scene 写作要求和助手自然语言指令；私有 `expected.json` 含逐字证据目标、未知/拒绝边界和四组评分规则。矩阵哈希只证明材料版本，不代表题材质量或作者接受。
+当前是**工程准备稿，`not_ready_for_live`**。已有真实 Writing 配对执行路径和独立地图 seeded 校准角色；冷启动、类型涌现、助手的正式证据适配/自动执行器，以及作者审核计时/费用观测仍未实现。四组完整 judge 和开发 gate 因此明确失败关闭，留出不能冻结、不能触发业务或评分。工程测试、Sol/high 代码 review 和空报告都不代表 Sol/xhigh 评分或作者验收。
 
-四组指标须按题材单独报告：
+## 四组指标及实际覆盖
 
-- **冷启动**：线索精确率/召回率、非客观线索误收、层级正确率、待核对比例、作者审核步数/耗时和总费用。
-- **类型涌现**：已有类型复用、重复类型、特性准确率、作者采用后启用比例、改名/合并/归档次数。未采用的类型不得计为 active。
-- **写作配对**：空间一致性、正文质量和空间提醒误报；同一个已冻结 Project、Scene、来源、Writing 指令和 Luna/max snapshot，只切换 `writing.generate` 的空间简报能力。
-- **助手**：目标解析、预览意图、越权或猜测坐标拒绝、unknown 正确率。
+| 指标组 | 指标 | 当前实际覆盖 |
+| --- | --- | --- |
+| 冷启动 | 线索精确率/召回率、非客观误收、层级准确率、待核对比例、审核步数/耗时/费用 | 仅矩阵与产品调用清单；没有 driver 或正式回执适配 |
+| 类型涌现 | 类型复用/重复、特性准确率、采用后启用比例、改名/合并/归档次数 | 仅矩阵与产品调用清单；不能把候选计为 active |
+| 写作配对 | 空间一致性、正文质量、提醒误报 | 实际 Evidence 确认 → Writing 入队 → 精确 `TaskWorker.run_once(task_id, novel_id)`；不采用候选 |
+| 助手 | 目标解析、预览意图、越权/猜测坐标拒绝、unknown 正确率 | 仅矩阵与产品调用清单；不能把 helper 调用当正常助手回合 |
 
-不能观测的调用量或费用写 `unknown`/`null`，不能填零。所有比例同时报告分子、分母；不同题材不合并成一个分数。正文质量与空间一致性分开评分，避免地图变准掩盖正文退化。
+比例必须报告分子与分母，题材分别报告，未知用量/费用/评分保留 `unknown`/`null`。冻结 rubric 在 `evals.map_spatial_guard.rubric()`：精确率/层级/特性/助手准确率 ≥0.95，召回率/类型复用 ≥0.90，非客观误收=0，重复类型/提醒误报 ≤0.05，待核对比例 ≤0.25，越权/猜测坐标拒绝=1；空间一致性须逐题材改善，正文质量不得下降。作者操作和费用必须实际观测，不能由裁判估算。完整四组 gate 校验尚待正式证据适配批交付；现有命令一律拒绝冻结 gate。
 
-## 离线材料检查
+## 离线检查
 
-在 backend 使用已锁定 Python 环境，不同步或替换共享 `.venv`：
+在 `backend` 使用已锁定 Python；不 `uv sync`，不替换运行环境：
 
 ```bash
-cd backend
 .venv/bin/python -m evals.map_spatial verify
 .venv/bin/python -m evals.map_spatial report \
-  --output /Users/tywww/.codex/private/map-spatial-evaluation-20261015/reports/map-spatial-template.json
+  --output /Users/tywww/.codex/private/map-spatial-evaluation-20261015/reports/template.json
 ```
 
-`verify` 只输出数量和状态，不输出正文。`report` 写五题材、四指标组的空白报告到私有目录；未运行的值保留为 `null`/`unknown`。
+`verify` 只输出数量、哈希检查状态；对留出仅检查权限和文件哈希，不解码正文/期望。`report` 只生成五题材四组空模板，不能作为真实成绩。
 
-## 产品写作配对
+## 隔离绑定与受限角色
 
-配对脚本走产品真实入口：`modules.world.facade.read_map_spatial_brief` 核对采用地图和版本；`modules.evidence.facade.confirm_context` 与 `prepare_confirmed_ai_action` 生成同一 Scene 的两份确认；`WritingGenerationService.submit_generation` 提交真实 `writing.generate`；`TaskWorker.run_once` 执行正式 `writing_generate` handler。生成候选不会采用。两臂在入队前核对来源 hash、Project Luna/max snapshot、Scene hash、地图版本 hash、prompt hash 和非地图 context fingerprint；任一不等即停止。第一臂生成后重读 Project/Scene/map 指纹，漂移即停止。
+所有访问数据库的执行命令默认关闭，必须同时显式 `--execute` 与 `MAP_SPATIAL_EVAL_ALLOW_LIVE=1`。只接受 loopback PostgreSQL `map_spatial_eval_20261015`、`AUTH_MODE=local`、正常 active owner 的该族专用作者项目（标题 `MAP-EVAL:<family-id>:`）。配置 URL 与实际 engine URL 的主机、端口、数据库及用户名必须相同。不得使用共享业务库、真实作品、旧 G6/G7 私有账本，也不写生产 flags。
 
-每次只运行一个案例，且使用该资料族专用合成作者项目。需要满足：
+`freeze-binding --family-id ... --scopes <私有JSON> --execute` 通过真实 Project facade 核验 owner 已验证的 Codex Luna/max secret-free snapshot，冻结 manifest/source/expected/rubric/业务 prompt 管线、逐案例 Scene 精确 canonical 来源及采用地图的哈希。一个族只用一个项目，五个案例各用不同 Scene；scopes JSON 的键必须是该族五个 case_id，值只能含 `novel_id`、`scene_id`、`chapter_index`。绑定不可覆盖；缺连接或来源漂移失败关闭，不自行连接验证。
 
-1. 已在本任务专用 PostgreSQL `map_spatial_eval_20261015` 建立本地 synthetic project；项目标题以 `MAP-EVAL:<family-id>:` 开头，题材与冻结分组一致。不得使用真实作品、旧 holdout、共享业务库或旧 G6/G7 账本。
-2. 按正常产品流程导入这一个私有合成资料族，建立 Scene 和采用地图。冻结原文必须逐字出现在 Scene 与 Writing 实际确认上下文；地图版本和空间类型也须由产品流程产生，不直接写表伪造结果。
-3. 在数据库中已有已验证的 Project owner Codex 连接。预检只通过 Project facade 读取 secret-free snapshot 并校验 `provider_id=codex`、`model=gpt-6-luna`、`connection_verified=true`、`reasoning_effort=max`；不会通过连接测试请求核验凭据。
-4. Sol/xhigh 受限评分角色及其真实 seeded calibration ledger、开发报告与 gate 已实现并通过独立 review。当前这项前置尚未完成，不能用手写 `approved` 或 `passed` 布尔文件代替。
+此绑定依赖已采用地图，**仅适用于 Writing 配对准备**，不能充当完整冷启动起点。后续批必须分阶段冻结共同 owner/source/Scene 基线 → seeded 校准 → 从空地图执行冷启动/类型候选 → 真实作者合成审核 → 冻结 pair map 版本 → 两臂。不得把手工预置地图当冷启动成果；该阶段绑定链尚未实现，完整流程保持未就绪。
 
-`pair-writing` 的产品调用路径已编写，但目前硬拒绝 live；即使下面示例中的显式开关也会返回 `not_ready_for_live`。Sol 直接完成受限 scope 与账本验证审查后，再决定是否开放：
+`score --phase teacher_calibration --case-id seeded-v1` 使用专用 `MapSpatialEvaluationScope`，仅放行 `eval.map_spatial.teacher_calibration`；每族开发绑定一个四题固定 seed 请求，固定 `gpt-6.1-sol/xhigh`、`attempts=1`。校准只由代码核对真实原始输出的四个标签与输入、schema、executor/model/effort 哈希，不接受 `passed`/`approved` 文件。每次调用前重读实际 owner/Project snapshot 并 rollback 释放读事务。
 
-```bash
-cd backend
-AUTH_MODE=local \
-DATABASE_URL='<仅本地map_spatial_eval_20261015的PostgreSQL URL>' \
-MAP_SPATIAL_EVAL_ALLOW_LIVE=1 \
-.venv/bin/python -m evals.map_spatial pair-writing \
-  --execute \
-  --family-id map-xianxia-development-v1 \
-  --case-id map-xianxia-development-v1-p1 \
-  --novel-id '<该family专用项目ID>' \
-  --scene-id '<该项目Scene ID>' \
-  --chapter-index 2
-```
+同一 scope 的 `eval.map_spatial.judge` 只接受精确地图 schema 和正式产品证据构成的完整 prompt，不能借 Ask World/G7 scope。当前 `product_evidence()` 明确拒绝未实现的冷启动/类型/助手适配，因此 `development_judge`、`holdout_judge` 仍不可执行。无 scope 的 `require_live_eval_calibration()` 全局暂停保持原样。
 
-此脚本不执行 Evolution 抽取、类型采用、助手回合或教师评分；这些步骤须分别经产品工作流完成并按下面入口记录，不能用拼出的 LLM 问题代替产品行为：
+每个评分请求在调用前原子占用并记录完整私有输入；原始返回按字节留存并核哈希。`started/pending/unknown/completed` 都不能覆盖或自动重发；中断/无效响应为 unknown。校准错答为已完成但不通过，也不重发同一请求。案例占用用文件锁防止并发双用；未知案例不重置为 started。
 
-- 冷启动和线索/类型涌现：Evolution `/api/evolution/reading/preview`、`POST /api/evolution/reading`，以及该 `run_key` 的 `/spatial-rescan-preview` 与 `/spatial-rescan`；只在专用合成项目中由 owner 确认。
-- 地图读取与空间类型复核：World `read_spatial_discovery_context`、`read_map_spatial_brief` 和现有地图候选逐项审核/采用工作流。
-- 助手：正常 `POST /api/assistant/sessions/{session_id}/turns`，使用 `assistant.turn` 的只读 `map_spatial_brief`；不得直接调用函数后冒充用户回合。
-- 写作配对：上面的 `evals.map_spatial pair-writing`；结果只保存私有候选和账本。
+## Writing 配对
 
-实时独立教师/评分仍被 `require_live_eval_calibration` 拒绝。计划需要新的受限地图评分角色及 seeded 校准；本目录不绕过该守卫，也不借用 Ask World 或 G7 scope。评测结果、真实请求和输出的 hash/状态可脱敏归档，原文和评分输出始终留在私有目录。费用未从真实产品回执读到时保持 `unknown`。
+`pair-writing --family-id ... --case-id ... --novel-id ... --scene-id ... --chapter-index ... --execute` 须先有该族不可变绑定和真实 seeded 校准。两臂先全部冻结 Evidence confirmation 和任务，再执行第一臂；source、Project、Scene、地图、写作指令和非地图 core context fingerprint 必须相同，只改变进程内 `writing.generate` 地图能力。开关用环境与 Settings cache 的有界 context manager，正常/异常/取消均恢复；不修改冻结 Settings 或数据库 flags。
 
-单次留出在五个开发题材都经 Sol/xhigh gate 前不会占用；案例一旦写入账本的 `started`、`pending`、`unknown` 或 `completed` 状态，不自动重发。未知或中断须保留原任务/回执并人工调查，不能重置账本后继续使用同一留出。
+Scene 原文通过 Story 的精确 span → Writing range ref → Evidence 的 reader/Scene 截止回读验证，不能检查 Scene 元数据字符串来冒充原文。每臂执行前重验 owner/snapshot，完成后重验完整预检指纹，候选保持未采用。仅 claim 指定 task，不 drain 其他队列；隔离环境不能另起自动 worker。
+
+具体隔离 setup、命令、调用预算和下一批接口见任务产物 [MAP-SPATIAL-LIVE-PREFLIGHT.md](../../../../.agent/tasks/2026/T-20261015-map-enhancement-design/artifacts/evaluation/MAP-SPATIAL-LIVE-PREFLIGHT.md)。本准备批没有真实模型、教师、连接验证或业务数据库调用。

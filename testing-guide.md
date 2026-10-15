@@ -658,7 +658,7 @@ P8 固定比较范围按指定 head 的 Git blob 计数，不读取其他 checko
 `backend/.venv`。Python 3.13 实验完成后开发/CI解释器和依赖保持原状。
 服务文件拆分需验证原类/方法行为、来源与事务、失败恢复及真实PG锁；共享导入名继续保留。
 
-独立 Codex eval 的新文字调用现已暂停：旧 Spark/Luna/terra/DeepSeek 的教师与复核
+除下述显式窄 scope 外，独立 Codex eval 的新文字调用现已暂停：旧 Spark/Luna/terra/DeepSeek 的教师与复核
 配置自 G6a 起降级为冻结元数据，仅保留用于冻结元数据与 cache-only 重放，不得将旧
 分数改标为当前模型成绩。教师与 judge 已固定 `gpt-6.1-sol/xhigh`，被测业务生成经
 owner 已验证的 Project 运行时走 Luna/max；G6b 解除暂停前守卫继续拒绝新的独立
@@ -692,3 +692,27 @@ codex_luna_runtime_test）后运行 `python -m evals.codex_luna --output /privat
 owner/Project Luna/max snapshot；与 Ask World 教师 scope 隔离，其余独立入口继续暂停。
 合成校准冻结与去原文回执见 `T-20261015-audit-wave3/G7-FREEZE.json`、`G7-CALIBRATION.json`，
 seeded 32/32、独立 debug 12/12，unknown=0。它不证明真实稿件质量，`human_validated=false`。
+
+
+### 地图五题材评测的独立窄 scope
+
+`evals.map_spatial` 的离线 `verify/report` 不访问模型；留出只核权限和哈希，不解码正文/期望。
+`MapSpatialEvaluationScope` 仅在 `--execute` 与 `MAP_SPATIAL_EVAL_ALLOW_LIVE=1` 同时显式设置后，
+放行 `eval.map_spatial.teacher_calibration` / `eval.map_spatial.judge` 的 Sol/xhigh、attempts=1；
+无 scope 的全局暂停、Ask World/G7 范围不变。只接受本地专用 `map_spatial_eval_20261015` 与
+正常 owner 的 verified Codex Luna/max Project snapshot，每次请求前真实重验并释放读事务。
+
+`freeze-binding` 冻结五个不同案例 Scene 的当前 canonical 来源、采用地图、Project、
+manifest/source/expected/prompt/rubric 哈希；`score --phase teacher_calibration --case-id seeded-v1`
+仅执行代码固定四 seed。通过原始请求/返回、schema/executor/model/effort/hash 重建校准结果，
+不接受 `passed/approved` 布尔。请求原子占用，unknown/invalid/cancel 均不重发或覆盖。
+
+当前真实 SUT 执行器仅 Writing 两臂：Evidence 确认后实际入队，首臂前冻结两份确认，精确
+`TaskWorker.run_once(task_id, novel_id)`，不采用候选。冷启动、类型涌现和助手仍缺正式领域
+回执适配/driver，以及作者操作/费用计量；四组 judge、开发 gate、留出明确失败关闭。
+`freeze-development-gate` 现返回 `not_ready_for_live`，空模板或工程单测不能解锁。
+
+执行命令、专用隔离 setup、逐阶段预算和未完成接口见
+[地图预检交接](.agent/tasks/2026/T-20261015-map-enhancement-design/artifacts/evaluation/MAP-SPATIAL-LIVE-PREFLIGHT.md)。
+原始材料/输出只存仓库外0700/0600私有目录；`human_validated=false`，本准备批没有真实调用，
+不代表五题材质量、作者验收或默认启用结论。

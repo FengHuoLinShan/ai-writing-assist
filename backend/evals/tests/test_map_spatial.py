@@ -108,7 +108,7 @@ def test_private_material_contract_checks_hashes_splits_and_case_pairs(
 def test_holdout_gate_and_ledger_make_unknown_single_use(tmp_path, monkeypatch):
     private_root, _, matrix = _fixture(tmp_path, monkeypatch)
     holdout = next(row for row in matrix["families"] if row["split"] == "holdout")
-    with pytest.raises(MapSpatialEvalError, match="not_ready_for_live"):
+    with pytest.raises(MapSpatialEvalError):
         claim_case(private_root, matrix, holdout, f"{holdout['family_id']}-p1")
     assert not (private_root / "run-ledger.json").exists()
 

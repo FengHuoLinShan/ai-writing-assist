@@ -4,7 +4,9 @@
   "status": "frozen_unreviewed",
   "human_validated": false,
   "teacher_and_judge_contract": "evals.schemas.EVAL_TEACHER_MODEL / EVAL_TEACHER_REASONING_EFFORT",
-  "live_eval_guard": "evals.codex_executor.require_live_eval_calibration",
+  "live_eval_guard": "default: require_live_eval_calibration; explicit map-only: MapSpatialEvaluationScope",
+  "map_scope_status": "prepared_not_run_four_group_judge_not_ready",
+  "rubric_contract": "evals.map_spatial_guard.rubric",
   "private_materials_required": true,
   "holdout_usage": "single_use_after_all_five_development_genres_pass_sol_xhigh_gate",
   "paired_arms": [

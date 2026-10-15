@@ -7,9 +7,11 @@ import asyncio
 import hashlib
 import json
 import os
+import re
 import stat
 import tempfile
 import uuid
+from contextlib import contextmanager
 from dataclasses import asdict, is_dataclass
 from datetime import UTC, datetime
 from pathlib import Path
@@ -56,11 +58,23 @@ def _is_in_repository(path: Path) -> bool:
 
 
 def require_private_directory(path: Path, *, create: bool = False) -> Path:
+    if any(parent.is_symlink() for parent in (path, *path.parents)):
+        raise MapSpatialEvalError("私有评测目录禁止符号链接")
     if _is_in_repository(path):
         raise MapSpatialEvalError("原始评测资料与账本必须位于仓库外")
-    if create:
-        path.mkdir(parents=True, exist_ok=True, mode=0o700)
-        os.chmod(path, 0o700)
+    if create and not path.exists():
+        missing = []
+        current = path
+        while not current.exists():
+            missing.append(current)
+            current = current.parent
+        for directory in reversed(missing):
+            directory.mkdir(mode=0o700)
+            parent_fd = os.open(directory.parent, os.O_RDONLY)
+            try:
+                os.fsync(parent_fd)
+            finally:
+                os.close(parent_fd)
     if not path.is_dir():
         raise MapSpatialEvalError("私有评测目录不存在")
     if stat.S_IMODE(path.stat().st_mode) != 0o700:
@@ -82,8 +96,8 @@ def _read_private_json(path: Path) -> dict[str, Any]:
     return payload
 
 
-def load_matrix(path: Path = MATRIX_PATH) -> dict[str, Any]:
-    matrix = json.loads(path.read_text(encoding="utf-8"))
+def load_matrix(path: Path | None = None) -> dict[str, Any]:
+    matrix = json.loads((path or MATRIX_PATH).read_text(encoding="utf-8"))
     if matrix.get("suite") != "map_spatial" or matrix.get("schema_version") != 2:
         raise MapSpatialEvalError("地图评测矩阵版本不受支持")
     families = matrix.get("families")
@@ -110,7 +124,7 @@ def verify_materials(
     verified = []
     for family in manifest["families"]:
         family_id = family["family_id"]
-        if Path(family_id).name != family_id:
+        if not re.fullmatch(r"[a-z0-9][a-z0-9_-]{1,120}", family_id):
             raise MapSpatialEvalError("矩阵资料族 ID 不能包含路径")
         family_dir = root / family_id
         if family_dir.is_symlink() or not family_dir.is_dir():
@@ -119,8 +133,13 @@ def verify_materials(
             raise MapSpatialEvalError(f"资料族目录权限必须为0700: {family_id}")
         source_path = family_dir / "source.json"
         expected_path = family_dir / "expected.json"
-        source = _read_private_json(source_path)
-        expected = _read_private_json(expected_path)
+        for path in (source_path, expected_path):
+            if (
+                path.is_symlink()
+                or not path.is_file()
+                or stat.S_IMODE(path.stat().st_mode) != 0o600
+            ):
+                raise MapSpatialEvalError("冻结材料必须是0600普通文件")
         source_hash = _sha256_file(source_path)
         expected_hash = _sha256_file(expected_path)
         if source_hash != family.get("source_sha256") or expected_hash != family.get(
@@ -131,6 +150,15 @@ def verify_materials(
             raise MapSpatialEvalError("不同资料族不能复用相同正文或期望文件")
         seen_source_hashes.add(source_hash)
         seen_expected_hashes.add(expected_hash)
+        if family["split"] == "holdout":
+            # Hash-only inspection does not expose holdout text/expectations to a runner.
+            for path in (source_path, expected_path):
+                if path.is_symlink() or stat.S_IMODE(path.stat().st_mode) != 0o600:
+                    raise MapSpatialEvalError("留出文件必须是0600普通文件")
+            verified.append({**family, "case_count": 5})
+            continue
+        source = _read_private_json(source_path)
+        expected = _read_private_json(expected_path)
         for payload in (source, expected):
             if (payload.get("family_id"), payload.get("genre"), payload.get("split")) != (
                 family_id,
@@ -183,6 +211,8 @@ def verify_materials(
 
 def _write_private_json(path: Path, value: Any) -> None:
     require_private_directory(path.parent, create=True)
+    if path.is_symlink():
+        raise MapSpatialEvalError("私有输出禁止符号链接")
     payload = (
         json.dumps(value, ensure_ascii=False, sort_keys=True, indent=2) + "\n"
     ).encode("utf-8")
@@ -196,6 +226,12 @@ def _write_private_json(path: Path, value: Any) -> None:
             os.fsync(stream.fileno())
         os.replace(temp_path, path)
         os.chmod(path, 0o600)
+        # A started claim must survive a crash before any irreversible request.
+        parent_fd = os.open(path.parent, os.O_RDONLY)
+        try:
+            os.fsync(parent_fd)
+        finally:
+            os.close(parent_fd)
     finally:
         temp_path.unlink(missing_ok=True)
 
@@ -221,8 +257,9 @@ def _gate_path(private_root: Path) -> Path:
 def _require_development_gate(
     private_root: Path, matrix: dict[str, Any]
 ) -> dict[str, Any]:
-    del private_root, matrix
-    raise MapSpatialEvalError("not_ready_for_live: Sol/xhigh评分scope与开发gate尚未集成")
+    from evals.map_spatial_guard import require_development_gate
+
+    return require_development_gate(private_root, matrix)
 
 
 def _ledger_path(private_root: Path) -> Path:
@@ -246,6 +283,17 @@ def _run_key(family_id: str, case_id: str) -> str:
 def claim_case(
     private_root: Path, matrix: dict[str, Any], family: dict[str, Any], case_id: str
 ) -> dict[str, Any]:
+    from evals.map_spatial_guard import private_lock
+
+    with private_lock(private_root):
+        return _claim_case(private_root, matrix, family, case_id)
+
+
+def _claim_case(private_root, matrix, family, case_id):
+    if family != _family_for(matrix, family["family_id"]):
+        raise MapSpatialEvalError("不能用伪造的资料族身份占用留出")
+    if not re.fullmatch(r"[a-zA-Z0-9][a-zA-Z0-9_-]{1,180}", case_id):
+        raise MapSpatialEvalError("案例ID不能包含路径")
     key = _run_key(family["family_id"], case_id)
     ledger = _read_ledger(private_root)
     if family["split"] == "holdout":
@@ -279,10 +327,36 @@ def claim_case(
 def update_run(
     private_root: Path, family_id: str, case_id: str, **updates: Any
 ) -> dict[str, Any]:
+    from evals.map_spatial_guard import private_lock
+
+    with private_lock(private_root):
+        return _update_run(private_root, family_id, case_id, updates)
+
+
+def _update_run(private_root, family_id, case_id, updates):
     ledger = _read_ledger(private_root)
     key = _run_key(family_id, case_id)
     if key not in ledger["runs"]:
         raise MapSpatialEvalError("评测案例未预先占用")
+    if any(
+        name in updates and updates[name] != ledger["runs"][key].get(name)
+        for name in (
+            "family_id",
+            "case_id",
+            "genre",
+            "split",
+            "manifest_sha256",
+            "source_sha256",
+            "expected_sha256",
+        )
+    ):
+        raise MapSpatialEvalError("冻结账本身份不可修改")
+    if (
+        ledger["runs"][key]["status"] in {"unknown", "completed"}
+        and updates.get("status", ledger["runs"][key]["status"])
+        != ledger["runs"][key]["status"]
+    ):
+        raise MapSpatialEvalError("unknown/completed不能重置后重发")
     ledger["runs"][key].update(updates)
     _write_private_json(_ledger_path(private_root), ledger)
     return ledger["runs"][key]
@@ -349,15 +423,22 @@ def _require_live_scope_approval(
     matrix: dict[str, Any],
     *,
     execute: bool,
-) -> None:
-    del private_root, matrix
+    family_id: str | None = None,
+) -> dict:
     if not execute or os.environ.get(LIVE_ENV) != "1":
         raise MapSpatialEvalError(
             f"实时业务请求默认关闭；Sol审查后才可同时指定--execute和{LIVE_ENV}=1"
         )
-    raise MapSpatialEvalError(
-        "not_ready_for_live: 地图Sol/xhigh评分scope、seeded校准账本和开发gate尚未集成审查"
-    )
+    if not family_id:
+        raise MapSpatialEvalError("not_ready_for_live: 缺少隔离绑定与真实校准证据")
+    from evals.map_spatial_guard import read_binding, require_calibration
+
+    binding = read_binding(private_root, family_id)
+    if binding["split"] == "holdout":
+        _require_development_gate(private_root, matrix)
+    else:
+        require_calibration(private_root, binding)
+    return binding
 
 
 def _database_target(database_url: str) -> tuple[str, str, str]:
@@ -369,7 +450,21 @@ def _database_target(database_url: str) -> tuple[str, str, str]:
         raise MapSpatialEvalError("地图评测只接受独立本地PostgreSQL")
     if url.database != DATABASE_NAME or url.host not in {"localhost", "127.0.0.1", "::1"}:
         raise MapSpatialEvalError(f"评测只接受本地专用数据库 {DATABASE_NAME}")
+    if url.query:
+        raise MapSpatialEvalError("隔离库URL不能带覆盖连接配置的查询参数")
     return url.get_backend_name(), str(url.host), str(url.database)
+
+
+def _database_identity(database_url: str) -> dict:
+    backend, host, name = _database_target(database_url)
+    url = make_url(database_url)
+    return {
+        "backend": backend,
+        "host": host,
+        "name": name,
+        "port": url.port or 5432,
+        "username": url.username,
+    }
 
 
 def _as_plain(value: Any) -> Any:
@@ -382,6 +477,100 @@ def _as_plain(value: Any) -> Any:
     raise MapSpatialEvalError("产品入口返回了无法冻结的契约对象")
 
 
+@contextmanager
+def writing_arm(enabled: bool):
+    """A process-only override; immutable Settings and database flags stay untouched."""
+    from core.config import get_settings
+
+    old_env = os.environ.get("MAP_SPATIAL_ENABLED_CAPABILITIES")
+    capabilities = tuple(
+        value
+        for value in get_settings().map_spatial_enabled_capabilities
+        if value != "writing.generate"
+    )
+    os.environ["MAP_SPATIAL_ENABLED_CAPABILITIES"] = ",".join(
+        (*capabilities, *(("writing.generate",) if enabled else ()))
+    )
+    get_settings.cache_clear()
+    try:
+        yield
+    finally:
+        if old_env is None:
+            os.environ.pop("MAP_SPATIAL_ENABLED_CAPABILITIES", None)
+        else:
+            os.environ["MAP_SPATIAL_ENABLED_CAPABILITIES"] = old_env
+        get_settings.cache_clear()
+
+
+def pipeline_hash() -> str:
+    roots = (
+        "backend/modules/writing",
+        "backend/modules/evidence/compilation",
+        "backend/evals",
+    )
+    paths = sorted(
+        path
+        for root in roots
+        for path in (REPO_ROOT / root).rglob("*.py")
+        if "tests" not in path.parts
+    )
+    return _canonical_hash(
+        {str(path.relative_to(REPO_ROOT)): _sha256_file(path) for path in paths}
+    )
+
+
+async def scene_source_refs(
+    db, novel_id: str, scene_id: str, chapter_index: int, source_excerpt: str
+) -> list[dict]:
+    """Validate precise current Scene ranges through the real Evidence read seam."""
+    from core.container import get
+    from core.service_keys import STORY_SCENE_SOURCE
+    from modules.evidence.contracts import VisibilityContextContract
+    from modules.evidence.facade import read_novel_evidence
+    from modules.writing.facade import build_manuscript_range_ref
+
+    matched_refs = []
+    for span in await get(STORY_SCENE_SOURCE).get_scene_spans_for_scene(
+        db, novel_id, scene_id, content_mode="canonical"
+    ):
+        value = _as_plain(span)
+        if (
+            value.get("mapping_status") not in {"exact", "reanchored"}
+            or not value.get("source_draft_id")
+            or value.get("chapter_index", 0) > chapter_index
+            or value.get("start_offset") is None
+            or value.get("end_offset") is None
+        ):
+            continue
+        ref = await build_manuscript_range_ref(
+            db,
+            novel_id,
+            draft_id=value["source_draft_id"],
+            start_offset=value["start_offset"],
+            end_offset=value["end_offset"],
+            content_mode="canonical",
+        )
+        if ref.source_hash != value.get("source_content_hash"):
+            raise MapSpatialEvalError("Scene精确来源已经漂移")
+        evidence = await read_novel_evidence(
+            db,
+            novel_id=novel_id,
+            source_ref=ref,
+            visibility=VisibilityContextContract(
+                mode="reader", cutoff_chapter=chapter_index, cutoff_scene_id=scene_id
+            ),
+            before=0,
+            after=0,
+        )
+        if (evidence.get("visibility_decision") or {}).get(
+            "visible"
+        ) is True and source_excerpt in str(evidence.get("text") or ""):
+            matched_refs.append(_as_plain(ref))
+    if not matched_refs:
+        raise MapSpatialEvalError("冻结原文没有绑定到该Scene的当前canonical可见精确区间")
+    return matched_refs
+
+
 async def preflight_project(
     *,
     private_root: Path,
@@ -391,89 +580,105 @@ async def preflight_project(
     chapter_index: int,
     source_excerpt: str,
 ) -> dict[str, Any]:
-    """Check local synthetic project, owner Project profile, Scene and adopted map."""
-    database_url = os.environ.get("DATABASE_URL", "")
-    db_backend, db_host, db_name = _database_target(database_url)
+    """Read only the exact isolated owner and actual canonical Scene source ranges."""
+    _database_target(os.environ.get("DATABASE_URL", ""))
     if os.environ.get("AUTH_MODE") != "local":
         raise MapSpatialEvalError("评测进程必须显式设置AUTH_MODE=local")
-
+    if family["split"] == "holdout":
+        _require_development_gate(private_root, load_matrix())
     from sqlalchemy import select
 
     from app.bootstrap import register_container_services
     from core.database import get_manager
-    from core.execution_context import system_execution_scope
+    from evals.map_spatial_guard import rubric_hash
+    from modules.account.facade import current_account_id, require_account_active
     from modules.project.facade import (
         build_project_llm_execution_snapshot,
+        require_active_project,
         restore_project_llm_execution_settings,
     )
     from modules.project.models import Project
     from modules.story.facade import get_scene_contract
+    from modules.world.contracts import MapSpatialBriefRequest
     from modules.world.facade import read_map_spatial_brief
-    from modules.world.map_spatial_brief_schemas import MapSpatialBriefRequest
 
-    register_container_services()
+    register_container_services(ignore_existing=True)
     manager = get_manager()
-    # The data target comes from the configured runtime, and is checked again here.
-    _database_target(str(manager.engine.url))
-    with system_execution_scope():
-        async with manager.session() as db:
-            project = await db.scalar(select(Project).where(Project.id == novel_id))
-            if (
-                project is None
-                or project.project_kind != "author"
-                or not project.title.startswith(f"MAP-EVAL:{family['family_id']}:")
-                or project.genre not in {family["genre"], PROJECT_GENRES[family["genre"]]}
-            ):
-                raise MapSpatialEvalError("项目不是该冻结资料族的专用合成作者项目")
-            snapshot = await build_project_llm_execution_snapshot(db, novel_id)
-            restored = await restore_project_llm_execution_settings(
-                db, novel_id, snapshot
-            )
-            profile = snapshot.get("profile") or {}
-            if (
-                profile.get("provider_id") != "codex"
-                or profile.get("model") != "gpt-6-luna"
-                or profile.get("connection_verified") is not True
-                or restored.get("llm", {}).get("extra", {}).get("reasoning_effort")
-                != "max"
-            ):
-                raise MapSpatialEvalError("项目owner连接未验证为Codex Luna/max")
-            scene = await get_scene_contract(db, novel_id, scene_id)
-            if scene is None:
-                raise MapSpatialEvalError("指定Scene不属于该合成项目")
-            scene_data = _as_plain(scene)
-            if source_excerpt not in json.dumps(scene_data, ensure_ascii=False):
-                raise MapSpatialEvalError("冻结原文没有绑定到该Scene的可见资料")
-            brief = await read_map_spatial_brief(
+    target = _database_identity(str(manager.engine.url))
+    if target != _database_identity(os.environ["DATABASE_URL"]):
+        raise MapSpatialEvalError("配置URL和实际运行数据库不同")
+    async with manager.session() as db:
+        owner_id = current_account_id()
+        await require_account_active(db, owner_id, allow_local_bootstrap=False)
+        await require_active_project(db, novel_id)
+        project = await db.scalar(
+            select(Project).where(Project.id == uuid.UUID(novel_id))
+        )
+        if (
+            project is None
+            or str(project.owner_id) != str(owner_id)
+            or project.project_kind != "author"
+            or not project.title.startswith(f"MAP-EVAL:{family['family_id']}:")
+            or project.genre not in {family["genre"], PROJECT_GENRES[family["genre"]]}
+        ):
+            raise MapSpatialEvalError("项目不是当前owner的该资料族专用合成作者项目")
+        snapshot = await build_project_llm_execution_snapshot(db, novel_id)
+        restored = await restore_project_llm_execution_settings(db, novel_id, snapshot)
+        profile = snapshot.get("profile") or {}
+        if (
+            profile.get("provider_id") != "codex"
+            or profile.get("model") != "gpt-6-luna"
+            or profile.get("connection_verified") is not True
+            or restored.get("llm", {}).get("extra", {}).get("reasoning_effort") != "max"
+        ):
+            raise MapSpatialEvalError("项目owner连接未验证为Codex Luna/max")
+        scene = await get_scene_contract(db, novel_id, scene_id)
+        if scene is None:
+            raise MapSpatialEvalError("指定Scene不属于该合成项目")
+        scene_data = _as_plain(scene)
+        matched_refs = await scene_source_refs(
+            db, novel_id, scene_id, chapter_index, source_excerpt
+        )
+        brief_data = _as_plain(
+            await read_map_spatial_brief(
                 db,
                 MapSpatialBriefRequest(
                     novel_id=novel_id,
                     scene_id=scene_id,
                     chapter_index=chapter_index,
                     reveal_mode="author_safe",
-                    query_text="",
                 ),
             )
-            brief_data = _as_plain(brief)
-            if not brief_data.get("items"):
-                raise MapSpatialEvalError("World产品入口没有返回已采用的空间简报")
-            result = {
-                "database": {"backend": db_backend, "host": db_host, "name": db_name},
-                "family_id": family["family_id"],
-                "project_snapshot_hash": _canonical_hash(snapshot),
-                "scene_hash": _canonical_hash(scene_data),
-                "map_snapshot_hash": _canonical_hash(brief_data),
-                "map_revision_count": len(brief_data["items"]),
-                "profile": {
-                    "provider_id": "codex",
-                    "model": "gpt-6-luna",
-                    "reasoning_effort": "max",
-                    "connection_verified": True,
-                },
-                "human_validated": False,
-            }
-            await db.rollback()
-            return result
+        )
+        if not brief_data.get("items"):
+            raise MapSpatialEvalError("World产品入口没有返回已采用的空间简报")
+        result = {
+            "schema_version": 1,
+            "suite": "map_spatial",
+            "database_target": target,
+            "family_id": family["family_id"],
+            "genre": family["genre"],
+            "split": family["split"],
+            "novel_id": novel_id,
+            "owner_id": str(owner_id),
+            "scene_id": scene_id,
+            "chapter_index": chapter_index,
+            "manifest_sha256": _sha256_file(MATRIX_PATH),
+            "rubric_sha256": rubric_hash(),
+            "source_sha256": family["source_sha256"],
+            "expected_sha256": family["expected_sha256"],
+            "project_snapshot": snapshot,
+            "project_snapshot_hash": _canonical_hash(snapshot),
+            "scene_hash": _canonical_hash(scene_data),
+            "map_snapshot_hash": _canonical_hash(brief_data),
+            "source_snapshot_hash": _canonical_hash(matched_refs),
+            "pipeline_hash": pipeline_hash(),
+            "map_revision_count": len(brief_data["items"]),
+            "human_validated": False,
+            "private_root_sha256": _canonical_hash(str(private_root.resolve())),
+        }
+        await db.rollback()
+        return result
 
 
 async def run_writing_pair(
@@ -489,7 +694,16 @@ async def run_writing_pair(
     """Use actual Evidence confirmation, Writing queue and TaskWorker for both arms."""
     private_root = require_private_directory(private_root)
     matrix = load_matrix()
-    _require_live_scope_approval(private_root, matrix, execute=execute)
+    binding = _require_live_scope_approval(
+        private_root, matrix, execute=execute, family_id=family_id
+    )
+    case_binding = binding.get("case_bindings", {}).get(case_id, {})
+    if (
+        case_binding.get("novel_id"),
+        case_binding.get("scene_id"),
+        case_binding.get("chapter_index"),
+    ) != (novel_id, scene_id, chapter_index):
+        raise MapSpatialEvalError("运行参数不属于已冻结隔离绑定")
     verified = {row["family_id"]: row for row in verify_materials(private_root, matrix)}
     family = _family_for(matrix, family_id)
     source_path = private_root / family_id / "source.json"
@@ -505,12 +719,13 @@ async def run_writing_pair(
         chapter_index=chapter_index,
         source_excerpt=case["source_excerpt"],
     )
+    if preflight != case_binding:
+        raise MapSpatialEvalError("隔离预检、来源、prompt或项目快照漂移")
     initial = claim_case(private_root, matrix, family, case_id)
 
     from sqlalchemy import select
 
     from core.database import get_manager
-    from core.execution_context import system_execution_scope
     from infrastructure.tasks.models import AsyncTask
     from modules.evidence.compilation.contracts import ContextConfirmationRequest
     from modules.evidence.facade import confirm_context, prepare_confirmed_ai_action
@@ -534,28 +749,13 @@ async def run_writing_pair(
     scene_before = preflight["scene_hash"]
     map_before = preflight["map_snapshot_hash"]
     project_before = preflight["project_snapshot_hash"]
-    settings = None
-    from core.config import get_settings
-
-    settings = get_settings()
-    previous_capabilities = tuple(settings.map_spatial_enabled_capabilities)
-    baseline_capabilities = tuple(
-        capability
-        for capability in previous_capabilities
-        if capability != "writing.generate"
-    )
     try:
-        with system_execution_scope():
-            async with manager.session() as db:
-                snapshot = await build_project_llm_execution_snapshot(db, novel_id)
-                if _canonical_hash(snapshot) != project_before:
-                    raise MapSpatialEvalError("Project快照在预检后发生漂移")
-                for arm_name, enabled in requests.items():
-                    settings.map_spatial_enabled_capabilities = (
-                        tuple(dict.fromkeys((*baseline_capabilities, "writing.generate")))
-                        if enabled
-                        else baseline_capabilities
-                    )
+        async with manager.session() as db:
+            snapshot = await build_project_llm_execution_snapshot(db, novel_id)
+            if _canonical_hash(snapshot) != project_before:
+                raise MapSpatialEvalError("Project快照在预检后发生漂移")
+            for arm_name, enabled in requests.items():
+                with writing_arm(enabled):
                     scene = await get_scene_contract(db, novel_id, scene_id)
                     if scene is None:
                         raise MapSpatialEvalError("Scene在冻结期间失效")
@@ -603,48 +803,52 @@ async def run_writing_pair(
                         ),
                         llm_execution_snapshot=snapshot,
                     )
-                    arms[arm_name] = {
-                        "status": "pending",
-                        "task_id": response["task_id"],
-                        "confirmation_id": confirmation.id,
-                        "source_hash": family["source_sha256"],
-                        "project_snapshot_hash": project_before,
-                        "scene_hash": scene_before,
-                        "map_snapshot_hash": map_before,
-                        "prompt_hash": prompt_hash,
-                        "core_context_hash": options.get(
-                            "compiled_context_core_fingerprint"
-                        ),
-                        "map_enabled": enabled,
-                        "map_revision_count": len(baseline),
-                        "model": "gpt-6-luna",
-                        "status_detail": "queued",
-                    }
-                assert_pair_invariants(
-                    arms["without_spatial_brief"], arms["with_spatial_brief"]
-                )
-                core = dict(confirmation.compile_options or {}).get(
-                    "compiled_context_core_fingerprint"
-                )
-                for arm in arms.values():
-                    if (
-                        not arm.get("core_context_hash")
-                        or arm["core_context_hash"] != core
-                    ):
-                        raise MapSpatialEvalError("两臂的非地图编译上下文指纹不同")
-                initial["arms"] = arms
-                initial["project_snapshot_hash"] = project_before
-                initial["scene_hash"] = scene_before
-                initial["map_snapshot_hash"] = map_before
-                initial["pair_input_hash"] = _canonical_hash(
-                    {
-                        key: value
-                        for key, value in arms["without_spatial_brief"].items()
-                        if key
-                        not in {"confirmation_id", "task_id", "status", "status_detail"}
-                    }
-                )
-                update_run(private_root, family_id, case_id, **initial)
+                arms[arm_name] = {
+                    "status": "pending",
+                    "task_id": response["task_id"],
+                    "confirmation_id": confirmation.id,
+                    "source_hash": family["source_sha256"],
+                    "project_snapshot_hash": project_before,
+                    "scene_hash": scene_before,
+                    "map_snapshot_hash": map_before,
+                    "prompt_hash": prompt_hash,
+                    "core_context_hash": options.get("compiled_context_core_fingerprint"),
+                    "map_enabled": enabled,
+                    "map_revision_count": len(baseline),
+                    "model": "gpt-6-luna",
+                    "status_detail": "queued",
+                }
+            assert_pair_invariants(
+                arms["without_spatial_brief"], arms["with_spatial_brief"]
+            )
+            core = dict(confirmation.compile_options or {}).get(
+                "compiled_context_core_fingerprint"
+            )
+            for arm in arms.values():
+                if not arm.get("core_context_hash") or arm["core_context_hash"] != core:
+                    raise MapSpatialEvalError("两臂的非地图编译上下文指纹不同")
+            initial["arms"] = arms
+            initial["project_snapshot_hash"] = project_before
+            initial["scene_hash"] = scene_before
+            initial["map_snapshot_hash"] = map_before
+            initial["pair_input_hash"] = _canonical_hash(
+                {
+                    key: value
+                    for key, value in arms["without_spatial_brief"].items()
+                    if key
+                    not in {"confirmation_id", "task_id", "status", "status_detail"}
+                }
+            )
+            update_run(
+                private_root,
+                family_id,
+                case_id,
+                **{
+                    key: value
+                    for key, value in initial.items()
+                    if key not in {"family_id", "case_id"}
+                },
+            )
 
         worker = _build_task_worker()
         for arm_name, enabled in requests.items():
@@ -658,13 +862,14 @@ async def run_writing_pair(
                 "status_detail": "worker_claim_started",
             }
             update_run(private_root, family_id, case_id, arms=current_arms)
-            settings.map_spatial_enabled_capabilities = (
-                tuple(dict.fromkeys((*baseline_capabilities, "writing.generate")))
-                if enabled
-                else baseline_capabilities
-            )
             try:
-                await worker.run_once(task_id=arm["task_id"], novel_id=novel_id)
+                with writing_arm(enabled):
+                    # Recheck owner/Project immediately before this exact task.
+                    from evals.map_spatial_guard import verify_runtime
+
+                    async with manager.session() as runtime_db:
+                        await verify_runtime(runtime_db, binding)
+                    await worker.run_once(task_id=arm["task_id"], novel_id=novel_id)
             except BaseException:
                 current_ledger = _read_ledger(private_root)
                 current = current_ledger["runs"][_run_key(family_id, case_id)]
@@ -678,78 +883,76 @@ async def run_writing_pair(
                     private_root, family_id, case_id, arms=current_arms, status="unknown"
                 )
                 raise
-            with system_execution_scope():
-                async with manager.session() as db:
-                    saved_task = await db.scalar(
-                        select(AsyncTask).where(
-                            AsyncTask.id == arm["task_id"], AsyncTask.novel_id == novel_id
-                        )
+            async with manager.session() as db:
+                saved_task = await db.scalar(
+                    select(AsyncTask).where(
+                        AsyncTask.id == uuid.UUID(arm["task_id"]),
+                        AsyncTask.novel_id == uuid.UUID(novel_id),
                     )
-                    if (
-                        saved_task is None
-                        or saved_task.status != "done"
-                        or not (saved_task.result or {}).get("draft_id")
-                    ):
-                        status = (
-                            "pending"
-                            if saved_task is not None
-                            and saved_task.status == "pending"
-                            and saved_task.attempt == 0
-                            else "unknown"
-                        )
-                        current_ledger = _read_ledger(private_root)
-                        current = current_ledger["runs"][_run_key(family_id, case_id)]
-                        current_arms = dict(current.get("arms") or {})
-                        current_arms[arm_name] = {
-                            **arm,
-                            "status": status,
-                            "status_detail": "task_not_completed",
-                        }
-                        update_run(
-                            private_root,
-                            family_id,
-                            case_id,
-                            arms=current_arms,
-                            status="unknown" if status == "unknown" else "pending",
-                        )
-                        raise MapSpatialEvalError(
-                            "Writing任务未完成；账本保留pending/unknown且不会自动重发"
-                        )
-                    draft = await get_draft(
-                        db, novel_id, str(saved_task.result["draft_id"])
+                )
+                if (
+                    saved_task is None
+                    or saved_task.status != "done"
+                    or not (saved_task.result or {}).get("draft_id")
+                ):
+                    status = (
+                        "pending"
+                        if saved_task is not None
+                        and saved_task.status == "pending"
+                        and saved_task.attempt == 0
+                        else "unknown"
                     )
-                    if draft is None or not draft.content:
-                        raise MapSpatialEvalError("Writing候选缺少正文")
-                    output = {
-                        "family_id": family_id,
-                        "case_id": case_id,
-                        "arm": arm_name,
-                        "status": "completed",
-                        "draft_id": draft.id,
-                        "draft_hash": draft.content_hash,
-                        "draft_content": draft.content,
-                        "model": "gpt-6-luna",
-                        "usage": "unknown",
-                        "cost": "unknown",
-                        "human_validated": False,
-                    }
-                    output_path = (
-                        private_root / "runs" / family_id / f"{case_id}-{arm_name}.json"
-                    )
-                    _write_private_json(output_path, output)
                     current_ledger = _read_ledger(private_root)
                     current = current_ledger["runs"][_run_key(family_id, case_id)]
                     current_arms = dict(current.get("arms") or {})
                     current_arms[arm_name] = {
                         **arm,
-                        "status": "completed",
-                        "status_detail": "candidate_created_not_adopted",
-                        "draft_sha256": draft.content_hash,
-                        "raw_output_sha256": _sha256_file(output_path),
-                        "usage": "unknown",
-                        "cost": "unknown",
+                        "status": status,
+                        "status_detail": "task_not_completed",
                     }
-                    update_run(private_root, family_id, case_id, arms=current_arms)
+                    update_run(
+                        private_root,
+                        family_id,
+                        case_id,
+                        arms=current_arms,
+                        status="unknown" if status == "unknown" else "pending",
+                    )
+                    raise MapSpatialEvalError(
+                        "Writing任务未完成；账本保留pending/unknown且不会自动重发"
+                    )
+                draft = await get_draft(db, novel_id, str(saved_task.result["draft_id"]))
+                if draft is None or not draft.content:
+                    raise MapSpatialEvalError("Writing候选缺少正文")
+                output = {
+                    "family_id": family_id,
+                    "case_id": case_id,
+                    "arm": arm_name,
+                    "status": "completed",
+                    "draft_id": draft.id,
+                    "draft_hash": draft.content_hash,
+                    "draft_content": draft.content,
+                    "model": "gpt-6-luna",
+                    "usage": "unknown",
+                    "cost": "unknown",
+                    "human_validated": False,
+                }
+                output_path = (
+                    private_root / "runs" / family_id / f"{case_id}-{arm_name}.json"
+                )
+                _write_private_json(output_path, output)
+                current_ledger = _read_ledger(private_root)
+                current = current_ledger["runs"][_run_key(family_id, case_id)]
+                current_arms = dict(current.get("arms") or {})
+                current_arms[arm_name] = {
+                    **arm,
+                    "status": "completed",
+                    "status_detail": "candidate_created_not_adopted",
+                    "draft_sha256": draft.content_hash,
+                    "raw_output_sha256": _sha256_file(output_path),
+                    "usage": "unknown",
+                    "cost": "unknown",
+                }
+                update_run(private_root, family_id, case_id, arms=current_arms)
             # Candidate adoption would contaminate the second arm's frozen context.
             after = await preflight_project(
                 private_root=private_root,
@@ -759,11 +962,7 @@ async def run_writing_pair(
                 chapter_index=chapter_index,
                 source_excerpt=case["source_excerpt"],
             )
-            if (
-                after["project_snapshot_hash"] != project_before
-                or after["scene_hash"] != scene_before
-                or after["map_snapshot_hash"] != map_before
-            ):
+            if after != case_binding:
                 raise MapSpatialEvalError("配对臂之间Project/Scene/map版本漂移，停止评测")
         update_run(
             private_root,
@@ -781,8 +980,12 @@ async def run_writing_pair(
             "cost": "unknown",
             "raw_outputs": "private",
         }
-    finally:
-        settings.map_spatial_enabled_capabilities = previous_capabilities
+    except BaseException:
+        # The claim is consumed even if validation or queue submission was interrupted.
+        current = _read_ledger(private_root)["runs"][_run_key(family_id, case_id)]
+        if current["status"] not in {"unknown", "completed", "pending"}:
+            update_run(private_root, family_id, case_id, status="unknown")
+        raise
 
 
 def build_report(private_root: Path, output: Path) -> dict[str, Any]:
@@ -828,6 +1031,29 @@ def main() -> None:
         action="store_true",
         help="explicitly requests guarded live SUT calls",
     )
+    freeze = commands.add_parser(
+        "freeze-binding", help="freeze actual owner/Scene setup; no LLM"
+    )
+    freeze.add_argument("--private-root", type=Path, default=DEFAULT_PRIVATE_ROOT)
+    freeze.add_argument("--family-id", required=True)
+    freeze.add_argument("--scopes", type=Path, required=True)
+    freeze.add_argument("--execute", action="store_true")
+    score = commands.add_parser(
+        "score", help="one map-only seeded calibration or judge call"
+    )
+    score.add_argument("--private-root", type=Path, default=DEFAULT_PRIVATE_ROOT)
+    score.add_argument("--family-id", required=True)
+    score.add_argument(
+        "--phase",
+        required=True,
+        choices=("teacher_calibration", "development_judge", "holdout_judge"),
+    )
+    score.add_argument("--case-id", required=True)
+    score.add_argument("--execute", action="store_true")
+    gate = commands.add_parser(
+        "freeze-development-gate", help="freeze recomputed real development evidence"
+    )
+    gate.add_argument("--private-root", type=Path, default=DEFAULT_PRIVATE_ROOT)
     args = parser.parse_args()
     if args.command == "verify":
         records = verify_materials(args.private_root)
@@ -845,6 +1071,24 @@ def main() -> None:
         return
     if args.command == "report":
         result = build_report(args.private_root, args.output)
+        print(json.dumps(result, ensure_ascii=False))
+        return
+    if args.command in {"freeze-binding", "score", "freeze-development-gate"}:
+        from evals.map_spatial_control import freeze_binding, freeze_gate
+        from evals.map_spatial_control import score as score_request
+
+        options = vars(args).copy()
+        options.pop("command")
+        try:
+            if args.command == "freeze-development-gate":
+                result = freeze_gate(args.private_root)
+            else:
+                action = (
+                    freeze_binding if args.command == "freeze-binding" else score_request
+                )
+                result = asyncio.run(action(**options))
+        except MapSpatialEvalError as exc:
+            parser.error(str(exc))
         print(json.dumps(result, ensure_ascii=False))
         return
     try:
