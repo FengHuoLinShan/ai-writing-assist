@@ -23,7 +23,10 @@ GATED_FUNCTIONS = {
         "enqueue_conflict_item_ai_suggestion": ("validate_ai_suggestion_request",),
     },
     "modules/story/api.py": {
-        "_enqueue_confirmed_task": ("require_fresh_confirmation",),
+        "_enqueue_confirmed_task": ("enqueue_confirmed_story_task",),
+    },
+    "modules/story/task_submission.py": {
+        "enqueue_confirmed_story_task": ("require_fresh_confirmation",),
     },
     "modules/story/outline_state/api.py": {
         "_enqueue_confirmed_outline_task": ("require_fresh_confirmation",),
