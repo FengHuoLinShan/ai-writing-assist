@@ -45,6 +45,7 @@ from infrastructure.llm.workflow_budget import (
     new_ai_run_envelope,
     workflow_budget,
 )
+from infrastructure.tasks.enqueuer import enqueue_inline_parent_task
 from infrastructure.tasks.models import AsyncTask
 from modules.account.facade import is_demo_readonly_principal
 from modules.assistant.contracts import AssistantOperation, AssistantOperationContext
@@ -729,7 +730,17 @@ def _goal_prompt_token_limit(
     maximum_output: int,
 ) -> int:
     profile = llm_snapshot.get("profile")
-    model = str((profile.get("model") if isinstance(profile, Mapping) else None) or "")
+    profile = profile if isinstance(profile, Mapping) else {}
+    profile_limit = profile.get("max_tokens")
+    if (
+        isinstance(profile_limit, bool)
+        or not isinstance(profile_limit, int)
+        or profile_limit < minimum_output
+    ):
+        raise GoalPlanningScopeError(
+            "项目模型的冻结输出上限不足或不可读取；请调整项目模型后新建目标"
+        )
+    model = str(profile.get("model") or "")
     estimated_input = sum(
         estimate_token_count(message.content, model=model) for message in messages
     )
@@ -738,7 +749,7 @@ def _goal_prompt_token_limit(
         raise GoalPlanningScopeError(
             "目录或参数超过本次目标的模型额度；请取消本次目标，缩小范围或增加预算后新建"
         )
-    return min(maximum_output, remaining - estimated_input)
+    return min(maximum_output, profile_limit, remaining - estimated_input)
 
 
 def _assert_plan_operations_supported(
@@ -1429,23 +1440,16 @@ async def start_goal(
         checkpoint_json={"goal": goal},
         result_json={},
     )
-    parent_task = AsyncTask(
-        id=parent_task_id,
+    enqueue_inline_parent_task(
+        db,
         task_type="assistant_goal_parent",
-        novel_id=data.novel_id,
-        status="pending",
-        progress=0.0,
+        novel_id=str(data.novel_id),
+        task_id=str(parent_task_id),
         meta={
-            "_execution_mode": "inline_only",
             "goal_run_id": str(run_id),
             "owner_id": owner_id,
         },
-        result={},
-        recovery_policy="manual_resume",
-        attempt=0,
-        max_attempts=1,
     )
-    db.add(parent_task)
     db.add(run)
     try:
         await db.flush()

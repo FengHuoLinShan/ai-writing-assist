@@ -887,6 +887,21 @@ CAPABILITY_REGISTRY: dict[str, CapabilityKnowledgePolicy] = {
             notes="只使用作者构想提出方向候选；选定前不作为资产或进入其他生成上下文。",
         ),
         _policy(
+            "assistant.goal.plan",
+            DOMAIN_ASSISTANT,
+            "作者目标的目录选择与计划候选",
+            subjects=("author",),
+            dimensions=("author_intent",),
+            confirmation=CONFIRMATION_REQUIRED,
+            snapshot=SNAPSHOT_REQUIRED,
+            outputs=(OUTPUT_PROPOSAL,),
+            gate=ADOPTION_DISPLAY_ONLY,
+            notes=(
+                "只提出目录内计划；已完成领域读取回执沿原操作权限引用，"
+                "作者确认前不执行修改或授予领域任务根能力。"
+            ),
+        ),
+        _policy(
             "assistant.turn",
             DOMAIN_ASSISTANT,
             "项目助手回答",

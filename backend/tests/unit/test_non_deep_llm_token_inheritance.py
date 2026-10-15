@@ -29,6 +29,7 @@ _EXPLICIT_OUTPUT_BUDGET_ALLOWLIST = {
     "modules/world/map_structure_workflow.py",
     "modules/world/services/worldbuilding/world_validation_service.py",
 }
+_GOAL_SERVICE = "modules/assistant/goal_runs/service.py"
 
 
 def _llm_request_calls(path: Path) -> list[tuple[int, bool]]:
@@ -53,6 +54,27 @@ def _llm_request_calls(path: Path) -> list[tuple[int, bool]]:
     return calls
 
 
+def _goal_frozen_budget_call_lines(path: Path) -> set[int]:
+    """Only the Goal preflight may override the frozen Project model default."""
+    lines: set[int] = set()
+    for node in ast.walk(python_ast(path)):
+        if not isinstance(node, ast.Call):
+            continue
+        if getattr(node.func, "id", None) != "LLMCallRequest":
+            continue
+        output = next(
+            (item.value for item in node.keywords if item.arg == "max_tokens"),
+            None,
+        )
+        if (
+            isinstance(output, ast.Call)
+            and isinstance(output.func, ast.Name)
+            and output.func.id == "_goal_prompt_token_limit"
+        ):
+            lines.add(node.lineno)
+    return lines
+
+
 def test_only_approved_workflows_set_explicit_max_tokens() -> None:
     violations: list[str] = []
     for path in module_python_files():
@@ -63,8 +85,11 @@ def test_only_approved_workflows_set_explicit_max_tokens() -> None:
             continue
         if relative in _EXPLICIT_OUTPUT_BUDGET_ALLOWLIST:
             continue
+        goal_bounded = (
+            _goal_frozen_budget_call_lines(path) if relative == _GOAL_SERVICE else set()
+        )
         for lineno, has_explicit_budget in _llm_request_calls(path):
-            if has_explicit_budget:
+            if has_explicit_budget and lineno not in goal_bounded:
                 violations.append(f"{relative}:{lineno}")
 
     assert violations == []

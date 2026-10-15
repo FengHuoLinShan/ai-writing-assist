@@ -5,6 +5,7 @@ from uuid import UUID
 from fastapi import APIRouter, Query
 
 from core.dependencies import DbSession
+from core.errors import NotFoundError, ValidationError
 from modules.account.facade import current_account_id
 from modules.assistant.goal_runs import service
 from modules.assistant.goal_runs.contracts import (
@@ -15,6 +16,7 @@ from modules.assistant.goal_runs.contracts import (
     GoalRunStart,
     GoalStepApproval,
 )
+from modules.project.facade import require_active_project
 
 router = APIRouter(prefix="/goals", tags=["assistant-goals"])
 _ORCHESTRATION_EXEMPTION = (
@@ -30,16 +32,22 @@ def _owner_id() -> str:
 
 @router.get("/capabilities")
 async def goal_capabilities(db: DbSession, novel_id: UUID = Query(...)):
+    try:
+        await require_active_project(db, str(novel_id), allow_demo_readonly=False)
+    except NotFoundError:
+        return {"enabled": False}
     return await service.goal_capabilities(db, str(novel_id), _owner_id())
 
 
 @router.get("/active")
 async def active_goal(db: DbSession, novel_id: UUID = Query(...)):
+    await require_active_project(db, str(novel_id), allow_demo_readonly=False)
     return await service.get_active_goal(db, str(novel_id), _owner_id())
 
 
 @router.get("/recent")
 async def recent_goals(db: DbSession, novel_id: UUID = Query(...)):
+    await require_active_project(db, str(novel_id), allow_demo_readonly=False)
     return await service.get_recent_goals(db, str(novel_id), _owner_id())
 
 
@@ -48,6 +56,7 @@ async def recent_goals(db: DbSession, novel_id: UUID = Query(...)):
     openapi_extra={"x-novelcraft-operation-exemption": _ORCHESTRATION_EXEMPTION},
 )
 async def start_goal(db: DbSession, data: GoalRunStart):
+    await require_active_project(db, str(data.novel_id), allow_demo_readonly=False)
     return await service.start_goal(db, data, _owner_id())
 
 
@@ -57,6 +66,7 @@ async def goal_run(
     run_id: UUID,
     novel_id: UUID = Query(...),
 ):
+    await require_active_project(db, str(novel_id), allow_demo_readonly=False)
     return await service.get_goal(db, str(novel_id), str(run_id), _owner_id())
 
 
@@ -70,6 +80,7 @@ async def approve_goal_plan(
     data: GoalPlanApproval,
     novel_id: UUID = Query(...),
 ):
+    await require_active_project(db, str(novel_id), allow_demo_readonly=False)
     return await service.approve_goal_plan(
         db,
         novel_id=str(novel_id),
@@ -86,6 +97,7 @@ async def approve_goal_plan(
 async def advance_goal(
     db: DbSession, run_id: UUID, data: GoalAction, novel_id: UUID = Query(...)
 ):
+    await require_active_project(db, str(novel_id), allow_demo_readonly=False)
     return await service.advance_goal(
         db, str(novel_id), str(run_id), _owner_id(), data=data
     )
@@ -102,9 +114,8 @@ async def approve_goal_step(
     data: GoalStepApproval,
     novel_id: UUID = Query(...),
 ):
+    await require_active_project(db, str(novel_id), allow_demo_readonly=False)
     if data.step_id != step_id:
-        from core.errors import ValidationError
-
         raise ValidationError("步骤标识与请求路径不一致")
     return await service.approve_goal_step(
         db, str(novel_id), str(run_id), data, _owner_id()
@@ -118,6 +129,7 @@ async def approve_goal_step(
 async def pause_goal(
     db: DbSession, run_id: UUID, data: GoalAction, novel_id: UUID = Query(...)
 ):
+    await require_active_project(db, str(novel_id), allow_demo_readonly=False)
     return await service.pause_goal(db, str(novel_id), str(run_id), data, _owner_id())
 
 
@@ -128,6 +140,7 @@ async def pause_goal(
 async def resume_goal(
     db: DbSession, run_id: UUID, data: GoalResume, novel_id: UUID = Query(...)
 ):
+    await require_active_project(db, str(novel_id), allow_demo_readonly=False)
     return await service.resume_goal(db, str(novel_id), str(run_id), data, _owner_id())
 
 
@@ -138,6 +151,7 @@ async def resume_goal(
 async def cancel_goal(
     db: DbSession, run_id: UUID, data: GoalAction, novel_id: UUID = Query(...)
 ):
+    await require_active_project(db, str(novel_id), allow_demo_readonly=False)
     return await service.cancel_goal(db, str(novel_id), str(run_id), data, _owner_id())
 
 
@@ -151,6 +165,7 @@ async def replan_goal(
     data: GoalReplanRequest,
     novel_id: UUID = Query(...),
 ):
+    await require_active_project(db, str(novel_id), allow_demo_readonly=False)
     return await service.replan_goal(db, str(novel_id), str(run_id), data, _owner_id())
 
 
@@ -161,6 +176,7 @@ async def replan_goal(
 async def restore_goal_changes(
     db: DbSession, run_id: UUID, data: GoalAction, novel_id: UUID = Query(...)
 ):
+    await require_active_project(db, str(novel_id), allow_demo_readonly=False)
     return await service.restore_goal_changes(
         db, str(novel_id), str(run_id), data, _owner_id()
     )

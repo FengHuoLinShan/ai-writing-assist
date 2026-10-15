@@ -490,6 +490,7 @@ def _offline_snapshot():
     return {
         "provider_id": "test",
         "model": "offline-goal-plan-stub",
+        "profile": {"model": "offline-goal-plan-stub", "max_tokens": 8192},
         "verified": True,
     }
 

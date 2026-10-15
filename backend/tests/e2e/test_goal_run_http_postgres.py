@@ -97,6 +97,79 @@ async def test_goal_http_default_off_owner_recycled_and_demo_do_not_write(monkey
                 params={"novel_id": str(project_id)},
             )
             assert hidden.status_code == 200 and hidden.json() == {"enabled": False}
+            run_path = f"/api/assistant/goals/{uuid4()}"
+            budget = {
+                "requests": 4,
+                "possible_charge_requests": 4,
+                "tokens": 4096,
+                "time_limit_seconds": 600,
+            }
+            requests = [
+                ("GET", "/api/assistant/goals/active", None),
+                ("GET", "/api/assistant/goals/recent", None),
+                ("GET", run_path, None),
+                (
+                    "POST",
+                    "/api/assistant/goals",
+                    {
+                        "novel_id": str(project_id),
+                        "request_id": str(uuid4()),
+                        "goal": "不可访问的项目",
+                        "budget": budget,
+                    },
+                ),
+                (
+                    "POST",
+                    f"{run_path}/approve",
+                    {
+                        "expected_revision": 1,
+                        "plan": {
+                            "title": "只读计划",
+                            "steps": [
+                                {
+                                    "step_id": "read",
+                                    "operation_id": "evidence.project.search",
+                                    "parameters": {"query": "资料"},
+                                    "intent": "核对资料",
+                                }
+                            ],
+                        },
+                        "budget": budget,
+                    },
+                ),
+                (
+                    "POST",
+                    f"{run_path}/steps/read/approve",
+                    {"expected_revision": 1, "step_id": "read", "approve": True},
+                ),
+                (
+                    "POST",
+                    f"{run_path}/resume",
+                    {"expected_revision": 1, "budget": budget},
+                ),
+                (
+                    "POST",
+                    f"{run_path}/replan",
+                    {"expected_revision": 1, "reason": "缩小范围"},
+                ),
+                *(
+                    ("POST", f"{run_path}/{action}", {"expected_revision": 1})
+                    for action in ("advance", "pause", "cancel", "restore")
+                ),
+            ]
+            for method, path, body in requests:
+                query = (
+                    {"novel_id": str(project_id)}
+                    if path != "/api/assistant/goals"
+                    else None
+                )
+                response = await client.request(
+                    method,
+                    path,
+                    params=query,
+                    json=body,
+                )
+                assert response.status_code == 404, (method, path, response.text)
 
         principal = AccountPrincipal(
             account_id=BOOTSTRAP_ACCOUNT_ID,
@@ -112,6 +185,10 @@ async def test_goal_http_default_off_owner_recycled_and_demo_do_not_write(monkey
                 "/api/assistant/goals/capabilities", params={"novel_id": str(own)}
             )
             assert demo.status_code == 200 and demo.json() == {"enabled": False}
+            demo_run = await client.get(
+                "/api/assistant/goals/recent", params={"novel_id": str(own)}
+            )
+            assert demo_run.status_code == 404
         finally:
             reset_principal(token)
 
@@ -144,7 +221,10 @@ async def test_goal_http_plan_receives_only_executable_catalog(monkeypatch):
     monkeypatch.setattr(service, "get_settings", lambda: settings)
 
     async def snapshot(*_args, **_kwargs):
-        return {**_offline_snapshot(), "profile": {"model": "gpt-6-luna"}}
+        return {
+            **_offline_snapshot(),
+            "profile": {"model": "gpt-6-luna", "max_tokens": 8192},
+        }
 
     async def trace_disabled(*_args, **_kwargs):
         return False

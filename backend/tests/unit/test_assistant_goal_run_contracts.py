@@ -294,6 +294,24 @@ def test_goal_large_schema_is_rejected_before_provider_reservation():
             [LLMMessage(role="user", content="完整目录" * 3000)],
             envelope,
             budget,
+            {"profile": {"model": "gpt-6-luna", "max_tokens": 8192}},
+            minimum_output=512,
+            maximum_output=8000,
+        )
+    allowed = _goal_prompt_token_limit(
+        [LLMMessage(role="user", content="短目标")],
+        envelope,
+        budget,
+        {"profile": {"model": "gpt-6-luna", "max_tokens": 1024}},
+        minimum_output=512,
+        maximum_output=8000,
+    )
+    assert allowed == 1024
+    with pytest.raises(GoalPlanningScopeError, match="冻结输出上限"):
+        _goal_prompt_token_limit(
+            [LLMMessage(role="user", content="短目标")],
+            envelope,
+            budget,
             {"profile": {"model": "gpt-6-luna"}},
             minimum_output=512,
             maximum_output=8000,

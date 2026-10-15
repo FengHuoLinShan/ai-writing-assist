@@ -39,13 +39,14 @@ HTTP 入口为 `/api/assistant`；账户与项目身份由服务端验证。RP �
 明确确认预算后执行，并计入同一根 `AIRunEnvelope`；目标审批只冻结已注册 operation 的范围与服务端
 映射出的 task capability，不开放任意工具或 capability。规划先从 Goal 当前可执行操作中，
 用一次轻量目录选择请求挑选所需操作（至多 30 类），再用第二次请求仅查看选中操作的完整参数 schema；
-两次均记入同一根账本，
-输入和输出在剩余 80% token 额度内预检，不足时要求作者缩小目标或增额。未接入根预算/稳定领域
+两次均记入同一根账本，输入和输出按冻结的项目模型输出上限及剩余 80% token 额度预检；
+冻结上限缺失或额度不足时停止，请作者核对模型设置、缩小目标或增额。未接入根预算/稳定领域
 回执的模型操作和需独立授权的 R4 操作会在能力接口列明原因，并在计划确认及恢复执行时按同一
 规则重验。单轮助手的完整目录不受此过滤影响。
 
 能力默认关闭：需同时开启 `ASSISTANT_ENABLED`、`ASSISTANT_GOAL_RUNS_ENABLED`，并把项目 ID 列入
 `ASSISTANT_GOAL_RUNS_PROJECT_ALLOWLIST`。请求仍须通过作者 owner、活跃 author project 和非 demo 门禁。
+Goal 父任务经统一 enqueuer 保存为确定 ID 的 `inline_only` / `manual_resume` 回执，普通 worker 不领取。
 每项目活动目标由 `uq_assistant_goal_run_active` 保证唯一；计划审批、预算停点和暂停沿用
 `waiting_approval`，原因留在检查点。R0/R1按目录和实际 task adapter 自动推进；R2 默认逐步确认，只有本目标
 显式开启且存在真实恢复入口的操作才可自动执行；R3 仍逐步确认，R4 需要独立领域授权。地图作者决定读取
