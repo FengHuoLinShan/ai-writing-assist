@@ -219,7 +219,6 @@ OPERATION_METADATA: dict[str, dict] = {
         "spatial_advisory",
         ("notice_disposition",),
         reversibility="重新打开提醒",
-        transaction_mode="multi_stage",
     ),
     "evidence.focused_search": _entry(
         "按作者明确的问题在当前作品授权范围内补查资料；不采用任何结果。",

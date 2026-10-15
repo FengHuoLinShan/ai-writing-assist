@@ -52,10 +52,13 @@ R0 目录读取经 `read_operation` 进入领域读取端口。已下线或改�
 
 留痕只保存声明参数的类型、长度、分桶或按作品独立盐值生成的 HMAC；未声明字段只保存出现标记，
 不存正文、prompt、模型输出或密钥。单事务写入把成功事件放在业务事务内，trace 自身用 savepoint
-隔离；多阶段异常记为结果未知，不自动重放。账户偏好由 `/operation-traces/preference` 管理：本机
-默认开启，公开账户默认关闭并需作者主动开启，演示账户永不记录。作者可通过
+隔离；多阶段异常记为结果未知，不自动重放。留痕写入失败不阻断业务；响应发送前的 HTTP 留痕缺口用
+`x-novelcraft-operation-trace-incomplete` 标记，v7 助手运行在 checkpoint 和结果中标记
+`operation_trace_incomplete`，以便作者识别记录缺口。账户偏好由 `/operation-traces/preference`
+管理：本机默认开启，公开账户默认关闭并需作者主动开启，演示账户永不记录。作者可通过
 `/operation-traces/aggregate` 查看汇总，或 `/operation-traces/export` 导出去标识的操作与序列频次；
 明细保留 180 天，到期后聚合并删除。
+现有任务 worker 的维护节拍每次归档一个有过期明细的作品；即使作者不打开汇总页，闲置作品也会清理。
 
 ## 主动检查与提醒
 

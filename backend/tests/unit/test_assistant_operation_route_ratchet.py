@@ -5,9 +5,11 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
+from fastapi import APIRouter, FastAPI
 from fastapi.routing import APIRoute
+from fastapi.testclient import TestClient
 
-from app.main import app
+from app.main import _install_operation_trace_route_adapters, app
 from core.container import get
 from core.service_keys import ASSISTANT_OPERATIONS
 
@@ -63,3 +65,59 @@ def test_write_routes_are_bound_or_explicitly_exempt_and_legacy_gaps_only_shrink
         "new unbound write routes require an operation ID or explicit exemption:\n"
         + "\n".join(f"{method} {path}" for method, path in additions)
     )
+
+
+def test_route_adapter_handles_included_and_late_routes_without_changing_openapi():
+    probe = FastAPI()
+    initial = APIRouter(prefix="/api/probe")
+
+    @initial.post(
+        "/bound", openapi_extra={"x-novelcraft-operation-id": "project.add_task"}
+    )
+    async def bound():
+        return {"ok": True}
+
+    @initial.post("/unbound")
+    async def unbound():
+        return {"ok": True}
+
+    probe.include_router(initial)
+    expected_openapi = probe.openapi()
+    _install_operation_trace_route_adapters(probe)
+    _install_operation_trace_route_adapters(probe)
+    assert probe.openapi() == expected_openapi
+
+    late = APIRouter(prefix="/api/late")
+
+    @late.post("/bound", openapi_extra={"x-novelcraft-operation-id": "project.add_task"})
+    async def late_bound():
+        return {"ok": True}
+
+    probe.include_router(late)
+    _install_operation_trace_route_adapters(probe)
+    probe.openapi_schema = None
+    assert (
+        probe.openapi()["paths"]["/api/late/bound"]["post"]
+        ["x-novelcraft-operation-id"]
+        == "project.add_task"
+    )
+
+    included = [
+        context
+        for branch in probe.routes
+        if (effective_routes := getattr(branch, "effective_route_contexts", None))
+        for context in effective_routes()
+    ]
+    assert (
+        sum(bool(getattr(route, "_trace_adapter_installed", False)) for route in included)
+        == 2
+    )
+    assert all(
+        not getattr(route, "_trace_adapter_installed", False)
+        for route in included
+        if route.path == "/api/probe/unbound"
+    )
+    with TestClient(probe) as client:
+        assert client.post("/api/probe/unbound").json() == {"ok": True}
+        assert client.post("/api/probe/bound").json() == {"ok": True}
+        assert client.post("/api/late/bound").json() == {"ok": True}

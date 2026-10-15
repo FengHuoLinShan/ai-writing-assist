@@ -268,8 +268,12 @@ async def expire_run_histories(db):
         COLLABORATION_STOP_UNAVAILABLE_RUNS,
     )
     from modules.assistant.forecast.maintenance import expire_assessments
+    from modules.assistant.operation_trace_service import (
+        archive_one_expired_operation_trace_project,
+    )
 
     await expire_assessments(db)
+    await archive_one_expired_operation_trace_project(db)
     await get(COLLABORATION_STOP_UNAVAILABLE_RUNS)(db)
     rows = await db.scalars(
         select(AssistantRun)
@@ -666,11 +670,17 @@ class AssistantService:
 
     def view(self, run, *, can_resume: bool = False):
         executor = (run.request_json or {}).get("agent_executor") or {}
+        result = dict(run.result_json or {})
+        if (
+            (run.request_json or {}).get("runtime_version") == "7"
+            and (run.checkpoint_json or {}).get("operation_trace_incomplete")
+        ):
+            result["operation_trace_incomplete"] = True
         return {
             "id": str(run.id),
             "session_id": str(run.session_id) if run.session_id else None,
             "status": run.status,
-            "result": run.result_json or {},
+            "result": result,
             "usage": run.budget_json or {},
             "error": run.error,
             "task_id": str(run.task_id) if run.task_id else None,
@@ -1020,6 +1030,28 @@ class AssistantService:
         await db.commit()
         client = None
         deps = None
+        from modules.assistant.operation_trace_service import (
+            bind_operation_trace_context,
+            reset_operation_trace_context,
+        )
+
+        trace_status = {
+            "incomplete_count": int(
+                saved_state.get("operation_trace_incomplete_count") or 0
+            )
+        }
+        trace_token = bind_operation_trace_context(trace_status)
+
+        def trace_incomplete_marker():
+            count = trace_status["incomplete_count"]
+            return (
+                {
+                    "operation_trace_incomplete_count": count,
+                    "operation_trace_incomplete": True,
+                }
+                if count
+                else {}
+            )
 
         async def checkpoint(values):
             row = await self.require_run(db, novel_id, run_id, lock=True)
@@ -1033,6 +1065,7 @@ class AssistantService:
                 row.checkpoint_json = {
                     **(row.checkpoint_json or {}),
                     "evidence_refs": dict(deps.evidence_refs),
+                    **trace_incomplete_marker(),
                 }
             record_run_event(row, "checking")
             await db.commit()
@@ -1041,7 +1074,11 @@ class AssistantService:
             row = await self.require_run(db, novel_id, run_id, lock=True)
             if row.status != "running" or str(row.task_id) != str(task.id):
                 raise ConflictError("任务已停止或被替代", code="assistant_superseded")
-            row.checkpoint_json = {**(row.checkpoint_json or {}), "model_history": state}
+            row.checkpoint_json = {
+                **(row.checkpoint_json or {}),
+                "model_history": state,
+                **trace_incomplete_marker(),
+            }
             await db.commit()
 
         try:
@@ -1445,7 +1482,10 @@ class AssistantService:
                 key: value
                 for key, value in (run.checkpoint_json or {}).items()
                 if key not in {"model_history", "planned_answer"}
-            } | {"evidence_refs": dict(deps.evidence_refs)}
+            } | {
+                "evidence_refs": dict(deps.evidence_refs),
+                **trace_incomplete_marker(),
+            }
             run.status = "waiting_approval" if prepared else "completed"
             record_run_event(run, run.status)
             if run.session_id:
@@ -1474,6 +1514,10 @@ class AssistantService:
                     key: value
                     for key, value in (row.checkpoint_json or {}).items()
                     if key != "model_history"
+                }
+                row.checkpoint_json = {
+                    **row.checkpoint_json,
+                    **trace_incomplete_marker(),
                 }
                 record_run_event(row, "budget_exceeded")
                 row.error = "本轮已达到执行上限，讨论和过程资料已保留。"
@@ -1546,6 +1590,7 @@ class AssistantService:
                 row.checkpoint_json = {
                     **(row.checkpoint_json or {}),
                     "failure": {"kind": type(error).__name__, "frames": frames[-12:]},
+                    **trace_incomplete_marker(),
                 }
                 row.error = (
                     "本次处理未完成，原有作品没有被修改；请核对资料或模型连接后重试。"
@@ -1554,5 +1599,6 @@ class AssistantService:
                 await db.commit()
             raise RuntimeError("Assistant run failed; see its scoped receipt") from None
         finally:
+            reset_operation_trace_context(trace_token)
             if client is not None:
                 await client.close()

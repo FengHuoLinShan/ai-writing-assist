@@ -13,10 +13,11 @@ from datetime import UTC, date, datetime, timedelta
 from secrets import token_hex
 from uuid import UUID
 
-from sqlalchemy import select
+from sqlalchemy import func, select, text
 from sqlalchemy.exc import IntegrityError
 
 from core.config import get_settings
+from modules.account.facade import is_demo_readonly_principal
 from modules.assistant.contracts import AssistantOperation
 from modules.assistant.operation_trace_models import (
     AssistantOperationSequenceAggregate,
@@ -45,18 +46,17 @@ def current_operation_trace_context() -> dict | None:
     return _active_trace_context.get()
 
 
-_USAGE_FIELDS = frozenset(
+_USAGE_COUNTS = frozenset(
     {
         "requests",
         "tool_attempts",
         "web_requests",
         "prompt_tokens",
         "completion_tokens",
-        "usage_complete",
-        "usage_unknown",
         "pending_usage",
     }
 )
+_USAGE_FLAGS = frozenset({"usage_complete", "usage_unknown"})
 _REFERENCE_FIELDS = frozenset(
     {
         "id",
@@ -74,6 +74,7 @@ _REFERENCE_FIELDS = frozenset(
     }
 )
 _REFERENCE_TYPE_FIELDS = frozenset({"type", "target_type", "kind"})
+_REFERENCE_KIND = re.compile(r"^[a-z][a-z0-9_.-]{0,79}$")
 _ERROR_CODE = re.compile(r"^[A-Za-z0-9_.-]{1,80}$")
 
 
@@ -141,7 +142,8 @@ def _parameter_summary(
     unknown = set(values) - declared
     return {
         "fields": fields,
-        "unknown_fields": {name: {"present": True} for name in sorted(unknown)},
+        # Even an unknown key can be supplied by a caller and contain content.
+        "unknown_fields": {"present": bool(unknown)},
     }
 
 
@@ -152,10 +154,15 @@ def _refs(*values: object) -> list[dict]:
     def add(kind: str, value: object) -> None:
         if value is None or isinstance(value, (dict, list, tuple, set)):
             return
-        rendered = str(value)
-        if len(rendered) > 160:
+        # Domain receipts use UUIDs. An arbitrary string under an ``id`` key
+        # may be author content, so never copy it into the trace table.
+        try:
+            rendered = str(UUID(str(value)))
+        except (ValueError, TypeError, AttributeError):
             return
-        key = (kind[:80], rendered)
+        if not _REFERENCE_KIND.fullmatch(kind):
+            return
+        key = (kind, rendered)
         if key not in seen:
             seen.add(key)
             found.append({"type": key[0], "id": rendered})
@@ -187,7 +194,15 @@ def _refs(*values: object) -> list[dict]:
 def _usage_summary(value: object) -> dict | None:
     if not isinstance(value, Mapping):
         return None
-    return {key: value[key] for key in _USAGE_FIELDS if key in value}
+    result = {
+        key: item
+        for key in _USAGE_COUNTS
+        if type(item := value.get(key)) is int and item >= 0
+    }
+    result.update(
+        {key: item for key in _USAGE_FLAGS if type(item := value.get(key)) is bool}
+    )
+    return result or None
 
 
 def _uuid_or_none(value: object) -> UUID | None:
@@ -204,8 +219,6 @@ async def operation_trace_enabled(db, owner_id: str) -> bool:
     settings = get_settings()
     if not settings.assistant_operation_trace_enabled:
         return False
-    from modules.account.facade import is_demo_readonly_principal
-
     if is_demo_readonly_principal():
         return False
     preference = await db.get(AssistantOperationTracePreference, UUID(str(owner_id)))
@@ -264,9 +277,21 @@ async def archive_expired_operation_traces(
     db, novel_id: str, *, now: datetime | None = None
 ) -> int:
     """Aggregate and delete details after 180 days; aggregate rows have no IDs."""
-    current = now or datetime.now(UTC)
+    postgres = db.get_bind().dialect.name == "postgresql"
+    # Match the PostgreSQL append-only trigger's transaction clock exactly at
+    # the 180-day boundary, even when the application clock drifts slightly.
+    current = now or (
+        await db.scalar(select(func.now())) if postgres else datetime.now(UTC)
+    )
     cutoff = current - timedelta(days=180)
     novel_uuid = UUID(str(novel_id))
+    if postgres:
+        # The owner read and worker tick may archive the same work at once.
+        # Serialize the read/count/delete unit so aggregates cannot double count.
+        await db.execute(
+            text("SELECT pg_advisory_xact_lock(hashtextextended(:key, 0))"),
+            {"key": f"assistant-operation-trace-retention:{novel_uuid}"},
+        )
     rows = list(
         (
             await db.scalars(
@@ -324,6 +349,20 @@ async def archive_expired_operation_traces(
         await db.delete(row)
     await db.flush()
     return len(rows)
+
+
+async def archive_one_expired_operation_trace_project(db) -> int:
+    """Archive one idle project's expired details per existing worker tick."""
+    cutoff = datetime.now(UTC) - timedelta(days=180)
+    novel_id = await db.scalar(
+        select(AssistantOperationTrace.novel_id)
+        .where(AssistantOperationTrace.occurred_at < cutoff)
+        .order_by(AssistantOperationTrace.occurred_at)
+        .limit(1)
+    )
+    if novel_id is None:
+        return 0
+    return await archive_expired_operation_traces(db, str(novel_id))
 
 
 async def record_operation_trace(
@@ -390,6 +429,9 @@ async def record_operation_trace(
             db.add(row)
             await db.flush()
     except Exception as exc:  # trace is auxiliary; never fail the business action
+        active = current_operation_trace_context()
+        if active is not None:
+            active["incomplete_count"] = active.get("incomplete_count", 0) + 1
         logger.warning(
             "assistant operation trace persistence failed",
             extra={
@@ -406,6 +448,7 @@ __all__ = [
     "bind_operation_trace_context",
     "current_operation_trace_context",
     "archive_expired_operation_traces",
+    "archive_one_expired_operation_trace_project",
     "operation_trace_enabled",
     "record_operation_trace",
     "reset_operation_trace_context",

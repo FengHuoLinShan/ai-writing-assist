@@ -63,6 +63,7 @@ async def get_vocabulary_term(db: DbSession, novel_id: UUID, type_ref: UUID):
     "/{novel_id}/terms",
     response_model=VocabularyTermResponse,
     status_code=201,
+    openapi_extra={"x-novelcraft-operation-id": "world.vocabulary.create"},
 )
 async def create_vocabulary_term(
     db: DbSession, novel_id: UUID, data: VocabularyTermCreate
@@ -70,7 +71,11 @@ async def create_vocabulary_term(
     return await create_project_vocabulary_term(db, str(novel_id), data)
 
 
-@router.patch("/{novel_id}/terms/{type_ref}", response_model=VocabularyTermResponse)
+@router.patch(
+    "/{novel_id}/terms/{type_ref}",
+    response_model=VocabularyTermResponse,
+    openapi_extra={"x-novelcraft-operation-id": "world.vocabulary.edit"},
+)
 async def update_vocabulary_term(
     db: DbSession,
     novel_id: UUID,
@@ -81,7 +86,9 @@ async def update_vocabulary_term(
 
 
 @router.post(
-    "/{novel_id}/terms/{type_ref}/archive", response_model=VocabularyTermResponse
+    "/{novel_id}/terms/{type_ref}/archive",
+    response_model=VocabularyTermResponse,
+    openapi_extra={"x-novelcraft-operation-id": "world.vocabulary.archive"},
 )
 async def archive_vocabulary_term(
     db: DbSession,
@@ -95,7 +102,9 @@ async def archive_vocabulary_term(
 
 
 @router.post(
-    "/{novel_id}/terms/{type_ref}/restore", response_model=VocabularyTermResponse
+    "/{novel_id}/terms/{type_ref}/restore",
+    response_model=VocabularyTermResponse,
+    openapi_extra={"x-novelcraft-operation-id": "world.vocabulary.restore"},
 )
 async def restore_vocabulary_term(
     db: DbSession,
@@ -108,14 +117,22 @@ async def restore_vocabulary_term(
     )
 
 
-@router.post("/{novel_id}/merge", response_model=VocabularyTermResponse)
+@router.post(
+    "/{novel_id}/merge",
+    response_model=VocabularyTermResponse,
+    openapi_extra={"x-novelcraft-operation-id": "world.vocabulary.merge"},
+)
 async def merge_vocabulary_terms(
     db: DbSession, novel_id: UUID, data: VocabularyMergeRequest
 ):
     return await merge_project_vocabulary_terms(db, str(novel_id), data)
 
 
-@router.post("/{novel_id}/terms/{type_ref}/split", response_model=VocabularySplitResponse)
+@router.post(
+    "/{novel_id}/terms/{type_ref}/split",
+    response_model=VocabularySplitResponse,
+    openapi_extra={"x-novelcraft-operation-id": "world.vocabulary.split"},
+)
 async def split_vocabulary_term(
     db: DbSession,
     novel_id: UUID,
@@ -131,6 +148,7 @@ async def split_vocabulary_term(
 @router.post(
     "/{novel_id}/presets",
     response_model=VocabularyPresetApplyResponse,
+    openapi_extra={"x-novelcraft-operation-id": "world.vocabulary.apply_presets"},
 )
 async def apply_project_vocabulary_presets(
     db: DbSession, novel_id: UUID, data: VocabularyPresetApplyRequest

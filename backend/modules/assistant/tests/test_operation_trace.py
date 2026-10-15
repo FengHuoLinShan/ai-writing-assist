@@ -16,6 +16,7 @@ from modules.account.contracts import AccountPrincipal
 from modules.account.facade import current_account_id
 from modules.account.models import Account
 from modules.assistant.contracts import AssistantOperationContext
+from modules.assistant.models import AssistantRun
 from modules.assistant.operation_trace_models import (
     AssistantOperationSequenceAggregate,
     AssistantOperationTrace,
@@ -25,11 +26,14 @@ from modules.assistant.operation_trace_models import (
 )
 from modules.assistant.operation_trace_service import (
     archive_expired_operation_traces,
+    bind_operation_trace_context,
     operation_trace_enabled,
     record_operation_trace,
+    reset_operation_trace_context,
     set_operation_trace_preference,
 )
 from modules.assistant.schemas import WorkContext
+from modules.assistant.service import AssistantService
 from modules.project.models import Project
 
 
@@ -37,6 +41,49 @@ async def _ensure_account(db, owner_id: UUID) -> None:
     if await db.get(Account, owner_id) is None:
         db.add(Account(id=owner_id, support_code=uuid4().hex))
         await db.flush()
+
+
+@pytest.mark.asyncio
+async def test_trace_failure_marks_current_run_without_failing_business(
+    db_session, test_project_id, monkeypatch
+):
+    from modules.assistant import operation_trace_service as service
+
+    monkeypatch.setattr(
+        service,
+        "get_settings",
+        lambda: replace(
+            get_settings(), auth_mode="local", assistant_operation_trace_enabled=True
+        ),
+    )
+    owner_id = current_account_id()
+    await _ensure_account(db_session, owner_id)
+
+    async def reject_salt(*_args):
+        raise RuntimeError("synthetic trace store failure")
+
+    monkeypatch.setattr(service, "_project_salt", reject_salt)
+    state = {}
+    token = bind_operation_trace_context(state)
+    try:
+        saved = await record_operation_trace(
+            db_session,
+            novel_id=test_project_id,
+            owner_id=str(owner_id),
+            operation=assistant_notice_operations["assistant.notice.set_disposition"],
+            event_type="executed",
+        )
+    finally:
+        reset_operation_trace_context(token)
+    assert saved is False and state["incomplete_count"] == 1
+    run = AssistantRun(
+        novel_id=UUID(test_project_id),
+        owner_id=owner_id,
+        request_hash="t" * 64,
+        request_json={"runtime_version": "7"},
+        checkpoint_json={"operation_trace_incomplete": True},
+    )
+    assert AssistantService().view(run)["result"]["operation_trace_incomplete"]
 
 
 @pytest.mark.asyncio
@@ -60,6 +107,7 @@ async def test_trace_summary_hashes_declared_text_and_only_marks_unknown_presenc
         "category": prose,
         "expected_row_version": 3,
         "future_private_field": prose,
+        prose: "untrusted field name",
         "nested": {"content": prose},
     }
 
@@ -71,6 +119,11 @@ async def test_trace_summary_hashes_declared_text_and_only_marks_unknown_presenc
         operation=operation,
         event_type="proposed",
         arguments=arguments,
+        preview={
+            "nested": {"id": prose},
+            "target": {"type": "notice", "id": str(uuid4())},
+        },
+        usage={"requests": 2, "prompt_tokens": prose, "usage_unknown": prose},
         call_id=str(uuid4()),
     )
     second = await record_operation_trace(
@@ -94,14 +147,10 @@ async def test_trace_summary_hashes_declared_text_and_only_marks_unknown_presenc
     summaries = [row.parameter_summary for row in rows]
     serialized = json.dumps(summaries, ensure_ascii=False)
     assert prose not in serialized
-    assert all(
-        summary["unknown_fields"]
-        == {
-            "future_private_field": {"present": True},
-            "nested": {"present": True},
-        }
-        for summary in summaries
-    )
+    assert prose not in json.dumps([row.target_refs for row in rows], ensure_ascii=False)
+    assert rows[0].usage == {"requests": 2}
+    assert rows[0].target_refs and rows[0].target_refs[0]["type"] == "notice"
+    assert all(summary["unknown_fields"] == {"present": True} for summary in summaries)
     categories = [summary["fields"]["category"] for summary in summaries]
     assert all(item["length"] == len(prose) for item in categories)
     assert categories[0]["project_hash"] != categories[1]["project_hash"]
@@ -131,6 +180,8 @@ async def test_local_default_public_opt_in_and_demo_never(db_session, monkeypatc
 
     await set_operation_trace_preference(db_session, str(owner_id), False)
     assert await operation_trace_enabled(db_session, str(owner_id)) is False
+
+
     await set_operation_trace_preference(db_session, str(owner_id), True)
     assert await operation_trace_enabled(db_session, str(owner_id)) is True
 
@@ -161,6 +212,30 @@ async def test_local_default_public_opt_in_and_demo_never(db_session, monkeypatc
         assert await operation_trace_enabled(db_session, str(owner_id)) is False
     finally:
         reset_principal(token)
+
+
+@pytest.mark.asyncio
+async def test_owner_can_read_existing_aggregate_after_switching_trace_off(
+    db_session, project_factory
+):
+    from modules.assistant.api import _operation_trace_aggregate
+
+    owner_id = current_account_id()
+    await _ensure_account(db_session, owner_id)
+    novel_id = await project_factory.create_project("past trace")
+    db_session.add(
+        AssistantOperationTraceAggregate(
+            novel_id=novel_id,
+            occurred_on=datetime.now(UTC).date(),
+            op_id="project.add_task",
+            event_type="executed",
+            event_count=2,
+        )
+    )
+    await set_operation_trace_preference(db_session, str(owner_id), False)
+    await db_session.flush()
+    report = await _operation_trace_aggregate(db_session, novel_id, str(owner_id))
+    assert report["events"][0]["count"] == 2
 
 
 @pytest.mark.asyncio

@@ -271,11 +271,6 @@
   },
   {
     "method": "PATCH",
-    "path": "/api/world/project-vocabulary/{novel_id}/terms/{type_ref}",
-    "reason": "Legacy PATCH /api/world/project-vocabulary/{novel_id}/terms/{type_ref} domain API; authorization and validation remain in its owning domain service. New routes require an operation ID or explicit exemption."
-  },
-  {
-    "method": "PATCH",
     "path": "/api/world/relations/{rel_id}/review-edit",
     "reason": "Legacy PATCH /api/world/relations/{rel_id}/review-edit domain API; authorization and validation remain in its owning domain service. New routes require an operation ID or explicit exemption."
   },
@@ -1916,11 +1911,6 @@
   },
   {
     "method": "POST",
-    "path": "/api/world/map-atlas/{novel_id}/spatial-clues/{clue_id}/review",
-    "reason": "Legacy POST /api/world/map-atlas/{novel_id}/spatial-clues/{clue_id}/review domain API; authorization and validation remain in its owning domain service. New routes require an operation ID or explicit exemption."
-  },
-  {
-    "method": "POST",
     "path": "/api/world/opening-skeleton/tasks",
     "reason": "Legacy POST /api/world/opening-skeleton/tasks domain API; authorization and validation remain in its owning domain service. New routes require an operation ID or explicit exemption."
   },
@@ -1928,36 +1918,6 @@
     "method": "POST",
     "path": "/api/world/profiles/{entity_id}/migrate-generic",
     "reason": "Legacy POST /api/world/profiles/{entity_id}/migrate-generic domain API; authorization and validation remain in its owning domain service. New routes require an operation ID or explicit exemption."
-  },
-  {
-    "method": "POST",
-    "path": "/api/world/project-vocabulary/{novel_id}/merge",
-    "reason": "Legacy POST /api/world/project-vocabulary/{novel_id}/merge domain API; authorization and validation remain in its owning domain service. New routes require an operation ID or explicit exemption."
-  },
-  {
-    "method": "POST",
-    "path": "/api/world/project-vocabulary/{novel_id}/presets",
-    "reason": "Legacy POST /api/world/project-vocabulary/{novel_id}/presets domain API; authorization and validation remain in its owning domain service. New routes require an operation ID or explicit exemption."
-  },
-  {
-    "method": "POST",
-    "path": "/api/world/project-vocabulary/{novel_id}/terms",
-    "reason": "Legacy POST /api/world/project-vocabulary/{novel_id}/terms domain API; authorization and validation remain in its owning domain service. New routes require an operation ID or explicit exemption."
-  },
-  {
-    "method": "POST",
-    "path": "/api/world/project-vocabulary/{novel_id}/terms/{type_ref}/archive",
-    "reason": "Legacy POST /api/world/project-vocabulary/{novel_id}/terms/{type_ref}/archive domain API; authorization and validation remain in its owning domain service. New routes require an operation ID or explicit exemption."
-  },
-  {
-    "method": "POST",
-    "path": "/api/world/project-vocabulary/{novel_id}/terms/{type_ref}/restore",
-    "reason": "Legacy POST /api/world/project-vocabulary/{novel_id}/terms/{type_ref}/restore domain API; authorization and validation remain in its owning domain service. New routes require an operation ID or explicit exemption."
-  },
-  {
-    "method": "POST",
-    "path": "/api/world/project-vocabulary/{novel_id}/terms/{type_ref}/split",
-    "reason": "Legacy POST /api/world/project-vocabulary/{novel_id}/terms/{type_ref}/split domain API; authorization and validation remain in its owning domain service. New routes require an operation ID or explicit exemption."
   },
   {
     "method": "POST",

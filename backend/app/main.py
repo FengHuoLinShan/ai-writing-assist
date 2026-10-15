@@ -16,7 +16,6 @@ import re
 import time
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
-from contextvars import ContextVar
 from functools import wraps
 from uuid import UUID, uuid4
 
@@ -205,6 +204,7 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         - 关闭所有数据库连接
     """
     settings = get_settings()
+    _install_operation_trace_route_adapters(app)
 
     # --- 配置日志 ---
     _configure_application_logging(settings.log_level)
@@ -849,6 +849,7 @@ def _install_operation_trace_route_adapters(application: FastAPI) -> None:
     from core.service_keys import ASSISTANT_OPERATIONS
     from modules.assistant.operation_trace_service import (
         bind_operation_trace_context,
+        current_operation_trace_context,
         operation_trace_enabled,
         record_operation_trace,
         reset_operation_trace_context,
@@ -858,16 +859,19 @@ def _install_operation_trace_route_adapters(application: FastAPI) -> None:
         for item in routes:
             if isinstance(item, APIRoute):
                 yield item
-            else:
-                original_router = getattr(item, "original_router", None)
-                if original_router is not None:
-                    yield from concrete_routes(original_router.routes)
+                continue
+            # Included routers use a separate effective route context (and
+            # ASGI app) for each inclusion. Wrapping the source APIRoute has
+            # no effect on requests dispatched through that context.
+            effective_routes = getattr(item, "effective_route_contexts", None)
+            if effective_routes is not None:
+                for effective in effective_routes():
+                    if isinstance(getattr(effective, "original_route", None), APIRoute):
+                        yield effective
 
     operations = get(ASSISTANT_OPERATIONS)
     for route in concrete_routes(application.routes):
-        if not isinstance(route, APIRoute) or getattr(
-            route, "_trace_adapter_installed", False
-        ):
+        if getattr(route, "_trace_adapter_installed", False):
             continue
         operation_id = (route.openapi_extra or {}).get("x-novelcraft-operation-id")
         if not operation_id:
@@ -891,7 +895,7 @@ def _install_operation_trace_route_adapters(application: FastAPI) -> None:
             __argument_map=argument_map,
             **kwargs,
         ):
-            trace_context = _active_http_operation_trace.get()
+            trace_context = current_operation_trace_context()
             db = kwargs.get("db")
             if trace_context is None or db is None:
                 return await __endpoint(*args, **kwargs)
@@ -902,7 +906,13 @@ def _install_operation_trace_route_adapters(application: FastAPI) -> None:
             except Exception:
                 return await __endpoint(*args, **kwargs)
             arguments = _trace_route_arguments(kwargs, __argument_map)
-            novel_id = str(arguments.get("novel_id") or arguments.get("project_id") or "")
+            novel_id = str(
+                kwargs.get("novel_id")
+                or kwargs.get("project_id")
+                or arguments.get("novel_id")
+                or arguments.get("project_id")
+                or ""
+            )
             trace_context.update(
                 owner_id=owner_id,
                 novel_id=novel_id,
@@ -991,6 +1001,14 @@ def _install_operation_trace_route_adapters(application: FastAPI) -> None:
                 nonlocal status_code
                 if message.get("type") == "http.response.start":
                     status_code = message.get("status")
+                    if trace_context.get("incomplete_count"):
+                        message = {
+                            **message,
+                            "headers": [
+                                *(message.get("headers") or []),
+                                (b"x-novelcraft-operation-trace-incomplete", b"true"),
+                            ],
+                        }
                 await send(message)
 
             try:
@@ -1071,10 +1089,6 @@ def _install_operation_trace_route_adapters(application: FastAPI) -> None:
         route.app = traced_route_app
         route._trace_adapter_installed = True
 
-
-_active_http_operation_trace: ContextVar[dict | None] = ContextVar(
-    "active_http_operation_trace", default=None
-)
 
 _install_operation_trace_route_adapters(app)
 

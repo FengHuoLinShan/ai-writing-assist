@@ -10,7 +10,7 @@ from core.config import get_settings
 from core.dependencies import DbSession
 from core.errors import NotFoundError
 from infrastructure.tasks.facade import cancel_exact_task
-from modules.account.facade import current_account_id
+from modules.account.facade import current_account_id, is_demo_readonly_principal
 from modules.assistant.editorial_contracts import (
     EditorialPolicyUpdate,
     IssueDecision,
@@ -87,8 +87,6 @@ async def update_operation_trace_preference(
 ):
     from fastapi import HTTPException
 
-    from modules.account.facade import is_demo_readonly_principal
-
     if is_demo_readonly_principal():
         raise HTTPException(status_code=403, detail="演示账户不可更改留痕设置")
     owner_id = str(current_account_id())
@@ -100,8 +98,6 @@ async def _operation_trace_aggregate(db, novel_id: UUID, owner_id: str) -> dict:
     from collections import Counter
     from datetime import UTC, datetime, timedelta
 
-    from modules.account.facade import is_demo_readonly_principal
-
     if is_demo_readonly_principal():
         raise NotFoundError("项目不可访问")
     await require_active_project(db, str(novel_id), allow_demo_readonly=False)
@@ -112,9 +108,6 @@ async def _operation_trace_aggregate(db, novel_id: UUID, owner_id: str) -> dict:
         or project.project_kind != "author"
     ):
         raise NotFoundError("项目不可访问")
-    if not await operation_trace_enabled(db, owner_id):
-        return {"events": [], "sequences": []}
-
     await archive_expired_operation_traces(db, str(novel_id))
     event_counts = Counter()
     archived = (

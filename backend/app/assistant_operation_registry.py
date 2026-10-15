@@ -151,7 +151,7 @@ def _instrument(operation: AssistantOperation) -> AssistantOperation:
                 )
             )
         )
-        await get(ASSISTANT_OPERATION_TRACE)(
+        saved = await get(ASSISTANT_OPERATION_TRACE)(
             db,
             enabled=True,
             novel_id=str(novel_id),
@@ -172,6 +172,10 @@ def _instrument(operation: AssistantOperation) -> AssistantOperation:
             usage=context.trace_usage,
             **kwargs,
         )
+        if saved is False and context.trace_status is not None:
+            context.trace_status["incomplete_count"] = (
+                context.trace_status.get("incomplete_count", 0) + 1
+            )
 
     async def traced_prepare(db, novel_id, arguments, *, context=None):
         preflight = bool(

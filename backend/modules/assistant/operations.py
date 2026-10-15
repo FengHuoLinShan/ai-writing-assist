@@ -625,7 +625,7 @@ async def _record_batch_event(db, run, item, operation, event_type, *, error_cod
         ),
         "trace_parent_call_id": str(run.id),
     }
-    await get(ASSISTANT_OPERATION_TRACE)(
+    saved = await get(ASSISTANT_OPERATION_TRACE)(
         db,
         enabled=True,
         novel_id=str(run.novel_id),
@@ -642,6 +642,13 @@ async def _record_batch_event(db, run, item, operation, event_type, *, error_cod
         call_id=context["trace_call_id"],
         parent_call_id=context["trace_parent_call_id"],
     )
+    if saved is False:
+        checkpoint = dict(run.checkpoint_json or {})
+        checkpoint["operation_trace_incomplete_count"] = (
+            int(checkpoint.get("operation_trace_incomplete_count") or 0) + 1
+        )
+        checkpoint["operation_trace_incomplete"] = True
+        run.checkpoint_json = checkpoint
 
 
 async def prepare_actions(
@@ -732,7 +739,15 @@ async def decide_batch(db, batch_id: str, decision: BatchDecision, owner_id: str
             )
         retry_id = str(decision.retry_operation_id or "")
         if not retry_id or retry_id in batch.authorization_json.get("retries", []):
-            return {"status": batch.status, "results": batch.results_json}
+            return {
+                "status": batch.status,
+                "results": batch.results_json,
+                **(
+                    {"operation_trace_incomplete": True}
+                    if (run.checkpoint_json or {}).get("operation_trace_incomplete")
+                    else {}
+                ),
+            }
         if batch.status != "partial":
             raise ConflictError("只有未完成的操作可重试")
     elif decision.retry_operation_id:
@@ -782,8 +797,10 @@ async def decide_batch(db, batch_id: str, decision: BatchDecision, owner_id: str
         )
     )
     confirmation_meta = {"confirmation_preflight": True, "confirmed_previews": []}
+    trace_status = {"incomplete_count": 0}
     operation_context = AssistantOperationContext(
-        str(run.id), owner_id, context.work, internal_meta=confirmation_meta
+        str(run.id), owner_id, context.work, internal_meta=confirmation_meta,
+        trace_status=trace_status,
     )
     if run.request_json.get("forecast_parent"):
         from modules.assistant.forecast.preparation import require_parent
@@ -795,6 +812,7 @@ async def decide_batch(db, batch_id: str, decision: BatchDecision, owner_id: str
             context.work,
             operation_id=str(run.id),
             internal_meta=confirmation_meta,
+            trace_status=trace_status,
         )
     if sum(item["preview"].get("affected_count", 1) for item in selected) > 20:
         raise ValidationError("一次确认最多涉及 20 项，请拆分整理方案")
@@ -858,6 +876,7 @@ async def decide_batch(db, batch_id: str, decision: BatchDecision, owner_id: str
         }
     results = []
     failed: set[str] = set()
+    outcome_unknown = False
     for item in selected:
         key = item["key"]
         if key in completed:
@@ -895,11 +914,22 @@ async def decide_batch(db, batch_id: str, decision: BatchDecision, owner_id: str
         except DomainError:
             context.work, context.evidence_refs = previous_work, previous_refs
             failed.add(key)
+            operation = available[item["capability"]]
+            if operation.transaction_mode == "multi_stage":
+                await _record_batch_event(
+                    db, run, item, operation, "outcome_unknown",
+                    error_code="operation_apply_failed",
+                )
+                results.append(
+                    {"key": key, "status": "outcome_unknown", "message": "请核对领域回执"}
+                )
+                outcome_unknown = True
+                break
             await _record_batch_event(
                 db,
                 run,
                 item,
-                available[item["capability"]],
+                operation,
                 "failed",
                 error_code="operation_apply_failed",
             )
@@ -914,14 +944,22 @@ async def decide_batch(db, batch_id: str, decision: BatchDecision, owner_id: str
             context.work, context.evidence_refs = previous_work, previous_refs
             failed.add(key)
             operation = available[item["capability"]]
+            if operation.transaction_mode == "multi_stage":
+                await _record_batch_event(
+                    db, run, item, operation, "outcome_unknown",
+                    error_code="operation_apply_failed",
+                )
+                results.append(
+                    {"key": key, "status": "outcome_unknown", "message": "请核对领域回执"}
+                )
+                outcome_unknown = True
+                break
             await _record_batch_event(
                 db,
                 run,
                 item,
                 operation,
-                "outcome_unknown"
-                if operation.transaction_mode == "multi_stage"
-                else "failed",
+                "failed",
                 error_code="operation_apply_failed",
             )
             raise
@@ -939,7 +977,19 @@ async def decide_batch(db, batch_id: str, decision: BatchDecision, owner_id: str
         },
     }
     batch.results_json = results
-    batch.status = "partial" if failed else "completed" if selected else "declined"
+    if trace_status["incomplete_count"]:
+        checkpoint = dict(run.checkpoint_json or {})
+        checkpoint["operation_trace_incomplete_count"] = (
+            int(checkpoint.get("operation_trace_incomplete_count") or 0)
+            + trace_status["incomplete_count"]
+        )
+        checkpoint["operation_trace_incomplete"] = True
+        run.checkpoint_json = checkpoint
+    batch.status = (
+        "outcome_unknown"
+        if outcome_unknown
+        else "partial" if failed else "completed" if selected else "declined"
+    )
     run.status = "completed"
     if run.session_id:
         from modules.assistant.sessions import AssistantSessionService
@@ -963,4 +1013,12 @@ async def decide_batch(db, batch_id: str, decision: BatchDecision, owner_id: str
             + ("。部分操作尚未完成。" if failed else "。"),
         )
     await db.flush()
-    return {"status": batch.status, "results": results}
+    return {
+        "status": batch.status,
+        "results": results,
+        **(
+            {"operation_trace_incomplete": True}
+            if (run.checkpoint_json or {}).get("operation_trace_incomplete")
+            else {}
+        ),
+    }

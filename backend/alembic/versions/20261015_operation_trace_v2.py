@@ -67,6 +67,11 @@ def upgrade() -> None:
         ["novel_id", "occurred_at"],
     )
     op.create_index(
+        "ix_assistant_operation_trace_time",
+        "assistant_operation_traces",
+        ["occurred_at"],
+    )
+    op.create_index(
         "ix_assistant_operation_trace_session_sequence",
         "assistant_operation_traces",
         ["session_id", "id"],
@@ -186,6 +191,10 @@ def downgrade() -> None:
     )
     op.drop_index(
         "ix_assistant_operation_trace_project_time",
+        table_name="assistant_operation_traces",
+    )
+    op.drop_index(
+        "ix_assistant_operation_trace_time",
         table_name="assistant_operation_traces",
     )
     op.drop_table("assistant_operation_sequence_aggregates")

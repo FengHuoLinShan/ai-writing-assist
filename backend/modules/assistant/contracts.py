@@ -85,6 +85,7 @@ class AssistantOperationContext:
     trace_parent_call_id: str | None = None
     trace_session_id: str | None = None
     trace_usage: dict | None = None
+    trace_status: dict | None = None
 
 
 @dataclass(frozen=True)

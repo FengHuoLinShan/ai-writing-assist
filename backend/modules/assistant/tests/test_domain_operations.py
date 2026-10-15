@@ -112,6 +112,73 @@ async def test_confirmation_preflight_passes_only_server_stored_preview_to_prepa
 
 
 @pytest.mark.asyncio
+async def test_multistage_unknown_receipt_stops_batch_without_retry(
+    db_session, test_project_id
+):
+    owner_id = str(current_account_id())
+    run = AssistantRun(
+        novel_id=uuid.UUID(test_project_id),
+        owner_id=uuid.UUID(owner_id),
+        request_hash="m" * 64,
+        status="waiting_approval",
+        request_json={"context": {"scope": "project"}},
+    )
+    db_session.add(run)
+    await db_session.flush()
+
+    class Args(BaseModel):
+        name: str
+
+    async def preview(_db, _novel_id, args, *, context):
+        return {"title": args.name}
+
+    async def apply(_db, _novel_id, _args, _preview, *, context):
+        raise ConflictError("receipt status unavailable")
+
+    operation = AssistantOperation(
+        "test", Args, preview, apply, transaction_mode="multi_stage"
+    )
+    with container_scope({"assistant.operations": {"test.multistage": operation}}):
+        actions = await prepare_actions(
+            db_session,
+            test_project_id,
+            [
+                ProposedAction(
+                    key="first",
+                    capability="test.multistage",
+                    title="first",
+                    arguments={"name": "first"},
+                )
+            ],
+            context=AssistantOperationContext(str(run.id), owner_id, WorkContext()),
+        )
+        batch = AssistantActionBatch(
+            novel_id=run.novel_id,
+            run_id=run.id,
+            actions_json=actions,
+            fingerprint=fingerprint(actions),
+        )
+        db_session.add(batch)
+        await db_session.flush()
+        decision = BatchDecision(
+            novel_id=test_project_id,
+            fingerprint=batch.fingerprint,
+            selected=["first"],
+            confirmed=True,
+        )
+        result = await decide_batch(db_session, str(batch.id), decision, owner_id)
+        assert result["status"] == "outcome_unknown"
+        assert result["results"][0]["status"] == "outcome_unknown"
+        await db_session.commit()
+        assert (
+            await decide_batch(db_session, str(batch.id), decision, owner_id)
+        ) == result
+        retry = decision.model_copy(update={"retry_operation_id": uuid.uuid4()})
+        with pytest.raises(ConflictError, match="只有未完成的操作可重试"):
+            await decide_batch(db_session, str(batch.id), retry, owner_id)
+
+
+@pytest.mark.asyncio
 @pytest.mark.parametrize("external_change", [False, True])
 async def test_partial_retry_revalidates_own_world_write_postcondition(
     db_session, test_project_id, external_change

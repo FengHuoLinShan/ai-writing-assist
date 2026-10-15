@@ -36,6 +36,7 @@ class AssistantOperationTrace(Base):
             "novel_id",
             "occurred_at",
         ),
+        Index("ix_assistant_operation_trace_time", "occurred_at"),
         Index(
             "ix_assistant_operation_trace_session_sequence",
             "session_id",
