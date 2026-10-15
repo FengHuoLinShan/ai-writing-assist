@@ -1,5 +1,10 @@
 """Stable World-layer dossier facade; it never aggregates Story or Evolution."""
 
+from modules.world.dossier_interchange import (
+    apply_world_dossier_manifest,
+    export_world_dossier_manifest,
+    preview_world_dossier_manifest,
+)
 from modules.world.dossier_service import WorldObjectDossierService
 
 _service = WorldObjectDossierService()
@@ -101,6 +106,12 @@ async def get_world_object_dossier_template(db, novel_id, profile_type):
     return await _service.get_template(db, novel_id, profile_type)
 
 
+async def get_author_world_object_dossier_template(db, novel_id, profile_type):
+    return await _service.get_template(
+        db, novel_id, profile_type, include_author_fields=True
+    )
+
+
 async def require_custom_text_state_field(
     db, novel_id, entity_id, field_key, expected_version_number
 ):
@@ -125,6 +136,10 @@ async def read_world_object_dossier_template_history(db, novel_id, profile_type)
 
 __all__ = [
     "create_world_object_dossier_entry",
+    "get_author_world_object_dossier_template",
+    "apply_world_dossier_manifest",
+    "export_world_dossier_manifest",
+    "preview_world_dossier_manifest",
     "edit_world_object_dossier_entry",
     "get_world_object_dossier_template",
     "list_world_object_dossier_facets",

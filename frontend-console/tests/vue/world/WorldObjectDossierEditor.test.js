@@ -178,7 +178,7 @@ it("按 Scene 重读作者有效期结果，并保存精确绑定的 Story 字�
 
   expect(wrapper.text()).toContain("来源或截止点暂不可核实")
   await wrapper.get(".object-dossier-editor__read-controls select").setValue(sceneId)
-  await wrapper.get(".object-dossier-editor__read-controls button").trigger("click")
+  await wrapper.get('[data-action="dossier-reload"]').trigger("click")
   await flushPromises()
   expect(api.world.getEntityDossier).toHaveBeenLastCalledWith(entity.id, "project-a", expect.objectContaining({ asOfSceneId: sceneId }))
   expect(wrapper.text()).toContain("剧情覆盖设置已开启")
@@ -240,11 +240,48 @@ it("读写模板时仅在成功后标记版本，409 保留本地字段", async 
 
   expect(api.world.saveEntityDossierTemplate).toHaveBeenCalledWith("character", "project-a", {
     expected_version_number: null,
+    borrowed_facings: [],
     fields: [{ facing: { kind: "core", key: "identity" }, label: "人物身份", description: "身份与社会位置", required: false, value_kind: "text" }],
     state_fields: [],
     display_schema: {},
   })
   expect(wrapper.text()).toContain("模板已保存为第 1 版")
+  wrapper.unmount()
+})
+
+it("自定义对象模板可显式选择来源类型并借用内核面向", async () => {
+  const customEntity = { id: "entity-spirit", entity_type: "spirit_beast", name: "照夜" }
+  const api = baseApi({ world: {
+    getEntityDossier: vi.fn(async () => dossier([], { entity_type: "spirit_beast" })),
+    getEntityDossierTemplate: vi.fn(async () => ({
+      profile_type: "spirit_beast", version_number: 1, borrowed_facings: [], fields: [], state_fields: [], display_schema: {},
+    })),
+    listDossierFacetsForType: vi.fn(async () => ({
+      items: [{ facing: { kind: "core", key: "appearance" }, label: "外貌", source: "core" }],
+    })),
+    saveEntityDossierTemplate: vi.fn(async (_type, _project, payload) => ({
+      profile_type: "spirit_beast", version_number: 2, borrowed_facings: payload.borrowed_facings, fields: payload.fields, state_fields: [], display_schema: {},
+    })),
+  } })
+  const wrapper = mountEditor(api, { entity: customEntity })
+  await flushPromises()
+  const borrowed = wrapper.get(".object-dossier-editor__borrowed-facings")
+  borrowed.element.open = true
+  await borrowed.trigger("toggle")
+  const selects = borrowed.findAll("select")
+  await selects[0].setValue("character")
+  await flushPromises()
+  await borrowed.findAll("select")[1].setValue("appearance")
+  await borrowed.find("button.btn:not(.btn-ghost)").trigger("click")
+  await wrapper.get(".object-dossier-editor__templates .object-dossier-editor__actions button").trigger("click")
+  await flushPromises()
+
+  expect(api.world.listDossierFacetsForType).toHaveBeenCalledWith("character", "project-a", { cache: "no-store" })
+  expect(api.world.saveEntityDossierTemplate).toHaveBeenCalledWith("spirit_beast", "project-a", expect.objectContaining({
+    expected_version_number: 1,
+    borrowed_facings: [{ kind: "core", key: "borrowed:character:appearance" }],
+  }))
+  expect(wrapper.text()).toContain("模板已保存为第 2 版")
   wrapper.unmount()
 })
 
@@ -316,7 +353,7 @@ it("手动重读不能静默覆盖未保存的档案与模板草稿", async () =
   await flushPromises()
   await wrapper.get(".object-dossier-editor__entry > .object-dossier-editor__actions button").trigger("click")
   await wrapper.get(".object-dossier-editor__entry form textarea").setValue("尚未保存的对象内容")
-  await wrapper.get(".object-dossier-editor__header button").trigger("click")
+  await wrapper.get('[data-action="dossier-reload"]').trigger("click")
   await flushPromises()
   expect(confirm).toHaveBeenCalled()
   expect(api.world.getEntityDossier).toHaveBeenCalledTimes(1)

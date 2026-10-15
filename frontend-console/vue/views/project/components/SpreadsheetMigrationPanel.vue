@@ -268,6 +268,7 @@ const receiptSummary = computed(() => session.value?.receipt_summary || null)
     <MigrationSheetMappingStep
       v-else-if="step === 'mapping' && session"
       :session="session"
+      :project-id="currentProjectId"
       :saving="savingMapping"
       @save="onSaveMapping"
     />
@@ -290,7 +291,7 @@ const receiptSummary = computed(() => session.value?.receipt_summary || null)
       <template v-if="session.status === 'applied'">
         <p class="sm-panel__done-title">导入完成。</p>
         <p v-if="receiptSummary" class="sm-panel__done-summary">
-          新建 {{ receiptSummary.created || 0 }} 项、补全 {{ receiptSummary.filled || 0 }} 项、
+          新建 {{ receiptSummary.created || 0 }} 项、补全 {{ receiptSummary.filled || 0 }} 项、档案条目 {{ receiptSummary.dossier_entries || 0 }} 条、
           关系 {{ receiptSummary.relations || 0 }} 条、大纲结构 {{ receiptSummary.structures || 0 }} 项<template v-if="receiptSummary.outline">，并写入总纲</template>。
         </p>
         <div class="sm-panel__done-actions">

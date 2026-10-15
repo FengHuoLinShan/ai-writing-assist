@@ -1051,9 +1051,7 @@ async def apply_vocabulary_presets(
             ProjectVocabularyTerm.preset_id.in_(preset_ids),
         )
     )
-    applied_keys = {
-        (term.preset_id, term.preset_version, term.preset_item_key) for term in existing
-    }
+    applied_keys = {(term.preset_id, term.preset_item_key) for term in existing}
     current = await _current_records(db, novel_uuid, lock=True)
     known_keys: dict[str, set[str]] = {}
     for term, revision in current:
@@ -1064,34 +1062,35 @@ async def apply_vocabulary_presets(
     created: list[VocabularyTermResponse] = []
     for preset_id in preset_ids:
         preset = PRESETS[preset_id]
-        for item in preset.items:
-            identity = (preset.id, preset.version, item.key)
-            if identity in applied_keys:
-                already_applied += 1
-                continue
-            fields = _preset_fields(item)
-            snapshot = _base_snapshot(fields, status="active")
-            keys = _keys_from_snapshot(snapshot)
-            if known_keys.get(item.kind, set()) & keys:
-                duplicate_skipped += 1
-                continue
-            term, revision = await _create_term(
-                db,
-                novel_uuid,
-                item.kind,
-                fields,
-                source="preset",
-                status="active",
-                author_confirmed=True,
-                change_reason="preset_copied",
-                preset_id=preset.id,
-                preset_version=preset.version,
-                preset_item_key=item.key,
-            )
-            known_keys.setdefault(item.kind, set()).update(keys)
-            applied_keys.add(identity)
-            created.append(_term_response(term, revision))
-            applied += 1
+        for version, items in ((preset.version, preset.items), *preset.extensions):
+            for item in items:
+                identity = (preset.id, item.key)
+                if identity in applied_keys:
+                    already_applied += 1
+                    continue
+                fields = _preset_fields(item)
+                snapshot = _base_snapshot(fields, status="active")
+                keys = _keys_from_snapshot(snapshot)
+                if known_keys.get(item.kind, set()) & keys:
+                    duplicate_skipped += 1
+                    continue
+                term, revision = await _create_term(
+                    db,
+                    novel_uuid,
+                    item.kind,
+                    fields,
+                    source="preset",
+                    status="active",
+                    author_confirmed=True,
+                    change_reason="preset_copied",
+                    preset_id=preset.id,
+                    preset_version=version,
+                    preset_item_key=item.key,
+                )
+                known_keys.setdefault(item.kind, set()).update(keys)
+                applied_keys.add(identity)
+                created.append(_term_response(term, revision))
+                applied += 1
     return VocabularyPresetApplyResponse(
         applied=applied,
         already_applied=already_applied,
