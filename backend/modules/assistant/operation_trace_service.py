@@ -9,11 +9,11 @@ import logging
 import re
 from collections.abc import Mapping
 from contextvars import ContextVar, Token
-from datetime import UTC, date, datetime, timedelta
+from datetime import UTC, date, datetime, time, timedelta
 from secrets import token_hex
 from uuid import UUID
 
-from sqlalchemy import func, select, text
+from sqlalchemy import and_, func, or_, select, text
 from sqlalchemy.exc import IntegrityError
 
 from core.config import get_settings
@@ -21,6 +21,8 @@ from modules.account.facade import is_demo_readonly_principal
 from modules.assistant.contracts import AssistantOperation
 from modules.assistant.operation_trace_models import (
     AssistantOperationSequenceAggregate,
+    AssistantOperationTraceLifecycleAggregate,
+    AssistantOperationTraceMetricAggregate,
     AssistantOperationTrace,
     AssistantOperationTraceAggregate,
     AssistantOperationTracePreference,
@@ -57,6 +59,20 @@ _USAGE_COUNTS = frozenset(
     }
 )
 _USAGE_FLAGS = frozenset({"usage_complete", "usage_unknown"})
+_TRACE_EVENT_TYPES = frozenset(
+    {
+        "proposed",
+        "previewed",
+        "confirmed",
+        "declined",
+        "edited",
+        "executed",
+        "failed",
+        "restored",
+        "undone",
+        "outcome_unknown",
+    }
+)
 _REFERENCE_FIELDS = frozenset(
     {
         "id",
@@ -205,6 +221,155 @@ def _usage_summary(value: object) -> dict | None:
     return result or None
 
 
+def _event_metadata(operation: AssistantOperation, value: object) -> dict:
+    if not isinstance(value, Mapping):
+        return {}
+    result: dict = {}
+    changed = value.get("changed_fields")
+    if isinstance(changed, (list, tuple, set)):
+        allowed = set(operation.schema.model_fields)
+        fields = sorted(
+            {
+                name
+                for name in changed
+                if isinstance(name, str) and name in allowed
+            }
+        )
+        if fields:
+            result["changed_fields"] = fields
+    usage_scope = value.get("usage_scope")
+    if usage_scope in {"goal_step_phase", "goal_step_total"}:
+        result["usage_scope"] = usage_scope
+    return result
+
+
+def operation_trace_sequences(rows) -> list[tuple[date, list[str]]]:
+    """Return one deterministic terminal operation sequence per UTC day group."""
+    groups: dict[tuple[date, str], list[AssistantOperationTrace]] = {}
+    for row in rows:
+        if row.event_type not in {"executed", "failed", "outcome_unknown"}:
+            continue
+        occurred_on = _utc_datetime(row.occurred_at).date()
+        group_id = str(row.session_id or row.run_id or row.call_id or row.id)
+        groups.setdefault((occurred_on, group_id), []).append(row)
+
+    sequences: list[tuple[date, list[str]]] = []
+    for (occurred_on, _group_id), items in groups.items():
+        latest_terminal: dict[tuple[str, str], AssistantOperationTrace] = {}
+        for row in items:
+            call_key = str(row.call_id) if row.call_id is not None else f"row:{row.id}"
+            key = (row.op_id, call_key)
+            previous = latest_terminal.get(key)
+            if previous is None or row.id > previous.id:
+                latest_terminal[key] = row
+        ordered = sorted(latest_terminal.values(), key=lambda item: item.id)
+        if ordered:
+            sequences.append((occurred_on, [row.op_id for row in ordered]))
+    return sequences
+
+
+def _lifecycle_daily_counts(rows) -> dict[tuple[date, str], dict[str, int]]:
+    grouped: dict[tuple[date, str, str], list[AssistantOperationTrace]] = {}
+    result: dict[tuple[date, str], dict[str, int]] = {}
+
+    def bucket(key: tuple[date, str]) -> dict[str, int]:
+        return result.setdefault(
+            key,
+            {
+                "proposed_count": 0,
+                "accepted_count": 0,
+                "declined_count": 0,
+                "edited_accepted_count": 0,
+                "unresolved_count": 0,
+                "unmatched_decision_count": 0,
+                "ambiguous_count": 0,
+                "unlinked_proposal_events": 0,
+                "unlinked_decision_events": 0,
+                "executed_count": 0,
+                "matched_reversal_count": 0,
+                "unmatched_reversal_count": 0,
+            },
+        )
+
+    unlinked: list[AssistantOperationTrace] = []
+    for row in rows:
+        occurred_on = _utc_datetime(row.occurred_at).date()
+        if row.call_id is None:
+            unlinked.append(row)
+            continue
+        grouped.setdefault((occurred_on, row.op_id, str(row.call_id)), []).append(row)
+
+    for row in unlinked:
+        counts = bucket((_utc_datetime(row.occurred_at).date(), row.op_id))
+        if row.event_type == "proposed":
+            counts["unlinked_proposal_events"] += 1
+        elif row.event_type in {"confirmed", "declined"}:
+            counts["unlinked_decision_events"] += 1
+        elif row.event_type in {"restored", "undone"}:
+            counts["unmatched_reversal_count"] += 1
+        elif row.event_type == "executed":
+            counts["executed_count"] += 1
+
+    for (occurred_on, op_id, _call_id), items in grouped.items():
+        events = {row.event_type for row in items}
+        counts = bucket((occurred_on, op_id))
+        has_proposal = "proposed" in events
+        decisions = events.intersection({"confirmed", "declined"})
+        if has_proposal:
+            counts["proposed_count"] += 1
+            if len(decisions) > 1:
+                counts["ambiguous_count"] += 1
+            elif "confirmed" in decisions:
+                counts["accepted_count"] += 1
+                if "edited" in events:
+                    counts["edited_accepted_count"] += 1
+            elif "declined" in decisions:
+                counts["declined_count"] += 1
+            else:
+                counts["unresolved_count"] += 1
+        elif decisions:
+            counts["unmatched_decision_count"] += 1
+
+        if "executed" in events:
+            counts["executed_count"] += 1
+        if events.intersection({"restored", "undone"}):
+            if "executed" in events:
+                counts["matched_reversal_count"] += 1
+            else:
+                counts["unmatched_reversal_count"] += 1
+    return result
+
+
+def _metric_values(row: AssistantOperationTrace) -> dict:
+    usage = _usage_summary(row.usage) or {}
+    usage_totals = {
+        key: value for key, value in usage.items() if key in _USAGE_COUNTS
+    }
+    return {
+        "observed_event_count": 1,
+        "duration_count": int(row.duration_ms is not None),
+        "duration_ms_total": max(0, int(row.duration_ms or 0)),
+        "usage_event_count": int(bool(usage)),
+        "usage_complete_count": int(usage.get("usage_complete") is True),
+        "usage_unknown_count": int(usage.get("usage_unknown") is True),
+        "usage_pending_count": int(usage.get("pending_usage") or 0),
+        "usage_totals": usage_totals,
+        "usage_field_counts": {key: 1 for key in usage_totals},
+    }
+
+
+def _utc_datetime(value: datetime) -> datetime:
+    if value.tzinfo is None:
+        return value.replace(tzinfo=UTC)
+    return value.astimezone(UTC)
+
+
+def operation_trace_cutoff(now: datetime) -> datetime:
+    """Use a fixed UTC-day retention boundary so archive batches never split a day."""
+    day = (_utc_datetime(now) - timedelta(days=180)).date()
+    return datetime.combine(day, time.min, tzinfo=UTC)
+
+
 def _uuid_or_none(value: object) -> UUID | None:
     if value is None:
         return None
@@ -271,19 +436,46 @@ async def _increment_aggregate(db, model, identity: dict, field: str, amount: in
         setattr(row, field, getattr(row, field) + amount)
         if "operation_sequence" in identity:
             row.operation_sequence = identity["operation_sequence"]
+            row.sequence_complete = (
+                row.sequence_complete and identity["sequence_complete"]
+            )
+
+
+async def _increment_structured_aggregate(
+    db, model, identity: dict, amounts: dict[str, int | dict]
+) -> None:
+    key = tuple(identity[column.name] for column in model.__table__.primary_key.columns)
+    row = await db.get(model, key)
+    if row is None:
+        db.add(model(**identity, **amounts))
+        return
+    for field, amount in amounts.items():
+        if isinstance(amount, dict):
+            current = dict(getattr(row, field) or {})
+            for name, value in amount.items():
+                current[name] = current.get(name, 0) + value
+            setattr(row, field, current)
+        else:
+            setattr(row, field, getattr(row, field) + amount)
 
 
 async def archive_expired_operation_traces(
-    db, novel_id: str, *, now: datetime | None = None
+    db,
+    novel_id: str,
+    *,
+    now: datetime | None = None,
+    max_days: int | None = None,
 ) -> int:
-    """Aggregate and delete details after 180 days; aggregate rows have no IDs."""
+    """Aggregate whole UTC days so a session/day sequence is never split by retention."""
+    if max_days is not None and max_days < 1:
+        raise ValueError("max_days must be positive")
     postgres = db.get_bind().dialect.name == "postgresql"
-    # Match the PostgreSQL append-only trigger's transaction clock exactly at
-    # the 180-day boundary, even when the application clock drifts slightly.
-    current = now or (
+    # Use the same transaction clock as the append-only trigger and pin one
+    # UTC-day boundary for the whole archive/read operation.
+    current = _utc_datetime(now or (
         await db.scalar(select(func.now())) if postgres else datetime.now(UTC)
-    )
-    cutoff = current - timedelta(days=180)
+    ))
+    cutoff = operation_trace_cutoff(current)
     novel_uuid = UUID(str(novel_id))
     if postgres:
         # The owner read and worker tick may archive the same work at once.
@@ -292,14 +484,63 @@ async def archive_expired_operation_traces(
             text("SELECT pg_advisory_xact_lock(hashtextextended(:key, 0))"),
             {"key": f"assistant-operation-trace-retention:{novel_uuid}"},
         )
+    expired = (
+        AssistantOperationTrace.novel_id == novel_uuid,
+        AssistantOperationTrace.occurred_at < cutoff,
+    )
+    day_expr = (
+        func.date(func.timezone("UTC", AssistantOperationTrace.occurred_at))
+        if postgres
+        else func.date(AssistantOperationTrace.occurred_at)
+    )
+    if max_days is None:
+        selected_days = None
+    else:
+        selected_days = list(
+            (
+                await db.scalars(
+                    select(day_expr)
+                    .where(*expired)
+                    .distinct()
+                    .order_by(day_expr)
+                    .limit(max_days)
+                )
+            ).all()
+        )
+        if not selected_days:
+            return 0
+    day_filter = (
+        or_(
+            *[
+                and_(
+                    AssistantOperationTrace.occurred_at
+                    >= datetime.combine(
+                        value if isinstance(value, date) else date.fromisoformat(value),
+                        time.min,
+                        tzinfo=UTC,
+                    ),
+                    AssistantOperationTrace.occurred_at
+                    < datetime.combine(
+                        (value if isinstance(value, date) else date.fromisoformat(value))
+                        + timedelta(days=1),
+                        time.min,
+                        tzinfo=UTC,
+                    ),
+                )
+                for value in selected_days
+            ]
+        )
+        if selected_days is not None
+        else None
+    )
+    conditions = [*expired]
+    if day_filter is not None:
+        conditions.append(day_filter)
     rows = list(
         (
             await db.scalars(
                 select(AssistantOperationTrace)
-                .where(
-                    AssistantOperationTrace.novel_id == novel_uuid,
-                    AssistantOperationTrace.occurred_at < cutoff,
-                )
+                .where(*conditions)
                 .order_by(AssistantOperationTrace.id)
             )
         ).all()
@@ -308,14 +549,10 @@ async def archive_expired_operation_traces(
         return 0
 
     event_counts: dict[tuple[date, str, str], int] = {}
-    sequence_rows: dict[tuple[date, str], list[AssistantOperationTrace]] = {}
     for row in rows:
-        occurred_on = row.occurred_at.date()
+        occurred_on = _utc_datetime(row.occurred_at).date()
         key = (occurred_on, row.op_id, row.event_type)
         event_counts[key] = event_counts.get(key, 0) + 1
-        if row.event_type in {"executed", "failed", "outcome_unknown"}:
-            group_id = str(row.session_id or row.run_id or row.call_id or row.id)
-            sequence_rows.setdefault((occurred_on, group_id), []).append(row)
 
     for (occurred_on, op_id, event_type), count in event_counts.items():
         await _increment_aggregate(
@@ -330,8 +567,7 @@ async def archive_expired_operation_traces(
             "event_count",
             count,
         )
-    for (occurred_on, _group_id), sequence_rows_for_day in sequence_rows.items():
-        sequence = [row.op_id for row in sequence_rows_for_day]
+    for occurred_on, sequence in operation_trace_sequences(rows):
         sequence_json = json.dumps(sequence, separators=(",", ":"), ensure_ascii=True)
         sequence_hash = hashlib.sha256(sequence_json.encode()).hexdigest()
         await _increment_aggregate(
@@ -342,8 +578,66 @@ async def archive_expired_operation_traces(
                 "occurred_on": occurred_on,
                 "sequence_hash": sequence_hash,
                 "operation_sequence": sequence,
+                "sequence_complete": True,
             },
             "sequence_count",
+        )
+
+    metric_values: dict[tuple[date, str, str], dict] = {}
+    for row in rows:
+        key = (_utc_datetime(row.occurred_at).date(), row.op_id, row.event_type)
+        values = metric_values.setdefault(
+            key,
+            {
+                "observed_event_count": 0,
+                "duration_count": 0,
+                "duration_ms_total": 0,
+                "usage_event_count": 0,
+                "usage_complete_count": 0,
+                "usage_unknown_count": 0,
+                "usage_pending_count": 0,
+                "usage_totals": {},
+                "usage_field_counts": {},
+            },
+        )
+        delta = _metric_values(row)
+        for field in (
+            "observed_event_count",
+            "duration_count",
+            "duration_ms_total",
+            "usage_event_count",
+            "usage_complete_count",
+            "usage_unknown_count",
+            "usage_pending_count",
+        ):
+            values[field] += delta[field]
+        for field in ("usage_totals", "usage_field_counts"):
+            for name, amount in delta[field].items():
+                values[field][name] = values[field].get(name, 0) + amount
+    for (occurred_on, op_id, event_type), values in metric_values.items():
+        await _increment_structured_aggregate(
+            db,
+            AssistantOperationTraceMetricAggregate,
+            {
+                "novel_id": novel_uuid,
+                "occurred_on": occurred_on,
+                "op_id": op_id,
+                "event_type": event_type,
+            },
+            values,
+        )
+
+    lifecycle_values = _lifecycle_daily_counts(rows)
+    for (occurred_on, op_id), values in lifecycle_values.items():
+        await _increment_structured_aggregate(
+            db,
+            AssistantOperationTraceLifecycleAggregate,
+            {
+                "novel_id": novel_uuid,
+                "occurred_on": occurred_on,
+                "op_id": op_id,
+            },
+            values,
         )
     for row in rows:
         await db.delete(row)
@@ -353,7 +647,11 @@ async def archive_expired_operation_traces(
 
 async def archive_one_expired_operation_trace_project(db) -> int:
     """Archive one idle project's expired details per existing worker tick."""
-    cutoff = datetime.now(UTC) - timedelta(days=180)
+    postgres = db.get_bind().dialect.name == "postgresql"
+    current = _utc_datetime(
+        await db.scalar(select(func.now())) if postgres else datetime.now(UTC)
+    )
+    cutoff = operation_trace_cutoff(current)
     novel_id = await db.scalar(
         select(AssistantOperationTrace.novel_id)
         .where(AssistantOperationTrace.occurred_at < cutoff)
@@ -362,7 +660,9 @@ async def archive_one_expired_operation_trace_project(db) -> int:
     )
     if novel_id is None:
         return 0
-    return await archive_expired_operation_traces(db, str(novel_id))
+    return await archive_expired_operation_traces(
+        db, str(novel_id), now=current, max_days=1
+    )
 
 
 async def record_operation_trace(
@@ -385,6 +685,7 @@ async def record_operation_trace(
     usage: object = None,
     call_id: str | None = None,
     parent_call_id: str | None = None,
+    metadata: object = None,
 ) -> bool:
     """Return false only when enabled trace persistence failed."""
     if operation.trace_rule.mode == "exempt":
@@ -422,6 +723,7 @@ async def record_operation_trace(
             error_code=stable_error,
             duration_ms=max(0, int(duration_ms)) if duration_ms is not None else None,
             usage=_usage_summary(usage),
+            event_metadata=_event_metadata(operation, metadata),
         )
         # The savepoint is intentionally narrower than the business transaction:
         # trace failure must not undo a successful domain write.
@@ -450,6 +752,8 @@ __all__ = [
     "archive_expired_operation_traces",
     "archive_one_expired_operation_trace_project",
     "operation_trace_enabled",
+    "operation_trace_cutoff",
+    "operation_trace_sequences",
     "record_operation_trace",
     "reset_operation_trace_context",
     "set_operation_trace_preference",
