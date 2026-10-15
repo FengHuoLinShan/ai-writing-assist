@@ -5,7 +5,7 @@
         <p class="unified-notices__eyebrow">本章与本场</p>
         <h3>提醒</h3>
       </div>
-      <button type="button" class="btn btn-sm" :disabled="loading" @click="loadNotices">
+      <button type="button" class="btn btn-sm" :disabled="loading || busyKey !== null" @click="loadNotices">
         {{ loading ? "读取中…" : "重新读取" }}
       </button>
     </header>

@@ -94,16 +94,17 @@ Writing 冲突项的领域 `later` 没有唤醒时间，统一入口的定时“
 到期后原 open 项重新出现，领域忽略仍走原条目状态。前瞻卡超过 10 条或单章待重算项超过
 100 条时，已读取条目继续显示，并附“还有更多”导航提醒，不把整个来源报为不可用。
 
-首批注册 `story.structure`、`writing.conflict`、`writing.invalidation`、
-`assistant.proactive` 和 `assistant.forecast`。`story.structure` 迁移原前端结构缺项规则，
+当前注册 `story.structure`、`writing.conflict`、`writing.invalidation`、
+`assistant.proactive`、`assistant.forecast`、`assistant.editorial` 和 `world.map_source`。
+`story.structure` 迁移原前端结构缺项规则，
 冲突检查读取已保存正文基线并包括 G8b 地图基线；短期前瞻仍走原 forecast CAS。Assistant
 主动提醒适配器只投影现有 active AssistantNotice（含当前可见的 map_changes 与 editorial_issue），
-不另立审读结论。除本节记录的编辑意见及 G8a SPEC 外，地图空间提醒、档案/状态、演化阅读、
+不另立审读结论。除本节记录的编辑意见及 G8a 地图来源外，地图空间提醒、档案/状态、演化阅读、
 对象一致性和世界推进提醒仍由各自来源接入；本切片不把它们伪装为已支持。
 
-组合根必须注册 `ASSISTANT_NOTICE_SOURCES`，挂载上述 router，并把
-`modules.assistant.notice_models` 的两张 ORM 表纳入 bootstrap/Alembic 元数据；来源/操作仍是
-纯 spec。离线 provider 测试通过不代表共享 app 装配或提醒前端标签已上线。
+组合根通过 `ASSISTANT_NOTICE_SOURCES` 注册上述来源并挂载 router；
+`modules.assistant.notice_models` 的两张 ORM 表已纳入 bootstrap/Alembic 元数据。来源/操作仍是
+纯 spec；离线 provider 测试不能代替共享 app 的真实 HTTP 验证。
 
 ## 写作副驾驶提醒界面
 

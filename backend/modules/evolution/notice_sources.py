@@ -52,7 +52,7 @@ def _map_notice(
     node_id = str(value.get("node_id") or "")
     revision_id = str(value.get("revision_id") or "")
     title = str(value.get("title") or "未命名地图对象")
-    is_auto_draft = value.get("map_kind") == "auto_draft"
+    is_auto_draft = value.get("kind") == "auto_draft"
     summary = (
         f"空间草图“{title}”引用的正文来源已变化，请核对草图依据。"
         if is_auto_draft

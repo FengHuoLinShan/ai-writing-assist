@@ -572,8 +572,11 @@ def test_notice_operation_contract_has_complete_trace_metadata():
 async def test_real_registered_sources_can_read_an_empty_project_without_ai(
     db_session, test_project_id
 ):
+    from app.notice_source_registry import notice_sources
+    from modules.assistant.editorial_notice_source import list_editorial_notices
     from modules.assistant.forecast_notice_source import list_forecast_notices
     from modules.assistant.notice_sources import list_assistant_notices
+    from modules.evolution.notice_sources import list_map_source_notices
     from modules.story.notice_sources import list_scene_structure_notices
     from modules.writing.notice_sources import (
         list_conflict_notices,
@@ -581,6 +584,13 @@ async def test_real_registered_sources_can_read_an_empty_project_without_ai(
     )
 
     scope = {"chapter_index": 1, "scene_id": None}
+    assert {
+        "assistant.proactive",
+        "assistant.editorial",
+        "world.map_source",
+    } <= set(notice_sources)
+    assert notice_sources["assistant.editorial"].list_notices is list_editorial_notices
+    assert notice_sources["world.map_source"].list_notices is list_map_source_notices
     results = [
         await reader(db_session, test_project_id, scope)
         for reader in (
@@ -589,6 +599,8 @@ async def test_real_registered_sources_can_read_an_empty_project_without_ai(
             list_scene_structure_notices,
             list_conflict_notices,
             list_invalidation_notices,
+            list_editorial_notices,
+            list_map_source_notices,
         )
     ]
     assert results[0] == []
@@ -596,3 +608,5 @@ async def test_real_registered_sources_can_read_an_empty_project_without_ai(
     assert results[2] == []
     assert results[3][0]["notice_key"].startswith("writing.conflict:missing:")
     assert results[4] == []
+    assert results[5] == []
+    assert results[6] == []

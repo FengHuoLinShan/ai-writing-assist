@@ -5,7 +5,7 @@
         <h3>对象档案</h3>
         <p>长期设定按面向记录；本场发生的变化仍以 Story 时点状态为准。</p>
       </div>
-      <button type="button" class="btn btn-sm" :disabled="loading || Boolean(busyKey)" @click="loadAll">重新读取</button>
+      <button type="button" class="btn btn-sm" :disabled="loading || Boolean(busyKey)" @click="loadAll({ confirmDiscard: true })">重新读取</button>
     </header>
 
     <p v-if="loading" role="status">正在读取对象档案…</p>
@@ -47,6 +47,10 @@
             <label><span>内容</span><textarea v-model="editDraft.content" rows="4" maxlength="20000" :disabled="readOnly || Boolean(busyKey)" /></label>
             <label><span>标签（用逗号分隔）</span><input v-model="editDraft.tagsText" maxlength="800" :disabled="readOnly || Boolean(busyKey)"></label>
             <label><span>可见范围</span><select v-model="editDraft.visibility" :disabled="readOnly || Boolean(busyKey)"><option value="public">公开</option><option value="secret">作者秘密</option></select></label>
+            <div class="object-dossier-editor__validity">
+              <label><span>从哪场开始生效</span><select v-model="editDraft.startAnchor" :disabled="readOnly || Boolean(busyKey)"><option value="">全书</option><option v-if="editDraft.startAnchor && !sceneOptionExists(editDraft.startAnchor)" :value="editDraft.startAnchor">{{ anchorChoiceLabel(editDraft.startAnchor) }}</option><option v-for="scene in scenes" :key="scene.id" :value="`scene:${scene.id}`">{{ sceneLabel(scene) }}</option></select></label>
+              <label><span>到哪场结束生效</span><select v-model="editDraft.endAnchor" :disabled="readOnly || Boolean(busyKey)"><option value="">持续至今</option><option v-if="editDraft.endAnchor && !sceneOptionExists(editDraft.endAnchor)" :value="editDraft.endAnchor">{{ anchorChoiceLabel(editDraft.endAnchor) }}</option><option v-for="scene in scenes" :key="scene.id" :value="`scene:${scene.id}`">{{ sceneLabel(scene) }}</option></select></label>
+            </div>
             <p v-if="actionError" class="field-error" role="alert">{{ actionError }}</p>
             <div class="object-dossier-editor__actions">
               <button type="submit" class="btn btn-sm btn-primary" :disabled="readOnly || Boolean(busyKey) || !editDirty">{{ busyKey === `edit:${entry.id}` ? '保存中…' : '保存新修订' }}</button>
@@ -129,7 +133,7 @@
             </label>
             <label v-if="!readOnly"><span>添加已有面向</span><select v-model="templateFacingToAdd"><option value="">选择面向</option><option v-for="facet in availableTemplateFacets" :key="facingKey(facet.facing)" :value="facingKey(facet.facing)">{{ facet.label }}</option></select></label>
             <button v-if="!readOnly" type="button" class="btn btn-sm" :disabled="Boolean(busyKey) || !templateFacingToAdd" @click="addTemplateField">添加字段</button>
-            <label v-if="!readOnly"><span>显示规则 JSON</span><textarea v-model="templateDisplaySchemaText" rows="3" aria-label="显示规则 JSON" /></label>
+            <details v-if="!readOnly"><summary>高级显示规则</summary><label><span>显示规则 JSON</span><textarea v-model="templateDisplaySchemaText" rows="3" aria-label="显示规则 JSON" /></label></details>
           </fieldset>
           <div v-if="!readOnly" class="object-dossier-editor__actions"><button type="button" class="btn btn-sm btn-primary" :disabled="Boolean(busyKey) || !templateDirty" @click="saveTemplate">{{ busyKey === 'template' ? '保存中…' : '保存模板' }}</button></div>
           <details class="object-dossier-editor__history" @toggle="event => event.target.open && loadTemplateHistory()">
@@ -147,7 +151,7 @@
 
 <script setup>
 import { computed, onBeforeUnmount, onMounted, reactive, ref, watch } from "vue"
-import { getApi } from "../../../bridge/index.js"
+import { getApi, getConfirm } from "../../../bridge/index.js"
 
 const props = defineProps({
   entity: { type: Object, required: true },
@@ -157,7 +161,7 @@ const props = defineProps({
 const emit = defineEmits(["dirty", "saved"])
 const entityId = computed(() => props.entity?.id || props.entity?.entity_id || "")
 const typeLabel = computed(() => ({ character: "人物", location: "地点", item: "物件", faction: "势力", organization: "组织", rule: "规则", secret: "秘密" })[props.entity?.entity_type] || props.entity?.entity_type || "对象")
-const readOnly = computed(() => Boolean(props.readOnly || (globalThis.publicDemoMode && !globalThis.publicDemoRpMode)))
+const readOnly = computed(() => props.readOnly)
 const dossier = ref(null)
 const facets = ref([])
 const scenes = ref([])
@@ -169,7 +173,7 @@ const notice = ref("")
 const busyKey = ref("")
 const editingId = ref("")
 const editExpectedRevisionId = ref("")
-const editDraft = reactive({ content: "", tagsText: "", visibility: "public" })
+const editDraft = reactive({ content: "", tagsText: "", visibility: "public", startAnchor: "", endAnchor: "" })
 const newDraft = reactive({ facingKey: "", content: "", tagsText: "", visibility: "public", startSceneId: "", endSceneId: "" })
 const conflict = ref(null)
 const restoreTarget = ref(null)
@@ -198,7 +202,7 @@ const entries = computed(() => dossier.value?.entries || [])
 const selectedFacet = computed(() => facets.value.find((item) => facingKey(item.facing) === newDraft.facingKey) || null)
 const editDirty = computed(() => {
   const original = editingOriginal.value
-  return Boolean(original) && JSON.stringify({ content: editDraft.content, tagsText: editDraft.tagsText, visibility: editDraft.visibility }) !== JSON.stringify({ content: original.content, tagsText: tagsText(original.tags), visibility: original.visibility })
+  return Boolean(original) && JSON.stringify({ content: editDraft.content, tagsText: editDraft.tagsText, visibility: editDraft.visibility, startAnchor: editDraft.startAnchor, endAnchor: editDraft.endAnchor }) !== JSON.stringify({ content: original.content, tagsText: tagsText(original.tags), visibility: original.visibility, startAnchor: anchorValue(original.validity?.start), endAnchor: anchorValue(original.validity?.end) })
 })
 const newDraftDirty = computed(() => Boolean(newDraft.facingKey || newDraft.content.trim() || newDraft.tagsText.trim() || newDraft.startSceneId || newDraft.endSceneId || newDraft.visibility !== "public"))
 const editingOriginal = computed(() => entries.value.find((item) => item.id === editingId.value) || null)
@@ -225,8 +229,12 @@ function clearNewDraft() {
   newDraft.facingKey = ""; newDraft.content = ""; newDraft.tagsText = ""; newDraft.visibility = "public"; newDraft.startSceneId = ""; newDraft.endSceneId = ""
 }
 
-async function loadAll() {
+async function loadAll({ confirmDiscard = false } = {}) {
   if (!props.projectId || !entityId.value) return
+  if (confirmDiscard && (editDirty.value || newDraftDirty.value || templateDirty.value || conflict.value)) {
+    if (!getConfirm()("当前对象有未保存草稿，确定放弃并重新读取吗？")) return
+    resetData()
+  }
   const projectId = props.projectId; const id = entityId.value; const token = generation; const requestId = ++loadSequence
   loading.value = true; loadError.value = ""; facetError.value = ""
   const api = getApi()
@@ -261,6 +269,7 @@ async function reloadDossier() {
 function beginEdit(entry) {
   editingId.value = entry.id; editExpectedRevisionId.value = entry.id
   editDraft.content = entry.content || ""; editDraft.tagsText = tagsText(entry.tags); editDraft.visibility = entry.visibility || "public"
+  editDraft.startAnchor = anchorValue(entry.validity?.start); editDraft.endAnchor = anchorValue(entry.validity?.end)
   conflict.value = null; actionError.value = ""; notice.value = ""
   emitDirty()
 }
@@ -278,6 +287,10 @@ async function saveEdit(entry) {
       content: editDraft.content,
       tags: parseTags(editDraft.tagsText),
       visibility: editDraft.visibility,
+      validity: editDraft.startAnchor || editDraft.endAnchor ? {
+        start: parseAnchorChoice(editDraft.startAnchor),
+        end: parseAnchorChoice(editDraft.endAnchor),
+      } : null,
     })
     if (!current(token, projectId, id)) return
     cancelEdit(); await reloadDossier()
@@ -360,12 +373,14 @@ async function confirmRestore() {
   } catch (error) {
     if (!current(token, projectId, id)) return
     if (error?.status === 409) await reloadDossier()
+    if (!current(token, projectId, id)) return
     restoreError.value = error?.message || "恢复失败；历史和当前内容均已保留。"
   } finally { if (current(token, projectId, id)) busyKey.value = "" }
 }
 
 async function loadTemplate() {
-  if (templateLoading.value || !props.projectId) return
+  if (templateLoading.value || busyKey.value || !props.projectId) return
+  if (templateDirty.value && !getConfirm()("模板有未保存修改，确定放弃草稿并读取服务器模板吗？")) return
   const projectId = props.projectId; const id = entityId.value; const token = generation
   templateLoading.value = true; templateError.value = ""; templateSaved.value = null
   try {
@@ -409,6 +424,7 @@ async function saveTemplate() {
     if (error?.status === 409) {
       let server = null
       try { server = await getApi().world.getEntityDossierTemplate(props.entity.entity_type, projectId, { cache: "no-store" }) } catch { /* template may have been created after a 404 */ }
+      if (!current(token, projectId, id)) return
       templateConflict.value = { message: error.message || "模板已在别处更新。", server }
     } else templateError.value = error?.message || "模板保存失败；草稿已保留。"
   } finally { if (current(token, projectId, id)) busyKey.value = ""; emitDirty() }
@@ -447,6 +463,17 @@ function facingKey(facing) { return facing?.kind === "project" ? `project:${faci
 function facetLabel(facing) { return facets.value.find((item) => facingKey(item.facing) === facingKey(facing))?.label || facing?.key || "项目面向" }
 function fieldKey(field, index) { return `${facingKey(field.facing)}:${index}` }
 function sceneLabel(scene) { return scene.title || (scene.scene_index != null ? `第 ${scene.scene_index} 场` : "未命名场景") }
+function anchorValue(anchor) { return anchor?.kind && anchor?.id ? `${anchor.kind}:${anchor.id}` : "" }
+function parseAnchorChoice(value) {
+  if (!value) return null
+  const [kind, id] = value.split(":", 2)
+  return { kind, id }
+}
+function sceneOptionExists(value) { return scenes.value.some((scene) => value === `scene:${scene.id}`) }
+function anchorChoiceLabel(value) {
+  const anchor = parseAnchorChoice(value)
+  return anchor?.kind === "chapter" ? `原章节边界 ${String(anchor.id).slice(0, 8)}` : `原场景边界 ${String(anchor?.id || "").slice(0, 8)}`
+}
 function validityLabel(validity) {
   const label = (anchor) => !anchor ? "全书" : anchor.kind === "scene" ? (scenes.value.find((scene) => scene.id === anchor.id) ? sceneLabel(scenes.value.find((scene) => scene.id === anchor.id)) : `Scene ${String(anchor.id).slice(0, 8)}`) : `章节 ${String(anchor.id).slice(0, 8)}`
   return `${label(validity?.start)} — ${label(validity?.end)}`

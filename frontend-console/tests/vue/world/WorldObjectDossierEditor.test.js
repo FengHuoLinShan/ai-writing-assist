@@ -64,8 +64,8 @@ const baseApi = (overrides = {}) => ({
   },
   outline: { listScenesOrdered: vi.fn(async () => [{ id: sceneId, scene_index: 1, title: "雾港来信" }]), ...overrides.outline },
 })
-const mountEditor = (api, props = {}) => {
-  setBridgeOverrides({ api })
+const mountEditor = (api, props = {}, bridge = {}) => {
+  setBridgeOverrides({ api, ...bridge })
   return mount(WorldObjectDossierEditor, { props: { entity, projectId: "project-a", ...props } })
 }
 
@@ -123,6 +123,26 @@ it("409 后保留编辑草稿，作者选择按服务器修订重新提交", asy
   expect(api.world.updateEntityDossierEntry).toHaveBeenNthCalledWith(1, entity.id, "revision-1", "project-a", expect.objectContaining({ expected_revision_id: "revision-1", content: "我的草稿。" }))
   expect(api.world.updateEntityDossierEntry).toHaveBeenNthCalledWith(2, entity.id, "revision-2", "project-a", expect.objectContaining({ expected_revision_id: "revision-2", content: "我的草稿。" }))
   expect(wrapper.text()).toContain("档案新修订已保存")
+  wrapper.unmount()
+})
+
+it("编辑已保存条目可清除旧章节有效期并以当前修订保存", async () => {
+  const limited = currentEntry({ validity: { start: { kind: "chapter", id: sceneId }, end: null } })
+  const api = baseApi({ world: {
+    getEntityDossier: vi.fn(async () => dossier([limited])),
+  } })
+  const wrapper = mountEditor(api)
+  await flushPromises()
+  await wrapper.get(".object-dossier-editor__entry > .object-dossier-editor__actions button").trigger("click")
+  const start = wrapper.get(".object-dossier-editor__entry form .object-dossier-editor__validity select")
+  expect(start.element.value).toBe(`chapter:${sceneId}`)
+  await start.setValue("")
+  await wrapper.get(".object-dossier-editor__entry form").trigger("submit")
+  await flushPromises()
+  expect(api.world.updateEntityDossierEntry).toHaveBeenCalledWith(entity.id, "revision-1", "project-a", expect.objectContaining({
+    expected_revision_id: "revision-1",
+    validity: null,
+  }))
   wrapper.unmount()
 })
 
@@ -234,5 +254,92 @@ it("模板 409 后保留本地字段草稿，并允许作者明确以服务器�
 
   expect(api.world.saveEntityDossierTemplate).toHaveBeenNthCalledWith(2, "character", "project-a", expect.objectContaining({ expected_version_number: 2 }))
   expect(wrapper.text()).toContain("模板已保存为第 3 版")
+  wrapper.unmount()
+})
+
+it("手动重读不能静默覆盖未保存的档案与模板草稿", async () => {
+  const confirm = vi.fn(() => false)
+  const api = baseApi()
+  const wrapper = mountEditor(api, {}, { confirm })
+  await flushPromises()
+  await wrapper.get(".object-dossier-editor__entry > .object-dossier-editor__actions button").trigger("click")
+  await wrapper.get(".object-dossier-editor__entry form textarea").setValue("尚未保存的对象内容")
+  await wrapper.get(".object-dossier-editor__header button").trigger("click")
+  await flushPromises()
+  expect(confirm).toHaveBeenCalled()
+  expect(api.world.getEntityDossier).toHaveBeenCalledTimes(1)
+  expect(wrapper.get(".object-dossier-editor__entry form textarea").element.value).toBe("尚未保存的对象内容")
+
+  await wrapper.get(".object-dossier-editor__templates > header button").trigger("click")
+  await flushPromises()
+  await wrapper.get(".object-dossier-editor__template-fields > label select").setValue("core:identity")
+  await wrapper.get(".object-dossier-editor__template-fields > button").trigger("click")
+  await wrapper.get("[aria-label='模板字段显示名称']").setValue("尚未保存的模板字段")
+  await wrapper.get(".object-dossier-editor__templates > header button").trigger("click")
+  await flushPromises()
+  expect(api.world.getEntityDossierTemplate).toHaveBeenCalledTimes(1)
+  expect(wrapper.get("[aria-label='模板字段显示名称']").element.value).toBe("尚未保存的模板字段")
+  wrapper.unmount()
+})
+
+it("模板 409 后二次读取的旧项目响应不能污染新对象", async () => {
+  let finishOldTemplate
+  const stale = Object.assign(new Error("模板已在别处更新"), { status: 409 })
+  const api = baseApi({ world: {
+    getEntityDossierTemplate: vi.fn((_type, projectId) => projectId === "project-a"
+      ? new Promise((resolve) => { finishOldTemplate = resolve })
+      : Promise.resolve({ profile_type: "character", version_number: 5, fields: [], display_schema: {} })),
+    saveEntityDossierTemplate: vi.fn().mockRejectedValue(stale),
+  } })
+  const wrapper = mountEditor(api)
+  await flushPromises()
+  // The first template read is explicit; resolve it before editing.
+  await wrapper.get(".object-dossier-editor__templates > header button").trigger("click")
+  finishOldTemplate({ profile_type: "character", version_number: 1, fields: [], display_schema: {} })
+  await flushPromises()
+  await wrapper.get(".object-dossier-editor__template-fields > label select").setValue("core:identity")
+  await wrapper.get(".object-dossier-editor__template-fields > button").trigger("click")
+  await wrapper.get(".object-dossier-editor__templates .object-dossier-editor__actions button").trigger("click")
+  await flushPromises()
+  await wrapper.setProps({ projectId: "project-b", entity: { ...entity, id: "entity-b" } })
+  await flushPromises()
+  await wrapper.get(".object-dossier-editor__templates > header button").trigger("click")
+  await flushPromises()
+  finishOldTemplate({ profile_type: "character", version_number: 2, fields: [], display_schema: {} })
+  await flushPromises()
+  expect(wrapper.text()).toContain("当前模板第 5 版")
+  expect(wrapper.text()).not.toContain("模板已在别处更新")
+  wrapper.unmount()
+})
+
+it("历史恢复 409 后迟到的旧对象重读不能写入新对象错误状态", async () => {
+  let finishOldDossier
+  const old = currentEntry({ id: "revision-old", status: "superseded", content: "历史内容。" })
+  const active = currentEntry({ id: "revision-current", revision_number: 2 })
+  const stale = Object.assign(new Error("旧对象修订冲突"), { status: 409 })
+  const api = baseApi({ world: {
+    getEntityDossier: vi.fn((id, projectId) => projectId === "project-b"
+      ? Promise.resolve(dossier([currentEntry({ entity_id: id, content: "新对象内容。" })]))
+      : api.world.getEntityDossier.mock.calls.length === 1
+        ? Promise.resolve(dossier([active]))
+        : new Promise((resolve) => { finishOldDossier = resolve })),
+    listEntityDossierHistory: vi.fn(async () => ({ entries: [active, old], total_count: 2, omitted_count: 0 })),
+    restoreEntityDossierEntry: vi.fn().mockRejectedValue(stale),
+  } })
+  const wrapper = mountEditor(api)
+  await flushPromises()
+  const history = wrapper.get(".object-dossier-editor__history")
+  history.element.open = true
+  await history.trigger("toggle")
+  await flushPromises()
+  await wrapper.get(".object-dossier-editor__history-item button").trigger("click")
+  await wrapper.get(".object-dossier-editor__restore button.btn-primary").trigger("click")
+  await flushPromises()
+  await wrapper.setProps({ projectId: "project-b", entity: { ...entity, id: "entity-b" } })
+  await flushPromises()
+  finishOldDossier(dossier([active]))
+  await flushPromises()
+  expect(wrapper.vm.restoreError).toBe("")
+  expect(wrapper.text()).toContain("新对象内容。")
   wrapper.unmount()
 })

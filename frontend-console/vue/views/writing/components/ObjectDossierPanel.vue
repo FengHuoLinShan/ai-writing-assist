@@ -282,7 +282,7 @@ async function loadBrief() {
           novel_id: projectId,
           scene_id: sceneId,
           entity_ids: groups[index],
-          reveal_mode: "author_safe",
+          reveal_mode: "author_full",
           content_mode: "canonical",
           include_patterns: includePatterns.value,
           only_adopted_patterns: includePatterns.value && onlyAdoptedPatterns.value,

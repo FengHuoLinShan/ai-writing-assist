@@ -53,7 +53,7 @@ const briefResponse = (entityIds, overrides = {}) => ({
   ...overrides,
 })
 
-it("只读取 Scene 明确的 UUID 关联，按每批 16 个调用 author_safe 的 Evidence 简报", async () => {
+it("只读取 Scene 明确的 UUID 关联，按每批 16 个调用作者管理 Evidence 简报", async () => {
   const entityIds = Array.from({ length: 17 }, (_, index) => id(index + 1))
   const getEntity = vi.fn(async (entityId) => ({ id: entityId, name: `对象 ${entityId.slice(-2)}`, entity_type: "character" }))
   const objectDossierBrief = vi.fn(async (payload) => briefResponse(payload.entity_ids))
@@ -77,7 +77,7 @@ it("只读取 Scene 明确的 UUID 关联，按每批 16 个调用 author_safe �
     novel_id: "project-a",
     scene_id: "scene-a",
     entity_ids: entityIds.slice(0, 2),
-    reveal_mode: "author_safe",
+    reveal_mode: "author_full",
     content_mode: "canonical",
     include_patterns: false,
     only_adopted_patterns: false,

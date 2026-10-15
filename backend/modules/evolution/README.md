@@ -607,5 +607,5 @@ registry. Each read compares the latest published chapter source with the curren
 through `WORLD_READ_MAP_CHAPTER_CONSUMERS`; a historical invalidation receipt is evidence only when
 its node and revision exactly match that current head. An old receipt alone cannot keep a resolved
 notice visible. Map/source read limits retain verified map rows and add an explicit coverage notice for
-unverified or truncated results. The composition root must register the spec before the unified API
+unverified or truncated results. The composition registry now includes this spec so the unified API
 can return it.

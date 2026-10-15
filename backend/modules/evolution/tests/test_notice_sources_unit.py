@@ -179,3 +179,25 @@ def test_receipt_matches_only_same_chapter_map_node_and_revision():
         ("map-node-1", "map-revision-1"): "same-head",
         ("map-node-1", "map-revision-old"): "old-head",
     }
+
+
+def test_candidate_auto_draft_notice_uses_the_world_report_kind():
+    item = source._map_notice(
+        {**current_map(), "kind": "auto_draft"},
+        novel_id=NOVEL_ID,
+        chapter_index=3,
+        current_draft_id="draft-current",
+        current_source_hash="b" * 64,
+        matching_receipt_id=None,
+    )
+
+    assert "空间草图" in item["summary"]
+    saved = source._map_notice(
+        current_map(),
+        novel_id=NOVEL_ID,
+        chapter_index=3,
+        current_draft_id="draft-current",
+        current_source_hash="b" * 64,
+        matching_receipt_id=None,
+    )
+    assert item["basis_fingerprint"] != saved["basis_fingerprint"]

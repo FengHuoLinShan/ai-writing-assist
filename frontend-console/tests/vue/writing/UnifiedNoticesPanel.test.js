@@ -96,6 +96,32 @@ it("遇到 409 不乐观移除，按新服务端状态刷新", async () => {
   wrapper.unmount()
 })
 
+it("处置请求未结束时不能手动重读，完成后仍可继续操作", async () => {
+  let finishDisposition
+  const unifiedNotices = vi.fn()
+    .mockResolvedValueOnce({ items: [notice()], unavailable_sources: [], muted_categories: [], partial: false })
+    .mockResolvedValueOnce({ items: [notice({ status: "read" })], unavailable_sources: [], muted_categories: [], partial: false })
+    .mockResolvedValueOnce({ items: [notice({ status: "read" })], unavailable_sources: [], muted_categories: [], partial: false })
+  const setUnifiedNoticeDisposition = vi.fn(() => new Promise((resolve) => { finishDisposition = resolve }))
+  setBridgeOverrides({ api: { assistant: { unifiedNotices, setUnifiedNoticeDisposition } } })
+  const wrapper = mountPanel()
+  await flushPromises()
+  await wrapper.get(".unified-notices__actions button:nth-child(2)").trigger("click")
+  const reload = wrapper.get(".unified-notices__header button")
+  expect(reload.attributes("disabled")).toBeDefined()
+  await reload.trigger("click")
+  expect(unifiedNotices).toHaveBeenCalledTimes(1)
+
+  finishDisposition({ status: "read" })
+  await flushPromises()
+  expect(wrapper.text()).toContain("已读")
+  expect(reload.attributes("disabled")).toBeUndefined()
+  await reload.trigger("click")
+  await flushPromises()
+  expect(unifiedNotices).toHaveBeenCalledTimes(3)
+  wrapper.unmount()
+})
+
 it("类别静音与恢复各自携带当前 CAS 版本", async () => {
   const unifiedNotices = vi.fn()
     .mockResolvedValueOnce({ items: [notice()], unavailable_sources: [], muted_categories: [], partial: false })
