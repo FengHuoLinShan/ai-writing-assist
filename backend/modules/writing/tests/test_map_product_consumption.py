@@ -495,7 +495,7 @@ async def test_assistant_map_enabled_submit_and_exact_worker(tmp_path, monkeypat
         async with manager.session() as db:
             run = await db.get(AssistantRun, run_id)
             task = await db.get(AsyncTask, run_id)
-            assert run.request_json["runtime_version"] == "11"
+            assert run.request_json["runtime_version"] == "12"
             assert "map_spatial_brief" in run.request_json["read_tools"]
             assert task is not None and task.status == "pending"
 

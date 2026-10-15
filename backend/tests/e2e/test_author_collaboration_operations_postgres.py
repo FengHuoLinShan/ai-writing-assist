@@ -1,6 +1,7 @@
 """Author workspace operations through HTTP and independent PostgreSQL sessions."""
 
 import asyncio
+from datetime import UTC, datetime
 from uuid import uuid4
 
 import pytest
@@ -21,7 +22,7 @@ pytestmark = [pytest.mark.asyncio, pytest.mark.e2e]
 
 async def test_workspace_http_create_edit_replay_and_concurrent_cas(monkeypatch):
     engine = create_async_engine(require_e2e_database_url(), pool_size=3)
-    novel_id, foreign_id, foreign_owner = (uuid4() for _ in range(3))
+    novel_id, foreign_id, foreign_owner, inactive_id = (uuid4() for _ in range(4))
     try:
         async with AsyncSession(engine) as db:
             if await db.get(Account, BOOTSTRAP_ACCOUNT_ID) is None:
@@ -31,6 +32,12 @@ async def test_workspace_http_create_edit_replay_and_concurrent_cas(monkeypatch)
                 [
                     Project(id=novel_id, owner_id=BOOTSTRAP_ACCOUNT_ID, title="试改作品"),
                     Project(id=foreign_id, owner_id=foreign_owner, title="他人作品"),
+                    Project(
+                        id=inactive_id,
+                        owner_id=BOOTSTRAP_ACCOUNT_ID,
+                        title="已删除作品",
+                        deleted_at=datetime.now(UTC),
+                    ),
                 ]
             )
             await db.commit()
@@ -208,6 +215,34 @@ async def test_workspace_http_create_edit_replay_and_concurrent_cas(monkeypatch)
             )
             assert receipt.status_code == 200, receipt.text
             assert receipt.json()["receipt_id"] == adopted.json()["result"]["receipt_id"]
+            denied_confirms = {
+                "create": confirmed,
+                "edit": edit_confirm,
+                "seal": {
+                    "workspace_id": workspace["id"],
+                    "revision_id": workspace["revision_id"],
+                    "expected_digest": "0" * 64,
+                    "expected_preview_hash": "0" * 64,
+                    "confirmed": True,
+                },
+                "check": {
+                    "workspace_id": workspace["id"],
+                    "operation_id": str(uuid4()),
+                    "expected_goal_version": 1,
+                    "workspace_revision_id": workspace["revision_id"],
+                    "expected_preview_hash": "0" * 64,
+                    "confirmed": True,
+                },
+                "adoption": approved,
+            }
+            for project_id in (foreign_id, inactive_id):
+                for operation, payload in denied_confirms.items():
+                    denied = await client.post(
+                        f"{base}/{operation}/confirm",
+                        params={"novel_id": str(project_id)},
+                        json=payload,
+                    )
+                    assert denied.status_code == 404, (operation, denied.text)
             async with AsyncSession(engine) as domain_db:
                 draft = await get_latest_draft_for_chapter(domain_db, str(novel_id), 1)
                 assert draft.content.endswith("她仍保留了退路。")
