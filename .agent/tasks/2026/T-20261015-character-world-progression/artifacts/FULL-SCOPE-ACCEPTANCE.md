@@ -20,7 +20,7 @@ A3及追加Sol修复、A4独立审修均已合入；C4尾项Sol64a已合；C5/C0
 | 副驾驶C2 | 对象简报、参考维度、人物卡与反应v2及真实HTTP/PG/界面已集成并审修 | 默认关闭能力仍需真实质量验收后再决定启用 |
 | 副驾驶C3 | 七类统一提醒、只读结构缺项、处置及对象界面已集成并审修 | 短期前瞻表演格式、人物弧计划/实际、演化阅读状态提醒新Luna/max批次从c579开始实施；旧导入入口替换等待正式默认入口门禁 |
 | 导演C4 | simulation_v3、有限结算、完整表演/素材/角度、历史树和独立参考已集成并审修 | 导演对象refs与事件分别转World候选已由Sol64a闭环合c579，root发现的2项偏好测试隔离失败已由Sol56f直接修并cherry710，45组合PG与8919普通后端均通过；RP协议迁移仍需独立Interaction评测；实际模型质量和作者使用尚未验收 |
-| 推进C5 | Luna候选ac4已固定并交新Sol审修自由/导向推进、步长、交汇、钩子、历史、持续授权及Flow | Sol已修不可变guard/知识/预算/钩子和每步主路径TypeError并建新专库，当前进行顶层完整装配与实际Worker/PG验收；势力参与和方案分支等待外部路线图阶段1、2 |
+| 推进C5 | Sol固定10db18e19，九项目录/v14、真实阅读计数和同根R4恢复已装配；PG/Worker阅读/outbox/unknown已验 | Sol正组合C0并修低预算预览，最终组合后端/浏览器及root集成待验；势力参与和方案分支等待外部路线图阶段1、2 |
 
 旧bd31固定点root为5133后端/27PG/3173前端；eab合A3后的前端3175/lint/build/docs/repo-gates通过。
 eab普通后端8255通过/3失败，30项PG为29通过/1 Goal失败。Sol净bf78将首轮完整目录9925→6812token，
@@ -44,4 +44,4 @@ C4此前Sol普通扩大8299项以及真实TaskWorker/HTTP/390与1280浏览器证
 
 C4 Sol64a已合c579、root看图与原始HTTP日志；同源前端3182/lint/build沿用。root保留库从A4升级C4 head/parity通过；首轮43PG通过/2新fixture偏好隔离失败已由C5 Sol净56f直接修，cherry710后45组合PG全部通过（15.09s）。普通生产源码同源完整后端8919通过/9跳过/1 deselected/1既有warning（329.73s），RuntimeWarning转error。当前C4工程固定点全绿。C5已接共享槽且顺序负责C0 checkpoint总装；C0 Sol已退出，C3/A1两Luna独立实现并行。
 
-C5原MAX发布序号差持续触发偏差由root识别，Sol撤销Writing发布触发，改真实完整Scene阅读成功投影与Evolution成功事务免费outbox；wp_read_count后继迁移在原专库增量升级/parity通过，完整触发/恢复PG仍待验。C3/A1新库hold最终线性头，未创建。
+C5原MAX发布序号差已由Sol直接改真实完整阅读投影与Evolution同事务免费outbox；PG/Worker证明回滚、重读、未读、停用、撤销及新unknown恢复边界。10db18e19前端3187/lint/build/docs和原12000预算Goal PG通过，最终组合仍待验。C0 008d已在C5无冲突合0b1ec254d，v15及原专库升级验证中，尚未合primary。C3/A1新库hold最终线性头、未创建。最新恢复见[C5/C0与C3/A1检查点](C5-C0-C3-A1-CHECKPOINT.md)。

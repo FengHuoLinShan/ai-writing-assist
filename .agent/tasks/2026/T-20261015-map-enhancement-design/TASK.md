@@ -3,12 +3,14 @@ id: T-20261015-map-enhancement-design
 title: 地图系统增强设计与分批实施（自动冷启动、参与创作决策、题材鲁棒性）
 status: active
 created: 2026-10-15T10:54:00+08:00
-updated: 2026-10-16T07:12:34+08:00
+updated: 2026-10-16T07:27:00+08:00
 ---
 
 # 地图系统增强设计
 
 ## 恢复快照
+
+最新并行状态优先见 [C5/C0 组合与 C3/A1 实施检查点](../T-20261015-character-world-progression/artifacts/C5-C0-C3-A1-CHECKPOINT.md)。primary 仍固定已验 C4；C5 `10db18e19` 及 C0 组合尚未集成，不能提前宣称全计划完成。
 
 - 当前授权：2026-10-15 用户 `/goal` 要求执行 `codex/map-enhancement-plan` 的计划；Luna/max 子代理并行实现，Sol/high 按批次 review 与修复。只做本地开发验证；没有发布、真实数据破坏或对外发送授权。用户16:43补充“修复由sol子代理直接修”：后续代码修复均由Sol/high子代理直接执行。用户曾要求“由你收尾”；其后明确答复范围为三份计划全部实施，包括操作目录、对象档案、导演、世界推进。root继续负责分批拆解、集成、验证、任务记录与实际隔离评测；已明确确认采用“模拟作者显式指定Scene地点后做辅助Writing对比”。
 - 主工作区：`/Users/tywww/项目/ai-writing-assist/.worktrees/map-enhancement-plan`，分支 `codex/map-enhancement-plan`。原 Desktop 路径已失效；仓库实际已迁至 `/Users/tywww/项目/ai-writing-assist`。
