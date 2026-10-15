@@ -91,7 +91,7 @@ def build_public_llm_request_guard(
     *,
     resolve_dns: bool,
 ) -> Callable[[httpx.Request | httpx2.Request], Awaitable[None]]:
-    """Build a request hook for both HTTPX health probes and HTTPX2 SDK calls that rechecks every request and redirect."""
+    """Recheck HTTPX probe and HTTPX2 SDK requests, including redirects."""
 
     async def guard(request: httpx.Request | httpx2.Request) -> None:
         connection_error = (
