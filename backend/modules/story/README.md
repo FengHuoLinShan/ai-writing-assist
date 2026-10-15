@@ -20,6 +20,8 @@ through its stable facade and never writes World, Memory, or Writing records.
 跨章 Scene 的工作稿来源锚点按章节生成，可能只有部分 `part_no`。边界验证按部分身份
 优先使用工作稿锚点，仅从原 canonical 映射补充尚未生成的部分；已有工作稿映射的漂移、
 缺失来源范围或原稿版本不符仍拒绝，不写入补出的映射或改变已确认范围。
+`validate_scene_source_ranges(..., content_mode=...)` 可显式限定 canonical 或 working 映射，
+用于验证消费者实际读取的模式；省略此参数时继续保留上述按部分覆盖的行为。
 
 ## Stable seams
 

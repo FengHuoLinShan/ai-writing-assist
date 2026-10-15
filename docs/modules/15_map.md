@@ -441,16 +441,23 @@ World 通过 `stage_spatial_discovery(db, novel_id, batch)` 接收 Evolution 的
 词条修订和独立复核身份。坏项逐条拒绝；复核不支持或不确定的项目留在 `pending_verification`，
 通过项进入 `pending_review`。`(novel_id, run_id, attempt_id, clue_key)` 唯一约束保证重放幂等；
 不同载荷复用同一 key 会冲突。线索只写 `map_spatial_clues`，不直接写 World 关系或地图 head。
+来源验证只使用批次实际读取的 canonical/working 映射，另一模式的锚点不会覆盖当前模式；
+正文读取即使附带同段上下文，也只使用经范围 hash 核验的高亮区间作为证据。
+写入使用项目排他短锁；调用方已持有共享锁且无法升级时返回可重试冲突，保持原事务可用。
 
 首 Scene 的 `type_proposal_draft` 将经线索独立复核的名称、含义和 traits 存为 emerging 词条，
 不产生计算效果；后续 `ModelVocabularyProposal` 必须携带原 proposal identity、全部先前证据和当前
 Scene 的新证据，World 逐条重读引文并校验累计 evidence hash。只有完整证据通过独立复核、覆盖至少
 两个不同 Scene 时，项目词条服务才可将类型提升为 active。
+类型证据同时重验完整 Scene 边界和实际稿件模式，不接受晚于当前 Scene 的证据；
+失败的类型复核不会新建或修改词条。
 
 `read_spatial_discovery_context` 只读取同 novel、严格早于当前 `scene_index` 的候选和词条；候选
 来源需仍有效且为 canonical，working 内容不会进入此上下文。端点状态由 World 实查，`draft` 折叠为
 `candidate`。类型投影只附带可重验的先前证据；未来 Scene 的证据和据此产生的 active 状态不泄露，
 超出上限返回 `omitted_types` / `omitted_clues`。
+作者确认过的类型保留作者状态，不因原模型证据失效而回退；归档和合并墓碑参与有界相关性召回，
+合并墓碑附重定向 ID，模型不得将其作为可用类型引用。
 
 作者可通过 `GET /api/world/map-atlas/{novel_id}/spatial-clues` 查看线索，并用
 `POST /api/world/map-atlas/{novel_id}/spatial-clues/{clue_id}/review` 采用、拒绝或合并。接口只返回

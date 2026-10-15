@@ -977,8 +977,12 @@ class SceneService(CrudService[Scene, SceneCreate, SceneUpdate, SceneResponse]):
         scene_id: str,
         scene_index: int,
         sources: list[dict],
+        *,
+        content_mode: str | None = None,
     ) -> None:
         """Honor precise Scene boundaries; chapter-only legacy anchors stay explicit."""
+        if content_mode not in {None, "canonical", "working"}:
+            raise ValidationError("content_mode must be canonical or working")
         nid = parse_uuid(novel_id, "novel_id")
         scene = await self.repo.get(db, parse_uuid(scene_id, "scene_id"))
         if (
@@ -1014,17 +1018,24 @@ class SceneService(CrudService[Scene, SceneCreate, SceneUpdate, SceneResponse]):
         chapters = set(self.repo.chapter_indices_for_scene(scene))
         if any(source["chapter_index"] not in chapters for source in sources):
             raise ValidationError("Source chapter is outside the Scene")
-        working = await self.repo.get_scene_spans_for_scene(
-            db, nid, scene.id, content_mode="working"
-        )
-        canonical = await self.repo.get_scene_spans_for_scene(db, nid, scene.id)
-        if not canonical:
-            canonical = self.repo.scene_spans_for_scene(scene)
-        # Working anchors are materialized per chapter, so a cross-chapter Scene
-        # may have only some parts. Never let an invalid working part fall back.
-        by_part = {span.part_no: span for span in canonical}
-        by_part.update({span.part_no: span for span in working})
-        spans = [by_part[part] for part in sorted(by_part)]
+        if content_mode is not None:
+            spans = await self.repo.get_scene_spans_for_scene(
+                db, nid, scene.id, content_mode=content_mode
+            )
+            if not spans:
+                raise ValidationError("Scene has no source mapping in the requested mode")
+        else:
+            working = await self.repo.get_scene_spans_for_scene(
+                db, nid, scene.id, content_mode="working"
+            )
+            canonical = await self.repo.get_scene_spans_for_scene(db, nid, scene.id)
+            if not canonical:
+                canonical = self.repo.scene_spans_for_scene(scene)
+            # Legacy callers consume a per-part working overlay. Explicit-mode
+            # consumers must validate exactly the manuscript mode they read.
+            by_part = {span.part_no: span for span in canonical}
+            by_part.update({span.part_no: span for span in working})
+            spans = [by_part[part] for part in sorted(by_part)]
         if any(span.mapping_status in {"exact", "reanchored"} for span in spans):
             if len(spans) != len(sources):
                 raise ValidationError(

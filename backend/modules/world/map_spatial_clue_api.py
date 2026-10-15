@@ -8,7 +8,7 @@ from uuid import UUID
 from fastapi import APIRouter, Depends, Query
 
 from core.dependencies import DbSession
-from modules.account.context import current_principal
+from modules.account.facade import current_account_id
 from modules.project.facade import require_active_project
 from modules.world.map_spatial_clue_schemas import (
     MapSpatialClueDecisionRequest,
@@ -36,7 +36,7 @@ ActiveNovelId = Annotated[str, Depends(_require_active_novel_id)]
 async def get_spatial_clues(
     db: DbSession,
     novel_id: ActiveNovelId,
-    status: list[MapSpatialClueStatus] | None = None,
+    status: Annotated[list[MapSpatialClueStatus] | None, Query()] = None,
     scene_id: UUID | None = None,
     limit: int = Query(default=100, ge=1, le=200),
     offset: int = Query(default=0, ge=0),
@@ -57,14 +57,12 @@ async def get_spatial_clues(
 )
 async def review_spatial_clue_endpoint(
     db: DbSession,
-    novel_id: ActiveNovelId,
+    novel_id: str,
     clue_id: UUID,
     data: MapSpatialClueDecisionRequest,
 ):
-    principal = current_principal()
-    decided_by = str(principal.account_id) if principal else "author"
     return await review_spatial_clue(
-        db, novel_id, str(clue_id), data, decided_by=decided_by
+        db, novel_id, str(clue_id), data, decided_by=str(current_account_id())
     )
 
 
