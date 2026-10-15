@@ -47,3 +47,17 @@ root已核实准备树干净并fast-forward至942c40746（产品3caf A4），仍
 ## 2026-10-16T06:59:09+08:00 当前执行检查点
 
 新Luna/max luna_copilot_alignment已从干净c579正式启动，实施forecast v2、作者人物弧计划/真实事件对照、Evolution阅读notice。仅独占所属领域，C5共享顶层/story.js/Writing commit/flows/推进与C0 World hub禁止抢写。copilot_alignment_impl_test_20261016/18600/18601分配，CREATE/upgrade待C5线性固定头，非已建。
+
+## 实施中恢复补充与独立 Sol 待修
+
+Luna已提交恢复checkpoint `3b494b91d`，无冲突合C5 `10db18e19` 为 `c8f1a5dc8d06390428e656891177f8362912cf30`。C5最终DDL已明确固定 `20261016_wp_read_count`，root正式释放C3后继；Luna核0600工程env、确认目标不存在后一次CREATE `copilot_alignment_impl_test_20261016`，实际upgrade至 `20261016_story_character_arc_plan`（head+revision两表）。迁移已应用，即使尚未最终提交也不能重写upgrade；修补用新后继。没有服务启停，原合成数据保留。A1的 `20261016_chapter_order` 必须接C3独立Sol最终DDL头，其库尚未创建。
+
+Luna自查真实PG3项：v1/v2、同operation幂等、stale CAS、历史恢复、软归档/恢复、无章映射未知、直接revision改写拒绝与Project删除级联；SQLite正式范围/降级证据拒绝2项、ORM parity通过。实际forecast SQLite链和旧v1回读证据此前已报；这些均不代表完整C3、真实模型或独立审查通过。API/UI/notice与共享hub装配仍需最终交接。
+
+root已读实现和已应用迁移，三项明确交后续Sol/high直接修（Luna已确认保留，不据root finding修复）：
+
+- `character_arcs/service.py:_trace`直接import `modules.assistant.contracts`并复制AssistantOperation物化，新增Story→Assistant依赖及棘轮风险；应以公开core DI/实际HTTP装配处理。C3/A1恢复事件还需关联原执行的`(op_id,call_id)`，不能仅给restore新随机ID制造unmatched记录。
+- `forecast/registry.py defaults('scene')`从原人物反应+`story.scene_transition.v1`改成仅人物反应v2，未经授权取消了转场默认能力；须核真实v2与旧能力混选、共同输出/候选，不以删旧能力避开新格式问题。
+- `20261016_story_character_arc_plan`的revision mutation/head delete trigger仅按`pg_trigger_depth()>1`放行，未验证真实`TG_TABLE_SCHEMA.projects`已删除。存续Project下任意nested trigger/父cascade可绕过不可变历史；需独立后继迁移使用C5已有的schema限定Project删除证明，并补真实PG直接/父删除/nested/TEMP绕过拒绝及真实Project删除允许。现有PG仅覆盖直接修订改写与Project级联，**没有覆盖该漏洞**。
+
+Sol最终需顺序合已审C5+C0完整固定点，装配forecast v2/Arc pureSPEC与真实HTTP/NOTICE/前端namespace，保留旧冻结目录、map.edit hash与原12000预算。唯一解释器primary/backend/.venv、Node24，不安装/同步依赖；只用明确分配的新review库，不能借任何现存实现/primary库。root独占三份TASK与共享artifacts。

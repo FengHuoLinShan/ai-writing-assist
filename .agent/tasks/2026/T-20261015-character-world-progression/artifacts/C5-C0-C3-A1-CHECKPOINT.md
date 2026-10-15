@@ -54,3 +54,5 @@ root已准备仅复用脚本`/tmp/map-c5-c0-primary-reuse-pg-20261016.py`（0600
 最新更正：上述第二轮也由Sol主动中断（3597通过/122.62s），不作完整通过。原因是真实浏览器已写章节/Scene预算preview又暴露缺模型配置500及读取StorySceneContextResponse顶层不存在scene_index；Sol正直接修成可操作409与正确上下文字段，并补真实Project/Writing canonical/Scene/World入口回归，不能仅mock Context/direct造root。源码固定后再跑一次完整门禁，无真实完成exit0不集成。root没有终止其进程或改其源码。
 
 C3现已回报核验0600工程env后，确认不存在才一次CREATE `copilot_alignment_impl_test_20261016`，并实际upgrade至未提交的`20261016_story_character_arc_plan`；没有启停服务，专库保留。该已应用迁移冻结，后续约束修补须新增独立迁移。为防分叉，A1的库与apply继续hold到C3独立Sol确定最终DDL头后，不能只按Luna初稿parent提前apply。A1可继续SQLite/HTTP/UI及迁移源码，等待不阻止独立实现。
+
+C3真实PG3项和范围核验SQLite2项/parity已由Luna自查通过；root又发现已应用Arc迁移仅按trigger深度放行head/revision删除，存续Project下nested/TEMP可绕过，与C5此前同类问题相同。该第三项root finding已明确交Sol以新后继迁移直接修，不能重写已用DDL或用现有3PG声称覆盖。Luna确认没有覆盖nested/TEMP。具体三项finding与后续审修边界已保存[C3尾项交接](C3-ALIGNMENT-TAIL.md)。
