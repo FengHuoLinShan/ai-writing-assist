@@ -913,11 +913,20 @@ def _install_operation_trace_route_adapters(application: FastAPI) -> None:
                 or arguments.get("project_id")
                 or ""
             )
+            if novel_id:
+                from modules.project.facade import require_active_project
+
+                # This wrapper runs before the endpoint's own guard. Trace
+                # preference/salt/events must never touch another owner's or
+                # a recycled project, even when tracing is disabled.
+                await require_active_project(db, novel_id)
+            business_bind = db.get_bind()
             trace_context.update(
                 owner_id=owner_id,
                 novel_id=novel_id,
                 arguments=arguments,
                 operation=__operation,
+                business_engine=getattr(business_bind, "engine", business_bind),
             )
             if not novel_id or not await operation_trace_enabled(db, owner_id):
                 return await __endpoint(*args, **kwargs)
@@ -1001,6 +1010,29 @@ def _install_operation_trace_route_adapters(application: FastAPI) -> None:
                 nonlocal status_code
                 if message.get("type") == "http.response.start":
                     status_code = message.get("status")
+                    if trace_context.get("enabled") and status_code >= 400:
+                        from core.database import get_manager
+
+                        try:
+                            manager = get_manager()
+                            if manager.engine.sync_engine is not trace_context.get(
+                                "business_engine"
+                            ):
+                                trace_context["terminal_trace_unavailable"] = True
+                                trace_context["incomplete_count"] = (
+                                    trace_context.get("incomplete_count", 0) + 1
+                                )
+                        except Exception as trace_error:
+                            trace_context["terminal_trace_unavailable"] = True
+                            trace_context["incomplete_count"] = (
+                                trace_context.get("incomplete_count", 0) + 1
+                            )
+                            logger.warning(
+                                "HTTP operation terminal trace manager unavailable "
+                                "op_id=%s error_type=%s",
+                                __operation.op_id,
+                                type(trace_error).__name__,
+                            )
                     if trace_context.get("incomplete_count"):
                         message = {
                             **message,
@@ -1060,7 +1092,25 @@ def _install_operation_trace_route_adapters(application: FastAPI) -> None:
             from core.database import get_manager
 
             try:
-                async with get_manager().session_factory() as trace_db:
+                if trace_context.get("terminal_trace_unavailable"):
+                    logger.warning(
+                        "HTTP operation terminal trace skipped because the request "
+                        "database differs from the background trace database op_id=%s",
+                        operation.op_id,
+                    )
+                    return
+                manager = get_manager()
+                if manager.engine.sync_engine is not trace_context.get("business_engine"):
+                    trace_context["incomplete_count"] = (
+                        trace_context.get("incomplete_count", 0) + 1
+                    )
+                    logger.warning(
+                        "HTTP operation terminal trace skipped because the request "
+                        "database differs from the background trace database op_id=%s",
+                        operation.op_id,
+                    )
+                    return
+                async with manager.session_factory() as trace_db:
                     await record_operation_trace(
                         trace_db,
                         enabled=True,
@@ -1078,6 +1128,9 @@ def _install_operation_trace_route_adapters(application: FastAPI) -> None:
                     )
                     await trace_db.commit()
             except Exception as trace_error:
+                trace_context["incomplete_count"] = (
+                    trace_context.get("incomplete_count", 0) + 1
+                )
                 logger.warning(
                     "HTTP operation trace failed op_id=%s error_type=%s",
                     operation.op_id,

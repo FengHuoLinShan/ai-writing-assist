@@ -8,6 +8,7 @@ from uuid import UUID
 from fastapi import APIRouter, Query
 
 from core.dependencies import DbSession
+from modules.project.facade import require_active_project
 from modules.world.project_vocabulary_schemas import (
     ProjectVocabularyReadResponse,
     VocabularyArchiveRequest,
@@ -45,6 +46,7 @@ async def list_project_vocabulary(
     include_archived: bool = True,
     limit: Annotated[int, Query(ge=1, le=500)] = 100,
 ):
+    await require_active_project(db, str(novel_id))
     return await read_project_vocabulary(
         db,
         str(novel_id),
@@ -56,6 +58,7 @@ async def list_project_vocabulary(
 
 @router.get("/{novel_id}/terms/{type_ref}", response_model=VocabularyTermResponse)
 async def get_vocabulary_term(db: DbSession, novel_id: UUID, type_ref: UUID):
+    await require_active_project(db, str(novel_id))
     return await get_project_vocabulary_term(db, str(novel_id), str(type_ref))
 
 
@@ -68,6 +71,7 @@ async def get_vocabulary_term(db: DbSession, novel_id: UUID, type_ref: UUID):
 async def create_vocabulary_term(
     db: DbSession, novel_id: UUID, data: VocabularyTermCreate
 ):
+    await require_active_project(db, str(novel_id))
     return await create_project_vocabulary_term(db, str(novel_id), data)
 
 
@@ -82,6 +86,7 @@ async def update_vocabulary_term(
     type_ref: UUID,
     data: VocabularyTermUpdate,
 ):
+    await require_active_project(db, str(novel_id))
     return await update_project_vocabulary_term(db, str(novel_id), str(type_ref), data)
 
 
@@ -96,6 +101,7 @@ async def archive_vocabulary_term(
     type_ref: UUID,
     data: VocabularyArchiveRequest,
 ):
+    await require_active_project(db, str(novel_id))
     return await archive_project_vocabulary_term(
         db, str(novel_id), str(type_ref), data.expected_revision_id
     )
@@ -112,6 +118,7 @@ async def restore_vocabulary_term(
     type_ref: UUID,
     data: VocabularyRestoreRequest,
 ):
+    await require_active_project(db, str(novel_id))
     return await restore_project_vocabulary_term(
         db, str(novel_id), str(type_ref), data.expected_revision_id
     )
@@ -125,6 +132,7 @@ async def restore_vocabulary_term(
 async def merge_vocabulary_terms(
     db: DbSession, novel_id: UUID, data: VocabularyMergeRequest
 ):
+    await require_active_project(db, str(novel_id))
     return await merge_project_vocabulary_terms(db, str(novel_id), data)
 
 
@@ -139,6 +147,7 @@ async def split_vocabulary_term(
     type_ref: UUID,
     data: VocabularySplitRequest,
 ):
+    await require_active_project(db, str(novel_id))
     retained, split_off = await split_project_vocabulary_term(
         db, str(novel_id), str(type_ref), data
     )
@@ -153,4 +162,5 @@ async def split_vocabulary_term(
 async def apply_project_vocabulary_presets(
     db: DbSession, novel_id: UUID, data: VocabularyPresetApplyRequest
 ):
+    await require_active_project(db, str(novel_id))
     return await apply_vocabulary_presets(db, str(novel_id), data.preset_ids)

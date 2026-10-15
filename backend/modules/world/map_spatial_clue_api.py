@@ -63,7 +63,7 @@ async def get_spatial_clues(
 )
 async def review_spatial_clue_endpoint(
     db: DbSession,
-    novel_id: str,
+    novel_id: ActiveNovelId,
     clue_id: UUID,
     data: MapSpatialClueDecisionRequest,
 ):

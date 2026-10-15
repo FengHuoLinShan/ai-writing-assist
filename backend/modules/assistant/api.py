@@ -98,9 +98,9 @@ async def _operation_trace_aggregate(db, novel_id: UUID, owner_id: str) -> dict:
     from collections import Counter
     from datetime import UTC, datetime, timedelta
 
+    await require_active_project(db, str(novel_id), allow_demo_readonly=False)
     if is_demo_readonly_principal():
         raise NotFoundError("项目不可访问")
-    await require_active_project(db, str(novel_id), allow_demo_readonly=False)
     project = await get_any_project_context(db, str(novel_id))
     if (
         project is None

@@ -881,7 +881,7 @@ async def test_rolling_plan_passes_the_confirmed_end_chapter(
             db_session,
             test_project_id,
             OWNER,
-            SimpleNamespace(id=uuid.uuid4()),
+            SimpleNamespace(id=uuid.uuid4(), session_id=None),
             FLOWS["continue_writing"],
             {
                 "rolling_decision": {"at_chapter": 1, "accepted": True, "window": window},

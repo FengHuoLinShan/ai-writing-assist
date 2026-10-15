@@ -257,9 +257,12 @@ def test_legacy_run_manifest_stays_two_fields_and_replays_after_v7_catalog():
     )
     assert restored["map.prepare_tray_placement"].permission == "confirm"
     with container_scope({"assistant.operations": dict(world_map_operations)}):
-        assert resolve_operations(operation_manifest())[
-            "map.prepare_tray_placement"
-        ].permission == "read"
+        assert (
+            resolve_operations(operation_manifest())[
+                "map.prepare_tray_placement"
+            ].permission
+            == "read"
+        )
 
 
 def test_v7_frozen_operation_can_be_described_but_not_executed_after_change():
@@ -346,8 +349,10 @@ def test_read_operation_only_calls_prepare_never_apply():
             operations={"sample.read": operation},
             operation_catalog_snapshot={},
             run_id="run",
+            session_id=None,
             owner_id="owner",
             work=WorkContext(),
+            operation_trace_enabled=False,
             db=object(),
             novel_id="novel",
         )
