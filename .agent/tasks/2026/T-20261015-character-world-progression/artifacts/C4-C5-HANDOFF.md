@@ -198,3 +198,8 @@ root在保留的operation_trace_report_primary_test_20261016正常从A4 upgrade�
 C0 Sol独立审修继续：已安全创建dossier_template_interchange_review_test_20261016，fresh/head/parity与2PG/HTTP通过。发现并直接修同名dossier重复导入/异值不冲突、JSON来源修订及证据伪造、借用移除与条目创建并发；原JSON只有下载，现补作者文件预览/映射/确认UI。四新纯SPEC borrowed.read R0/borrowed.edit R3/manifest.preview R0/manifest.apply R3由该Sol实现，旧冻结不改，manual export独立明确边界，顶层冻结等C5后顺序组装。World facade/dossier/Imports/world.js仍该Sol独占。
 
 C4退出的子槽已启动新Luna/max luna_copilot_alignment，simulation-v3-director-impl/codex/copilot-mechanism-alignment-impl从c579实现C3真正forecast v2/人物弧计划实际/Evolution阅读notice；禁止其写C5共享顶层/Story.js/Writing commit/flows/推进/导演及C0 World hub。专库copilot_alignment_impl_test_20261016与18600/18601已分配但hold CREATE/upgrade，待C5线性迁移固定再接后继。A1章节重排/一般事件时间线仍下一批，准备树未派。
+
+
+## 2026-10-16T07:03:36+08:00 C4 primary净隔离修复与全套验收
+
+root在保留的operation_trace_report_primary_test_20261016正常从A4 upgrade到C4，head/ORM parity通过；首轮组合PG43通过/2新fixture失败（15.47s）：trace原偏好on使合法先前确认也被统计（4!=1）。当前Sol C5直接修成冻结当次HTTP前trace DB序号边界、严格各1 confirmed/executed/resultref并finally恢复原偏好，净56f01593373fb810c9dc9aba24b43d5a9e2c6036已cherry primary710dbce43107504104a3ed4840d63e249648b7d1，未改产品trace或放宽断言。root保留库复验45PG全通过（15.09s），head/parity通过，/tmp/map-c4-tail-primary-fixed-{migration,head,metadata,pg}-20261016.log；只复用无CREATE脚本/tmp/map-c4-tail-primary-fixed-reuse-pg-20261016.py，已执行，不重建库。完整普通后端已完成8919通过/9跳过/1 deselected/1既有Pydantic warning，329.73s，RuntimeWarning转error，/tmp/map-c4-tail-primary-backend-all-20261016.log。该全套开始于c579，之后仅e2e隔离fixture与笔记变更，普通生产源码同源；前端仍同源Sol3182/lint/build与root已看图证据。docs/repo gates通过，当前C4工程集成固定点全绿。

@@ -3,7 +3,7 @@ id: T-20261015-map-enhancement-design
 title: 地图系统增强设计与分批实施（自动冷启动、参与创作决策、题材鲁棒性）
 status: active
 created: 2026-10-15T10:54:00+08:00
-updated: 2026-10-16T06:59:09+08:00
+updated: 2026-10-16T07:03:36+08:00
 ---
 
 # 地图系统增强设计
@@ -13,7 +13,7 @@ updated: 2026-10-16T06:59:09+08:00
 - 当前授权：2026-10-15 用户 `/goal` 要求执行 `codex/map-enhancement-plan` 的计划；Luna/max 子代理并行实现，Sol/high 按批次 review 与修复。只做本地开发验证；没有发布、真实数据破坏或对外发送授权。用户16:43补充“修复由sol子代理直接修”：后续代码修复均由Sol/high子代理直接执行。用户曾要求“由你收尾”；其后明确答复范围为三份计划全部实施，包括操作目录、对象档案、导演、世界推进。root继续负责分批拆解、集成、验证、任务记录与实际隔离评测；已明确确认采用“模拟作者显式指定Scene地点后做辅助Writing对比”。
 - 主工作区：`/Users/tywww/项目/ai-writing-assist/.worktrees/map-enhancement-plan`，分支 `codex/map-enhancement-plan`。原 Desktop 路径已失效；仓库实际已迁至 `/Users/tywww/项目/ai-writing-assist`。
 - 恢复时基线：设计提交 `3fd5ca29e`；刚 fetch 的 `origin/main=00d861283` 已无冲突合并为 `b74d7c28d`（本地），包含 G8c 与第三批评测/HTTPX2 变更。开始时主工作区干净，其他 worktree/WIP 保留。
-- 当前里程碑：用户确认的三份计划仍全部实施，任务保持active。primary当前产品固定`c579beb872e7f6193476ff4d0abd0d034810f95c`，已合C4尾项Sol64a；A4 Sol bb6此前合3caf；此前f5c6为A3合入eab、Sol Goal预算净修复bf78→1afa和三普通回归净修复f1e113e的绿色固定点。目录v12及旧冻结保留；map.edit哈希不变。
+- 当前里程碑：用户确认的三份计划仍全部实施，任务保持active。primary当前固定`710dbce43107504104a3ed4840d63e249648b7d1`（产品C4 c579加Sol净PG隔离fixture），已合C4尾项Sol64a；A4 Sol bb6此前合3caf；此前f5c6为A3合入eab、Sol Goal预算净修复bf78→1afa和三普通回归净修复f1e113e的绿色固定点。目录v12及旧冻结保留；map.edit哈希不变。
 
 root对eab普通扩大回归为8255通过/3失败/7跳过/1 deselected，另30项专库PG为29通过/1 Goal规划失败。Sol直接修复：完整目录压缩首轮表达（9925→6812 token，不提高12000预算或删操作）；旧RP测试补真实Task.meta契约；Writing Worker断言v12；五Collab confirm在首个业务调用前用排他active/owner依赖，消除重复取锁。新增他人及软删项目五路由404的PG断言。两个净fix均已合入。
 
@@ -41,7 +41,7 @@ C0模板互通Luna/max已固定b4381119fc032137575f68b72ff69aa4acca9412并退出
 
 当前执行检查点（优先于上面的批次历史）：C4尾项Sol固定64a99091272e133d4df4ec3a5e2e50c4ad82d104，已无冲突合primary c579beb872e7f6193476ff4d0abd0d034810f95c，25文件1219+/37-。新人物/地点/物件/设定的结构化refs按精确ID去重，和剧情事件分别转World候选；R3纯SPEC/HTTP真实confirmed-executed trace与v13冻结已装配，旧v1–12保留，未进Goal R2自动allowlist。唯一head20261016_story_director_candidate_transfer。Sol Story170/Assistant+Writing248/Trace42/9PG+1Goal预算PG/3182前端及lint/build/docs/repo gates通过。root已看390/1280两图与真实浏览器日志，确认HTTP201、World陌生访客candidate无approved_by、刷新回读及390无溢出；18596/18597已停，旧review库释放保留。
 
-root在保留的operation_trace_report_primary_test_20261016正常从A4 upgrade到C4，head/ORM parity通过；新组合PG为43通过/2失败（15.47s）：新C4 test_director_candidate_transfer_postgres.py:285假定账户原trace偏好off，保留库中on使先前合法确认也被统计（4!=1）。这是测试隔离问题，未改产品；已授当前Sol C5该单文件写权，要求净fixture commit供root单独cherry与复验，不能放宽成>=1或改trace。原CREATE脚本不重跑，/tmp/map-c4-tail-primary-reuse-pg-20261016.py仅复用升级且已执行；失败日志/tmp/map-c4-tail-primary-pg-20261016.log。当前完整普通后端在session65443、/tmp/map-c4-tail-primary-backend-all-20261016.log，未提前宣称C4集成全绿；docs/repo gates已过。root确认与Sol64a的backend/frontend源码无净差，前端沿用同源3182及已看图证据。
+root在保留的operation_trace_report_primary_test_20261016正常从A4 upgrade到C4，head/ORM parity通过；首轮组合PG43通过/2新fixture失败（15.47s）：trace原偏好on使合法先前确认也被统计（4!=1）。当前Sol C5直接修成冻结当次HTTP前trace DB序号边界、严格各1 confirmed/executed/resultref并finally恢复原偏好，净56f01593373fb810c9dc9aba24b43d5a9e2c6036已cherry primary710dbce43107504104a3ed4840d63e249648b7d1，未改产品trace或放宽断言。root保留库复验45PG全通过（15.09s），head/parity通过，/tmp/map-c4-tail-primary-fixed-{migration,head,metadata,pg}-20261016.log；只复用无CREATE脚本/tmp/map-c4-tail-primary-fixed-reuse-pg-20261016.py，已执行，不重建库。完整普通后端已完成8919通过/9跳过/1 deselected/1既有Pydantic warning，329.73s，RuntimeWarning转error，/tmp/map-c4-tail-primary-backend-all-20261016.log。该全套开始于c579，之后仅e2e隔离fixture与笔记变更，普通生产源码同源；前端仍同源Sol3182/lint/build与root已看图证据。docs/repo gates通过，当前C4工程集成固定点全绿。
 
 共享槽已正式移交Sol C5：其独占审修先固定并合c579为c6061dd77，只在数据库设计文档标题冲突由Sol保留C4+四C5表修正；首C5 migration父接C4，唯一head20261016_wp_cascade_guard，新world_progression_review_test_20261016已创建一次fresh upgrade成功，旧Luna库未动。现装配main/bootstrap/metadata/TaskRegistry/worker/9项目录/NOTICE/Flow/Writing真实commit触发/story.js并验PG/actualWorker/HTTP/browser。已直接修累计摘要泄角色、地图gap、钩子锁后重放、缺_task_meta import、同根R4 resume、原deadline80%检查、锁顺序、失败候选事件回灌、每步sum(a,b,c,d)必抛TypeError等；定向绿仍不替代实际Worker+PG。原root/start/deadline、所有已用/unknown计数不重置。
 
@@ -49,14 +49,14 @@ C0 Sol独立审修继续：已安全创建dossier_template_interchange_review_te
 
 C4退出的子槽已启动新Luna/max luna_copilot_alignment，simulation-v3-director-impl/codex/copilot-mechanism-alignment-impl从c579实现C3真正forecast v2/人物弧计划实际/Evolution阅读notice；禁止其写C5共享顶层/Story.js/Writing commit/flows/推进/导演及C0 World hub。专库copilot_alignment_impl_test_20261016与18600/18601已分配但hold CREATE/upgrade，待C5线性迁移固定再接后继。A1章节重排/一般事件时间线仍下一批，准备树未派。
 
-下一步：root收C4全后端与Sol净fixture fix复验；C5 Sol完整装配/PG/Worker/browser、C0 Sol独立审修、C3 Luna实施继续并行。C5固定后顺序给C0共享槽，后续A1批次继续；条件门禁如实保留。
+下一步：C5 Sol完整装配/PG/Worker/browser、C0 Sol独立审修、C3 Luna实施继续并行。C5固定后顺序给C0共享槽，后续A1批次继续；条件门禁如实保留。
 - 批次验收：[完整范围对账](../T-20261015-character-world-progression/artifacts/FULL-SCOPE-ACCEPTANCE.md)，区分已合入、进行中、未实施与外部条件门禁。
 - 范围：用户已明确“该分支三份计划全部实施，包括操作目录、对象档案、导演和世界推进”。执行地图M0–M5及两个配套完整计划；既有计划的条件依赖和真实质量门禁仍有效，不能冒称完成。
 - 依赖：M5 依赖独立势力路线图阶段 1，现有计划明确阶段 1 前不提供领地图层；不得读取旧无时效势力字段冒充完成。
 - 已落地共享前置：`6fcce3bfd` 把7种ObservationModality上移shared并保持Evolution兼容再出口（16测）；`16f64570a` 在既有Story scene-source port提供按当前顺序的锚点/替换链只读数据（5测）。两者ruff通过，后续纳入Sol审查。
 - 验证环境：唯一primary/backend/.venv（Python3.14.8/Pydantic2.14），Node24.15/npm11.12；PG只65202明确专库。root新增operation_trace_report_primary并保留author_operations_primary等旧库；A4 review/impl库释放保留。C4 Sol仅director_candidate_review，C5 Sol仅world_progression_review（尚未升级），C0 Luna仅dossier_template_interchange_impl，C5 Luna已释放world_progression_impl保留。默认库不探测，早期A0是否写入无证据不推断。依赖不安装，子树在目录/链接均不存在时才能链接一次，避免既往嵌套自链。
 - 验证：实现前 `make docs-check` 已通过（152 ORM表、49ADR）；没有真实模型/真实稿件验证。
-- 最后核实：2026-10-16T06:59:09+08:00
+- 最后核实：2026-10-16T07:03:36+08:00
 
 ## 批次与分工
 
