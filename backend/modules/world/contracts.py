@@ -550,6 +550,44 @@ CharacterFieldName = Literal[
 ]
 
 
+class AuthorMigrationDossierFacing(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    kind: Literal["core", "project"]
+    key: str | None = Field(default=None, min_length=1, max_length=96)
+    source_entity_type: str | None = Field(default=None, min_length=1, max_length=64)
+    term_id: str | None = Field(default=None, min_length=1, max_length=64)
+
+    @model_validator(mode="after")
+    def validate_reference(self):
+        if self.kind == "core" and (self.key is None or self.term_id is not None):
+            raise ValueError("core 档案面向必须包含 key")
+        if self.kind == "project" and (
+            self.term_id is None
+            or self.key is not None
+            or self.source_entity_type is not None
+        ):
+            raise ValueError("项目档案面向必须包含 term_id")
+        return self
+
+
+class AuthorMigrationDossierField(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    facing: AuthorMigrationDossierFacing
+    content: str = Field(min_length=1, max_length=20000)
+    visibility: Literal["public", "secret"] = "public"
+    source_ref: str = Field(min_length=1, max_length=64)
+    source_hash: str = Field(pattern=r"^[a-f0-9]{64}$")
+
+    @field_validator("content")
+    @classmethod
+    def require_content(cls, value: str) -> str:
+        if not value.strip():
+            raise ValueError("档案内容不能为空")
+        return value
+
+
 class AuthorMigrationEntityInput(BaseModel):
     """一条待迁移的世界对象/人物条目。"""
 
@@ -566,6 +604,9 @@ class AuthorMigrationEntityInput(BaseModel):
     hidden_truth: str | None = Field(None, max_length=20000)
     author_notes: list[AuthorNote] = Field(default_factory=list, max_length=64)
     character_fields: dict[CharacterFieldName, str] = Field(default_factory=dict)
+    dossier_fields: list[AuthorMigrationDossierField] = Field(
+        default_factory=list, max_length=128
+    )
     decision: Literal[
         "auto",
         "different_object",
@@ -682,6 +723,7 @@ class MigrationAppliedChange(BaseModel):
         "alias",
         "relation_create",
         "relation_fill",
+        "dossier_create",
     ]
     before: dict = Field(default_factory=dict)
     after_hash: str
@@ -732,6 +774,8 @@ __all__ = [
     "MapAutoDraftBuildResult",
     "WorldBuildMapAutoDraftsPort",
     "AuthorMigrationEntityInput",
+    "AuthorMigrationDossierFacing",
+    "AuthorMigrationDossierField",
     "AuthorMigrationRelationInput",
     "AuthorMigrationWorldRequest",
     "AuthorNote",

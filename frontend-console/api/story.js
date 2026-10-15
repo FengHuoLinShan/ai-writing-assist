@@ -96,6 +96,55 @@ export const story = {
     async setSceneDirectorPreferences(novelId, payload = {}) {
       return put("/story/director/preferences", { novel_id: novelId, ...payload })
     },
+    async previewWorldProgressionBudget(novelId, payload = {}) {
+      return post("/story/world-progression/budget-preview", { novel_id: novelId, ...payload })
+    },
+    async startWorldProgression(novelId, payload = {}) {
+      return post("/story/world-progression/roots", { novel_id: novelId, ...payload })
+    },
+    async advanceWorldProgression(rootId, payload = {}) {
+      return post(`/story/world-progression/roots/${rootId}/steps`, payload)
+    },
+    async resumeWorldProgression(rootId, branchId, payload = {}) {
+      return post(`/story/world-progression/roots/${rootId}/branches/${branchId}/resume`, payload)
+    },
+    async worldProgressionHistory(novelId, params = {}) {
+      return request(withQuery("/story/world-progression/history", { novel_id: novelId, ...params }), { cache: "no-store" })
+    },
+    async compareWorldProgressionSteps(novelId, firstStepId, secondStepId) {
+      return post("/story/world-progression/compare", {
+        novel_id: novelId,
+        first_step_id: firstStepId,
+        second_step_id: secondStepId,
+      })
+    },
+    async updateWorldProgressionBranch(branchId, payload = {}) {
+      return post(`/story/world-progression/branches/${branchId}/metadata`, payload)
+    },
+    async deleteWorldProgressionBranch(branchId, payload = {}) {
+      return post(`/story/world-progression/branches/${branchId}/delete`, payload)
+    },
+    async restoreWorldProgressionBranch(branchId, payload = {}) {
+      return post(`/story/world-progression/branches/${branchId}/restore`, payload)
+    },
+    async previewWorldProgressionHook(payload = {}) {
+      return post("/story/world-progression/hooks/preview", payload)
+    },
+    async adoptWorldProgressionHook(payload = {}) {
+      return post("/story/world-progression/hooks/adopt", payload)
+    },
+    async readWorldProgressionContinuousAuthorization(novelId, rootId, branchId) {
+      return request(withQuery(
+        `/story/world-progression/roots/${rootId}/branches/${branchId}/continuous-authorization`,
+        { novel_id: novelId },
+      ), { cache: "no-store" })
+    },
+    async setWorldProgressionContinuousAuthorization(rootId, branchId, payload = {}) {
+      return put(
+        `/story/world-progression/roots/${rootId}/branches/${branchId}/continuous-authorization`,
+        payload,
+      )
+    },
     async listSceneScripts(novelId, sceneId, params = {}) {
       return request(withQuery(`/story/scenes/${sceneId}/script-files`, { novel_id: novelId, ...params }))
     },

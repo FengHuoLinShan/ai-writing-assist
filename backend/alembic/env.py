@@ -41,6 +41,7 @@ import modules.project.settings_models  # noqa: E402, F401
 import modules.story.continuity.models  # noqa: E402, F401
 import modules.story.models  # noqa: E402, F401
 import modules.story.outline_state.models  # noqa: E402, F401
+import modules.story.world_progression_models  # noqa: E402, F401
 import modules.world.map_atlas_models  # noqa: E402, F401
 import modules.world.map_spatial_clue_models  # noqa: E402, F401
 import modules.world.models  # noqa: E402, F401

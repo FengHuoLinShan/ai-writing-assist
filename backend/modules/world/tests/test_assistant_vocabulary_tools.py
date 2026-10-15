@@ -4,7 +4,7 @@ from uuid import uuid4
 import pytest
 from pydantic import ValidationError as PydanticValidationError
 
-from core.errors import ConflictError, NotFoundError
+from core.errors import ConflictError, NotFoundError, ValidationError
 from modules.account.facade import current_account_id
 from modules.assistant.schemas import WorkContext
 from modules.world.assistant_vocabulary_tools import (
@@ -445,8 +445,17 @@ async def test_merge_split_and_mixed_presets_use_confirmed_domain_services(
     )
     assert split_result["created_type_ref"] != str(first.id)
 
-    presets = ApplyVocabularyPresets(preset_ids=["xianxia", "urban"])
     spec = OPERATIONS_SPEC["world.vocabulary.apply_presets"]
+    # The versioned dossier extensions make this pair exceed the documented
+    # 20-new-term confirmation boundary; reject before any write.
+    with pytest.raises(ValidationError, match="最多创建 20"):
+        await spec["prepare"](
+            db_session,
+            test_project_id,
+            ApplyVocabularyPresets(preset_ids=["xianxia", "urban"]),
+            context=context,
+        )
+    presets = ApplyVocabularyPresets(preset_ids=["xianxia"])
     preview = await spec["prepare"](db_session, test_project_id, presets, context=context)
     result = await spec["apply"](
         db_session, test_project_id, presets, preview, context=context

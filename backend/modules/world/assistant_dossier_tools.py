@@ -11,9 +11,12 @@ from core.errors import ConflictError, NotFoundError
 from core.service_keys import ASSISTANT_REQUIRE_OPERATION_TARGETS
 from modules.project.facade import get_any_project_context
 from modules.world.facade import (
+    apply_world_dossier_manifest,
     create_world_object_dossier_entry,
     edit_world_object_dossier_entry,
+    get_author_world_object_dossier_template,
     get_world_object_dossier_template,
+    preview_world_dossier_manifest,
     preview_world_object_dossier_entry_create,
     preview_world_object_dossier_entry_edit,
     preview_world_object_dossier_entry_restore,
@@ -28,7 +31,12 @@ from modules.world.schemas.dossier import (
     DossierEntryCreate,
     DossierEntryRestore,
     DossierEntryUpdate,
+    DossierTemplateAuthorUpsert,
     DossierTemplateUpsert,
+)
+from modules.world.schemas.dossier_manifest import (
+    DossierManifestApplyRequest,
+    DossierManifestPreviewRequest,
 )
 
 
@@ -79,6 +87,28 @@ class EditDossierTemplate(BaseModel):
     update: DossierTemplateUpsert
 
 
+class ReadBorrowedDossierTemplate(ReadDossierTemplate):
+    """Versioned read contract including explicit borrowed core facings."""
+
+
+class EditBorrowedDossierTemplate(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    profile_type: str = Field(min_length=1, max_length=64)
+    update: DossierTemplateAuthorUpsert
+
+
+class PreviewDossierManifest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    entity_id: UUID
+    request: DossierManifestPreviewRequest
+
+
+class ApplyDossierManifest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    entity_id: UUID
+    request: DossierManifestApplyRequest
+
+
 async def _scope(db, novel_id, context, *, entity_id=None, aggregate=False):
     if context is None or not getattr(context, "run_id", None):
         raise ConflictError("对象档案操作需要绑定当前作者运行")
@@ -125,6 +155,30 @@ async def _read_history(db, novel_id, args, *, context=None):
 async def _read_template(db, novel_id, args, *, context=None):
     await _scope(db, novel_id, context, aggregate=True)
     result = await get_world_object_dossier_template(db, novel_id, args.profile_type)
+    return result.model_dump(mode="json")
+
+
+async def _read_borrowed_template(db, novel_id, args, *, context=None):
+    await _scope(db, novel_id, context, aggregate=True)
+    result = await get_author_world_object_dossier_template(
+        db, novel_id, args.profile_type
+    )
+    return result.model_dump(mode="json")
+
+
+async def _manifest_preview(db, novel_id, args, *, context=None):
+    await _scope(db, novel_id, context, entity_id=args.entity_id)
+    result = await preview_world_dossier_manifest(
+        db, novel_id, str(args.entity_id), args.request
+    )
+    return result.model_dump(mode="json")
+
+
+async def _manifest_apply(db, novel_id, args, preview, *, context=None):
+    await _scope(db, novel_id, context, entity_id=args.entity_id)
+    result = await apply_world_dossier_manifest(
+        db, novel_id, str(args.entity_id), args.request
+    )
     return result.model_dump(mode="json")
 
 
@@ -341,6 +395,17 @@ OPERATIONS_SPEC = {
         ),
         "op_version": "2",
     },
+    "world.dossier.template.borrowed.read": {
+        "label": "读取含借用面向的对象档案模板",
+        "schema": ReadBorrowedDossierTemplate,
+        "prepare": _read_borrowed_template,
+        "revision": "1",
+        **_read_metadata(
+            ("profile_type",),
+            "读取当前模板版本、项目字段和显式借用的内核面向。",
+            "world_dossier_template",
+        ),
+    },
     "world.dossier.entry.create": {
         "label": "新增对象档案条目",
         "schema": CreateDossierEntry,
@@ -392,6 +457,47 @@ OPERATIONS_SPEC = {
             "world_dossier_template",
         ),
         "op_version": "3",
+    },
+    "world.dossier.template.borrowed.edit": {
+        "label": "修订借用面向与对象档案模板",
+        "schema": EditBorrowedDossierTemplate,
+        "prepare": _template_edit_preview,
+        "apply": _template_edit_apply,
+        "revision": "1",
+        **{
+            **_write_metadata(
+                ("profile_type", "update"),
+                "预览并确认模板借用来源类型与内核键的版本化修订。",
+                "world_dossier_template",
+            ),
+            "risk_level": "R3",
+        },
+    },
+    "world.dossier.manifest.preview": {
+        "label": "预览作者档案清单导入",
+        "schema": PreviewDossierManifest,
+        "prepare": _manifest_preview,
+        "revision": "1",
+        **_read_metadata(
+            ("entity_id", "request"),
+            "校验作者提供的 JSON 档案清单、来源、映射与目标修订。",
+            "core_entity",
+        ),
+    },
+    "world.dossier.manifest.apply": {
+        "label": "确认采用作者档案清单",
+        "schema": ApplyDossierManifest,
+        "prepare": _manifest_preview,
+        "apply": _manifest_apply,
+        "revision": "1",
+        **{
+            **_write_metadata(
+                ("entity_id", "request"),
+                "作者确认预览指纹后把清单作为作者来源追加修订。",
+                "core_entity",
+            ),
+            "risk_level": "R3",
+        },
     },
 }
 

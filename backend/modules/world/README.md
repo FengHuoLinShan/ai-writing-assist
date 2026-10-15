@@ -77,8 +77,28 @@ continuity、也不写档案。
   提供条目修订历史。
 - `POST /api/world/entities/{id}/dossier/entries` 新增条目；`PATCH .../dossier/entries/{revision_id}`
   以 `expected_revision_id` 做 CAS；`POST .../dossier/groups/{entry_group_id}/restore` 将历史内容追加为新修订。
-- `GET/PUT /api/world/dossier-templates/{profile_type}` 管理每种对象的面向模板；PUT 带
-  `expected_version_number`，相同内容不新增版本。
+- `GET/PUT /api/world/dossier-templates/{profile_type}` 保持既有 AI 模板读写契约；PUT 带
+  `expected_version_number`，相同内容不新增版本。旧模板编辑输入没有借用声明字段，服务端继承当前借用列表，
+  不会静默清空作者选择。
+- 作者通过 `GET/PUT /api/world/dossier-templates/{profile_type}/author` 管理扩展模板字段。
+  自定义对象可显式选择内置来源类型与面向键；持久 key 编码为
+  `borrowed:<entity_type>:<core_key>`，因此 `spirit_beast` 可区分 `character.appearance` 与
+  `species.appearance`。当前模板修订控制新增、编辑和恢复；仍有活动条目使用的借用面向不能移除，
+  必须先清除或改写条目。借用只扩展档案字段，不创建人物、不改变对象类型、确定性字段或角色知识。
+  新目录项 `world.dossier.template.borrowed.read`（R0）与 `.edit`（R3）绑定作者扩展路由；
+  旧 `world.dossier.template.read/edit` 的输入和旧冻结保持不变。条目创建、修订、恢复与模板移除
+  对同一模板行串行化，避免并发中留下未声明的活动借用条目。
+- 题材词表保持原有 v1 空间条目不变，每包另以 v2 copy-on-apply 添加 8 个按内置对象类型限定的
+  `dossier_facing` 词条。版本、作者修改、重复应用、合并和墓碑继续由统一词表维护；项目词条被选入
+  对象模板后才可成为该对象的面向字段。
+- `GET /api/world/entities/{id}/dossier/manifest` 导出有界的作者 JSON 清单。对应 `POST .../manifest/preview`
+  与 `POST .../manifest/apply` 注册为 R0 预览和 R3 确认目录项；作者文件下载独立豁免 AI 外部导出。
+  对象档案界面可选择文件、逐项映射和确认；跨项目词条、模板、Story 状态字段和
+  时间锚点必须显式映射或停止。采用绑定模板版本、目标条目修订指纹和预览 hash；重复导入幂等，
+  与导入来源对应的条目若被作者改动则进入冲突，只有显式跳过后才能继续。借用内核 key 自带来源类型；
+  目标模板必须显式声明同一来源和 key，跨类型导入不会替作者新增借用声明。同项目来源修订与
+  证据快照逐项回查，采用时按对象 ID 顺序锁定来源与目标并重验；跨项目来源只作未验证元数据，
+  原证据不进入目标条目，正式来源为作者采用。
 - 一个面向或显式 `legacy_field_key` 可以有多个当前条目；每个条目组只允许一个当前修订。旧
   Character PUT 值不变时不新增条目；变更时收拢该旧字段下当前条目并保留完整历史，显式 `null`
   追加清除修订。`desire` 与 `fear` 共用内核面向但保留不同旧字段键；未标记旧键的新条目不会被猜测

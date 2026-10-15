@@ -14,6 +14,9 @@ from modules.assistant.notice_sources import NOTICE_SOURCE_SPEC as _ASSISTANT
 from modules.evolution.notice_sources import NOTICE_SOURCE_SPEC as _MAP_SOURCE
 from modules.story.director_notice_sources import NOTICE_SOURCE_SPEC as _STORY_DIRECTOR
 from modules.story.notice_sources import NOTICE_SOURCE_SPEC as _STORY
+from modules.story.world_progression_continuous import (
+    NOTICE_SOURCE_SPEC as _STORY_PROGRESSION,
+)
 from modules.world.notice_sources import NOTICE_SOURCE_SPEC as _WORLD_VALIDITY
 from modules.writing.notice_sources import NOTICE_SOURCE_SPECS as _WRITING
 
@@ -49,6 +52,7 @@ _specs = [
     _FORECAST,
     _STORY,
     _STORY_DIRECTOR,
+    _STORY_PROGRESSION,
     *_WRITING,
     _MAP_SOURCE,
     _WORLD_VALIDITY,

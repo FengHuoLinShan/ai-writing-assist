@@ -290,7 +290,10 @@ async def _setup_family_via_client(
         preset_items = preset.get("items")
         from modules.world.project_vocabulary_presets import PRESETS
 
-        expected_preset_count = len(PRESETS[family["genre"]].items)
+        selected_preset = PRESETS[family["genre"]]
+        expected_preset_count = len(selected_preset.items) + sum(
+            len(items) for _version, items in selected_preset.extensions
+        )
         if (
             not isinstance(preset_items, list)
             or len(preset_items) != int(preset.get("applied") or 0)

@@ -100,6 +100,70 @@ C4_DIRECTOR_ROUTES = {
     ),
 }
 
+C5_WORLD_PROGRESSION_ROUTES = {
+    "/api/story/world-progression/history": (
+        "story.world_progression.history",
+        "GET",
+    ),
+    "/api/story/world-progression/compare": (
+        "story.world_progression.compare",
+        "POST",
+    ),
+    "/api/story/world-progression/budget-preview": (
+        "story.world_progression.preview",
+        "POST",
+    ),
+    "/api/story/world-progression/roots": (
+        "story.world_progression.start",
+        "POST",
+    ),
+    "/api/story/world-progression/roots/{root_id}/steps": (
+        "story.world_progression.advance",
+        "POST",
+    ),
+    "/api/story/world-progression/roots/{root_id}/branches/{branch_id}/resume": (
+        "story.world_progression.resume",
+        "POST",
+    ),
+    "/api/story/world-progression/hooks/preview": (
+        "story.world_progression.preview_hook",
+        "POST",
+    ),
+    "/api/story/world-progression/hooks/adopt": (
+        "story.world_progression.adopt_hook",
+        "POST",
+    ),
+    (
+        "/api/story/world-progression/roots/{root_id}/branches/{branch_id}"
+        "/continuous-authorization"
+    ): (
+        "story.world_progression.read_continuous_authorization",
+        "GET",
+    ),
+}
+C0_DOSSIER_INTERCHANGE_ROUTES = (
+    (
+        "/api/world/dossier-templates/{profile_type}/author",
+        "world.dossier.template.borrowed.read",
+        "GET",
+    ),
+    (
+        "/api/world/dossier-templates/{profile_type}/author",
+        "world.dossier.template.borrowed.edit",
+        "PUT",
+    ),
+    (
+        "/api/world/entities/{entity_id}/dossier/manifest/preview",
+        "world.dossier.manifest.preview",
+        "POST",
+    ),
+    (
+        "/api/world/entities/{entity_id}/dossier/manifest/apply",
+        "world.dossier.manifest.apply",
+        "POST",
+    ),
+)
+
 WRITE_METHODS = {"POST", "PUT", "PATCH", "DELETE"}
 BASELINE_PATH = (
     Path(__file__).resolve().parents[1]
@@ -209,6 +273,38 @@ def test_c4_director_http_routes_bind_the_frozen_catalog():
                 assert fields["round_id"] == "round_id"
     for path, route in routes.items():
         if path.startswith("/api/story/director/") and path not in C4_DIRECTOR_ROUTES:
+            assert (route.openapi_extra or {}).get("x-novelcraft-operation-exemption")
+
+
+def test_c5_and_c0_routes_bind_new_catalog_without_unmarked_write_paths():
+    operations = get(ASSISTANT_OPERATIONS)
+    routes = {
+        (method, path): route
+        for path, route in _route_entries(app.routes)
+        for method in route.methods or ()
+    }
+    assert len(C5_WORLD_PROGRESSION_ROUTES) == 9
+    for path, (operation_id, method) in C5_WORLD_PROGRESSION_ROUTES.items():
+        route = routes[(method, path)]
+        extra = route.openapi_extra or {}
+        assert extra.get("x-novelcraft-operation-id") == operation_id
+        assert set(extra.get("x-novelcraft-operation-trace-fields") or {}) == set(
+            operations[operation_id].schema.model_fields
+        )
+    for path, operation_id, method in C0_DOSSIER_INTERCHANGE_ROUTES:
+        route = routes[(method, path)]
+        assert (route.openapi_extra or {}).get(
+            "x-novelcraft-operation-id"
+        ) == operation_id
+        assert operation_id in operations
+    for (method, path), route in routes.items():
+        if path.startswith("/api/story/world-progression/") and (
+            method,
+            path,
+        ) not in {
+            (bound_method, bound_path)
+            for bound_path, (_, bound_method) in C5_WORLD_PROGRESSION_ROUTES.items()
+        }:
             assert (route.openapi_extra or {}).get("x-novelcraft-operation-exemption")
 
 

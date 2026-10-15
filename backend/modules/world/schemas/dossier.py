@@ -159,6 +159,12 @@ class DossierTemplateUpsert(BaseModel):
     display_schema: dict = Field(default_factory=dict)
 
 
+class DossierTemplateAuthorUpsert(DossierTemplateUpsert):
+    """HTTP author contract; deliberately not part of the frozen AI schema."""
+
+    borrowed_facings: list[DossierFacingRef] = Field(default_factory=list, max_length=128)
+
+
 class DossierTemplateResponse(BaseModel):
     profile_type: str
     template_id: uuid.UUID
@@ -168,6 +174,12 @@ class DossierTemplateResponse(BaseModel):
     state_fields: list[DossierStateField] = Field(default_factory=list)
     display_schema: dict = Field(default_factory=dict)
     updated_at: datetime | None = None
+
+
+class DossierTemplateAuthorResponse(DossierTemplateResponse):
+    """Extended author HTTP response, separate from the frozen AI output shape."""
+
+    borrowed_facings: list[DossierFacingRef] = Field(default_factory=list)
 
 
 class DossierTemplateHistoryResponse(BaseModel):

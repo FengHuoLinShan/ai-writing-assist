@@ -343,6 +343,12 @@ ADR-0023 经 Evidence author-only inspection 读取当前采用的空间版本�
 私有图片URL，不推造缺失地理。助手可准备空白节点与既有版本审查，仍由 Map 原有基线、
 来源、预览和采用流程决定结果；图像/校准/复杂编辑继续保留受控专业入口。
 
+Story C5 通过 `world.facade.read_map_progression_state` 读取只读路线投影：只消费当前采用节点的
+当前 `saved` 修订、具有有效来源的 `event_observed` journey，以及精确的端点对象/节点 ID。
+作者视角按 Story cutoff 检查 typed 有效期；角色路线还须逐条通过同一 cutoff 的 Evidence 来源可见性。
+路线引用绑定 node、revision、journey FeatureKey、Scene 截止点和来源指纹。来源、有效期、类型或截止点
+缺失时披露不可用/未比较，不用示意坐标、地名或路线文本推断距离、身份与移动成功。
+
 地图助手新操作以双阶段预览和确认进入 World 操作目录：可按层级或空间审核自动草图；层级批审包含同作品未合并的 provisional 子节点，
 确认批次覆盖完整候选修订 ID、批次指纹与正式 head 基线，实际改动最多 20 项；空间线索按
 精确引文和可选 Scene 位置定位，歧义时停止，处置仍复用 World 的来源重验。空间与层级节点

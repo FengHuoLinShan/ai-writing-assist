@@ -297,6 +297,15 @@ STORY_GET_SCENE_CONTRACT: ServiceKey[Callable[..., Any]] = ServiceKey(
     "story.get_scene_contract"
 )
 STORY_SCENE_SOURCE: ServiceKey[SceneSourcePort] = ServiceKey("story.scene_source")
+STORY_QUEUE_WORLD_PROGRESSION_READ_CHECK: ServiceKey[Callable[..., Any]] = ServiceKey(
+    "story.queue_world_progression_read_check"
+)
+EVOLUTION_READ_COMPLETED_CHAPTERS: ServiceKey[Callable[..., Any]] = ServiceKey(
+    "evolution.read_completed_chapters"
+)
+STORY_INVALIDATE_WORLD_PROGRESSION_FOR_REORDER: ServiceKey[Callable[..., Any]] = (
+    ServiceKey("story.invalidate_world_progression_for_reorder")
+)
 
 # --- world ------------------------------------------------------------------
 
@@ -490,6 +499,9 @@ ALL_SERVICE_KEYS: tuple[ServiceKey[Any], ...] = (
     RAG_REQUEST_ENTITY_ACTIVITY_REANNOTATION,
     STORY_GET_SCENE_CONTRACT,
     STORY_SCENE_SOURCE,
+    STORY_QUEUE_WORLD_PROGRESSION_READ_CHECK,
+    EVOLUTION_READ_COMPLETED_CHAPTERS,
+    STORY_INVALIDATE_WORLD_PROGRESSION_FOR_REORDER,
     WORLD_MAP_CAPABILITIES,
     WORLD_REVIEW_TEAM_STRESS,
     WORLD_LIST_ADOPTED_MAP_CONTINUITY_FACTS,
