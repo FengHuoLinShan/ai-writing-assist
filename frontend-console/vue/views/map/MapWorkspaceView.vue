@@ -12,8 +12,9 @@
       </div>
 
     </header>
-    <ProjectVocabularyPanel v-if="projectId" v-show="!structureState.reader && !structureState.focused" :key="projectId" :project-id="projectId" :disabled="busy || loading || structureState.dirty || annotationDirty || promptDirty || uploadDraftDirty || uploading" @state="vocabularyState = $event" @changed="vocabularyRevision++" />
-    <p v-if="vocabularyLocked" role="status">请先保存或收起项目类型编辑，再继续修改地图。</p>
+    <ProjectVocabularyPanel v-if="projectId" v-show="!structureState.reader && !structureState.focused" :key="projectId" :project-id="projectId" :disabled="busy || loading || structureState.dirty || annotationDirty || promptDirty || uploadDraftDirty || uploading || spatialClueState.dirty || spatialClueState.busy" @state="vocabularyState = $event" @changed="vocabularyRevision++" />
+    <MapSpatialCluePanel v-if="projectId" v-show="!structureState.reader && !structureState.focused" :key="projectId" :project-id="projectId" :disabled="busy || loading || structureState.dirty || annotationDirty || promptDirty || uploadDraftDirty || uploading || vocabularyState.dirty || vocabularyState.busy" @state="spatialClueState = $event" />
+    <p v-if="vocabularyLocked" role="status">请先保存或收起项目类型、空间线索的编辑，再继续修改地图。</p>
     <p v-if="mapCapabilities?.upload?.available === false" class="atlas-alert" role="status">{{ mapCapabilities.upload.reason }} 空间示意仍可编辑，画面说明可复制后在外部使用。</p>
 
 
@@ -319,6 +320,7 @@ import LocalRunApproval from "../../components/LocalRunApproval.vue"
 import { focusWorkspaceTool } from "../../components/workspaceTools.js"
 import MapStructureEditor from "./MapStructureEditor.vue"
 import ProjectVocabularyPanel from "./ProjectVocabularyPanel.vue"
+import MapSpatialCluePanel from "./MapSpatialCluePanel.vue"
 import { useEvidenceSelection } from "../../composables/useEvidenceSelection.js"
 import { useModalDialog } from "../../composables/useModalDialog.js"
 import { confirmAiReference } from "../../../shared/aiReferenceModal.js"
@@ -334,7 +336,8 @@ const newMap = reactive({ title: "", level: "region", parent_id: "" })
 const structureEditor = ref(null)
 const structureState = ref({ dirty: false, revision: null })
 const vocabularyState = ref({ dirty: false, busy: false })
-const vocabularyLocked = computed(() => vocabularyState.value.dirty || vocabularyState.value.busy)
+const spatialClueState = ref({ dirty: false, busy: false })
+const vocabularyLocked = computed(() => vocabularyState.value.dirty || vocabularyState.value.busy || spatialClueState.value.dirty || spatialClueState.value.busy)
 const vocabularyRevision = ref(0)
 const editStructureNodeId = ref(null)
 const toolsRoot = ref(null)
@@ -1020,14 +1023,15 @@ watch(activeNode, (node, previous) => {
   nodeEdit.title = node.title; nodeEdit.parent_id = node.parent_id || null; nodeEdit.level = node.level; nodeEdit.before_node_id = "__keep__"
 })
 useLeaveGuard(async () => {
-  if (vocabularyState.value.busy) return false
+  if (vocabularyState.value.busy || spatialClueState.value.busy) return false
   if (vocabularyState.value.dirty && !await confirmAsync("项目类型尚未保存，确认放弃编辑并离开吗？", "确认离开", { confirmAction: getConfirmAction() })) return false
+  if (spatialClueState.value.dirty && !await confirmAsync("空间线索的复核说明尚未提交，确认放弃并离开吗？", "确认离开", { confirmAction: getConfirmAction() })) return false
   if (!await canLeaveStructure()) return false
   if (uploading.value) return false
   if (promptDirty.value && !await confirmAsync("画面说明还没有保存，确定离开吗？", "确认离开", { confirmAction: getConfirmAction() })) return false
   return !uploadDraftDirty.value || await confirmAsync("放弃未上传的地图？", "确认放弃", { confirmAction: getConfirmAction() })
 })
-function warnBeforeUnload(event) { if (!vocabularyState.value.dirty && !vocabularyState.value.busy && !annotationDirty.value && !promptDirty.value && !uploadDraftDirty.value && !uploading.value) return; event.preventDefault(); event.returnValue = "" }
+function warnBeforeUnload(event) { if (!vocabularyLocked.value && !annotationDirty.value && !promptDirty.value && !uploadDraftDirty.value && !uploading.value) return; event.preventDefault(); event.returnValue = "" }
 onMounted(() => loadAll(getRouteQuery().get('run_id')))
 onMounted(() => globalThis.addEventListener("beforeunload", warnBeforeUnload))
 onBeforeUnmount(() => { mounted = false; clearTimeout(pollTimer); clearTimeout(promptTimer); uploadController?.abort(); globalThis.removeEventListener("beforeunload", warnBeforeUnload); globalThis.removeEventListener("pointermove", dragAnnotation); globalThis.removeEventListener("pointerup", endAnnotationDrag); if (uploadPreview.value) URL.revokeObjectURL(uploadPreview.value); for (const pageId of Object.keys(imageUrls)) releaseImage(pageId) })

@@ -550,6 +550,8 @@
       requiredParams: ["id"],
       requiredQuery: ["novel_id"],
     }),
+    "world.listSpatialClues": define("GET", ({ novelId }) => `/world/map-atlas/${required(novelId, "novelId", "world.listSpatialClues")}/spatial-clues`, { requiredParams: ["novelId"] }),
+    "world.reviewSpatialClue": define("POST", ({ novelId, clueId }) => `/world/map-atlas/${required(novelId, "novelId", "world.reviewSpatialClue")}/spatial-clues/${required(clueId, "clueId", "world.reviewSpatialClue")}/review`, { requiredParams: ["novelId", "clueId"], hasBody: true, requiredBody: ["action", "expected_fingerprint", "confirmed"] }),
     "world.listProjectVocabulary": define("GET", ({ novelId }) => `/world/project-vocabulary/${required(novelId, "novelId", "world.listProjectVocabulary")}`, { requiredParams: ["novelId"] }),
     "world.createVocabularyTerm": define("POST", ({ novelId }) => `/world/project-vocabulary/${required(novelId, "novelId", "world.createVocabularyTerm")}/terms`, { requiredParams: ["novelId"], hasBody: true, requiredBody: ["name", "kind"] }),
     "world.updateVocabularyTerm": define("PATCH", ({ novelId, typeRef }) => `/world/project-vocabulary/${required(novelId, "novelId", "world.updateVocabularyTerm")}/terms/${required(typeRef, "typeRef", "world.updateVocabularyTerm")}`, { requiredParams: ["novelId", "typeRef"], hasBody: true, requiredBody: ["name", "expected_revision_id"] }),

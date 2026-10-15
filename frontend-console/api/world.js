@@ -27,6 +27,12 @@ import {
   // ============================================================
 
 export const world = {
+    async listSpatialClues(novelId, options = {}) {
+      return contractFetch("world.listSpatialClues", { novelId }, options)
+    },
+    async reviewSpatialClue(novelId, clueId, payload) {
+      return contractJson("world.reviewSpatialClue", { novelId, clueId }, {}, payload)
+    },
     async listProjectVocabulary(novelId, options = {}) {
       return contractFetch("world.listProjectVocabulary", { novelId }, { limit: 500, ...options }, { cache: "no-store" })
     },
