@@ -531,13 +531,16 @@ onBeforeUnmount(() => window.removeEventListener("beforeunload", warnBeforeUnloa
 let closingMobileDetail = false
 async function requestCloseMobileDetail() {
   if (savingSceneId.value || closingMobileDetail) return
+  const sceneId = selectedItem.value?.scene?.id
   if (detailDirty.value) {
     closingMobileDetail = true
     const confirmed = await confirmAsync("放弃尚未保存的场景修改？", "放弃修改")
     closingMobileDetail = false
-    if (!confirmed) return
+    if (!confirmed || selectedItem.value?.scene?.id !== sceneId) return
+    Object.assign(detailDraft, sceneDraft(selectedItem.value?.scene))
   }
-  clearSelectedScene()
+  mobileDetailOpen.value = false
+  sceneSaveError.value = null
 }
 const {
   overlayRef: mobileDrawerOverlayRef,

@@ -5,6 +5,7 @@ const confirmAiReference = vi.hoisted(() => vi.fn())
 vi.mock("../../../shared/aiReferenceModal.js", () => ({ confirmAiReference }))
 
 import { resetBridgeOverrides, setBridgeOverrides } from "../../../vue/bridge/index.js"
+import CharacterCardV2Content from "../../../vue/views/scene/CharacterCardV2Content.vue"
 import SceneWorkbenchView from "../../../vue/views/scene/SceneWorkbenchView.vue"
 import { sceneRuntimeManager } from "../../../vue/views/scene/sceneRuntimeManager.js"
 import {
@@ -296,8 +297,11 @@ describe("Story Scene workspace panels", () => {
   it("shows and saves a V2 card as source-bound interpretations", async () => {
     const content = {
       version: "character_card.v2",
-      fact_basis: [{ fact_id: "story:gate", kind: "story_state", layer: "fact", subject_id: "c1", dimension: "entities", field: "condition", value: "北门关闭" }],
-      pattern_basis: [],
+      fact_basis: [
+        { fact_id: "story:gate", kind: "story_state", layer: "fact", subject_id: "c1", dimension: "entities", field: "condition", value: "北门关闭", checkpoint_id: "checkpoint-1" },
+        { fact_id: "world:letter", kind: "world_dossier", layer: "fact", subject_id: "c1", dimension: "来源", field: "letter", value: "旧信藏在门后", revision_id: "revision-2" },
+      ],
+      pattern_basis: [{ pattern_id: "pattern:watch", statement: "遇险时先观察退路", modality: "interpretation_only", evidence_refs: [{ chapter_index: 1 }] }],
       interpretations: [{ category: "tactics", statement: "她会先观察门闩。", source_fact_ids: ["story:gate"], source_pattern_ids: [] }],
     }
     story.getSceneContext.mockResolvedValue({ character_cards: [{ character_id: "c1", name: "阿遥", content: { personality: "谨慎" } }], script_files: [] })
@@ -309,13 +313,38 @@ describe("Story Scene workspace panels", () => {
     tasks.get.mockResolvedValue({ task_id: "task-v2", status: "done", result: { preview: { content } } })
     sceneRuntimeManager.adopt({ task_id: "task-v2", status: "pending" }, { sceneId: "s1", stage: "character-card" }, "p1", "s1")
     await vi.waitFor(() => expect(wrapper.find('[data-action="apply-generated-scene-character-card"]').exists()).toBe(true))
-    expect(wrapper.get(".scene-character-card__generated").text()).toContain("北门关闭")
+    const generated = wrapper.get(".scene-character-card__generated")
+    expect(generated.findAll('[data-role="character-card-fact"]')).toHaveLength(2)
+    expect(generated.get('[data-role="character-card-pattern"]').text()).toContain("遇险时先观察退路")
+    expect(generated.get('[data-role="character-card-pattern"]').text()).toContain("来源：第 1 章")
+    expect(generated.get('[data-role="character-card-interpretation"]').text()).toContain("依据：北门关闭")
+    expect(generated.get('[data-role="character-card-interpretation"]').text()).not.toContain("旧信藏在门后")
     await wrapper.get('[data-action="apply-generated-scene-character-card"]').trigger("click")
+    expect(wrapper.get(".scene-character-card__editor").text()).toContain("旧信藏在门后")
     await wrapper.get('[data-action="save-scene-character-card"]').trigger("click")
     await flushPromises()
     expect(story.saveCharacterCard.mock.calls[0][3].content).toEqual(content)
     expect(wrapper.get(".scene-character-card__facts").text()).toContain("她会先观察门闩")
     expect(wrapper.get(".scene-character-card__facts").text()).toContain("北门关闭")
+    expect(wrapper.get(".scene-character-card__facts").text()).toContain("旧信藏在门后")
+    expect(wrapper.get(".scene-character-card__facts").text()).toContain("已保存修订")
+    expect(wrapper.get(".scene-character-card__facts").text()).toContain("遇险时先观察退路")
+  })
+
+  it("keeps V2 source basis readable when there is no interpretation", () => {
+    const content = {
+      version: "character_card.v2",
+      fact_basis: [{ fact_id: "story:belief", kind: "story_state", layer: "belief", value: "她相信信已烧毁", possibly_false: true, checkpoint_id: "checkpoint-1" }],
+      pattern_basis: [{ pattern_id: "pattern:wait", statement: "受到质疑时会先沉默", evidence_refs: [] }],
+      interpretations: [],
+    }
+    const view = mount(CharacterCardV2Content, { props: { content } })
+    expect(view.get('[data-role="character-card-fact"]').text()).toContain("她相信信已烧毁")
+    expect(view.get('[data-role="character-card-fact"]').text()).toContain("人物所信")
+    expect(view.get('[data-role="character-card-fact"]').text()).toContain("可能不实")
+    expect(view.get('[data-role="character-card-pattern"]').text()).toContain("受到质疑时会先沉默")
+    expect(view.text()).toContain("暂无解释性建议")
+    expect(view.findAll('[data-role="character-card-interpretation"]')).toHaveLength(0)
   })
 
   it("keeps only the chosen V2 performance and its sources for script generation", async () => {
