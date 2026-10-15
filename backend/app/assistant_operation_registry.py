@@ -24,6 +24,9 @@ from modules.world.assistant_map_tools import OPERATIONS_SPEC as _WORLD_MAP
 from modules.world.assistant_opening_tools import (
     OPERATIONS_SPEC as _WORLD_OPENING,
 )
+from modules.world.assistant_vocabulary_tools import (
+    OPERATIONS_SPEC as _WORLD_VOCABULARY,
+)
 from modules.writing.assistant_candidate_tools import (
     OPERATIONS_SPEC as _WRITING_CANDIDATE,
 )
@@ -58,4 +61,5 @@ story_structure_operations = _materialize(_STORY_STRUCTURE)
 story_planning_operations = _materialize(_STORY_PLANNING)
 world_opening_operations = _materialize(_WORLD_OPENING)
 world_map_operations = _materialize(_WORLD_MAP)
+world_vocabulary_operations = _materialize(_WORLD_VOCABULARY)
 evidence_forecast_operations = _materialize(_EVIDENCE_FORECAST)

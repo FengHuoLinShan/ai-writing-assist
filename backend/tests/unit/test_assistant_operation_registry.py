@@ -286,7 +286,7 @@ OPERATION_SNAPSHOT = {
         "创建空白地图",
         "confirm",
         "1",
-        "061686f1c3f683f833a391f1515de6fea596a0403a38f357390d53b5bc54e5e7",
+        "657072d928d4057f92652ede400155475a7f913444bb6aebcc71b2f6a334b051",
     ),
     "map.review_revision": (
         "处理已有地图版本",
@@ -305,6 +305,48 @@ OPERATION_SNAPSHOT = {
         "suggest",
         "1",
         "253869e5f597bb89fda0767550471e2fcb4514e914096bf071d8461151f0a44b",
+    ),
+    "world.vocabulary.create": (
+        "新增项目词条",
+        "confirm",
+        "1",
+        "3ece646f70048936a149deee43067404dfe09b6951564b5a5dd77f417b6b3276",
+    ),
+    "world.vocabulary.edit": (
+        "编辑或改名项目词条",
+        "confirm",
+        "1",
+        "b0576f8867a8917fdedf7ba3c34a332749ce8cbdfdeed29370fe8441251c6115",
+    ),
+    "world.vocabulary.archive": (
+        "归档项目词条",
+        "confirm",
+        "1",
+        "f87f822a0f1d1c120f3fc9ab1c4eb16f5040926b5a76a8cca0984f18be1b9739",
+    ),
+    "world.vocabulary.restore": (
+        "恢复项目词条",
+        "confirm",
+        "1",
+        "f87f822a0f1d1c120f3fc9ab1c4eb16f5040926b5a76a8cca0984f18be1b9739",
+    ),
+    "world.vocabulary.merge": (
+        "合并项目词条",
+        "confirm",
+        "1",
+        "07f482189b4c1c401005405951f7aa26932d436b9fc3be341ff59c9df1cf50e4",
+    ),
+    "world.vocabulary.split": (
+        "拆分项目词条",
+        "confirm",
+        "1",
+        "92ee8d18bf4defcbbecd11ab70fab05f4285d3a76b602103bc89b9e251904cb6",
+    ),
+    "world.vocabulary.apply_presets": (
+        "复制题材预设词条",
+        "confirm",
+        "1",
+        "8067271a5b2798ef8bc6cab105941b58ac267ea3410c1cb1d5f86f67cb0e434e",
     ),
 }
 
