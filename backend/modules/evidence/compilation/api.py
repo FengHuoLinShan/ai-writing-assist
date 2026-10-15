@@ -162,6 +162,12 @@ async def scene_lens(
 @router.post(
     "/object-dossier-brief",
     response_model=ObjectDossierBriefResponse,
+    openapi_extra={
+        "x-novelcraft-operation-exemption": (
+            "Scene object dossier brief only reads owner-scoped source projections; "
+            "it creates no persistent asset or operation outcome."
+        )
+    },
 )
 async def object_dossier_brief(
     db: DbSession,

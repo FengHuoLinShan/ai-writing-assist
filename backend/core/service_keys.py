@@ -22,6 +22,11 @@ if TYPE_CHECKING:
         CreativeResourcePort,
         ResourceSnapshot,
     )
+    from modules.evidence.compilation.contracts import (
+        EvolutionObjectPatternReadPort,
+        StoryObjectStateReadPort,
+        WorldObjectDossierReadPort,
+    )
     from modules.evidence.confirmation_reads_port import ConfirmationReadsPort
     from modules.evolution.contracts import EvolutionReadMapColdStartStatusPort
     from modules.project.contracts import (
@@ -74,6 +79,15 @@ ASSISTANT_READ_MAP_AUTHOR_DECISION: ServiceKey[MapAuthorDecisionReaderPort] = Se
 )
 EVOLUTION_READ_MAP_COLD_START_STATUS: ServiceKey[EvolutionReadMapColdStartStatusPort] = (
     ServiceKey("evolution.read_map_cold_start_status")
+)
+EVIDENCE_READ_EVOLUTION_OBJECT_PATTERNS: ServiceKey[EvolutionObjectPatternReadPort] = (
+    ServiceKey("evidence.read_evolution_object_patterns")
+)
+EVIDENCE_READ_WORLD_OBJECT_DOSSIER: ServiceKey[WorldObjectDossierReadPort] = (
+    ServiceKey("evidence.read_world_object_dossier")
+)
+EVIDENCE_READ_STORY_OBJECT_STATE: ServiceKey[StoryObjectStateReadPort] = ServiceKey(
+    "evidence.read_story_object_state"
 )
 WORLD_READ_MAP_COLD_START_DRAFTS: ServiceKey[WorldReadMapColdStartDraftsPort] = (
     ServiceKey("world.read_map_cold_start_drafts")
@@ -386,6 +400,9 @@ WRITING_MANUSCRIPT_SOURCE: ServiceKey[ManuscriptSourcePort] = ServiceKey(
 ALL_SERVICE_KEYS: tuple[ServiceKey[Any], ...] = (
     ASSISTANT_READ_MAP_AUTHOR_DECISION,
     EVOLUTION_READ_MAP_COLD_START_STATUS,
+    EVIDENCE_READ_EVOLUTION_OBJECT_PATTERNS,
+    EVIDENCE_READ_WORLD_OBJECT_DOSSIER,
+    EVIDENCE_READ_STORY_OBJECT_STATE,
     WORLD_READ_MAP_COLD_START_DRAFTS,
     WORLD_READ_MAP_NOTIFICATION_SIGNALS,
     EVIDENCE_CONFIRMATION_READS,

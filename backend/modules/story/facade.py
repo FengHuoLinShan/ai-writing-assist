@@ -32,6 +32,28 @@ from modules.story.task_submission import (
 _service = StoryService()
 
 
+async def read_object_dossier_state(
+    db: AsyncSession,
+    *,
+    novel_id: str,
+    scene_id: str,
+    viewpoint: dict[str, str],
+    include_checkpoints: bool,
+) -> dict[str, Any]:
+    """Read a Scene POV projection and optional author checkpoint set."""
+    state = await get_scene_state_view(
+        db, novel_id, scene_id, viewpoint=viewpoint
+    )
+    if viewpoint.get("kind") != "author" and include_checkpoints:
+        raise ValueError("author checkpoints require author viewpoint")
+    checkpoints = (
+        await get_scene_checkpoints(db, novel_id, scene_id)
+        if include_checkpoints
+        else None
+    )
+    return {"state": state, "checkpoints": checkpoints}
+
+
 def build_reading_structure_request(scene_cards, world_context):
     from modules.story.outline_state.reading_structure import build_structure_request
 
@@ -403,36 +425,6 @@ async def persist_one_click_character_cards(
         context_snapshot_id=context_snapshot_id,
         source_hashes=source_hashes,
     )
-
-
-async def read_object_dossier_state(
-    db: AsyncSession,
-    *,
-    novel_id: str,
-    scene_id: str,
-    viewpoint: dict[str, str],
-    include_checkpoints: bool,
-) -> dict[str, Any]:
-    """Return cutoff state and, for authors only, current checkpoint references."""
-    state_view = await get_scene_state_view(
-        db,
-        novel_id,
-        scene_id,
-        viewpoint=viewpoint,
-    )
-    checkpoint_set = None
-    if include_checkpoints:
-        checkpoint_set = await get_scene_checkpoints(db, novel_id, scene_id)
-    return {
-        "state_view": state_view.model_dump(mode="json")
-        if hasattr(state_view, "model_dump")
-        else state_view,
-        "checkpoint_set": (
-            checkpoint_set.model_dump(mode="json")
-            if hasattr(checkpoint_set, "model_dump")
-            else checkpoint_set
-        ),
-    }
 
 
 __all__ = [

@@ -56,7 +56,9 @@ world 模块管理小说世界中的核心对象及其关系，是结构化创�
 `WorldObjectDossierEntry` 保存对象稳定设定的不可变修订；Scene 时点状态仍归 Story，派生理解仍归
 Evolution。内核面向按对象类型固定，项目面向复用 `ProjectVocabularyTerm(kind='dossier_facing')`，
 类型模板复用 `EntityProfileTemplate` 与 `EntityProfileTemplateRevision`。正式写入只接受本项目已采用的对象、
-有效面向和可解析 Scene/章节锚点；读口仅报告 World 层，并将 Story 与 Evolution 标为尚未聚合。
+有效面向和可解析 Scene/章节锚点；读口仅报告 World 层、返回对象当前 `entity_status`，
+并将 Story 与 Evolution 标为尚未聚合。Evidence 简报只接纳 canonical 对象和 profile；
+World 管理读口仍可展示工作稿以供作者处理。
 
 - `GET /api/world/entities/{id}/dossier` 读取当前设定或指定 Scene 截止点；`GET .../dossier/history`
   提供条目修订历史。

@@ -46,22 +46,22 @@ class EvolutionObjectPatternReadPort(Protocol):
 
 
 class WorldObjectDossierReadPort(Protocol):
-    """Narrow read-only adapter to the stable World dossier facade."""
+    """Read one World dossier at a requested Scene anchor."""
 
     async def __call__(
         self,
         db: AsyncSession,
-        *,
         novel_id: str,
         entity_id: str,
+        *,
         as_of_scene_id: str,
         limit: int,
         offset: int,
-    ) -> dict: ...
+    ) -> object: ...
 
 
 class StoryObjectStateReadPort(Protocol):
-    """POV- and cutoff-aware Story state/checkpoint projection for Evidence."""
+    """Read one POV state, with author checkpoints only when requested."""
 
     async def __call__(
         self,
@@ -69,7 +69,7 @@ class StoryObjectStateReadPort(Protocol):
         *,
         novel_id: str,
         scene_id: str,
-        viewpoint: dict,
+        viewpoint: dict[str, str],
         include_checkpoints: bool,
     ) -> dict: ...
 

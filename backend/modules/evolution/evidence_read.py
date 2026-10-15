@@ -44,6 +44,8 @@ async def _current_scene_index(
         cache[scene_id] = (
             int(index)
             if scene is not None
+            and str(payload.get("id") or "") == scene_id
+            and str(payload.get("novel_id") or "") == novel_id
             and isinstance(index, int)
             and not isinstance(index, bool)
             else None
@@ -68,6 +70,19 @@ async def read_evolution_object_patterns(
     scene_id = str(UUID(str(scene_id)))
     requested_ids = sorted({str(UUID(str(value))) for value in entity_ids})
     await require_active_project(db, novel_id, allow_demo_readonly=False)
+    if any(getattr(db, name, ()) for name in ("new", "dirty", "deleted")):
+        # claim_freshness uses a flush before validating dependency tokens. A
+        # read port must not flush another caller's pending domain writes.
+        return {
+            "novel_id": novel_id,
+            "scene_id": scene_id,
+            "scene_index": None,
+            "items": [],
+            "omitted_count": 0,
+            "omissions": ["读取会话含未提交变更，未读取台账"],
+            "coverage": "unknown",
+            "ledger_fingerprint": content_hash([novel_id, scene_id, "pending_writes"]),
+        }
     if not requested_ids:
         return {
             "novel_id": novel_id,
@@ -83,7 +98,13 @@ async def read_evolution_object_patterns(
     scene_port = get(STORY_SCENE_SOURCE)
     scene = _mapping(await scene_port.get_scene_contract(db, novel_id, scene_id))
     scene_index = scene.get("scene_index")
-    if not scene or not isinstance(scene_index, int) or isinstance(scene_index, bool):
+    if (
+        not scene
+        or str(scene.get("id") or "") != scene_id
+        or str(scene.get("novel_id") or "") != novel_id
+        or not isinstance(scene_index, int)
+        or isinstance(scene_index, bool)
+    ):
         return {
             "novel_id": novel_id,
             "scene_id": scene_id,
@@ -107,6 +128,7 @@ async def read_evolution_object_patterns(
         str(state_payload.get("novel_id") or "") != novel_id
         or str(state_payload.get("scene_id") or "") != scene_id
         or checkpoint_index != scene_index
+        or not str(state_payload.get("state_fingerprint") or "").strip()
     ):
         return {
             "novel_id": novel_id,

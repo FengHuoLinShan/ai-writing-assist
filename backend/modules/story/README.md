@@ -49,6 +49,8 @@ through its stable facade and never writes World, Memory, or Writing records.
   (see `continuity/scene_state_view.py` and the M2 contract in docs/plans). Complete source-consumption
   registrations let Evolution supersede only affected Scene dimensions; incomplete coverage still
   falls back to the conservative suffix.
+- `read_object_dossier_state` 经 `evidence.read_story_object_state` 只读 DI 键提供同一 Scene 的
+  POV 状态；仅作者请求会附带 checkpoint set，角色视角不会从此口读取作者 checkpoint。
 - `schemas.py`: strict Pydantic request, preview and response payloads.
 - `tasks.py`: four deterministic async handlers registered through the shared
   task registry: `story_character_card_generate`, `story_reaction_propose`,

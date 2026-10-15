@@ -746,12 +746,19 @@ Evidence 为 Collaboration 收集授权的冻结资源集合，manifest 同时�
 `pattern_items`（可选 Evolution 历史解释及其来源坐标）、三层 fingerprint、当前 checkpoint 引用、
 `layers`、`unknown_layers`、`omitted_count`、`omissions`、`coverage` 和总体 `fingerprint`。
 档案证据和人物倾向只带稳定 source coordinates，不带引用原文或 `quote_text`。
-Evolution 通过 `evidence.read_evolution_object_patterns` 只读 DI 键提供；缺键、截止不符、
+Story、World 分别通过 `evidence.read_story_object_state`、
+`evidence.read_world_object_dossier` 只读 DI 键提供；Evolution 通过
+`evidence.read_evolution_object_patterns` 只读 DI 键提供。缺键、截止不符、
 身份失效或来源不新鲜会显式省略，不回退到直接读取其他台账表。
 
-角色视角先使用 Story 的 POV 可见投影，再只接受 `visibility=public` 且值与同一主体的可见 Story
-fact 精确相等的 World 条目；secret、belief-only 匹配、观察和 Evolution 倾向都不进入角色材料。
-角色模式不会调用 Evolution port。reader 模式不返回对象档案与台账。作者接口默认
+简报只接纳已采用的对象与旧 profile。`author_safe` 只返回公开 World 条目的安全投影；无公开/秘密标记的旧 profile 字段、秘密条目、
+作者 checkpoint 引用与台账倾向均不进入该模式，相关指纹仅按返回的公开内容重算，隐藏项不计省略数。
+`author_full` 用于 owner 校验后的作者管理读取，保留作者完整引用，并可按显式开关读取
+supported 或作者保留/修正的台账倾向（`only_adopted_patterns` 默认关闭）；此响应不得复用作角色创作上下文。
+角色视角先使用 Story 的 POV 可见投影，再只接受 `visibility=public` 且值与同一主体的已确认、
+非疑似虚假的可见 Story fact 精确相等的 World 条目；secret、belief-only 匹配、观察和
+Evolution 倾向都不进入角色材料。角色模式不读取作者 checkpoint set 或 Evolution port，
+不返回作者来源引用、原状态指纹或隐藏条目计数。reader 模式不返回对象档案与台账。作者接口默认
 `include_patterns=false`；该选项是本次读取授权，和写作 capability 的默认关闭开关分开。
 
 写作编译器还可把聚合投影加入 `object_dossier` 与 `character_pattern` 两个独立 P3 section。
@@ -763,7 +770,8 @@ pattern section 明确标为解释而非事实。Context snapshot 保留入选�
 执行上下文之外的 `novel_id`。
 
 旧 `GenericEntityProfile.data_json` 目前只经显式关联的活动 `EntityProfileTemplate` key/facing
-只读映射；未知 key 原样留在 World 旧读取 API，聚合响应只记录未映射数量，不把它们当作正史，
+只读映射；在 `author_full` 或角色视角，只有目标 Scene 的已确认时点事实能佐证其值时，映射字段才进入简报，避免用今日
+profile 填补历史。未知 key 原样留在 World 旧读取 API，聚合响应只记录未映射数量，不把它们当作正史，
 也不删除或重写旧 JSON。此切片尚未把旧 Character/profile 写入口桥接到档案 revision/CAS，
 也未迁移全部旧读取消费者；后续 C0 必须逐个完成该兼容闭环。
 

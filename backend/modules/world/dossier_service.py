@@ -522,6 +522,7 @@ class WorldObjectDossierService:
             _canonical_json(
                 {
                     "entity_id": str(entity.id),
+                    "entity_status": entity.status,
                     "as_of_scene_id": as_of_scene_id,
                     "offset": page_offset,
                     "limit": page_limit,
@@ -533,6 +534,7 @@ class WorldObjectDossierService:
         return DossierReadResponse(
             entity_id=entity.id,
             entity_type=entity.entity_type,
+            entity_status=entity.status,
             as_of_scene_id=parse_uuid(as_of_scene_id, "scene_id")
             if as_of_scene_id
             else None,
