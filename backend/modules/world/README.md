@@ -67,6 +67,10 @@ Evidence 的只读 port 可按 `visibility_filter=public` 在分页、计数和�
 未知字段进入 `legacy_unmapped` 秘密区。旧 GET/list 与 `WorldBackground` 只读投影当前修订，纯 GET 不物化或写入。
 兼容旧 PUT 可省略 `expected_dossier_revision`；提供时以当前 Dossier 投影基线 CAS，过期返回 409；省略时行锁
 串行化写入但整份 JSON 仍是最后写者胜出。PATCH 省略 `data_json` 保持不变，显式 `null` 清除当前值并留修订历史。
+六类强类型档案仅按迁移冻结的稳定字段清单双向兼容：旧 Profile PUT 保留旧接口 omitted/null 语义并在同一事务追加
+带表前缀 `legacy_field_key` 的 Dossier 修订；Dossier 编辑/恢复同步对应旧投影，清除追加 `cleared` 修订。
+JSON 数组修订同时保留原类型值；修改数组须提交 `legacy_value` 并与展示文本一致，不能由 prose 反解析。
+地图控制关系、持有人及揭示状态等动态字段不桥接。Profile 与 Dossier GET 均为只读，不在读取时物化或写回。
 档案条目可选绑定 `story_field_key`；只有同一对象、同一登记字段、可信确认来源且早于 cutoff Scene 的 Story
 观察才可用于有效期核对。项目设置“允许剧情覆盖作者有效期”默认关闭；默认始终按作者区间读取，只有显式开启
 才允许精确 Story 状态改变读取结果。历史 `legacy_import` 内容没有字段绑定，不从同值或文字相似推断，按来源缺口披露。
@@ -93,6 +97,8 @@ continuity、也不写档案。
   对象模板后才可成为该对象的面向字段。
 - `GET /api/world/entities/{id}/dossier/manifest` 导出有界的作者 JSON 清单。对应 `POST .../manifest/preview`
   与 `POST .../manifest/apply` 注册为 R0 预览和 R3 确认目录项；作者文件下载独立豁免 AI 外部导出。
+  新清单使用 v2，可选兼容信封只承载 allowlist 强 Profile 字段或 Generic 旧字段的键与原类型 JSON 值；
+  Generic 未映射值继续保存在秘密兼容区，不提升为公开作者事实。旧 v1 清单仍可导入。
   对象档案界面可选择文件、逐项映射和确认；跨项目词条、模板、Story 状态字段和
   时间锚点必须显式映射或停止。采用绑定模板版本、目标条目修订指纹和预览 hash；重复导入幂等，
   与导入来源对应的条目若被作者改动则进入冲突，只有显式跳过后才能继续。借用内核 key 自带来源类型；

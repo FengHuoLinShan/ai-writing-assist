@@ -72,7 +72,7 @@ class WorldProfileUpsertRequest(BaseModel):
 
     truth_summary: str | None = None
     holder_entity_ids_json: list[str] | None = None
-    risk_level: str | None = None
+    risk_level: str | None = Field(default=None, min_length=1, max_length=32)
     reveal_status: str | None = None
     linked_target_refs_json: list[dict[str, Any]] | None = None
 

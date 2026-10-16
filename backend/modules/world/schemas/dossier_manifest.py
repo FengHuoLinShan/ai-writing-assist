@@ -2,9 +2,10 @@
 
 from __future__ import annotations
 
+import json
 import uuid
 from datetime import datetime
-from typing import Literal
+from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
@@ -20,6 +21,32 @@ from modules.world.schemas.dossier import (
 MANIFEST_FORMAT = "novelcraft.world.dossier-manifest"
 MAX_MANIFEST_ENTRIES = 250
 MAX_MANIFEST_TEXT_CHARS = 1_000_000
+
+
+class DossierManifestCompatibility(BaseModel):
+    """Allowlisted legacy profile data, kept separate from author metadata."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    legacy_field_key: str = Field(min_length=1, max_length=96)
+    legacy_value: Any
+    generic_profile_field_key: str | None = Field(
+        default=None, min_length=1, max_length=512
+    )
+    generic_unmapped: bool = False
+    legacy_profile_source_only: bool = False
+
+    @model_validator(mode="after")
+    def validate_compatibility_value(self):
+        if self.generic_unmapped and self.generic_profile_field_key is None:
+            raise ValueError("未映射通用档案值需要明确的旧字段名")
+        if self.legacy_profile_source_only and self.generic_profile_field_key is None:
+            raise ValueError("未物化通用旧字段需要明确的旧字段名")
+        try:
+            json.dumps(self.legacy_value, ensure_ascii=False, allow_nan=False)
+        except (TypeError, ValueError) as exc:
+            raise ValueError("兼容旧值必须是有限 JSON 数据") from exc
+        return self
 
 
 class DossierManifestTemplate(BaseModel):
@@ -61,10 +88,11 @@ class DossierManifestEntry(BaseModel):
     ]
     visibility: Literal["public", "secret"]
     validity: DossierValidity | None = None
+    compatibility: DossierManifestCompatibility | None = None
 
     @model_validator(mode="after")
     def nonblank_content(self):
-        if not self.content.strip():
+        if not self.content.strip() and self.compatibility is None:
             raise ValueError("档案条目内容不能为空")
         return self
 
@@ -73,7 +101,7 @@ class DossierManifest(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     format: Literal["novelcraft.world.dossier-manifest"] = MANIFEST_FORMAT
-    format_version: Literal[1] = 1
+    format_version: Literal[1, 2] = 2
     created_at: datetime
     source_project_id: uuid.UUID
     source_entity_id: uuid.UUID
@@ -93,6 +121,17 @@ class DossierManifest(BaseModel):
             + len(item.quote_text or "")
             + sum(len(ref.quote or "") for ref in item.evidence)
             + sum(len(tag) for tag in item.tags)
+            + (
+                len(
+                    json.dumps(
+                        item.compatibility.model_dump(mode="json"),
+                        ensure_ascii=False,
+                        allow_nan=False,
+                    )
+                )
+                if item.compatibility
+                else 0
+            )
             for item in self.entries
         )
         if chars > MAX_MANIFEST_TEXT_CHARS:
@@ -202,6 +241,7 @@ __all__ = [
     "DossierManifestAnchorMapping",
     "DossierManifestConflict",
     "DossierManifestEntry",
+    "DossierManifestCompatibility",
     "DossierManifestFacingMapping",
     "DossierManifestPreviewRequest",
     "DossierManifestPreviewResponse",

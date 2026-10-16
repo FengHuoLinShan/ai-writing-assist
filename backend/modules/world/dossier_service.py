@@ -52,6 +52,7 @@ from modules.world.schemas.dossier import (
     DossierValidity,
 )
 from modules.world.services.core.entity_types import SUPPORTED_ENTITY_TYPES
+from modules.world.services.entity_profile_registry import PROFILE_REGISTRY
 from modules.world.validity import validate_scene_validity
 from modules.world.validity_policy import exact_story_field_observation
 from shared.utils import parse_uuid
@@ -309,6 +310,8 @@ def _entry_response(
         if row.facing_kind == "core"
         else DossierFacingRef(kind="project", term_id=row.vocabulary_term_id)
     )
+
+
     evidence = [
         DossierEvidenceRef.model_validate(item) for item in row.source_refs_json or []
     ]
@@ -344,6 +347,12 @@ def _entry_response(
         restored_from_id=row.restored_from_id,
         created_at=row.created_at,
     )
+
+
+def _generic_profile_value(row: WorldObjectDossierEntry) -> Any:
+    if (row.metadata_json or {}).get("generic_profile_legacy_value_is_null") is True:
+        return None
+    return row.legacy_value_json if row.legacy_value_json is not None else row.content
 
 
 class WorldObjectDossierService:
@@ -496,13 +505,278 @@ class WorldObjectDossierService:
         if legacy_field_key is None:
             return
         mapping = LEGACY_CHARACTER_FACINGS.get(legacy_field_key)
-        if (
-            entity.entity_type != "character"
-            or facing.kind != "core"
-            or mapping is None
-            or facing.key != mapping[0]
-        ):
+        if entity.entity_type == "character" and mapping is not None:
+            if facing.kind == "core" and facing.key == mapping[0]:
+                return
             raise ValidationError("旧人物字段只能映射到对应的人物内核面向")
+        binding = PROFILE_REGISTRY.get(entity.entity_type)
+        table_name, separator, field = legacy_field_key.partition(".")
+        expected = binding.dossier_fields.get(field) if binding else None
+        if (
+            binding is None
+            or not separator
+            or table_name != binding.model.__tablename__
+            or expected is None
+            or facing.kind != "core"
+            or facing.key != expected[0]
+        ):
+            raise ValidationError("旧档案字段只能映射到冻结登记的稳定面向")
+
+    @staticmethod
+    def _validate_strong_legacy_value(
+        entity: CoreEntity,
+        field: str | None,
+        content: str,
+        value: Any,
+        *,
+        supplied: bool,
+    ) -> None:
+        binding = PROFILE_REGISTRY.get(entity.entity_type)
+        if entity.entity_type == "character" and field in LEGACY_CHARACTER_FACINGS:
+            if field == "behavior_rules":
+                if not isinstance(value, list) or any(
+                    not isinstance(item, dict) for item in value
+                ):
+                    raise ValidationError("人物行为规则旧值必须是对象数组")
+            elif supplied and (not isinstance(value, str) or value != content):
+                raise ValidationError("人物文本旧值必须与档案内容一致")
+            if field == "behavior_rules":
+                try:
+                    json.dumps(value, ensure_ascii=False, allow_nan=False)
+                except (TypeError, ValueError) as exc:
+                    raise ValidationError("人物结构化旧值不是有效 JSON") from exc
+                if _display_value(value) != content:
+                    raise ValidationError("人物结构化旧值需要与展示内容一致")
+            return
+        if binding is None or not field:
+            if supplied:
+                raise ValidationError("结构化旧值仅支持登记的强档案字段")
+            return
+        table_name, separator, name = field.partition(".")
+        if not separator or table_name != binding.model.__tablename__:
+            if supplied:
+                raise ValidationError("结构化旧值仅支持登记的强档案字段")
+            return
+        if name not in binding.dossier_fields:
+            if supplied:
+                raise ValidationError("结构化旧值仅支持冻结登记的稳定字段")
+            return
+        if name.endswith("_json"):
+            if value is None and not content.strip():
+                return
+            if not isinstance(value, list):
+                raise ValidationError("结构化旧字段需要与展示内容一致的数组值")
+            valid_shape = (
+                all(isinstance(item, str) for item in value)
+                if name.endswith("_entity_ids_json")
+                else all(isinstance(item, dict) for item in value)
+            )
+            try:
+                json.dumps(value, ensure_ascii=False, allow_nan=False)
+            except (TypeError, ValueError) as exc:
+                raise ValidationError("结构化旧值不是有效 JSON") from exc
+            if not valid_shape or _display_value(value) != content:
+                raise ValidationError("结构化旧字段需要与展示内容一致的数组值")
+        elif supplied and (not isinstance(value, str) or value != content):
+            raise ValidationError("文本旧字段的结构化值必须与档案内容一致")
+
+    @staticmethod
+    def _strong_legacy_binding(entity: CoreEntity, field: str | None):
+        binding = PROFILE_REGISTRY.get(entity.entity_type)
+        if binding is None or not field:
+            return None
+        table_name, separator, name = field.partition(".")
+        if not separator or table_name != binding.model.__tablename__:
+            return None
+        facing = binding.dossier_fields.get(name)
+        return (binding, name, facing) if facing is not None else None
+
+    def _validate_legacy_visibility(
+        self,
+        entity: CoreEntity,
+        field: str | None,
+        visibility: str,
+    ) -> None:
+        strong = self._strong_legacy_binding(entity, field)
+        if strong is not None and strong[2][1] != visibility:
+            raise ValidationError("旧档案字段可见性不能偏离冻结映射")
+
+    @staticmethod
+    def validate_strong_profile_payload(
+        entity: CoreEntity,
+        payload: dict[str, Any],
+    ) -> None:
+        binding = PROFILE_REGISTRY.get(entity.entity_type)
+        if binding is None:
+            return
+        for field in binding.dossier_fields.keys() & payload.keys():
+            value = payload[field]
+            if value is None:
+                continue
+            column = binding.model.__table__.columns[field]
+            if isinstance(value, str):
+                if column.type.length and len(value) > column.type.length:
+                    raise ValidationError(f"{field} 超过旧档案字段长度限制")
+                display = value
+            elif isinstance(value, list):
+                valid_shape = (
+                    all(isinstance(item, str) for item in value)
+                    if field.endswith("_entity_ids_json")
+                    else all(isinstance(item, dict) for item in value)
+                )
+                if not valid_shape:
+                    raise ValidationError(f"{field} 类型不符合旧档案结构")
+                try:
+                    json.dumps(value, ensure_ascii=False, allow_nan=False)
+                except (TypeError, ValueError) as exc:
+                    raise ValidationError(f"{field} 不是有效 JSON") from exc
+                display = _display_value(value)
+            else:
+                display = str(value)
+            if len(display) > 20000:
+                raise ValidationError("旧档案字段展示长度最多 20000 个字符")
+
+    async def sync_strong_profile_field(
+        self,
+        db: AsyncSession,
+        entity: CoreEntity,
+        field: str,
+        value: Any,
+        *,
+        profile_metadata: dict[str, Any] | None = None,
+    ) -> None:
+        binding = PROFILE_REGISTRY.get(entity.entity_type)
+        facing = binding.dossier_fields.get(field) if binding else None
+        if binding is None or facing is None:
+            return
+        key = f"{binding.model.__tablename__}.{field}"
+        text = _display_value(value) if value is not None else ""
+        await self._sync_profile_field(
+            db,
+            entity,
+            key,
+            facing[0],
+            facing[1],
+            text,
+            value,
+            profile_metadata=profile_metadata,
+        )
+
+    async def _sync_profile_field(
+        self,
+        db: AsyncSession,
+        entity: CoreEntity,
+        legacy_field_key: str,
+        facing_key: str,
+        visibility: str,
+        content: str | None,
+        legacy_value: Any,
+        *,
+        profile_metadata: dict[str, Any] | None = None,
+    ) -> None:
+        active_rows = await self.repo.list_active_legacy_field(
+            db, entity.novel_id, entity.id, legacy_field_key, for_update=True
+        )
+        current = active_rows[-1].legacy_value_json if active_rows else None
+        if active_rows and current is None:
+            current = active_rows[-1].content
+        value = legacy_value if legacy_value is not None else content
+        cleared = value is None or value == "" or value == [] or value == {}
+        revision_status = (
+            "active"
+            if (profile_metadata or {}).get("status") in {"canonical", "confirmed"}
+            and entity.status == "canonical"
+            else "needs_review"
+        )
+        latest = active_rows[-1] if active_rows else await self.repo.latest_legacy_field(
+            db, entity.novel_id, entity.id, legacy_field_key, for_update=True
+        )
+        if (active_rows and current == value) or (
+            not active_rows
+            and latest is not None
+            and latest.status == "cleared"
+            and cleared
+        ):
+            return
+        for active in active_rows:
+            active.status = "superseded"
+        await self._make_revision(
+            db,
+            latest,
+            novel_id=entity.novel_id,
+            entity_id=entity.id,
+            entry_group_id=latest.entry_group_id if latest else uuid.uuid4(),
+            revision_number=latest.revision_number + 1 if latest else 1,
+            facing_kind="core",
+            facing_key=facing_key,
+            vocabulary_term_id=None,
+            legacy_field_key=legacy_field_key,
+            content="" if cleared else content or "",
+            tags=[],
+            evidence=[],
+            quote_text=None,
+            visibility=visibility,
+            validity=None,
+            source="author",
+            reason="legacy_profile_writeback",
+            status="cleared" if cleared else revision_status,
+            legacy_value_json=(
+                None
+                if cleared or not legacy_field_key.endswith("_json")
+                else legacy_value
+            ),
+            metadata_json={"strong_profile": profile_metadata or {}}
+            if profile_metadata
+            else None,
+        )
+
+    async def sync_strong_profile_status(
+        self,
+        db: AsyncSession,
+        entity: CoreEntity,
+        status: str,
+    ) -> None:
+        binding = PROFILE_REGISTRY.get(entity.entity_type)
+        if binding is None:
+            return
+        target_status = (
+            "active"
+            if status in {"canonical", "confirmed"} and entity.status == "canonical"
+            else "needs_review"
+        )
+        for field in binding.dossier_fields:
+            key = f"{binding.model.__tablename__}.{field}"
+            latest = await self.repo.latest_legacy_field(
+                db, entity.novel_id, entity.id, key, for_update=True
+            )
+            if latest is None or latest.status in {"cleared", target_status}:
+                continue
+            if latest.status not in {"active", "needs_review"}:
+                continue
+            latest.status = "superseded"
+            await self._make_revision(
+                db,
+                latest,
+                novel_id=entity.novel_id,
+                entity_id=entity.id,
+                entry_group_id=latest.entry_group_id,
+                revision_number=latest.revision_number + 1,
+                facing_kind=latest.facing_kind,
+                facing_key=latest.facing_key,
+                vocabulary_term_id=latest.vocabulary_term_id,
+                legacy_field_key=key,
+                content=latest.content,
+                tags=latest.tags_json or [],
+                evidence=latest.source_refs_json or [],
+                quote_text=latest.quote_text,
+                visibility=latest.visibility,
+                validity=_validity_from_row(latest),
+                source="author",
+                reason="strong_profile_status_change",
+                status=target_status,
+                legacy_value_json=latest.legacy_value_json,
+                metadata_json=latest.metadata_json,
+            )
 
     async def _vocabulary_record(
         self,
@@ -1105,11 +1379,7 @@ class WorldObjectDossierService:
                     ),
                     field_key=field_key,
                     label="未映射的旧档案字段",
-                    value=(
-                        row.legacy_value_json
-                        if row.legacy_value_json is not None
-                        else row.content
-                    ),
+                    value=_generic_profile_value(row),
                     mapped=False,
                     source_metadata={
                         **metadata,
@@ -1176,11 +1446,7 @@ class WorldObjectDossierService:
         latest = await self._generic_profile_rows(db, entity, lock=lock)
         for key, row in latest.items():
             if row.status == "active":
-                current[key] = (
-                    row.legacy_value_json
-                    if row.legacy_value_json is not None
-                    else row.content
-                )
+                current[key] = _generic_profile_value(row)
             else:
                 current.pop(key, None)
 
@@ -1190,11 +1456,7 @@ class WorldObjectDossierService:
                 visibility_filter is not None and row.visibility != visibility_filter
             ):
                 continue
-            value = (
-                row.legacy_value_json
-                if row.legacy_value_json is not None
-                else row.content
-            )
+            value = _generic_profile_value(row)
             mapped = row.facing_key != GENERIC_UNKNOWN_FACING_KEY
             fields.append(
                 DossierLegacyProfileField(
@@ -1575,6 +1837,14 @@ class WorldObjectDossierService:
         )
         self._validate_legacy_field(entity, data.facing, data.legacy_field_key)
         self._validate_legacy_content(data.legacy_field_key, data.content)
+        self._validate_strong_legacy_value(
+            entity,
+            data.legacy_field_key,
+            data.content,
+            data.legacy_value,
+            supplied="legacy_value" in data.model_fields_set,
+        )
+        self._validate_legacy_visibility(entity, data.legacy_field_key, data.visibility)
         await self._validate_story_field_key(db, entity, data.story_field_key)
         if data.legacy_field_key == "secret" and data.visibility != "secret":
             raise ValidationError("人物秘密档案必须保持秘密可见性")
@@ -1600,7 +1870,16 @@ class WorldObjectDossierService:
             source=source,
             reason=reason,
             metadata_json=source_metadata,
+            legacy_value_json=data.legacy_value,
         )
+        if data.legacy_field_key:
+            await self._sync_legacy_storage(
+                db,
+                entity,
+                data.legacy_field_key,
+                data.content,
+                data.legacy_value,
+            )
         if data.facing.kind == "project":
             term, revision = await self._vocabulary_record(db, nid, data.facing.term_id)
             facing_label = revision.snapshot_json.get("name", facing_label)
@@ -1620,6 +1899,14 @@ class WorldObjectDossierService:
         )
         self._validate_legacy_field(entity, data.facing, data.legacy_field_key)
         self._validate_legacy_content(data.legacy_field_key, data.content)
+        self._validate_strong_legacy_value(
+            entity,
+            data.legacy_field_key,
+            data.content,
+            data.legacy_value,
+            supplied="legacy_value" in data.model_fields_set,
+        )
+        self._validate_legacy_visibility(entity, data.legacy_field_key, data.visibility)
         await self._validate_story_field_key(db, entity, data.story_field_key)
         if data.legacy_field_key == "secret" and data.visibility != "secret":
             raise ValidationError("人物秘密档案必须保持秘密可见性")
@@ -1679,6 +1966,16 @@ class WorldObjectDossierService:
             )
         values = self._updated_values(row, data)
         self._validate_legacy_content(row.legacy_field_key, values["content"])
+        self._validate_strong_legacy_value(
+            entity,
+            row.legacy_field_key,
+            values["content"],
+            values["legacy_value"],
+            supplied="legacy_value" in data.model_fields_set,
+        )
+        self._validate_legacy_visibility(
+            entity, row.legacy_field_key, values["visibility"]
+        )
         await self._validate_validity(db, entity.novel_id, values["validity"])
         await self._validate_story_field_key(db, entity, values["story_field_key"])
         return {
@@ -1726,6 +2023,18 @@ class WorldObjectDossierService:
             if "story_field_key" in fields_set
             else row.story_field_key
         )
+        legacy_value = (
+            data.legacy_value
+            if "legacy_value" in fields_set
+            else None
+            if "content" in fields_set and content != row.content
+            else row.legacy_value_json
+        )
+        if "legacy_value" in fields_set and data.legacy_value is not None:
+            value_content = _display_value(data.legacy_value)
+            if "content" in fields_set and content != value_content:
+                raise ValidationError("结构化旧值与展示内容不一致")
+            content = value_content
         return {
             "content": content,
             "tags": tags,
@@ -1734,6 +2043,7 @@ class WorldObjectDossierService:
             "visibility": visibility,
             "validity": validity,
             "story_field_key": story_field_key,
+            "legacy_value": legacy_value,
         }
 
     async def update_entry(
@@ -1765,6 +2075,16 @@ class WorldObjectDossierService:
             )
         values = self._updated_values(row, data)
         self._validate_legacy_content(row.legacy_field_key, values["content"])
+        self._validate_strong_legacy_value(
+            entity,
+            row.legacy_field_key,
+            values["content"],
+            values["legacy_value"],
+            supplied="legacy_value" in data.model_fields_set,
+        )
+        self._validate_legacy_visibility(
+            entity, row.legacy_field_key, values["visibility"]
+        )
         clearing = not values["content"].strip()
         if clearing:
             values.update(
@@ -1781,6 +2101,7 @@ class WorldObjectDossierService:
             and values["visibility"] == row.visibility
             and values["validity"] == _validity_from_row(row)
             and values["story_field_key"] == row.story_field_key
+            and values["legacy_value"] == row.legacy_value_json
         ):
             if row.facing_kind == "project":
                 _term, revision = await self._vocabulary_record(
@@ -1825,9 +2146,7 @@ class WorldObjectDossierService:
             source=source,
             reason=reason or ("author_cleared" if clearing else "author_edit"),
             status="cleared" if clearing else "active",
-            legacy_value_json=(
-                row.legacy_value_json if values["content"] == row.content else None
-            ),
+            legacy_value_json=values["legacy_value"],
             metadata_json=source_metadata,
         )
         await self._sync_legacy_storage(
@@ -2008,14 +2327,14 @@ class WorldObjectDossierService:
         for active in active_rows:
             active.status = "superseded"
         if value is None or value == "":
-            if latest is not None:
+            if latest is not None or current is not None:
                 await self._make_revision(
                     db,
                     latest,
                     novel_id=character.novel_id,
                     entity_id=character.entity_id,
-                    entry_group_id=latest.entry_group_id,
-                    revision_number=latest.revision_number + 1,
+                    entry_group_id=latest.entry_group_id if latest else uuid.uuid4(),
+                    revision_number=latest.revision_number + 1 if latest else 1,
                     facing_kind="core",
                     facing_key=mapping[0],
                     vocabulary_term_id=None,
@@ -2113,6 +2432,37 @@ class WorldObjectDossierService:
             return
         value = legacy_value if legacy_value is not None else content
         self._validate_legacy_content(legacy_field_key, value)
+        strong = self._strong_legacy_binding(entity, legacy_field_key)
+        if strong is not None:
+            binding, field, _facing = strong
+            is_json = field.endswith("_json")
+            if is_json:
+                if content and not isinstance(legacy_value, list):
+                    raise ValidationError("结构化旧字段必须提供原类型数组值")
+                stored_value = legacy_value if isinstance(legacy_value, list) else []
+            elif field == "risk_level":
+                stored_value = content or "medium"
+            else:
+                stored_value = content or None
+            profile = await db.scalar(
+                select(binding.model)
+                .where(
+                    binding.model.novel_id == entity.novel_id,
+                    binding.model.entity_id == entity.id,
+                )
+                .with_for_update()
+            )
+            if profile is None:
+                profile = binding.model(
+                    novel_id=entity.novel_id,
+                    entity_id=entity.id,
+                    status="canonical",
+                    source="author",
+                )
+                db.add(profile)
+            setattr(profile, field, stored_value)
+            profile.updated_at = datetime.now(UTC)
+            return
         if (
             entity.entity_type == "character"
             and legacy_field_key in LEGACY_CHARACTER_FACINGS

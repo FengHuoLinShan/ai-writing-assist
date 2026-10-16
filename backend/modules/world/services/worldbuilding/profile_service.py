@@ -70,8 +70,39 @@ class WorldProfileService:
     ) -> WorldProfileResponse:
         entity = await self._get_entity(db, novel_id, entity_id, lock=True)
         if entity.entity_type in PROFILE_REGISTRY:
+            payload = data.model_dump(exclude_unset=True)
+            self.dossier.validate_strong_profile_payload(entity, payload)
+            normalized_data = data.model_copy(
+                update={
+                    field: None
+                    for field in PROFILE_REGISTRY[entity.entity_type].dossier_fields
+                    if payload.get(field) == ""
+                }
+            )
             await self._ensure_no_generic(db, entity, lock=True)
-            profile = await self._upsert_strong(db, entity, data, lock=True)
+            profile = await self._upsert_strong(db, entity, normalized_data, lock=True)
+            metadata = {
+                "profile_type": entity.entity_type,
+                "status": profile.status,
+                "source": profile.source,
+                "confidence": profile.confidence,
+                "evidence_refs_json": profile.evidence_refs_json or [],
+                "extra_json": profile.extra_json or {},
+            }
+            for field in PROFILE_REGISTRY[entity.entity_type].dossier_fields:
+                value = payload.get(field)
+                if field in payload and value is not None:
+                    await self.dossier.sync_strong_profile_field(
+                        db,
+                        entity,
+                        field,
+                        value,
+                        profile_metadata=metadata,
+                    )
+            if "status" in payload:
+                await self.dossier.sync_strong_profile_status(
+                    db, entity, profile.status
+                )
         else:
             profile = await self._upsert_generic(db, entity, data, lock=True)
         await db.flush()

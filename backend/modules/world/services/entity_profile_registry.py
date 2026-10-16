@@ -24,6 +24,7 @@ from modules.world.models import (
 class ProfileBinding:
     model: type
     fields: tuple[str, ...]
+    dossier_fields: dict[str, tuple[str, str]]
 
 
 PROFILE_REGISTRY: dict[str, ProfileBinding] = {
@@ -39,6 +40,15 @@ PROFILE_REGISTRY: dict[str, ProfileBinding] = {
             "language_summary",
             "public_baseline",
         ),
+        {
+            "origin_summary": ("history", "public"),
+            "physiology_summary": ("physiology_lifespan", "public"),
+            "lifespan": ("physiology_lifespan", "public"),
+            "abilities_json": ("abilities_weaknesses", "public"),
+            "weaknesses_json": ("abilities_weaknesses", "public"),
+            "culture_summary": ("culture_customs", "public"),
+            "language_summary": ("language", "public"),
+        },
     ),
     "faction": ProfileBinding(
         FactionProfile,
@@ -50,6 +60,13 @@ PROFILE_REGISTRY: dict[str, ProfileBinding] = {
             "resources_json",
             "public_baseline",
         ),
+        {
+            "ideology_summary": ("ideology", "public"),
+            "leader_entity_ids_json": ("structure_positions", "public"),
+            "member_rules": ("rules", "public"),
+            "territory_refs_json": ("resources", "public"),
+            "resources_json": ("resources", "public"),
+        },
     ),
     "location": ProfileBinding(
         LocationProfile,
@@ -61,6 +78,13 @@ PROFILE_REGISTRY: dict[str, ProfileBinding] = {
             "hazards_json",
             "controlling_faction_ids_json",
         ),
+        {
+            "map_refs_json": ("geography", "public"),
+            "climate": ("sensory_details", "public"),
+            "population_summary": ("appearance_people", "public"),
+            "resources_json": ("resources", "public"),
+            "hazards_json": ("dangers", "public"),
+        },
     ),
     "rule": ProfileBinding(
         RuleProfile,
@@ -71,6 +95,13 @@ PROFILE_REGISTRY: dict[str, ProfileBinding] = {
             "exceptions_json",
             "consequences_json",
         ),
+        {
+            "rule_domain": ("known_scope", "public"),
+            "principle_summary": ("principle", "public"),
+            "constraints_json": ("constraints", "public"),
+            "exceptions_json": ("exceptions", "public"),
+            "consequences_json": ("consequences", "public"),
+        },
     ),
     "item": ProfileBinding(
         ItemProfile,
@@ -81,6 +112,12 @@ PROFILE_REGISTRY: dict[str, ProfileBinding] = {
             "owner_entity_ids_json",
             "origin_summary",
         ),
+        {
+            "item_class": ("form_appearance", "public"),
+            "powers_json": ("abilities_limits", "public"),
+            "limitations_json": ("abilities_limits", "public"),
+            "origin_summary": ("origin", "public"),
+        },
     ),
     "secret": ProfileBinding(
         SecretProfile,
@@ -91,6 +128,11 @@ PROFILE_REGISTRY: dict[str, ProfileBinding] = {
             "reveal_status",
             "linked_target_refs_json",
         ),
+        {
+            "truth_summary": ("truth", "secret"),
+            "risk_level": ("risk", "secret"),
+            "linked_target_refs_json": ("reveal_plan", "secret"),
+        },
     ),
 }
 

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import hashlib
 import json
 import uuid
 from dataclasses import dataclass
@@ -19,14 +20,18 @@ from modules.project.facade import (
 )
 from modules.world.dossier_service import (
     CORE_FACINGS,
+    GENERIC_PROFILE_FIELD_PREFIX,
+    GENERIC_UNKNOWN_FACING_KEY,
     WorldObjectDossierService,
     _borrowed_core_facing_parts,
+    _display_value,
     _stored_core_facing_key,
 )
 from modules.world.models import (
     CoreEntity,
     EntityProfileTemplate,
     EntityProfileTemplateRevision,
+    GenericEntityProfile,
     WorldObjectDossierEntry,
 )
 from modules.world.schemas.dossier import (
@@ -41,12 +46,14 @@ from modules.world.schemas.dossier_manifest import (
     DossierManifest,
     DossierManifestApplyRequest,
     DossierManifestApplyResponse,
+    DossierManifestCompatibility,
     DossierManifestConflict,
     DossierManifestEntry,
     DossierManifestPreviewRequest,
     DossierManifestPreviewResponse,
     DossierManifestTemplate,
 )
+from modules.world.services.entity_profile_registry import PROFILE_REGISTRY
 from shared.utils import parse_uuid
 
 
@@ -78,7 +85,28 @@ def _target_group_id(
     return uuid.uuid5(uuid.NAMESPACE_URL, f"novelcraft:dossier-manifest:{source}")
 
 
-def _row_payload_hash(row: WorldObjectDossierEntry) -> str:
+def _row_compatibility(row: WorldObjectDossierEntry) -> dict[str, Any] | None:
+    if not row.legacy_field_key:
+        return None
+    metadata = row.metadata_json or {}
+    return {
+        "legacy_field_key": row.legacy_field_key,
+        "legacy_value": (
+            None
+            if metadata.get("generic_profile_legacy_value_is_null") is True
+            else row.legacy_value_json
+            if row.legacy_value_json is not None
+            else row.content
+        ),
+        "generic_profile_field_key": metadata.get("generic_profile_field_key"),
+        "generic_unmapped": row.facing_key == GENERIC_UNKNOWN_FACING_KEY,
+        "legacy_profile_source_only": False,
+    }
+
+
+def _row_payload_hash(
+    row: WorldObjectDossierEntry, *, include_compatibility: bool = True
+) -> str:
     validity = None
     if row.start_anchor_id or row.end_anchor_id:
         validity = {
@@ -107,6 +135,11 @@ def _row_payload_hash(row: WorldObjectDossierEntry) -> str:
             "visibility": row.visibility,
             "story_field_key": row.story_field_key,
             "validity": validity,
+            **(
+                {"compatibility": _row_compatibility(row)}
+                if include_compatibility and _row_compatibility(row) is not None
+                else {}
+            ),
         }
     )
 
@@ -132,6 +165,11 @@ def _source_payload_hash(entry: DossierManifestEntry) -> str:
             "validity": entry.validity.model_dump(mode="json")
             if entry.validity
             else None,
+            **(
+                {"compatibility": entry.compatibility.model_dump(mode="json")}
+                if entry.compatibility is not None
+                else {}
+            ),
         }
     )
 
@@ -211,6 +249,30 @@ class WorldDossierInterchangeService:
         )
         by_id = {row.id: row for row in rows}
         for entry in manifest.entries:
+            compatibility = entry.compatibility
+            if compatibility is not None and compatibility.legacy_profile_source_only:
+                profile = await db.scalar(
+                    select(GenericEntityProfile).where(
+                        GenericEntityProfile.novel_id == manifest.source_project_id,
+                        GenericEntityProfile.entity_id == manifest.source_entity_id,
+                        GenericEntityProfile.profile_type == manifest.source_entity_type,
+                    )
+                )
+                if profile is None:
+                    raise ConflictError("通用档案来源已变化，请重新导出档案清单")
+                field_key = compatibility.generic_profile_field_key
+                value = (profile.data_json or {}).get(field_key)
+                extra_values = (profile.extra_json or {}).get("unmapped_generic")
+                if field_key not in (profile.data_json or {}) and isinstance(
+                    extra_values, dict
+                ):
+                    value = extra_values.get(field_key)
+                    found_in_extra = field_key in extra_values
+                else:
+                    found_in_extra = field_key in (profile.data_json or {})
+                if not found_in_extra or value != compatibility.legacy_value:
+                    raise ConflictError("通用档案旧字段已变化，请重新导出档案清单")
+                continue
             row = by_id.get(entry.source_revision_id)
             if (
                 row is None
@@ -219,9 +281,64 @@ class WorldDossierInterchangeService:
                 or row.previous_revision_id != entry.previous_revision_id
                 or row.source != entry.source
                 or row.status != "active"
-                or _row_payload_hash(row) != _source_payload_hash(entry)
+                or _row_payload_hash(
+                    row, include_compatibility=compatibility is not None
+                )
+                != _source_payload_hash(entry)
             ):
                 raise ConflictError("来源档案修订或证据身份不符，请重新导出")
+
+    @staticmethod
+    def _manifest_entry_from_row(
+        row: WorldObjectDossierEntry,
+        *,
+        facing: DossierFacingRef | None = None,
+        facing_label: str | None = None,
+    ) -> DossierManifestEntry:
+        compatibility_data = _row_compatibility(row)
+        compatibility = (
+            DossierManifestCompatibility.model_validate(compatibility_data)
+            if compatibility_data is not None
+            else None
+        )
+        return DossierManifestEntry(
+            source_entry_group_id=row.entry_group_id,
+            source_revision_id=row.id,
+            source_revision_number=row.revision_number,
+            previous_revision_id=row.previous_revision_id,
+            facing=facing
+            or DossierFacingRef(kind="core", key=row.facing_key)
+            if row.facing_kind == "core"
+            else DossierFacingRef(kind="project", term_id=row.vocabulary_term_id),
+            facing_label=facing_label or row.facing_key,
+            content=row.content,
+            story_field_key=row.story_field_key,
+            tags=row.tags_json or [],
+            evidence=[
+                DossierEvidenceRef.model_validate(item)
+                for item in row.source_refs_json or []
+            ],
+            quote_text=row.quote_text,
+            source=row.source,
+            visibility=row.visibility,
+            validity=(
+                DossierValidity(
+                    start=(
+                        DossierAnchor(kind=row.start_anchor_kind, id=row.start_anchor_id)
+                        if row.start_anchor_kind and row.start_anchor_id
+                        else None
+                    ),
+                    end=(
+                        DossierAnchor(kind=row.end_anchor_kind, id=row.end_anchor_id)
+                        if row.end_anchor_kind and row.end_anchor_id
+                        else None
+                    ),
+                )
+                if row.start_anchor_id or row.end_anchor_id
+                else None
+            ),
+            compatibility=compatibility,
+        )
 
     async def export_manifest(
         self, db: AsyncSession, novel_id: str, entity_id: str
@@ -280,10 +397,75 @@ class WorldDossierInterchangeService:
                 source=item.source,
                 visibility=item.visibility,
                 validity=item.validity,
+                compatibility=(
+                    DossierManifestCompatibility.model_validate(
+                        _row_compatibility(
+                            await db.get(WorldObjectDossierEntry, item.id)
+                        )
+                    )
+                    if item.legacy_field_key
+                    else None
+                ),
             )
             for item in read.entries
             if item.status == "active"
         ]
+        row_ids = {
+            item.source_revision_id for item in entries
+        }
+        for field in read.legacy_profile_fields:
+            entry_id = field.source_metadata.get("entry_id")
+            if entry_id:
+                row = await db.get(WorldObjectDossierEntry, uuid.UUID(str(entry_id)))
+                if row is not None and row.id not in row_ids:
+                    entries.append(
+                        self._manifest_entry_from_row(
+                            row,
+                            facing=(
+                                DossierFacingRef(
+                                    kind="core", key=GENERIC_UNKNOWN_FACING_KEY
+                                )
+                                if field.facing is None
+                                else field.facing
+                            ),
+                            facing_label=field.label,
+                        )
+                    )
+                    row_ids.add(row.id)
+                continue
+            field_key = field.field_key
+            digest = hashlib.sha256(field_key.encode("utf-8")).hexdigest()
+            source = f"novelcraft:dossier-legacy-profile:{entity.id}:{field_key}"
+            group_id = uuid.uuid5(uuid.NAMESPACE_URL, source)
+            revision_id = uuid.uuid5(
+                uuid.NAMESPACE_URL,
+                f"{source}:{stable_hash(field.value)}",
+            )
+            displayed = _display_value(field.value) if field.value is not None else ""
+            if not displayed:
+                displayed = _canonical_json(field.value)
+            entries.append(
+                DossierManifestEntry(
+                    source_entry_group_id=group_id,
+                    source_revision_id=revision_id,
+                    source_revision_number=1,
+                    facing=field.facing
+                    or DossierFacingRef(kind="core", key=GENERIC_UNKNOWN_FACING_KEY),
+                    facing_label=field.label,
+                    content=displayed,
+                    source="legacy_import",
+                    visibility="secret",
+                    compatibility=DossierManifestCompatibility(
+                        legacy_field_key=f"{GENERIC_PROFILE_FIELD_PREFIX}{digest}",
+                        legacy_value=field.value,
+                        generic_profile_field_key=field_key,
+                        generic_unmapped=field.facing is None,
+                        legacy_profile_source_only=True,
+                    ),
+                )
+            )
+        if len(entries) > 250:
+            raise ValidationError("此对象档案超过单份 JSON 清单上限，请先分批整理")
         return DossierManifest(
             created_at=datetime.now(UTC),
             source_project_id=entity.novel_id,
@@ -430,17 +612,28 @@ class WorldDossierInterchangeService:
         skipped_ids = set(request.skip_conflicts)
         found_conflicts: list[DossierManifestConflict] = []
         for index, source in enumerate(manifest.entries):
-            target_facing = self._target_facing(
-                source.facing,
-                manifest.source_entity_type,
-                entity.entity_type,
-                manifest.source_project_id,
-                nid,
-                mapping_by_key,
+            if source.compatibility and source.compatibility.generic_unmapped:
+                target_facing = DossierFacingRef(
+                    kind="core", key=GENERIC_UNKNOWN_FACING_KEY
+                )
+            else:
+                target_facing = self._target_facing(
+                    source.facing,
+                    manifest.source_entity_type,
+                    entity.entity_type,
+                    manifest.source_project_id,
+                    nid,
+                    mapping_by_key,
+                )
+            compatibility_target = self._compatibility_target(
+                entity, manifest, source, target_facing, service
             )
-            stored_key, facing_label = await service._validate_facing(
-                db, nid, entity.entity_type, target_facing
-            )
+            if compatibility_target is not None:
+                target_facing, stored_key, facing_label = compatibility_target
+            else:
+                stored_key, facing_label = await service._validate_facing(
+                    db, nid, entity.entity_type, target_facing
+                )
             target_story_key = (
                 request.story_field_mappings.get(
                     source.story_field_key, source.story_field_key
@@ -579,6 +772,8 @@ class WorldDossierInterchangeService:
     def _source_faces(manifest: DossierManifest) -> set[str]:
         faces: set[str] = set()
         for item in manifest.entries:
+            if item.compatibility is not None and item.compatibility.generic_unmapped:
+                continue
             faces.add(_facing_key(item.facing, manifest.source_entity_type))
         if manifest.template is not None:
             for item in manifest.template.fields:
@@ -586,6 +781,65 @@ class WorldDossierInterchangeService:
             for item in manifest.template.borrowed_facings:
                 faces.add(_facing_key(item, manifest.source_entity_type))
         return faces
+
+    @staticmethod
+    def _compatibility_target(
+        entity: CoreEntity,
+        manifest: DossierManifest,
+        source: DossierManifestEntry,
+        target_facing: DossierFacingRef,
+        service: WorldObjectDossierService,
+    ) -> tuple[DossierFacingRef, str, str] | None:
+        compatibility = source.compatibility
+        if compatibility is None:
+            return None
+        if entity.entity_type != manifest.source_entity_type:
+            raise ValidationError("旧档案兼容字段只能导入相同对象类型")
+        if compatibility.generic_profile_field_key is not None:
+            field_key = compatibility.generic_profile_field_key
+            digest = hashlib.sha256(field_key.encode("utf-8")).hexdigest()
+            if (
+                entity.entity_type in PROFILE_REGISTRY
+                or entity.entity_type == "character"
+                or compatibility.legacy_field_key
+                != f"{GENERIC_PROFILE_FIELD_PREFIX}{digest}"
+                or source.visibility != "secret"
+                or source.story_field_key is not None
+                or source.validity is not None
+            ):
+                raise ValidationError("通用旧档案兼容字段不符合受限导入格式")
+            if compatibility.generic_unmapped:
+                if (
+                    source.facing.kind != "core"
+                    or source.facing.key != GENERIC_UNKNOWN_FACING_KEY
+                ):
+                    raise ValidationError("未映射通用档案必须保留私有载体")
+                target_facing = DossierFacingRef(
+                    kind="core", key=GENERIC_UNKNOWN_FACING_KEY
+                )
+                return target_facing, GENERIC_UNKNOWN_FACING_KEY, "未映射的旧档案字段"
+            return None
+        if compatibility.legacy_profile_source_only:
+            raise ValidationError("来源 Profile 字段缺少通用字段身份")
+        service._validate_legacy_field(
+            entity, target_facing, compatibility.legacy_field_key
+        )
+        service._validate_legacy_visibility(
+            entity, compatibility.legacy_field_key, source.visibility
+        )
+        service._validate_strong_legacy_value(
+            entity,
+            compatibility.legacy_field_key,
+            source.content,
+            compatibility.legacy_value,
+            supplied=True,
+        )
+        if (
+            compatibility.legacy_field_key == "secret"
+            and source.visibility != "secret"
+        ):
+            raise ValidationError("人物秘密档案必须保持秘密可见性")
+        return None
 
     @staticmethod
     def _target_facing(
@@ -638,6 +892,84 @@ class WorldDossierInterchangeService:
             return anchor
 
         return DossierValidity(start=resolve(validity.start), end=resolve(validity.end))
+
+    async def _apply_generic_compatibility_entry(
+        self,
+        db: AsyncSession,
+        entity: CoreEntity,
+        item: _PlannedEntry,
+        metadata: dict[str, Any],
+    ) -> None:
+        source = item.source
+        compatibility = source.compatibility
+        assert compatibility is not None
+        field_key = compatibility.generic_profile_field_key
+        assert field_key is not None
+        profile = await db.scalar(
+            select(GenericEntityProfile)
+            .where(
+                GenericEntityProfile.novel_id == entity.novel_id,
+                GenericEntityProfile.entity_id == entity.id,
+                GenericEntityProfile.profile_type == entity.entity_type,
+            )
+            .with_for_update()
+        )
+        if profile is None:
+            profile = GenericEntityProfile(
+                novel_id=entity.novel_id,
+                entity_id=entity.id,
+                profile_type=entity.entity_type,
+                status="draft",
+                source="legacy_import",
+                data_json={},
+                extra_json={},
+                evidence_refs_json=[],
+            )
+            db.add(profile)
+        elif profile.status == "migrated":
+            raise ConflictError("目标通用档案已迁移，无法恢复旧兼容字段")
+
+        previous = item.current
+        if previous is not None:
+            previous.status = "superseded"
+        row_metadata = {
+            **metadata,
+            "generic_profile_field_key": field_key,
+            "generic_profile_mapped": not compatibility.generic_unmapped,
+            **(
+                {"generic_profile_legacy_value_is_null": True}
+                if compatibility.legacy_value is None
+                else {}
+            ),
+        }
+        service = WorldObjectDossierService()
+        await service._make_revision(
+            db,
+            previous,
+            novel_id=entity.novel_id,
+            entity_id=entity.id,
+            entry_group_id=item.target_group_id,
+            revision_number=previous.revision_number + 1 if previous else 1,
+            facing_kind=item.target_facing.kind,
+            facing_key=item.target_facing_key,
+            vocabulary_term_id=item.target_facing.term_id,
+            legacy_field_key=compatibility.legacy_field_key,
+            content=source.content,
+            tags=source.tags,
+            evidence=[ref.model_dump(mode="json") for ref in item.target_evidence],
+            quote_text=source.quote_text,
+            visibility="secret",
+            validity=item.target_validity,
+            source="author",
+            reason=(
+                "dossier_manifest_import_update"
+                if previous
+                else "dossier_manifest_import"
+            ),
+            status="active",
+            legacy_value_json=compatibility.legacy_value,
+            metadata_json=row_metadata,
+        )
 
     async def apply(
         self,
@@ -700,9 +1032,36 @@ class WorldDossierInterchangeService:
                         else []
                     ),
                     "imported_entry_hash": self._planned_hash(item),
-                }
+                },
+                **(
+                    {
+                        "generic_profile_field_key": (
+                            source.compatibility.generic_profile_field_key
+                        ),
+                        "generic_profile_mapped": (
+                            not source.compatibility.generic_unmapped
+                        ),
+                    }
+                    if source.compatibility
+                    and source.compatibility.generic_profile_field_key is not None
+                    else {}
+                ),
             }
-            if item.action == "create":
+            if (
+                source.compatibility is not None
+                and source.compatibility.generic_profile_field_key is not None
+            ):
+                await self._apply_generic_compatibility_entry(
+                    db,
+                    await service._entity(db, novel_id, entity_id),
+                    item,
+                    metadata,
+                )
+                if item.action == "create":
+                    applied += 1
+                else:
+                    updated += 1
+            elif item.action == "create":
                 await service.create_entry(
                     db,
                     novel_id,
@@ -716,6 +1075,14 @@ class WorldDossierInterchangeService:
                         visibility=source.visibility,
                         validity=item.target_validity,
                         story_field_key=item.target_story_field_key,
+                        **(
+                            {
+                                "legacy_field_key": source.compatibility.legacy_field_key,
+                                "legacy_value": source.compatibility.legacy_value,
+                            }
+                            if source.compatibility
+                            else {}
+                        ),
                     ),
                     source="author",
                     source_metadata=metadata,
@@ -739,6 +1106,11 @@ class WorldDossierInterchangeService:
                         visibility=source.visibility,
                         validity=item.target_validity,
                         story_field_key=item.target_story_field_key,
+                        **(
+                            {"legacy_value": source.compatibility.legacy_value}
+                            if source.compatibility
+                            else {}
+                        ),
                     ),
                     source="author",
                     source_metadata=metadata,
@@ -773,6 +1145,16 @@ class WorldDossierInterchangeService:
                     item.target_validity.model_dump(mode="json")
                     if item.target_validity
                     else None
+                ),
+                **(
+                    {
+                        "compatibility": {
+                            **item.source.compatibility.model_dump(mode="json"),
+                            "legacy_profile_source_only": False,
+                        }
+                    }
+                    if item.source.compatibility is not None
+                    else {}
                 ),
             }
         )

@@ -129,6 +129,8 @@ class CharacterService(
         self,
         db: AsyncSession,
         entity: CoreEntity,
+        *,
+        explicitly_changed: set[str] | None = None,
     ) -> Character:
         """Ensure an adopted character identity has its minimum typed profile.
 
@@ -144,28 +146,41 @@ class CharacterService(
 
         existing = await self.repo.get(db, entity.id)
         core_meta = dict(entity.content_json or {})
+        explicitly_changed = explicitly_changed or set()
         scaffold_meta = {
             "auto_materialized": True,
             "source": "core_entity",
             "core_summary": entity.summary,
             "public_info": entity.public_info,
+            "core_hidden_truth": entity.hidden_truth,
         }
         if existing is not None:
             if existing.novel_id != entity.novel_id:
                 raise ValidationError("Character profile belongs to another novel")
             existing_meta = dict(existing.meta or {})
             if existing_meta.get("auto_materialized") is True:
+                secret_is_scaffold_owned = (
+                    "core_hidden_truth" in existing_meta
+                    and existing.secret == existing_meta["core_hidden_truth"]
+                )
                 existing_meta.update(scaffold_meta)
+                changes = {
+                    "name": entity.name,
+                    "aliases": self._core_aliases(core_meta),
+                    "meta": existing_meta,
+                    "status": "canonical",
+                }
+                secret_row = await self._latest_legacy_secret(db, entity)
+                if (
+                    "hidden_truth" in explicitly_changed
+                    and secret_row is None
+                    and secret_is_scaffold_owned
+                ):
+                    changes["secret"] = entity.hidden_truth
                 updated = await self.repo.update(
                     db,
                     existing,
-                    CharacterUpdate(
-                        name=entity.name,
-                        aliases=self._core_aliases(core_meta),
-                        secret=entity.hidden_truth,
-                        meta=existing_meta,
-                        status="canonical",
-                    ),
+                    CharacterUpdate(**changes),
                 )
                 assert updated is not None
                 return updated
@@ -186,11 +201,23 @@ class CharacterService(
                 entity_id=str(entity.id),
                 name=entity.name,
                 aliases=self._core_aliases(core_meta),
-                secret=entity.hidden_truth,
+                **(
+                    {"secret": entity.hidden_truth}
+                    if entity.hidden_truth is not None
+                    else {}
+                ),
                 meta=scaffold_meta,
                 status="canonical",
             ),
         )
+
+    async def _latest_legacy_secret(self, db: AsyncSession, entity: CoreEntity):
+        from modules.world.dossier_repository import WorldObjectDossierRepository
+
+        latest = await WorldObjectDossierRepository().latest_legacy_field(
+            db, entity.novel_id, entity.id, "secret"
+        )
+        return latest if latest and latest.status in {"active", "cleared"} else None
 
     @staticmethod
     def _core_aliases(content_json: dict) -> list[dict]:

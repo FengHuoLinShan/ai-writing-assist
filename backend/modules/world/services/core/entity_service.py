@@ -661,7 +661,9 @@ class WorldEntityService(
         if updated.status == "canonical" and updated.entity_type == "character":
             from modules.world.services.core.character_service import CharacterService
 
-            await CharacterService().ensure_for_core_entity(db, updated)
+            await CharacterService().ensure_for_core_entity(
+                db, updated, explicitly_changed=data.model_fields_set
+            )
         result = self._to_response(updated)
         stale_reasons: list[str] = []
         if "name" in changed:
@@ -999,7 +1001,9 @@ class WorldEntityService(
         if updated.entity_type == "character":
             from modules.world.services.core.character_service import CharacterService
 
-            await CharacterService().ensure_for_core_entity(db, updated)
+            await CharacterService().ensure_for_core_entity(
+                db, updated, explicitly_changed=set(changes)
+            )
         try:
             from modules.evidence.facade import mark_asset_context_changed
 

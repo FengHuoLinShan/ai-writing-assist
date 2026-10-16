@@ -1,6 +1,7 @@
 """World dossier revision and legacy Character compatibility regressions."""
 
 import uuid
+from copy import deepcopy
 
 import pytest
 from httpx import AsyncClient
@@ -715,6 +716,192 @@ async def test_dossier_manifest_roundtrip_requires_cross_project_maps(
 
 
 @pytest.mark.asyncio
+async def test_generic_profile_unmapped_json_roundtrips_through_cross_project_manifest(
+    async_client: AsyncClient,
+    db_session,
+) -> None:
+    source_project = await async_client.post(
+        "/api/projects", json={"title": "通用旧档案来源"}
+    )
+    target_project = await async_client.post(
+        "/api/projects", json={"title": "通用旧档案目标"}
+    )
+    assert source_project.status_code == 201, source_project.text
+    assert target_project.status_code == 201, target_project.text
+    source_novel_id = source_project.json()["id"]
+    target_novel_id = target_project.json()["id"]
+    source_entity = await async_client.post(
+        "/api/world/entities",
+        params={"novel_id": source_novel_id},
+        json={"entity_type": "spirit_beast", "name": "来源山灵", "status": "canonical"},
+    )
+    target_entity = await async_client.post(
+        "/api/world/entities",
+        params={"novel_id": target_novel_id},
+        json={"entity_type": "spirit_beast", "name": "目标山灵", "status": "canonical"},
+    )
+    assert source_entity.status_code == 201, source_entity.text
+    assert target_entity.status_code == 201, target_entity.text
+    raw_value = {"nested": [None, 1, {"ok": True}]}
+    saved_profile = await async_client.put(
+        f"/api/world/profiles/{source_entity.json()['id']}",
+        params={"novel_id": source_novel_id},
+        json={"data_json": {"unregistered_extension": raw_value}},
+    )
+    assert saved_profile.status_code == 200, saved_profile.text
+    exported = await async_client.get(
+        f"/api/world/entities/{source_entity.json()['id']}/dossier/manifest",
+        params={"novel_id": source_novel_id},
+    )
+    assert exported.status_code == 200, exported.text
+    manifest = exported.json()
+    compatibility_entry = next(
+        item for item in manifest["entries"] if item.get("compatibility")
+    )
+    assert compatibility_entry["compatibility"]["legacy_value"] == raw_value
+    assert compatibility_entry["compatibility"]["generic_unmapped"] is True
+    assert compatibility_entry["visibility"] == "secret"
+
+    preview_url = (
+        f"/api/world/entities/{target_entity.json()['id']}/dossier/manifest/preview"
+    )
+    apply_url = (
+        f"/api/world/entities/{target_entity.json()['id']}/dossier/manifest/apply"
+    )
+    preview = await async_client.post(
+        preview_url,
+        params={"novel_id": target_novel_id},
+        json={"manifest": manifest},
+    )
+    assert preview.status_code == 200, preview.text
+    assert preview.json()["can_apply"] is True
+    applied = await async_client.post(
+        apply_url,
+        params={"novel_id": target_novel_id},
+        json={
+            "manifest": manifest,
+            "confirmed": True,
+            "expected_preview_hash": preview.json()["preview_hash"],
+        },
+    )
+    assert applied.status_code == 200, applied.text
+    assert applied.json()["applied_count"] == len(manifest["entries"])
+    legacy_read = await async_client.get(
+        f"/api/world/profiles/{target_entity.json()['id']}",
+        params={"novel_id": target_novel_id},
+    )
+    assert legacy_read.status_code == 200, legacy_read.text
+    assert legacy_read.json()["data_json"]["unregistered_extension"] == raw_value
+    public_dossier = await WorldObjectDossierService().read(
+        db_session,
+        target_novel_id,
+        target_entity.json()["id"],
+        visibility_filter="public",
+    )
+    assert all(
+        item.get("legacy_field_key")
+        != compatibility_entry["compatibility"]["legacy_field_key"]
+        for item in public_dossier.entries
+    )
+
+
+@pytest.mark.asyncio
+async def test_strong_profile_json_and_v1_manifest_roundtrip(
+    async_client: AsyncClient,
+) -> None:
+    source_project = await async_client.post(
+        "/api/projects", json={"title": "强档案来源"}
+    )
+    target_project = await async_client.post(
+        "/api/projects", json={"title": "强档案目标"}
+    )
+    assert source_project.status_code == target_project.status_code == 201
+    source_novel_id = source_project.json()["id"]
+    target_novel_id = target_project.json()["id"]
+    source_entity = await async_client.post(
+        "/api/world/entities",
+        params={"novel_id": source_novel_id},
+        json={"entity_type": "species", "name": "来源灵族", "status": "canonical"},
+    )
+    target_entity = await async_client.post(
+        "/api/world/entities",
+        params={"novel_id": target_novel_id},
+        json={"entity_type": "species", "name": "目标灵族", "status": "canonical"},
+    )
+    assert source_entity.status_code == target_entity.status_code == 201
+    value = [{"name": "夜视", "range": ["月下", "洞穴"]}, {"name": "耐寒"}]
+    saved = await async_client.put(
+        f"/api/world/profiles/{source_entity.json()['id']}",
+        params={"novel_id": source_novel_id},
+        json={"status": "canonical", "abilities_json": value},
+    )
+    assert saved.status_code == 200, saved.text
+    exported = await async_client.get(
+        f"/api/world/entities/{source_entity.json()['id']}/dossier/manifest",
+        params={"novel_id": source_novel_id},
+    )
+    assert exported.status_code == 200, exported.text
+    manifest = exported.json()
+    strong_entry = next(
+        item for item in manifest["entries"] if item.get("compatibility")
+    )
+    assert strong_entry["compatibility"]["legacy_value"] == value
+    assert (
+        strong_entry["compatibility"]["legacy_field_key"]
+        == "species_profiles.abilities_json"
+    )
+
+    # Version 1 remains readable with the old entry shape.
+    v1_manifest = {**deepcopy(manifest), "format_version": 1}
+    for item in v1_manifest["entries"]:
+        item.pop("compatibility", None)
+    from modules.world.schemas.dossier_manifest import DossierManifest
+
+    assert DossierManifest.model_validate(v1_manifest).format_version == 1
+    preview_url = (
+        f"/api/world/entities/{target_entity.json()['id']}/dossier/manifest/preview"
+    )
+    apply_url = (
+        f"/api/world/entities/{target_entity.json()['id']}/dossier/manifest/apply"
+    )
+    preview = await async_client.post(
+        preview_url,
+        params={"novel_id": target_novel_id},
+        json={"manifest": manifest},
+    )
+    assert preview.status_code == 200, preview.text
+    applied = await async_client.post(
+        apply_url,
+        params={"novel_id": target_novel_id},
+        json={
+            "manifest": manifest,
+            "confirmed": True,
+            "expected_preview_hash": preview.json()["preview_hash"],
+        },
+    )
+    assert applied.status_code == 200, applied.text
+    assert applied.json()["applied_count"] == len(manifest["entries"])
+    target_dossier = await async_client.get(
+        f"/api/world/entities/{target_entity.json()['id']}/dossier",
+        params={"novel_id": target_novel_id},
+    )
+    assert target_dossier.status_code == 200, target_dossier.text
+    assert target_dossier.json()["entries"], target_dossier.json()
+    assert any(
+        item["legacy_field_key"] == "species_profiles.abilities_json"
+        for item in target_dossier.json()["entries"]
+    ), repr(target_dossier.json()["entries"][0])
+    target_profile = await async_client.get(
+        f"/api/world/profiles/{target_entity.json()['id']}",
+        params={"novel_id": target_novel_id},
+    )
+    assert target_profile.status_code == 200, target_profile.text
+    assert target_profile.json()["fields"].get("abilities_json") == value, (
+        target_profile.json()
+    )
+
+
+@pytest.mark.asyncio
 async def test_generic_profile_fields_map_by_template_key_and_keep_unknown_values(
     async_client: AsyncClient,
     db_session,
@@ -920,6 +1107,184 @@ async def test_generic_profile_fields_map_by_template_key_and_keep_unknown_value
     )
     assert history.status_code == 200, history.text
     assert history.json()["total_count"] == 3
+
+
+@pytest.mark.asyncio
+async def test_strong_profile_and_dossier_stay_in_sync(
+    async_client: AsyncClient,
+    db_session,
+) -> None:
+    project = await async_client.post("/api/projects", json={"title": "强档案双向同步"})
+    assert project.status_code == 201, project.text
+    novel_id = project.json()["id"]
+    cases = [
+        ("species", "origin_summary", "history", "起源于雾海"),
+        (
+            "faction",
+            "resources_json",
+            "resources",
+            [{"name": "盐铁", "amount": 3}],
+        ),
+        ("location", "climate", "sensory_details", "潮湿的冷风"),
+        ("rule", "rule_domain", "known_scope", "只限北境"),
+        ("item", "powers_json", "abilities_limits", [{"label": "照明"}]),
+        ("secret", "truth_summary", "truth", "盟主仍然在世"),
+    ]
+    dossier_rows = {}
+    for entity_type, field, facing, value in cases:
+        entity = await async_client.post(
+            "/api/world/entities",
+            params={"novel_id": novel_id},
+            json={"entity_type": entity_type, "name": entity_type, "status": "canonical"},
+        )
+        assert entity.status_code == 201, entity.text
+        entity_id = entity.json()["id"]
+        profile = await async_client.put(
+            f"/api/world/profiles/{entity_id}",
+            params={"novel_id": novel_id},
+            json={"status": "canonical", field: value},
+        )
+        assert profile.status_code == 200, profile.text
+        dossier = await async_client.get(
+            f"/api/world/entities/{entity_id}/dossier",
+            params={"novel_id": novel_id},
+        )
+        assert dossier.status_code == 200, dossier.text
+        row = next(
+            item
+            for item in dossier.json()["entries"]
+            if item["legacy_field_key"]
+            == f"{entity_type}_profiles.{field}"
+        )
+        assert row["facing"]["key"] == facing
+        assert row["visibility"] == ("secret" if entity_type == "secret" else "public")
+        assert row["legacy_value"] == (value if field.endswith("_json") else None)
+        dossier_rows[field] = (entity_id, row)
+
+    array_entity_id, array_row = dossier_rows["resources_json"]
+    prose_only = await async_client.patch(
+        f"/api/world/entities/{array_entity_id}/dossier/entries/{array_row['id']}",
+        params={"novel_id": novel_id},
+        json={"expected_revision_id": array_row["id"], "content": "盐铁：4"},
+    )
+    assert prose_only.status_code == 400, prose_only.text
+    unchanged_dossier = await async_client.get(
+        f"/api/world/entities/{array_entity_id}/dossier",
+        params={"novel_id": novel_id},
+    )
+    current_array_row = next(
+        item
+        for item in unchanged_dossier.json()["entries"]
+        if item["legacy_field_key"] == "faction_profiles.resources_json"
+    )
+    assert current_array_row["id"] == array_row["id"]
+    changed_value = [{"name": "盐铁", "amount": 4}]
+    updated = await async_client.patch(
+        f"/api/world/entities/{array_entity_id}/dossier/entries/{current_array_row['id']}",
+        params={"novel_id": novel_id},
+        json={
+            "expected_revision_id": current_array_row["id"],
+            "legacy_value": changed_value,
+        },
+    )
+    assert updated.status_code == 200, updated.text
+    profile = await async_client.get(
+        f"/api/world/profiles/{array_entity_id}", params={"novel_id": novel_id}
+    )
+    assert profile.json()["fields"]["resources_json"] == changed_value
+
+    scalar_entity_id, scalar_row = dossier_rows["origin_summary"]
+    edited = await async_client.patch(
+        f"/api/world/entities/{scalar_entity_id}/dossier/entries/{scalar_row['id']}",
+        params={"novel_id": novel_id},
+        json={
+            "expected_revision_id": scalar_row["id"],
+            "content": "起源于远古森林",
+        },
+    )
+    assert edited.status_code == 200, edited.text
+    unchanged = await async_client.put(
+        f"/api/world/profiles/{scalar_entity_id}",
+        params={"novel_id": novel_id},
+        json={"origin_summary": None},
+    )
+    assert unchanged.status_code == 200, unchanged.text
+    assert unchanged.json()["fields"]["origin_summary"] == "起源于远古森林"
+    cleared = await async_client.patch(
+        f"/api/world/entities/{scalar_entity_id}/dossier/entries/{edited.json()['id']}",
+        params={"novel_id": novel_id},
+        json={
+            "expected_revision_id": edited.json()["id"],
+            "content": "",
+        },
+    )
+    assert cleared.status_code == 200, cleared.text
+    assert cleared.json()["status"] == "cleared"
+    profile = await async_client.get(
+        f"/api/world/profiles/{scalar_entity_id}", params={"novel_id": novel_id}
+    )
+    assert profile.json()["fields"]["origin_summary"] is None
+
+    secret_entity_id, secret_row = dossier_rows["truth_summary"]
+    public = await WorldObjectDossierService().read(
+        db_session,
+        novel_id,
+        secret_entity_id,
+        visibility_filter="public",
+    )
+    assert all(item.id != uuid.UUID(secret_row["id"]) for item in public.entries)
+
+
+@pytest.mark.asyncio
+async def test_draft_strong_profile_needs_explicit_status_adoption(
+    async_client: AsyncClient,
+) -> None:
+    project = await async_client.post("/api/projects", json={"title": "强档案状态同步"})
+    assert project.status_code == 201, project.text
+    novel_id = project.json()["id"]
+    entity = await async_client.post(
+        "/api/world/entities",
+        params={"novel_id": novel_id},
+        json={"entity_type": "species", "name": "待审种族", "status": "canonical"},
+    )
+    assert entity.status_code == 201, entity.text
+    entity_id = entity.json()["id"]
+    draft = await async_client.put(
+        f"/api/world/profiles/{entity_id}",
+        params={"novel_id": novel_id},
+        json={"status": "draft", "origin_summary": "候选起源"},
+    )
+    assert draft.status_code == 200, draft.text
+    dossier = await async_client.get(
+        f"/api/world/entities/{entity_id}/dossier", params={"novel_id": novel_id}
+    )
+    assert all(
+        item["legacy_field_key"] != "species_profiles.origin_summary"
+        for item in dossier.json()["entries"]
+    )
+    history = await async_client.get(
+        f"/api/world/entities/{entity_id}/dossier/history",
+        params={"novel_id": novel_id},
+    )
+    assert history.json()["entries"][0]["status"] == "needs_review"
+
+    adopted = await async_client.put(
+        f"/api/world/profiles/{entity_id}",
+        params={"novel_id": novel_id},
+        json={"status": "canonical"},
+    )
+    assert adopted.status_code == 200, adopted.text
+    history = await async_client.get(
+        f"/api/world/entities/{entity_id}/dossier/history",
+        params={"novel_id": novel_id},
+    )
+    current = next(
+        item
+        for item in history.json()["entries"]
+        if item["legacy_field_key"] == "species_profiles.origin_summary"
+    )
+    assert current["status"] == "active"
+    assert current["content"] == "候选起源"
 
 
 @pytest.mark.asyncio

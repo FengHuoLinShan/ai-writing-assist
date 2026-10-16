@@ -68,6 +68,7 @@ class DossierEntryCreate(BaseModel):
 
     facing: DossierFacingRef
     legacy_field_key: str | None = Field(default=None, min_length=1, max_length=96)
+    legacy_value: Any | None = None
     story_field_key: str | None = Field(
         default=None, max_length=64, pattern=r"^[a-z][a-z0-9_]{0,63}$"
     )
@@ -91,6 +92,7 @@ class DossierEntryUpdate(BaseModel):
 
     expected_revision_id: uuid.UUID
     content: str | None = Field(default=None, max_length=20000)
+    legacy_value: Any | None = None
     tags: list[str] | None = Field(default=None, max_length=24)
     evidence: list[DossierEvidenceRef] | None = Field(default=None, max_length=16)
     quote_text: str | None = Field(default=None, max_length=4000)
