@@ -159,4 +159,45 @@ describe("ChapterOrderDialog", () => {
     expect(wrapper.findAll("button").some((button) => button.text() === "确认恢复章节顺序")).toBe(false)
     expect(api.writing.restoreChapterOrder).not.toHaveBeenCalled()
   })
+
+  it("恢复成功后按原回执通知写作页重载当前章节", async () => {
+    api.writing.listChapterOrderHistory.mockResolvedValue({
+      items: [{
+        receipt_id: "receipt-old",
+        status: "executed",
+        source_order: [1, 2],
+        target_order: [2, 1],
+        can_restore: true,
+      }],
+    })
+    api.writing.previewChapterOrderRestore.mockResolvedValue({
+      receipt_id: "receipt-old",
+      can_restore: true,
+      restore_preview_hash: "d".repeat(64),
+      blockers: [],
+    })
+    api.writing.restoreChapterOrder.mockResolvedValue({
+      receipt_id: "receipt-old",
+      status: "restored",
+      chapter_map: { 1: 2, 2: 1 },
+    })
+    wrapper = mountDialog()
+    await flushPromises()
+    await wrapper.findAll("button").find((button) => button.text() === "历史与恢复").trigger("click")
+    await flushPromises()
+    await wrapper.findAll("button").find((button) => button.text() === "预览恢复").trigger("click")
+    await flushPromises()
+    await wrapper.findAll("button").find((button) => button.text() === "确认恢复章节顺序").trigger("click")
+    await flushPromises()
+
+    expect(api.writing.restoreChapterOrder).toHaveBeenCalledWith(
+      "project-1", "receipt-old", "d".repeat(64),
+    )
+    expect(wrapper.emitted("completed")[0][0]).toMatchObject({
+      restored: true,
+      projectId: "project-1",
+      selectedChapter: 2,
+      result: { status: "restored" },
+    })
+  })
 })

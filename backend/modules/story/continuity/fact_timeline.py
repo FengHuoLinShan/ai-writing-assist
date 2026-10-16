@@ -109,7 +109,10 @@ class StoryFactTimelineService:
             unknown_query = unknown_query.where(MemoryEvent.entity_id == query.entity_id)
         if query.source is not None:
             unknown_query = unknown_query.where(MemoryEvent.source == query.source)
-        unknown_time_count = int(await db.scalar(unknown_query) or 0)
+        # An unanchored event cannot be placed before a Scene cutoff.
+        unknown_time_count = (
+            int(await db.scalar(unknown_query) or 0) if cutoff is None else 0
+        )
 
         page = (
             await db.execute(
@@ -223,16 +226,24 @@ class StoryFactTimelineService:
             }
             if len(entity_options) >= 200:
                 break
+        scene_options_query = select(Scene.id, Scene.scene_index, Scene.title).where(
+            Scene.novel_id == nid
+        )
+        if cutoff is not None:
+            scene_options_query = scene_options_query.where(
+                Scene.scene_index <= int(cutoff.scene_index)
+            )
         scene_options = (
             await db.execute(
-                select(Scene.id, Scene.scene_index, Scene.title)
-                .where(Scene.novel_id == nid)
-                .order_by(Scene.scene_index, Scene.id)
-                .limit(2000)
+                scene_options_query.order_by(Scene.scene_index, Scene.id).limit(2000)
             )
         ).all()
-        pending_reviews = await StoryChapterOrderService().list_pending_plan_reviews(
-            db, novel_id
+        # Plan revalidation references are novel-wide; do not expose their
+        # labels or counts in a Scene-bounded timeline.
+        pending_reviews = (
+            await StoryChapterOrderService().list_pending_plan_reviews(db, novel_id)
+            if cutoff is None
+            else []
         )
         return StoryFactTimelineResponse(
             items=items,
@@ -293,6 +304,7 @@ class StoryFactTimelineService:
                 or_(Scene.id.is_(None), MemoryEvent.scene_id.is_(None))
             )
         elif query.status == "stale":
+            statement = statement.where(Scene.id.is_not(None))
             if pending_scene_ids:
                 statement = statement.where(
                     or_(
@@ -343,22 +355,22 @@ def _current_chapter_index(
         return None
     event_time = _as_utc(event.created_at)
     chapter_index = int(event.chapter_index)
+    transitions: list[tuple[datetime, int, str, dict[int, int]]] = []
     for receipt in receipts:
         applied_at = _as_utc(receipt.created_at)
         mapping = {
             int(source): int(target)
             for source, target in (receipt.chapter_map_json or {}).items()
         }
-        if applied_at is not None and event_time is not None and event_time < applied_at:
-            chapter_index = mapping.get(chapter_index, chapter_index)
+        if applied_at is not None:
+            transitions.append((applied_at, 0, str(receipt.id), mapping))
         restored_at = _as_utc(receipt.restored_at)
-        if (
-            restored_at is not None
-            and event_time is not None
-            and event_time < restored_at
-        ):
+        if restored_at is not None:
             inverse = {target: source for source, target in mapping.items()}
-            chapter_index = inverse.get(chapter_index, chapter_index)
+            transitions.append((restored_at, 1, str(receipt.id), inverse))
+    for occurred_at, _phase, _receipt_id, mapping in sorted(transitions):
+        if event_time is not None and event_time < occurred_at:
+            chapter_index = mapping.get(chapter_index, chapter_index)
     return chapter_index
 
 

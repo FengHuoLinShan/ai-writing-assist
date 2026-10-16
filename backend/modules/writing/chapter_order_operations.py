@@ -6,7 +6,9 @@ from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field
 
+from core.container import get
 from core.errors import ConflictError, ValidationError
+from core.service_keys import ASSISTANT_REQUIRE_OPERATION_TARGETS
 from modules.writing.facade import (
     confirm_chapter_order,
     list_chapter_order_history,
@@ -54,8 +56,18 @@ class ChapterOrderHistoryArgs(BaseModel):
     limit: int = Field(default=20, ge=1, le=100)
 
 
+async def _require_whole_novel_scope(db, novel_id, context):
+    if context is None:
+        return
+    if context.work.scope != "project":
+        raise ConflictError("章节重排涉及整部作品，请在项目范围或写作工作台核对")
+    await get(ASSISTANT_REQUIRE_OPERATION_TARGETS)(
+        db, novel_id, context, [], aggregate=True
+    )
+
+
 async def _reorder_prepare(db, novel_id, args, *, context=None):
-    del context
+    await _require_whole_novel_scope(db, novel_id, context)
     if not args.chapter_indices:
         raise ValidationError("请提交章节的目标顺序")
     result = await preview_chapter_order(
@@ -67,7 +79,7 @@ async def _reorder_prepare(db, novel_id, args, *, context=None):
 
 
 async def _reorder_apply(db, novel_id, args, preview, *, context=None):
-    del context
+    await _require_whole_novel_scope(db, novel_id, context)
     if (
         args.expected_preview_hash
         and args.expected_preview_hash != preview["preview_hash"]
@@ -86,14 +98,14 @@ async def _reorder_apply(db, novel_id, args, preview, *, context=None):
 
 
 async def _restore_prepare(db, novel_id, args, *, context=None):
-    del context
+    await _require_whole_novel_scope(db, novel_id, context)
     return (
         await preview_chapter_order_restore(db, novel_id, str(args.receipt_id))
     ).model_dump(mode="json")
 
 
 async def _restore_apply(db, novel_id, args, preview, *, context=None):
-    del context
+    await _require_whole_novel_scope(db, novel_id, context)
     if not preview.get("can_restore"):
         raise ConflictError("恢复预览存在冲突，请先处理章节来源变化")
     if (
@@ -114,7 +126,7 @@ async def _restore_apply(db, novel_id, args, preview, *, context=None):
 
 
 async def _history_read(db, novel_id, args, *, context=None):
-    del context
+    await _require_whole_novel_scope(db, novel_id, context)
     result = await list_chapter_order_history(db, novel_id, limit=args.limit)
     return result.model_dump(mode="json")
 

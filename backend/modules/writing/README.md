@@ -13,8 +13,13 @@ Writing 模块是章节正文的事实源，同时负责在 fresh context confir
 
 Assistant v8 A1 首批复用当前工作稿服务，提供标题改名、编辑准备标记、当前锚点批注处置
 及确定性冲突检查。章节改名从最新版本载入原正文并强制保存标题版；窄检查只接收当前
-draft ID/hash 与可选 Scene，不接受任意正文。作者预览指纹过期返回冲突；没有安全章节
-重排服务，本批不修改 `chapter_index`。
+draft ID/hash 与可选 Scene，不接受任意正文。作者预览指纹过期返回冲突。
+
+后续章节重排由 `WritingChapterOrderService` 管理完整目录：预览持久化来源指纹，R3 确认
+按现有章节位置置换所有版本及批注，Story 绑定经公开端口同事务迁移；正文 UUID、版本号与
+内容 hash 保留。恢复先重验重排后的 Writing/Story 来源；新增编辑或冲突返回 409。
+Assistant 目录只接受无排除、无原 Evidence 确认的项目范围，Scene 范围不能读取整书历史
+或确认完整目录；作者 HTTP 工作台仍按 owner 和 `novel_id` 验权。
 
 世界对象、人物档案、剧情线和 Scene 等结构化资产仍由各自领域模块拥有；writing
 只消费其稳定 context/contract，不复制结构正史。

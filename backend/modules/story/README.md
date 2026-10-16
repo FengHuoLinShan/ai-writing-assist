@@ -329,6 +329,13 @@ Assistant v8 首批 `story.scene.reorder/merge/split` 复用 Scene Workbench：�
 来源和内容基线在准备与执行时重验；合并/拆分为 R3 作者确认。窄拆分 HTTP 入口只接受
 章节/正文偏移与新 Scene 标题/状态，不接受旧宽体 `draft_scenes`。已有
 `story.edit_information_plan` 仅编辑伏笔/揭示的计划章节字段，不等于任意事实时间线。
+`continuity.fact_timeline` 则只投影已记录的 `MemoryEvent`：按作者 Scene 顺序、
+对象、来源和状态分页读取；物理章节位置通过按发生时间排列的重排及恢复回执投影，
+不改写历史事件。Assistant 当前 Scene 读取强制以可信工作 Scene 为截止，未知时点事件、
+后续 Scene 选项和整书待重验计划不会进入该范围；项目范围要求无排除、无旧确认限制。
+它查询 continuity 自有的 `MemoryEvent`，沿用既有事件事实源；旧 `MemoryService.list_events`
+和 `get_entity_timeline` 仅按物理章节或单一对象读取，不能表达 Scene 截止、状态、来源及
+筛选选项，因此这里增加只读投影，不另存事件或修改已有写入链。
 试改独立保存，采用仍验证当前结构版本。`observations.py` 保留 RP `observation_v2` 的输入刺激、私有意图和可观察事件语义；
 `simulation_v3.py` 承载共享意图、有限结算、差量和回放算法。说法不是事实，未知资源、路线或唯一资源冲突
 不宣告成功。旧 `rehearsal_v1` / `observation_v2` 记录按原协议只读，不迁移。

@@ -166,6 +166,7 @@ async def preview_writing_chapter_order(
     openapi_extra={
         "x-novelcraft-operation-id": "writing.chapter.reorder",
         "x-novelcraft-operation-phase": "execute",
+        "x-novelcraft-operation-call-id-field": "receipt_id",
         "x-novelcraft-operation-confirmation-field": "data.confirmed",
         "x-novelcraft-operation-trace-fields": {
             "chapter_indices": "data.chapter_indices",
@@ -229,8 +230,10 @@ async def preview_writing_chapter_order_restore(
     openapi_extra={
         "x-novelcraft-operation-id": "writing.chapter.reorder.restore",
         "x-novelcraft-operation-phase": "execute",
+        "x-novelcraft-operation-call-id-field": "receipt_id",
         "x-novelcraft-operation-confirmation-field": "data.confirmed",
         "x-novelcraft-operation-terminal-event": "restored",
+        "x-novelcraft-operation-reversal-op-ids": ("writing.chapter.reorder",),
         "x-novelcraft-operation-trace-fields": {
             "receipt_id": "receipt_id",
             "expected_preview_hash": "data.expected_preview_hash",

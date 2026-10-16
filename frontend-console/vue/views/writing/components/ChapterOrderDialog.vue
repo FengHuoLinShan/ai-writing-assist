@@ -410,6 +410,7 @@ function formatDate(value) {
   width: min(46rem, calc(100vw - 1.5rem));
   max-width: none;
   max-height: min(92dvh, 58rem);
+  margin: auto;
   padding: 0;
   overflow: auto;
   color: var(--text-primary, #202a32);

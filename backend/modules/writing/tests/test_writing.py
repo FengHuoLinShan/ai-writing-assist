@@ -271,9 +271,11 @@ class TestWritingDraftRepository:
         novel_id = uuid.uuid4()
         rows = MagicMock()
         rows.all.return_value = [(1, 3)]
+        catalog_rows = MagicMock()
+        catalog_rows.all.return_value = [(1,)]
         db = MagicMock()
         db.get_bind.return_value = SimpleNamespace(dialect=SimpleNamespace(name="sqlite"))
-        db.execute = AsyncMock(return_value=rows)
+        db.execute = AsyncMock(side_effect=[catalog_rows, rows])
         db.flush = AsyncMock()
         items = [
             WritingDraftCreate(
@@ -293,7 +295,7 @@ class TestWritingDraftRepository:
         assert len(drafts) == 100
         assert drafts[0].version_number == 4
         assert drafts[-1].version_number == 1
-        db.execute.assert_awaited_once()
+        assert db.execute.await_count == 2  # catalog read, then one grouped version read
         db.flush.assert_awaited_once()
         db.add_all.assert_called_once_with(drafts)
 

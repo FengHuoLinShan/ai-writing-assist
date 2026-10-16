@@ -7,6 +7,9 @@ from sqlalchemy import select
 
 from core.container import container_scope
 from core.errors import ConflictError
+from core.service_keys import ASSISTANT_REQUIRE_OPERATION_TARGETS
+from modules.assistant.contracts import AssistantOperationContext, WorkContext
+from modules.assistant.operation_scope import require_operation_targets
 from modules.story.continuity.chapter_order import StoryChapterOrderService
 from modules.story.continuity.models import (
     MemoryEvent,
@@ -17,12 +20,19 @@ from modules.story.continuity.models import (
 )
 from modules.story.outline_state.models import (
     ForeshadowingPlan,
+    OutlineArc,
     PlotThread,
     RevealPlan,
     Scene,
     SceneChapterLink,
     SceneSpan,
     SceneSummaryCheckpoint,
+)
+from modules.writing.chapter_order_operations import (
+    ChapterOrderHistoryArgs,
+    ChapterOrderOperationArgs,
+    _history_read,
+    _reorder_prepare,
 )
 from modules.writing.draft_service import WritingChapterOrderService
 from modules.writing.models import (
@@ -32,6 +42,41 @@ from modules.writing.models import (
 )
 from modules.writing.schemas import ChapterOrderPreviewRequest
 from modules.writing.source_hashing import hash_text
+
+
+@pytest.mark.asyncio
+async def test_assistant_chapter_order_rejects_narrow_and_excluded_work(
+    db_session, test_project_id
+) -> None:
+    current = AssistantOperationContext(
+        str(uuid.uuid4()), str(uuid.uuid4()), WorkContext(chapter_index=1)
+    )
+    excluded = AssistantOperationContext(
+        str(uuid.uuid4()),
+        str(uuid.uuid4()),
+        WorkContext(scope="project", excluded_targets=[str(uuid.uuid4())]),
+    )
+    with container_scope(
+        {ASSISTANT_REQUIRE_OPERATION_TARGETS: require_operation_targets}
+    ):
+        for context in (current, excluded):
+            with pytest.raises(ConflictError):
+                await _reorder_prepare(
+                    db_session,
+                    test_project_id,
+                    ChapterOrderOperationArgs(chapter_indices=[2, 1]),
+                    context=context,
+                )
+            with pytest.raises(ConflictError):
+                await _history_read(
+                    db_session,
+                    test_project_id,
+                    ChapterOrderHistoryArgs(),
+                    context=context,
+                )
+    assert not (
+        await db_session.scalars(select(WritingChapterOrderOperation))
+    ).all()
 
 
 async def _seed_story_and_writing(db, novel_id: str) -> dict[str, object]:
@@ -495,6 +540,64 @@ async def test_chapter_reorder_preview_blocks_unlisted_versions_and_hash_drift(
     assert "unlisted_chapter_versions" in kinds
     assert "writing_source_hash_mismatch" in kinds
     assert preview.story_impact["writing"]["unlisted_version_chapter_count"] == 1
+
+
+@pytest.mark.asyncio
+async def test_chapter_reorder_blocks_mismatched_span_source_and_inverted_scene(
+    db_session, test_project_id
+) -> None:
+    seeded = await _seed_story_and_writing(db_session, test_project_id)
+    scene = seeded["scene"]
+    span = seeded["scene_span"]
+    span.source_content_hash = "f" * 64
+    scene.chapter_ids = ["1", "2"]
+    scene.scene_chunks = [
+        *scene.scene_chunks,
+        {"chapter_index": 2, "chapter_id": "2"},
+    ]
+    db_session.add(
+        SceneChapterLink(
+            novel_id=uuid.UUID(test_project_id),
+            scene_id=scene.id,
+            chapter_index=2,
+        )
+    )
+    await db_session.flush()
+    with container_scope({"story.chapter_order": StoryChapterOrderService()}):
+        preview = await WritingChapterOrderService().preview(
+            db_session,
+            test_project_id,
+            ChapterOrderPreviewRequest(chapter_indices=[2, 1, 3]),
+        )
+    kinds = {item["kind"] for item in preview.story_impact["blockers"]}
+    assert "scene_span_source" in kinds
+    assert "scene_cross_chapter_order" in kinds
+
+
+@pytest.mark.asyncio
+async def test_chapter_reorder_blocks_noncontiguous_outline_arc(
+    db_session, test_project_id
+) -> None:
+    await _seed_story_and_writing(db_session, test_project_id)
+    db_session.add(
+        OutlineArc(
+            novel_id=uuid.UUID(test_project_id),
+            title="开篇篇章",
+            start_chapter=1,
+            end_chapter=2,
+        )
+    )
+    await db_session.flush()
+    with container_scope({"story.chapter_order": StoryChapterOrderService()}):
+        preview = await WritingChapterOrderService().preview(
+            db_session,
+            test_project_id,
+            ChapterOrderPreviewRequest(chapter_indices=[1, 3, 2]),
+        )
+    assert any(
+        item["kind"] == "plan_interval_non_contiguous"
+        for item in preview.story_impact["blockers"]
+    )
 
 
 @pytest.mark.asyncio

@@ -7,6 +7,8 @@ from httpx import AsyncClient
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from modules.account.models import Account
+from modules.project.models import Project
 from modules.writing.models import WritingDraft
 
 
@@ -123,3 +125,38 @@ async def test_chapter_order_http_preview_confirm_history_and_restore(
         draft_ids[0]: 1,
         draft_ids[1]: 2,
     }
+
+
+@pytest.mark.asyncio
+async def test_chapter_order_and_fact_timeline_http_hide_foreign_owner(
+    async_client: AsyncClient,
+    db_session: AsyncSession,
+) -> None:
+    created = await async_client.post(
+        "/api/projects", json={"title": "隔离中的章节操作"}
+    )
+    assert created.status_code == 201, created.text
+    novel_id = uuid.UUID(created.json()["id"])
+    owner = Account(support_code=f"ORDER-{uuid.uuid4().hex[:12]}")
+    db_session.add(owner)
+    await db_session.flush()
+    project = await db_session.get(Project, novel_id)
+    assert project is not None
+    project.owner_id = owner.id
+    await db_session.flush()
+
+    requests = [
+        await async_client.post(
+            "/api/writing/chapters/order/preview",
+            params={"novel_id": str(novel_id)},
+            json={"chapter_indices": [2, 1]},
+        ),
+        await async_client.get(
+            "/api/writing/chapters/order/history",
+            params={"novel_id": str(novel_id)},
+        ),
+        await async_client.get(
+            f"/api/novels/{novel_id}/memories/fact-timeline"
+        ),
+    ]
+    assert [response.status_code for response in requests] == [404, 404, 404]
