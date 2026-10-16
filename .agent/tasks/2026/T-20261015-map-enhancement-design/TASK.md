@@ -3,14 +3,14 @@ id: T-20261015-map-enhancement-design
 title: 地图系统增强设计与分批实施（自动冷启动、参与创作决策、题材鲁棒性）
 status: active
 created: 2026-10-15T10:54:00+08:00
-updated: 2026-10-16T11:33:00+08:00
+updated: 2026-10-16T11:55:00+08:00
 ---
 
 # 地图系统增强设计
 
 ## 恢复快照
 
-最新状态见 [实施与验证检查点](../T-20261015-character-world-progression/artifacts/C5-C0-C3-A1-CHECKPOINT.md)。按用户“不再开子代理”的指令，root 独自完成剩余实现、审查与评测。已提交基线 `526d3ef60f`：完整后端9023、前端3212、保留库74PG及lint/build/docs/repo-gates通过。当前尾修将导演卡片修订状态对齐实际 accepted 契约，204项Story回归、ruff及docs/repo-gates通过；未证明自由文本仍不进入角色知识。R3、R4、导演R1封存；R4两个独立信封合计16个Luna请求/257677tokens。R5五族seed完成，修仙/西幻各64请求的Evolution根已启动；两族各完成前三个任务、第四任务在途，batch2会话91596，禁止重复执行。R2基础理解两任务完成（12请求/191022tokens），免费检查点ensure后角色事实仍为0，唯一关系事件因端点/载荷不可物化被门控；未发导演/推进质量调用，不制造记忆。其他三族只有seed与共同基线；holdout未解码，真实/条件/作者验收未完成。以下旧委派与固定点条目仅作历史，不作为当前执行安排。
+最新状态见 [实施与验证检查点](../T-20261015-character-world-progression/artifacts/C5-C0-C3-A1-CHECKPOINT.md)。按用户“不再开子代理”的指令，root 独自完成剩余实现、审查、修复与评测。已提交 `30e3afa580` 修复导演卡片 accepted 修订状态，204项Story回归与门禁通过；此前 `526d3ef60f` 完整后端9023、前端3212、保留库74PG及lint/build通过。当前地图驱动尾修允许仅有“地点尚待采用”提示的候选进入原World采用/CAS与独立地图审核，其他警告仍拒绝；新回归先红后绿，67项地图/World定向与整套evals455/2skip、ruff及docs/repo-gates通过；净修复见本提交。R5已封存诊断：两族各6任务完成，12个独立信封65请求/1006437tokens/unknown0，另5个Sol seed用量未知；其余3族在attempt0时经正常API取消，业务模型调用0。西幻未产生可用地图，Writing/Assistant/judge未执行；旧R3/R4/R1和所有原回执保留。R2基础理解12请求/191022tokens后角色来源仍不足，已封存，不发导演/推进SUT。新Map pipeline为a3ad2b84a661fa02a61bde9ad3b427afb903b06bb3a486d589f46655b326ce2a；不能恢复或改绑旧scope。下一步以独立新身份和实际预算先验证一个题材完整链；holdout未解码，条件/真实质量/作者验收未完成。以下旧委派与固定点仅作历史。
 
 - 当前授权：2026-10-15 用户 `/goal` 要求执行 `codex/map-enhancement-plan` 的计划；Luna/max 子代理并行实现，Sol/high 按批次 review 与修复。只做本地开发验证；没有发布、真实数据破坏或对外发送授权。用户16:43补充“修复由sol子代理直接修”：后续代码修复均由Sol/high子代理直接执行。用户曾要求“由你收尾”；其后明确答复范围为三份计划全部实施，包括操作目录、对象档案、导演、世界推进。root继续负责分批拆解、集成、验证、任务记录与实际隔离评测；已明确确认采用“模拟作者显式指定Scene地点后做辅助Writing对比”。
 - 主工作区：`/Users/tywww/项目/ai-writing-assist/.worktrees/map-enhancement-plan`，分支 `codex/map-enhancement-plan`。原 Desktop 路径已失效；仓库实际已迁至 `/Users/tywww/项目/ai-writing-assist`。

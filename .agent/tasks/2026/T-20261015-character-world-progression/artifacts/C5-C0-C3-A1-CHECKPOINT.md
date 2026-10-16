@@ -198,3 +198,18 @@ root修复Director._story_card_status要求错误修订枚举：人物卡父状�
 R5 batch1两族各2任务完成；batch2正在两族第四任务，当前各tasks_completed3：修仙8126f6e4-a9e7-43b0-b008-449881efa17f、西幻ba6b77b7-f75a-4ddc-bbab-4099abb5064f；exec session91596，R5/two-family-batch02.log。不得重跑freeze/start/batch1/batch2。batch2正常返回pending且各完成4任务后，再执行同脚本run --batch3，各最多2个精确任务；unknown/failed不重发。两族Evolution共享域根预算各64，单任务信封用量独立，汇总须按run_id去重求和。
 
 R2正常ensure实际返回6个维度条目；前四ready，timeline/causality missing，总coverage missing。底层角色StateView前四状态ok但facts为空，不是status枚举转译问题；MemoryEvent共0，唯一gated关系事件缺resolved endpoints和typed materializable payload（relation_endpoints_unresolved/state_payload_not_materializable）。只读证据见私有state-gate-diagnostics.json，日志/tmp/authoring-quality-r2-state-diagnostics02-20261016.log。第一次诊断误请求角色视角include_checkpoints=True被安全门禁拒绝，已改为False；不放宽该门禁。根因与卡片可用性误报分开，未强行采用候选、编造记忆或重跑已付费基础理解。导演/WP新SUT与质量teacher/judge仍0。root继续完整地图链，其余外部条件与真人门禁保持。
+
+
+## 2026-10-16T11:55:00+08:00 卡片尾修已提交；R5停批诊断与地图作者流程修复
+
+卡片契约尾修已本地提交`30e3afa580a242d14db6c796e10b84bc050b2c1c`，当时工作树干净；204项Story、ruff/docs/gates通过。之后只新增地图评测控制链根因修复、测试和记录，不改前端或一般业务模型策略。两份计划顶部已纠正过时状态：A0–A4及C0/C2–C5当前工程在主题分支集成，A4真实数周、C1/P4长篇及势力前置、真实/作者验收仍未完成。
+
+R5 batch2与batch3均exit0，两族各5Scene+最终结构共12精确task全部done/attempt1。修仙38请求、根剩26；西幻27请求、根剩37；12个不同run_id合计65 started/settled、unknown0、1006437tokens，域根扣减与总计相符。私有accounting-scope-proof.json已唯一冻结；不要再将单task信封最大值当累计。5个Sol seed另计且usage/费用未知。本轮新调用至此109（99 Luna+10 Sol seed），已知Luna tokens1553760，排除原R3未知量，不代表全部历史成本。
+
+西幻正常代理作者审核10步完成：4空间clue采用/4拒绝、2地图候选拒绝、0head。私有review-diagnostics及location-readiness确认实际World候选can_adopt=true，但自动草图包含“部分地点尚未采用，地图草图保留候选身份绑定”；控制链may_adopt要求完全无warnings，因而在进入原本准备好的正式World promote前就拒绝。这是驱动条件错误，不能将本scope误报为地图质量通过。负向freeze实际五positive均not_run/scene_location_unavailable，私有report只prepared。修仙仅只读取证，未再用已知错误策略审核其候选；其实际草图也有同样提示。
+
+root在两族任务全部结束后，对其他三族确认pending/attempt0/no envelope，经正常engine read_only/expected_epoch/stop_active/authorization_confirmed分别取消1未尝试task、停1run、无imports影响，三族模型调用0。nonexecuted-three-stops及逐族normal-stop回执私有保留，Evolution旧pending文件不改写历史。R5/operator-diagnostic-seal.json已封存：65 Luna+5 seed、无Writing/Assistant/judge、holdout未解码。不能恢复两族、重新授权三族旧根或将旧seed/scope改绑新pipeline。
+
+root新增警告参数化整条控制链回归：无警告→正常采用；只有待采用地点提示→先原World promote（fresh source CAS）、再重新预览和独立地图采用；同时有来源变化/其他警告→不promote、不发采用预览并拒绝。首轮1红/2绿复现缺陷，随后只允许已知待采用提示，原owner/精确source/支持线索、独立采用和CAS校验均保留。67项控制链+实际World服务测试通过（12.71秒），整套evals455 passed/2 skipped（30.17秒，/tmp/map-proxy-pending-location-all-evals-20261016.log），ruff/format通过；红例日志/tmp/map-proxy-pending-location-contract-red-20261016.log。新Map pipeline a3ad2b84a661fa02a61bde9ad3b427afb903b06bb3a486d589f46655b326ce2a，旧f76b属于已封存R5。docs/repo-gates均通过（/tmp/map-proxy-pending-location-final-{docs,gates}-20261016.log），本轮净修复随本提交；9023/3212/74PG仍是526d固定点证据，不冒称尾修后全量重跑。
+
+R2也已唯一封存operator-readiness-diagnostic-seal.json：12基础理解请求/191022tokens，角色facts缺失/关系事件门控，不制造记忆、不改旧preflight。没有导演/WP新SUT和该scope seed/teacher/judge。后续先验证一个新题材完整地图链，再扩其他题材；R6尚未创建，新预检必须使用当时实际代码/owner snapshot、独立身份和预算，旧所有数据不覆写。不启代理、不push/PR/main合并/部署。

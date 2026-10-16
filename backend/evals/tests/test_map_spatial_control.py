@@ -805,8 +805,22 @@ async def test_assistant_driver_uses_unknown_intent_and_exact_enabled_worker(
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "warnings,adopt",
+    [
+        ([], True),
+        (["部分地点尚未采用，地图草图保留候选身份绑定"], True),
+        (
+            [
+                "部分地点尚未采用，地图草图保留候选身份绑定",
+                "草图依赖的来源或线索已变化，请重新映射",
+            ],
+            False,
+        ),
+    ],
+)
 async def test_proxy_author_promotes_through_original_route_then_confirms_map_separately(
-    tmp_path, monkeypatch
+    tmp_path, monkeypatch, warnings, adopt
 ):
     import uuid
 
@@ -866,7 +880,7 @@ async def test_proxy_author_promotes_through_original_route_then_confirms_map_se
         ],
         "nodes": [{"id": node_id, "status": "provisional"}],
         "revisions": [{"id": revision_id, "base_revision_id": None}],
-        "drafts": [],
+        "drafts": [{"revision_id": revision_id, "warnings": warnings}],
     }
     calls = []
 
@@ -931,12 +945,15 @@ async def test_proxy_author_promotes_through_original_route_then_confirms_map_se
                 200, json={"entity_id": entity_id, "status": "canonical"}
             )
         assert path.endswith(f"revisions/{revision_id}/review")
-        assert json == {
-            "base_revision_id": None,
-            "action": "adopt",
-            "change_keys": ["feature:place"],
-        }
-        return httpx.Response(200, json={"status": "saved"})
+        if adopt:
+            assert json == {
+                "base_revision_id": None,
+                "action": "adopt",
+                "change_keys": ["feature:place"],
+            }
+        else:
+            assert json == {"base_revision_id": None, "action": "reject"}
+        return httpx.Response(200, json={"status": "saved" if adopt else "rejected"})
 
     @asynccontextmanager
     async def client(*args):
@@ -962,11 +979,15 @@ async def test_proxy_author_promotes_through_original_route_then_confirms_map_se
         max_actions=20,
         execute=True,
     )
-    assert result["status"] == "completed" and result["review_steps"] == 3
+    assert result["status"] == "completed"
+    assert result["review_steps"] == (3 if adopt else 2)
     record = map_spatial._read_private_json(control._review_record_path(root, family_id))
-    assert [event["kind"] for event in record["review_events"]] == [
-        "spatial_clue_review",
-        "world_location_promote",
-        "map_revision_review",
-    ]
-    assert len([url for url, _ in calls if url.endswith("review-preview")]) == 2
+    assert [event["kind"] for event in record["review_events"]] == (
+        ["spatial_clue_review", "world_location_promote", "map_revision_review"]
+        if adopt
+        else ["spatial_clue_review", "map_revision_review"]
+    )
+    assert len([url for url, _ in calls if url.endswith("review-preview")]) == (
+        2 if adopt else 0
+    )
+    assert any("/promote?" in url for url, _ in calls) is adopt

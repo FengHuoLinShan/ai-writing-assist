@@ -104,3 +104,6 @@ Writing role文件须在common首次冻结时通过`--writing-roles`提供，早
 - fresh Python 进程验证正常 app composition 和 ASGI 只读路由，禁止真实数据库连接且不启动 lifespan。控制器测试另覆盖 exact task IDs、2/2/2 Evolution、timeout/已尝试 task 拒绝、unknown 禁止重发、能力恢复、未校准/无权限/错误 owner 和冻结指纹漂移。
 - 全 eval Ruff check 通过；扩大到整个 eval 目录的 format 检查发现四份本次未改动文件已有格式漂移（`rp_source_families.py`、`test_editorial_dataset.py`、`test_rp_matrix.py`、`world_design_review.py`），未扩大改动。
 - 未运行：真实 PG 并发/CAS、真实四域 TaskWorker 的整链与 Codex/teacher/judge。工程 orchestration 的 task 替身只证明调度边界；真实模型产物、语义质量、费用、真实 owner 连接和人类作者验收仍须 root pilot，不能以本节工程绿色替代。
+
+
+2026-10-16 主会话补充：代理作者流程中，自动草图仅含“部分地点尚未采用，地图草图保留候选身份绑定”时可以进入正式World候选采用预览；每个地点仍须can_adopt、同Scene精确原文、正式source hash和原promote接口，随后重新预览并单独确认地图。来源失效/融合/冲突或任何其他警告仍拒绝；这不将候选直接视为canonical。R5两族65请求/1006437tokens/unknown0和五seed已封存诊断，另三族未尝试即停止，未进行Writing/Assistant/judge。修复改变pipeline，旧校准/绑定不能改绑或续跑；后续使用全新身份，先核验一个题材完整链。holdout与真人门禁不变。

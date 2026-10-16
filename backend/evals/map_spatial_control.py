@@ -1579,7 +1579,10 @@ async def review_map_family(
                     node.get("status") in {"provisional", "adopted"}
                     and bool(source_clue_ids)
                     and source_clue_ids <= adopted
-                    and not warnings
+                    and all(
+                        warning == "部分地点尚未采用，地图草图保留候选身份绑定"
+                        for warning in warnings
+                    )
                 )
                 action = "adopt" if may_adopt else "reject"
                 source_scene_ids = sorted(
