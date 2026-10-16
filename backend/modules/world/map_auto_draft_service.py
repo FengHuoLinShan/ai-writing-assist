@@ -20,6 +20,7 @@ from modules.world.map_atlas_models import MapAtlasNode, MapAtlasRevision
 from modules.world.map_atlas_service import MapAtlasService
 from modules.world.map_auto_draft_models import MapAutoDraftBatchRecord
 from modules.world.map_auto_draft_schemas import (
+    MAX_MAP_BUILD_CLUES,
     MapAutoDraftBatchProgress,
     MapAutoDraftBuildRequest,
     MapAutoDraftBuildResult,
@@ -190,8 +191,14 @@ async def _load_build_rows(
                     MapSpatialClueRecord.scene_index,
                     MapSpatialClueRecord.id,
                 )
+                .limit(MAX_MAP_BUILD_CLUES + 1)
             )
         ).all()
+        if len(rows) > MAX_MAP_BUILD_CLUES:
+            raise ValidationError(
+                "本次空间线索超过草图处理范围，请缩小截止范围或显式选择线索",
+                code="map_build_clue_limit",
+            )
         return list(rows)
 
     if len(set(request.clue_ids)) != len(request.clue_ids):
@@ -278,6 +285,8 @@ async def _validated_clue_inputs(
 ) -> tuple[list[dict], list[dict]]:
     valid: list[dict] = []
     invalid: list[dict] = []
+    source_cache: dict[tuple, list[dict]] = {}
+    quote_cache: dict[tuple, tuple[MapSource | None, str | None]] = {}
     for row in rows:
         try:
             clue = MapSpatialClue.model_validate(row.clue_payload)
@@ -295,20 +304,31 @@ async def _validated_clue_inputs(
             binding = MapSpatialClueSourceBinding.model_validate(row.source_binding)
             if row.source_content_mode != binding.content_mode:
                 raise ValidationError("空间线索来源模式已经变化")
+            binding_key = (
+                row.scene_id,
+                row.scene_index,
+                _digest(binding.model_dump(mode="json")),
+            )
+            if binding_key not in source_cache:
+                source_cache[binding_key] = await _resolve_binding(
+                    db, novel_id, row.scene_id, row.scene_index, binding
+                )
+            resolved_sources = source_cache[binding_key]
             endpoints = await _revalidate_stored_clue(
                 db,
                 novel_id,
                 row,
                 clue,
                 allow_identity_transitions=True,
-            )
-            resolved_sources = await _resolve_binding(
-                db, novel_id, row.scene_id, row.scene_index, binding
+                resolved_sources=resolved_sources,
             )
             _matching_source_hash(clue, resolved_sources)
-            source, source_issue = await _unique_canonical_source(
-                db, novel_id, row, clue, resolved_sources
-            )
+            quote_key = (binding_key, clue.quote, row.source_content_mode)
+            if quote_key not in quote_cache:
+                quote_cache[quote_key] = await _unique_canonical_source(
+                    db, novel_id, row, clue, resolved_sources
+                )
+            source, source_issue = quote_cache[quote_key]
             valid.append(
                 {
                     "row": row,
@@ -1101,18 +1121,25 @@ async def _load_revision(
 
 
 async def _resolve_merged_entity(
-    db: AsyncSession, novel_id: str, entity_id: uuid.UUID
+    db: AsyncSession,
+    novel_id: str,
+    entity_id: uuid.UUID,
+    *,
+    entity_cache: dict[uuid.UUID, CoreEntity | None] | None = None,
 ) -> CoreEntity | None:
+    cache = entity_cache if entity_cache is not None else {}
     seen: set[uuid.UUID] = set()
     current_id = entity_id
     while current_id not in seen:
         seen.add(current_id)
-        entity = await db.scalar(
-            select(CoreEntity).where(
-                CoreEntity.novel_id == parse_uuid(novel_id, "novel_id"),
-                CoreEntity.id == current_id,
+        if current_id not in cache:
+            cache[current_id] = await db.scalar(
+                select(CoreEntity).where(
+                    CoreEntity.novel_id == parse_uuid(novel_id, "novel_id"),
+                    CoreEntity.id == current_id,
+                )
             )
-        )
+        entity = cache[current_id]
         if entity is None:
             return None
         if entity.status != "merged":
@@ -1134,10 +1161,35 @@ async def _project_candidate_entities(
 ) -> tuple[MapDocument, list[str]]:
     projected = document.model_copy(deep=True)
     warnings: list[str] = []
+    entity_ids = {
+        feature.entity_id
+        for feature in projected.features
+        if feature.entity_id is not None
+    }
+    entities = (
+        list(
+            (
+                await db.scalars(
+                    select(CoreEntity).where(
+                        CoreEntity.novel_id == parse_uuid(novel_id, "novel_id"),
+                        CoreEntity.id.in_(entity_ids),
+                    )
+                )
+            ).all()
+        )
+        if entity_ids
+        else []
+    )
+    entity_cache: dict[uuid.UUID, CoreEntity | None] = {
+        entity_id: None for entity_id in entity_ids
+    }
+    entity_cache.update({entity.id: entity for entity in entities})
     for feature in projected.features:
         if feature.entity_id is None:
             continue
-        current = await _resolve_merged_entity(db, novel_id, feature.entity_id)
+        current = await _resolve_merged_entity(
+            db, novel_id, feature.entity_id, entity_cache=entity_cache
+        )
         if current is None:
             feature.note = (
                 f"{feature.note}\n地点候选已拒绝或删除；此图元仅保留文字，需重新映射。"
@@ -2085,17 +2137,22 @@ async def list_map_auto_drafts(
     if not 1 <= limit <= 200 or offset < 0:
         raise ValidationError("自动草图列表范围无效")
     nid = parse_uuid(novel_id, "novel_id")
-    batches = list(
-        (
-            await db.scalars(
-                select(MapAutoDraftBatchRecord)
-                .where(MapAutoDraftBatchRecord.novel_id == nid)
-                .order_by(
-                    MapAutoDraftBatchRecord.created_at.desc(), MapAutoDraftBatchRecord.id
+    batches = (
+        []
+        if revision_id
+        else list(
+            (
+                await db.scalars(
+                    select(MapAutoDraftBatchRecord)
+                    .where(MapAutoDraftBatchRecord.novel_id == nid)
+                    .order_by(
+                        MapAutoDraftBatchRecord.created_at.desc(),
+                        MapAutoDraftBatchRecord.id,
+                    )
+                    .limit(201)
                 )
-                .limit(201)
-            )
-        ).all()
+            ).all()
+        )
     )
     batches_truncated = len(batches) > 200
     batches = batches[:200]

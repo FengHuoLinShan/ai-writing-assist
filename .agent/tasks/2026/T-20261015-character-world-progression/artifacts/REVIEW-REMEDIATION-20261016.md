@@ -10,7 +10,7 @@
 |---|---|
 |H1|已修：evals/tests 自动 fixture 先还原环境再清 Settings 缓存；并发用例组合及最终全量9044通过。|
 |M1|已修：assistant_operation_registry import 排序；全 backend Ruff check通过。原报告退出码2/无输出不等于具体语法诊断。|
-|M2|待修：评测词条修订范围/上限，以及revision精确读取避免每次预载201批次。|
+|M2|已修：精确revision跳过201批次预载；候选身份按作品批量回读并局部缓存融合链；SQL先筛选相关词条身份、保留作者后续历史，2000修订上限明确truncated/missing。SQLite范围/截断、PG两例与全World/evals通过。|
 |M3|已修：role 64字符领域前置校验覆盖新增/预览/更新/恢复；API与真实PG的64成功、65拒绝及当前修订保留通过。|
 |M4|待修：六类强Profile与档案的双向收敛，须保持结构化JSON、秘密/动态字段和事务语义。|
 |M5|已修：角色读取传 visible_fields，按显式 Story/legacy/Generic 字段键及值筛选；相同文本不能证明其他字段。真实World与Evidence测试通过。|
@@ -29,7 +29,7 @@
 |M18|已修：STORY_SCENE_DIRECTOR_ENABLED默认false，配置/示例、API依赖、内部提交/续算、领域操作、worker及助手可执行目录均检查；UI关闭状态保留输入，可刷新。关闭前IO拒绝与开启工程PG通过。未开启真实评测或生产开关。|
 |M19|已修：人物合并先读当前档案投影，再经legacy revision写回并更新Character；无Character目标迁移也建立兼容档案。真实SQLite读取新旧档案合并内容通过。|
 |L1|待复核/修复验证|
-|L2|待复核/修复验证|
+|L2|已修：隐式线索查询limit 20001，超过20000显式拒绝，不静默截断；同一校验按Scene/索引/完整binding缓存当前源、按引文缓存精确区间，仍逐条核复核哈希/端点/截止点。63定向与1975 World/evals通过。|
 |L3|待复核/修复验证|
 |L4|待复核/修复验证|
 |L5|已修：API删除先读分支身份，再锁root→branch；PG实际争用后worker取得branch并完成，无ABBA。|
@@ -67,3 +67,15 @@
 - 日志：/tmp/map-external-review-batch1-final-backend-20261016.log、final-focused、pg、final-frontend-full-tests/lint/build、director-tail、router、docs、repo-gates同前缀日期文件。
 - 当前Map pipeline：e4936c97fd00e0862859ae8bd81b28e9647448741bf6eeb1d107b656317a1607。R6原a3ad、各封存根/回执、17个pending outbox及holdout原样；本批无新真实模型调用。
 - 下一步先处理M2有界精确评测读取、M4强Profile收敛、M6交换，再处理M7事件重排与M9未知结果核对、M16编排归属；low逐域并入相应批次。每批验证后本地提交；无push/PR/main合并/发布/部署。
+
+## 第二批：M2/L2 性能与有界读取
+
+- 时间：2026-10-16T14:53:23+08:00；第一批固定点5ce9b693ade489161dcf2c51ce66abaf008ff86f，第二批仅主会话改Map源码、测试和说明。
+- 精确修订读取不再扫描最新201批，图元身份先按本作品一次回读；融合目标按需读取并共享本次局部缓存。旧一般列表仍保留200批分页披露。
+- 相关词条先在SQL中按evidence Scene召回身份，再保留身份完整历史；文本召回仍用精确Scene字段复核，超过2000修订的下界披露为truncated/missing/omitted>=1，不冒称完整来源。
+- 隐式全范围与显式选择统一20000线索上限，超过上限要求缩范围。缓存只覆盖单次校验的相同Scene/索引/完整绑定与精确引文；不跨事务/调用，不缓存端点权限、独立复核判断或失败，不放宽来源模式/范围/哈希。
+- 验证：63定向通过；全部World+evals为1975 passed、2 skipped、1 deselected、1项既有Pydantic warning（87.80s）；新增PG文件两例在保留工程库65202通过，验证JSON过滤、作者移除证据后的历史、边界截断与无领域写入。Ruff/check-format/diff、docs-check及repo-gates通过。第一批整套9044后端/3217前端+12尾例/24PG是上一固定点证据，不冒称本批全后端重跑。
+- 日志：/tmp/map-external-review-batch2-focused-20261016.log、world-evals、pg、docs、repo-gates同前缀日期文件。
+- 当前Map pipeline=df32dbcf8c4779cbe03b1ebbfc71b5bc7e477bed355f6a47a65030f31a4c05ea；旧R6及所有封存运行不改绑、不重放，无新模型调用。未访问评测库65302或holdout。
+- 累计30项已修、L25一项复核不成立；17项继续：medium M4/M6/M7/M9/M16，low L1/L3/L4/L8/L10/L12/L20/L21/L22/L23/L27/L28。U1–U3仍是报告自身未通过的指控，不计为待修。
+- 下一步：先按registry及现有迁移映射实现六类强Profile↔Dossier稳定字段双向收敛（M4），覆盖标量/JSON/秘密/显式清空与事务回滚；其后M6 manifest桥接信息保真。不得为收敛而把地点控制者/持有者等动态字段回填World稳定层。其他未完成计划/真实质量条件不变。

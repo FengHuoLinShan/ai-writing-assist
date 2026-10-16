@@ -3,7 +3,7 @@
 from copy import deepcopy
 from uuid import UUID
 
-from sqlalchemy import select
+from sqlalchemy import or_, select
 
 from core.errors import ValidationError
 from infrastructure.stable_hash import stable_hash
@@ -17,6 +17,8 @@ from modules.world.project_vocabulary_models import (
     ProjectVocabularyRevision,
     ProjectVocabularyTerm,
 )
+
+MAX_EVALUATION_VOCABULARY_REVISIONS = 2_000
 
 
 def _revision(row):
@@ -158,6 +160,11 @@ async def read_map_spatial_evaluation_artifacts(db, novel_id, run_id, scene_ids)
                 }
         # Vocabulary lineage is limited to terms with evidence in requested Scenes,
         # including archived/merged identities and author revisions of those terms.
+        evidence = ProjectVocabularyRevision.snapshot_json["evidence"].as_string()
+        relevant_terms = select(ProjectVocabularyRevision.term_id).where(
+            ProjectVocabularyRevision.novel_id == nid,
+            or_(*(evidence.contains(scene) for scene in scenes)),
+        )
         vocabulary_rows = (
             await db.execute(
                 select(ProjectVocabularyTerm, ProjectVocabularyRevision)
@@ -169,12 +176,20 @@ async def read_map_spatial_evaluation_artifacts(db, novel_id, run_id, scene_ids)
                         == ProjectVocabularyTerm.novel_id
                     ),
                 )
-                .where(ProjectVocabularyTerm.novel_id == nid)
+                .where(
+                    ProjectVocabularyTerm.novel_id == nid,
+                    ProjectVocabularyTerm.id.in_(relevant_terms),
+                )
                 .order_by(
                     ProjectVocabularyTerm.id, ProjectVocabularyRevision.revision_number
                 )
+                .limit(MAX_EVALUATION_VOCABULARY_REVISIONS + 1)
             )
         ).all()
+        vocabulary_truncated = len(vocabulary_rows) > MAX_EVALUATION_VOCABULARY_REVISIONS
+        vocabulary_rows = vocabulary_rows[:MAX_EVALUATION_VOCABULARY_REVISIONS]
+        if vocabulary_truncated:
+            missing.append({"type": "vocabulary_history", "reason": "revision_limit"})
         terms = {
             term.id
             for term, revision in vocabulary_rows
@@ -262,7 +277,7 @@ async def read_map_spatial_evaluation_artifacts(db, novel_id, run_id, scene_ids)
                 for scene in scenes
             ],
             "missing": missing,
-            "truncated": False,
-            "omitted_count": 0,
+            "truncated": vocabulary_truncated,
+            "omitted_count": 1 if vocabulary_truncated else 0,
             "human_validated": False,
         }

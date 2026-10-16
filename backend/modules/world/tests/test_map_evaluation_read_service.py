@@ -169,3 +169,58 @@ async def test_tray_only_candidate_retains_scoped_provenance_and_can_be_rejected
     )
     assert after["batches"][0]["tray_items"] == batch["tray_items"]
     assert not any(node["official"] or node["head"] for node in after["nodes"])
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("history_size,truncated", [(2, False), (3, True)])
+async def test_vocabulary_scope_is_filtered_before_limit_and_keeps_author_history(
+    db_session, test_project_id, monkeypatch, history_size, truncated
+):
+    from modules.world import map_evaluation_read_service as service
+    from modules.world.project_vocabulary_models import (
+        ProjectVocabularyRevision,
+        ProjectVocabularyTerm,
+    )
+
+    selected_scene, other_scene = str(uuid4()), str(uuid4())
+    # Irrelevant terms sort first. Their revisions must not consume the bound.
+    relevant, irrelevant = UUID(int=200), UUID(int=100)
+    for term_id in [relevant, irrelevant]:
+        db_session.add(
+            ProjectVocabularyTerm(
+                id=term_id,
+                novel_id=UUID(test_project_id),
+                kind="feature",
+                source="author",
+                status="active",
+            )
+        )
+    await db_session.flush()
+    for term_id, count in [(irrelevant, 30), (relevant, history_size)]:
+        for index in range(count):
+            evidence = [
+                {"scene_id": selected_scene if term_id == relevant else other_scene}
+            ]
+            if term_id == relevant and index > 0:
+                evidence = []  # Later author revisions remain part of the lineage.
+            db_session.add(
+                ProjectVocabularyRevision(
+                    novel_id=UUID(test_project_id),
+                    term_id=term_id,
+                    revision_number=index + 1,
+                    snapshot_json={"name": "合成类型", "evidence": evidence},
+                    content_hash="a" * 64,
+                    change_reason="author_edit",
+                )
+            )
+    await db_session.flush()
+    monkeypatch.setattr(service, "MAX_EVALUATION_VOCABULARY_REVISIONS", 2)
+    artifacts = await read_map_spatial_evaluation_artifacts(
+        db_session, test_project_id, "run", [selected_scene]
+    )
+    assert [item["revision_number"] for item in artifacts["vocabulary"]] == [1, 2]
+    assert {item["id"] for item in artifacts["vocabulary"]} == {str(relevant)}
+    assert artifacts["vocabulary"][1]["snapshot"]["evidence"] == []
+    assert artifacts["truncated"] is truncated
+    assert artifacts["omitted_count"] == int(truncated)
+    assert bool(artifacts["missing"]) is truncated

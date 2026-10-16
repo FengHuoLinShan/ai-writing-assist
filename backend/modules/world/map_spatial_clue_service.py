@@ -487,9 +487,14 @@ async def _revalidate_stored_clue(
     clue: MapSpatialClue,
     *,
     allow_identity_transitions: bool = False,
+    resolved_sources: list[dict[str, Any]] | None = None,
 ) -> dict[str, CoreEntity]:
     binding = MapSpatialClueSourceBinding.model_validate(row.source_binding)
-    sources = await _resolve_binding(db, novel_id, row.scene_id, row.scene_index, binding)
+    sources = resolved_sources
+    if sources is None:
+        sources = await _resolve_binding(
+            db, novel_id, row.scene_id, row.scene_index, binding
+        )
     source_hash = _matching_source_hash(clue, sources)
     evidence = [
         VocabularyEvidence(

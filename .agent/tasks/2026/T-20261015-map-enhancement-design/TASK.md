@@ -3,12 +3,14 @@ id: T-20261015-map-enhancement-design
 title: 地图系统增强设计与分批实施（自动冷启动、参与创作决策、题材鲁棒性）
 status: active
 created: 2026-10-15T10:54:00+08:00
-updated: 2026-10-16T14:41:14+08:00
+updated: 2026-10-16T14:53:23+08:00
 ---
 
 # 地图系统增强设计
 
 ## 恢复快照
+
+- 最新review第二批（2026-10-16T14:53:23+08:00）：M2/L2完成，累计30修复/1纠正/17待继续；1975 World+evals及2 PG通过。Map pipeline=df32dbcf8c4779cbe03b1ebbfc71b5bc7e477bed355f6a47a65030f31a4c05ea，旧e493/38da仅历史。下一步主会话实施review M4强Profile收敛，再M6交换保真；详情见[修复账本](../T-20261015-character-world-progression/artifacts/REVIEW-REMEDIATION-20261016.md)。所有封存评测及能力门禁保持。
 
 - 当前授权：三份计划全部实施；用户最新要求剩余工作全部由主会话完成，禁止再开或恢复子代理。地图验收采用已确认的“模拟作者显式指定 Scene 地点后对比辅助写作”，保持 `human_validated=false`。不 push、PR、合并 main、发布或部署。
 - 工作区：`/Users/tywww/项目/ai-writing-assist/.worktrees/map-enhancement-plan`，分支 `codex/map-enhancement-plan`；R6历史代码固定点 `81785cd16d1310f747e7790832567a593d6a9952`；最新托盘拒绝路径尾修的Map pipeline为`38da6d39b70ec51b64b7c7dcfb62a38ed2fdda5dfc15b04efca9d4c0eae225fa`，未续跑R6。当前代码和记录均只由root写入；所有其他worktree、WIP与数据库保留。原Desktop路径已失效。

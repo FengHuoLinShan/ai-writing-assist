@@ -22,6 +22,9 @@ MapAutoDraftRedoReason = Literal[
 ]
 
 
+MAX_MAP_BUILD_CLUES = 20_000
+
+
 class MapAutoDraftModel(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
@@ -33,7 +36,7 @@ class MapAutoDraftBuildRequest(MapAutoDraftModel):
     build_key: str = Field(min_length=1, max_length=120)
     through_scene_id: UUID
     through_scene_index: int = Field(ge=0)
-    clue_ids: list[UUID] | None = Field(default=None, max_length=20_000)
+    clue_ids: list[UUID] | None = Field(default=None, max_length=MAX_MAP_BUILD_CLUES)
 
 
 class MapAutoDraftRevisionRef(MapAutoDraftModel):

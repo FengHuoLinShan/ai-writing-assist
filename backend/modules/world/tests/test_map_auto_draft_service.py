@@ -1005,6 +1005,11 @@ async def test_long_build_key_can_redo_and_old_batches_remain_reachable(
     assert second.items[0].batch_id == first.batch_id
     assert first.batch_id not in {batch.batch_id for batch in second.batches}
     assert second.items[0].batch_status == "completed"
+    exact = await list_map_auto_drafts(
+        db_session, project_novel_id, revision_id=str(first.revisions[0].revision_id)
+    )
+    assert exact.batches_truncated is False
+    assert [item.revision_id for item in exact.items] == [first.revisions[0].revision_id]
 
 
 @pytest.mark.asyncio
@@ -1256,3 +1261,115 @@ async def test_assistant_space_rejection_cannot_reject_other_space_changes(
 
     assert whole["affected_count"] == len(changed_items(MapDocument(), document))
     assert whole["affected_count"] > 2  # Whole rejection includes the other space.
+
+
+@pytest.mark.asyncio
+async def test_implicit_build_scope_is_bounded_without_silently_dropping_clues(
+    db_session, project_novel_id, monkeypatch
+):
+    from core.errors import ValidationError
+    from modules.world import map_auto_draft_service as service
+
+    scene, _a, _b, row = await _stage_bound_clue(db_session, project_novel_id)
+    columns = {
+        column.key: getattr(row, column.key)
+        for column in MapSpatialClueRecord.__table__.columns
+    }
+    columns.update(id=uuid.uuid4(), attempt_id="another-attempt")
+    db_session.add(MapSpatialClueRecord(**columns))
+    await db_session.flush()
+    monkeypatch.setattr(service, "MAX_MAP_BUILD_CLUES", 1)
+    request = _build_request(scene, row).model_copy(update={"clue_ids": None})
+    with pytest.raises(ValidationError) as raised:
+        await service.build_map_auto_drafts(db_session, project_novel_id, request)
+    assert raised.value.code == "map_build_clue_limit"
+    assert not (await db_session.scalars(select(MapAutoDraftBatchRecord))).all()
+
+
+@pytest.mark.asyncio
+async def test_same_scene_binding_and_quote_are_read_once_per_validation(
+    db_session, project_novel_id
+):
+    from types import SimpleNamespace
+    from unittest.mock import patch
+
+    from modules.world import map_auto_draft_service as service
+    from modules.world import map_spatial_clue_service as clue_service
+
+    scene, _a, _b, row = await _stage_bound_clue(db_session, project_novel_id)
+    clone = SimpleNamespace(
+        **{
+            column.key: getattr(row, column.key)
+            for column in MapSpatialClueRecord.__table__.columns
+        }
+    )
+    clone.id = uuid.uuid4()
+    clone.attempt_id = "another-attempt"
+    with (
+        patch.object(
+            service,
+            "_resolve_binding",
+            autospec=True,
+            side_effect=service._resolve_binding,
+        ) as read_binding,
+        patch.object(
+            service,
+            "_unique_canonical_source",
+            autospec=True,
+            side_effect=service._unique_canonical_source,
+        ) as read_quote,
+        patch.object(
+            clue_service,
+            "_resolve_binding",
+            autospec=True,
+            side_effect=clue_service._resolve_binding,
+        ) as repeated_read,
+    ):
+        valid, invalid = await service._validated_clue_inputs(
+            db_session,
+            project_novel_id,
+            [row, clone],
+            through_scene_index=scene.scene_index,
+        )
+    assert len(valid) == 2 and not invalid
+    read_binding.assert_awaited_once()
+    read_quote.assert_awaited_once()
+    repeated_read.assert_not_awaited()
+    assert valid[0]["source"].source_ref == valid[1]["source"].source_ref
+
+
+@pytest.mark.asyncio
+async def test_candidate_projection_batches_initial_entity_reads(
+    db_session, project_novel_id
+):
+    from sqlalchemy import event
+
+    from modules.world import map_auto_draft_service as service
+    from modules.world.map_structure_schemas import MapDocument
+
+    scene, _a, _b, clue = await _stage_bound_clue(db_session, project_novel_id)
+    built = await service.build_map_auto_drafts(
+        db_session, project_novel_id, _build_request(scene, clue)
+    )
+    revision = await db_session.get(MapAtlasRevision, built.revisions[0].revision_id)
+    document = MapDocument.model_validate(revision.document)
+    assert (
+        len({feature.entity_id for feature in document.features if feature.entity_id})
+        >= 2
+    )
+    queries = []
+
+    def capture(_connection, _cursor, sql, *_rest):
+        if "from core_entities" in sql.lower():
+            queries.append(sql)
+
+    engine = db_session.bind.sync_engine
+    event.listen(engine, "before_cursor_execute", capture)
+    try:
+        projected, warnings = await service._project_candidate_entities(
+            db_session, project_novel_id, document
+        )
+    finally:
+        event.remove(engine, "before_cursor_execute", capture)
+    assert projected == document and not warnings
+    assert len(queries) == 1
