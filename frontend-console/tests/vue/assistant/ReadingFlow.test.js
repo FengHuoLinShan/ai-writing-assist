@@ -581,3 +581,22 @@ it('冻结授权响应晚于换项目时不绑定旧运行，确认在途受互�
   expect(start).toHaveBeenCalledTimes(1)
   wrapper.unmount()
 })
+
+// Map-series review regression (T-20261016-map-series-claude-review). it.fails
+// mirrors a strict xfail: once fixed it passes and fails this run, so drop .fails.
+it.fails('B5-F1: 空间补扫运行中不提供追加阅读，追加会推进 head 使补扫失败关闭', async () => {
+  const status = vi.fn().mockResolvedValue({ engine: { engine: 'evolution', epoch: 1 }, run: {
+    run_key: 'old', status: 'completed', completed_scenes: 3, total_scenes: 3, end_chapter: 1, budget_mode: 'bounded', spatial_discovery_enabled: true,
+    spatial_rescans: [{ operation_id: 'running-op', from_scene_index: 0, through_scene_index: 2, status: 'running', can_resume: false }],
+  } })
+  const preview = vi.fn()
+  setBridgeOverrides({ api: { evolution: { status, preview } } })
+  const wrapper = mount(ReadingFlow, { props: { projectId: 'p', entry: true } }); await flushPromises()
+  // The rescan fieldset is already disabled; the append entry must be too.
+  expect(wrapper.find('fieldset[disabled]').exists()).toBe(true)
+  const prepare = button(wrapper, '查看理解范围')
+  if (prepare && !prepare.element.disabled) { await prepare.trigger('click'); await flushPromises() }
+  expect(prepare?.element.disabled ?? true).toBe(true)
+  expect(preview).not.toHaveBeenCalled()
+  wrapper.unmount()
+})

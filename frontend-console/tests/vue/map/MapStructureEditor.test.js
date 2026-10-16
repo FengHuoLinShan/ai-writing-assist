@@ -142,6 +142,22 @@ describe("统一地图编辑器", () => {
     expect(wrapper.findAll('.map-feature').map(item => item.attributes('data-feature-id'))).toEqual(['b'])
   })
 
+  // Map-series review regression (T-20261016-map-series-claude-review). it.fails
+  // mirrors a strict xfail: once fixed it passes and fails this run, so drop .fails.
+  it.fails('B5-F4: 重开地图恢复非主空间的选中图元，切换空间不清掉刚恢复的选择', async () => {
+    const data = document()
+    data.schema_version = 2
+    data.spaces = [{ id: 'main', label: '现世' }, { id: 'dream', label: '梦境' }]
+    data.features[1].space_id = 'dream'
+    api.world.getNodeMap.mockResolvedValue(state(record(data)))
+    localStorage.setItem(`novel_map_view:test-account:${projectId}:${nodeId}`, JSON.stringify({ selectedId: 'b', spaceId: 'dream' }))
+    const wrapper = await render({ browseOnly: true })
+    expect(wrapper.get('[aria-label="当前地图空间"]').element.value).toBe('dream')
+    // restoreView sets selectedId before activeSpaceId; the sync space watcher
+    // then clears it. applySpatialDocument (moving a feature) has the same order.
+    expect(wrapper.findAll('.map-feature.selected').map(item => item.attributes('data-feature-id'))).toEqual(['b'])
+  })
+
   it('默认先展示画布，详情按需打开，阅读预览只有一份', async () => {
     const wrapper = await render({ browseOnly: true })
     expect(wrapper.findAll('.map-reader')).toHaveLength(1)

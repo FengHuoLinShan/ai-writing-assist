@@ -106,3 +106,32 @@ it('勾选地点后结束引导会释放待处理状态，地图工作台可以�
   expect(wrapper.emitted('state').at(-1)[0]).toEqual({ dirty: false, busy: false })
   expect(wrapper.find('input[type="checkbox"]').exists()).toBe(false)
 })
+
+// Map-series review regressions (T-20261016-map-series-claude-review). it.fails
+// mirrors a strict xfail: once fixed it passes and fails this run, so drop .fails.
+async function prepareDefaultScope(run) {
+  api.evolution.status.mockResolvedValue({ engine: { engine: 'evolution' }, run })
+  api.assistant.guidedFlowAdvance.mockResolvedValue(view('scope'))
+  const wrapper = mount(MapColdStartPanel, { props: { projectId: 'p' } })
+  await open(wrapper)
+  await button(wrapper, '开始地图引导').trigger('click'); await flushPromises()
+  const submit = button(wrapper, '预览空间范围与费用')?.element
+  if (submit && !submit.disabled && !submit.closest('fieldset')?.disabled) { await wrapper.get('form').trigger('submit'); await flushPromises() }
+  return api.assistant.guidedFlowAdvance.mock.calls.map(([, body]) => body.choice.arguments || {})
+}
+
+for (const status of ['running', 'needs_reconciliation']) {
+  it.fails(`B5-F2: 最新阅读为 ${status} 时，冷启动不另起从第 1 章重读的新阅读`, async () => {
+    const prepared = await prepareDefaultScope({ run_key: 'current-run', status, completed_scenes: 2, total_scenes: 5, end_chapter: 3, budget_mode: 'bounded', spatial_discovery_enabled: true })
+    // ReadingFlow offers a new reading only for settled runs (canStart) and the
+    // backend has no single-active-run gate, so the guide must not bypass it.
+    expect(prepared.filter(item => item.mode === 'bootstrap')).toEqual([])
+  })
+}
+
+it.fails('B5-F3: 未开空间发现的已完成阅读，默认选项不提交必被拒绝的空间追加', async () => {
+  const prepared = await prepareDefaultScope({ run_key: 'old-run', status: 'completed', completed_scenes: 5, total_scenes: 5, end_chapter: 2, budget_mode: 'bounded', spatial_discovery_enabled: false })
+  // workflow._plan rejects append that switches spatial discovery on
+  // (追加章节不能静默启用或关闭空间发现); the read range needs a spatial rescan.
+  expect(prepared.filter(item => item.mode === 'append' && item.discover_spatial)).toEqual([])
+})
