@@ -28,6 +28,7 @@ from core.service_keys import (
     ASSISTANT_EDITORIAL_POST_ADOPTION_RECHECKS,
     ASSISTANT_MARK_EDITORIAL_READY,
     ASSISTANT_OPERATIONS,
+    ASSISTANT_OPERATION_TRACE,
     ASSISTANT_PROACTIVE_FINDINGS,
     ASSISTANT_PROACTIVE_SUBMITTERS,
     ASSISTANT_REQUIRE_OPERATION_TARGETS,
@@ -312,6 +313,7 @@ def _register_orm_models() -> None:
     """Import ORM models with Base.metadata for FK dependency resolution."""
     import modules.account.models  # noqa: F401, I001
     import modules.assistant.models  # noqa: F401, E402
+    import modules.assistant.operation_trace_models  # noqa: F401, E402
     import modules.assistant.forecast.models  # noqa: F401, E402
     import modules.collaboration.models  # noqa: F401, E402
     import modules.account.settings_models  # noqa: F401, I001
@@ -347,6 +349,9 @@ def _container_services() -> Iterable[tuple[ServiceKey[Any], Any]]:
     from modules.account import forecast as account_forecast
     from modules.interaction import forecast as interaction_forecast
     from modules.assistant.forecast import domain as assistant_forecast
+    from modules.assistant.operation_trace_service import (
+        record_operation_trace as _record_operation_trace,
+    )
 
     return (
         (
@@ -423,6 +428,7 @@ def _container_services() -> Iterable[tuple[ServiceKey[Any], Any]]:
                 **world_review_operations,
             },
         ),
+        (ASSISTANT_OPERATION_TRACE, _record_operation_trace),
         (SOURCE_CHANGED, _assistant_mark_changed),
         (ASSISTANT_READ_MAP_AUTHOR_DECISION, _read_map_author_decision),
         (EVOLUTION_READ_MAP_COLD_START_STATUS, _read_map_cold_start_status),

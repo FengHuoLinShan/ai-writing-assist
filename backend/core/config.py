@@ -287,6 +287,11 @@ class Settings:
     assistant_enabled: bool = field(
         default_factory=lambda: _env_bool("ASSISTANT_ENABLED", False)
     )
+    assistant_operation_trace_enabled: bool = field(
+        default_factory=lambda: _env_bool(
+            "ASSISTANT_OPERATION_TRACE_ENABLED", _default_auth_mode() != "public"
+        )
+    )
     assistant_editorial_enabled: bool = field(
         default_factory=lambda: _env_bool("ASSISTANT_EDITORIAL_ENABLED", False)
     )
