@@ -2,6 +2,11 @@
 
 import json
 
+from core.container import get
+from core.service_keys import (
+    EVIDENCE_READ_OBJECT_DOSSIER_BRIEF,
+    WORLD_GET_CHARACTERS_CONTEXT,
+)
 from modules.world.contracts import MapSpatialBriefRequest
 
 INSTRUCTIONS = {
@@ -12,6 +17,19 @@ INSTRUCTIONS = {
     ("story.character_response.v1"): (
         "只依据所提供的人物资料和已观察刺激提出动机不同的反应。资料缺失保持未知；性格不决定唯一行动，意图不等于成"
         "功事件。"
+    ),
+    "story.character_response.v2": (
+        "这是人物表演卡契约。输入只含一名被选人物的角色可见 World/Story 简报、"
+        "截止 Scene 和作者约束。严格只使用这名人物在简报中可知的信息；不能把"
+        "其他人物的秘密、作者未来安排、未采用剧情规划或角色不知道的事实泄入反应。"
+        "作者指示只能作为写作约束或明确标成假设的刺激，不能当作人物已知事实。"
+        "给出恰好 2 至 3 个动机不同的"
+        "条件式候选，逐项提供行为顺序、神态表情、肢体、声音台词与潜台词、心理活动、触发点、防御、注意与忽略、情绪/"
+        "关系/目标变化、依据和假设。每项的依据类型必须真实存在于输入，给出"
+        "逐字 quote 和对应 evidence_id；创意发挥标为 creative_choice 且不伪造来源。"
+        "缺资料写入 unknowns 或 assumptions，不阻断候选；没有来源的变化写“未知/未验证”。"
+        "这些动作均未发生，"
+        "不得写成成功事件或已裁决事实。不要输出人物、Scene 或其他资源 ID。"
     ),
     "story.scene_transition.v1": (
         "考虑当前结果到下一场的最小过渡、直接切场或继"
@@ -151,7 +169,136 @@ def _spatial_planning_fact(scene, brief, *, recent=()) -> dict | None:
     }
 
 
-async def inspect(db, novel_id, focus, excluded):
+def _character_brief_payload(brief):
+    value = brief.model_dump(mode="json") if hasattr(brief, "model_dump") else brief
+    world_items = []
+    for item in value.get("world_items") or []:
+        if not isinstance(item, dict):
+            continue
+        content = item.get("content")
+        if content is None:
+            content = item.get("value")
+        if content is None:
+            continue
+        world_items.append(
+            {
+                "facing": item.get("facing_label") or item.get("field_key") or "人物资料",
+                "content": content,
+                "visibility": item.get("visibility"),
+                "source": item.get("source"),
+                "validity_conflict": bool(item.get("validity_conflict")),
+                "validity_gap": item.get("validity_gap"),
+            }
+        )
+    continuity_items = []
+    for item in value.get("continuity_items") or []:
+        if not isinstance(item, dict):
+            continue
+        continuity_items.append(
+            {
+                "field": item.get("field"),
+                "value": item.get("value"),
+                "layer": item.get("layer"),
+                "possibly_false": bool(item.get("possibly_false")),
+                "occurred_at": item.get("occurred_at"),
+                "confidence": item.get("confidence"),
+                "source_status": (item.get("provenance") or {}).get("status"),
+            }
+        )
+    gaps = list(value.get("omissions") or [])
+    gaps.extend(
+        f"{layer} 层未知或不完整"
+        for layer in value.get("unknown_layers") or []
+        if f"{layer} 层未知或不完整" not in gaps
+    )
+    if not world_items:
+        gaps.append("没有读到可用的人物档案条目")
+    if not continuity_items:
+        gaps.append("截止 Scene 没有可用的人物时点状态")
+    return {
+        "world_items": world_items,
+        "continuity_items": continuity_items,
+        "coverage": value.get("coverage", "unknown"),
+        "gaps": list(dict.fromkeys(str(item) for item in gaps))[:20],
+    }
+
+
+async def _character_response_fact(db, novel_id, focus):
+    from modules.story.facade import get_scene_story_assets
+    from modules.story.outline_state.facade import get_scene_contract
+
+    if not focus.scene_id:
+        return None
+    scene = await get_scene_contract(db, novel_id, str(focus.scene_id))
+    if scene is None:
+        return None
+    assets = await get_scene_story_assets(db, novel_id=novel_id, scene_id=str(scene.id))
+    assets_value = (
+        assets.model_dump(mode="json") if hasattr(assets, "model_dump") else assets
+    )
+    cards = assets_value.get("character_cards") or []
+    scene_character_ids = {
+        str(item.get("character_id"))
+        for item in cards
+        if isinstance(item, dict) and item.get("character_id")
+    }
+    if scene.pov_character_id:
+        scene_character_ids.add(str(scene.pov_character_id))
+    character_id = (
+        str(focus.target.resource_id)
+        if focus.target and focus.target.resource_kind == "core_entity"
+        else str(scene.pov_character_id or "")
+    )
+    if not character_id or character_id not in scene_character_ids:
+        return None
+    character_context = await get(WORLD_GET_CHARACTERS_CONTEXT)(
+        db, novel_id, [character_id], reveal_mode="character"
+    )
+    if not character_context.characters:
+        return None
+    character_name = character_context.characters[0].name
+    brief = await get(EVIDENCE_READ_OBJECT_DOSSIER_BRIEF)(
+        db,
+        novel_id=novel_id,
+        scene_id=str(scene.id),
+        entity_ids=[character_id],
+        reveal_mode="character",
+        viewpoint_character_id=character_id,
+        content_mode="canonical",
+        include_patterns=False,
+    )
+    brief_value = brief.model_dump(mode="json") if hasattr(brief, "model_dump") else brief
+    if (
+        str(brief_value.get("novel_id")) != str(novel_id)
+        or str(brief_value.get("scene_id")) != str(scene.id)
+        or str(brief_value.get("viewpoint", {}).get("target_id") or "") != character_id
+    ):
+        return None
+    source = {
+        "contract": "character_response.v2",
+        "character": character_name,
+        "cutoff": {"scene_index": int(scene.scene_index)},
+        "brief_fingerprint": brief_value.get("fingerprint"),
+        "world_fingerprint": brief_value.get("world_fingerprint"),
+        "continuity_fingerprint": brief_value.get("continuity_fingerprint"),
+        "character_visible_brief": _character_brief_payload(brief),
+        "author_condition": focus.explicit_instruction,
+    }
+    return {
+        "capability_id": "story.character_response.v2",
+        "subject": f"Scene {scene.scene_index} · {character_name}",
+        "title": f"{character_name} 的本场表演候选",
+        "summary": "按该人物在本场截止点可知的资料，生成尚未发生的条件式表演选择。",
+        "source": source,
+        "scope_label": (
+            f"第 {scene.scene_index + 1} 个场景截止点；"
+            f"仅使用 {character_name} 自己可知的资料"
+        ),
+        "unknowns": source["character_visible_brief"]["gaps"],
+    }
+
+
+async def inspect(db, novel_id, focus, excluded, *, capabilities=None):
     from uuid import UUID
 
     from sqlalchemy import select
@@ -166,6 +313,9 @@ async def inspect(db, novel_id, focus, excluded):
     )
     if scene is None:
         return []
+    if capabilities is not None and "story.character_response.v2" in capabilities:
+        fact = await _character_response_fact(db, novel_id, focus)
+        return [fact] if fact else []
     assets = await get_scene_story_assets(db, novel_id=novel_id, scene_id=str(scene.id))
     value = assets.model_dump(mode="json") if hasattr(assets, "model_dump") else assets
     # 纯数据事实（AO-5）：assistant 消费侧以 ForecastDomainFact.model_validate

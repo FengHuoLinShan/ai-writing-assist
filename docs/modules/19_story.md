@@ -34,8 +34,8 @@ Story 同时拥有原 Outline 与 Memory 的唯一生产实现，内部子域位
 `plot_threads`、`outline_arcs`、`scenes`、`scene_spans`、`scene_fusion_suggestions`、
 `scene_summary_checkpoints`、`scene_chapter_links`、`foreshadowing_plans`、`reveal_plans`、
 `memory_events`、`memory_snapshots`、`memory_scene_checkpoints`、`memory_scene_snapshots`、
-`delta_log`，以及四张 Scene Story asset 表与两张排演历史表。公开 API 前缀不变：`/api/outline`、
-`/api/novels/{novel_id}/memories`、`/api/story`。
+`delta_log`，以及四张 Scene Story asset 表、两张人物弧计划表与两张排演历史表。公开 API 前缀为 `/api/outline`、
+`/api/novels/{novel_id}/memories`、`/api/story`、`/api/story/character-arcs`。
 
 ## 对外能力
 
@@ -58,6 +58,20 @@ Scene memory（continuity）另提供只读状态视图 `facade.get_scene_state_
 [05_memory](05_memory.md) 与
 [M2 契约](../plans/2026-10-07-world-state-read-m2-contract.md)。Scene Lens 的
 对象状态区消费该视图。
+
+### 人物弧线作者计划
+
+篇章结构 `OutlineArc` 与人物弧线计划是不同对象。`story.character-arcs` 保存作者明确确认的
+人物变化意图，按人物维护 CAS head 和不可变 revision；计划采用 `director_only` 可见性，不能
+进入角色反应、角色知识或 Evolution 事实。Outline 浮窗将作者计划与截止 Scene 前的真实正文
+和已确认 continuity 事件并列；来源失效或无法核验时显示未知，不把计划 Scene、候选推进或模型
+解释当作已经发生的经历。HTTP router 前缀为 `/api/story/character-arcs`，含计划预览/确认、历史、
+恢复、归档和指定 Scene 的人物比较。当前分支已定义 router，仍需组合根挂载并再出口稳定 facade。
+
+数据库使用 `story_character_arc_plan_heads` 与 `story_character_arc_plan_revisions` 两表，迁移为
+`20261016_story_character_arc_plan`，parent=`20261016_wp_read_count`。该已应用 migration 的
+数据库级级联删除触发器存在嵌套调用校验待修项；独立后继 migration 与 PostgreSQL 绕过拒绝用例
+由后续 review 修复。
 
 ## 数据与采用边界
 

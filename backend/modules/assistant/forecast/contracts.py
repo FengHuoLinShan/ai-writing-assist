@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import Annotated, Literal
+from typing import Annotated, Any, Literal
 from uuid import UUID
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
@@ -328,10 +328,18 @@ class CandidateView(StrictModel):
     directions: list[Direction] = Field(default_factory=list, max_length=3)
     unknowns: list[str] = Field(default_factory=list, max_length=10)
     evidence: list[EvidenceRef] = Field(default_factory=list, max_length=30)
+    character_response: dict[str, Any] | None = None
     domain_finding_ref: UUID | None = None
     actions: list[ActionView] = Field(default_factory=list, max_length=8)
     basis_label: str = Field(min_length=1, max_length=300)
     expires_at: AwareDatetime
+
+    @model_serializer(mode="wrap")
+    def omit_absent_character_response(self, handler):
+        value = handler(self)
+        if self.character_response is None:
+            value.pop("character_response", None)
+        return value
 
     @model_validator(mode="after")
     def public_consistency(self):

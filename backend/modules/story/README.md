@@ -56,7 +56,8 @@ through its stable facade and never writes World, Memory, or Writing records.
   task registry: `story_character_card_generate`, `story_reaction_propose`,
   `story_scene_script_generate`, and `story_one_click`.
 - `api.py`: author routes under `/api/story`; Scene-centric aliases are under
-  `/api/story/scenes/{scene_id}`.
+  `/api/story/scenes/{scene_id}`. The character arc author router is mounted at
+  `/api/story/character-arcs`.
 
 ## Writing scene-structure notices
 
@@ -87,6 +88,21 @@ is: `story_outline_heads`, `story_outline_revisions`, `plot_threads`,
 `modules.story.facade`. The old `modules.outline` and `modules.memory` import
 aliases were removed after the canonical-preparation SHA completed production release.
 
+Author arc plans add `story_character_arc_plan_heads` and
+`story_character_arc_plan_revisions` in migration
+`20261016_story_character_arc_plan` (parent `20261016_wp_read_count`). The plan
+is author-confirmed, director-only, versioned with CAS, and separate from
+continuity events. Comparison uses current source fingerprints and only
+verified, confirmed continuity/prose evidence through the selected Scene.
+Missing or stale evidence remains unknown; the service never marks an arc
+complete. Three R0 directory reads expose Scene characters, plan history and
+cutoff comparison; four R3 operations require preview and explicit confirmation.
+Assistant reads of the whole plan require a project-wide trusted work scope and
+recheck excluded/confirmed assets. The original migration remains immutable;
+`20261016_story_arc_guard` permits immutable-history deletion only after the real
+Project has been deleted, rejecting nested triggers and TEMP table shadowing.
+First writes and later CAS/restore operations serialize per work and character.
+
 Continuity checkpoints are versioned: V1 confirmations replay the original four dimensions;
 V2 adds timeline and causality without backfilling missing history as empty facts. Writing may
 append one author-confirmed continuity event through the stable facade after revalidating the
@@ -96,6 +112,8 @@ idempotent and invalidates only the affected downstream dimension.
 The existing public prefixes remain `/api/outline` and
 `/api/novels/{novel_id}/memories`, alongside `/api/story` and the isolated,
 default-off `/api/story/world-progression` router.
+The character arc endpoint is `/api/story/character-arcs` once mounted by the
+composition root.
 
 Every repository query is novel-scoped. Heads and revisions also have
 composite `(id, novel_id)` constraints so a cross-project pointer cannot be

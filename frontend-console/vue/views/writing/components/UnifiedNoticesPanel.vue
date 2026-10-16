@@ -288,6 +288,7 @@ const SOURCE_LABELS = {
   "writing.conflict": "规则检查",
   "writing.invalidation": "正文变更",
   "world.map_source": "地图来源",
+  "evolution.reading": "演化阅读",
 }
 const CATEGORY_LABELS = {
   scene_structure: "场景结构",
@@ -298,6 +299,9 @@ const CATEGORY_LABELS = {
   editorial_issue: "编辑员意见",
   map_source: "地图来源",
   map_source_coverage: "地图来源覆盖",
+  reading_unread: "尚未阅读正文",
+  reading_run: "阅读进度",
+  reading_review: "待复核",
 }
 function sourceLabel(sourceId, fallback = "", category = "") {
   if (sourceId === "assistant.proactive" && category === "editorial_issue") return "编辑员意见"
@@ -319,6 +323,9 @@ function ignoreLabel(item) {
     : "忽略此项"
 }
 function openActionLabel(item) {
+  if (item.source_id === "evolution.reading") {
+    return item.actions?.some((action) => action.page === "outline") ? "去大纲确认边界" : "打开演化阅读"
+  }
   return ({
     "assistant.forecast": "打开前瞻",
     "assistant.editorial": "查看编辑意见",
@@ -332,7 +339,7 @@ function openActionLabel(item) {
   })[item.source_id] || "查看来源"
 }
 function canOpen(item) {
-  if (["assistant.forecast", "assistant.editorial", "story.structure", "writing.conflict", "writing.invalidation", "world.map_source"].includes(item.source_id)) return true
+  if (["assistant.forecast", "assistant.editorial", "story.structure", "writing.conflict", "writing.invalidation", "world.map_source", "evolution.reading"].includes(item.source_id)) return true
   return item.source_id === "assistant.proactive"
     && item.actions?.some((action) => action.kind === "navigate" && (action.editorial === true || ["map", "writing", "outline", "world"].includes(action.page)))
 }

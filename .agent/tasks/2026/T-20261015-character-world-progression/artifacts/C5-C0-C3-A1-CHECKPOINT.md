@@ -84,3 +84,34 @@ Sol另发现人物浮窗硬截前12人且所谓人物卡替代入口不存在，
 正式线性目录顺序为C5/v15 → C3 Sol/v16 → A1 Sol/v17。A1 fe5的v16只在未集成候选、未建PG，不将其未审领域合入C3来保号；后续A1 Sol负责顺序merge及重新物化后继17，已正式版本保持冻结。C3 Sol独占app/main/bootstrap/corekeys/总Storyfacade、普通Assistant目录及HTTP trace helper、api.js与Arc schema/migration。
 
 root已核旧C0树map-spatial-eval-review干净008d，保留旧分支后建立 `codex/chapter-order-timeline-review` 从primary笔记 `161c0be03e8998af8f6caabb4f6150cdbea3b04f`。新Sol/high `sol_review_chapter_order` 在此先只读审查A1，等Luna最终净提交再释放领域写入；不得争C3共享权或提前建库。A1最新真实HTTP8项已通过；604领域+2 inherited失败（版本预期15/16、版本查询次数新增锁）留该Sol直接修；前端256文件3194及lint/build通过。Luna尚在最终自查，未交最终净点；A1 migration只是拟定，当前树唯一head wp_read_count，无Arc源码，不已建/已用A1迁移。专库继续HOLD到C3安全后继最终头。
+
+## 2026-10-16T08:23:02+08:00 后续审修与迁移释放
+
+A1 Luna最终净 `e50d46733dae0eeef1a583f6e38941dbcb2801fc` 已停止原树写入，root正式释放Sol A1领域写权。Sol在map-spatial-eval-review净合为 `10fe8fa0177cbd94a372b265411ba04e6425b76c`，独立审修checkpoint `2d76631a213c066b53fe8562037e1a50f63f3556`，后续来源修复净 `1495ac7a457474ff576c62262ec4128b6fea8ddf`。已直接修work/原confirmation门禁、未来Scene/options泄露、全局时间顺序投影与两fixture；额外发现冲突检查未随draft移动、Context确认/两内容模式索引未失效，已按领域/公开Evidence facade同事务处理与rollback、restore回归。扩展635普通后端及9目标服务通过，PG仍未运行，不能当完整验收。
+
+root实际看了A1章顺序390/1280和timeline390截图，原始 `/tmp/a1-component-chromium-20261016.log` 已读两宽度无error/横溢、居中及4筛选2事件。此为临时Vite组件页+setBridgeOverrides合成fixture，**无真实HTTP/PG**，最终正式Writing/Outline挂载页仍待。Sol已修桌面dialog居中，并把新界面内部R3/Story等词改为作者影响语句。preview实际会持久化operation，文案仍收敛为“预览已生成”避免误解为正文已保存；没有为文案新增测试。
+
+C3 Sol净schema checkpoint `9e5b20b68694856814473b5cbd7015fea1f94864`，实际安全后继head `20261016_story_arc_guard`。保留C3库增量升级/parity通过，Arc7真实PG含直接/nested/TEMP保护、真正Project级联、两Session首次幂等/竞争409与stale restore、HTTP原save的executed/restored关联、R0正反scope；55定向通过。日志 `/tmp/c3-review-arc-all-pg-20261016.log`、`/tmp/c3-review-targeted-unit-20261016.log`、`/tmp/c3-review-alembic-parity-20261016.log`。root已读先前4guard PG及parity，7最终组合仍需读。Arc首次无head空行锁风险已由Sol以novel+character事务advisory lock修，不追加DDL。R0 scene_characters/history/compare三项与原四R3同物化v16，不能只用UI挂路由。
+
+root现已正式释放A1合该固定schema点、新migration父只接arc_guard，以及确认target不存在才一次CREATE `chapter_order_timeline_impl_test_20261016`/后续PG和18602/3。C3完整工程仍未green，此仅schema接受；A1需报告真实merge/迁移/CREATE状态，不猜已建。合并冲突及v17由Sol A1直接修，C3功能/HTTP trace helper逻辑仍Sol C3单写。C3若再需DDL必须先告root统一排线性次序，已应用迁移冻结。
+
+root已准备0600仅复用脚本 `/tmp/map-c3-primary-reuse-pg-20261016.py`，**未执行**；待C3集成后在root原库wp_read_count→arc_guard，旧57PG加Arc/notice文件（当前17文件，最终需按Sol新增用例补），不含CREATE。此前C5脚本已经执行，不重建。
+
+Luna/max `luna_remaining_scope_plan`只读对照三plans/ADR与生产入口后，没有发现漏掉的无需外部前置的必需能力；在途C3/A1与C1/M5/RP/Imports/A4/真实质量分别保留。其后root派其实现独立的受限质量评测scope准备（不运行模型），在旧world-object-dossier-impl clean b438保留旧分支后建 `codex/authoring-quality-eval-guard` 从146b673f2。该Luna仅写新eval guard/测试、codex_executor极窄dispatch和evalsREADME；现有Map/G7/缺省校准门禁不放宽，C3/A1生产源码不动，随后交Sol审修。当前六域评分没有可借用的既有许可，未具真实证据读取的领域须拒绝评分，不能自报产品成功。root已整理[后续真实质量评测准备](AUTHORING-QUALITY-EVAL-PREFLIGHT.md)，预算公式与case尚未执行/冻结，无新真实请求。
+
+其后A1已无冲突合固定9e5为 `00059181ca50a52a8a290ffc2e9f5075b65e0d0a`（父1495+9e5）；迁移源码唯一head `20261016_chapter_order`，parent严格arc_guard，目录A1 v17保留C3 v16。Sol核确认target不存在后仅CREATE一次 `chapter_order_timeline_impl_test_20261016`，子env `/tmp/chapter-order-timeline-impl-test-20261016.env`0600，原origin未改；开始专库upgrade/parity/PG。root不得重跑CREATE。后续实际head/结果仍待Sol，不用空库创建当PG通过。
+
+root已读取9e5的7PG/55定向原日志，分别2.04s/10.22s，全通过。C3又补真实精确TaskWorker+offline client两态PG：默认双卡共父4/4请求与双候选；第二类失败3started/2settled、usage_unknown、首卡checkpoint保留且0候选发布，`/tmp/c3-review-forecast-worker-pg-20261016.log`待root读取。Evolution notice全局最新run遮蔽截止前旧失败已由Sol直接修并补2PG，无DDL。
+
+root新读C3 UI确认另一项数据丢失finding，已交Sol：`useWritingWorkspace.js loadOutlineArcComparisons`全量替换arcDrafts，任一人保存/恢复/归档成功的force reload会覆盖其他人的未保存输入。需按project/Scene/character合并未脏baseline或只刷新目标，409/失败保留输入及调用关联；workspace真实交互回归（编辑B→保存A→B仍保留）。不以原实现前端全绿关闭。最终C3 browser也需证明第13人可达、加载状态，无新增硬限制。当前C3仍未交最终固定点/完整全套。
+
+
+## 2026-10-16T08:41:38+08:00 用户要求主会话独立收尾
+
+用户明确“不开子代理，剩下任务主会话全部完成”，覆盖此前 Luna/max 实施、Sol/high 独立审修及 Sol 专修约定。root 已中断全部三名在途代理，后续不再委派。全部工作树、WIP、原专库及日志保留，由 root 完成实现、审查、修复、验证和本地集成；原不推送/不发布/不合 main/不部署边界保留。
+
+接管点：primary `680de35f13541a100dd314ddc759bb6c5050298b` 干净；C3 map-clue-review `f1f4e4caffb3db94be532b8c0ada86a6fd412c8a` 加 7 个 tracked WIP（DI/README/forecast 与第13角色测试）；A1 map-spatial-eval-review `6b303749c157e6c30d3fa1b90a5dbabff87f2c4e` 加章节并发 PG 文件 WIP；eval guard world-object-dossier-impl `146b673f2` 仅新 guard 未跟踪文件。C3 未保存草稿 finding 仍未修，已有新测试实际上覆盖第13人，并非草稿保护回归。
+
+接管后已读实际结果：C3 全普通后端 `/tmp/c3-review-backend-full-20261016.log` 为 8961 passed/2 failed/2 skipped/8 deselected，失败为旧 catalog15 断言及新 Arc preview active guard 顺序；不视为全绿。双 forecast 精确 TaskWorker PG 2 passed，`/tmp/c3-review-forecast-worker-pg-20261016.log`。A1 `/tmp/a1-review-pg-concurrency-http-20261016.log` 4 passed、parity 无差异；其 HTTP trace fixture 修改账户偏好尚需 finally 恢复原列。A1 专库已建、迁移日志已在，禁止重复 CREATE；18602/18603 自有服务仍监听，root 核 lifespan 后复用或安全停启。
+
+下一步：root 先修 C3 草稿保护与两普通回归失败，完成真实页面验证/全套/净提交后集成；再完成 A1 trace 账户状态恢复、C3最终合并、实际生产页与组合 PG，最后接管 guard 与真实质量预检。旧 R3 封存且零新增真实模型请求。

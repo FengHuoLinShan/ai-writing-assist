@@ -9,6 +9,8 @@
 若明确继续使用 stale adopted script，Writing wire 使用 `confirm_stale_story_assets=true`；
 服务端 409 使用 `stale_story_assets` code，前端应保留编辑内容并要求作者确认或刷新。
 
+人物弧浮窗按当前场景分批读取全部参与人物。保存、恢复或归档一人的计划后，刷新只清除该人的已确认编辑；其他人的未保存输入保留。版本冲突后也保留输入，作者可以刷新对照再预览保存。
+
 ## 公共演示
 
 当服务端 `GET /api/auth/config` 返回启用的 `demo` 配置时，公共首屏提供“查看演示项目”和

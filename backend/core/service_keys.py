@@ -93,6 +93,9 @@ EVIDENCE_READ_EVOLUTION_OBJECT_PATTERNS: ServiceKey[EvolutionObjectPatternReadPo
 EVIDENCE_READ_WORLD_OBJECT_DOSSIER: ServiceKey[WorldObjectDossierReadPort] = ServiceKey(
     "evidence.read_world_object_dossier"
 )
+EVIDENCE_READ_OBJECT_DOSSIER_BRIEF: ServiceKey[Callable[..., Any]] = ServiceKey(
+    "evidence.read_object_dossier_brief"
+)
 EVIDENCE_READ_STORY_OBJECT_STATE: ServiceKey[StoryObjectStateReadPort] = ServiceKey(
     "evidence.read_story_object_state"
 )
@@ -388,6 +391,9 @@ WORLD_ASSISTANT_CHAT_INTENT: ServiceKey[Callable[..., Any]] = ServiceKey(
 WORLD_LIST_CHARACTERS: ServiceKey[Callable[..., Any]] = ServiceKey(
     "world.list_characters"
 )
+WORLD_GET_CHARACTERS_CONTEXT: ServiceKey[Callable[..., Any]] = ServiceKey(
+    "world.get_characters_context"
+)
 WORLD_LIST_ENTITY_TERMS: ServiceKey[Callable[..., Any]] = ServiceKey(
     "world.list_entity_terms"
 )
@@ -433,6 +439,7 @@ ALL_SERVICE_KEYS: tuple[ServiceKey[Any], ...] = (
     EVOLUTION_READ_MAP_COLD_START_STATUS,
     EVIDENCE_READ_EVOLUTION_OBJECT_PATTERNS,
     EVIDENCE_READ_WORLD_OBJECT_DOSSIER,
+    EVIDENCE_READ_OBJECT_DOSSIER_BRIEF,
     EVIDENCE_READ_STORY_OBJECT_STATE,
     EVIDENCE_READ_STORY_DIRECTOR_REFERENCES,
     WORLD_READ_MAP_COLD_START_DRAFTS,
@@ -529,6 +536,7 @@ ALL_SERVICE_KEYS: tuple[ServiceKey[Any], ...] = (
     WORLD_ASSISTANT_CHAT,
     WORLD_ASSISTANT_CHAT_INTENT,
     WORLD_LIST_CHARACTERS,
+    WORLD_GET_CHARACTERS_CONTEXT,
     WORLD_LIST_ENTITY_TERMS,
     WORLD_LIST_ENTITIES,
     WORLD_RUN_SCENE_ENTITY_EXTRACTION,
