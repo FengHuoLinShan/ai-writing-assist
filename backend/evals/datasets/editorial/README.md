@@ -44,14 +44,14 @@
 | 合成文本、brief、评测重点冻结 | 通过（本地数据版本） | 三份数据文件只含原创合成内容；v1/v2 既有样本不覆盖 |
 | 提示词契约 | 通过 | `make prompt-contracts`（26 项） |
 | Assistant worker 注册及确定性测试 | 通过（代码注册与离线测试） | `app.task_runtime` 导入 `modules.assistant.tasks`；审读/复核 handler 已注册；Assistant 和评测测试通过 |
-| 专用可丢弃 PostgreSQL 库及演示副本 | 未核验 | 真实模型试跑前需另行准备与核对 |
-| 服务端开关、项目范围及写入/恢复隔离 | 未核验 | 本轮未连接项目运行环境 |
-| owner 账户连接与当日 provider/model/effort/wrapper | 未核验 | 本轮未读取或检查密钥，也未尝试调用 |
+| 专用可丢弃 PostgreSQL 库及演示副本 | 阻塞 | 本 worktree 未提供 `DATABASE_URL` / `E2E_DATABASE_URL`；运行器在数据库 URL gate 退出，未访问任何数据库 |
+| 服务端开关、项目范围及写入/恢复隔离 | 未核验 | 数据库 gate 前置失败，未连接项目运行环境 |
+| owner 账户连接与当日 provider/model/effort/wrapper | 未核验 | 数据库 gate 前置失败，未读取连接或尝试调用 |
 | 共享付费账本无未结请求 | 未核验 | 本轮未读取或改动付费账本 |
 | 本轮模型、请求上限与评阅者安排 | 已由作者授权 | 仅 Codex `gpt-6-luna/max`，总请求硬上限 406；作者另开 Sonnet 5.5 单人盲评，本轮不评分 |
-| 业务模型请求 | 0 | 本轮无 provider 调用或真实模型试跑 |
+| 业务模型请求 | 0 | 冒烟在数据库 URL gate 停止；29 个 case 均未启动，没有原始输出、盲评包或解盲映射 |
 
-启动真实请求前，runner 还会在专用库复核 owner 当前连接、有效 provider/model/effort、适配器、项目开关和源覆盖；任一不符即停止。公开只读演示源不得用于评测。模型连接不符时不回退供应商。费用不以 token 估算替代账单；未知用量时停止后续请求。
+本机 PostgreSQL 的 5432 端口有服务，但无可用认证；仓库主工作树现有数据库配置指向其他用途的数据库，本轮未连接该库。继续试跑前需为本 worktree 提供指向本机专用 `codex_luna_runtime_test` 的 `DATABASE_URL`。之后 runner 才会在专用库复核 owner 当前连接、有效 provider/model/effort、适配器、项目开关和源覆盖；任一不符即停止。公开只读演示源不得用于评测。模型连接不符时不回退供应商。费用不以 token 估算替代账单；未知用量时停止后续请求。
 
 ## v3 对照运行方案与上限
 

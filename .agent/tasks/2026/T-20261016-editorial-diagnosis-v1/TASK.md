@@ -1,9 +1,9 @@
 ---
 id: T-20261016-editorial-diagnosis-v1
 title: 编辑审读诊断 A/B 试跑与盲评交接
-status: active
+status: blocked
 created: 2026-10-16T18:02:35+08:00
-updated: 2026-10-16T19:47:00+08:00
+updated: 2026-10-16T19:55:00+08:00
 ---
 
 # 编辑审读诊断 A/B 试跑与盲评交接
@@ -14,10 +14,10 @@ updated: 2026-10-16T19:47:00+08:00
 - 工作树：/Users/tywww/项目/ai-writing-assist/.worktrees/editorial-diagnosis-v1；分支 codex/editorial-diagnosis-v1。
 - 已有提交：第一阶段 04424535a2a164f0274aee2f65dd8d300b3f236f（提示词、桥接、v2）。
 - 候选组固定提交：c0a32c7778ab4faaaa9f949ef8ba8a7de0606318；基线提示词来自 00d861283e34bdc0ef3f34ee5605c71e1f89c553。
-- 真实模型请求：0。没有调用其他模型。
+- 真实模型请求：0。S01 冒烟在 `DATABASE_URL` gate 前停止；没有调用其他模型。
 - 另有未跟踪 TEST-COVERAGE.md（本任务目录）记录并行测试补充；作为既有 WIP 保留，不纳入本轮文件写入或提交。
-- 下一步：核验专用数据库和 owner Codex 连接；配置不符即停；通过后先跑 S01 两臂冒烟，再按冒烟验收决定是否启动全量运行。
-- 阻塞：无；若本地库或连接与授权不符则不发请求并记录停止原因。
+- 下一步：为该 worktree 配置指向本机专用 `codex_luna_runtime_test` 的 `DATABASE_URL`；随后重新运行冒烟。连接配置仍须经 owner Project facade 核验。
+- 阻塞：当前进程没有 `DATABASE_URL` / `E2E_DATABASE_URL`；localhost:5432 PostgreSQL 无可用认证。只读发现的主工作树数据库配置属于其他用途，未连接；不以它代替专用库。
 
 ## 范围与边界
 
@@ -43,7 +43,8 @@ updated: 2026-10-16T19:47:00+08:00
 - [x] 定向 Assistant 与评测测试：186 passed（2026-10-16）；make lint 通过；make prompt-contracts 26 contracts 通过。
 - [x] git diff --check 通过。make docs-check BASE_REF=origin/main 因 module-tasks 规则列出 3 份未变文档；按维护流程以无当前架构影响说明复跑 scripts/check_architecture_docs.py 并通过。理由：只增加 Assistant 评测专用 db.info 钩子；任务注册、队列/租约/生命周期、API、跨模块契约及恢复语义未变，Assistant 与 Prompt README 已同步。
 - [x] 工程与数据本地提交：c0f4fd2b28237ff6ce1ed35c45d2644cf2a95a4c；Project profile mismatch fail-closed 修正：c0a32c7778ab4faaaa9f949ef8ba8a7de0606318。候选提示词固定于后者。
-- [ ] 只在离线门禁通过后运行 S01 两臂 smoke；确认每臂 7 次、共 14 次、输出完整、来源验证有效后再跑余下 28 例。
+- [x] 尝试 S01 两臂 smoke；runner 在 `DATABASE_URL` gate 停止。请求数 0，29 个 case 全部 `not_started`，无中断或已停止 case。
+- [ ] 配好专用库连接后重跑 S01 两臂 smoke；确认每臂 7 次、共 14 次、输出完整、来源验证有效后再跑余下 28 例。
 - [ ] 生成私有盲评包和 HANDOFF；不运行评分。
 
 ## 试跑产物路径
@@ -53,8 +54,8 @@ updated: 2026-10-16T19:47:00+08:00
 - 盲评包：/private/tmp/novelcraft-editorial-diagnosis-v1-run-20261016/blind/
 - 盲号映射：/private/tmp/novelcraft-editorial-diagnosis-v1-run-20261016/mapping/blind-map.json
 - 盲评交接：本目录的 HANDOFF-blind-review.md；此文件不得包含映射路径。
-- 以上运行产物尚未生成；真实模型请求仍为 0。
+- 私有根目录及 raw/blind/mapping 子目录已按 0700 创建且均为空；没有 manifest/state 文件、原始结果、盲评包或映射。真实模型请求仍为 0。
 
 ## 最终交付状态与下一步
 
-完成模型运行后记录实际/不确定请求数、每个 case 状态、候选 SHA、输出路径、所有门禁结果。交付止于盲评包和 HANDOFF；之后等待 Sonnet 盲评结果，再解盲汇总正例、对照例与零意见基线。
+数据库连接解除后，先记录 owner/profile 核验，再完成 smoke 和全量运行。记录实际/不确定请求数、每个 case 状态、候选 SHA、输出路径及门禁结果。交付止于盲评包和 HANDOFF；之后等待 Sonnet 盲评结果，再解盲汇总正例、对照例与零意见基线。
