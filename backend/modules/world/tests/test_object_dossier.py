@@ -7,7 +7,7 @@ import pytest
 from httpx import AsyncClient
 from sqlalchemy import select
 
-from core.errors import NotFoundError
+from core.errors import NotFoundError, ValidationError
 from modules.account.context import bind_principal, reset_principal
 from modules.account.contracts import AccountPrincipal
 from modules.account.models import Account
@@ -26,6 +26,7 @@ from modules.world.project_vocabulary_service import (
 )
 from modules.world.schemas.dossier import (
     DossierEntryCreate,
+    DossierEntryUpdate,
     DossierFacingRef,
     DossierTemplateAuthorUpsert,
     DossierTemplateUpsert,
@@ -765,9 +766,7 @@ async def test_generic_profile_unmapped_json_roundtrips_through_cross_project_ma
     preview_url = (
         f"/api/world/entities/{target_entity.json()['id']}/dossier/manifest/preview"
     )
-    apply_url = (
-        f"/api/world/entities/{target_entity.json()['id']}/dossier/manifest/apply"
-    )
+    apply_url = f"/api/world/entities/{target_entity.json()['id']}/dossier/manifest/apply"
     preview = await async_client.post(
         preview_url,
         params={"novel_id": target_novel_id},
@@ -803,6 +802,113 @@ async def test_generic_profile_unmapped_json_roundtrips_through_cross_project_ma
         != compatibility_entry["compatibility"]["legacy_field_key"]
         for item in public_dossier.entries
     )
+
+
+@pytest.mark.parametrize("current_value", ["作者第二版", None])
+async def test_generic_manifest_conflicts_with_existing_target_field_revision(
+    async_client: AsyncClient, db_session, current_value
+) -> None:
+    project = await async_client.post("/api/projects", json={"title": "通用字段导入冲突"})
+    novel_id = project.json()["id"]
+    params = {"novel_id": novel_id}
+    entity_ids = []
+    for name in ("来源山灵", "目标山灵"):
+        response = await async_client.post(
+            "/api/world/entities",
+            params=params,
+            json={"entity_type": "spirit_beast", "name": name, "status": "canonical"},
+        )
+        assert response.status_code == 201, response.text
+        entity_ids.append(response.json()["id"])
+    source_id, target_id = entity_ids
+    source_saved = await async_client.put(
+        f"/api/world/profiles/{source_id}",
+        params=params,
+        json={"data_json": {"private_extension": "来源内容"}},
+    )
+    assert source_saved.status_code == 200, source_saved.text
+    exported = await async_client.get(
+        f"/api/world/entities/{source_id}/dossier/manifest",
+        params=params,
+    )
+    assert exported.status_code == 200, exported.text
+    manifest = exported.json()
+    base_url = f"/api/world/entities/{target_id}/dossier/manifest"
+    request = {"manifest": manifest}
+    empty_preview = await async_client.post(
+        f"{base_url}/preview", params=params, json=request
+    )
+    assert empty_preview.json()["can_apply"] is True
+
+    for value in ("作者第一版", current_value):
+        saved = await async_client.put(
+            f"/api/world/profiles/{target_id}",
+            params=params,
+            json={"data_json": {"private_extension": value}},
+        )
+        assert saved.status_code == 200, saved.text
+    stale = await async_client.post(
+        f"{base_url}/apply",
+        params=params,
+        json={
+            **request,
+            "confirmed": True,
+            "expected_preview_hash": empty_preview.json()["preview_hash"],
+        },
+    )
+    assert stale.status_code == 409, stale.text
+    preview = await async_client.post(f"{base_url}/preview", params=params, json=request)
+    assert preview.status_code == 200, preview.text
+    assert preview.json()["can_apply"] is False
+    assert preview.json()["create_count"] == 0
+    assert preview.json()["conflicts"] == [
+        {
+            "source_revision_id": manifest["entries"][0]["source_revision_id"],
+            "facing_label": manifest["entries"][0]["facing_label"],
+            "reason": "target_group_collision",
+        }
+    ]
+    rejected = await async_client.post(
+        f"{base_url}/apply",
+        params=params,
+        json={
+            **request,
+            "confirmed": True,
+            "expected_preview_hash": preview.json()["preview_hash"],
+        },
+    )
+    assert rejected.status_code == 409, rejected.text
+    request["skip_conflicts"] = [manifest["entries"][0]["source_revision_id"]]
+    skipped = await async_client.post(f"{base_url}/preview", params=params, json=request)
+    assert skipped.json()["can_apply"] is True
+    applied = await async_client.post(
+        f"{base_url}/apply",
+        params=params,
+        json={
+            **request,
+            "confirmed": True,
+            "expected_preview_hash": skipped.json()["preview_hash"],
+        },
+    )
+    assert applied.status_code == 200, applied.text
+    assert applied.json()["applied_count"] == 0
+    assert applied.json()["skipped_count"] == 1
+    profile = await async_client.get(f"/api/world/profiles/{target_id}", params=params)
+    assert profile.json()["data_json"] == (
+        {"private_extension": current_value} if current_value is not None else {}
+    )
+    rows = list(
+        (
+            await db_session.scalars(
+                select(WorldObjectDossierEntry).where(
+                    WorldObjectDossierEntry.entity_id == uuid.UUID(target_id)
+                )
+            )
+        ).all()
+    )
+    assert len(rows) == 2
+    assert len({row.entry_group_id for row in rows}) == 1
+    assert max(row.revision_number for row in rows) == 2
 
 
 @pytest.mark.asyncio
@@ -842,9 +948,7 @@ async def test_strong_profile_json_and_v1_manifest_roundtrip(
     )
     assert exported.status_code == 200, exported.text
     manifest = exported.json()
-    strong_entry = next(
-        item for item in manifest["entries"] if item.get("compatibility")
-    )
+    strong_entry = next(item for item in manifest["entries"] if item.get("compatibility"))
     assert strong_entry["compatibility"]["legacy_value"] == value
     assert (
         strong_entry["compatibility"]["legacy_field_key"]
@@ -861,9 +965,7 @@ async def test_strong_profile_json_and_v1_manifest_roundtrip(
     preview_url = (
         f"/api/world/entities/{target_entity.json()['id']}/dossier/manifest/preview"
     )
-    apply_url = (
-        f"/api/world/entities/{target_entity.json()['id']}/dossier/manifest/apply"
-    )
+    apply_url = f"/api/world/entities/{target_entity.json()['id']}/dossier/manifest/apply"
     preview = await async_client.post(
         preview_url,
         params={"novel_id": target_novel_id},
@@ -1153,8 +1255,7 @@ async def test_strong_profile_and_dossier_stay_in_sync(
         row = next(
             item
             for item in dossier.json()["entries"]
-            if item["legacy_field_key"]
-            == f"{entity_type}_profiles.{field}"
+            if item["legacy_field_key"] == f"{entity_type}_profiles.{field}"
         )
         assert row["facing"]["key"] == facing
         assert row["visibility"] == ("secret" if entity_type == "secret" else "public")
@@ -1178,7 +1279,7 @@ async def test_strong_profile_and_dossier_stay_in_sync(
         if item["legacy_field_key"] == "faction_profiles.resources_json"
     )
     assert current_array_row["id"] == array_row["id"]
-    changed_value = [{"name": "盐铁", "amount": 4}]
+    changed_value = [{"resource": "盐矿", "amount": 3}]
     updated = await async_client.patch(
         f"/api/world/entities/{array_entity_id}/dossier/entries/{current_array_row['id']}",
         params={"novel_id": novel_id},
@@ -1188,6 +1289,7 @@ async def test_strong_profile_and_dossier_stay_in_sync(
         },
     )
     assert updated.status_code == 200, updated.text
+    assert updated.json()["content"] == "resource：盐矿；amount：3"
     profile = await async_client.get(
         f"/api/world/profiles/{array_entity_id}", params={"novel_id": novel_id}
     )
@@ -1224,6 +1326,30 @@ async def test_strong_profile_and_dossier_stay_in_sync(
         f"/api/world/profiles/{scalar_entity_id}", params={"novel_id": novel_id}
     )
     assert profile.json()["fields"]["origin_summary"] is None
+    restored_profile = await async_client.put(
+        f"/api/world/profiles/{scalar_entity_id}",
+        params={"novel_id": novel_id},
+        json={"origin_summary": "再次确认的起源"},
+    )
+    assert restored_profile.status_code == 200, restored_profile.text
+    blank_cleared = await async_client.put(
+        f"/api/world/profiles/{scalar_entity_id}",
+        params={"novel_id": novel_id},
+        json={"origin_summary": ""},
+    )
+    assert blank_cleared.status_code == 200, blank_cleared.text
+    assert blank_cleared.json()["fields"]["origin_summary"] is None
+    profile_history = await async_client.get(
+        f"/api/world/entities/{scalar_entity_id}/dossier/history",
+        params={"novel_id": novel_id},
+    )
+    profile_rows = [
+        item
+        for item in profile_history.json()["entries"]
+        if item["legacy_field_key"] == "species_profiles.origin_summary"
+    ]
+    latest_profile_row = max(profile_rows, key=lambda item: item["revision_number"])
+    assert latest_profile_row["status"] == "cleared"
 
     secret_entity_id, secret_row = dossier_rows["truth_summary"]
     public = await WorldObjectDossierService().read(
@@ -1233,6 +1359,47 @@ async def test_strong_profile_and_dossier_stay_in_sync(
         visibility_filter="public",
     )
     assert all(item.id != uuid.UUID(secret_row["id"]) for item in public.entries)
+
+
+@pytest.mark.asyncio
+async def test_strong_dossier_text_length_is_checked_before_preview_and_write(
+    async_client: AsyncClient,
+    db_session,
+) -> None:
+    project = await async_client.post("/api/projects", json={"title": "档案长度限制"})
+    assert project.status_code == 201, project.text
+    novel_id = project.json()["id"]
+    entity = await async_client.post(
+        "/api/world/entities",
+        params={"novel_id": novel_id},
+        json={"entity_type": "species", "name": "长生族", "status": "canonical"},
+    )
+    assert entity.status_code == 201, entity.text
+    entity_id = entity.json()["id"]
+    profile = await async_client.put(
+        f"/api/world/profiles/{entity_id}",
+        params={"novel_id": novel_id},
+        json={"status": "canonical", "lifespan": "年" * 128},
+    )
+    assert profile.status_code == 200, profile.text
+    dossier = await async_client.get(
+        f"/api/world/entities/{entity_id}/dossier", params={"novel_id": novel_id}
+    )
+    row = next(
+        item
+        for item in dossier.json()["entries"]
+        if item["legacy_field_key"] == "species_profiles.lifespan"
+    )
+    data = DossierEntryUpdate(
+        expected_revision_id=uuid.UUID(row["id"]), content="年" * 129
+    )
+    service = WorldObjectDossierService()
+    with pytest.raises(ValidationError, match="128 个字符"):
+        await service.preview_update_entry(
+            db_session, novel_id, entity_id, row["id"], data
+        )
+    with pytest.raises(ValidationError, match="128 个字符"):
+        await service.update_entry(db_session, novel_id, entity_id, row["id"], data)
 
 
 @pytest.mark.asyncio

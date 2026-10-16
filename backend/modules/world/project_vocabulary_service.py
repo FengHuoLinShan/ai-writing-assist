@@ -422,6 +422,36 @@ async def get_project_vocabulary_term(
     return _term_response(term, revision)
 
 
+async def get_project_vocabulary_term_revision(
+    db: AsyncSession, novel_id: str, type_ref: str, revision_id: str
+) -> VocabularyTermResponse:
+    await require_active_project(db, novel_id)
+    novel_uuid = parse_uuid(novel_id, "novel_id")
+    term_uuid = parse_uuid(type_ref, "type_ref")
+    revision_uuid = parse_uuid(revision_id, "revision_id")
+    row = (
+        await db.execute(
+            select(ProjectVocabularyTerm, ProjectVocabularyRevision)
+            .join(
+                ProjectVocabularyRevision,
+                and_(
+                    ProjectVocabularyRevision.novel_id == ProjectVocabularyTerm.novel_id,
+                    ProjectVocabularyRevision.term_id == ProjectVocabularyTerm.id,
+                ),
+            )
+            .where(
+                ProjectVocabularyTerm.novel_id == novel_uuid,
+                ProjectVocabularyTerm.id == term_uuid,
+                ProjectVocabularyRevision.novel_id == novel_uuid,
+                ProjectVocabularyRevision.id == revision_uuid,
+            )
+        )
+    ).one_or_none()
+    if row is None:
+        raise NotFoundError("项目词条修订不存在")
+    return _term_response(*row)
+
+
 async def update_project_vocabulary_term(
     db: AsyncSession,
     novel_id: str,

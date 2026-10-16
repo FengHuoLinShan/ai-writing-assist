@@ -984,6 +984,25 @@ describe("统一地图编辑器", () => {
     expect(api.world.saveMapRevision).not.toHaveBeenCalled()
   })
 
+  it("候选差异按地图固定的词条修订显示名称", async () => {
+    const current = document()
+    current.features[0].type_ref = "term-a"; current.features[0].type_revision_id = "revision-old"
+    const candidate = structuredClone(current)
+    candidate.features[0].type_revision_id = "revision-new"
+    api.world.getVocabularyTerm = vi.fn(async (_project, _typeRef, revision) => ({
+      name: revision === "revision-old" ? "旧地貌" : "新地貌",
+      revision_number: revision === "revision-old" ? 1 : 2,
+    }))
+    api.world.getNodeMap.mockResolvedValue({ ...state(record(current)), candidates: [{ ...record(candidate, nextId), status: "candidate", base_revision_id: revisionId }] })
+    const wrapper = await render(); await flushPromises()
+    await button(wrapper, "查看").trigger("click"); await flushPromises()
+
+    const change = wrapper.get('[aria-label="候选地图差异"]').text()
+    expect(change).toContain("旧地貌（第 1 版）")
+    expect(change).toContain("新地貌（第 2 版）")
+    expect(api.world.getVocabularyTerm).toHaveBeenCalledTimes(2)
+  })
+
   it("查证输入与完成结果在专注切换后保留，不重复查询", async () => {
     api.context = {
       startFocusedSearch: vi.fn(async () => ({ task_id: "lookup-1", status: "pending" })),

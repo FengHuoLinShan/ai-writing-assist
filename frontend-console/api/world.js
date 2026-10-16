@@ -51,6 +51,9 @@ export const world = {
     async listProjectVocabulary(novelId, options = {}) {
       return contractFetch("world.listProjectVocabulary", { novelId }, { limit: 500, ...options }, { cache: "no-store" })
     },
+    async getVocabularyTerm(novelId, typeRef, revisionId) {
+      return contractFetch("world.getVocabularyTerm", { novelId, typeRef }, revisionId ? { revision_id: revisionId } : {}, { cache: "no-store" })
+    },
     async createVocabularyTerm(novelId, payload) {
       return contractJson("world.createVocabularyTerm", { novelId }, {}, payload)
     },

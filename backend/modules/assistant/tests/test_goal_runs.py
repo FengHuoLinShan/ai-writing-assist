@@ -278,9 +278,7 @@ async def _unknown_goal_step(
     )
     calls = []
     applies = []
-    receipt = {
-        "value": {"status": receipt_status, "receipt_id": "domain-receipt"}
-    }
+    receipt = {"value": {"status": receipt_status, "receipt_id": "domain-receipt"}}
 
     async def prepare(_db, _novel_id, _args, *, context=None):
         return {"effect": "扫描资料"}
@@ -328,7 +326,8 @@ async def _unknown_goal_step(
         ),
     )
     assert approved["phase"] == "step_review", (
-        approved.get("stop_code"), approved.get("stop_reason")
+        approved.get("stop_code"),
+        approved.get("stop_reason"),
     )
     run = await service._load_goal_run(db, novel_id, prepared["run_id"], owner_id)
     goal = service._goal_state(run)
@@ -360,9 +359,7 @@ async def _unknown_goal_step(
             "status": "outcome_unknown",
             "operation_id": stable_operation_id,
             "parameter_fingerprint": parameter_hash,
-            "plan_step_fingerprint": service.digest(
-                step.model_dump(mode="json")
-            ),
+            "plan_step_fingerprint": service.digest(step.model_dump(mode="json")),
             "resolved_parameters": step.parameters,
             "reference": reference,
             "read_result": {"status": "incomplete"},
@@ -536,6 +533,68 @@ async def test_goal_receipt_preview_does_not_read_a_still_running_task(
 
 
 @pytest.mark.asyncio
+async def test_only_cancelled_before_first_claim_can_reconcile_as_not_applied(
+    db_session, test_project_id, monkeypatch
+):
+    owner_id = str(current_account_id())
+    (
+        service,
+        _approved,
+        unknown,
+        _operation,
+        calls,
+        applies,
+        _receipt,
+    ) = await _unknown_goal_step(
+        db_session,
+        test_project_id,
+        owner_id,
+        monkeypatch,
+        task_status="cancelled",
+    )
+    run = await service._load_goal_run(
+        db_session, test_project_id, unknown["run_id"], owner_id
+    )
+    task_id = service._step_records(service._goal_state(run))["scan"]["reference"][
+        "task_id"
+    ]
+    task = await db_session.get(AsyncTask, uuid.UUID(task_id))
+    task.result = {}
+    task.attempt = 0
+    task.started_at = None
+    task.error_message = None
+    await db_session.flush()
+
+    preview = await service.goal_step_receipt_preview(
+        db_session,
+        test_project_id,
+        unknown["run_id"],
+        "scan",
+        unknown["revision"],
+        owner_id,
+    )
+    assert preview.status == "verified_not_applied"
+    assert preview.available_decisions == ["not_applied"]
+    assert preview.details == ["任务在首次领取前已取消，服务端确认没有执行领域操作。"]
+    assert calls == []
+
+    resolved = await service.reconcile_goal_step(
+        db_session,
+        test_project_id,
+        unknown["run_id"],
+        "scan",
+        GoalOutcomeReconciliation(
+            expected_revision=unknown["revision"], decision="not_applied"
+        ),
+        owner_id,
+    )
+    assert resolved["steps"][0]["status"] == "failed"
+    assert resolved["stop_code"] == "step_receipt_not_applied"
+    assert calls == []
+    assert applies == []
+
+
+@pytest.mark.asyncio
 async def test_goal_unknown_step_reconciliation_requires_bound_domain_receipt(
     db_session, test_project_id, monkeypatch
 ):
@@ -548,9 +607,7 @@ async def test_goal_unknown_step_reconciliation_requires_bound_domain_receipt(
         calls,
         applies,
         receipt,
-    ) = await _unknown_goal_step(
-        db_session, test_project_id, owner_id, monkeypatch
-    )
+    ) = await _unknown_goal_step(db_session, test_project_id, owner_id, monkeypatch)
     original_usage = unknown["budget"]["used"].copy()
     assert unknown["steps"][0]["can_reconcile"] is True
     assert unknown["can_replan"] is False
@@ -630,6 +687,41 @@ async def test_goal_unknown_step_reconciliation_requires_bound_domain_receipt(
 
 
 @pytest.mark.asyncio
+async def test_failed_task_status_alone_does_not_prove_not_applied(
+    db_session, test_project_id, monkeypatch
+):
+    owner_id = str(current_account_id())
+    (
+        service,
+        _approved,
+        unknown,
+        _operation,
+        _calls,
+        _applies,
+        _receipt,
+    ) = await _unknown_goal_step(
+        db_session,
+        test_project_id,
+        owner_id,
+        monkeypatch,
+        task_status="failed",
+        receipt_status="failed",
+    )
+
+    with pytest.raises(ConflictError, match="没有证明该步骤未应用"):
+        await service.reconcile_goal_step(
+            db_session,
+            test_project_id,
+            unknown["run_id"],
+            "scan",
+            GoalOutcomeReconciliation(
+                expected_revision=unknown["revision"], decision="not_applied"
+            ),
+            owner_id,
+        )
+
+
+@pytest.mark.asyncio
 async def test_goal_not_applied_requires_terminal_receipt_and_keeps_unknown_usage(
     db_session, test_project_id, monkeypatch
 ):
@@ -695,15 +787,21 @@ async def test_goal_verified_not_applied_allows_cumulative_replan_without_replay
     db_session, test_project_id, monkeypatch
 ):
     owner_id = str(current_account_id())
-    service, _approved, unknown, _operation, calls, applies, _receipt = (
-        await _unknown_goal_step(
-            db_session,
-            test_project_id,
-            owner_id,
-            monkeypatch,
-            task_status="failed",
-            receipt_status="not_applied",
-        )
+    (
+        service,
+        _approved,
+        unknown,
+        _operation,
+        calls,
+        applies,
+        _receipt,
+    ) = await _unknown_goal_step(
+        db_session,
+        test_project_id,
+        owner_id,
+        monkeypatch,
+        task_status="failed",
+        receipt_status="not_applied",
     )
     before = unknown["budget"]["used"].copy()
     resolved = await service.reconcile_goal_step(
@@ -740,14 +838,20 @@ async def test_goal_still_unknown_is_cas_protected_and_never_reads_or_replays(
     db_session, test_project_id, monkeypatch
 ):
     owner_id = str(current_account_id())
-    service, _approved, unknown, _operation, calls, applies, _receipt = (
-        await _unknown_goal_step(
-            db_session,
-            test_project_id,
-            owner_id,
-            monkeypatch,
-            task_status="running",
-        )
+    (
+        service,
+        _approved,
+        unknown,
+        _operation,
+        calls,
+        applies,
+        _receipt,
+    ) = await _unknown_goal_step(
+        db_session,
+        test_project_id,
+        owner_id,
+        monkeypatch,
+        task_status="running",
     )
     kept = await service.reconcile_goal_step(
         db_session,
@@ -790,9 +894,7 @@ async def test_auto_r2_keeps_unrestorable_r2_and_r3_at_step_review(
             {
                 "step_id": "edit",
                 "operation_id": "project.goal_test.edit",
-                "targets": [
-                    {"target_type": "artifact", "target_id": "artifact-1"}
-                ],
+                "targets": [{"target_type": "artifact", "target_id": "artifact-1"}],
                 "parameters": {"target_id": "artifact-1", "value": "新值"},
                 "intent": "修改选定对象",
             }
@@ -839,12 +941,11 @@ async def test_auto_r2_keeps_unrestorable_r2_and_r3_at_step_review(
         if isinstance(approved_result, dict)
         else await service.goal_view(db_session, approved_result, owner_id=owner_id)
     )
-    tasks_after = await db_session.scalar(
-        select(func.count()).select_from(AsyncTask)
-    )
+    tasks_after = await db_session.scalar(select(func.count()).select_from(AsyncTask))
 
     assert approved["phase"] == "step_review", (
-        approved.get("stop_code"), approved.get("stop_reason")
+        approved.get("stop_code"),
+        approved.get("stop_reason"),
     )
     assert approved["stop_code"] == "step_approval"
     assert approved["steps"][0]["status"] == "prepared"
@@ -913,9 +1014,7 @@ def test_auto_r2_restore_catalog_requires_supported_fields_and_single_transactio
     unsupported = supported.model_copy(
         update={"parameters": {"changes": {"status": "completed"}}}
     )
-    assert service._r2_restore_is_supported(
-        supported, operation, supported.parameters
-    )
+    assert service._r2_restore_is_supported(supported, operation, supported.parameters)
     assert not service._r2_restore_is_supported(
         unsupported, operation, unsupported.parameters
     )

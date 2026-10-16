@@ -9,7 +9,7 @@ from dataclasses import dataclass
 from datetime import UTC, datetime
 from typing import Any
 
-from sqlalchemy import select
+from sqlalchemy import or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from core.errors import ConflictError, ValidationError
@@ -281,9 +281,7 @@ class WorldDossierInterchangeService:
                 or row.previous_revision_id != entry.previous_revision_id
                 or row.source != entry.source
                 or row.status != "active"
-                or _row_payload_hash(
-                    row, include_compatibility=compatibility is not None
-                )
+                or _row_payload_hash(row, include_compatibility=compatibility is not None)
                 != _source_payload_hash(entry)
             ):
                 raise ConflictError("来源档案修订或证据身份不符，请重新导出")
@@ -306,8 +304,7 @@ class WorldDossierInterchangeService:
             source_revision_id=row.id,
             source_revision_number=row.revision_number,
             previous_revision_id=row.previous_revision_id,
-            facing=facing
-            or DossierFacingRef(kind="core", key=row.facing_key)
+            facing=facing or DossierFacingRef(kind="core", key=row.facing_key)
             if row.facing_kind == "core"
             else DossierFacingRef(kind="project", term_id=row.vocabulary_term_id),
             facing_label=facing_label or row.facing_key,
@@ -399,9 +396,7 @@ class WorldDossierInterchangeService:
                 validity=item.validity,
                 compatibility=(
                     DossierManifestCompatibility.model_validate(
-                        _row_compatibility(
-                            await db.get(WorldObjectDossierEntry, item.id)
-                        )
+                        _row_compatibility(await db.get(WorldObjectDossierEntry, item.id))
                     )
                     if item.legacy_field_key
                     else None
@@ -410,9 +405,7 @@ class WorldDossierInterchangeService:
             for item in read.entries
             if item.status == "active"
         ]
-        row_ids = {
-            item.source_revision_id for item in entries
-        }
+        row_ids = {item.source_revision_id for item in entries}
         for field in read.legacy_profile_fields:
             entry_id = field.source_metadata.get("entry_id")
             if entry_id:
@@ -587,10 +580,19 @@ class WorldDossierInterchangeService:
             )
             for item in manifest.entries
         ]
+        generic_field_keys = {
+            item.compatibility.legacy_field_key
+            for item in manifest.entries
+            if item.compatibility
+            and item.compatibility.generic_profile_field_key is not None
+        }
         existing_statement = select(WorldObjectDossierEntry).where(
             WorldObjectDossierEntry.novel_id == nid,
             WorldObjectDossierEntry.entity_id == entity.id,
-            WorldObjectDossierEntry.entry_group_id.in_(group_ids),
+            or_(
+                WorldObjectDossierEntry.entry_group_id.in_(group_ids),
+                WorldObjectDossierEntry.legacy_field_key.in_(generic_field_keys),
+            ),
         )
         if lock:
             existing_statement = existing_statement.with_for_update()
@@ -607,6 +609,14 @@ class WorldDossierInterchangeService:
         rows_by_group: dict[uuid.UUID, list[WorldObjectDossierEntry]] = {}
         for row in existing_rows:
             rows_by_group.setdefault(row.entry_group_id, []).append(row)
+        generic_rows_by_field = {
+            row.legacy_field_key: row
+            for row in sorted(
+                existing_rows,
+                key=lambda row: (row.revision_number, row.created_at, str(row.id)),
+            )
+            if row.legacy_field_key in generic_field_keys
+        }
 
         service = WorldObjectDossierService()
         skipped_ids = set(request.skip_conflicts)
@@ -657,7 +667,15 @@ class WorldDossierInterchangeService:
             )
             action = "create"
             reason = None
-            if latest is not None:
+            field_current = (
+                generic_rows_by_field.get(source.compatibility.legacy_field_key)
+                if source.compatibility
+                and source.compatibility.generic_profile_field_key is not None
+                else None
+            )
+            if field_current is not None and field_current.entry_group_id != group_id:
+                reason = "target_group_collision"
+            elif latest is not None:
                 source_identity_matches = (
                     isinstance(metadata, dict)
                     and metadata.get("source_project_id")
@@ -834,10 +852,7 @@ class WorldDossierInterchangeService:
             compatibility.legacy_value,
             supplied=True,
         )
-        if (
-            compatibility.legacy_field_key == "secret"
-            and source.visibility != "secret"
-        ):
+        if compatibility.legacy_field_key == "secret" and source.visibility != "secret":
             raise ValidationError("人物秘密档案必须保持秘密可见性")
         return None
 

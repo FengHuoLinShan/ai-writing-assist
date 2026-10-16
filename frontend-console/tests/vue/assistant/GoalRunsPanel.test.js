@@ -505,6 +505,14 @@ it("keeps inconclusive receipt previews blocked with only still-unknown availabl
   expect(wrapper.text()).not.toContain("确认：原操作已完成")
   expect(wrapper.text()).not.toContain("确认：原操作未应用")
   expect(wrapper.text()).toContain("仍无法确认")
+  expect(wrapper.get(".goal-runs-reconciliation button").text()).toContain("重新读取原回执")
+  await wrapper.get(".goal-runs-reconciliation button").trigger("click")
+  await flushPromises()
+  expect(api.goalStepReceiptPreview).toHaveBeenCalledTimes(2)
+  await wrapper.get(".goal-runs-refresh").trigger("click")
+  await flushPromises()
+  expect(wrapper.text()).not.toContain("原领域结果尚不完整")
+  expect(wrapper.get(".goal-runs-reconciliation button").text()).toContain("读取原回执")
 })
 
 it("shows not-applied only after a matching terminal receipt is verified", async () => {

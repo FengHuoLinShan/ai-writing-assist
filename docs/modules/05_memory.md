@@ -154,7 +154,7 @@ Context 审查升级不新增 continuity 表。Scene/角色任务仍以当前 Sc
 预览、确认与执行比较同一通用 Context
 指纹；人物或脚本领域 overlay 必须继承作者的 `excluded_refs`，不得读取后续 Scene 再回流到
 当前 Scene。缺失/漂移 checkpoint 继续按原规则失败关闭，不由确认窗补写事实。
-- `panorama` 是由事件流和快照重放得到的“某章世界状态视图”；快照后的增量事件按 `(chapter_index, sequence, id)` keyset 分页应用，避免大世界范围重放一次性加载全部事件
+- `panorama` 是由事件流和快照重放得到的“某章世界状态视图”；章节重排后，事件按重排回执和事件创建时间投影到当前章序，再按 `(当前章序, sequence, id)` keyset 分页应用。Scene 重提取会刷新事件绑定时间，避免旧创建时间再次映射已更新的章号。原始 `chapter_index` 与来源锚不改；列表、计数、最大章、回放和快照共用同一投影。受影响的单章候选超过 500 条时显式失败，不静默截断。
 - 快照 `events_until` 和手动重建终点使用聚合查询计算，显式事件列表查询仍保留按章节范围返回完整列表的 API 语义
 - `delta_log` 不是单独模块，而是 memory 提供给 world/imports/context 使用的结构化差分设施
 - 文本字段回滚依赖 `world.text_archive`；memory 主要负责事件和差分历史

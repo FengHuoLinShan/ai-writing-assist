@@ -14,11 +14,13 @@ from modules.account.models import Account
 from modules.project.models import Project
 from modules.world.dossier_service import WorldObjectDossierService
 from modules.world.models import CoreEntity, WorldObjectDossierEntry
+from modules.world.schemas import WorldProfileUpsertRequest
 from modules.world.schemas.dossier import (
     DossierEntryCreate,
     DossierEntryUpdate,
     DossierFacingRef,
 )
+from modules.world.services.worldbuilding.profile_service import WorldProfileService
 from tests.e2e.config import require_e2e_database_url
 
 pytestmark = [pytest.mark.asyncio, pytest.mark.e2e]
@@ -127,6 +129,112 @@ async def test_dossier_competing_edit_and_failed_write_preserve_current_revision
             await db.execute(
                 delete(Project).where(Project.id.in_([novel_id, other_novel_id]))
             )
+            await db.execute(delete(Account).where(Account.id == owner_id))
+        reset_principal(token)
+        await engine.dispose()
+
+
+async def test_strong_profile_dossier_bridge_roundtrips_on_postgres():
+    engine = create_async_engine(require_e2e_database_url(), pool_size=2, max_overflow=0)
+    sessions = async_sessionmaker(engine, expire_on_commit=False)
+    owner_id, novel_id = uuid4(), uuid4()
+    cases = [
+        ("species", "origin_summary", "history", "雾海迁徙", "远古林地"),
+        (
+            "faction",
+            "resources_json",
+            "resources",
+            [{"name": "盐铁", "amount": 3}],
+            [{"name": "盐铁", "amount": 4}],
+        ),
+        ("location", "climate", "sensory_details", "潮湿冷风", "乾燥暖风"),
+        ("rule", "rule_domain", "known_scope", "北境", "全境"),
+        (
+            "item",
+            "powers_json",
+            "abilities_limits",
+            [{"label": "照明"}],
+            [{"label": "护身"}],
+        ),
+        ("secret", "truth_summary", "truth", "盟主在世", "盟主已死"),
+    ]
+    profile_service = WorldProfileService()
+    dossier_service = WorldObjectDossierService()
+    token = bind_principal(
+        AccountPrincipal(
+            account_id=owner_id,
+            status="active",
+            identity_type="email",
+            support_code=owner_id.hex,
+        )
+    )
+    try:
+        async with sessions.begin() as db:
+            db.add(Account(id=owner_id, status="active", support_code=owner_id.hex))
+            db.add(Project(id=novel_id, owner_id=owner_id, title="强档案桥接 PG"))
+            await db.flush()
+            for entity_type, _field, _facing, _value, _updated in cases:
+                db.add(
+                    CoreEntity(
+                        novel_id=novel_id,
+                        entity_type=entity_type,
+                        name=f"PG {entity_type}",
+                        status="canonical",
+                    )
+                )
+            await db.flush()
+            entities = {
+                row.entity_type: row
+                for row in (
+                    await db.scalars(
+                        select(CoreEntity).where(CoreEntity.novel_id == novel_id)
+                    )
+                ).all()
+            }
+            for entity_type, field, facing, value, updated_value in cases:
+                entity = entities[entity_type]
+                await profile_service.upsert_profile(
+                    db,
+                    str(novel_id),
+                    str(entity.id),
+                    WorldProfileUpsertRequest.model_validate(
+                        {"status": "canonical", field: value}
+                    ),
+                )
+                view = await dossier_service.read(db, str(novel_id), str(entity.id))
+                row = next(
+                    item
+                    for item in view.entries
+                    if item.legacy_field_key == f"{entity_type}_profiles.{field}"
+                )
+                assert row.facing.key == facing
+                assert row.legacy_value == (value if field.endswith("_json") else None)
+
+                update = (
+                    DossierEntryUpdate(
+                        expected_revision_id=row.id,
+                        legacy_value=updated_value,
+                    )
+                    if field.endswith("_json")
+                    else DossierEntryUpdate(
+                        expected_revision_id=row.id,
+                        content=updated_value,
+                    )
+                )
+                await dossier_service.update_entry(
+                    db,
+                    str(novel_id),
+                    str(entity.id),
+                    str(row.id),
+                    update,
+                )
+                profile = await profile_service.get_profile(
+                    db, str(novel_id), str(entity.id)
+                )
+                assert profile.fields[field] == updated_value
+    finally:
+        async with sessions.begin() as db:
+            await db.execute(delete(Project).where(Project.id == novel_id))
             await db.execute(delete(Account).where(Account.id == owner_id))
         reset_principal(token)
         await engine.dispose()

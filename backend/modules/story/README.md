@@ -373,6 +373,8 @@ continuity 归约统一为单一 `reducer.py::StoryStateReducer`（章节重放�
 （E05 失效传播：软 supersede，不删历史）与 `project_scene_presence`
 （G2 在场投影：未知路线标 unknown，不造移动细节）。Scene 事件替换按
 producer family 分区 + 稳定 `meta.event_key`（作者确认永不参与机器替换）。
+匹配旧键或旧槽位的重提取写入当前章号时同步刷新章序投影时间基准，保持行身份及槽位，
+避免旧重排回执再次作用于新章号；列表、计数、时间线与回放共用这一基准。
 
 ## 演化来源失效与地图消费
 

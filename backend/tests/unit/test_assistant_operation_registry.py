@@ -589,14 +589,14 @@ C0C_REVISED_SNAPSHOT = {
     "world.dossier.entry.create": (
         "新增对象档案条目",
         "confirm",
-        "2",
-        "8948846dc0937dfedfdd6b71a5304b4e5220a05f51003e5ab4515cb74b3b9ab9",
+        "3",
+        "35df7a8a5f74e833dc91e2396a6c24c4e2509b84a51bf81535fdb01db7a78bc1",
     ),
     "world.dossier.entry.edit": (
         "修订对象档案条目",
         "confirm",
-        "2",
-        "9635228d35bf69ac98d3af12a780456b33e2adf186d4953aac9fa6bf3aa9e817",
+        "3",
+        "9ca29741b052996c7072e4fde26339883af72f0176064dddda768c9ab150faca",
     ),
     "world.dossier.entry.restore": (
         "恢复对象档案历史版本",

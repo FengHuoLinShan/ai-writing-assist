@@ -35,9 +35,38 @@ async def test_smart_dedup_scope_and_run_budget_are_frozen() -> None:
 
     task = SimpleNamespace(meta={"max_suggestions": 300})
     assert _smart_dedup_run_request_limit(task) == 11_600
-    assert _smart_dedup_run_request_limit(
-        SimpleNamespace(meta={"scopes": ["world_entity"], "max_suggestions": 12})
-    ) == 144
+    assert (
+        _smart_dedup_run_request_limit(
+            SimpleNamespace(meta={"scopes": ["world_entity"], "max_suggestions": 12})
+        )
+        == 144
+    )
+
+
+async def test_assistant_scan_task_reference_binds_operation_id(monkeypatch) -> None:
+    from modules.project import assistant_dedup_tool
+
+    operation_id = str(uuid4())
+    task_id = uuid4()
+
+    class StubSmartDedupService:
+        async def submit_scan(self, _db, _novel_id, request, **_kwargs):
+            assert str(request.operation_id) == operation_id
+            return SimpleNamespace(task_id=task_id)
+
+    monkeypatch.setattr(assistant_dedup_tool, "SmartDedupService", StubSmartDedupService)
+    result = await assistant_dedup_tool._submit(
+        None,
+        str(uuid4()),
+        None,
+        {"scopes": ["world_entity"]},
+        context=SimpleNamespace(
+            operation_id=operation_id, llm_snapshot={}, internal_meta={}
+        ),
+    )
+
+    assert result["task_id"] == task_id
+    assert result["operation_id"] == operation_id
 
 
 async def test_smart_dedup_scan_api_enqueues_task(

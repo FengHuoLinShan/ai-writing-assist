@@ -244,7 +244,7 @@ import { confirmAsync } from "../../../shared/confirmAsync.js"
 import { confirmAiReference } from "../../../shared/aiReferenceModal.js"
 import { ACCOUNT_MARKER_KEY } from "../../../shared/accountStorage.js"
 import { formatFullTime, formatRelativeTime, formatWritingProgress } from "../../../shared/revisionHistory.js"
-import { copyMap, emptyMap, geometrySignature, mapBounds, mapChangeDetails, mapFeatureCenter, mapImageChanges, mapRelationLabels, mapSourceRangeKey, mapSourceSelections, pointsAttribute, rehearseMapRoute, removeMapFeature } from "./mapStructureEditor.js"
+import { copyMap, emptyMap, geometrySignature, mapBounds, mapChangeDetails, mapChangedPinnedTypeRefs, mapFeatureCenter, mapImageChanges, mapRelationLabels, mapSourceRangeKey, mapSourceSelections, pointsAttribute, rehearseMapRoute, removeMapFeature } from "./mapStructureEditor.js"
 import { focusWorkspaceTool } from "../../components/workspaceTools.js"
 import FocusedEvidencePanel from "../../components/FocusedEvidencePanel.vue"
 import MapChangeReview from './MapChangeReview.vue'
@@ -306,10 +306,12 @@ const imageUrls = reactive({}), anchorIndex = ref(0), annotationId = ref(""), an
 const imageForm = reactive({ page_id: "", role: "illustration", feature_id: "", opacity: 0.65, anchors: [{ feature_id: "", image_x: 0.1, image_y: 0.1 }, { feature_id: "", image_x: 0.8, image_y: 0.1 }, { feature_id: "", image_x: 0.1, image_y: 0.8 }], reader_from_chapter: "" })
 const relation = reactive({ subject: "", relation: "north", target: "" })
 const relationLabels = mapRelationLabels
+const pinnedTypeNames = ref({})
+const pinnedTypeCache = new Map()
 const sourcePickerOpen = ref(false), sourcePickerInitial = ref(null)
 const imageRequests = new Map()
 let resizeObserver = null
-let epoch = 0, alive = true, installing = false, backupTimer = null, pollTimer = null, drag = null, reviewEpoch = 0, imageBaselineEpoch = 0, comparisonEpoch = 0, lastLoadError = '', pan = null
+let epoch = 0, alive = true, installing = false, backupTimer = null, pollTimer = null, drag = null, reviewEpoch = 0, imageBaselineEpoch = 0, comparisonEpoch = 0, vocabularyTypeEpoch = 0, lastLoadError = '', pan = null
 const dirty = computed(() => JSON.stringify(doc.value) !== baseline.value)
 const metadataBusy = ref(false), confirming = ref(false)
 const busy = computed(() => loading.value || saving.value || metadataBusy.value || confirming.value || previewing.value || candidateLocationState.value.busy)
@@ -336,7 +338,7 @@ const spaceChoices = computed(() => {
 const displayDocument = computed(() => ({ ...rawDisplayDocument.value, features: rawDisplayDocument.value.features.filter(feature => (feature.space_id || 'main') === activeSpaceId.value) }))
 const displayedFeature = computed(() => displayDocument.value.features.find(feature => feature.id === selectedId.value))
 const matchingFeatures = computed(() => rawDisplayDocument.value.features.filter(feature => feature.label.toLocaleLowerCase().includes(mapQuery.value.trim().toLocaleLowerCase())))
-const candidateChanges = computed(() => candidateView.value ? mapChangeDetails(revision.value?.document || emptyMap(), candidateView.value.document) : [])
+const candidateChanges = computed(() => candidateView.value ? mapChangeDetails(revision.value?.document || emptyMap(), candidateView.value.document, pinnedTypeNames.value) : [])
 const adoptionChanges = computed(() => candidateChanges.value.filter(change => adoptionPreview.value?.applied_change_keys.includes(change.key)))
 const rehearsal = computed(() => readOnly.value ? { message: '', legs: [], featureIds: [] } : rehearseMapRoute(doc.value, rehearsalStops.value, problems.value.flatMap(problem => problem.feature_ids)))
 const selectedRelations = computed(() => doc.value.constraints.filter(item => [item.subject, item.target].includes(selectedId.value)))
@@ -393,7 +395,30 @@ const canRemovePoint = computed(() => selectedFeature.value?.points.length > (se
 const anchorFeatures = computed(() => doc.value.features.filter(f => ["location", "landmark"].includes(f.kind) && f.points.length === 1))
 const childChoices = computed(() => props.knownNodes.filter(node => node.id !== props.node.id && node.parent_id === props.node.id))
 const annotations = computed(() => props.images.flatMap(page => page.annotations || []))
-const conflictChanges = computed(() => serverRevision.value ? mapChangeDetails(serverRevision.value.document, doc.value) : [])
+const conflictChanges = computed(() => serverRevision.value ? mapChangeDetails(serverRevision.value.document, doc.value, pinnedTypeNames.value) : [])
+const pinnedTypeRefs = computed(() => {
+  const refs = [
+    ...mapChangedPinnedTypeRefs(revision.value?.document, candidateView.value?.document),
+    ...mapChangedPinnedTypeRefs(serverRevision.value?.document, doc.value),
+  ]
+  return [...new Map(refs.map(ref => [`${ref.typeRef}@${ref.revisionId}`, ref])).values()]
+})
+watch(pinnedTypeRefs, async refs => {
+  const token = ++vocabularyTypeEpoch
+  if (!api?.world?.getVocabularyTerm) return
+  const entries = await Promise.all(refs.map(async ({ typeRef, revisionId }) => {
+    const key = `${typeRef}@${revisionId}`
+    if (!pinnedTypeCache.has(key)) {
+      try {
+        const term = await api.world.getVocabularyTerm(props.projectId, typeRef, revisionId)
+        pinnedTypeCache.set(key, { name: term.name, revision_number: term.revision_number })
+      } catch { return [key, null] }
+    }
+    return [key, pinnedTypeCache.get(key)]
+  }))
+  if (!alive || token !== vocabularyTypeEpoch) return
+  pinnedTypeNames.value = Object.fromEntries(entries.filter(([, term]) => term))
+}, { immediate: true })
 const saveLabel = computed(() => saving.value ? "正在处理地图操作…" : recovery.value ? "当前浏览已保存地图，本机编辑尚待处理" : dirty.value ? (backedUp.value ? "未保存到服务端 · 当前编辑已在本机备份" : "有未保存修改") : revision.value ? "已保存到服务端" : "空间结构尚未保存")
 function imageInActiveSpace(layer) {
   if (reader.value) return (layer.space_id || 'main') === activeSpaceId.value

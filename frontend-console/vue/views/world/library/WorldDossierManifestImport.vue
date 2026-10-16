@@ -133,7 +133,7 @@ async function chooseFile(event) {
   busy.value = "file"
   try {
     const parsed = JSON.parse(await file.text())
-    if (parsed?.format !== "novelcraft.world.dossier-manifest" || parsed.format_version !== 1 || !Array.isArray(parsed.entries) || parsed.entries.length > 250) throw new Error("文件不是受支持的档案清单。")
+    if (parsed?.format !== "novelcraft.world.dossier-manifest" || ![1, 2].includes(parsed.format_version) || !Array.isArray(parsed.entries) || parsed.entries.length > 250) throw new Error("文件不是受支持的档案清单。")
     const [templateResult, chapterResult] = await Promise.allSettled([
       getApi().world.getEntityDossierTemplate(props.entity.entity_type, projectId, { cache: "no-store" }),
       getApi().writing.listChapters(projectId),

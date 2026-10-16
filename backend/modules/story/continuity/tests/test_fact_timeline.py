@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import uuid
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 
 import pytest
 
@@ -13,7 +13,9 @@ from modules.assistant.operation_scope import require_operation_targets
 from modules.story.continuity.fact_timeline import StoryFactTimelineService
 from modules.story.continuity.models import MemoryEvent, StoryChapterOrderReceipt
 from modules.story.continuity.operations import _read_fact_timeline
+from modules.story.continuity.repositories import EventRepository
 from modules.story.continuity.schemas import StoryFactTimelineQuery
+from modules.story.continuity.services import MemoryService
 from modules.story.outline_state.models import Scene
 
 
@@ -260,7 +262,6 @@ async def test_fact_timeline_projects_current_chapter_without_mutating_history(
     assert [item.time_status for item in current.items] == ["stale", "stale"]
     assert before.chapter_index == 1
     assert after.chapter_index == 2
-
     receipt.status = "restored"
     receipt.restored_at = datetime(2026, 10, 16, 3, 0, tzinfo=UTC)
     scene.chapter_ids = ["1"]
@@ -272,6 +273,159 @@ async def test_fact_timeline_projects_current_chapter_without_mutating_history(
     assert [item.time_status for item in restored.items] == ["current", "current"]
     assert before.chapter_index == 1
     assert after.chapter_index == 2
+
+
+@pytest.mark.asyncio
+async def test_reextraction_refreshes_event_chapter_order_projection_basis(
+    db_session, test_project_id
+) -> None:
+    novel_id = uuid.UUID(test_project_id)
+    applied_at = datetime(2026, 10, 15, 12, 0, tzinfo=UTC)
+    scene = Scene(
+        novel_id=novel_id,
+        scene_index=2,
+        title="交换章节后重新提取",
+        chapter_ids=["2"],
+        scene_chunks=[],
+    )
+    event = MemoryEvent(
+        novel_id=novel_id,
+        chapter_index=2,
+        sequence=1,
+        scene_id=scene.id,
+        scene_index=2,
+        scene_sequence=1,
+        event_type="entity_updated",
+        entity_type="character",
+        snapshot_after={"name": "阿蘅", "state": "旧值"},
+        source="author",
+        created_at=applied_at - timedelta(minutes=1),
+    )
+    receipt = StoryChapterOrderReceipt(
+        novel_id=novel_id,
+        status="applied",
+        chapter_map_json={"1": 2, "2": 1},
+        before_fingerprint="a" * 64,
+        after_fingerprint="b" * 64,
+        impact_json={},
+        manifest_json={},
+        created_at=applied_at,
+    )
+    db_session.add_all([scene, event, receipt])
+    await db_session.flush()
+
+    await EventRepository().replace_chapter_events(
+        db_session,
+        novel_id=novel_id,
+        chapter_index=2,
+        rows=[
+            {
+                "novel_id": novel_id,
+                "chapter_index": 2,
+                "sequence": 1,
+                "scene_id": scene.id,
+                "scene_index": 2,
+                "scene_sequence": 1,
+                "event_type": "entity_updated",
+                "entity_type": "character",
+                "snapshot_after": {"name": "阿蘅", "state": "新值"},
+                "source": "author",
+            }
+        ],
+    )
+    await db_session.refresh(event)
+    assert event.created_at.replace(tzinfo=UTC) > receipt.created_at.replace(tzinfo=UTC)
+
+    timeline = await StoryFactTimelineService().list(
+        db_session, test_project_id, StoryFactTimelineQuery(limit=20)
+    )
+    assert timeline.items[0].current_chapter_index == 2
+
+
+@pytest.mark.parametrize("event_key", [None, "stable-scene-event"])
+async def test_scene_reextraction_refreshes_chapter_projection_basis(
+    db_session, test_project_id, event_key
+) -> None:
+    novel_id = uuid.UUID(test_project_id)
+    applied_at = datetime.now(UTC) - timedelta(minutes=1)
+    scene = Scene(
+        novel_id=novel_id,
+        scene_index=0,
+        title="重排后的场景",
+        chapter_ids=["2"],
+        scene_chunks=[],
+    )
+    db_session.add(scene)
+    await db_session.flush()
+    entity_id = uuid.uuid4()
+    payload = {"id": str(entity_id), "name": "阿蘅", "entity_type": "character"}
+    if event_key:
+        payload["meta"] = {"event_key": event_key}
+    event = MemoryEvent(
+        novel_id=novel_id,
+        chapter_index=1,
+        sequence=1001,
+        scene_id=scene.id,
+        scene_index=0,
+        scene_sequence=1,
+        event_type="entity_created",
+        entity_id=entity_id,
+        entity_type="character",
+        snapshot_after=payload,
+        source="ai_extraction",
+        created_at=applied_at - timedelta(minutes=1),
+    )
+    receipt = StoryChapterOrderReceipt(
+        novel_id=novel_id,
+        status="applied",
+        chapter_map_json={"1": 2, "2": 1},
+        before_fingerprint="a" * 64,
+        after_fingerprint="b" * 64,
+        impact_json={},
+        manifest_json={},
+        created_at=applied_at,
+    )
+    db_session.add_all([event, receipt])
+    await db_session.flush()
+    original_id = event.id
+
+    await EventRepository().replace_scene_events(
+        db_session,
+        novel_id=novel_id,
+        scene_id=scene.id,
+        scene_index=0,
+        chapter_index=2,
+        producer_family="ai_extraction",
+        rows=[
+            {
+                "scene_sequence": 1,
+                "event_type": "entity_created",
+                "entity_id": entity_id,
+                "entity_type": "character",
+                "snapshot_after": {**payload, "name": "阿蘅新值"},
+                "source": "ai_extraction",
+            }
+        ],
+    )
+    await db_session.refresh(event)
+    assert event.id == original_id
+    assert event.scene_sequence == 1
+    assert event.created_at.replace(tzinfo=UTC) > applied_at
+
+    service = MemoryService()
+    first = await service.list_events(db_session, test_project_id, 1, 1)
+    second = await service.list_events(db_session, test_project_id, 2, 2)
+    assert first.total == 0 and first.items == []
+    assert second.total == 1
+    assert second.items[0].chapter_index == 2
+    before = await service.get_panorama(db_session, test_project_id, 1)
+    after = await service.get_panorama(db_session, test_project_id, 2)
+    assert before.entities == []
+    assert [item.name for item in after.entities] == ["阿蘅新值"]
+    timeline = await StoryFactTimelineService().list(
+        db_session, test_project_id, StoryFactTimelineQuery(limit=20)
+    )
+    assert timeline.items[0].current_chapter_index == 2
 
 
 @pytest.mark.asyncio

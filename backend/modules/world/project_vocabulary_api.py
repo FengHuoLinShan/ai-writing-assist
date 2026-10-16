@@ -28,6 +28,7 @@ from modules.world.project_vocabulary_service import (
     archive_project_vocabulary_term,
     create_project_vocabulary_term,
     get_project_vocabulary_term,
+    get_project_vocabulary_term_revision,
     merge_project_vocabulary_terms,
     read_project_vocabulary,
     restore_project_vocabulary_term,
@@ -57,8 +58,17 @@ async def list_project_vocabulary(
 
 
 @router.get("/{novel_id}/terms/{type_ref}", response_model=VocabularyTermResponse)
-async def get_vocabulary_term(db: DbSession, novel_id: UUID, type_ref: UUID):
+async def get_vocabulary_term(
+    db: DbSession,
+    novel_id: UUID,
+    type_ref: UUID,
+    revision_id: UUID | None = None,
+):
     await require_active_project(db, str(novel_id))
+    if revision_id is not None:
+        return await get_project_vocabulary_term_revision(
+            db, str(novel_id), str(type_ref), str(revision_id)
+        )
     return await get_project_vocabulary_term(db, str(novel_id), str(type_ref))
 
 

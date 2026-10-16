@@ -53,7 +53,26 @@
                 <button v-if="conflict.serverEntry" type="button" class="btn btn-sm btn-ghost" :disabled="Boolean(busyKey)" @click="resolveEditConflict('keep')">保留我的草稿并基于新版本保存</button>
               </span>
             </p>
-            <label><span>内容</span><textarea v-model="editDraft.content" rows="4" maxlength="20000" :disabled="readOnly || Boolean(busyKey)" /></label>
+            <label v-if="!editingLegacyArray(entry)"><span>内容</span><textarea v-model="editDraft.content" rows="4" maxlength="20000" :disabled="readOnly || Boolean(busyKey)" /></label>
+            <fieldset v-else class="object-dossier-editor__legacy-value" :disabled="readOnly || Boolean(busyKey)">
+              <legend>结构化内容</legend>
+              <template v-if="typeof editLegacyItemTemplate === 'string'">
+                <article v-for="(value, index) in editLegacyValue" :key="index" class="object-dossier-editor__legacy-item">
+                  <label><span>{{ `第 ${index + 1} 项` }}</span><input v-model="editLegacyValue[index]" @input="syncLegacyValue" /></label>
+                  <button type="button" class="btn btn-sm btn-ghost" @click="removeLegacyValue(index)">移除此项</button>
+                </article>
+              </template>
+              <template v-else>
+                <article v-for="(value, index) in editLegacyValue" :key="index" class="object-dossier-editor__legacy-item">
+                  <strong>第 {{ index + 1 }} 项</strong>
+                  <label v-for="(part, key) in value" :key="key"><span>{{ legacyValueLabel(key) }}</span><textarea v-if="typeof part === 'string' && ['description', 'content'].includes(key)" v-model="editLegacyValue[index][key]" rows="2" @input="syncLegacyValue" /><input v-else-if="typeof part === 'string'" v-model="editLegacyValue[index][key]" @input="syncLegacyValue" /><span v-else class="object-dossier-editor__meta">已有补充资料会随修订保留。</span></label>
+                  <button type="button" class="btn btn-sm btn-ghost" @click="removeLegacyValue(index)">移除此项</button>
+                </article>
+              </template>
+              <button type="button" class="btn btn-sm" @click="addLegacyValue">添加一项</button>
+              <p class="object-dossier-editor__meta">保存时保留档案原有结构；下方展示内容会同步更新。</p>
+            </fieldset>
+            <p v-if="editingLegacyArray(entry)" class="object-dossier-editor__content">{{ editDraft.content }}</p>
             <label><span>标签（用逗号分隔）</span><input v-model="editDraft.tagsText" maxlength="800" :disabled="readOnly || Boolean(busyKey)"></label>
             <label><span>可见范围</span><select v-model="editDraft.visibility" :disabled="readOnly || Boolean(busyKey)"><option value="public">公开</option><option value="secret">作者秘密</option></select></label>
             <label v-if="templateStateFields.length || entry.story_field_key"><span>精确关联的 Story 文字状态字段</span><select v-model="editDraft.storyFieldKey" :disabled="readOnly || Boolean(busyKey)"><option value="">不绑定 Story 字段</option><option v-if="entry.story_field_key && !templateStateFields.some(field => field.key === entry.story_field_key)" :value="entry.story_field_key">{{ entry.story_field_key }} · 当前模板中未找到</option><option v-for="field in templateStateFields" :key="field.key" :value="field.key">{{ field.label }} · {{ field.key }}</option></select></label>
@@ -221,6 +240,8 @@ const importResetKey = ref(0)
 const busyKey = ref("")
 const editingId = ref("")
 const editExpectedRevisionId = ref("")
+const editLegacyValue = ref(null)
+const editLegacyItemTemplate = ref(null)
 const editDraft = reactive({ content: "", tagsText: "", visibility: "public", startAnchor: "", endAnchor: "", storyFieldKey: "" })
 const newDraft = reactive({ facingKey: "", content: "", tagsText: "", visibility: "public", startSceneId: "", endSceneId: "", storyFieldKey: "" })
 const readCutoffSceneId = ref("")
@@ -259,7 +280,7 @@ const entries = computed(() => dossier.value?.entries || [])
 const selectedFacet = computed(() => facets.value.find((item) => facingKey(item.facing) === newDraft.facingKey) || null)
 const editDirty = computed(() => {
   const original = editingOriginal.value
-  return Boolean(original) && JSON.stringify({ content: editDraft.content, tagsText: editDraft.tagsText, visibility: editDraft.visibility, startAnchor: editDraft.startAnchor, endAnchor: editDraft.endAnchor, storyFieldKey: editDraft.storyFieldKey }) !== JSON.stringify({ content: original.content, tagsText: tagsText(original.tags), visibility: original.visibility, startAnchor: anchorValue(original.validity?.start), endAnchor: anchorValue(original.validity?.end), storyFieldKey: original.story_field_key || "" })
+  return Boolean(original) && JSON.stringify({ content: editDraft.content, legacyValue: editLegacyValue.value, tagsText: editDraft.tagsText, visibility: editDraft.visibility, startAnchor: editDraft.startAnchor, endAnchor: editDraft.endAnchor, storyFieldKey: editDraft.storyFieldKey }) !== JSON.stringify({ content: original.content, legacyValue: Array.isArray(original.legacy_value) ? original.legacy_value : null, tagsText: tagsText(original.tags), visibility: original.visibility, startAnchor: anchorValue(original.validity?.start), endAnchor: anchorValue(original.validity?.end), storyFieldKey: original.story_field_key || "" })
 })
 const newDraftDirty = computed(() => Boolean(newDraft.facingKey || newDraft.content.trim() || newDraft.tagsText.trim() || newDraft.startSceneId || newDraft.endSceneId || newDraft.visibility !== "public" || newDraft.storyFieldKey))
 const editingOriginal = computed(() => entries.value.find((item) => item.id === editingId.value) || null)
@@ -352,6 +373,8 @@ async function reloadDossier() {
 
 function beginEdit(entry) {
   editingId.value = entry.id; editExpectedRevisionId.value = entry.id
+  editLegacyValue.value = Array.isArray(entry.legacy_value) ? JSON.parse(JSON.stringify(entry.legacy_value)) : null
+  editLegacyItemTemplate.value = editLegacyValue.value?.[0] ?? (entry.legacy_field_key?.endsWith("_entity_ids_json") ? "" : { name: "" })
   editDraft.content = entry.content || ""; editDraft.tagsText = tagsText(entry.tags); editDraft.visibility = entry.visibility || "public"
   editDraft.startAnchor = anchorValue(entry.validity?.start); editDraft.endAnchor = anchorValue(entry.validity?.end)
   editDraft.storyFieldKey = entry.story_field_key || ""
@@ -359,8 +382,32 @@ function beginEdit(entry) {
   emitDirty()
 }
 function cancelEdit() {
-  editingId.value = ""; editExpectedRevisionId.value = ""; conflict.value = null; actionError.value = ""; emitDirty()
+  editingId.value = ""; editExpectedRevisionId.value = ""; editLegacyValue.value = null; editLegacyItemTemplate.value = null; conflict.value = null; actionError.value = ""; emitDirty()
 }
+
+function editingLegacyArray(entry) { return editingId.value === entry.id && Array.isArray(editLegacyValue.value) }
+function legacyValueLabel(key) { return ({ name: "名称", label: "名称", title: "名称", description: "说明", content: "内容", category: "类别", condition: "条件", effect: "作用", scope: "范围", value: "内容" })[key] || (/ids?$/.test(key) ? "关联对象" : "补充说明") }
+function syncLegacyValue() {
+  const display = value => {
+    if (typeof value === "string") return value
+    if (Array.isArray(value)) return value.map(item => {
+      if (typeof item !== "object" || item === null || Array.isArray(item)) return String(item)
+      const label = item.label || item.name || item.title
+      const description = item.description || item.content
+      return [label, description].filter(Boolean).join("：") || Object.entries(item).map(([key, part]) => `${legacyValueLabel(key)}：${part}`).join("；")
+    }).filter(Boolean).join("；")
+    return ""
+  }
+  editDraft.content = display(editLegacyValue.value)
+}
+function addLegacyValue() {
+  const previous = editLegacyValue.value[0] ?? editLegacyItemTemplate.value
+  editLegacyValue.value.push(previous && typeof previous === "object"
+    ? Object.fromEntries(Object.entries(previous).map(([key, part]) => [key, typeof part === "string" ? "" : part]))
+    : "")
+  syncLegacyValue()
+}
+function removeLegacyValue(index) { editLegacyValue.value.splice(index, 1); syncLegacyValue() }
 
 async function saveEdit(entry) {
   if (readOnly.value || busyKey.value || !editDirty.value || editingId.value !== entry.id) return
@@ -369,7 +416,7 @@ async function saveEdit(entry) {
   try {
     await getApi().world.updateEntityDossierEntry(id, entry.id, projectId, {
       expected_revision_id: editExpectedRevisionId.value,
-      content: editDraft.content,
+      ...(Array.isArray(editLegacyValue.value) ? { legacy_value: editLegacyValue.value } : { content: editDraft.content }),
       tags: parseTags(editDraft.tagsText),
       visibility: editDraft.visibility,
       validity: editDraft.startAnchor || editDraft.endAnchor ? {

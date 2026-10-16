@@ -19,7 +19,8 @@ function choose(wrapper, value = manifest) {
   return flushPromises()
 }
 
-it("选择 JSON 后经预览和确认采用；409 保留文件并防止双点重写", async () => {
+it.each([1, 2])("选择 v%s JSON 后经预览和确认采用；409 保留文件并防止双点重写", async (formatVersion) => {
+  const inputManifest = { ...manifest, format_version: formatVersion }
   let finishApply
   const stale = Object.assign(new Error("预览已过期"), { status: 409 })
   const api = {
@@ -32,13 +33,13 @@ it("选择 JSON 后经预览和确认采用；409 保留文件并防止双点重
   }
   setBridgeOverrides({ api })
   const wrapper = mount(WorldDossierManifestImport, { props: { projectId: "project-a", entity, facets: [], scenes: [] } })
-  await choose(wrapper)
+  await choose(wrapper, inputManifest)
   await flushPromises()
-  expect(wrapper.vm.manifest).toEqual(manifest)
+  expect(wrapper.vm.manifest).toEqual(inputManifest)
   await vi.waitFor(() => expect(wrapper.text()).toContain("左眼有一道旧伤"))
   await wrapper.get(".manifest-import__actions button").trigger("click")
   await flushPromises()
-  expect(api.world.previewEntityDossierManifest).toHaveBeenCalledWith(entity.id, "project-a", expect.objectContaining({ manifest }))
+  expect(api.world.previewEntityDossierManifest).toHaveBeenCalledWith(entity.id, "project-a", expect.objectContaining({ manifest: inputManifest }))
   await wrapper.get(".manifest-import__review input[type='checkbox']").setValue(true)
   await wrapper.get(".manifest-import__review button").trigger("click")
   await flushPromises()
@@ -55,6 +56,16 @@ it("选择 JSON 后经预览和确认采用；409 保留文件并防止双点重
   expect(wrapper.text()).toContain("已采用 1 条档案")
   await wrapper.setProps({ projectId: "project-b" })
   expect(wrapper.text()).not.toContain("左眼有一道旧伤")
+  wrapper.unmount()
+})
+
+it("拒绝未支持的清单版本", async () => {
+  const readTemplate = vi.fn()
+  setBridgeOverrides({ api: { world: { getEntityDossierTemplate: readTemplate } } })
+  const wrapper = mount(WorldDossierManifestImport, { props: { projectId: "project-a", entity } })
+  await choose(wrapper, { ...manifest, format_version: 3 })
+  expect(wrapper.get("[role='alert']").text()).toBe("文件不是受支持的档案清单。")
+  expect(readTemplate).not.toHaveBeenCalled()
   wrapper.unmount()
 })
 

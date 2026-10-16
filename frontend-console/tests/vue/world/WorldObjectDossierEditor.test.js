@@ -147,6 +147,75 @@ it("编辑已保存条目可清除旧章节有效期并以当前修订保存", a
   wrapper.unmount()
 })
 
+it("编辑结构化旧档案时提交原类型值，由服务端派生存储文本", async () => {
+  const entry = currentEntry({
+    legacy_field_key: "species_profiles.abilities_json",
+    legacy_value: [{ name: "夜视", description: "可在黑暗中看清" }],
+    content: "夜视：可在黑暗中看清",
+  })
+  const api = baseApi({ world: {
+    getEntityDossier: vi.fn(async () => dossier([entry])),
+  } })
+  const wrapper = mountEditor(api)
+  await flushPromises()
+  await wrapper.get(".object-dossier-editor__entry > .object-dossier-editor__actions button").trigger("click")
+  await wrapper.get(".object-dossier-editor__legacy-value input").setValue("强化夜视")
+  await wrapper.get(".object-dossier-editor__entry form").trigger("submit")
+  await flushPromises()
+
+  expect(api.world.updateEntityDossierEntry).toHaveBeenCalledWith(entity.id, entry.id, "project-a", expect.objectContaining({
+    legacy_value: [{ name: "强化夜视", description: "可在黑暗中看清" }],
+  }))
+  expect(api.world.updateEntityDossierEntry.mock.calls[0][3]).not.toHaveProperty("content")
+  wrapper.unmount()
+})
+
+it.each([{ legacyValue: ["leader-a"] }, { legacyValue: [] }])("字符串数组 $legacyValue 新增、清空后再新增仍提交字符串", async ({ legacyValue }) => {
+  const entry = currentEntry({
+    legacy_field_key: "faction_profiles.leader_entity_ids_json",
+    legacy_value: legacyValue,
+    content: legacyValue.join("；"),
+  })
+  const api = baseApi({ world: { getEntityDossier: vi.fn(async () => dossier([entry])) } })
+  const wrapper = mountEditor(api)
+  await flushPromises()
+  await wrapper.get(".object-dossier-editor__entry > .object-dossier-editor__actions button").trigger("click")
+  const add = () => wrapper.findAll(".object-dossier-editor__legacy-value button").find(button => button.text() === "添加一项").trigger("click")
+  await add()
+  expect(wrapper.findAll(".object-dossier-editor__legacy-value input").map(input => input.element.value)).toEqual([...legacyValue, ""])
+  while (wrapper.findAll(".object-dossier-editor__legacy-value input").length) {
+    await wrapper.findAll(".object-dossier-editor__legacy-value button").find(button => button.text() === "移除此项").trigger("click")
+  }
+  expect(wrapper.findAll(".object-dossier-editor__legacy-value input")).toHaveLength(0)
+  await add()
+  await wrapper.get(".object-dossier-editor__legacy-value input").setValue("leader-b")
+  await wrapper.get(".object-dossier-editor__entry form").trigger("submit")
+  await flushPromises()
+  expect(api.world.updateEntityDossierEntry.mock.calls[0][3].legacy_value).toEqual(["leader-b"])
+  wrapper.unmount()
+})
+
+it("无名称键的对象数组使用可读标签展示，保存只提交原类型值", async () => {
+  const entry = currentEntry({
+    legacy_field_key: "faction_profiles.resources_json",
+    legacy_value: [{ resource: "盐铁", amount: 3 }],
+    content: "resource：盐铁；amount：3",
+  })
+  const api = baseApi({ world: { getEntityDossier: vi.fn(async () => dossier([entry])) } })
+  const wrapper = mountEditor(api)
+  await flushPromises()
+  await wrapper.get(".object-dossier-editor__entry > .object-dossier-editor__actions button").trigger("click")
+  expect(wrapper.get(".object-dossier-editor__legacy-value").text()).not.toMatch(/resource|amount/)
+  await wrapper.get(".object-dossier-editor__legacy-value input").setValue("盐矿")
+  await wrapper.get(".object-dossier-editor__entry form").trigger("submit")
+  await flushPromises()
+  const payload = api.world.updateEntityDossierEntry.mock.calls[0][3]
+  expect(payload.legacy_value).toEqual([{ resource: "盐矿", amount: 3 }])
+  expect(payload).not.toHaveProperty("content")
+  expect(wrapper.text()).toContain("档案新修订已保存")
+  wrapper.unmount()
+})
+
 it("按 Scene 重读作者有效期结果，并保存精确绑定的 Story 字段键", async () => {
   const validity = { start: { kind: "scene", id: sceneId }, end: null }
   const aligned = currentEntry({

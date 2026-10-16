@@ -93,6 +93,8 @@ R0 目录读取经 `read_operation` 进入领域读取端口。已下线或改�
 `x-novelcraft-operation-trace-incomplete` 标记，v7–v17 助手运行在 checkpoint 和结果中标记
 `operation_trace_incomplete`，以便作者识别记录缺口。绑定操作的 HTTP 入口先验证当前 owner 和未回收项目，
 再读取留痕开关或写入盐值；终态留痕只可使用与该请求业务会话同一数据库引擎的会话，异库时标记缺口。
+HTTP 留痕路由适配由 `operation_trace_http_adapter.py` 持有；`app/main.py` 只负责在组合根安装，适配器保留实际
+APIRoute dispatch、同请求事务及原有缺口标记语义。
 账户偏好由 `/operation-traces/preference`
 管理：本机默认开启，公开账户默认关闭并需作者主动开启，演示账户永不记录。作者可通过
 `/operation-traces/aggregate` 查看作者当前作品的 30/90/180 天或全部可用记录，也可通过
@@ -124,13 +126,14 @@ C2 新增对象简报 R0 读取及人物卡/人物反应 R1 建议；窄 HTTP �
 Story 窄入口只准备并留痕预览，不排队。Assistant 执行先无 operation_id 准备，
 再沿当前父任务模型快照和额度确认、入队、内联执行并回读结果。原 Story 宽任务路由
 保留作者独立确认与根预算，不冒充窄入口。旧 v1–v8 不自动得到新操作，
-`story.save_card` v1 与 `story.save_script` 参数指纹不变。
+`story.save_card` v1 与 `story.save_script` 参数指纹不变；对象档案条目创建和编辑因纳入原类型
+`legacy_value` 输入升至操作修订 3，其余既有档案操作保持修订 2。
 
 C0c 新增 `project.object_validity_settings.read/edit`、`world.relations.read` 与
 `story.custom_text_state.confirm`、`story.map_declaration_state.confirm`。两项 Story 状态操作
 按已确认正史写入定为 R3，prepare 与 apply 均重验 Scene、对象或当前已采用地图修订；
 实际 HTTP 写入先验证 owner 与活跃项目，Story 事件只追加、重复幂等。C0c 批次使用 v11，
-旧 v1–v10 快照不升级；对象档案六项既有操作升修订 2，模板编辑升修订 3，旧冻结项
+旧 v1–v10 快照不升级；对象档案读取、历史、模板读取与恢复操作保持修订 2，条目创建和编辑升修订 3，模板编辑升修订 3，旧冻结项
 可描述但发生 schema 或修订漂移时不能执行。项目设置采用预期版本 CAS，默认关闭。
 
 C3 集成批次使用 v16：在正式 v15 目录之后加入 Story 人物弧的三项 R0 读取与四项 R3

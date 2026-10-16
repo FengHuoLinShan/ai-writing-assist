@@ -71,12 +71,17 @@ Evidence 的只读 port 可按 `visibility_filter=public` 在分页、计数和�
 带表前缀 `legacy_field_key` 的 Dossier 修订；Dossier 编辑/恢复同步对应旧投影，清除追加 `cleared` 修订。
 类型切换恢复只同步该清单中的字段，保留档案快照元数据；草稿值写为 `needs_review`，不因恢复而采用。
 JSON 数组修订同时保留原类型值；修改数组须提交 `legacy_value` 并与展示文本一致，不能由 prose 反解析。
+作者编辑器以结构化条目编辑数组并同时提交原类型值；后端在预览和写入前复用旧列类型及长度校验。
+强档案标量显式传空字符串会在同一事务清空旧字段并追加 cleared 修订；`null` 与省略仍保持旧接口语义。
 地图控制关系、持有人及揭示状态等动态字段不桥接。Profile 与 Dossier GET 均为只读，不在读取时物化或写回。
 档案条目可选绑定 `story_field_key`；只有同一对象、同一登记字段、可信确认来源且早于 cutoff Scene 的 Story
 观察才可用于有效期核对。项目设置“允许剧情覆盖作者有效期”默认关闭；默认始终按作者区间读取，只有显式开启
 才允许精确 Story 状态改变读取结果。历史 `legacy_import` 内容没有字段绑定，不从同值或文字相似推断，按来源缺口披露。
 关系与地图也复用同一开关；`world.object_validity` 只读 NoticeSource 汇总冲突和证据缺口，不物化 Scene
 continuity、也不写档案。
+关系有效期只允许最终状态为 `canonical` 的关系声明；创建、合并、更新和待确认关系复核都按最终状态
+校验区间及同项目 Scene 锚点。将带有效期的正式关系降为候选时，必须在同一请求显式传 `validity: null`
+清除区间；只改状态而保留旧区间会失败。
 
 - `GET /api/world/entities/{id}/dossier` 读取当前设定或指定 Scene 截止点；`GET .../dossier/history`
   提供条目修订历史。
@@ -100,6 +105,9 @@ continuity、也不写档案。
   与 `POST .../manifest/apply` 注册为 R0 预览和 R3 确认目录项；作者文件下载独立豁免 AI 外部导出。
   新清单使用 v2，可选兼容信封只承载 allowlist 强 Profile 字段或 Generic 旧字段的键与原类型 JSON 值；
   Generic 未映射值继续保存在秘密兼容区，不提升为公开作者事实。旧 v1 清单仍可导入。
+  Generic 导入按目标字段键检查既有修订（含已清空修订）；同名字段属于其他条目组时报告冲突，
+  显式跳过后才能继续，不新建竞争的当前值。结构化数组编辑只提交原类型值，存储文本由服务端派生；
+  编辑器保留字符串/对象元素类型，清空后新增仍沿用原类型，界面标签继续面向作者展示。
   对象档案界面可选择文件、逐项映射和确认；跨项目词条、模板、Story 状态字段和
   时间锚点必须显式映射或停止。采用绑定模板版本、目标条目修订指纹和预览 hash；重复导入幂等，
   与导入来源对应的条目若被作者改动则进入冲突，只有显式跳过后才能继续。借用内核 key 自带来源类型；
@@ -1531,6 +1539,7 @@ version_number 对应的 revision_id/revision_digest；页面和 revision 联接
 `project_vocabulary_api.router` 挂载 `/api/world/project-vocabulary`；跨模块仅经 contracts/facade
 导出的有界读取、固定修订解析、复核提案持久化与证据失效窄口。详见
 [项目词表实现](project_vocabulary.md) 与 [World模块](../../../docs/modules/02_world.md)。
+地图差异展示通过该路由的可选 `revision_id` 查询读取精确固定修订名称，不以当前词条名称覆盖历史版本。
 
 
 ### 地图节点层级名称

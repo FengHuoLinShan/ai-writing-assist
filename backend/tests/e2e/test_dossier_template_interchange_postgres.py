@@ -508,3 +508,134 @@ async def test_manifest_apply_rechecks_source_revision_after_preview(
     )
     assert target_read.status_code == 200
     assert target_read.json()["entries"] == []
+
+
+async def test_strong_profile_manifest_v2_roundtrips_array_across_projects_on_postgres(
+    async_client,
+) -> None:
+    source_project = await async_client.post(
+        "/api/projects", json={"title": "强档案manifest来源"}
+    )
+    target_project = await async_client.post(
+        "/api/projects", json={"title": "强档案manifest目标"}
+    )
+    assert source_project.status_code == target_project.status_code == 201
+    source_novel_id = source_project.json()["id"]
+    target_novel_id = target_project.json()["id"]
+    source = await async_client.post(
+        "/api/world/entities",
+        params={"novel_id": source_novel_id},
+        json={"entity_type": "species", "name": "来源灵族", "status": "canonical"},
+    )
+    target = await async_client.post(
+        "/api/world/entities",
+        params={"novel_id": target_novel_id},
+        json={"entity_type": "species", "name": "目标灵族", "status": "canonical"},
+    )
+    assert source.status_code == target.status_code == 201
+    source_id, target_id = source.json()["id"], target.json()["id"]
+    original = [{"name": "夜视", "range": ["月下", "洞穴"]}, {"name": "耐寒"}]
+    saved = await async_client.put(
+        f"/api/world/profiles/{source_id}",
+        params={"novel_id": source_novel_id},
+        json={"status": "canonical", "abilities_json": original},
+    )
+    assert saved.status_code == 200, saved.text
+    exported = await async_client.get(
+        f"/api/world/entities/{source_id}/dossier/manifest",
+        params={"novel_id": source_novel_id},
+    )
+    assert exported.status_code == 200, exported.text
+    manifest = exported.json()
+    assert manifest["format_version"] == 2
+    compatibility = next(
+        entry["compatibility"]
+        for entry in manifest["entries"]
+        if entry.get("compatibility")
+    )
+    assert compatibility["legacy_field_key"] == "species_profiles.abilities_json"
+    assert compatibility["legacy_value"] == original
+
+    request = {"manifest": manifest}
+    preview = await async_client.post(
+        f"/api/world/entities/{target_id}/dossier/manifest/preview",
+        params={"novel_id": target_novel_id},
+        json=request,
+    )
+    assert preview.status_code == 200, preview.text
+    applied = await async_client.post(
+        f"/api/world/entities/{target_id}/dossier/manifest/apply",
+        params={"novel_id": target_novel_id},
+        json={
+            **request,
+            "expected_preview_hash": preview.json()["preview_hash"],
+            "confirmed": True,
+        },
+    )
+    assert applied.status_code == 200, applied.text
+    profile = await async_client.get(
+        f"/api/world/profiles/{target_id}", params={"novel_id": target_novel_id}
+    )
+    assert profile.status_code == 200, profile.text
+    assert profile.json()["fields"]["abilities_json"] == original
+
+
+async def test_generic_manifest_rejects_existing_target_field_chain_on_postgres(
+    async_client,
+    db_session: AsyncSession,
+) -> None:
+    project = await async_client.post("/api/projects", json={"title": "PG 通用字段冲突"})
+    assert project.status_code == 201, project.text
+    params = {"novel_id": project.json()["id"]}
+    entities = []
+    for name, values in (("来源山灵", ["来源内容"]), ("目标山灵", ["第一版", "第二版"])):
+        created = await async_client.post(
+            "/api/world/entities",
+            params=params,
+            json={"entity_type": "spirit_beast", "name": name, "status": "canonical"},
+        )
+        assert created.status_code == 201, created.text
+        entity_id = created.json()["id"]
+        entities.append(entity_id)
+        for value in values:
+            saved = await async_client.put(
+                f"/api/world/profiles/{entity_id}",
+                params=params,
+                json={"data_json": {"private_extension": value}},
+            )
+            assert saved.status_code == 200, saved.text
+    source_id, target_id = entities
+    exported = await async_client.get(
+        f"/api/world/entities/{source_id}/dossier/manifest",
+        params=params,
+    )
+    assert exported.status_code == 200, exported.text
+    base_url = f"/api/world/entities/{target_id}/dossier/manifest"
+    request = {"manifest": exported.json()}
+    preview = await async_client.post(f"{base_url}/preview", params=params, json=request)
+    assert preview.status_code == 200, preview.text
+    assert preview.json()["can_apply"] is False
+    assert preview.json()["conflicts"][0]["reason"] == "target_group_collision"
+    applied = await async_client.post(
+        f"{base_url}/apply",
+        params=params,
+        json={
+            **request,
+            "confirmed": True,
+            "expected_preview_hash": preview.json()["preview_hash"],
+        },
+    )
+    assert applied.status_code == 409, applied.text
+    profile = await async_client.get(f"/api/world/profiles/{target_id}", params=params)
+    assert profile.json()["data_json"] == {"private_extension": "第二版"}
+    rows = list(
+        (
+            await db_session.scalars(
+                select(WorldObjectDossierEntry).where(
+                    WorldObjectDossierEntry.entity_id == target_id
+                )
+            )
+        ).all()
+    )
+    assert len(rows) == 2
+    assert len({row.entry_group_id for row in rows}) == 1

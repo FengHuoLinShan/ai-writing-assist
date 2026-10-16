@@ -22,7 +22,12 @@ def test_dossier_operations_declare_inline_catalog_metadata() -> None:
         schema = operation["schema"]
         expected_version = (
             "3"
-            if name == "world.dossier.template.edit"
+            if name
+            in {
+                "world.dossier.entry.create",
+                "world.dossier.entry.edit",
+                "world.dossier.template.edit",
+            }
             else "1"
             if name
             in {

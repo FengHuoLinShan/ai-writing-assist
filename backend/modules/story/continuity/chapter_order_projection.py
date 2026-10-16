@@ -1,4 +1,4 @@
-"""Pure projection of immutable MemoryEvent chapter bindings."""
+"""Pure projection of MemoryEvent chapter bindings across order receipts."""
 
 from __future__ import annotations
 

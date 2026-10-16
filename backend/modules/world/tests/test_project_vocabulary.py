@@ -26,6 +26,7 @@ from modules.world.project_vocabulary_service import (
     archive_project_vocabulary_term,
     create_project_vocabulary_term,
     get_project_vocabulary_term,
+    get_project_vocabulary_term_revision,
     invalidate_model_vocabulary_evidence,
     merge_project_vocabulary_terms,
     persist_reviewed_model_vocabulary_proposal,
@@ -649,6 +650,18 @@ async def test_http_validates_confirmation_and_vocabulary_parameters(
         )
         assert created.status_code == 201
         item = created.json()
+        first_revision_id = item["revision_id"]
+        updated = await client.patch(
+            f"{base}/terms/{item['id']}",
+            json={"expected_revision_id": first_revision_id, "name": "修订词条"},
+        )
+        assert updated.status_code == 200, updated.text
+        pinned = await client.get(
+            f"{base}/terms/{item['id']}", params={"revision_id": first_revision_id}
+        )
+        assert pinned.status_code == 200, pinned.text
+        assert pinned.json()["name"] == "已确认词条"
+        item = updated.json()
         for suffix in ("?limit=0", "?limit=501", "?kind=not-a-kind"):
             assert (await client.get(base + suffix)).status_code == 422
         for confirmation in ({}, {"confirmed": False}):
@@ -706,3 +719,26 @@ async def test_merge_rejects_cross_kind_and_cross_project_without_history_change
     assert (
         await get_project_vocabulary_term(db_session, first_novel, str(target.id))
     ).revision_id == target.revision_id
+
+
+@pytest.mark.asyncio
+async def test_exact_project_vocabulary_revision_remains_readable(
+    db_session, two_projects
+):
+    novel_id, _other_novel = two_projects
+    created = await create_project_vocabulary_term(
+        db_session, novel_id, _term("旧类型名")
+    )
+    updated = await update_project_vocabulary_term(
+        db_session,
+        novel_id,
+        str(created.id),
+        VocabularyTermUpdate(expected_revision_id=created.revision_id, name="新类型名"),
+    )
+
+    pinned = await get_project_vocabulary_term_revision(
+        db_session, novel_id, str(created.id), str(created.revision_id)
+    )
+    assert pinned.name == "旧类型名"
+    assert pinned.revision_number == 1
+    assert updated.name == "新类型名"

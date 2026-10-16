@@ -2299,14 +2299,16 @@ async def goal_step_receipt_preview(
             summary="原任务仍在处理中；领域结果尚不能确认。",
         )
 
-    try:
-        receipt = await operation.read_result(db, str(run.novel_id), dict(reference))
-    except Exception:
-        return GoalReceiptPreview(
-            expected_revision=expected_revision,
-            status="unverified",
-            summary="原领域回执暂时无法读取；结果仍无法确认。",
-        )
+    receipt = _task_not_applied_receipt(task)
+    if receipt is None:
+        try:
+            receipt = await operation.read_result(db, str(run.novel_id), dict(reference))
+        except Exception:
+            return GoalReceiptPreview(
+                expected_revision=expected_revision,
+                status="unverified",
+                summary="原领域回执暂时无法读取；结果仍无法确认。",
+            )
     try:
         valid_receipt = (
             isinstance(receipt, dict)
@@ -2805,12 +2807,15 @@ async def _unknown_step_task_context(
         or not isinstance(parameter_hash, str)
         or stable_operation_id != step_operation_id(str(run.id), step_id, parameter_hash)
         or record.get("plan_step_fingerprint") != digest(step.model_dump(mode="json"))
-        or reference.get("operation_id") != stable_operation_id
+        or reference.get("operation_id") not in {None, stable_operation_id}
         or reference.get("task_id") != stable_operation_id
         or reference.get("task_type") != task_type
         or reference.get("type") != task_type
     ):
         raise ConflictError("缺少与原步骤绑定的领域任务回执，仍须保持阻断")
+
+    # Older receipts already bind the stable task ID but lack this field.
+    reference = {**reference, "operation_id": stable_operation_id}
 
     try:
         task = await _stable_task_for_step(db, run, task_type, stable_operation_id)
@@ -2834,11 +2839,27 @@ def _receipt_decision_status(task_status: str, receipt_status: Any) -> str | Non
     if task_status == "done" and receipt_status == "completed":
         return "verified_applied"
     terminal_statuses = {
-        "failed": {"failed", "not_applied"},
-        "cancelled": {"cancelled", "not_applied"},
+        "failed": {"not_applied"},
+        "cancelled": {"not_applied"},
     }
     if receipt_status in terminal_statuses.get(task_status, set()):
         return "verified_not_applied"
+    return None
+
+
+def _task_not_applied_receipt(task: AsyncTask) -> dict[str, Any] | None:
+    if (
+        task.status == "cancelled"
+        and type(task.attempt) is int
+        and task.attempt == 0
+        and task.started_at is None
+        and task.result in (None, {})
+        and task.error_message is None
+    ):
+        return {
+            "status": "not_applied",
+            "proof": {"kind": "task_cancelled_before_first_claim"},
+        }
     return None
 
 
@@ -3036,11 +3057,17 @@ def _goal_receipt_preview(
             ),
         )
     if decision_status == "verified_not_applied":
+        proof = receipt.get("proof")
         return GoalReceiptPreview(
             expected_revision=expected_revision,
             status=decision_status,
             summary="原领域回执明确记录该操作未应用。",
-            details=[],
+            details=(
+                ["任务在首次领取前已取消，服务端确认没有执行领域操作。"]
+                if isinstance(proof, Mapping)
+                and proof.get("kind") == "task_cancelled_before_first_claim"
+                else []
+            ),
             available_decisions=["not_applied"],
         )
     receipt_status = receipt.get("status")
@@ -3168,6 +3195,7 @@ async def _execute_task_step(
             if (
                 str(reference.get("task_id")) != task_id
                 or reference.get("task_type") != task_type
+                or reference.get("operation_id") != operation_id
             ):
                 raise ConflictError("领域任务回执没有使用目标冻结的稳定操作标识")
         except Exception:
@@ -3811,8 +3839,7 @@ async def advance_goal(
             goal.get("phase") == "executing"
             or (
                 goal.get("phase") == "stopped"
-                and goal.get("stop_code")
-                in {"step_limit", "step_receipt_applied"}
+                and goal.get("stop_code") in {"step_limit", "step_receipt_applied"}
             )
         ):
             raise ConflictError("当前目标正在等待计划或步骤确认")
@@ -3934,10 +3961,14 @@ async def reconcile_goal_step(
         ) = await _unknown_step_task_context(db, run, goal, step_id)
         if task is None or task.status not in {"done", "failed", "cancelled"}:
             raise ConflictError("原领域任务尚无可核实的终态回执")
-        try:
-            receipt = await operation.read_result(db, str(run.novel_id), dict(reference))
-        except Exception as error:
-            raise ConflictError("原领域回执暂时无法核实，目标仍保持阻断") from error
+        receipt = _task_not_applied_receipt(task)
+        if receipt is None:
+            try:
+                receipt = await operation.read_result(
+                    db, str(run.novel_id), dict(reference)
+                )
+            except Exception as error:
+                raise ConflictError("原领域回执暂时无法核实，目标仍保持阻断") from error
         if (
             not isinstance(receipt, dict)
             or len(canonical(receipt).encode("utf-8")) > 512_000
@@ -3946,9 +3977,8 @@ async def reconcile_goal_step(
 
         decision_status = _receipt_decision_status(task.status, receipt.get("status"))
         usage_snapshot = _envelope_from_run(run).snapshot()
-        usage_unknown = (
-            usage_snapshot.charge_state is AIChargeState.possible
-            or bool(usage_snapshot.requests_unknown)
+        usage_unknown = usage_snapshot.charge_state is AIChargeState.possible or bool(
+            usage_snapshot.requests_unknown
         )
         if data.decision == "applied":
             if decision_status != "verified_applied":

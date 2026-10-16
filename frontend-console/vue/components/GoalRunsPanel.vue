@@ -123,12 +123,12 @@
               </div>
               <p v-if="receiptStateFor(step)?.error" class="goal-runs-error" role="status">{{ receiptStateFor(step).error }}</p>
               <button
-                v-if="!receiptPreviewFor(step)"
+                v-if="!receiptPreviewFor(step) || !['verified_applied', 'verified_not_applied'].includes(receiptPreviewFor(step).status)"
                 type="button"
                 class="goal-runs-button"
                 :disabled="busy || receiptStateFor(step)?.loading"
                 @click="readReceipt(step)"
-              >{{ receiptStateFor(step)?.loading ? '正在读取原回执…' : receiptStateFor(step)?.error ? '重试读取原回执' : '读取原回执' }}</button>
+              >{{ receiptStateFor(step)?.loading ? '正在读取原回执…' : receiptPreviewFor(step) ? '重新读取原回执' : receiptStateFor(step)?.error ? '重试读取原回执' : '读取原回执' }}</button>
               <button
                 v-if="receiptPreviewFor(step)?.available_decisions?.includes('applied')"
                 type="button"
@@ -523,6 +523,7 @@ async function load(projectId) {
 async function refresh({ preservePlan = true } = {}) {
   const token = snapshot()
   if (!token.projectId || !api()) return
+  receiptStates.value = {}
   loading.value = true
   error.value = ""
   try {

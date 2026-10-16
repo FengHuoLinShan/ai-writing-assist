@@ -311,7 +311,6 @@ def _entry_response(
         else DossierFacingRef(kind="project", term_id=row.vocabulary_term_id)
     )
 
-
     evidence = [
         DossierEvidenceRef.model_validate(item) for item in row.source_refs_json or []
     ]
@@ -561,6 +560,10 @@ class WorldObjectDossierService:
             if supplied:
                 raise ValidationError("结构化旧值仅支持冻结登记的稳定字段")
             return
+        column = binding.model.__table__.columns[name]
+        max_length = getattr(column.type, "length", None)
+        if max_length and len(content) > max_length:
+            raise ValidationError(f"旧档案字段超过 {max_length} 个字符")
         if name.endswith("_json"):
             if value is None and not content.strip():
                 return
@@ -689,8 +692,12 @@ class WorldObjectDossierService:
             and entity.status == "canonical"
             else "needs_review"
         )
-        latest = active_rows[-1] if active_rows else await self.repo.latest_legacy_field(
-            db, entity.novel_id, entity.id, legacy_field_key, for_update=True
+        latest = (
+            active_rows[-1]
+            if active_rows
+            else await self.repo.latest_legacy_field(
+                db, entity.novel_id, entity.id, legacy_field_key, for_update=True
+            )
         )
         if (active_rows and current == value) or (
             not active_rows

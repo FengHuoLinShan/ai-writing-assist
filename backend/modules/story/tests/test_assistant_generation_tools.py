@@ -208,6 +208,7 @@ async def test_generation_assistant_prepare_is_free_and_apply_reuses_confirmed_s
         "task_id": "queued-task",
         "task_type": task_type,
         "status": "pending",
+        "operation_id": str(operation_id),
         "target": {"type": "outline_scene", "id": str(scene_id)},
     }
     assert len(preview_calls) == 2  # apply rematerializes the preview before confirming

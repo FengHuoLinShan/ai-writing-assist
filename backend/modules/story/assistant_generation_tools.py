@@ -260,6 +260,7 @@ async def _submit_preview(
         "task_id": str(receipt.task_id),
         "task_type": task_type,
         "status": receipt.status,
+        "operation_id": str(context.operation_id),
         "target": {"type": "outline_scene", "id": preview["scene_id"]},
     }
 

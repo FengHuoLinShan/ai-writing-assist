@@ -8,6 +8,7 @@ Memory 数据访问层
 from __future__ import annotations
 
 import uuid
+from datetime import UTC, datetime
 
 from sqlalchemy import and_, case, delete, func, or_, select, text, update
 from sqlalchemy.dialects.postgresql import insert as pg_insert
@@ -266,6 +267,8 @@ class EventRepository:
                 "scene_index": insert_stmt.excluded.scene_index,
                 "scene_sequence": insert_stmt.excluded.scene_sequence,
                 "dimension": insert_stmt.excluded.dimension,
+                # The upserted chapter_index is in the current order already.
+                "created_at": func.now(),
             },
         )
         await db.execute(stmt)
@@ -298,6 +301,7 @@ class EventRepository:
                 "dimension",
             ):
                 setattr(existing, field, row.get(field))
+            existing.created_at = datetime.now(UTC)
 
     async def get_by_chapter(
         self,
@@ -742,6 +746,8 @@ class EventRepository:
                 "scene_id": scene_id,
                 "scene_index": scene_index,
                 "chapter_index": chapter_index,
+                # The matched row is now bound to the current chapter order.
+                "created_at": datetime.now(UTC),
                 "scene_sequence": slot,
                 "sequence": (scene_index + 1) * 1000 + slot,
             }

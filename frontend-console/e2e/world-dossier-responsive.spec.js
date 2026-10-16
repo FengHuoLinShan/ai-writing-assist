@@ -1,6 +1,6 @@
 import { test, expect } from "./fixtures.js"
 import { readFile } from "node:fs/promises"
-import { createEntity } from "./helpers/api-client.js"
+import { API_BASE, createEntity } from "./helpers/api-client.js"
 import { openWorkbench } from "./helpers/workbench.js"
 import { expectActionReachable, expectResponsiveLayout } from "./helpers/responsive.js"
 
@@ -99,4 +99,50 @@ test("作者可在 390/1280 宽度配置借用面向并保存秘密档案", asyn
   await page.setViewportSize({ width: 1280, height: 800 })
   await expectResponsiveLayout(page)
   await page.screenshot({ path: "/tmp/c0-dossier-import-1280.png", fullPage: true })
+})
+
+test("结构化档案在窄屏新增字符串、清空重加并保存无名称键的资源数组", async ({ page, projectFactory }) => {
+  const project = await projectFactory({ title: "结构化档案编辑回归" })
+  const entity = await createEntity(project.id, { name: "盐铁商会", entity_type: "faction", status: "canonical" })
+  const profileUrl = `${API_BASE}/world/profiles/${entity.id}?novel_id=${project.id}`
+  const saved = await page.request.put(profileUrl, {
+    headers: { "X-Requested-With": "XMLHttpRequest" },
+    data: { status: "canonical", leader_entity_ids_json: ["leader-a"], resources_json: [{ resource: "盐铁", amount: 3 }] },
+  })
+  expect(saved.ok()).toBeTruthy()
+  await openWorkbench(page, project, "world", "bible")
+  await page.evaluate(async (entityId) => {
+    await window.router.navigate("world", "bible", true, new URLSearchParams({ entity_id: entityId }))
+  }, entity.id)
+  const panel = page.locator("details.world-entity-dossier")
+  await panel.locator("summary").click()
+  const editor = panel.locator(".object-dossier-editor")
+  await page.setViewportSize({ width: 390, height: 844 })
+  const leaders = editor.locator(".object-dossier-editor__entry", { hasText: "leader-a" })
+  await leaders.getByRole("button", { name: "编辑", exact: true }).click()
+  await leaders.getByRole("button", { name: "添加一项", exact: true }).click()
+  await expect(leaders.locator("fieldset input")).toHaveCount(2)
+  await expect(leaders.locator("fieldset input").first()).toHaveValue("leader-a")
+  await leaders.getByRole("button", { name: "移除此项", exact: true }).first().click()
+  await leaders.getByRole("button", { name: "移除此项", exact: true }).click()
+  await leaders.getByRole("button", { name: "添加一项", exact: true }).click()
+  await leaders.locator("fieldset input").fill("leader-b")
+  await expectResponsiveLayout(page)
+  await leaders.getByRole("button", { name: "保存新修订", exact: true }).click()
+  await expect(editor.getByRole("status")).toContainText("档案新修订已保存")
+  const afterLeaders = await page.request.get(profileUrl)
+  expect((await afterLeaders.json()).fields.leader_entity_ids_json).toEqual(["leader-b"])
+
+  await page.setViewportSize({ width: 1280, height: 800 })
+  const resources = editor.locator(".object-dossier-editor__entry", { hasText: "resource：盐铁" })
+  await resources.getByRole("button", { name: "编辑", exact: true }).click()
+  await expect(resources.locator("fieldset")).not.toContainText("resource")
+  await resources.locator("fieldset input").fill("盐矿")
+  await expectResponsiveLayout(page)
+  await resources.getByRole("button", { name: "保存新修订", exact: true }).click()
+  await expect(editor.getByRole("status")).toContainText("档案新修订已保存")
+  const afterResources = await page.request.get(profileUrl)
+  expect((await afterResources.json()).fields.resources_json).toEqual([{ resource: "盐矿", amount: 3 }])
+  await editor.getByRole("button", { name: "重新读取", exact: true }).click()
+  await expect(editor.locator(".object-dossier-editor__entry", { hasText: "resource：盐矿；amount：3" })).toBeVisible()
 })

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { emptyMap, mapChangeDetails, mapImageChanges, mapSourceSelections, rehearseMapRoute } from '../../../vue/views/map/mapStructureEditor.js'
+import { emptyMap, mapChangeDetails, mapChangedPinnedTypeRefs, mapImageChanges, mapSourceSelections, rehearseMapRoute } from '../../../vue/views/map/mapStructureEditor.js'
 
 const point = (id, x = 0, y = 0) => ({ id, label: id, kind: 'location', points: [{ x, y }], sources: [] })
 const route = (id, from, to, extra = {}) => ({ id, subject: from, target: to, relation: 'connects', path_kind: 'road', via: [], sources: [{ quote: '明确的道路连接' }], ...extra })
@@ -82,6 +82,7 @@ it('v2空间、行程、模态、范围与固定词表修订均可逐项比较�
   expect(changes.map(item => item.key)).toEqual(['space:dream', 'feature:旅馆', 'journey:j1'])
   expect(changes[1].fields).toContainEqual({ title: '可信度', before: '已观察事件', after: '作者计划' })
   expect(changes[1].fields.find(item => item.title === '固定项目类型').after).toBe('项目类型（修订已固定）')
+  expect(mapChangeDetails(before, after, { 'type-a@revision-a': { name: '特殊能力', revision_number: 2 } })[1].fields.find(item => item.title === '固定项目类型').after).toBe('特殊能力（第 2 版）')
   expect(changes[1].fields.find(item => item.title === '生效范围').after).toContain('开城前夜')
   expect(JSON.stringify(changes)).not.toContain('type-a')
   expect(JSON.stringify(changes)).not.toContain('revision-a')
@@ -89,6 +90,20 @@ it('v2空间、行程、模态、范围与固定词表修订均可逐项比较�
   expect(changes[2].fields).toContainEqual({ title: '声明耗时', before: '尚未加入', after: '0—20 分钟' })
   expect(changes[2].fields.find(item => item.title === '通行条件').after).toBe('凭通行牌')
   expect(changes[2].featureIds).toEqual(['旅馆', '码头'])
+})
+
+it('只为变化的固定引用收集词条与精确修订', () => {
+  const before = map(), after = structuredClone(before)
+  after.features[0].type_ref = 'feature-type'; after.features[0].type_revision_id = 'feature-revision'
+  after.constraints = [{ id: 'c', type_ref: 'relation-type', type_revision_id: 'relation-revision', path_type_ref: 'path-type', path_type_revision_id: 'path-revision' }]
+  after.journeys = [{ id: 'j', transport_type_ref: 'transport-type', transport_type_revision_id: 'transport-revision', access_conditions: [{ type_ref: 'condition-type', type_revision_id: 'condition-revision' }] }]
+  expect(mapChangedPinnedTypeRefs(before, after)).toEqual([
+    { typeRef: 'feature-type', revisionId: 'feature-revision' },
+    { typeRef: 'relation-type', revisionId: 'relation-revision' },
+    { typeRef: 'path-type', revisionId: 'path-revision' },
+    { typeRef: 'transport-type', revisionId: 'transport-revision' },
+    { typeRef: 'condition-type', revisionId: 'condition-revision' },
+  ])
 })
 
 it('地图差异缺少词条、场景和空间名称时给出说明且不泄漏内部ID', () => {

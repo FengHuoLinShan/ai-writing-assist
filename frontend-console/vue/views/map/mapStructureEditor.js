@@ -32,7 +32,11 @@ const equal = (a, b) => {
 }
 const featureKinds = { location: '地点', landmark: '地标', road: '道路', river: '河流', area: '区域' }
 const modalityLabels = { event_observed: '已观察事件', character_statement: '人物说法', belief: '人物认知', hypothesis: '待核实理解', figurative: '修辞', author_plan: '作者计划', unclear: '尚不明确' }
-const pinnedType = ref => ref ? '项目类型（修订已固定）' : '未关联类型'
+const pinnedType = (ref, revisionId, typeNames) => {
+  if (!ref) return '未关联类型'
+  const term = typeNames?.[`${ref}@${revisionId}`]
+  return term?.name ? `${term.name}（第 ${term.revision_number} 版）` : '项目类型（修订已固定）'
+}
 const validityAnchor = anchor => anchor.label || anchor.title || anchor.name || (anchor.kind === 'scene' ? '该场景（名称暂不可用）' : '该章节（名称暂不可用）')
 const validityLabel = value => value ? [value.start ? `从${validityAnchor(value.start)}开始` : '', value.end ? `至${validityAnchor(value.end)}结束` : ''].filter(Boolean).join('；') : '全书有效'
 const quantityLabel = value => value ? `${value.minimum ?? '未定'}—${value.maximum ?? '未定'} ${value.unit}` : '没有声明'
@@ -47,7 +51,40 @@ function positionChange(before, after) {
 }
 
 /** Review only server-owned candidate/history documents; never builds an adoption payload. */
-export function mapChangeDetails(before, after) {
+export function mapChangedPinnedTypeRefs(before, after) {
+  const refs = new Map()
+  const add = (item, field, revisionField = `${field.replace(/_ref$/, '')}_revision_id`) => {
+    const typeRef = item?.[field], revisionId = item?.[revisionField]
+    if (typeRef && revisionId) refs.set(`${typeRef}@${revisionId}`, { typeRef: String(typeRef), revisionId: String(revisionId) })
+  }
+  const changedItems = (oldItems = [], nextItems = [], typeFields = [['type_ref', 'type_revision_id']]) => {
+    const oldById = new Map(oldItems.map(item => [item.id, item]))
+    const nextById = new Map(nextItems.map(item => [item.id, item]))
+    for (const id of new Set([...oldById.keys(), ...nextById.keys()])) {
+      const old = oldById.get(id), next = nextById.get(id)
+      for (const [field, revisionField] of typeFields) {
+        if (!equal([old?.[field], old?.[revisionField]], [next?.[field], next?.[revisionField]])) {
+          add(old, field, revisionField); add(next, field, revisionField)
+        }
+      }
+    }
+  }
+  before ||= {}; after ||= {}
+  changedItems(before.spaces, after.spaces)
+  changedItems(before.features, after.features)
+  changedItems(before.constraints, after.constraints, [['type_ref', 'type_revision_id'], ['path_type_ref', 'path_type_revision_id']])
+  changedItems(before.journeys, after.journeys, [['transport_type_ref', 'transport_type_revision_id'], ['traveler_type_ref', 'traveler_type_revision_id'], ['connection_type_ref', 'connection_type_revision_id']])
+  const oldJourneys = new Map((before.journeys || []).map(item => [item.id, item]))
+  for (const journey of after.journeys || []) {
+    const old = oldJourneys.get(journey.id)
+    if (!equal(old?.access_conditions, journey.access_conditions)) {
+      for (const condition of [...(old?.access_conditions || []), ...(journey.access_conditions || [])]) add(condition, 'type_ref')
+    }
+  }
+  return [...refs.values()]
+}
+
+export function mapChangeDetails(before, after, typeNames = {}) {
   const names = new Map([...before.features, ...after.features].map(feature => [feature.id, feature.label]))
   const name = id => names.get(id) || '未关联'
   const chapter = value => value ? `第 ${value} 章开始` : '仅作者可见'
@@ -92,10 +129,10 @@ export function mapChangeDetails(before, after) {
         add('origin', '出发地', name); add('destination', '目的地', name)
         add('transport_label', '交通方式', value => value)
         add('duration', '声明耗时', quantityLabel); add('distance', '声明距离', quantityLabel)
-        add('access_conditions', '通行条件', values => (values || []).map(value => `${value.label}${value.type_ref ? `（${pinnedType(value.type_ref, value.type_revision_id)}）` : ''}`).join('；') || '没有声明')
+        add('access_conditions', '通行条件', values => (values || []).map(value => `${value.label}${value.type_ref ? `（${pinnedType(value.type_ref, value.type_revision_id, typeNames)}）` : ''}`).join('；') || '没有声明')
         for (const [prefix, title] of [['transport', '交通方式类型'], ['traveler', '旅行者类型'], ['connection', '连接类型']]) {
           const key = `${prefix}_type_ref`, revision = `${prefix}_type_revision_id`
-          if (!equal([old?.[key], old?.[revision]], [item?.[key], item?.[revision]])) fields.push({ title, before: old ? pinnedType(old[key], old[revision]) : '尚未加入', after: item ? pinnedType(item[key], item[revision]) : '已移出' })
+          if (!equal([old?.[key], old?.[revision]], [item?.[key], item?.[revision]])) fields.push({ title, before: old ? pinnedType(old[key], old[revision], typeNames) : '尚未加入', after: item ? pinnedType(item[key], item[revision], typeNames) : '已移出' })
         }
       } else if (category === 'image') {
         add('role', '用途', value => value === 'background' ? '地图底图' : '地点配图')
@@ -104,13 +141,13 @@ export function mapChangeDetails(before, after) {
         add('anchors', '校准点', value => (value || []).map(anchor => name(anchor.feature_id)).join('、') || '未校准')
         add('reader_from_chapter', '阅读展示', chapter)
       } else add('feature_id', '关联地点', name)
-      if (['space', 'feature', 'constraint'].includes(category) && !equal([old?.type_ref, old?.type_revision_id], [item?.type_ref, item?.type_revision_id])) fields.push({ title: '固定项目类型', before: old ? pinnedType(old.type_ref, old.type_revision_id) : '尚未加入', after: item ? pinnedType(item.type_ref, item.type_revision_id) : '已移出' })
+      if (['space', 'feature', 'constraint'].includes(category) && !equal([old?.type_ref, old?.type_revision_id], [item?.type_ref, item?.type_revision_id])) fields.push({ title: '固定项目类型', before: old ? pinnedType(old.type_ref, old.type_revision_id, typeNames) : '尚未加入', after: item ? pinnedType(item.type_ref, item.type_revision_id, typeNames) : '已移出' })
       if (['feature', 'constraint', 'journey'].includes(category)) {
         add('modality', '可信度', value => modalityLabels[value || 'event_observed'] || '尚不明确')
         add('effective', '生效范围', validityLabel)
         add('sources', '来源依据', sources)
       }
-      if (category === 'constraint' && !equal([old?.path_type_ref, old?.path_type_revision_id], [item?.path_type_ref, item?.path_type_revision_id])) fields.push({ title: '路线类型', before: old ? pinnedType(old.path_type_ref, old.path_type_revision_id) : '尚未加入', after: item ? pinnedType(item.path_type_ref, item.path_type_revision_id) : '已移出' })
+      if (category === 'constraint' && !equal([old?.path_type_ref, old?.path_type_revision_id], [item?.path_type_ref, item?.path_type_revision_id])) fields.push({ title: '路线类型', before: old ? pinnedType(old.path_type_ref, old.path_type_revision_id, typeNames) : '尚未加入', after: item ? pinnedType(item.path_type_ref, item.path_type_revision_id, typeNames) : '已移出' })
       if (!fields.length) fields.push({ title: '记录', before: '原记录', after: '依据或展示配置已更新' })
       rows.push({ key: `${category}:${id}`, category, action: !old ? '新增' : !item ? '移出' : '调整', label: label(item || old), featureIds: [...new Set([...(old ? ids(old) : []), ...(item ? ids(item) : [])])], fields })
     }
