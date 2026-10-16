@@ -181,6 +181,7 @@ async def test_fact_timeline_projects_current_chapter_without_mutating_history(
 
     receipt.status = "restored"
     receipt.restored_at = datetime(2026, 10, 16, 3, 0, tzinfo=UTC)
+    scene.chapter_ids = ["1"]
     await db_session.flush()
     restored = await service.list(
         db_session, test_project_id, StoryFactTimelineQuery(limit=20)

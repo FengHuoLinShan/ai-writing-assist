@@ -18,6 +18,8 @@ from core.service_keys import (
     ASSISTANT_EDITORIAL_POST_ADOPTION_RECHECKS,
     ASSISTANT_MARK_EDITORIAL_READY,
     EVIDENCE_CONFIRMATION_READS,
+    STORY_CHAPTER_ORDER,
+    STORY_INVALIDATE_WORLD_PROGRESSION_FOR_REORDER,
 )
 from infrastructure.llm.redaction import redact_diagnostic
 from modules.project.contracts import WorkspaceCreationProgressItem
@@ -1852,9 +1854,8 @@ class WritingChapterOrderService:
             )
         )
         if for_update:
-            statement = statement.with_for_update().execution_options(
-                populate_existing=True
-            )
+            statement = statement.with_for_update()
+        statement = statement.execution_options(populate_existing=True)
         drafts = list((await db.scalars(statement)).all())
         draft_ids = [draft.id for draft in drafts]
         comments: list[WritingComment] = []
@@ -1868,9 +1869,10 @@ class WritingChapterOrderService:
                 .order_by(WritingComment.id)
             )
             if for_update:
-                comment_statement = comment_statement.with_for_update().execution_options(
-                    populate_existing=True
-                )
+                comment_statement = comment_statement.with_for_update()
+            comment_statement = comment_statement.execution_options(
+                populate_existing=True
+            )
             comments = list((await db.scalars(comment_statement)).all())
         source_versions: dict[int, list[dict[str, str]]] = {}
         for draft in drafts:
@@ -2111,14 +2113,14 @@ class WritingChapterOrderService:
 
     def _story_port(self) -> StoryChapterOrderPort:
         # Story is the owner of its binding rows; bootstrap registers the adapter.
-        return get("story.chapter_order")
+        return get(STORY_CHAPTER_ORDER)
 
     async def _invalidate_standing_authorization(
         self,
         db: AsyncSession,
         novel_id: str,
     ) -> None:
-        await get("story.invalidate_world_progression_for_reorder")(
+        await get(STORY_INVALIDATE_WORLD_PROGRESSION_FOR_REORDER)(
             db,
             novel_id=novel_id,
         )

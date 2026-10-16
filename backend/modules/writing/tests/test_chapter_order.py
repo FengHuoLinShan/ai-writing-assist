@@ -270,7 +270,7 @@ async def test_chapter_reorder_moves_all_assets_and_restores(
             test_project_id,
             ChapterOrderPreviewRequest(chapter_indices=[3, 1, 2]),
         )
-        assert preview.blockers == []
+        assert preview.story_impact["blockers"] == []
         assert preview.story_impact["writing"] == {
             "draft_version_count": 4,
             "comment_count": 1,
@@ -491,7 +491,7 @@ async def test_chapter_reorder_preview_blocks_unlisted_versions_and_hash_drift(
             ChapterOrderPreviewRequest(chapter_indices=[2, 1]),
         )
 
-    kinds = {item["kind"] for item in preview.blockers}
+    kinds = {item["kind"] for item in preview.story_impact["blockers"]}
     assert "unlisted_chapter_versions" in kinds
     assert "writing_source_hash_mismatch" in kinds
     assert preview.story_impact["writing"]["unlisted_version_chapter_count"] == 1
