@@ -549,7 +549,7 @@ async def run_team(service, db, task, run_id, payload, deps, profile) -> Assista
     discovery_tools = []
     previous_operations = deps.operations
     previous_catalog_snapshot = deps.operation_catalog_snapshot
-    if runtime_version in {"7", "8", "9", "10", "11", "12", "13", "14", "15", "16"}:
+    if runtime_version in {"7", "8", "9", "10", "11", "12", "13", "14", "15", "16", "17"}:
         from modules.assistant.operations import operation_discovery_tools
 
         plan_operations = {
@@ -596,7 +596,19 @@ async def run_team(service, db, task, run_id, payload, deps, profile) -> Assista
                             "方案操作，"
                             "只提出本轮可执行目录中的能力。"
                             if runtime_version
-                            in {"7", "8", "9", "10", "11", "12", "13", "14", "15", "16"}
+                            in {
+                                "7",
+                                "8",
+                                "9",
+                                "10",
+                                "11",
+                                "12",
+                                "13",
+                                "14",
+                                "15",
+                                "16",
+                                "17",
+                            }
                             else ""
                         ),
                     ),
@@ -622,7 +634,19 @@ async def run_team(service, db, task, run_id, payload, deps, profile) -> Assista
                                     )
                                 }
                                 if runtime_version
-                                not in {"7", "8", "9", "10", "11", "12", "13", "14", "15", "16"}
+                                not in {
+                                    "7",
+                                    "8",
+                                    "9",
+                                    "10",
+                                    "11",
+                                    "12",
+                                    "13",
+                                    "14",
+                                    "15",
+                                    "16",
+                                    "17",
+                                }
                                 and frozen["id"]
                                 in {"cross_revision", "world_stress", "import_consult"}
                                 else {},

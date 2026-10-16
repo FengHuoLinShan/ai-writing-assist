@@ -85,6 +85,7 @@ from core.service_keys import (
     STORY_QUEUE_WORLD_PROGRESSION_READ_CHECK,
     EVOLUTION_READ_COMPLETED_CHAPTERS,
     STORY_INVALIDATE_WORLD_PROGRESSION_FOR_REORDER,
+    STORY_CHAPTER_ORDER,
     WORLD_ASSISTANT_CHAT,
     WORLD_ASSISTANT_CHAT_INTENT,
     WORLD_ASSISTANT_OUTCOME_STATES,
@@ -261,11 +262,13 @@ from app.assistant_operation_registry import story_scene_operations
 from app.assistant_operation_registry import story_state_operations
 from app.assistant_operation_registry import story_director_operations
 from app.assistant_operation_registry import story_world_progression_operations
+from app.assistant_operation_registry import story_fact_timeline_operations
 from app.assistant_operation_registry import story_character_arc_operations
 from app.assistant_operation_registry import story_generation_operations
 from app.assistant_operation_registry import story_structure_operations
 from app.assistant_operation_registry import writing_candidate_operations
 from app.assistant_operation_registry import writing_a1_operations
+from app.assistant_operation_registry import writing_chapter_order_operations
 from app.assistant_operation_registry import writing_generation_operations
 from app.assistant_operation_registry import writing_operations
 from app.assistant_operation_registry import world_opening_operations
@@ -404,6 +407,8 @@ def _container_services() -> Iterable[tuple[ServiceKey[Any], Any]]:
         queue_progression_read_check,
     )
     from modules.evolution.facade import read_completed_chapter_indices
+    from modules.story.continuity import facade as story_continuity
+    from types import SimpleNamespace
 
     return (
         (
@@ -414,6 +419,15 @@ def _container_services() -> Iterable[tuple[ServiceKey[Any], Any]]:
         (
             STORY_INVALIDATE_WORLD_PROGRESSION_FOR_REORDER,
             invalidate_world_progression_authorization_for_reorder,
+        ),
+        (
+            STORY_CHAPTER_ORDER,
+            SimpleNamespace(
+                preview=story_continuity.preview_chapter_order_bindings,
+                apply=story_continuity.apply_chapter_order_bindings,
+                restore=story_continuity.restore_chapter_order_bindings,
+                preview_restore=story_continuity.preview_restore_chapter_order_bindings,
+            ),
         ),
         (
             ASSISTANT_FORECAST_INSTRUCTIONS,
@@ -484,6 +498,7 @@ def _container_services() -> Iterable[tuple[ServiceKey[Any], Any]]:
                 **story_state_operations,
                 **story_director_operations,
                 **story_world_progression_operations,
+                **story_fact_timeline_operations,
                 **story_character_arc_operations,
                 **story_generation_operations,
                 **world_opening_operations,
@@ -501,6 +516,7 @@ def _container_services() -> Iterable[tuple[ServiceKey[Any], Any]]:
                 **world_dossier_operations,
                 **world_validity_operations,
                 **writing_a1_operations,
+                **writing_chapter_order_operations,
                 **interaction_author_operations,
                 **collaboration_author_operations,
             },

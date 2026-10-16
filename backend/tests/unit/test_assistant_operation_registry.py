@@ -559,6 +559,12 @@ C3_CHARACTER_ARC_OPERATIONS = {
     "story.character_arc_plan.archive",
     "story.character_arc_plan.unarchive",
 }
+A1_CHAPTER_TIMELINE_OPERATIONS = {
+    "writing.chapter.reorder",
+    "writing.chapter.reorder.restore",
+    "writing.chapter.order.history.read",
+    "story.fact_timeline.read",
+}
 # Preserve the pre-C0c snapshot above. These seven contracts were deliberately
 # versioned after the response or nested request shape changed.
 C0C_REVISED_SNAPSHOT = {
@@ -617,6 +623,7 @@ def _pre_c0c_manifest():
         | C5_WORLD_PROGRESSION_OPERATIONS
         | C0_DOSSIER_INTERCHANGE_OPERATIONS
         | C3_CHARACTER_ARC_OPERATIONS
+        | A1_CHAPTER_TIMELINE_OPERATIONS
     )
     frozen = {
         name: value
@@ -646,6 +653,7 @@ def test_bootstrap_operation_catalog_matches_snapshot():
         | C5_WORLD_PROGRESSION_OPERATIONS
         | C0_DOSSIER_INTERCHANGE_OPERATIONS
         | C3_CHARACTER_ARC_OPERATIONS
+        | A1_CHAPTER_TIMELINE_OPERATIONS
     )
     mismatches = {
         name: {
@@ -713,6 +721,7 @@ def test_catalog_v2_metadata_and_trace_inventory_match_runtime_schemas():
         + len(C5_WORLD_PROGRESSION_OPERATIONS)
         + len(C0_DOSSIER_INTERCHANGE_OPERATIONS)
         + len(C3_CHARACTER_ARC_OPERATIONS)
+        + len(A1_CHAPTER_TIMELINE_OPERATIONS)
     )
     assert set(operations) == set(manifest)
     for op_id, operation in operations.items():
@@ -817,6 +826,7 @@ def test_v12_author_operations_do_not_enter_a_frozen_v11_directory():
             | C5_WORLD_PROGRESSION_OPERATIONS
             | C0_DOSSIER_INTERCHANGE_OPERATIONS
             | C3_CHARACTER_ARC_OPERATIONS
+            | A1_CHAPTER_TIMELINE_OPERATIONS
         )
     }
     assert not (set(resolve_operations(frozen_v11)) & A3_AUTHOR_OPERATIONS)
@@ -826,6 +836,7 @@ def test_v12_author_operations_do_not_enter_a_frozen_v11_directory():
         | C5_WORLD_PROGRESSION_OPERATIONS
         | C0_DOSSIER_INTERCHANGE_OPERATIONS
         | C3_CHARACTER_ARC_OPERATIONS
+        | A1_CHAPTER_TIMELINE_OPERATIONS
     )
 
 
@@ -845,6 +856,7 @@ def test_v13_transfer_is_r3_and_absent_from_a_frozen_v12_directory():
             | C5_WORLD_PROGRESSION_OPERATIONS
             | C0_DOSSIER_INTERCHANGE_OPERATIONS
             | C3_CHARACTER_ARC_OPERATIONS
+            | A1_CHAPTER_TIMELINE_OPERATIONS
         )
     }
     assert set(manifest) - set(frozen_v12) == (
@@ -852,6 +864,7 @@ def test_v13_transfer_is_r3_and_absent_from_a_frozen_v12_directory():
         | C5_WORLD_PROGRESSION_OPERATIONS
         | C0_DOSSIER_INTERCHANGE_OPERATIONS
         | C3_CHARACTER_ARC_OPERATIONS
+        | A1_CHAPTER_TIMELINE_OPERATIONS
     )
     assert not (set(resolve_operations(frozen_v12)) & C4_TRANSFER_OPERATIONS)
     operation = get("assistant.operations")[
@@ -869,13 +882,19 @@ def test_v16_character_arc_actions_and_reads_are_absent_from_frozen_v15():
 
     register_container_services()
     manifest = operation_manifest()
-    frozen_v15 = {
+    frozen_v16 = {
         name: value
         for name, value in manifest.items()
+        if name not in A1_CHAPTER_TIMELINE_OPERATIONS
+    }
+    frozen_v15 = {
+        name: value
+        for name, value in frozen_v16.items()
         if name not in C3_CHARACTER_ARC_OPERATIONS
     }
-    assert set(manifest) - set(frozen_v15) == C3_CHARACTER_ARC_OPERATIONS
+    assert set(frozen_v16) - set(frozen_v15) == C3_CHARACTER_ARC_OPERATIONS
     assert not (set(resolve_operations(frozen_v15)) & C3_CHARACTER_ARC_OPERATIONS)
+    assert set(resolve_operations(frozen_v16)) == set(frozen_v16)
     for op_id in C3_CHARACTER_ARC_OPERATIONS:
         operation = get("assistant.operations")[op_id]
         is_read = op_id.rsplit(".", 1)[-1] in {"scene_characters", "history", "compare"}
@@ -885,6 +904,22 @@ def test_v16_character_arc_actions_and_reads_are_absent_from_frozen_v15():
         assert operation.trace_rule.parameter_fields == tuple(
             operation.schema.model_fields
         )
+
+
+def test_v17_chapter_timeline_operations_leave_v16_directory_unchanged():
+    from app.bootstrap import register_container_services
+    from modules.assistant.operations import operation_manifest, resolve_operations
+
+    register_container_services()
+    manifest = operation_manifest()
+    frozen_v16 = {
+        name: value
+        for name, value in manifest.items()
+        if name not in A1_CHAPTER_TIMELINE_OPERATIONS
+    }
+    assert set(manifest) - set(frozen_v16) == A1_CHAPTER_TIMELINE_OPERATIONS
+    assert set(resolve_operations(frozen_v16)) == set(frozen_v16)
+    assert set(resolve_operations(manifest)) == set(manifest)
 
 
 def test_inline_operation_metadata_requires_an_explicit_schema_trace_policy():

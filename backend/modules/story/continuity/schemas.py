@@ -206,6 +206,39 @@ class EventListResponse(BaseModel):
     total: int
 
 
+class StoryFactTimelineQuery(BaseModel):
+    """Author-only factual-event timeline filters; no outline-plan fields."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    entity_id: uuid.UUID | None = None
+    cutoff_scene_id: uuid.UUID | None = None
+    source: str | None = Field(default=None, min_length=1, max_length=32)
+    status: Literal["current", "stale", "unknown"] | None = None
+    skip: int = Field(default=0, ge=0)
+    limit: int = Field(default=50, ge=1, le=200)
+
+
+class StoryFactTimelineItemResponse(MemoryEventResponse):
+    entity_label: str | None = None
+    current_chapter_index: int | None = None
+    current_scene_index: int | None = None
+    time_status: Literal["current", "stale", "unknown"]
+
+
+class StoryFactTimelineResponse(BaseModel):
+    items: list[StoryFactTimelineItemResponse]
+    total: int
+    unknown_time_count: int = 0
+    pending_revalidation_count: int = 0
+    consumer_scope: Literal["author"] = "author"
+    cutoff_scene: dict[str, Any] | None = None
+    source_options: list[str] = Field(default_factory=list)
+    entity_options: list[dict[str, Any]] = Field(default_factory=list)
+    scene_options: list[dict[str, Any]] = Field(default_factory=list)
+    pending_revalidations: list[dict[str, Any]] = Field(default_factory=list)
+
+
 # ============================================================
 # 快照响应
 # ============================================================
