@@ -157,6 +157,23 @@ class EntityRelationService(
             "status": rel.status,
         }
 
+    async def _validate_relation_validity(
+        self,
+        db: AsyncSession,
+        novel_id: str,
+        status: str,
+        validity: Any | None,
+    ) -> None:
+        if validity is None:
+            return
+        if status != "canonical":
+            raise ValidationError("只有正式关系可声明作者有效期")
+        await validate_scene_validity(
+            db,
+            novel_id,
+            DossierValidity.model_validate(validity),
+        )
+
     @staticmethod
     def _resolve_relation_kind(
         relation_type: str,
@@ -360,10 +377,7 @@ class EntityRelationService(
         _validation_prechecked: bool = False,
     ) -> EntityRelationResponse:
         data = self._with_resolved_kind(data)
-        if data.validity is not None:
-            if data.status != "canonical":
-                raise ValidationError("待复核关系不能声明作者有效期")
-            await validate_scene_validity(db, novel_id, data.validity)
+        await self._validate_relation_validity(db, novel_id, data.status, data.validity)
         if data.status == "canonical" and not _validation_prechecked:
             await self._require_legacy_canon_write_allowed(db, novel_id)
         nid = parse_uuid(novel_id, "novel_id")
@@ -411,10 +425,7 @@ class EntityRelationService(
         """Create a relation or merge evidence into an existing same edge."""
 
         data = self._with_resolved_kind(data)
-        if data.validity is not None:
-            if data.status != "canonical":
-                raise ValidationError("待复核关系不能声明作者有效期")
-            await validate_scene_validity(db, novel_id, data.validity)
+        await self._validate_relation_validity(db, novel_id, data.status, data.validity)
 
         if data.status == "canonical" and not _validation_prechecked:
             await self._require_legacy_canon_write_allowed(db, novel_id)
@@ -1344,19 +1355,21 @@ class EntityRelationService(
         rel = await self.repo.get(db, rid)
         if rel is None or rel.novel_id != nid:
             raise NotFoundError(f"EntityRelation {id} not found")
-        if rel.status == "canonical" or data.status == "canonical":
+        if data.status is not None and data.status not in _RELATION_STATUSES:
+            raise ValidationError("Invalid relation status")
+        next_status = data.status or rel.status
+        next_validity = (
+            data.validity if "validity" in data.model_fields_set else rel.validity_json
+        )
+        await self._validate_relation_validity(db, novel_id, next_status, next_validity)
+        if rel.status == "canonical" or next_status == "canonical":
             await self._require_legacy_canon_write_allowed(db, novel_id)
-        if "validity" in data.model_fields_set and data.validity is not None:
-            await validate_scene_validity(db, novel_id, data.validity)
         if data.status == "canonical" and rel.status != "canonical":
             from modules.world.services.common import require_fresh_understanding_source
 
             await require_fresh_understanding_source(db, novel_id, rel.review_meta)
         before = self._relation_snapshot(rel)
-        if data.status is not None and data.status not in _RELATION_STATUSES:
-            raise ValidationError("Invalid relation status")
         next_type = data.relation_type or rel.relation_type
-        next_status = data.status or rel.status
         next_kind = self._resolve_relation_kind(
             next_type,
             data.relation_kind or rel.relation_kind,
@@ -1428,6 +1441,11 @@ class EntityRelationService(
                 )
         if rel.status == "deprecated":
             raise ValidationError("Deprecated relation cannot be reviewed")
+        next_status = "canonical" if data.confirm_review else rel.status
+        next_validity = (
+            data.validity if "validity" in data.model_fields_set else rel.validity_json
+        )
+        await self._validate_relation_validity(db, novel_id, next_status, next_validity)
         if rel.status == "canonical" or data.confirm_review:
             await self._require_legacy_canon_write_allowed(db, novel_id)
 
@@ -1435,8 +1453,6 @@ class EntityRelationService(
             from modules.world.services.common import require_fresh_understanding_source
 
             await require_fresh_understanding_source(db, novel_id, rel.review_meta)
-        if "validity" in data.model_fields_set and data.validity is not None:
-            await validate_scene_validity(db, novel_id, data.validity)
         before = self._relation_snapshot(rel)
         sid = parse_uuid(data.source_id, "source_id") if data.source_id else rel.source_id
         tid = parse_uuid(data.target_id, "target_id") if data.target_id else rel.target_id
