@@ -104,3 +104,14 @@ Luna/max `luna_remaining_scope_plan`只读对照三plans/ADR与生产入口后�
 root已读取9e5的7PG/55定向原日志，分别2.04s/10.22s，全通过。C3又补真实精确TaskWorker+offline client两态PG：默认双卡共父4/4请求与双候选；第二类失败3started/2settled、usage_unknown、首卡checkpoint保留且0候选发布，`/tmp/c3-review-forecast-worker-pg-20261016.log`待root读取。Evolution notice全局最新run遮蔽截止前旧失败已由Sol直接修并补2PG，无DDL。
 
 root新读C3 UI确认另一项数据丢失finding，已交Sol：`useWritingWorkspace.js loadOutlineArcComparisons`全量替换arcDrafts，任一人保存/恢复/归档成功的force reload会覆盖其他人的未保存输入。需按project/Scene/character合并未脏baseline或只刷新目标，409/失败保留输入及调用关联；workspace真实交互回归（编辑B→保存A→B仍保留）。不以原实现前端全绿关闭。最终C3 browser也需证明第13人可达、加载状态，无新增硬限制。当前C3仍未交最终固定点/完整全套。
+
+
+## 2026-10-16T08:41:38+08:00 用户要求主会话独立收尾
+
+用户明确“不开子代理，剩下任务主会话全部完成”，覆盖此前 Luna/max 实施、Sol/high 独立审修及 Sol 专修约定。root 已中断全部三名在途代理，后续不再委派。全部工作树、WIP、原专库及日志保留，由 root 完成实现、审查、修复、验证和本地集成；原不推送/不发布/不合 main/不部署边界保留。
+
+接管点：primary `680de35f13541a100dd314ddc759bb6c5050298b` 干净；C3 map-clue-review `f1f4e4caffb3db94be532b8c0ada86a6fd412c8a` 加 7 个 tracked WIP（DI/README/forecast 与第13角色测试）；A1 map-spatial-eval-review `6b303749c157e6c30d3fa1b90a5dbabff87f2c4e` 加章节并发 PG 文件 WIP；eval guard world-object-dossier-impl `146b673f2` 仅新 guard 未跟踪文件。C3 未保存草稿 finding 仍未修，已有新测试实际上覆盖第13人，并非草稿保护回归。
+
+接管后已读实际结果：C3 全普通后端 `/tmp/c3-review-backend-full-20261016.log` 为 8961 passed/2 failed/2 skipped/8 deselected，失败为旧 catalog15 断言及新 Arc preview active guard 顺序；不视为全绿。双 forecast 精确 TaskWorker PG 2 passed，`/tmp/c3-review-forecast-worker-pg-20261016.log`。A1 `/tmp/a1-review-pg-concurrency-http-20261016.log` 4 passed、parity 无差异；其 HTTP trace fixture 修改账户偏好尚需 finally 恢复原列。A1 专库已建、迁移日志已在，禁止重复 CREATE；18602/18603 自有服务仍监听，root 核 lifespan 后复用或安全停启。
+
+下一步：root 先修 C3 草稿保护与两普通回归失败，完成真实页面验证/全套/净提交后集成；再完成 A1 trace 账户状态恢复、C3最终合并、实际生产页与组合 PG，最后接管 guard 与真实质量预检。旧 R3 封存且零新增真实模型请求。
