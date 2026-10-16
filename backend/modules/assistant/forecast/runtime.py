@@ -22,6 +22,12 @@ from modules.assistant.forecast.analysis import (
     assessments,
     instructions,
 )
+from modules.assistant.forecast.character_response import (
+    CharacterResponseForecastOutput,
+)
+from modules.assistant.forecast.character_response import (
+    assessments as character_response_assessments,
+)
 from modules.assistant.forecast.context import authorize, materialize, scope_matches
 from modules.assistant.forecast.contracts import (
     EvaluateRequest,
@@ -79,7 +85,68 @@ async def submit(
     db, novel_id, data: EvaluateRequest, *, background=False, persona="author"
 ):
     enabled(persona)
-    ctx = await materialize(db, novel_id, data.context, persona=persona)
+    selected = require_capabilities(
+        data.requested_capabilities or defaults(data.context.page, persona=persona),
+        persona=persona,
+    )
+    # New requests use the versioned performance contract. Persisted v1 runs keep
+    # their original capability list and continue through the legacy reader.
+    selected = list(
+        dict.fromkeys(
+            "story.character_response.v2" if key == "story.character_response.v1" else key
+            for key in selected
+        )
+    )
+    if data.context.task_hint == "polish":
+        selected = [
+            key
+            for key in selected
+            if key
+            not in {
+                "writing.next_beat.v1",
+                "story.open_question.v1",
+                "story.character_response.v1",
+                "story.character_response.v2",
+                "story.information_window.v1",
+                "story.scene_transition.v1",
+            }
+        ]
+    if "story.character_response.v2" in selected and selected != [
+        "story.character_response.v2"
+    ]:
+        raise ValidationError(
+            "人物表演候选需要单独按角色知识范围生成",
+            code="INCOMPATIBLE_CAPABILITIES",
+        )
+    character_response_v2 = selected == ["story.character_response.v2"]
+    if character_response_v2 and (background or data.trigger != "manual"):
+        raise ValidationError(
+            "人物表演候选需要作者在当前场景主动发起",
+            code="INVALID_TRIGGER",
+            status_code=422,
+        )
+    require_rollout(novel_id, selected)
+    semantic = [key for key in selected if key in SEMANTIC]
+    if semantic and not get_settings().assistant_forecast_semantic_enabled:
+        raise ValidationError(
+            "语义前瞻尚未开启，已有资料仍可查看",
+            code="SEMANTIC_UNAVAILABLE",
+            status_code=503,
+        )
+    ctx = await materialize(
+        db,
+        novel_id,
+        data.context,
+        persona=persona,
+        include_understanding=not character_response_v2,
+        capabilities=selected,
+    )
+    if character_response_v2 and not ctx.sources:
+        raise ValidationError(
+            "请从含有人物卡或 POV 的场景入口选择人物后再生成表演候选",
+            code="CHARACTER_SCOPE_UNAVAILABLE",
+            status_code=422,
+        )
     request_hash = content_hash(data.model_dump(mode="json"))
     prior = await db.scalar(
         select(AssistantRun).where(
@@ -100,31 +167,6 @@ async def submit(
         raise ValidationError(
             "自动分析只能由已授权的保存事件触发", code="INVALID_TRIGGER", status_code=422
         )
-    selected = require_capabilities(
-        data.requested_capabilities or defaults(data.context.page, persona=persona),
-        persona=persona,
-    )
-    require_rollout(novel_id, selected)
-    if data.context.task_hint == "polish":
-        selected = [
-            key
-            for key in selected
-            if key
-            not in {
-                "writing.next_beat.v1",
-                "story.open_question.v1",
-                "story.character_response.v1",
-                "story.information_window.v1",
-                "story.scene_transition.v1",
-            }
-        ]
-    semantic = [key for key in selected if key in SEMANTIC]
-    if semantic and not get_settings().assistant_forecast_semantic_enabled:
-        raise ValidationError(
-            "语义前瞻尚未开启，已有资料仍可查看",
-            code="SEMANTIC_UNAVAILABLE",
-            status_code=503,
-        )
     watch = await _watch(db, novel_id, lock=background)
     if background and (
         watch is None
@@ -133,17 +175,19 @@ async def submit(
     ):
         raise ConflictError("后台计算授权已撤销", code="POLICY_CHANGED")
     snapshot = (
-        await build_project_llm_execution_snapshot(db, novel_id)
-        if semantic
-        else None
+        await build_project_llm_execution_snapshot(db, novel_id) if semantic else None
     )
-    choices = await explicit_decisions(db, ctx) if semantic else []
+    choices = (
+        await explicit_decisions(db, ctx)
+        if semantic and not character_response_v2
+        else []
+    )
     payload = {
         **data.model_dump(mode="json"),
         "author_decisions": choices,
-        "decision_hash": content_hash(choices),
+        "decision_hash": content_hash(choices) if not character_response_v2 else None,
         "protocol": "forecast_v1",
-        "understanding_enabled": True,
+        "understanding_enabled": not character_response_v2,
         "selected_capabilities": selected,
         "scope": ctx.scope.model_dump(mode="json"),
         "llm_snapshot": snapshot,
@@ -253,6 +297,7 @@ async def view(db, novel_id, run_id, *, persona="author"):
                     include_understanding=bool(
                         run.request_json.get("understanding_enabled")
                     ),
+                    capabilities=run.request_json.get("selected_capabilities"),
                 )
                 can_resume = scope_matches(ctx.scope, run.request_json["scope"])
             except DomainError:
@@ -328,6 +373,7 @@ async def resume(db, novel_id, run_id, *, persona="author"):
         FocusRequest.model_validate(run.request_json["context"]),
         persona=persona,
         include_understanding=bool(run.request_json.get("understanding_enabled")),
+        capabilities=run.request_json.get("selected_capabilities"),
     )
     if not scope_matches(ctx.scope, run.request_json["scope"]):
         raise ConflictError("来源或授权已变化，请重新分析", code="SOURCE_STALE")
@@ -387,6 +433,7 @@ async def execute(db, task):
             focus,
             persona=persona,
             include_understanding=bool(payload.get("understanding_enabled")),
+            capabilities=selected,
         )
         watch = await _watch(db, novel_id, lock=True)
         current = await require_run(db, novel_id, run_id, lock=True, persona=persona)
@@ -462,6 +509,24 @@ async def execute(db, task):
                 db, novel_id, payload["llm_snapshot"]
             ) as client:
                 await db.commit()
+                character_response_v2 = selected == ["story.character_response.v2"]
+                output_model = (
+                    CharacterResponseForecastOutput
+                    if character_response_v2
+                    else ForecastOutput
+                )
+                system_instructions = INSTRUCTIONS
+                if character_response_v2:
+                    from modules.story.forecast import INSTRUCTIONS as STORY_INSTRUCTIONS
+
+                    system_instructions = STORY_INSTRUCTIONS[
+                        "story.character_response.v2"
+                    ]
+
+                def validate_output(value, review):
+                    if character_response_v2:
+                        return character_response_assessments(value, ctx, review)
+                    return assessments(value, ctx, semantic, review)
 
                 async def generate(extra=""):
                     await guard(phase="analyzing")
@@ -472,13 +537,21 @@ async def execute(db, task):
                             LLMCallRequest(
                                 model=client.model_name,
                                 messages=[
-                                    LLMMessage(role="system", content=INSTRUCTIONS),
+                                    LLMMessage(
+                                        role="system", content=system_instructions
+                                    ),
                                     LLMMessage(
                                         role="user",
                                         content=json.dumps(
                                             {
-                                                "author_decisions": payload.get(
-                                                    "author_decisions", []
+                                                **(
+                                                    {}
+                                                    if character_response_v2
+                                                    else {
+                                                        "author_decisions": payload.get(
+                                                            "author_decisions", []
+                                                        )
+                                                    }
                                                 ),
                                                 "intent": focus.explicit_instruction,
                                                 "task": focus.task_hint,
@@ -500,7 +573,7 @@ async def execute(db, task):
                                     ),
                                 ],
                             ),
-                            ForecastOutput,
+                            output_model,
                             step_name=f"{capability}.propose",
                             capability_id="assistant.forecast",
                             max_fix_attempts=0,
@@ -508,11 +581,11 @@ async def execute(db, task):
                         )
 
                 output = (
-                    ForecastOutput.model_validate(run.checkpoint_json["proposal"])
+                    output_model.model_validate(run.checkpoint_json["proposal"])
                     if run.checkpoint_json.get("proposal")
                     else await generate()
                 )
-                assessments(output, ctx, semantic, {})
+                validate_output(output, {})
                 current, _ = await guard(phase="validating")
                 current.checkpoint_json = {
                     **current.checkpoint_json,
@@ -541,7 +614,7 @@ async def execute(db, task):
                             for ref in ctx.evidence
                         ],
                         output=output.model_dump_json(),
-                        task_instruction=INSTRUCTIONS
+                        task_instruction=system_instructions
                         + json.dumps(
                             {
                                 "author_decisions": payload.get("author_decisions", []),
@@ -559,11 +632,9 @@ async def execute(db, task):
                     raise ConflictError(
                         "本次建议未通过资料与方向复核", code="OUTPUT_REJECTED"
                     )
-                output = ForecastOutput.model_validate_json(reviewed["text"])
-                calculated += assessments(
+                output = output_model.model_validate_json(reviewed["text"])
+                calculated += validate_output(
                     output,
-                    ctx,
-                    semantic,
                     {"status": reviewed["status"], "review": reviewed["review"]},
                 )
         run, latest = await guard(phase="publishing")

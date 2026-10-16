@@ -154,6 +154,41 @@ it("demo 只读隐藏处置和静音操作", async () => {
   wrapper.unmount()
 })
 
+it("Evolution 阅读提醒可打开阅读面板或直达大纲边界确认", async () => {
+  const notices = [
+    notice({
+      source_id: "evolution.reading",
+      category: "reading_unread",
+      notice_key: "evolution.reading:unread:chapter-3",
+      summary: "当前已采用正文中有 1 章尚未完整阅读。",
+      actions: [{ kind: "navigate", page: "writing", open_evolution_reading: true, label: "打开演化阅读" }],
+    }),
+    notice({
+      source_id: "evolution.reading",
+      category: "reading_review",
+      notice_key: "evolution.reading:review-boundary:run-1",
+      summary: "演化阅读的场景边界需要作者确认。",
+      actions: [{ kind: "navigate", page: "outline", scene_id: "scene-1", label: "去大纲确认边界" }],
+    }),
+  ]
+  setBridgeOverrides({ api: { assistant: { unifiedNotices: vi.fn().mockResolvedValue({
+    items: notices, unavailable_sources: [], muted_categories: [], partial: false,
+  }) } } })
+  const wrapper = mountPanel()
+  await flushPromises()
+
+  const openButtons = wrapper.findAll(".unified-notices__actions button").filter((button) => (
+    ["打开演化阅读", "去大纲确认边界"].includes(button.text())
+  ))
+  expect(openButtons.map((button) => button.text()).sort()).toEqual(["打开演化阅读", "去大纲确认边界"].sort())
+  await openButtons.find((button) => button.text() === "打开演化阅读").trigger("click")
+  expect(wrapper.emitted("open-notice")?.[0]?.[0]).toMatchObject({
+    source_id: "evolution.reading",
+    category: "reading_unread",
+  })
+  wrapper.unmount()
+})
+
 it("切换项目时丢弃旧项目迟到的响应", async () => {
   let resolveOld
   const unifiedNotices = vi.fn()

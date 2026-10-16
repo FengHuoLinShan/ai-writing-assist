@@ -274,10 +274,33 @@ async def prepare(db, novel_id, candidate_id, data):
                 "修改与润色须先准备精确替换，不能转为续写", code="ACTION_UNAVAILABLE"
             )
         capability = "writing.generate_candidate"
+        character_response_context = ""
+        response = candidate.payload_json.get("character_response") or {}
+        selected_option = next(
+            (
+                option
+                for option in response.get("options", [])
+                if option.get("direction_id") == direction["direction_id"]
+            ),
+            None,
+        )
+        if selected_option:
+            basis = "；".join(
+                item.get("note", "") for item in selected_option.get("basis", [])
+            )
+            gaps = "；".join(response.get("source_gaps", []))
+            character_response_context = (
+                f"人物表演参考：{response.get('character_name', '当前人物')}，"
+                f"{response.get('cutoff_label', '当前截止点')}。"
+                "这只是未发生的条件式创作选项，不作为已发生事实。"
+                + (f"依据提示：{basis}。" if basis else "")
+                + (f"资料缺口：{gaps}。" if gaps else "")
+            )
         arguments = {
             "chapter_index": ctx.chapter_index,
             "generation_mode": "continue",
-            "instruction": "作者选择的局部方向（新创意，未发生）："
+            "instruction": character_response_context
+            + "\n作者选择的局部方向（新创意，未发生）："
             + direction["proposal"]
             + "\n保留要求："
             + ctx.focus.explicit_instruction,
