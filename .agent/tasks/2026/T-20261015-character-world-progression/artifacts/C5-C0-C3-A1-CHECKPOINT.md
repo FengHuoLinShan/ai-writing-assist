@@ -74,3 +74,13 @@ A1 Luna净领域checkpoint `003f809dd4fb8a48d3a4b7f3d591d08a77936d52` 曾因纯S
 A1下一Sol另需直接审修跨操作历史投影：当前 `_current_chapter_index` 按receipt逐一紧邻应用map/inverse；两个非交换重排A/B后、恢复B/A时，期间新增事件会错误按inverseA→inverseB投影。应先实际复现再按全局操作时间处理，不能重写不可变历史。该问题与scope/restored原调用关联由Sol修；现有旧页99前端通过不能替代新增modal/timeline交互。MemoryService/EventRepository复用、SceneSpan哈希与非连续区间、owner/cutoff/paging/source组合及PG并发仍需独立检查。
 
 真实地图R3仍封存，holdout不解码，本批零新真实模型请求。C1长篇、M5势力路线图、RP协议、A4数周真实用量与作者验收仍未满足。下一步是C3净提交→Sol直接修复/安全后继DDL/真实组合→root集成，再按最终线性头放行A1 PG与独立审修。
+
+## C3已交Sol直接审修，A1独立审查预热
+
+Luna C3最终净 `f1d90e416b6cd77421df2067c236288e4e0daf72`（实现 `53dd3868b82c068e27d8d2220dd1b3ae2f6cdf74`）已停止原树写入，Sol在map-clue-review无冲突合为 `104adf685795b480888f6c8b451af6ed636f0ef8`，现正式有产品修复/共享组合写权，并接管保留的C3专库（实际head Arc初版）；18600/1原未启，归该Sol。Luna自查Arc7SQLite/3PG、notice2PG与3191前端/lint/build通过，但forecast29/30、module gate及三项方向棘轮仍红，不当整批完成。旧冻结feed红例已由Sol只读定位：执行缺失understanding_enabled按False，feed却按True导致hash不一致；需统一冻结语义而不弱化断言。全仓ruff4旧错/163格式差异不在此扫仓修复范围。
+
+Sol另发现人物浮窗硬截前12人且所谓人物卡替代入口不存在，需真实有界选择/分批入口；新默认不许丢人物反应或转场。root明确要求两类资料分别物化/独立调用且共享父预算与unknown，不能共prompt泄作者后序资料，不能以仅转场默认/手点人物表演替代原双默认。旧v1+转场冻结重放保持原形，新默认使用v2表演。计划§7明写全部副驾驶动作注册且助手可代执行；Arc初稿ai_available=False不是安全排除依据，需修可信scope后经唯一纯SPEC/目录正常物化，不另造作者双目录。角色视角仍不读director_only未来计划。
+
+正式线性目录顺序为C5/v15 → C3 Sol/v16 → A1 Sol/v17。A1 fe5的v16只在未集成候选、未建PG，不将其未审领域合入C3来保号；后续A1 Sol负责顺序merge及重新物化后继17，已正式版本保持冻结。C3 Sol独占app/main/bootstrap/corekeys/总Storyfacade、普通Assistant目录及HTTP trace helper、api.js与Arc schema/migration。
+
+root已核旧C0树map-spatial-eval-review干净008d，保留旧分支后建立 `codex/chapter-order-timeline-review` 从primary笔记 `161c0be03e8998af8f6caabb4f6150cdbea3b04f`。新Sol/high `sol_review_chapter_order` 在此先只读审查A1，等Luna最终净提交再释放领域写入；不得争C3共享权或提前建库。A1最新真实HTTP8项已通过；604领域+2 inherited失败（版本预期15/16、版本查询次数新增锁）留该Sol直接修；前端256文件3194及lint/build通过。Luna尚在最终自查，未交最终净点；A1 migration只是拟定，当前树唯一head wp_read_count，无Arc源码，不已建/已用A1迁移。专库继续HOLD到C3安全后继最终头。
