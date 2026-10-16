@@ -14,6 +14,7 @@ from typing import Any
 from sqlalchemy import (
     JSON,
     Boolean,
+    CheckConstraint,
     DateTime,
     Index,
     Integer,
@@ -26,7 +27,7 @@ from sqlalchemy import (
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import Mapped, mapped_column
 
-from core.base import Base, NovelMixin, UUIDMixin, UUIDType
+from core.base import Base, NovelMixin, TimestampMixin, UUIDMixin, UUIDType
 
 
 class MemoryEvent(Base, NovelMixin):
@@ -133,6 +134,35 @@ class MemoryEvent(Base, NovelMixin):
             f"<MemoryEvent ch={self.chapter_index} seq={self.sequence} "
             f"type={self.event_type!r}>"
         )
+
+
+class StoryChapterOrderReceipt(Base, UUIDMixin, TimestampMixin, NovelMixin):
+    """Story-owned CAS and recovery record for a Writing chapter reorder."""
+
+    __tablename__ = "story_chapter_order_receipts"
+    __table_args__ = (
+        UniqueConstraint("novel_id", "id", name="uq_story_chapter_order_novel_id"),
+        Index(
+            "ix_story_chapter_order_novel_created",
+            "novel_id",
+            "created_at",
+        ),
+        CheckConstraint(
+            "status IN ('applied', 'restored')",
+            name="ck_story_chapter_order_status",
+        ),
+        {"comment": "章节重排对Story绑定与派生状态的回执"},
+    )
+
+    status: Mapped[str] = mapped_column(String(16), nullable=False, default="applied")
+    chapter_map_json: Mapped[dict] = mapped_column(JSON, nullable=False, default=dict)
+    before_fingerprint: Mapped[str] = mapped_column(String(64), nullable=False)
+    after_fingerprint: Mapped[str] = mapped_column(String(64), nullable=False)
+    impact_json: Mapped[dict] = mapped_column(JSON, nullable=False, default=dict)
+    manifest_json: Mapped[dict] = mapped_column(JSON, nullable=False, default=dict)
+    restored_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
 
 
 class MemorySnapshot(Base, NovelMixin):

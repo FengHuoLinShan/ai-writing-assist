@@ -178,6 +178,7 @@
         </ul>
       </div>
     </details>
+    <StoryFactTimelinePanel v-if="projectId" :project-id="projectId" />
     </template>
   </div>
 </template>
@@ -193,6 +194,7 @@ import { outlineAnalysisManager } from "../ai/outlineWorkflowManagers.js"
 import WorkflowProgressCard from "../../../components/WorkflowProgressCard.vue"
 import StoryOutlineEditorFields from "./StoryOutlineEditorFields.vue"
 import { useStoryOutline } from "./useStoryOutline.js"
+import StoryFactTimelinePanel from "../components/StoryFactTimelinePanel.vue"
 import { getRouter } from "../../../bridge/index.js"
 
 const props = defineProps({

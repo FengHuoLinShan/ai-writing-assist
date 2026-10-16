@@ -33,6 +33,7 @@ import { generate } from "./api/generate.js"
 import { imports } from "./api/imports.js"
 import { outline } from "./api/outline.js"
 import { story } from "./api/story.js"
+import { storyTimeline } from "./api/storyTimeline.js"
 import { characterArcs } from "./api/characterArcs.js"
 import { tasks } from "./api/tasks.js"
 import { settingsApi } from "./api/settings.js"
@@ -59,6 +60,7 @@ const api = {
   imports,
   outline,
   story,
+  storyTimeline,
   characterArcs,
   clearCache,
   tasks,

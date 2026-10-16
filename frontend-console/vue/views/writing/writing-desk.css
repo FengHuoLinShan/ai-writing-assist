@@ -579,6 +579,14 @@
   box-shadow: none;
 }
 
+.writing-chapter-order-open {
+  width: calc(100% - 16px);
+  min-height: 40px;
+  margin: 8px;
+  justify-content: flex-start;
+  border-color: var(--nc-border, #d8e0e4);
+}
+
 .chapter-tree-shell {
   position: relative;
   min-height: 132px;

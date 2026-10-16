@@ -59,10 +59,17 @@ async def _draft(db, novel_id: str, draft_id: uuid.UUID):
 
 
 async def _current_draft(db, novel_id: str, draft_id: uuid.UUID):
+    repo = WritingDraftRepository()
     draft = await _draft(db, novel_id, draft_id)
-    latest = await WritingDraftRepository().get_latest_by_chapter(
-        db, draft.novel_id, draft.chapter_index
+    await repo.lock_version_chapters_for_revalidation(
+        db,
+        draft.novel_id,
+        [draft.chapter_index],
     )
+    draft = await repo.get_for_update(db, draft.id)
+    if draft is None or str(draft.novel_id) != novel_id:
+        raise NotFoundError("正文不存在")
+    latest = await repo.get_latest_by_chapter(db, draft.novel_id, draft.chapter_index)
     if latest is None or latest.id != draft.id or draft.status == "candidate":
         raise ConflictError("请先打开并保存当前工作稿")
     return draft

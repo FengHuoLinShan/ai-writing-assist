@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import uuid
 from datetime import datetime
+from typing import Literal
 
 from fastapi import APIRouter, Query
 from pydantic import BaseModel
@@ -31,6 +32,8 @@ from modules.story.continuity.schemas import (
     SceneStateViewResponse,
     SnapshotListResponse,
     SnapshotResponse,
+    StoryFactTimelineQuery,
+    StoryFactTimelineResponse,
 )
 from modules.story.continuity.services import MemoryService
 from modules.story.continuity.state_trial import (
@@ -108,6 +111,49 @@ async def get_entity_timeline(
         entity_id,
         skip,
         limit,
+    )
+
+
+@router.get(
+    "/fact-timeline",
+    response_model=StoryFactTimelineResponse,
+    openapi_extra={
+        "x-novelcraft-operation-id": "story.fact_timeline.read",
+        "x-novelcraft-operation-trace-fields": {
+            "entity_id": "entity_id",
+            "cutoff_scene_id": "cutoff_scene_id",
+            "source": "source",
+            "status": "status",
+            "skip": "skip",
+            "limit": "limit",
+        },
+    },
+)
+async def get_fact_timeline(
+    db: DbSession,
+    novel_id: NovelIdPath,
+    entity_id: uuid.UUID | None = Query(None),
+    cutoff_scene_id: uuid.UUID | None = Query(None),
+    source: str | None = Query(None, min_length=1, max_length=32),
+    status: Literal["current", "stale", "unknown"] | None = Query(None),
+    skip: int = Query(0, ge=0),
+    limit: int = Query(50, ge=1, le=200),
+) -> StoryFactTimelineResponse:
+    """Read factual MemoryEvents, with a Scene cutoff separate from outline plans."""
+    await _require_active_project(db, novel_id)
+    from modules.story.continuity.facade import list_fact_timeline
+
+    return await list_fact_timeline(
+        db,
+        novel_id,
+        StoryFactTimelineQuery(
+            entity_id=entity_id,
+            cutoff_scene_id=cutoff_scene_id,
+            source=source,
+            status=status,
+            skip=skip,
+            limit=limit,
+        ),
     )
 
 

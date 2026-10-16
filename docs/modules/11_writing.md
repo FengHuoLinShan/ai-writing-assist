@@ -26,6 +26,13 @@ Assistant v8 首批在现有服务上登记标题改名、编辑准备标记、�
 冲突检查。窄 HTTP 改名与检查先预览、作者确认后按相同指纹重验；它们不接受新正文或
 章节重排，也不把编辑准备等同发布/知识边界签署。
 
+完整章节顺序现由 `POST /api/writing/chapters/order/preview` 冻结 Writing 全版本、批注与
+Story 绑定来源；`/{receipt_id}/confirm` 以预览 hash 重验并在同一事务置换正文的真实
+`chapter_index`。历史 UUID、版本号、内容 hash 和不可变事实事件保留。`history` 与
+`restore-preview` 可找回及核对回执；`/{receipt_id}/restore` 仅在重排后无新编辑或绑定
+漂移时恢复，否则返回 409。Assistant 目录中的完整重排和历史读取要求项目工作范围，
+排除资产或原 Evidence 确认限制不能借 R3 确认扩大为整书权限。
+
 API 提供四种写入模式：
 
 1. **发布草稿**（`POST /drafts`）→ 原位提升当前 draft + 自动入队 `publish_chapter` 任务；响应的 `new_version=false` 表示无实质变化且未入队；冲突快照查询/归档失败时发布仍完成，但响应带 `conflict_check_degraded=true`（冲突基线缺失，后续比对无参照）
@@ -346,6 +353,8 @@ AI candidate 必须复验原 confirmation、正文和 world 来源；人工稿�
 所有 working/published 写入和回退经仓储统一通知 Context、working/canonical 索引及演化/Story
 失效；包括助手应用、创意采用、协作和导入入口。候选未采用时不触发。传播失败回滚正文事务，
 不会显示假保存；作者确认与原回执保留，重算只标 recompute_required，不自动支付模型调用。
+完整章节重排与恢复同样在各自事务内移动绑定草稿的冲突检查，旧检查在章号不符时只提示重检；
+逐个标记变动章节两种内容模式的索引待重建，并使引用原草稿的 Context 确认过期。
 
 ## 交给编辑看
 
