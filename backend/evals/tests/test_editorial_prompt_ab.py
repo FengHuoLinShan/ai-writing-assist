@@ -211,7 +211,8 @@ async def test_arm_persists_json_state_path_without_starting_provider(
     async def submit_review(*_args, **_kwargs):
         return review
 
-    async def stop_before_worker(*_args, **_kwargs):
+    async def stop_before_worker(request_db, **_kwargs):
+        assert request_db.task_checkpoint_enabled is True
         raise RuntimeError("stop before provider")
 
     monkeypatch.setattr(runner, "open_project_llm_client", open_client)
@@ -236,6 +237,7 @@ async def test_arm_persists_json_state_path_without_starting_provider(
 
     assert state["request_count"] == 0
     assert state["cases"]["S01_hard_contradiction"]["status"] == "stopped"
+    assert not hasattr(db, "task_checkpoint_enabled")
     assert json.loads(state_path.read_text())["request_count"] == 0
     raw = json.loads(
         (raw_dir / "S01_hard_contradiction.baseline.json").read_text()

@@ -767,11 +767,19 @@ async def _run_arm(
         try:
             task_id = str(review.task_id)
             while True:
-                await run_task_inline(
-                    db,
-                    task_id=task_id,
-                    expected_task_type="assistant_editorial_review",
-                )
+                previous_checkpoint = getattr(db, "task_checkpoint_enabled", None)
+                db.task_checkpoint_enabled = True
+                try:
+                    await run_task_inline(
+                        db,
+                        task_id=task_id,
+                        expected_task_type="assistant_editorial_review",
+                    )
+                finally:
+                    if previous_checkpoint is None:
+                        delattr(db, "task_checkpoint_enabled")
+                    else:
+                        db.task_checkpoint_enabled = previous_checkpoint
                 current = await db.get(EditorialReview, review.id, populate_existing=True)
                 if current.status != "partial":
                     break
