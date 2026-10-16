@@ -5,11 +5,11 @@
 
 ## 固定代码之前
 
-C3/A1仍由Sol/high审修。地图继续使用既有map_spatial正式控制链；其余领域的受限
-seed/teacher/judge scope由Luna在`codex/authoring-quality-eval-guard`原实现，之后交Sol独立审修。
-旧Map/G7/AskWorld许可不能借给新领域，全局缺省校准门禁保持关闭。
-新scope没有真实证据读取能力的领域必须拒绝评分，不能接受调用方自报成功。
-最终固定源码、pipeline/schema/rubric指纹和独立校准未完成前不运行该新入口。
+C3/A1已由root独立收尾，primary9e3347735，同源后端8980/最终前端3209/保留库72PG及正式页面通过。按用户最新要求不再使用子代理。新受限scope由root接管完成，含31个新离线用例；最终后端9011项通过，导演与世界推进均通过正常API+精确离线TaskWorker的真实PG取证，仍不等于真实模型质量。
+
+旧Map/G7/AskWorld许可不能借给新领域，全局缺省校准门禁保持关闭。新scope每个私有运行最多12个请求、每prompt160000字节，绑定同一owner/隔离Project/数据库、模型、pipeline/schema/rubric/input/split及实际产品回执；seed和同case teacher回执不得改绑新manifest。source/rubric须先冻结，teacher始终看不到SUT输出。当前只有director/world_progression可评分，其他四域仅seed/teacher；holdout仍关闭。六Project完整矩阵的76估算须重算，不能以此作为本批授权或实际用量。
+
+Root拟先完成一个独立的描述性导演/推进小批（每域seed/teacher/judge各1，额外6请求；SUT业务请求另按真实预算预览），验证可执行取证链。source/rubric先冻结，SUT完成后把不可预测的真实输出ID和哈希绑定到不可变manifest；之后不追加case或换manifest复用旧seed。需最终源码集成、owner当前verified快照与独立批次预算，尚未启动。地图仍使用既有map_spatial控制链，R3不重试不续额，新R4需独立身份及实际预览。
 
 ## 最小描述性小批
 
@@ -59,7 +59,7 @@ unknown/超时保留已尝试与可能计费状态并停批，不重发、不清
 
 ## 执行前仍需取得
 
-最终Sol净源码及新pipeline；owner当前verified快照；新隔离运行身份/私有root；完整case与source/gold分割；
+最终主会话固定源码及新pipeline；owner当前verified快照；新隔离运行身份/私有root；完整case与source/gold分割；
 正常Evidence confirmation及允许引用项；实际已采用World/地图/地点身份；功能开关和allowlist；
 每个Evolution/Goal/导演/推进的实际预览、授权范围和父预算；新scope的seed与产品证据读取证明。
 小批失败应保留原账本及停点，独立修复后使用新身份，不修旧收据。

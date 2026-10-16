@@ -115,3 +115,30 @@ root新读C3 UI确认另一项数据丢失finding，已交Sol：`useWritingWorks
 接管后已读实际结果：C3 全普通后端 `/tmp/c3-review-backend-full-20261016.log` 为 8961 passed/2 failed/2 skipped/8 deselected，失败为旧 catalog15 断言及新 Arc preview active guard 顺序；不视为全绿。双 forecast 精确 TaskWorker PG 2 passed，`/tmp/c3-review-forecast-worker-pg-20261016.log`。A1 `/tmp/a1-review-pg-concurrency-http-20261016.log` 4 passed、parity 无差异；其 HTTP trace fixture 修改账户偏好尚需 finally 恢复原列。A1 专库已建、迁移日志已在，禁止重复 CREATE；18602/18603 自有服务仍监听，root 核 lifespan 后复用或安全停启。
 
 下一步：root 先修 C3 草稿保护与两普通回归失败，完成真实页面验证/全套/净提交后集成；再完成 A1 trace 账户状态恢复、C3最终合并、实际生产页与组合 PG，最后接管 guard 与真实质量预检。旧 R3 封存且零新增真实模型请求。
+
+
+## 2026-10-16T09:15:06+08:00 主会话完成 C3/A1 工程集成
+
+root 完成 C3 未保存输入修复（保存/恢复/归档/解归档另一人后保留草稿、409后刷新保留输入）；同时修加载中关闭浮窗后卡死与旧请求覆盖。新增5个失败回归先复现，再修复，最终人物弧定向85项通过；原后端两失败（目录版本、Arc preview guard顺序）均修好。两份HTTP PG trace测试都改为 finally 恢复账户偏好全部原列，避免保留库污染。净 C3 `954e029f9`；root保留C3库增量migration/head/parity及11PG通过。
+
+A1已合C3最终点，root接管并格式化新真实HTTP/PG测试，15组合PG通过（11.19s），净 `9e2b88c71`。组合普通后端 `/tmp/map-final-c3-a1-backend-20261016.log` 实际8980 passed/2 skipped/8 deselected/1既有Pydantic warning，RuntimeWarning转error，315.69s。前端首组合3206项通过。root正式页面再发现 `vm.reloadChapters is not a function`，因此不以单组件测试关单：已导出既有刷新方法，同时刷新场景映射、跟随正文新章位、重读人物弧 cutoff，并在卸载后停止旧页反馈；新增重排/恢复/刷新期间离开的三个真实挂载回归。净 `ebff5e262`，257文件3209项及lint/build最终通过，日志 `/tmp/map-final-c3-a1-frontend-{final,lint-final,build-final}-20261016.log`。该尾修只改前端，后端沿用8980与72PG同源证据。
+
+primary 已本地集成至 `9e33477354836e1ca8e2a4ed67bec65d36255f1c`，并以 root cwd 的 git diff 证明 backend/frontend-console/docs 与 ebff5e262 无差异。root唯一原库 `operation_trace_report_primary_test_20261016` 通过无CREATE脚本 `/tmp/map-final-primary-reuse-pg-20261016.py`，从wp_read_count增量升级到唯一head `20261016_chapter_order`；head、ORM parity与19文件72PG全部通过（36.71s）。日志 `/tmp/map-final-primary-{migration,head,metadata,pg}-20261016.log`。没有重建任何库。
+
+正式API/PG/Vue Writing+Outline由root在390/1280实际操作，`/tmp/map-root-workbench-qa-final-20261016.log` exit0、去原文元数据 `/tmp/map-root-workbench-qa-20261016.json`。两宽度同一root自建合成作品7ccf7d5b-318f-4b6a-aa3c-70617746e280，Scene53d1fa54-6b58-4e4e-97e2-ab9b9bc2ee5a：13人物均从正常API创建并手工卡确认，第13人实际滚动可见；B编辑→A保存与真实并发409均保留输入；章节预览/真实confirm200/历史预览/真实restore200完成后等待刷新成功；timeline4筛选与空态、无横溢、无页面异常。root已看arc-last390、arc390、章顺序390/1280、timeline1280截图。此为合成手工章级Scene，时间线为空，不能当真实事实质量；正事件/投影由PG与领域回归覆盖。13人资料下可触发forecast既有CONTEXT_TOO_LARGE/HTTP400，按可见边界失败处理，不声称双前瞻真实模型质量通过。未运行通用worker或排空任何embedding/forecast任务，无新增真实模型请求。
+
+root已继续接管 world-object-dossier-impl 的未跟踪 authoring_quality_guard.py：修 rubric身份字段、私有/数据库/流水线/JSON与schema绑定、seed与teacher回执校验，并补director/progression真实只读证据读取及executor窄dispatch。当前仍WIP、未测试未集成，其他四域judge仍关闭。下一步完成其离线负向/调用预算/真实离线TaskWorker证据PG测试与文档，随后固定新pipeline再做真实评测预检；旧R3仍封存，holdout不解码。
+
+
+## 2026-10-16T09:41:41+08:00 受限质量评测工具固定
+
+root完成7文件净提交 `31d9efe9c`（2247新增行），位于world-object-dossier-impl/codex/authoring-quality-eval-guard，无其他WIP。新增scope只开放固定6域seed/teacher及director/world_progression judge，holdout关闭；12请求/160000字节prompt、Sol6.1/xhigh/300秒/attempts1，原全局/Map/G7/AskWorld门禁未放宽。运行与case绑定owner、隔离author Project、loopback DB、私有root、pipeline/schema/rubric/input/split。seed及teacher回执按当次manifest+prompt/schema的请求key重验，不能改绑或伪造自报成功。遇schema错或取消仍消耗unknown，不重发。
+
+真实取证reader对照实际task done/complete、root/branch、当前source、原Evidence confirmation及不可变输入/输出/父hash；其他4域judge因尚无等价reader继续拒绝。增加的PG断言在既有真实canonical Scene→正常API→精确TaskWorker测试中，世界推进2次离线LLMClient调用和导演4次离线LLMClient调用均完成并被reader读取；错误branch/源Scene目标变化拒绝。实测 `/tmp/authoring-quality-root-product-pg-20261016.log` 1通过（3.36s）覆盖两业务流；原A1专库复用、迁移head/parity无差异，没有新建或重建库。这些为离线替身工程证据，不是实际Luna输出质量。
+
+新增31项离线门禁用例包含真实runtime代码的owner/Project/verified Luna/max/数据库绑定、私有权限/符号链接/FIFO、原始来源/评分schema漂移、校准错误、同manifest回执、防并发重复与12上界。root新发现FIFO拒绝后的unlock会以macOS OSError掩盖拒绝，已锁定成功后才解锁；为避免源不一致，中断了首轮全套，最终固定重跑完整普通后端 `/tmp/map-final-authoring-guard-backend-fixed-20261016.log` 9011 passed/2 skipped/8 deselected/1既有warning，330.02s，RuntimeWarning转error。此前完整evals443/2skip通过，最终全后端包括新增2安全例共31新例。ruff绿，docs/repo gates日志 `/tmp/authoring-quality-root-final-{docs,repo-gates}-20261016.log`。最终集成仍需root保留库72组合和门禁。
+
+root仅只读检查原真实评测DB：127.0.0.1:65302、database map_spatial_eval_20261015、head20261015_map_node_merge，开发五族metadata已核；没有模型请求，没有修改封存R3或解码holdout。新R4运行前尚需19项增量schema（初步upgrade字面SQL扫描未见数据DML，delegated helpers仍需核）、固定新pipeline、当前owner模型、独立私有root和实际预算。后续描述性新scope小批与地图完整开发矩阵分别记录，不能把76暂估或旧51额度当授权/实际开销。
+
+
+2026-10-16T09:48:27+08:00：root补质量工具私有原始请求/schema、成功及无效原始输出留存（全部0600、仓库外），净 `f9ef3d2d6`；整套evals445通过/2skip（28.44s，`/tmp/authoring-quality-root-raw-artifacts-tests-20261016.log`），这是对31d9的28行局部补充，不新增产品领域行为。9011完整后端证据适用于其前31d9固定点，最终集成验证按本次实际文件差异判断，不误称新源码重跑过整套。新R4素材初始化脚本首试因PYTHONPATH未含backend在导入前退出，无私有目录或模型副作用；后续仅在确认新目标不存在时重跑。
