@@ -112,6 +112,19 @@ async def test_failed_read_notice_reads_real_task_state_without_enqueuing_or_pro
     started = await start_reading(db_session, novel_id, authorized)
     task = await db_session.get(AsyncTask, uuid.UUID(started["run"]["task_id"]))
     task.status = "failed"
+    future_run = EvolutionRun(
+        novel_id=uuid.UUID(novel_id),
+        run_key=f"future-{uuid.uuid4()}",
+        mode="append",
+        status="stopped",
+        execution_mode="live",
+        reading_plan_json={
+            "steps": [{"scene_index": 99, "source_binding": {"chapter_index": 2}}],
+            "preparation": {"stage": "complete"},
+        },
+        committed_scene_index=-1,
+    )
+    db_session.add(future_run)
     await db_session.flush()
     before_counts = {
         model: await db_session.scalar(select(func.count()).select_from(model))
@@ -144,6 +157,7 @@ async def test_failed_read_notice_reads_real_task_state_without_enqueuing_or_pro
         "reading_run",
     }
     failed = next(item for item in notices if item["category"] == "reading_run")
+    assert failed["notice_key"].endswith(started["run"]["run_key"])
     assert "失败" in failed["summary"]
     assert failed["target"]["chapter_index"] == 1
     assert failed["actions"][0]["open_evolution_reading"] is True
@@ -164,6 +178,9 @@ async def test_failed_read_notice_reads_real_task_state_without_enqueuing_or_pro
         for model in before_counts
     }
     assert after_counts == before_counts
+
+    future_run.execution_mode = "shadow"
+    await db_session.flush()
 
     run_row = await db_session.scalar(
         select(EvolutionRun).where(EvolutionRun.run_key == started["run"]["run_key"])
