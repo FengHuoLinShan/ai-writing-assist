@@ -3,10 +3,13 @@ import { enableAutoUnmount, flushPromises, mount } from "@vue/test-utils"
 import GoalRunsPanel from "../../../vue/components/GoalRunsPanel.vue"
 import GoalPlanField from "../../../vue/components/GoalPlanField.vue"
 
-const mocks = vi.hoisted(() => ({ api: null }))
+const mocks = vi.hoisted(() => ({ api: null, locateAssistantSource: vi.fn() }))
 
 vi.mock("../../../vue/bridge/index.js", () => ({
   getApi: () => ({ assistant: mocks.api }),
+}))
+vi.mock("../../../vue/shared/assistantNavigation.js", () => ({
+  locateAssistantSource: mocks.locateAssistantSource,
 }))
 
 enableAutoUnmount(afterEach)
@@ -132,6 +135,7 @@ function setupApi(overrides = {}) {
     approveGoal: vi.fn(),
     approveGoalStep: vi.fn(),
     reconcileGoalStep: vi.fn(),
+    goalStepReceiptPreview: vi.fn(),
     advanceGoal: vi.fn(),
     pauseGoal: vi.fn(),
     resumeGoal: vi.fn(),
@@ -154,6 +158,7 @@ async function mountedPanel(_api = setupApi(), props = {}) {
 afterEach(() => {
   vi.unstubAllGlobals()
   mocks.api = null
+  mocks.locateAssistantSource.mockReset()
 })
 
 it("explains operations that the goal planner cannot execute", async () => {
@@ -385,8 +390,9 @@ it("lets the author keep an unknown result blocked or confirm a checked receipt"
   })
   const wrapper = await mountedPanel(api)
 
-  expect(wrapper.text()).toContain("原工作台核对这一步")
-  expect(wrapper.text()).toContain("不会重放操作或重置已用额度")
+  expect(wrapper.text()).toContain("读取这一步保存的领域回执")
+  expect(wrapper.text()).toContain("不会重放操作")
+  expect(wrapper.text()).toContain("已用额度也不会重置或返还")
   await wrapper.get(".goal-runs-reconciliation button:last-child").trigger("click")
   await flushPromises()
 
@@ -398,4 +404,146 @@ it("lets the author keep an unknown result blocked or confirm a checked receipt"
   )
   expect(wrapper.text()).not.toContain("internal-run-id")
   expect(wrapper.text()).not.toContain("internal-step-id")
+})
+
+it("shows the verified domain result before allowing a conclusive decision", async () => {
+  const candidateId = "f4ea4bb6-5bf3-4a8b-9403-76cb62e6d5c1"
+  const unknown = goalView({
+    phase: "stopped",
+    stop_code: "task_outcome_unknown",
+    stop_reason: "原领域回执仍无法确认。",
+    can_approve_plan: false,
+    can_replan: false,
+    can_pause: false,
+    steps: [{
+      ...goalView().steps[0],
+      status: "outcome_unknown",
+      status_label: "结果待核对",
+      can_confirm: false,
+      can_reconcile: true,
+    }],
+  })
+  const api = setupApi({
+    recentGoals: vi.fn().mockResolvedValue([unknown]),
+    goalStepReceiptPreview: vi.fn().mockResolvedValue({
+      expected_revision: 3,
+      status: "verified_applied",
+      summary: "第 4 章的正文候选已生成：《候选标题》",
+      details: ["候选仍需在写作工作台审阅；生成完成不代表已采用。"],
+      available_decisions: ["applied"],
+      destination: {
+        kind: "writing_candidate",
+        candidate_id: candidateId,
+        chapter_index: 4,
+      },
+    }),
+    reconcileGoalStep: vi.fn().mockResolvedValue(unknown),
+  })
+  const wrapper = await mountedPanel(api)
+
+  expect(wrapper.text()).not.toContain("确认：原操作已完成")
+  expect(wrapper.text()).not.toContain("确认：原操作未应用")
+  await wrapper.get(".goal-runs-reconciliation button").trigger("click")
+  await flushPromises()
+
+  expect(api.goalStepReceiptPreview).toHaveBeenCalledExactlyOnceWith(
+    "project-1",
+    "internal-run-id",
+    "internal-step-id",
+    3,
+  )
+  expect(wrapper.text()).toContain("原领域回执已核实为已完成")
+  expect(wrapper.text()).toContain("候选标题")
+  expect(wrapper.text()).toContain("确认：原操作已完成")
+  expect(wrapper.text()).not.toContain("确认：原操作未应用")
+  expect(wrapper.text()).not.toContain(candidateId)
+  let reconciliationButtons = wrapper.findAll(".goal-runs-reconciliation button")
+  await reconciliationButtons[0].trigger("click")
+  expect(mocks.locateAssistantSource).toHaveBeenCalledExactlyOnceWith({
+    type: "writing_candidate",
+    id: candidateId,
+    chapter_index: 4,
+  })
+  reconciliationButtons = wrapper.findAll(".goal-runs-reconciliation button")
+  await reconciliationButtons[1].trigger("click")
+  await flushPromises()
+  expect(api.reconcileGoalStep).toHaveBeenCalledExactlyOnceWith(
+    "project-1",
+    "internal-run-id",
+    "internal-step-id",
+    { expected_revision: 3, decision: "applied" },
+  )
+})
+
+it("keeps inconclusive receipt previews blocked with only still-unknown available", async () => {
+  const unknown = goalView({
+    steps: [{
+      ...goalView().steps[0],
+      status: "outcome_unknown",
+      status_label: "结果待核对",
+      can_confirm: false,
+      can_reconcile: true,
+    }],
+  })
+  const api = setupApi({
+    recentGoals: vi.fn().mockResolvedValue([unknown]),
+    goalStepReceiptPreview: vi.fn().mockResolvedValue({
+      expected_revision: 3,
+      status: "incomplete",
+      summary: "原领域结果尚不完整，仍无法确认这一步是否完成。",
+      details: [],
+      available_decisions: [],
+      destination: null,
+    }),
+  })
+  const wrapper = await mountedPanel(api)
+
+  await wrapper.get(".goal-runs-reconciliation button").trigger("click")
+  await flushPromises()
+
+  expect(wrapper.text()).toContain("原领域结果尚不完整")
+  expect(wrapper.text()).not.toContain("确认：原操作已完成")
+  expect(wrapper.text()).not.toContain("确认：原操作未应用")
+  expect(wrapper.text()).toContain("仍无法确认")
+})
+
+it("shows not-applied only after a matching terminal receipt is verified", async () => {
+  const unknown = goalView({
+    steps: [{
+      ...goalView().steps[0],
+      status: "outcome_unknown",
+      status_label: "结果待核对",
+      can_confirm: false,
+      can_reconcile: true,
+    }],
+  })
+  const api = setupApi({
+    recentGoals: vi.fn().mockResolvedValue([unknown]),
+    goalStepReceiptPreview: vi.fn().mockResolvedValue({
+      expected_revision: 3,
+      status: "verified_not_applied",
+      summary: "原领域回执明确记录该操作未应用。",
+      details: [],
+      available_decisions: ["not_applied"],
+      destination: null,
+    }),
+    reconcileGoalStep: vi.fn().mockResolvedValue(unknown),
+  })
+  const wrapper = await mountedPanel(api)
+
+  await wrapper.get(".goal-runs-reconciliation button").trigger("click")
+  await flushPromises()
+
+  expect(wrapper.text()).toContain("原领域回执已核实为未应用")
+  expect(wrapper.text()).not.toContain("确认：原操作已完成")
+  expect(wrapper.text()).toContain("确认：原操作未应用")
+  const reconciliationButtons = wrapper.findAll(".goal-runs-reconciliation button")
+  await reconciliationButtons[0].trigger("click")
+  await flushPromises()
+  expect(api.reconcileGoalStep).toHaveBeenCalledExactlyOnceWith(
+    "project-1",
+    "internal-run-id",
+    "internal-step-id",
+    { expected_revision: 3, decision: "not_applied" },
+  )
 })

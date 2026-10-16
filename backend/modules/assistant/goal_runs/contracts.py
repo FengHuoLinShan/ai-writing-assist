@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import Any, Literal
+from typing import Annotated, Any, Literal
 from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
@@ -116,6 +116,47 @@ class GoalStepApproval(GoalModel):
 class GoalOutcomeReconciliation(GoalModel):
     expected_revision: int = Field(ge=1)
     decision: Literal["applied", "not_applied", "still_unknown"]
+
+
+class GoalWritingReceiptLocation(GoalModel):
+    kind: Literal["writing_candidate"]
+    candidate_id: UUID
+    chapter_index: int = Field(ge=1, le=2147483647)
+
+
+class GoalTaskReceiptLocation(GoalModel):
+    kind: Literal["smart_dedup_scan"]
+    task_id: UUID
+
+
+class GoalSceneReceiptLocation(GoalModel):
+    kind: Literal["scene_story_assets"]
+    scene_id: UUID
+
+
+GoalReceiptLocation = Annotated[
+    GoalWritingReceiptLocation | GoalTaskReceiptLocation | GoalSceneReceiptLocation,
+    Field(discriminator="kind"),
+]
+
+
+class GoalReceiptPreview(GoalModel):
+    """Safe, bounded projection of the exact domain receipt for author review."""
+
+    expected_revision: int = Field(ge=1)
+    status: Literal[
+        "verified_applied",
+        "verified_not_applied",
+        "incomplete",
+        "stale",
+        "unverified",
+    ]
+    summary: str = Field(max_length=500)
+    details: list[str] = Field(default_factory=list, max_length=8)
+    available_decisions: list[Literal["applied", "not_applied"]] = Field(
+        default_factory=list, max_length=2
+    )
+    destination: GoalReceiptLocation | None = None
 
 
 class GoalResume(GoalModel):

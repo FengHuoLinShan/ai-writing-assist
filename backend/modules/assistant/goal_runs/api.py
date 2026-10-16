@@ -12,6 +12,7 @@ from modules.assistant.goal_runs.contracts import (
     GoalAction,
     GoalOutcomeReconciliation,
     GoalPlanApproval,
+    GoalReceiptPreview,
     GoalReplanRequest,
     GoalResume,
     GoalRunStart,
@@ -137,6 +138,28 @@ async def reconcile_goal_step(
     await require_active_project(db, str(novel_id), allow_demo_readonly=False)
     return await service.reconcile_goal_step(
         db, str(novel_id), str(run_id), step_id, data, _owner_id()
+    )
+
+
+@router.get(
+    "/{run_id}/steps/{step_id}/receipt",
+    response_model=GoalReceiptPreview,
+)
+async def goal_step_receipt_preview(
+    db: DbSession,
+    run_id: UUID,
+    step_id: str,
+    novel_id: UUID = Query(...),
+    expected_revision: int = Query(..., ge=1),
+):
+    await require_active_project(db, str(novel_id), allow_demo_readonly=False)
+    return await service.goal_step_receipt_preview(
+        db,
+        str(novel_id),
+        str(run_id),
+        step_id,
+        expected_revision,
+        _owner_id(),
     )
 
 

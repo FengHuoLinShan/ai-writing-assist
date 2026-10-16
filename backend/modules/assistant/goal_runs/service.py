@@ -61,12 +61,17 @@ from modules.assistant.goal_runs.contracts import (
     GoalOutcomeReconciliation,
     GoalPlan,
     GoalPlanApproval,
+    GoalReceiptLocation,
+    GoalReceiptPreview,
     GoalReference,
     GoalReplanRequest,
     GoalResume,
     GoalRunStart,
+    GoalSceneReceiptLocation,
     GoalStep,
     GoalStepApproval,
+    GoalTaskReceiptLocation,
+    GoalWritingReceiptLocation,
 )
 from modules.assistant.goal_runs.planning import (
     canonical,
@@ -2261,6 +2266,71 @@ async def get_goal(
     return await goal_view(db, run, owner_id=owner_id)
 
 
+async def goal_step_receipt_preview(
+    db: AsyncSession,
+    novel_id: str,
+    run_id: str,
+    step_id: str,
+    expected_revision: int,
+    owner_id: str,
+) -> GoalReceiptPreview:
+    """Read a compact view of the exact stored domain receipt without mutation."""
+    run = await _load_goal_run(db, novel_id, run_id, owner_id)
+    goal = _goal_state(run)
+    if int(goal.get("revision") or 1) != expected_revision:
+        raise ConflictError("目标结果已更新，请刷新后再核对")
+    if run.status != "waiting_approval":
+        raise ConflictError("当前目标没有等待核对的步骤")
+
+    (
+        record,
+        step,
+        operation,
+        _stable_operation_id,
+        _call_id,
+        reference,
+        _task_type,
+        task,
+    ) = await _unknown_step_task_context(db, run, goal, step_id)
+    if task.status not in {"done", "failed", "cancelled"}:
+        return GoalReceiptPreview(
+            expected_revision=expected_revision,
+            status="incomplete",
+            summary="原任务仍在处理中；领域结果尚不能确认。",
+        )
+
+    try:
+        receipt = await operation.read_result(db, str(run.novel_id), dict(reference))
+    except Exception:
+        return GoalReceiptPreview(
+            expected_revision=expected_revision,
+            status="unverified",
+            summary="原领域回执暂时无法读取；结果仍无法确认。",
+        )
+    try:
+        valid_receipt = (
+            isinstance(receipt, dict)
+            and len(canonical(receipt).encode("utf-8")) <= 512_000
+        )
+    except (TypeError, ValueError):
+        valid_receipt = False
+    if not valid_receipt:
+        return GoalReceiptPreview(
+            expected_revision=expected_revision,
+            status="unverified",
+            summary="原领域回执格式无法核实；结果仍无法确认。",
+        )
+    return _goal_receipt_preview(
+        expected_revision=expected_revision,
+        operation_id=step.operation_id,
+        task_status=task.status,
+        step=step,
+        record=record,
+        receipt=receipt,
+        reference=reference,
+    )
+
+
 def _validate_completed_steps_unchanged(
     plan: GoalPlan, records: Mapping[str, Mapping[str, Any]]
 ) -> None:
@@ -2695,6 +2765,301 @@ async def _stable_task_for_step(
     ):
         raise ConflictError("原任务回执与目标父任务不匹配")
     return task
+
+
+async def _unknown_step_task_context(
+    db: AsyncSession,
+    run: AssistantRun,
+    goal: dict[str, Any],
+    step_id: str,
+) -> tuple[
+    dict[str, Any],
+    GoalStep,
+    AssistantOperation,
+    str,
+    str,
+    Mapping[str, Any],
+    str,
+    AsyncTask,
+]:
+    record = _step_records(goal).get(step_id)
+    if record is None or record.get("status") != "outcome_unknown":
+        raise ConflictError("该步骤没有待核对的未知结果")
+    plan = _validated_plan(goal)
+    step = next((item for item in plan.steps if item.step_id == step_id), None)
+    if step is None:
+        raise NotFoundError("目标步骤不存在")
+
+    reference = record.get("reference")
+    stable_operation_id = record.get("operation_id")
+    call_id = _goal_trace_call_id(run, goal, step_id)
+    task_type = TASK_OPERATION_TYPES.get(step.operation_id)
+    operation = _operation_registry().get(step.operation_id)
+    parameter_hash = record.get("parameter_fingerprint")
+    if (
+        operation is None
+        or operation.read_result is None
+        or task_type is None
+        or not isinstance(reference, Mapping)
+        or not isinstance(stable_operation_id, str)
+        or not isinstance(parameter_hash, str)
+        or stable_operation_id != step_operation_id(str(run.id), step_id, parameter_hash)
+        or record.get("plan_step_fingerprint") != digest(step.model_dump(mode="json"))
+        or reference.get("operation_id") != stable_operation_id
+        or reference.get("task_id") != stable_operation_id
+        or reference.get("task_type") != task_type
+        or reference.get("type") != task_type
+    ):
+        raise ConflictError("缺少与原步骤绑定的领域任务回执，仍须保持阻断")
+
+    try:
+        task = await _stable_task_for_step(db, run, task_type, stable_operation_id)
+    except ValueError as error:
+        raise ConflictError("原领域任务标识不可核实，目标仍保持阻断") from error
+    if task is None:
+        raise ConflictError("找不到与原步骤绑定的领域任务，目标仍保持阻断")
+    return (
+        record,
+        step,
+        operation,
+        stable_operation_id,
+        call_id,
+        reference,
+        task_type,
+        task,
+    )
+
+
+def _receipt_decision_status(task_status: str, receipt_status: Any) -> str | None:
+    if task_status == "done" and receipt_status == "completed":
+        return "verified_applied"
+    terminal_statuses = {
+        "failed": {"failed", "not_applied"},
+        "cancelled": {"cancelled", "not_applied"},
+    }
+    if receipt_status in terminal_statuses.get(task_status, set()):
+        return "verified_not_applied"
+    return None
+
+
+def _safe_receipt_text(value: Any, *, limit: int = 320) -> str | None:
+    if not isinstance(value, str):
+        return None
+    text = " ".join(value.split())
+    if not text:
+        return None
+    text = re.sub(
+        r"(?i)(\b(?:api[_-]?key|access[_-]?token|refresh[_-]?token|password|secret|密钥|令牌)\s*[:=]\s*)\S+",
+        r"\1[已隐藏]",
+        text,
+    )
+    text = re.sub(r"(?i)\b(?:sk|rk|pk)[_-][A-Za-z0-9_-]{16,}\b", "[已隐藏凭据]", text)
+    text = re.sub(r"\bAIza[A-Za-z0-9_-]{24,}\b", "[已隐藏凭据]", text)
+    text = re.sub(r"(?i)\bBearer\s+[A-Za-z0-9._~+/-]+=*", "Bearer [已隐藏凭据]", text)
+    text = re.sub(
+        r"(?i)\b[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}\b",
+        "[已隐藏标识]",
+        text,
+    )
+    text = re.sub(r"(?i)\b[0-9a-f]{32,}\b", "[已隐藏标识]", text)
+    return text[:limit]
+
+
+def _safe_receipt_destination(
+    operation_id: str,
+    step: GoalStep,
+    record: Mapping[str, Any],
+    receipt: Mapping[str, Any],
+    reference: Mapping[str, Any],
+) -> GoalReceiptLocation | None:
+    if operation_id in {"writing.generate_candidate", "writing.targeted_revision"}:
+        candidate = receipt.get("candidate")
+        if not isinstance(candidate, Mapping):
+            return None
+        candidate_id = candidate.get("id")
+        chapter_index = candidate.get("chapter_index")
+        try:
+            return GoalWritingReceiptLocation(
+                kind="writing_candidate",
+                candidate_id=uuid.UUID(str(candidate_id)),
+                chapter_index=chapter_index,
+            )
+        except (ValueError, TypeError):
+            return None
+    if operation_id == "project.scan_duplicates":
+        try:
+            return GoalTaskReceiptLocation(
+                kind="smart_dedup_scan",
+                task_id=uuid.UUID(str(reference.get("task_id"))),
+            )
+        except (ValueError, TypeError):
+            return None
+    if operation_id in {
+        "story.character_card.generate",
+        "story.reaction.generate",
+    }:
+        parameters = record.get("resolved_parameters")
+        if not isinstance(parameters, Mapping):
+            parameters = step.parameters
+        scene_id = parameters.get("scene_id") if isinstance(parameters, Mapping) else None
+        try:
+            return GoalSceneReceiptLocation(
+                kind="scene_story_assets", scene_id=uuid.UUID(str(scene_id))
+            )
+        except (ValueError, TypeError):
+            return None
+    return None
+
+
+def _receipt_preview_details(
+    operation_id: str, receipt: Mapping[str, Any]
+) -> tuple[str, list[str]]:
+    details: list[str] = []
+    if operation_id in {"writing.generate_candidate", "writing.targeted_revision"}:
+        candidate = receipt.get("candidate")
+        candidate = candidate if isinstance(candidate, Mapping) else {}
+        title = _safe_receipt_text(candidate.get("title"), limit=180)
+        chapter_index = candidate.get("chapter_index")
+        if type(chapter_index) is int and chapter_index > 0:
+            summary = f"第 {chapter_index} 章的正文候选已生成"
+            if title:
+                summary += f"：《{title}》"
+        else:
+            summary = "正文候选已生成"
+            if title:
+                summary += f"：《{title}》"
+        details.append("候选仍需在写作工作台审阅；生成完成不代表已采用。")
+        return summary[:500], details
+
+    if operation_id == "project.scan_duplicates":
+        summary = _safe_receipt_text(receipt.get("summary"), limit=360)
+        scanned_counts = receipt.get("scanned_counts")
+        if isinstance(scanned_counts, Mapping):
+            total = sum(
+                value
+                for value in scanned_counts.values()
+                if type(value) is int and 0 <= value <= 10_000_000
+            )
+            if total:
+                details.append(f"本次扫描了 {total} 项资料。")
+        group_count = receipt.get("group_count")
+        if type(group_count) is int and 0 <= group_count <= 10_000_000:
+            details.append(f"形成 {group_count} 组相似建议。")
+        return (summary or "相似资料扫描已完成。"), details[:8]
+
+    preview = receipt.get("preview")
+    preview = preview if isinstance(preview, Mapping) else {}
+    if operation_id == "story.character_card.generate":
+        content = preview.get("content")
+        content = content if isinstance(content, Mapping) else {}
+        interpretations = content.get("interpretations")
+        interpretations = interpretations if isinstance(interpretations, list) else []
+        for item in interpretations[:6]:
+            if not isinstance(item, Mapping):
+                continue
+            category = _safe_receipt_text(item.get("category"), limit=60)
+            statement = _safe_receipt_text(item.get("statement"), limit=260)
+            if statement:
+                details.append(f"{f'{category}：' if category else ''}{statement}")
+        warnings = preview.get("warnings")
+        if isinstance(warnings, list):
+            details.extend(
+                f"提示：{value}"
+                for item in warnings[:2]
+                if (value := _safe_receipt_text(item, limit=260))
+            )
+        return (
+            f"人物卡预览已生成，包含 {len(interpretations)} 条解释建议；尚未写入正史。",
+            details[:8],
+        )
+
+    if operation_id == "story.reaction.generate":
+        proposals = preview.get("proposals")
+        proposals = proposals if isinstance(proposals, list) else []
+        for index, proposal in enumerate(proposals[:4], start=1):
+            if not isinstance(proposal, Mapping):
+                continue
+            performances = proposal.get("performances")
+            if isinstance(performances, list):
+                for performance in performances[:2]:
+                    if not isinstance(performance, Mapping):
+                        continue
+                    motivation = _safe_receipt_text(
+                        performance.get("motivation"), limit=90
+                    )
+                    action = _safe_receipt_text(performance.get("action"), limit=220)
+                    if action:
+                        prefix = f"第 {index} 组反应"
+                        details.append(
+                            f"{prefix}{f' · {motivation}' if motivation else ''}："
+                            f"{action}"
+                        )
+            else:
+                for key, label in (
+                    ("goal", "目标"),
+                    ("immediate_reaction", "即时反应"),
+                    ("intended_action", "行动"),
+                    ("internal_pressure", "内在压力"),
+                ):
+                    value = _safe_receipt_text(proposal.get(key), limit=220)
+                    if value:
+                        details.append(f"第 {index} 组反应 · {label}：{value}")
+        return (
+            f"人物反应预览已生成，包含 {len(proposals)} 组候选；尚未写入正史。",
+            details[:8],
+        )
+
+    return "原领域回执已完成。", details
+
+
+def _goal_receipt_preview(
+    *,
+    expected_revision: int,
+    operation_id: str,
+    task_status: str,
+    step: GoalStep,
+    record: Mapping[str, Any],
+    receipt: Mapping[str, Any],
+    reference: Mapping[str, Any],
+) -> GoalReceiptPreview:
+    decision_status = _receipt_decision_status(task_status, receipt.get("status"))
+    if decision_status == "verified_applied":
+        summary, details = _receipt_preview_details(operation_id, receipt)
+        return GoalReceiptPreview(
+            expected_revision=expected_revision,
+            status=decision_status,
+            summary=summary,
+            details=details,
+            available_decisions=["applied"],
+            destination=_safe_receipt_destination(
+                operation_id, step, record, receipt, reference
+            ),
+        )
+    if decision_status == "verified_not_applied":
+        return GoalReceiptPreview(
+            expected_revision=expected_revision,
+            status=decision_status,
+            summary="原领域回执明确记录该操作未应用。",
+            details=[],
+            available_decisions=["not_applied"],
+        )
+    receipt_status = receipt.get("status")
+    if receipt_status == "incomplete":
+        summary = "原领域结果尚不完整，仍无法确认这一步是否完成。"
+        status = "incomplete"
+    elif receipt_status == "stale":
+        summary = "原领域结果已过期，不能据此确认是否完成。"
+        status = "stale"
+    else:
+        summary = "当前领域回执没有明确证明已完成或未应用。"
+        status = "unverified"
+    return GoalReceiptPreview(
+        expected_revision=expected_revision,
+        status=status,
+        summary=summary,
+        details=[],
+        available_decisions=[],
+    )
 
 
 async def _execute_task_step(
@@ -3557,33 +3922,16 @@ async def reconcile_goal_step(
             run = await _save_goal(db, run, goal, status="waiting_approval")
             return await goal_view(db, run, owner_id=owner_id)
 
-        task_type = TASK_OPERATION_TYPES.get(step.operation_id)
-        operation = _operation_registry().get(step.operation_id)
-        parameter_hash = record.get("parameter_fingerprint")
-        if (
-            operation is None
-            or operation.read_result is None
-            or task_type is None
-            or not isinstance(reference, Mapping)
-            or not isinstance(stable_operation_id, str)
-            or not isinstance(parameter_hash, str)
-            or stable_operation_id
-            != step_operation_id(str(run.id), step_id, parameter_hash)
-            or record.get("plan_step_fingerprint")
-            != digest(step.model_dump(mode="json"))
-            or reference.get("operation_id") != stable_operation_id
-            or reference.get("task_id") != stable_operation_id
-            or reference.get("task_type") != task_type
-            or reference.get("type") != task_type
-        ):
-            raise ConflictError("缺少与原步骤绑定的领域任务回执，仍须保持阻断")
-
-        try:
-            task = await _stable_task_for_step(
-                db, run, task_type, stable_operation_id
-            )
-        except ValueError as error:
-            raise ConflictError("原领域任务标识不可核实，目标仍保持阻断") from error
+        (
+            record,
+            step,
+            operation,
+            stable_operation_id,
+            call_id,
+            reference,
+            _task_type,
+            task,
+        ) = await _unknown_step_task_context(db, run, goal, step_id)
         if task is None or task.status not in {"done", "failed", "cancelled"}:
             raise ConflictError("原领域任务尚无可核实的终态回执")
         try:
@@ -3596,14 +3944,14 @@ async def reconcile_goal_step(
         ):
             raise ConflictError("原领域回执格式不可核实，目标仍保持阻断")
 
-        receipt_status = receipt.get("status")
+        decision_status = _receipt_decision_status(task.status, receipt.get("status"))
         usage_snapshot = _envelope_from_run(run).snapshot()
         usage_unknown = (
             usage_snapshot.charge_state is AIChargeState.possible
             or bool(usage_snapshot.requests_unknown)
         )
         if data.decision == "applied":
-            if task.status != "done" or receipt_status != "completed":
+            if decision_status != "verified_applied":
                 raise ConflictError("原领域回执没有证明该步骤已完成")
             record.update(
                 {
@@ -3624,11 +3972,7 @@ async def reconcile_goal_step(
                 goal["stop_code"] = "step_receipt_applied"
                 goal["stop_reason"] = "服务端已核实原领域回执；请检查后续步骤再继续。"
         else:
-            terminal_statuses = {
-                "failed": {"failed", "not_applied"},
-                "cancelled": {"cancelled", "not_applied"},
-            }
-            if receipt_status not in terminal_statuses.get(task.status, set()):
+            if decision_status != "verified_not_applied":
                 raise ConflictError("原领域回执没有证明该步骤未应用")
             record.update(
                 {

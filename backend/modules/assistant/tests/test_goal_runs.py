@@ -384,6 +384,158 @@ async def _unknown_goal_step(
 
 
 @pytest.mark.asyncio
+async def test_goal_receipt_preview_is_read_only_bounded_and_bound_to_the_unknown_step(
+    db_session, test_project_id, monkeypatch
+):
+    owner_id = str(current_account_id())
+    (
+        service,
+        _approved,
+        unknown,
+        _operation,
+        calls,
+        applies,
+        receipt,
+    ) = await _unknown_goal_step(db_session, test_project_id, owner_id, monkeypatch)
+    receipt["value"] = {
+        "status": "completed",
+        "receipt_id": "private-receipt-id",
+        "summary": "扫描完成 Bearer abcdefghijklmnop secret=private-value",
+        "scanned_counts": {"plot_thread": 3, "outline_arc": 2},
+        "group_count": 1,
+    }
+    tasks_before = await db_session.scalar(
+        select(func.count())
+        .select_from(AsyncTask)
+        .where(AsyncTask.novel_id == uuid.UUID(test_project_id))
+    )
+    original_usage = unknown["budget"]["used"].copy()
+
+    preview = await service.goal_step_receipt_preview(
+        db_session,
+        test_project_id,
+        unknown["run_id"],
+        "scan",
+        unknown["revision"],
+        owner_id,
+    )
+
+    assert preview.status == "verified_applied"
+    assert preview.available_decisions == ["applied"]
+    assert preview.summary == "扫描完成 Bearer [已隐藏凭据] secret=[已隐藏]"
+    assert preview.details == ["本次扫描了 5 项资料。", "形成 1 组相似建议。"]
+    assert preview.destination.kind == "smart_dedup_scan"
+    run = await service._load_goal_run(
+        db_session, test_project_id, unknown["run_id"], owner_id
+    )
+    record = service._step_records(service._goal_state(run))["scan"]
+    assert preview.destination.task_id == uuid.UUID(record["reference"]["task_id"])
+    assert len(calls) == 1
+    assert calls[0] == record["reference"]
+    assert applies == []
+    tasks_after = await db_session.scalar(
+        select(func.count())
+        .select_from(AsyncTask)
+        .where(AsyncTask.novel_id == uuid.UUID(test_project_id))
+    )
+    assert tasks_after == tasks_before
+
+    after = await service.get_goal(
+        db_session, test_project_id, unknown["run_id"], owner_id
+    )
+    assert after["revision"] == unknown["revision"]
+    assert after["steps"][0]["status"] == "outcome_unknown"
+    assert after["budget"]["used"] == original_usage
+    assert after["can_replan"] is False
+
+
+@pytest.mark.asyncio
+async def test_goal_receipt_preview_http_route_exposes_safe_projection_and_revision(
+    db_session, test_project_id, async_client, monkeypatch
+):
+    owner_id = str(current_account_id())
+    (
+        _service,
+        _approved,
+        unknown,
+        _operation,
+        calls,
+        applies,
+        receipt,
+    ) = await _unknown_goal_step(db_session, test_project_id, owner_id, monkeypatch)
+    receipt["value"] = {
+        "status": "completed",
+        "summary": "扫描完成",
+        "scanned_counts": {"plot_thread": 2},
+        "group_count": 0,
+    }
+    path = f"/api/assistant/goals/{unknown['run_id']}/steps/scan/receipt"
+    response = await async_client.get(
+        path,
+        params={
+            "novel_id": test_project_id,
+            "expected_revision": unknown["revision"],
+        },
+    )
+
+    assert response.status_code == 200, response.text
+    payload = response.json()
+    assert payload["expected_revision"] == unknown["revision"]
+    assert payload["status"] == "verified_applied"
+    assert payload["available_decisions"] == ["applied"]
+    assert payload["summary"] == "扫描完成"
+    assert "task_id" in payload["destination"]
+    assert "private-receipt-id" not in response.text
+    stale = await async_client.get(
+        path,
+        params={
+            "novel_id": test_project_id,
+            "expected_revision": unknown["revision"] + 1,
+        },
+    )
+    assert stale.status_code == 409
+    assert len(calls) == 1
+    assert applies == []
+
+
+@pytest.mark.asyncio
+async def test_goal_receipt_preview_does_not_read_a_still_running_task(
+    db_session, test_project_id, monkeypatch
+):
+    owner_id = str(current_account_id())
+    (
+        service,
+        _approved,
+        unknown,
+        _operation,
+        calls,
+        applies,
+        _receipt,
+    ) = await _unknown_goal_step(
+        db_session,
+        test_project_id,
+        owner_id,
+        monkeypatch,
+        task_status="running",
+    )
+
+    preview = await service.goal_step_receipt_preview(
+        db_session,
+        test_project_id,
+        unknown["run_id"],
+        "scan",
+        unknown["revision"],
+        owner_id,
+    )
+
+    assert preview.status == "incomplete"
+    assert preview.available_decisions == []
+    assert preview.summary == "原任务仍在处理中；领域结果尚不能确认。"
+    assert calls == []
+    assert applies == []
+
+
+@pytest.mark.asyncio
 async def test_goal_unknown_step_reconciliation_requires_bound_domain_receipt(
     db_session, test_project_id, monkeypatch
 ):

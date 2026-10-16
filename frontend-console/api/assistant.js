@@ -83,6 +83,7 @@ export const assistant = {
     advanceGoal: (novelId, runId, body) => post(withQuery(`/assistant/goals/${encodeURIComponent(runId)}/advance`, { novel_id: novelId }), body),
     approveGoalStep: (novelId, runId, stepId, body) => post(withQuery(`/assistant/goals/${encodeURIComponent(runId)}/steps/${encodeURIComponent(stepId)}/approve`, { novel_id: novelId }), body),
     reconcileGoalStep: (novelId, runId, stepId, body) => post(withQuery(`/assistant/goals/${encodeURIComponent(runId)}/steps/${encodeURIComponent(stepId)}/reconcile`, { novel_id: novelId }), body),
+    goalStepReceiptPreview: (novelId, runId, stepId, expectedRevision) => request(withQuery(`/assistant/goals/${encodeURIComponent(runId)}/steps/${encodeURIComponent(stepId)}/receipt`, { novel_id: novelId, expected_revision: expectedRevision }), { cache: "no-store" }),
     pauseGoal: (novelId, runId, body) => post(withQuery(`/assistant/goals/${encodeURIComponent(runId)}/pause`, { novel_id: novelId }), body),
     resumeGoal: (novelId, runId, body) => post(withQuery(`/assistant/goals/${encodeURIComponent(runId)}/resume`, { novel_id: novelId }), body),
     cancelGoal: (novelId, runId, body) => post(withQuery(`/assistant/goals/${encodeURIComponent(runId)}/cancel`, { novel_id: novelId }), body),

@@ -106,9 +106,43 @@
             <button v-if="step.can_confirm" type="button" class="goal-runs-button" :disabled="busy" @click="approveStep(step, true)">确认并执行这一步</button>
             <button v-if="step.can_confirm" type="button" class="goal-runs-link" :disabled="busy" @click="approveStep(step, false)">暂不采用这一步</button>
             <div v-if="step.can_reconcile" class="goal-runs-reconciliation">
-              <p>请先到原工作台核对这一步。提交后，系统会重新读取原领域回执；没有明确证据时仍会阻断，不会重放操作或重置已用额度。</p>
-              <button type="button" class="goal-runs-button" :disabled="busy" @click="reconcileStep(step, 'applied')">我已核对，原操作已完成</button>
-              <button type="button" class="goal-runs-link" :disabled="busy" @click="reconcileStep(step, 'not_applied')">我已核对，原操作未执行</button>
+              <p>先读取这一步保存的领域回执。系统不会重放操作；提交决定时会再次核对原任务与回执。没有明确证据时仍会阻断，已用额度也不会重置或返还。</p>
+              <div v-if="receiptPreviewFor(step)" class="goal-runs-receipt" aria-live="polite">
+                <strong>{{ receiptStatusLabel(receiptPreviewFor(step).status) }}</strong>
+                <p>{{ receiptPreviewFor(step).summary }}</p>
+                <ul v-if="receiptPreviewFor(step).details?.length">
+                  <li v-for="(detail, index) in receiptPreviewFor(step).details" :key="index">{{ detail }}</li>
+                </ul>
+                <button
+                  v-if="receiptPreviewFor(step).destination"
+                  type="button"
+                  class="goal-runs-link"
+                  :disabled="busy"
+                  @click="locateReceipt(receiptPreviewFor(step).destination)"
+                >打开对应工作台</button>
+              </div>
+              <p v-if="receiptStateFor(step)?.error" class="goal-runs-error" role="status">{{ receiptStateFor(step).error }}</p>
+              <button
+                v-if="!receiptPreviewFor(step)"
+                type="button"
+                class="goal-runs-button"
+                :disabled="busy || receiptStateFor(step)?.loading"
+                @click="readReceipt(step)"
+              >{{ receiptStateFor(step)?.loading ? '正在读取原回执…' : receiptStateFor(step)?.error ? '重试读取原回执' : '读取原回执' }}</button>
+              <button
+                v-if="receiptPreviewFor(step)?.available_decisions?.includes('applied')"
+                type="button"
+                class="goal-runs-button"
+                :disabled="busy"
+                @click="reconcileStep(step, 'applied')"
+              >确认：原操作已完成</button>
+              <button
+                v-if="receiptPreviewFor(step)?.available_decisions?.includes('not_applied')"
+                type="button"
+                class="goal-runs-link"
+                :disabled="busy"
+                @click="reconcileStep(step, 'not_applied')"
+              >确认：原操作未应用</button>
               <button type="button" class="goal-runs-link" :disabled="busy" @click="reconcileStep(step, 'still_unknown')">仍无法确认</button>
             </div>
           </li>
@@ -226,6 +260,7 @@
 <script setup>
 import { computed, onBeforeUnmount, ref, watch } from "vue"
 import { getApi } from "../bridge/index.js"
+import { locateAssistantSource } from "../shared/assistantNavigation.js"
 import GoalPlanStep from "./GoalPlanStep.vue"
 
 const props = defineProps({
@@ -249,6 +284,7 @@ const replanReason = ref("")
 const loading = ref(false)
 const busy = ref(false)
 const error = ref("")
+const receiptStates = ref({})
 const pendingStart = ref(null)
 const draftGoalRunId = ref(null)
 const requestGeneration = ref(0)
@@ -300,6 +336,65 @@ function owned(token) {
 
 function snapshot() {
   return { projectId: props.projectId, generation: requestGeneration.value }
+}
+
+function receiptStateKey(step) {
+  return `${goal.value?.run_id || ""}:${step.step_id}:${goal.value?.revision || ""}`
+}
+
+function receiptStateFor(step) {
+  return receiptStates.value[receiptStateKey(step)] || null
+}
+
+function receiptPreviewFor(step) {
+  return receiptStateFor(step)?.preview || null
+}
+
+function receiptStatusLabel(status) {
+  return ({
+    verified_applied: "原领域回执已核实为已完成",
+    verified_not_applied: "原领域回执已核实为未应用",
+    incomplete: "原领域结果尚不完整",
+    stale: "原领域结果已过期",
+    unverified: "原领域结果仍无法确认",
+  })[status] || "原领域结果仍无法确认"
+}
+
+async function readReceipt(step) {
+  const token = snapshot()
+  const runId = goal.value?.run_id
+  const expectedRevision = goal.value?.revision
+  const stateKey = receiptStateKey(step)
+  if (!runId || !Number.isInteger(expectedRevision) || !owned(token) || !api()) return
+  receiptStates.value = { ...receiptStates.value, [stateKey]: { loading: true } }
+  try {
+    const preview = await api().goalStepReceiptPreview(
+      token.projectId,
+      runId,
+      step.step_id,
+      expectedRevision,
+    )
+    if (!owned(token) || goal.value?.run_id !== runId || goal.value?.revision !== expectedRevision) return
+    receiptStates.value = { ...receiptStates.value, [stateKey]: { preview } }
+  } catch {
+    if (!owned(token) || goal.value?.run_id !== runId || goal.value?.revision !== expectedRevision) return
+    receiptStates.value = {
+      ...receiptStates.value,
+      [stateKey]: { error: "暂时无法读取原回执；结果仍保持未知，可重试或继续保持阻断。" },
+    }
+  }
+}
+
+function locateReceipt(destination) {
+  if (!destination) return false
+  const source = destination.kind === "writing_candidate"
+    ? { type: destination.kind, id: destination.candidate_id, chapter_index: destination.chapter_index }
+    : destination.kind === "smart_dedup_scan"
+      ? { type: destination.kind, task_id: destination.task_id }
+      : destination.kind === "scene_story_assets"
+        ? { type: destination.kind, scene_id: destination.scene_id }
+        : null
+  return source ? locateAssistantSource(source) : false
 }
 
 function saveDraft(projectId = props.projectId) {
@@ -637,6 +732,7 @@ function approveStep(step, approve) {
 
 function reconcileStep(step, decision) {
   if (!goal.value) return
+  if (decision !== "still_unknown" && !receiptPreviewFor(step)?.available_decisions?.includes(decision)) return
   return runAction((projectId, id, payload) => api().reconcileGoalStep(projectId, id, step.step_id, payload), {
     expected_revision: goal.value.revision,
     decision,
@@ -731,6 +827,12 @@ onBeforeUnmount(() => { disposed = true; requestGeneration.value += 1; saveDraft
 .goal-runs-step-row{display:flex;justify-content:space-between;gap:8px;align-items:baseline}.goal-runs-step-row strong{overflow-wrap:anywhere}.goal-runs-step-status{flex:0 0 auto;color:var(--text-secondary);font-size:12px}
 .goal-runs-steps li p{margin:5px 0;color:var(--text-secondary);font-size:13px;overflow-wrap:anywhere}
 .goal-runs-steps li .goal-runs-preview{color:var(--text-primary)}
+.goal-runs-reconciliation{display:grid;justify-items:start;gap:7px;margin-top:8px;padding:10px;border:1px solid var(--border-color,var(--border));border-radius:9px;background:var(--bg-muted)}
+.goal-runs-reconciliation>p{margin:0!important;color:var(--text-secondary)}
+.goal-runs-receipt{display:grid;gap:5px;width:100%;padding:9px;border-radius:7px;background:var(--bg-primary,var(--bg-base));line-height:1.5;overflow-wrap:anywhere}
+.goal-runs-receipt>p{margin:0!important;color:var(--text-primary)!important}
+.goal-runs-receipt ul{display:grid;gap:4px;margin:0;padding-left:20px;color:var(--text-secondary);font-size:13px}
+.goal-runs-receipt li{padding:0!important}
 .goal-runs-dependencies{font-size:12px!important}
 .goal-runs-diff{display:grid;gap:7px;margin:8px 0}.goal-runs-diff div{display:grid;gap:3px}.goal-runs-diff dt{color:var(--text-secondary);font-size:12px}.goal-runs-diff dd{display:grid;grid-template-columns:minmax(0,1fr) auto minmax(0,1fr);gap:7px;margin:0;font-size:12px;overflow-wrap:anywhere}.goal-runs-diff strong{font-weight:700}
 .goal-runs-plan>h3,.goal-runs-plan>p{margin:0}.goal-runs-plan>p{color:var(--text-secondary);font-size:13px;line-height:1.5}

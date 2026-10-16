@@ -547,6 +547,12 @@ def test_goal_routes_are_mounted_under_the_assistant_prefix_with_write_exemption
     }
     assert "/api/assistant/goals" in goals
     assert "/api/assistant/goals/{run_id}/advance" in goals
+    receipt_path = "/api/assistant/goals/{run_id}/steps/{step_id}/receipt"
+    assert receipt_path in goals
+    assert "GET" in goals[receipt_path].methods
+    from modules.assistant.goal_runs.contracts import GoalReceiptPreview
+
+    assert goals[receipt_path].response_model is GoalReceiptPreview
     assert not any("/api/assistant/api/assistant/goals" in path for path in goals)
     for path, route in goals.items():
         if "POST" in route.methods and path not in {
