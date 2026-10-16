@@ -55,6 +55,7 @@ EXPECTED_CAPABILITIES = (
     "story.script",
     "story.one_click",
     "story.scene_director",
+    "story.world_progression",
     "story.scene_fusion",
     "story.structure_dedup",
     # Imports

@@ -12,11 +12,27 @@ def test_dossier_operations_declare_inline_catalog_metadata() -> None:
         "world.dossier.entry.edit": ("entity_id", "revision_id", "update"),
         "world.dossier.entry.restore": ("entity_id", "entry_group_id", "restore"),
         "world.dossier.template.edit": ("profile_type", "update"),
+        "world.dossier.template.borrowed.read": ("profile_type",),
+        "world.dossier.template.borrowed.edit": ("profile_type", "update"),
+        "world.dossier.manifest.preview": ("entity_id", "request"),
+        "world.dossier.manifest.apply": ("entity_id", "request"),
     }
     assert set(OPERATIONS_SPEC) == set(traced_fields)
     for name, operation in OPERATIONS_SPEC.items():
         schema = operation["schema"]
-        expected_version = "3" if name == "world.dossier.template.edit" else "2"
+        expected_version = (
+            "3"
+            if name == "world.dossier.template.edit"
+            else "1"
+            if name
+            in {
+                "world.dossier.template.borrowed.read",
+                "world.dossier.template.borrowed.edit",
+                "world.dossier.manifest.preview",
+                "world.dossier.manifest.apply",
+            }
+            else "2"
+        )
         assert operation["op_version"] == expected_version
         assert operation.get("revision", "1") == expected_version
         assert operation["fee_category"] == "free"
@@ -32,5 +48,13 @@ def test_dossier_operations_declare_inline_catalog_metadata() -> None:
             assert "apply" not in operation
         else:
             assert operation["permission"] == "confirm"
-            assert operation["risk_level"] == "R2"
+            assert operation["risk_level"] == (
+                "R3"
+                if name
+                in {
+                    "world.dossier.template.borrowed.edit",
+                    "world.dossier.manifest.apply",
+                }
+                else "R2"
+            )
             assert callable(operation["apply"])

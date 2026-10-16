@@ -3,13 +3,13 @@ import uuid
 import pytest
 
 from core.errors import ConflictError, NotFoundError
+from modules.assistant.contracts import AssistantOperationContext
+from modules.assistant.schemas import WorkContext
 from modules.evidence.compilation.assistant_dossier_tools import (
     OPERATIONS_SPEC,
     ReadAssistantObjectDossierBrief,
     _read_object_dossier_brief,
 )
-from modules.assistant.contracts import AssistantOperationContext
-from modules.assistant.schemas import WorkContext
 
 
 def test_object_brief_r0_operation_is_read_only_and_traces_full_request_schema():

@@ -37,11 +37,14 @@ from modules.world.character_facade import (  # noqa: F401
     update_character_location,
 )
 from modules.world.dossier_facade import (  # noqa: F401
+    apply_world_dossier_manifest,
     create_world_object_dossier_entry,
     edit_world_object_dossier_entry,
+    get_author_world_object_dossier_template,
     get_world_object_dossier_template,
     list_world_object_dossier_facets,
     list_world_object_dossier_facets_for_entity,
+    preview_world_dossier_manifest,
     preview_world_object_dossier_entry_create,
     preview_world_object_dossier_entry_edit,
     preview_world_object_dossier_entry_restore,
@@ -105,6 +108,7 @@ from modules.world.map_atlas_facade import (  # noqa: F401
     read_map_spatial_advisories,
 )
 from modules.world.map_auto_draft_service import build_map_auto_drafts  # noqa: F401
+from modules.world.map_declaration_state import require_map_declaration_state
 from modules.world.map_demo_copy import (
     prepare_map_demo_copy_rows as prepare_map_demo_copy_rows,
 )
@@ -114,10 +118,10 @@ from modules.world.map_evaluation_read_service import (
 from modules.world.map_notification_service import (
     read_map_notification_signals as read_map_notification_signals,
 )
+from modules.world.map_progression_state import read_map_progression_state
 from modules.world.map_spatial_brief_service import (
     read_map_spatial_brief,
 )
-from modules.world.map_declaration_state import require_map_declaration_state
 from modules.world.map_spatial_clue_service import (  # noqa: F401
     read_spatial_discovery_context,
     stage_spatial_discovery,
@@ -172,10 +176,13 @@ check_knowledge_visibility = _check_knowledge_visibility_impl
 # update, and an explicit change to the public-surface regression test.
 __all__ = [
     "create_world_object_dossier_entry",
+    "apply_world_dossier_manifest",
     "edit_world_object_dossier_entry",
+    "get_author_world_object_dossier_template",
     "get_world_object_dossier_template",
     "list_world_object_dossier_facets",
     "list_world_object_dossier_facets_for_entity",
+    "preview_world_dossier_manifest",
     "preview_world_object_dossier_entry_create",
     "preview_world_object_dossier_entry_edit",
     "preview_world_object_dossier_entry_restore",
@@ -256,6 +263,7 @@ __all__ = [
     "read_map_node_heads",
     "read_map_spatial_advisories",
     "read_map_spatial_brief",
+    "read_map_progression_state",
     "require_map_declaration_state",
     "prepare_map_demo_copy_rows",
     "read_spatial_discovery_context",

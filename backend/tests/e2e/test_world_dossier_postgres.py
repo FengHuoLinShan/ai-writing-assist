@@ -25,9 +25,7 @@ pytestmark = [pytest.mark.asyncio, pytest.mark.e2e]
 
 
 async def test_dossier_competing_edit_and_failed_write_preserve_current_revision():
-    engine = create_async_engine(
-        require_e2e_database_url(), pool_size=4, max_overflow=0
-    )
+    engine = create_async_engine(require_e2e_database_url(), pool_size=4, max_overflow=0)
     sessions = async_sessionmaker(engine, expire_on_commit=False)
     owner_id, novel_id, other_novel_id, entity_id = (uuid4() for _ in range(4))
     principal = AccountPrincipal(
@@ -40,7 +38,13 @@ async def test_dossier_competing_edit_and_failed_write_preserve_current_revision
     service = WorldObjectDossierService()
     try:
         async with sessions.begin() as db:
-            db.add(Account(id=owner_id, status="active", support_code=principal.support_code))
+            db.add(
+                Account(
+                    id=owner_id,
+                    status="active",
+                    support_code=principal.support_code,
+                )
+            )
             db.add_all(
                 [
                     Project(id=novel, owner_id=owner_id, title="合成档案并发")
@@ -100,9 +104,7 @@ async def test_dossier_competing_edit_and_failed_write_preserve_current_revision
                     str(novel_id),
                     str(entity_id),
                     str(winner.id),
-                    DossierEntryUpdate(
-                        expected_revision_id=winner.id, content="应回滚"
-                    ),
+                    DossierEntryUpdate(expected_revision_id=winner.id, content="应回滚"),
                     source="invalid_source",
                 )
         async with sessions.begin() as db:
@@ -122,7 +124,9 @@ async def test_dossier_competing_edit_and_failed_write_preserve_current_revision
             ]
     finally:
         async with sessions.begin() as db:
-            await db.execute(delete(Project).where(Project.id.in_([novel_id, other_novel_id])))
+            await db.execute(
+                delete(Project).where(Project.id.in_([novel_id, other_novel_id]))
+            )
             await db.execute(delete(Account).where(Account.id == owner_id))
         reset_principal(token)
         await engine.dispose()

@@ -45,6 +45,7 @@ ColumnTarget = Literal[
     "public_info",
     "hidden_truth",
     "author_note",
+    "dossier_facing",
     "ignore",
     # character
     "role",
@@ -91,57 +92,66 @@ ColumnTarget = Literal[
 # - characters / world_objects：world 组 + character 组（character 组只对人物有效）；
 # - relations：relation 组；
 # - 其余故事表：story 组 + ignore / author_note。
-WORLD_COLUMN_TARGETS = frozenset({
-    "name",
-    "aliases",
-    "entity_type",
-    "summary",
-    "public_info",
-    "hidden_truth",
-    "author_note",
-    "ignore",
-})
-CHARACTER_COLUMN_TARGETS = frozenset({
-    "role",
-    "appearance",
-    "personality",
-    "desire",
-    "fear",
-    "weakness",
-    "current_goal",
-    "current_state",
-    "stance",
-    "voice_style",
-    "relationship_summary",
-})
-RELATION_COLUMN_TARGETS = frozenset({
-    "source_name",
-    "target_name",
-    "relation_type",
-    "relation_description",
-    "direction",
-})
-STORY_COLUMN_TARGETS = frozenset({
-    "chapter_ref",
-    "title",
-    "content",
-    "core_conflict",
-    "emotional_beat",
-    "must_not_happen",
-    "pov_name",
-    "chapter_start",
-    "chapter_end",
-    "thread_type",
-    "seed_chapter",
-    "payoff_chapter",
-    "reinforce_chapters",
-    "surface_meaning",
-    "hidden_meaning",
-    "related_names",
-    "arc_goal",
-    "climax",
-    "result",
-    "next_hook",
-    "author_note",
-    "ignore",
-})
+WORLD_COLUMN_TARGETS = frozenset(
+    {
+        "name",
+        "aliases",
+        "entity_type",
+        "summary",
+        "public_info",
+        "hidden_truth",
+        "author_note",
+        "dossier_facing",
+        "ignore",
+    }
+)
+CHARACTER_COLUMN_TARGETS = frozenset(
+    {
+        "role",
+        "appearance",
+        "personality",
+        "desire",
+        "fear",
+        "weakness",
+        "current_goal",
+        "current_state",
+        "stance",
+        "voice_style",
+        "relationship_summary",
+    }
+)
+RELATION_COLUMN_TARGETS = frozenset(
+    {
+        "source_name",
+        "target_name",
+        "relation_type",
+        "relation_description",
+        "direction",
+    }
+)
+STORY_COLUMN_TARGETS = frozenset(
+    {
+        "chapter_ref",
+        "title",
+        "content",
+        "core_conflict",
+        "emotional_beat",
+        "must_not_happen",
+        "pov_name",
+        "chapter_start",
+        "chapter_end",
+        "thread_type",
+        "seed_chapter",
+        "payoff_chapter",
+        "reinforce_chapters",
+        "surface_meaning",
+        "hidden_meaning",
+        "related_names",
+        "arc_goal",
+        "climax",
+        "result",
+        "next_hook",
+        "author_note",
+        "ignore",
+    }
+)

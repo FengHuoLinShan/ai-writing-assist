@@ -63,7 +63,8 @@ Goal 的确定 ID 父任务也通过 enqueuer 创建为 `inline_only` / `manual_
   world 域把回合与成果追加进持久化共创会话，见 ADR-0021；transport 合并与任务指纹不受影响）
 - story：`story_outline_generate`、`outline_analyze`、`outline_generate`、`scene_fusion_preview`、
   `story_character_card_generate`、`story_reaction_propose`、`story_scene_script_generate`、
-  `story_one_click`、`story_scene_director`。
+  `story_one_click`、`story_scene_director`、`story_world_progression`、
+  `story_world_progression_read_commit_check`（Evolution 成功读入回执后的免费检查）。
   `plot_structure_generate`、`chapter_card_extraction`、`chapter_scene_generate` 仅为存量任务返回
   `unsupported` 的兼容注册，不是当前生产生成入口
 
@@ -78,8 +79,14 @@ Goal 的确定 ID 父任务也通过 enqueuer 创建为 `inline_only` / `manual_
 
 `story_one_click` 同时承载新建的 `simulation_v3` Scene 排演；通用入口仍默认旧版请求形状。
 `story_scene_director` 是独立的 Story handler，复用同一协议与有限结算，使用 `never_retry` 和同一根累计
-`AIRunEnvelope`；未知/可能计费结果需要作者显式续算。handler 在 Story 模块声明，最终 app task manifest
-和操作目录组合接线仍由集成者完成；此处的任务类型记录不代表完整应用接线或迁移链已通过。
+`AIRunEnvelope`；未知/可能计费结果需要作者显式续算。handler 由 Story 模块声明并经
+app task manifest 注册。
+
+`story_world_progression` 是 Story 的独立候选推进 handler，使用 `simulation_v3` 与不可变步骤记录，
+按 `never_retry`/`max_attempts=1` 执行；每次 provider 调用前先提交单调累计账本和分支检查点，可能计费结果未知时暂停。
+`story_world_progression_read_commit_check` 仅检查 Evolution 已成功读入的完整新章和作者 standing grant；
+它不调用模型、不新建根，只有原根剩余额度与授权仍有效时才可能排入前一个处理器。两者已由 app
+task manifest 注册；本地离线验证不代表真实模型输出质量或作者验收。
 
 `deep_import` 完成时可把 post-import adoption package 的 compact receipt 写入既有
 `result.phase_artifacts`；这不是新任务类型或队列状态。包组装失败不得覆盖已完成的

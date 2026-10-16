@@ -526,6 +526,21 @@ class PostgresAttemptStore:
         )
         await self._db.flush()
 
+        if receipt.execution_status == "succeeded":
+            run = await self.load_run(receipt.run_id)
+            if run is not None and run.execution_mode == "live":
+                # The outbox row shares the fenced receipt transaction. It is
+                # invisible to workers on failure or rollback, and free to run.
+                from core.container import get as container_get
+                from core.service_keys import STORY_QUEUE_WORLD_PROGRESSION_READ_CHECK
+
+                try:
+                    queue_check = container_get(STORY_QUEUE_WORLD_PROGRESSION_READ_CHECK)
+                except KeyError:
+                    pass  # Isolated Evolution unit tests have no app composition.
+                else:
+                    await queue_check(self._db, novel_id=str(self._novel_id))
+
     async def load_receipt(self, run_id: str, attempt_id: str) -> EvolutionReceipt | None:
         row = (
             await self._db.execute(

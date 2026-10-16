@@ -1,7 +1,7 @@
 <template>
   <details class="card vocabulary" @toggle="onToggle">
-    <summary>本作品的空间类型<span v-if="loaded"> · {{ total }} 项</span></summary>
-    <p>为这部作品命名空间、图元、关系与旅行方式。已有地图保留原类型版本；改动不会自动改写已保存地图。</p>
+    <summary>本作品词表<span v-if="loaded"> · {{ total }} 项</span></summary>
+    <p>统一命名空间类型和对象档案面向。题材预设可混搭；加入的档案面向可在对象模板中选择，已有地图保留原类型版本。</p>
     <p v-if="error" class="alert alert-warning" role="alert">{{ error }} <button class="btn btn-sm" :disabled="locked" @click="load">重新读取</button></p>
     <p v-if="message" role="status">{{ message }}</p>
     <p v-if="loading" role="status">正在读取项目类型…</p>

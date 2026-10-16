@@ -1,0 +1,604 @@
+"""Pure operation-catalog entries for world progression (ADR-0038)."""
+
+from __future__ import annotations
+
+from core.container import get
+from core.errors import ConflictError
+from core.service_keys import (
+    ASSISTANT_IS_AUTHOR_TURN_RUN,
+    ASSISTANT_REQUIRE_OPERATION_TARGETS,
+)
+from modules.project.facade import (
+    build_project_llm_execution_snapshot,
+    require_active_project,
+)
+from modules.story.generation import STORY_ONE_CLICK_ACTION
+from modules.story.world_progression_budget import preview_progression_budget
+from modules.story.world_progression_context import read_progression_source
+from modules.story.world_progression_schemas import (
+    ProgressionAdvanceRequest,
+    ProgressionBudgetPreviewRequest,
+    ProgressionCompareRequest,
+    ProgressionContinuousAuthorizationReadRequest,
+    ProgressionHistoryRequest,
+    ProgressionHookAdoptRequest,
+    ProgressionHookPreviewRequest,
+    ProgressionParticipant,
+    ProgressionResumeRequest,
+    ProgressionStartRequest,
+    ProgressionTarget,
+)
+from modules.story.world_progression_service import (
+    compare_progression_steps,
+    get_progression_branch,
+    get_progression_root,
+    get_progression_step,
+    list_root_metrics,
+    progression_resume_hash,
+    read_progression_history,
+)
+
+
+def _trace(model: type) -> dict:
+    return {
+        "parameter_fields": tuple(model.model_fields),
+        "mode": "per_call",
+        "parameter_policy": "schema_safe",
+    }
+
+
+def _metadata(
+    *,
+    description,
+    risk,
+    fee,
+    produces,
+    preconditions,
+    transaction="single_transaction",
+    reversibility="read_only",
+):
+    return {
+        "op_version": "1",
+        "description": description,
+        "risk_level": risk,
+        "fee_category": fee,
+        "reversibility": reversibility,
+        "preconditions": preconditions,
+        "produces": produces,
+        "target_type": "world_progression",
+        "ai_available": True,
+        "transaction_mode": transaction,
+    }
+
+
+def _require_project(novel_id: str, args) -> None:
+    if str(args.novel_id) != str(novel_id):
+        raise PermissionError("操作作品与当前作者工作范围不一致")
+
+
+async def _require_work_scope(
+    db,
+    novel_id: str,
+    context,
+    *,
+    scene_id=None,
+    participant_ids=(),
+    target_refs=(),
+    aggregate=False,
+) -> None:
+    if context is None:
+        return
+    work = context.work
+    if aggregate:
+        if work.scope != "project":
+            raise PermissionError("当前 Scene 工作范围不能读取整部作品的推进历史")
+        await get(ASSISTANT_REQUIRE_OPERATION_TARGETS)(
+            db, novel_id, context, [], aggregate=True
+        )
+        return
+    if scene_id is None:
+        raise PermissionError("世界推进操作缺少可核验的 Scene 截止点")
+    if work.scope == "current" and (
+        work.scene_id is None or str(work.scene_id) != str(scene_id)
+    ):
+        raise PermissionError("世界推进 Scene 超出当前作者工作范围")
+    targets = [("outline_scene", str(scene_id))]
+    targets.extend(("core_entity", str(actor_id)) for actor_id in participant_ids)
+    targets.extend((str(kind), str(target_id)) for kind, target_id in target_refs)
+    await get(ASSISTANT_REQUIRE_OPERATION_TARGETS)(db, novel_id, context, targets)
+
+
+async def _require_root_scope(db, novel_id, context, root) -> None:
+    request = root.request_json or {}
+    await _require_work_scope(
+        db,
+        novel_id,
+        context,
+        scene_id=root.scene_id,
+        participant_ids=[
+            item["id"] for item in request.get("participants") or [] if item.get("id")
+        ],
+        target_refs=[
+            (item["kind"], item["id"])
+            for item in request.get("targets") or []
+            if item.get("kind") and item.get("id")
+        ],
+    )
+
+
+async def _require_requested_scope(db, novel_id, args, context, source) -> None:
+    await _require_work_scope(
+        db,
+        novel_id,
+        context,
+        scene_id=source["scene_id"],
+        participant_ids=[item.id for item in args.participants],
+        target_refs=[(item.kind, item.id) for item in args.targets],
+    )
+
+
+def _require_enabled() -> None:
+    from modules.story.world_progression_api import _enabled
+
+    _enabled()
+
+
+def _model_name(snapshot: dict) -> str:
+    return str((snapshot.get("profile") or {}).get("model") or "unknown")
+
+
+async def _source(db, novel_id, args, *, snapshot=None):
+    participants = [
+        ProgressionParticipant.model_validate(item) for item in args.participants
+    ]
+    targets = [ProgressionTarget.model_validate(item) for item in args.targets]
+    source = await read_progression_source(
+        db,
+        novel_id=novel_id,
+        scene_id=args.scene_id,
+        participants=participants,
+        targets=targets,
+    )
+    if snapshot is not None:
+        source["llm_execution_snapshot"] = snapshot
+    return source
+
+
+async def _prepare_budget(db, novel_id, args, *, context=None):
+    _require_enabled()
+    _require_project(novel_id, args)
+    await require_active_project(db, novel_id)
+    snapshot = await build_project_llm_execution_snapshot(db, novel_id)
+    source = await _source(db, novel_id, args, snapshot=snapshot)
+    await _require_requested_scope(db, novel_id, args, context, source)
+    # Historical recommendations are project-wide aggregates. A narrowed
+    # Assistant work context may preview its own source without reading them.
+    metrics = await list_root_metrics(db, novel_id) if context is None else []
+    return preview_progression_budget(
+        args, source, model_name=_model_name(snapshot), metrics=metrics
+    )
+
+
+async def _prepare_start(db, novel_id, args, *, context=None):
+    preview = await _prepare_budget(db, novel_id, args, context=context)
+    if preview["preview_hash"] != args.budget_preview_hash:
+        raise ConflictError("世界、参与者或授权预算已变化，请重新预览")
+    return preview
+
+
+async def _apply_start(db, novel_id, args, preview, *, context=None):
+    _require_project(novel_id, args)
+    source = await _source(db, novel_id, args)
+    await _require_requested_scope(db, novel_id, args, context, source)
+    from modules.story.world_progression_api import api_start_progression
+
+    result = await api_start_progression(args, db)
+    return dict(result)
+
+
+async def _prepare_history(db, novel_id, args, *, context=None):
+    _require_enabled()
+    _require_project(novel_id, args)
+    await require_active_project(db, novel_id)
+    if args.root_id is not None:
+        root = await get_progression_root(db, novel_id, str(args.root_id))
+        if args.scene_id is not None and str(args.scene_id) != str(root.scene_id):
+            raise ConflictError("筛选 Scene 与世界推进运行不一致")
+        await _require_root_scope(db, novel_id, context, root)
+    elif args.scene_id is not None:
+        await _require_work_scope(db, novel_id, context, scene_id=args.scene_id)
+        if context is not None:
+            await get(ASSISTANT_REQUIRE_OPERATION_TARGETS)(
+                db, novel_id, context, [], aggregate=True
+            )
+    else:
+        await _require_work_scope(db, novel_id, context, aggregate=True)
+    return await read_progression_history(
+        db,
+        novel_id,
+        scene_id=args.scene_id,
+        root_id=str(args.root_id) if args.root_id else None,
+        include_deleted=args.include_deleted,
+    )
+
+
+async def _prepare_compare(db, novel_id, args, *, context=None):
+    _require_enabled()
+    _require_project(novel_id, args)
+    await require_active_project(db, novel_id)
+    first = await get_progression_step(db, novel_id, str(args.first_step_id))
+    second = await get_progression_step(db, novel_id, str(args.second_step_id))
+    if first.root_id != second.root_id:
+        raise ConflictError("只能比较同一运行中的步骤")
+    root = await get_progression_root(db, novel_id, str(first.root_id))
+    await _require_root_scope(db, novel_id, context, root)
+    return await compare_progression_steps(
+        db,
+        novel_id=novel_id,
+        first_step_id=str(args.first_step_id),
+        second_step_id=str(args.second_step_id),
+    )
+
+
+async def _assert_author_turn(db, novel_id, args, context) -> dict:
+    if context is None:
+        raise PermissionError("R1 世界推进只能从已授权的普通作者助手回合执行")
+    if not await get(ASSISTANT_IS_AUTHOR_TURN_RUN)(
+        db,
+        novel_id=str(novel_id),
+        run_id=str(context.run_id),
+        owner_id=str(context.owner_id),
+    ):
+        raise PermissionError("目标运行或自动任务不能代替普通作者助手推进世界")
+    root = await get_progression_root(db, novel_id, str(args.root_id))
+    await _require_root_scope(db, novel_id, context, root)
+    branch = await get_progression_branch(db, novel_id, str(args.branch_id))
+    if str(branch.root_id) != str(root.id):
+        raise ConflictError("推进分支与运行根不匹配")
+    if context.work.scene_id is None or str(context.work.scene_id) != str(root.scene_id):
+        raise PermissionError("助手工作 Scene 与已授权世界推进截止点不一致")
+    if context.work.context_confirmation_action != STORY_ONE_CLICK_ACTION or str(
+        context.work.context_confirmation_id or ""
+    ) != str(args.context_confirmation_id):
+        raise PermissionError("助手必须沿用同一 Scene 的原资料确认")
+    return {"root": root, "branch": branch}
+
+
+async def _prepare_advance(db, novel_id, args, *, context=None):
+    _require_enabled()
+    _require_project(novel_id, args)
+    await require_active_project(db, novel_id)
+    selected = await _assert_author_turn(db, novel_id, args, context)
+    from infrastructure.llm.schemas import read_ai_run_envelope
+    from modules.story.world_progression_service import get_progression_step
+
+    root, branch = selected["root"], selected["branch"]
+    parent = await get_progression_step(db, novel_id, str(args.parent_step_id))
+    if str(parent.root_id) != str(root.id) or str(parent.branch_id) != str(branch.id):
+        raise ConflictError("R1 推进父步骤与已授权分支不匹配")
+    envelope = read_ai_run_envelope(root.run_envelope_json)
+    if envelope is None or envelope.run_id != str(root.id):
+        raise ConflictError("原运行累计预算不可恢复")
+    from infrastructure.llm.workflow_budget import AIRunEnvelope
+    from modules.story.world_progression_tasks import _budget_stop
+
+    if stop := _budget_stop(AIRunEnvelope(envelope)):
+        raise ConflictError(f"原运行预算已暂停，不能继续：{stop}")
+    return {
+        "root_id": str(root.id),
+        "branch_id": str(branch.id),
+        "parent_step_id": str(parent.id),
+        "basis_choice": args.basis_choice,
+        "source_hash": branch.source_hash,
+        "original_budget": {
+            "requests_started": envelope.requests_started,
+            "request_limit": envelope.request_limit,
+            "tokens_used": envelope.usage.total_tokens,
+            "token_limit": envelope.token_limit,
+            "deadline_at": envelope.deadline_at.isoformat()
+            if envelope.deadline_at
+            else None,
+        },
+    }
+
+
+async def _apply_advance(db, novel_id, args, preview, *, context=None):
+    _require_project(novel_id, args)
+    await _assert_author_turn(db, novel_id, args, context)
+    from modules.story.world_progression_api import api_advance_progression
+
+    return dict(await api_advance_progression(str(args.root_id), args, db))
+
+
+async def _prepare_resume(db, novel_id, args, *, context=None):
+    _require_enabled()
+    _require_project(novel_id, args)
+    await require_active_project(db, novel_id)
+    root = await get_progression_root(db, novel_id, str(args.root_id))
+    await _require_root_scope(db, novel_id, context, root)
+    branch = await get_progression_branch(db, novel_id, str(args.branch_id))
+    if str(branch.root_id) != str(root.id) or not branch.pending_step_json:
+        raise ConflictError("所选分支没有可恢复的半步检查点")
+    if progression_resume_hash(root, branch) != args.resume_hash:
+        raise ConflictError("预算或半步检查点已变化，请刷新历史")
+    from infrastructure.llm.schemas import read_ai_run_envelope
+
+    budget = read_ai_run_envelope(root.run_envelope_json)
+    if budget is None or budget.run_id != str(root.id):
+        raise ConflictError("原运行预算账本不可恢复")
+    if args.acknowledge_unknown_requests != budget.requests_unknown:
+        raise ConflictError("未知计费结果数量已变化，请刷新后重新确认")
+    if budget.requests_unknown and not args.allow_possible_duplicate_charge:
+        raise ConflictError("恢复前须明确确认当前未知请求可能重复计费")
+    return {
+        "root_id": str(root.id),
+        "branch_id": str(branch.id),
+        "resume_hash": args.resume_hash,
+        "cached_actor_count": len(
+            (branch.pending_step_json or {}).get("actor_drafts") or {}
+        ),
+        "requests_started": budget.requests_started,
+        "request_limit": budget.request_limit,
+        "tokens_used": budget.usage.total_tokens,
+        "token_limit": budget.token_limit,
+        "unknown_requests": budget.requests_unknown,
+        "started_at": budget.started_at.isoformat(),
+        "deadline_at": budget.deadline_at.isoformat() if budget.deadline_at else None,
+        "possible_duplicate_charge": bool(budget.requests_unknown),
+    }
+
+
+async def _apply_resume(db, novel_id, args, preview, *, context=None):
+    _require_project(novel_id, args)
+    root = await get_progression_root(db, novel_id, str(args.root_id))
+    await _require_root_scope(db, novel_id, context, root)
+    from modules.story.world_progression_api import api_resume_progression
+
+    return dict(
+        await api_resume_progression(str(args.root_id), str(args.branch_id), args, db)
+    )
+
+
+async def _prepare_hook_preview(db, novel_id, args, *, context=None):
+    _require_project(novel_id, args)
+    root = await get_progression_root(db, novel_id, str(args.root_id))
+    step = await get_progression_step(db, novel_id, str(args.step_id))
+    if step.root_id != root.id:
+        raise ConflictError("钩子步骤与世界推进运行不匹配")
+    await _require_root_scope(db, novel_id, context, root)
+    await _require_work_scope(db, novel_id, context, aggregate=True)
+    from modules.story.world_progression_hooks_api import api_progression_hook_preview
+
+    return await api_progression_hook_preview(args, db)
+
+
+async def _prepare_hook_adopt(db, novel_id, args, *, context=None):
+    _require_enabled()
+    _require_project(novel_id, args)
+    root = await get_progression_root(db, novel_id, str(args.root_id))
+    step = await get_progression_step(db, novel_id, str(args.step_id))
+    if step.root_id != root.id:
+        raise ConflictError("钩子步骤与世界推进运行不匹配")
+    await _require_root_scope(db, novel_id, context, root)
+    await _require_work_scope(db, novel_id, context, aggregate=True)
+    from modules.story.world_progression_hooks_api import _prepare_hook_preview
+
+    preview = await _prepare_hook_preview(db, args)
+    if preview["preview_hash"] != args.preview_hash:
+        raise ConflictError("钩子候选或滚动规划依据已变化，请重新预览")
+    return {
+        "root_id": str(args.root_id),
+        "step_id": str(args.step_id),
+        "hook_id": args.hook_id,
+        "asset_type": args.asset_type,
+        "preview_hash": preview["preview_hash"],
+        "source_readset": preview["source_readset"],
+        "draft": preview["draft"],
+    }
+
+
+async def _apply_hook_adopt(db, novel_id, args, preview, *, context=None):
+    _require_project(novel_id, args)
+    root = await get_progression_root(db, novel_id, str(args.root_id))
+    await _require_root_scope(db, novel_id, context, root)
+    await _require_work_scope(db, novel_id, context, aggregate=True)
+    from modules.story.world_progression_hooks_api import api_progression_hook_adopt
+
+    return await api_progression_hook_adopt(args, db)
+
+
+async def _read_continuous(db, novel_id, args, *, context=None):
+    _require_enabled()
+    _require_project(novel_id, args)
+    await require_active_project(db, novel_id)
+    root = await get_progression_root(db, novel_id, str(args.root_id))
+    branch = await get_progression_branch(db, novel_id, str(args.branch_id))
+    if branch.root_id != root.id:
+        raise ConflictError("持续授权分支与世界推进运行不匹配")
+    await _require_root_scope(db, novel_id, context, root)
+    from modules.story.world_progression_continuous import read_continuous_authorization
+
+    current = await read_continuous_authorization(db, novel_id)
+    if current.get("root_id") not in {None, str(args.root_id)}:
+        raise ConflictError("持续授权已绑定到另一条推进根")
+    return current
+
+
+def _operation(
+    *,
+    label,
+    schema,
+    prepare,
+    permission,
+    description,
+    risk,
+    fee,
+    produces,
+    preconditions,
+    apply=None,
+    transaction="single_transaction",
+    reversibility="read_only",
+):
+    return {
+        "label": label,
+        "schema": schema,
+        "prepare": prepare,
+        "apply": apply,
+        "permission": permission,
+        **_metadata(
+            description=description,
+            risk=risk,
+            fee=fee,
+            produces=produces,
+            preconditions=preconditions,
+            transaction=transaction,
+            reversibility=reversibility,
+        ),
+        "trace_rule": _trace(schema),
+    }
+
+
+OPERATIONS_SPEC = {
+    "story.world_progression.history": _operation(
+        label="查看世界推进历史",
+        schema=ProgressionHistoryRequest,
+        prepare=_prepare_history,
+        permission="read",
+        description="读取作品的不可变步骤、分支与运行预算；不会续算或启动任务。",
+        risk="R0",
+        fee="free",
+        produces=("world_progression_history",),
+        preconditions=("当前作者可访问所选作品",),
+    ),
+    "story.world_progression.compare": _operation(
+        label="比较世界推进步骤",
+        schema=ProgressionCompareRequest,
+        prepare=_prepare_compare,
+        permission="read",
+        description="比较同一运行中的两个不可变步骤及其依据状态。",
+        risk="R0",
+        fee="free",
+        produces=("world_progression_comparison",),
+        preconditions=("两个步骤都属于当前作品和同一运行",),
+    ),
+    "story.world_progression.preview": _operation(
+        label="预览世界推进预算",
+        schema=ProgressionBudgetPreviewRequest,
+        prepare=_prepare_budget,
+        permission="read",
+        description=(
+            "按当前截止 Scene、角色可知资料、步长和作者预算预览请求、Token、"
+            "时限及费用状态；不调用模型，也不估算金额。"
+        ),
+        risk="R0",
+        fee="free",
+        produces=("world_progression_budget_preview",),
+        preconditions=("参与者与目标属于当前作品",),
+    ),
+    "story.world_progression.start": _operation(
+        label="准备世界推进运行",
+        schema=ProgressionStartRequest,
+        prepare=_prepare_start,
+        apply=_apply_start,
+        permission="confirm",
+        description="在作者单独确认的根预算内，运行 simulation_v3 世界推进候选。",
+        risk="R4",
+        fee="possible_model_charge",
+        produces=("world_progression_candidate_run",),
+        preconditions=(
+            "作者已确认当前 Evidence 资料与 Scene",
+            "预算预览指纹仍匹配",
+            "作者明确给出请求、Token 与时限预算",
+        ),
+        transaction="multi_stage",
+        reversibility="history_restore_30_days",
+    ),
+    "story.world_progression.advance": _operation(
+        label="沿已授权世界推进根推进一步",
+        schema=ProgressionAdvanceRequest,
+        prepare=_prepare_advance,
+        apply=_apply_advance,
+        permission="suggest",
+        description=(
+            "只在普通作者助手回合内，沿同一作品、Scene、参与者和资料确认"
+            "使用原根预算推进一步；不加预算、不写正史。"
+        ),
+        risk="R1",
+        fee="possible_model_charge",
+        produces=("world_progression_candidate_step",),
+        preconditions=(
+            "真实普通作者助手回合",
+            "同一 Scene 和资料确认",
+            "原累计预算未到 80% 且无未知计费结果",
+        ),
+        transaction="multi_stage",
+        reversibility="history_restore_30_days",
+    ),
+    "story.world_progression.resume": _operation(
+        label="确认恢复中断的世界推进步骤",
+        schema=ProgressionResumeRequest,
+        prepare=_prepare_resume,
+        apply=_apply_resume,
+        permission="confirm",
+        description=(
+            "作者单独确认后沿原根和原分支的持久半步继续；"
+            "不清零已用或未知请求，不延长原截止时间，新增未知再次暂停。"
+        ),
+        risk="R4",
+        fee="possible_model_charge",
+        produces=("world_progression_candidate_step",),
+        preconditions=(
+            "作者确认原根剩余额度、时限和当前未知计费请求",
+            "半步来源与父步骤仍匹配当前已采用资料",
+            "原任务已终止，未有并发推进",
+        ),
+        transaction="multi_stage",
+        reversibility="history_restore_30_days",
+    ),
+    "story.world_progression.preview_hook": _operation(
+        label="预览世界推进钩子",
+        schema=ProgressionHookPreviewRequest,
+        prepare=_prepare_hook_preview,
+        permission="read",
+        description=(
+            "用 story.plan_structure 的滚动窗口只读预览钩子来源与章节范围；"
+            "不调用模型、不创建资产。"
+        ),
+        risk="R0",
+        fee="free",
+        produces=("world_progression_hook_preview",),
+        preconditions=("钩子属于当前作品的不可变推进步骤",),
+    ),
+    "story.world_progression.adopt_hook": _operation(
+        label="采用世界推进钩子为大纲候选",
+        schema=ProgressionHookAdoptRequest,
+        prepare=_prepare_hook_adopt,
+        apply=_apply_hook_adopt,
+        permission="confirm",
+        description=(
+            "作者确认后，将钩子采用为可编辑剧情线、篇章或计划 Scene；"
+            "按 CAS 重验来源，不写 World、continuity 或正文。"
+        ),
+        risk="R3",
+        fee="free",
+        produces=("world_progression_outline_candidate",),
+        preconditions=(
+            "R3 作者确认仍然新鲜",
+            "滚动窗口来源与预览指纹未变化",
+            "所选钩子属于该不可变步骤",
+        ),
+        transaction="single_transaction",
+        reversibility="domain_revision",
+    ),
+    "story.world_progression.read_continuous_authorization": _operation(
+        label="查看持续推进授权",
+        schema=ProgressionContinuousAuthorizationReadRequest,
+        prepare=_read_continuous,
+        permission="read",
+        description="只读查看当前根的持续授权与原预算，不触发任务或改变授权。",
+        risk="R0",
+        fee="free",
+        produces=("world_progression_continuous_authorization",),
+        preconditions=("当前作者可访问所选作品",),
+    ),
+}

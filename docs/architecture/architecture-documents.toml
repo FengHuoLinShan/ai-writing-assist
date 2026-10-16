@@ -128,6 +128,7 @@ api_prefixes = [
   "/api/novels/{novel_id}/memories",
   "/api/outline",
   "/api/story",
+  "/api/story/world-progression",
 ]
 
 [[components]]
