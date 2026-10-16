@@ -1443,6 +1443,9 @@ class WritingConflictCheckRepository:
         if latest is None:
             return None
         check, items = latest
+        scoped_chapter = (check.scope or {}).get("chapter_index")
+        if scoped_chapter is not None and scoped_chapter != check.chapter_index:
+            return None
         open_items = [item for item in items if item.status == "open"]
         high_items = [item for item in open_items if item.severity == "high"]
         ai_items = [item for item in items if item.is_ai_judgment]

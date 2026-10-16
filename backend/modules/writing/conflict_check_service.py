@@ -975,11 +975,17 @@ class WritingConflictCheckService:
         stale_checks: set[uuid.UUID] = set()
         for check, item in rows:
             latest_draft = drafts_by_chapter.get(check.chapter_index)
-            is_stale = latest_draft is not None and (
-                check.draft_id != latest_draft.id
-                or check.version_number != latest_draft.version_number
-                or check.scope.get("content_hash") != latest_draft.content_hash
+            scoped_chapter = (check.scope or {}).get("chapter_index")
+            is_stale = (
+                scoped_chapter is not None and scoped_chapter != check.chapter_index
             )
+            if latest_draft is not None:
+                is_stale = is_stale or (
+                    check.draft_id != latest_draft.id
+                    or check.version_number != latest_draft.version_number
+                    or (check.scope or {}).get("content_hash")
+                    != latest_draft.content_hash
+                )
             if is_stale:
                 if check.id in stale_checks:
                     continue

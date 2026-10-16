@@ -353,6 +353,8 @@ AI candidate 必须复验原 confirmation、正文和 world 来源；人工稿�
 所有 working/published 写入和回退经仓储统一通知 Context、working/canonical 索引及演化/Story
 失效；包括助手应用、创意采用、协作和导入入口。候选未采用时不触发。传播失败回滚正文事务，
 不会显示假保存；作者确认与原回执保留，重算只标 recompute_required，不自动支付模型调用。
+完整章节重排与恢复同样在各自事务内移动绑定草稿的冲突检查，旧检查在章号不符时只提示重检；
+逐个标记变动章节两种内容模式的索引待重建，并使引用原草稿的 Context 确认过期。
 
 ## 交给编辑看
 

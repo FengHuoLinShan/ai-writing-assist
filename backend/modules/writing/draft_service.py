@@ -9,7 +9,7 @@ from copy import deepcopy
 from datetime import UTC, datetime
 from typing import Any
 
-from sqlalchemy import select
+from sqlalchemy import or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from core.container import get
@@ -22,6 +22,10 @@ from core.service_keys import (
     STORY_INVALIDATE_WORLD_PROGRESSION_FOR_REORDER,
 )
 from infrastructure.llm.redaction import redact_diagnostic
+from modules.evidence.facade import (
+    mark_asset_context_changed,
+    mark_chapter_index_dirty,
+)
 from modules.project.contracts import WorkspaceCreationProgressItem
 from modules.writing.contracts import (
     StoryChapterOrderPort,
@@ -31,6 +35,7 @@ from modules.writing.contracts import (
 from modules.writing.models import (
     WritingChapterOrderOperation,
     WritingComment,
+    WritingConflictCheck,
     WritingDraft,
 )
 from modules.writing.repositories import (
@@ -1838,8 +1843,9 @@ class WritingChapterOrderService:
                 "unlisted_chapter_indices": [],
                 "drafts": [],
                 "comments": [],
+                "checks": [],
                 "source_versions": {},
-                "fingerprint": _chapter_order_hash({"drafts": [], "comments": []}),
+                "fingerprint": self._fingerprint([], [], []),
             }
         all_chapter_indices = await self._repo.list_all_chapter_indices(db, nid)
         unlisted_chapter_indices = sorted(set(all_chapter_indices) - set(chapter_indices))
@@ -1859,6 +1865,7 @@ class WritingChapterOrderService:
         drafts = list((await db.scalars(statement)).all())
         draft_ids = [draft.id for draft in drafts]
         comments: list[WritingComment] = []
+        checks: list[WritingConflictCheck] = []
         if draft_ids:
             comment_statement = (
                 select(WritingComment)
@@ -1874,6 +1881,26 @@ class WritingChapterOrderService:
                 populate_existing=True
             )
             comments = list((await db.scalars(comment_statement)).all())
+        check_statement = (
+            select(WritingConflictCheck)
+            .where(
+                WritingConflictCheck.novel_id == nid,
+                or_(
+                    WritingConflictCheck.chapter_index.in_(chapter_indices),
+                    WritingConflictCheck.draft_id.in_(draft_ids),
+                ),
+            )
+            .order_by(WritingConflictCheck.id)
+        )
+        if for_update:
+            check_statement = check_statement.with_for_update()
+        checks = list(
+            (
+                await db.scalars(
+                    check_statement.execution_options(populate_existing=True)
+                )
+            ).all()
+        )
         source_versions: dict[int, list[dict[str, str]]] = {}
         for draft in drafts:
             source_versions.setdefault(int(draft.chapter_index), []).append(
@@ -1884,12 +1911,17 @@ class WritingChapterOrderService:
             "unlisted_chapter_indices": unlisted_chapter_indices,
             "drafts": drafts,
             "comments": comments,
+            "checks": checks,
             "source_versions": source_versions,
-            "fingerprint": self._fingerprint(drafts, comments),
+            "fingerprint": self._fingerprint(drafts, comments, checks),
         }
 
     @staticmethod
-    def _fingerprint(drafts: list[WritingDraft], comments: list[WritingComment]) -> str:
+    def _fingerprint(
+        drafts: list[WritingDraft],
+        comments: list[WritingComment],
+        checks: list[WritingConflictCheck],
+    ) -> str:
         payload = {
             "drafts": sorted(
                 (
@@ -1925,6 +1957,19 @@ class WritingChapterOrderService:
                     _dt_key(row.updated_at),
                 )
                 for row in comments
+            ),
+            "checks": sorted(
+                (
+                    str(row.id),
+                    str(row.draft_id),
+                    int(row.chapter_index),
+                    row.version_number,
+                    row.status,
+                    _chapter_order_hash(row.scope or {}),
+                    _chapter_order_hash(row.summary_json or {}),
+                    _dt_key(row.updated_at),
+                )
+                for row in checks
             ),
         }
         return _chapter_order_hash(payload)
@@ -2057,7 +2102,30 @@ class WritingChapterOrderService:
             source = comment_source.get(row.id)
             if source in chapter_map:
                 row.chapter_index = chapter_map[source]
+        for row in state["checks"]:
+            source = original_by_draft.get(row.draft_id)
+            if source in chapter_map:
+                row.chapter_index = chapter_map[source]
         await db.flush()
+        for draft in state["drafts"]:
+            if chapter_map[original_by_draft[draft.id]] != original_by_draft[draft.id]:
+                await mark_asset_context_changed(
+                    db,
+                    novel_id=str(draft.novel_id),
+                    asset_type="writing_draft",
+                    asset_id=str(draft.id),
+                    reason="chapter_order_changed",
+                )
+        for chapter_index in sorted(
+            source for source, target in chapter_map.items() if source != target
+        ):
+            for content_mode in ("working", "canonical"):
+                await mark_chapter_index_dirty(
+                    db,
+                    str(state["drafts"][0].novel_id),
+                    chapter_index,
+                    content_mode=content_mode,
+                )
 
     async def _lock_chapters(
         self,

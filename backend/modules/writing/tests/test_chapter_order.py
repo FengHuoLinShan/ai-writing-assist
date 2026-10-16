@@ -8,8 +8,16 @@ from sqlalchemy import select
 from core.container import container_scope
 from core.errors import ConflictError
 from core.service_keys import ASSISTANT_REQUIRE_OPERATION_TARGETS
+from infrastructure.tasks.models import AsyncTask
 from modules.assistant.contracts import AssistantOperationContext, WorkContext
 from modules.assistant.operation_scope import require_operation_targets
+from modules.evidence.compilation.facade import (
+    attach_result_ref,
+    confirm_context,
+    require_confirmation,
+)
+from modules.evidence.contracts import ContextConfirmationRequest
+from modules.evidence.indexing.models import RagIndexState
 from modules.story.continuity.chapter_order import StoryChapterOrderService
 from modules.story.continuity.models import (
     MemoryEvent,
@@ -34,12 +42,16 @@ from modules.writing.chapter_order_operations import (
     _history_read,
     _reorder_prepare,
 )
+from modules.writing.conflict_check_service import WritingConflictCheckService
 from modules.writing.draft_service import WritingChapterOrderService
 from modules.writing.models import (
     WritingChapterOrderOperation,
     WritingComment,
+    WritingConflictCheck,
+    WritingConflictItem,
     WritingDraft,
 )
+from modules.writing.repositories import WritingConflictCheckRepository
 from modules.writing.schemas import ChapterOrderPreviewRequest
 from modules.writing.source_hashing import hash_text
 
@@ -488,6 +500,186 @@ async def test_chapter_reorder_moves_all_assets_and_restores(
 
 
 @pytest.mark.asyncio
+async def test_chapter_reorder_stales_source_checks_and_indexes_on_both_moves(
+    db_session, test_project_id
+) -> None:
+    seeded = await _seed_story_and_writing(db_session, test_project_id)
+    draft = seeded["drafts"][1]
+    nid = uuid.UUID(test_project_id)
+    check = WritingConflictCheck(
+        novel_id=nid,
+        chapter_index=1,
+        draft_id=draft.id,
+        version_number=draft.version_number,
+        scope={"chapter_index": 1, "content_hash": draft.content_hash},
+        status="completed",
+        summary_json={},
+    )
+    db_session.add(check)
+    await db_session.flush()
+    db_session.add(
+        WritingConflictItem(
+            novel_id=nid,
+            check_id=check.id,
+            kind="required_missing",
+            severity="high",
+            source_module="outline",
+            evidence_summary="需补充旧船线索",
+            status="open",
+        )
+    )
+    first_confirmation = await confirm_context(
+        db_session,
+        ContextConfirmationRequest(
+            novel_id=test_project_id,
+            action="writing.generate",
+            task="根据当前正文继续写作",
+            scope="chapter",
+            chapter_index=1,
+        ),
+    )
+    await attach_result_ref(
+        db_session,
+        novel_id=test_project_id,
+        confirmation_id=first_confirmation.id,
+        result_type="writing_draft",
+        result_id=str(draft.id),
+        status="adopted",
+    )
+    service = WritingChapterOrderService()
+    with container_scope(
+        {
+            "story.chapter_order": StoryChapterOrderService(),
+            "story.invalidate_world_progression_for_reorder": (
+                lambda _db, *, novel_id: _noop_invalidation(novel_id)
+            ),
+        }
+    ):
+        preview = await service.preview(
+            db_session,
+            test_project_id,
+            ChapterOrderPreviewRequest(chapter_indices=[3, 1, 2]),
+        )
+        await service.confirm(
+            db_session,
+            test_project_id,
+            str(preview.receipt_id),
+            expected_preview_hash=preview.preview_hash,
+            confirmed=True,
+        )
+        await db_session.refresh(check)
+        assert check.chapter_index == 2
+        assert check.scope["chapter_index"] == 1
+        assert (
+            await WritingConflictCheckRepository().build_latest_snapshot(
+                db_session, novel_id=nid, chapter_index=2, scene_id=None
+            )
+            is None
+        )
+        attention = await WritingConflictCheckService().get_author_attention_items(
+            db_session, test_project_id
+        )
+        assert any(item.key == f"writing:recheck:{check.id}" for item in attention)
+        stored = await require_confirmation(
+            db_session,
+            novel_id=test_project_id,
+            action="writing.generate",
+            confirmation_id=first_confirmation.id,
+        )
+        assert stored.result_status == "stale_context"
+        assert "chapter_order_changed" in stored.stale_reasons
+        states = list(
+            (
+                await db_session.scalars(
+                    select(RagIndexState).where(RagIndexState.novel_id == nid)
+                )
+            ).all()
+        )
+        assert {(row.chapter_index, row.content_mode) for row in states} == {
+            (chapter, mode)
+            for chapter in (1, 2, 3)
+            for mode in ("working", "canonical")
+        }
+        assert all(row.status == "pending" for row in states)
+        assert all(row.active_task_id is not None for row in states)
+        index_tasks = list(
+            (
+                await db_session.scalars(
+                    select(AsyncTask).where(
+                        AsyncTask.novel_id == nid,
+                        AsyncTask.task_type == "rag_index_chapter",
+                    ))
+            ).all()
+        )
+        assert len(index_tasks) == 6
+        assert all(task.status == "pending" for task in index_tasks)
+
+        second_confirmation = await confirm_context(
+            db_session,
+            ContextConfirmationRequest(
+                novel_id=test_project_id,
+                action="writing.generate",
+                task="根据重排后的正文继续写作",
+                scope="chapter",
+                chapter_index=2,
+            ),
+        )
+        await attach_result_ref(
+            db_session,
+            novel_id=test_project_id,
+            confirmation_id=second_confirmation.id,
+            result_type="writing_draft",
+            result_id=str(draft.id),
+            status="adopted",
+        )
+        restore_preview = await service.preview_restore(
+            db_session, test_project_id, str(preview.receipt_id)
+        )
+        assert restore_preview.can_restore
+        await service.restore(
+            db_session,
+            test_project_id,
+            str(preview.receipt_id),
+            expected_preview_hash=restore_preview.restore_preview_hash,
+            confirmed=True,
+        )
+        await db_session.refresh(check)
+        assert check.chapter_index == 1
+        assert check.scope["chapter_index"] == 1
+        assert (
+            await WritingConflictCheckRepository().build_latest_snapshot(
+                db_session, novel_id=nid, chapter_index=1, scene_id=None
+            )
+            is not None
+        )
+        stored = await require_confirmation(
+            db_session,
+            novel_id=test_project_id,
+            action="writing.generate",
+            confirmation_id=second_confirmation.id,
+        )
+        assert stored.result_status == "stale_context"
+        assert "chapter_order_changed" in stored.stale_reasons
+        states = list(
+            (
+                await db_session.scalars(
+                    select(RagIndexState).where(RagIndexState.novel_id == nid)
+                )
+            ).all()
+        )
+        assert all(row.status == "pending" for row in states)
+        assert {
+            row.content_mode: row.requested_source_id
+            for row in states
+            if row.chapter_index == 1
+        } == {"working": draft.id, "canonical": None}
+
+
+async def _noop_invalidation(_novel_id: str) -> None:
+    return None
+
+
+@pytest.mark.asyncio
 async def test_chapter_reorder_preview_blocks_unlisted_versions_and_hash_drift(
     db_session, test_project_id
 ) -> None:
@@ -652,10 +844,85 @@ async def test_chapter_reorder_restore_refuses_to_overwrite_later_draft_edit(
 
 
 @pytest.mark.asyncio
+async def test_chapter_reorder_restore_revalidates_new_unbound_check(
+    db_session, test_project_id
+) -> None:
+    await _seed_story_and_writing(db_session, test_project_id)
+    service = WritingChapterOrderService()
+    with container_scope(
+        {
+            "story.chapter_order": StoryChapterOrderService(),
+            "story.invalidate_world_progression_for_reorder": (
+                lambda _db, *, novel_id: _noop_invalidation(novel_id)
+            ),
+        }
+    ):
+        preview = await service.preview(
+            db_session,
+            test_project_id,
+            ChapterOrderPreviewRequest(chapter_indices=[3, 1, 2]),
+        )
+        await service.confirm(
+            db_session,
+            test_project_id,
+            str(preview.receipt_id),
+            expected_preview_hash=preview.preview_hash,
+            confirmed=True,
+        )
+        db_session.add(
+            WritingConflictCheck(
+                novel_id=uuid.UUID(test_project_id),
+                chapter_index=2,
+                scope={"chapter_index": 2},
+                status="completed",
+                summary_json={},
+            )
+        )
+        await db_session.flush()
+        restore_preview = await service.preview_restore(
+            db_session, test_project_id, str(preview.receipt_id)
+        )
+        assert not restore_preview.can_restore
+        assert any(
+            item["kind"] == "writing_source_changed"
+            for item in restore_preview.blockers
+        )
+
+
+@pytest.mark.asyncio
 async def test_chapter_reorder_rolls_back_when_invalidation_fails(
     db_session, test_project_id
 ) -> None:
     seeded = await _seed_story_and_writing(db_session, test_project_id)
+    draft = seeded["drafts"][1]
+    check = WritingConflictCheck(
+        novel_id=uuid.UUID(test_project_id),
+        chapter_index=1,
+        draft_id=draft.id,
+        version_number=draft.version_number,
+        scope={"chapter_index": 1, "content_hash": draft.content_hash},
+        status="completed",
+        summary_json={},
+    )
+    db_session.add(check)
+    confirmation = await confirm_context(
+        db_session,
+        ContextConfirmationRequest(
+            novel_id=test_project_id,
+            action="writing.generate",
+            task="继续当前章节",
+            scope="chapter",
+            chapter_index=1,
+        ),
+    )
+    await attach_result_ref(
+        db_session,
+        novel_id=test_project_id,
+        confirmation_id=confirmation.id,
+        result_type="writing_draft",
+        result_id=str(draft.id),
+        status="adopted",
+    )
     service = WritingChapterOrderService()
     preview = await service.preview(
         db_session,
@@ -697,3 +964,28 @@ async def test_chapter_reorder_rolls_back_when_invalidation_fails(
     )
     operation = await db_session.get(WritingChapterOrderOperation, preview.receipt_id)
     assert operation is not None and operation.status == "previewed"
+    await db_session.refresh(check)
+    assert check.chapter_index == 1
+    stored = await require_confirmation(
+        db_session,
+        novel_id=test_project_id,
+        action="writing.generate",
+        confirmation_id=confirmation.id,
+    )
+    assert stored.result_status == "adopted"
+    assert stored.stale_reasons == []
+    assert (
+        await db_session.scalars(
+            select(RagIndexState).where(
+                RagIndexState.novel_id == uuid.UUID(test_project_id)
+            )
+        )
+    ).all() == []
+    assert (
+        await db_session.scalars(
+            select(AsyncTask).where(
+                AsyncTask.novel_id == uuid.UUID(test_project_id),
+                AsyncTask.task_type == "rag_index_chapter",
+            )
+        )
+    ).all() == []
