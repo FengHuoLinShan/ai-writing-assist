@@ -91,6 +91,43 @@ it("只读取 Scene 明确的 UUID 关联，按每批 16 个调用作者管理 E
   wrapper.unmount()
 })
 
+it("对象与有效期没有可读名称时使用友好说明，并显示可用的边界名称", async () => {
+  const entityId = id(91)
+  const objectDossierBrief = vi.fn(async (payload) => briefResponse(payload.entity_ids, {
+    world_items: [{
+      kind: "world_dossier", entity_id: entityId, entity_type: "character",
+      entry_id: "entry-a", revision_id: "revision-a", content: "一份档案",
+      visibility: "public",
+      validity: {
+        start: { kind: "scene", id: "scene-private-id", title: "旧港重逢" },
+        end: { kind: "chapter", id: "chapter-private-id" },
+      },
+      source_refs: [],
+    }],
+  }))
+  setBridgeOverrides({
+    api: {
+      world: {
+        getEntity: vi.fn(async () => ({ id: entityId, entity_type: "character" })),
+        getEntityDossierTemplate: vi.fn(async () => ({ profile_type: "character", version_number: 1, state_fields: [] })),
+      },
+      context: { objectDossierBrief },
+    },
+  })
+  const wrapper = mountPanel({ scene: scene("scene-a", [entityId]) })
+  await flushPromises()
+  expect(wrapper.text()).toContain("未命名对象")
+  await wrapper.get(".object-dossier__selection input").setValue(true)
+  await wrapper.get(".object-dossier__header button").trigger("click")
+  await flushPromises()
+
+  expect(wrapper.text()).toContain("生效：旧港重逢 — 章节名称暂不可用")
+  expect(wrapper.text()).not.toContain(entityId)
+  expect(wrapper.text()).not.toContain("scene-private-id")
+  expect(wrapper.text()).not.toContain("chapter-private-id")
+  wrapper.unmount()
+})
+
 it("Scene 关联超过单批上限时继续分批；单批失败显示 unknown 占位", async () => {
   const entityIds = Array.from({ length: 17 }, (_, index) => id(index + 20))
   const objectDossierBrief = vi.fn()

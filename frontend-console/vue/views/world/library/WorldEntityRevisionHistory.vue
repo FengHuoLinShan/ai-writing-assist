@@ -259,9 +259,9 @@ function currentAliasDetails() {
 function aliasValidityLabel(validity) {
   if (!validity) return "全书有效"
   const label = (anchor) => {
-    if (!anchor?.id) return ""
-    const prefix = anchor.kind === "scene" ? "场景" : "章节"
-    return `${prefix} ${String(anchor.id).slice(0, 8)}`
+    if (!anchor) return ""
+    const name = anchor.label || anchor.title || anchor.name
+    return name || (anchor.kind === "scene" ? "场景名称暂不可用" : "章节名称暂不可用")
   }
   return `${label(validity.start) || "全书起始"} — ${label(validity.end) || "持续至今"}`
 }

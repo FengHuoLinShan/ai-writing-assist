@@ -32,8 +32,9 @@ const equal = (a, b) => {
 }
 const featureKinds = { location: '地点', landmark: '地标', road: '道路', river: '河流', area: '区域' }
 const modalityLabels = { event_observed: '已观察事件', character_statement: '人物说法', belief: '人物认知', hypothesis: '待核实理解', figurative: '修辞', author_plan: '作者计划', unclear: '尚不明确' }
-const pinnedType = (ref, revision) => ref ? `词条 ${ref} · 修订 ${revision}` : '未关联类型'
-const validityLabel = value => value ? [value.start ? `从${value.start.kind === 'scene' ? '场景' : '章节'} ${value.start.id} 开始` : '', value.end ? `至${value.end.kind === 'scene' ? '场景' : '章节'} ${value.end.id} 结束` : ''].filter(Boolean).join('；') : '全书有效'
+const pinnedType = ref => ref ? '项目类型（修订已固定）' : '未关联类型'
+const validityAnchor = anchor => anchor.label || anchor.title || anchor.name || (anchor.kind === 'scene' ? '该场景（名称暂不可用）' : '该章节（名称暂不可用）')
+const validityLabel = value => value ? [value.start ? `从${validityAnchor(value.start)}开始` : '', value.end ? `至${validityAnchor(value.end)}结束` : ''].filter(Boolean).join('；') : '全书有效'
 const quantityLabel = value => value ? `${value.minimum ?? '未定'}—${value.maximum ?? '未定'} ${value.unit}` : '没有声明'
 export const mapFeatureCenter = feature => feature?.points?.length ? feature.points.reduce((sum, p) => ({ x: sum.x + p.x / feature.points.length, y: sum.y + p.y / feature.points.length }), { x: 0, y: 0 }) : null
 
@@ -80,7 +81,7 @@ export function mapChangeDetails(before, after) {
         add('target_node_id', '子图', value => value ? '已关联子图' : '没有子图')
         add('reader_from_chapter', '阅读展示', chapter)
         add('depends_on', '依赖地点', values => (values || []).map(name).join('、') || '无')
-        add('space_id', '所属空间', value => [...(before.spaces || []), ...(after.spaces || [])].find(space => space.id === (value || 'main'))?.label || value || '主空间')
+        add('space_id', '所属空间', value => [...(before.spaces || []), ...(after.spaces || [])].find(space => space.id === (value || 'main'))?.label || (value ? '未命名空间' : '主空间'))
       } else if (category === 'constraint') {
         add('relation', '关系', value => mapRelationLabels[value] || '空间关系')
         add('subject', '起点', name); add('target', '目标', name)

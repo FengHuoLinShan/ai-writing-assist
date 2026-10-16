@@ -42,7 +42,7 @@
           <label v-for="choice in group.items" :key="choice.id" class="object-dossier__choice">
             <input v-model="choice.selected" type="checkbox" :disabled="!choice.entity || loadingBrief">
             <span class="object-dossier__choice-main">
-              <strong>{{ choice.entity?.name || choice.entity?.title || `对象 ${shortId(choice.id)}` }}</strong>
+              <strong>{{ objectLabel(choice) }}</strong>
               <small>{{ choice.linkLabels.join("、") }} · {{ choice.entity ? typeLabel(choice.entity.entity_type) : "关联对象暂不可读" }}</small>
             </span>
             <button
@@ -80,7 +80,7 @@
           <article v-for="choice in group.items" :key="choice.id" class="object-dossier__card">
             <header class="object-dossier__card-header">
               <div>
-                <h5>{{ choice.entity?.name || choice.entity?.title || `对象 ${shortId(choice.id)}` }}</h5>
+                <h5>{{ objectLabel(choice) }}</h5>
                 <p>{{ typeLabel(choice.entity?.entity_type) }} · {{ choice.linkLabels.join("、") }}</p>
               </div>
                 <span class="object-dossier__coverage" :data-coverage='reportFor(choice.id)?.coverage || "unknown"'>
@@ -507,7 +507,10 @@ function coverageLabel(value) { return ({ complete: "范围完整", partial: "�
 function layerLabel(value) { return ({ world: "稳定设定", continuity: "时点状态", evolution: "演化倾向" })[value] || value }
 function layerName(value) { return ({ fact: "事实", belief: "人物认知", observation: "观察" })[value] || value || "层级未知" }
 function typeLabel(value) { return ({ character: "人物", location: "地点", item: "物件", faction: "势力", organization: "组织", rule: "规则", secret: "秘密" })[value] || value || "对象类型未知" }
-function shortId(value) { return String(value || "").slice(0, 8) }
+function objectLabel(choice) {
+  if (!choice.entity) return "关联对象暂不可读"
+  return choice.entity.name || choice.entity.title || "未命名对象"
+}
 function displayValue(value) {
   if (value == null || value === "") return ""
   return typeof value === "string" ? value : JSON.stringify(value)
@@ -517,7 +520,11 @@ function worldItemLabel(item) {
     || (item.kind === "legacy_profile_field" ? "旧档案字段" : "档案条目")
 }
 function validityLabel(validity) {
-  const anchor = (value) => value ? `${value.kind === "scene" ? "Scene" : "章节"} ${shortId(value.id)}` : "全书"
+  const anchor = (value) => {
+    if (!value) return "全书"
+    const label = value.label || value.title || value.name
+    return label || (value.kind === "scene" ? "场景名称暂不可用" : "章节名称暂不可用")
+  }
   return `生效：${anchor(validity.start)} — ${anchor(validity.end)}`
 }
 function sourceLabel(value) {

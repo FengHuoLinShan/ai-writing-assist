@@ -40,7 +40,7 @@
       <p v-if="!trialCheckPending.preview" role="status">正在准备授权资料与预算…</p>
       <template v-if="trialCheckPending.preview">
         <p>本次固定 {{ trialCheckPending.preview.selected_material_count }} 项已授权资料；资料正文估算约 {{ Number(trialCheckPending.preview.estimated_selected_material_tokens || 0).toLocaleString() }} tokens（不含检查提示词）。资料指纹：{{ trialCheckPending.preview.manifest_fingerprint.slice(0, 12) }}…</p>
-        <p>累计已用 {{ trialCheckPending.preview.case_requests_used }} / {{ trialCheckPending.preview.case_request_limit }} 次；本轮最多 {{ trialCheckPending.preview.run_request_limit }} 次，至少预留 {{ trialCheckPending.preview.minimum_requests_required }} 次。Task root {{ trialCheckPending.preview.task_root_capability_id }}，上限 {{ trialCheckPending.preview.task_request_limit }} 次，截止 {{ trialCheckPending.preview.task_deadline_seconds }} 秒；恢复沿用原运行额度。可能产生模型费用。</p>
+        <p>累计已用 {{ trialCheckPending.preview.case_requests_used }} / {{ trialCheckPending.preview.case_request_limit }} 次；本轮最多 {{ trialCheckPending.preview.run_request_limit }} 次，至少预留 {{ trialCheckPending.preview.minimum_requests_required }} 次。本次复核任务上限 {{ trialCheckPending.preview.task_request_limit }} 次，截止 {{ trialCheckPending.preview.task_deadline_seconds }} 秒；恢复沿用原运行额度。可能产生模型费用。</p>
         <p>{{ trialCheckPending.preview.provider }} · {{ trialCheckPending.preview.model }}；复核连接 {{ Object.keys(trialCheckPending.preview.role_snapshot_fingerprints || {}).join('、') || '当前默认连接' }}。准备阶段未创建运行、未排队、未调用模型。</p>
         <div class="creative-actions">
           <button v-if="!trialCheckPending.attempted" class="btn btn-primary" type="button" :disabled="busy || running || dirty" @click="confirmTrialCheck">单独确认并开始模型检查</button>

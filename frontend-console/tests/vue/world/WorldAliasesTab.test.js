@@ -126,6 +126,32 @@ describe("渲染", () => {
     expect(wrapper.find(".world-canonical-diagnostics").text()).toContain("750d04f2-private-workflow")
   })
 
+  it("作者有效期使用可用场景名，缺失时不显示原始标识", () => {
+    const wrapper = mountTab({
+      aliases: [
+        {
+          ...ALIASES[0],
+          validity: {
+            start: { kind: "scene", id: "scene-private-id", title: "旧港重逢" },
+            end: { kind: "chapter", id: "chapter-private-id" },
+          },
+        },
+        {
+          ...ALIASES[2],
+          validity: { start: { kind: "scene", id: "scene-unnamed-id" }, end: null },
+        },
+      ],
+      aliasesTotal: 2,
+    })
+
+    const text = wrapper.text()
+    expect(text).toContain("旧港重逢 — 章节名称暂不可用")
+    expect(text).toContain("场景名称暂不可用 — 持续至今")
+    expect(text).not.toContain("scene-private-id")
+    expect(text).not.toContain("chapter-private-id")
+    expect(text).not.toContain("scene-unnamed-id")
+  })
+
   it("删除按钮携带 data-entity-id 和 data-alias", () => {
     const wrapper = mountTab()
     const deleteBtn = wrapper.find('tr[data-id="e1::小名"] [data-action="delete-alias"]')

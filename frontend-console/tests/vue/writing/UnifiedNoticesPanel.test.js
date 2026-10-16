@@ -25,6 +25,30 @@ const mountPanel = (overrides = {}) => mount(UnifiedNoticesPanel, {
   props: { projectId: "project-1", sceneId: "scene-1", chapterIndex: 3, ...overrides },
 })
 
+it("真实挂载时为过期依据显示提示", async () => {
+  setBridgeOverrides({ api: { assistant: {
+    unifiedNotices: vi.fn().mockResolvedValue({
+      items: [notice({ stale: true }), notice({
+        notice_key: "writing.conflict:current",
+        summary: "当前依据仍有效。",
+        stale: false,
+      })],
+      unavailable_sources: [],
+      muted_categories: [],
+      partial: false,
+    }),
+  } } })
+  const wrapper = mountPanel()
+  await flushPromises()
+
+  const items = wrapper.findAll(".unified-notices__item")
+  const staleItem = items.find((item) => item.find(".unified-notices__summary").text() === "人物行动顺序需要核对。")
+  const currentItem = items.find((item) => item.find(".unified-notices__summary").text() === "当前依据仍有效。")
+  expect(staleItem.find(".unified-notices__stale").text()).toBe("依据已变化")
+  expect(currentItem.find(".unified-notices__stale").exists()).toBe(false)
+  wrapper.unmount()
+})
+
 it("按来源和类别呈现优先级、失败占位及本地未保存说明", async () => {
   const unifiedNotices = vi.fn().mockResolvedValue({
     items: [notice({ stale: false }), notice({
