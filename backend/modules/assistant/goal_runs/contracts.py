@@ -113,6 +113,11 @@ class GoalStepApproval(GoalModel):
     approve: bool = True
 
 
+class GoalOutcomeReconciliation(GoalModel):
+    expected_revision: int = Field(ge=1)
+    decision: Literal["applied", "not_applied", "still_unknown"]
+
+
 class GoalResume(GoalModel):
     expected_revision: int = Field(ge=1)
     budget: GoalBudget

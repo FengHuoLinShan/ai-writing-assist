@@ -10,6 +10,7 @@ from modules.account.facade import current_account_id
 from modules.assistant.goal_runs import service
 from modules.assistant.goal_runs.contracts import (
     GoalAction,
+    GoalOutcomeReconciliation,
     GoalPlanApproval,
     GoalReplanRequest,
     GoalResume,
@@ -119,6 +120,23 @@ async def approve_goal_step(
         raise ValidationError("步骤标识与请求路径不一致")
     return await service.approve_goal_step(
         db, str(novel_id), str(run_id), data, _owner_id()
+    )
+
+
+@router.post(
+    "/{run_id}/steps/{step_id}/reconcile",
+    openapi_extra={"x-novelcraft-operation-exemption": _ORCHESTRATION_EXEMPTION},
+)
+async def reconcile_goal_step(
+    db: DbSession,
+    run_id: UUID,
+    step_id: str,
+    data: GoalOutcomeReconciliation,
+    novel_id: UUID = Query(...),
+):
+    await require_active_project(db, str(novel_id), allow_demo_readonly=False)
+    return await service.reconcile_goal_step(
+        db, str(novel_id), str(run_id), step_id, data, _owner_id()
     )
 
 

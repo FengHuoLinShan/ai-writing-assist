@@ -105,6 +105,12 @@
             </dl>
             <button v-if="step.can_confirm" type="button" class="goal-runs-button" :disabled="busy" @click="approveStep(step, true)">确认并执行这一步</button>
             <button v-if="step.can_confirm" type="button" class="goal-runs-link" :disabled="busy" @click="approveStep(step, false)">暂不采用这一步</button>
+            <div v-if="step.can_reconcile" class="goal-runs-reconciliation">
+              <p>请先到原工作台核对这一步。提交后，系统会重新读取原领域回执；没有明确证据时仍会阻断，不会重放操作或重置已用额度。</p>
+              <button type="button" class="goal-runs-button" :disabled="busy" @click="reconcileStep(step, 'applied')">我已核对，原操作已完成</button>
+              <button type="button" class="goal-runs-link" :disabled="busy" @click="reconcileStep(step, 'not_applied')">我已核对，原操作未执行</button>
+              <button type="button" class="goal-runs-link" :disabled="busy" @click="reconcileStep(step, 'still_unknown')">仍无法确认</button>
+            </div>
           </li>
         </ol>
       </section>
@@ -627,6 +633,14 @@ function approveStep(step, approve) {
     approve,
   }
   return runAction((projectId, id, payload) => api().approveGoalStep(projectId, id, step.step_id, payload), body)
+}
+
+function reconcileStep(step, decision) {
+  if (!goal.value) return
+  return runAction((projectId, id, payload) => api().reconcileGoalStep(projectId, id, step.step_id, payload), {
+    expected_revision: goal.value.revision,
+    decision,
+  }, { preservePlan: true })
 }
 
 function advanceGoal() {

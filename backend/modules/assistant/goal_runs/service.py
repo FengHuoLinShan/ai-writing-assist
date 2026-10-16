@@ -58,6 +58,7 @@ from modules.assistant.goal_runs.contracts import (
     GoalAction,
     GoalBudget,
     GoalOperationSelection,
+    GoalOutcomeReconciliation,
     GoalPlan,
     GoalPlanApproval,
     GoalReference,
@@ -1841,9 +1842,12 @@ _STOP_LABELS = {
     "planning_failed": "计划暂未生成；可在剩余额度内重新规划。",
     "planning_scope_too_large": "目标范围或预算不足；请缩小范围或增加预算后新建。",
     "unknown_charge": "请求回执未知；请先核对原回执，系统不会自动重试。",
+    "task_outcome_unknown": "原领域回执未知；核对前保持阻断，不会自动重试。",
     "budget_80": "已接近预算门槛；请核对剩余步骤和计划预算。",
     "deadline": "目标时限已到；请结束本次运行或重新开始。",
     "step_approval": "这一步需要单独确认。",
+    "step_receipt_applied": "原领域回执已核实；可继续已批准的后续步骤。",
+    "step_receipt_not_applied": "原领域回执已核实未执行；可按剩余预算重新规划或结束。",
     "step_limit": "本次推进已到单次上限；可以从已保存步骤继续。",
     "scope_expanded": "重规划扩大了批准范围；请核对变更并再次审批。",
     "catalog_changed": "操作目录已变化；请重新规划并再次审批。",
@@ -2055,7 +2059,11 @@ def _step_view(
         "fields": _parameter_fields(schema, params),
         "can_confirm": status == "prepared"
         and (operation is None or operation.risk_level in {"R2", "R3"}),
-        "can_auto_restore": step.operation_id in R2_RESTORE_OPERATIONS,
+        "can_reconcile": status == "outcome_unknown",
+        "can_auto_restore": operation is not None
+        and operation.risk_level == "R2"
+        and step.operation_id in R2_RESTORE_OPERATIONS
+        and _r2_restore_is_supported(step, operation, params),
     }
 
 
@@ -2165,7 +2173,15 @@ async def goal_view(
             and not usage.get("requests_unknown")
             and usage.get("charge_state") != AIChargeState.possible.value
         ),
-        "can_advance": (run.status == "waiting_approval" and stop_code == "step_limit"),
+        "can_advance": run.status == "waiting_approval"
+        and (
+            stop_code == "step_limit"
+            or (
+                stop_code == "step_receipt_applied"
+                and usage_snapshot.charge_state is not AIChargeState.possible
+                and not usage_snapshot.requests_unknown
+            )
+        ),
         "can_pause": run.status in {"pending", "running"}
         and bool(goal.get("approved_scope")),
         "can_replan": can_replan,
@@ -3428,7 +3444,11 @@ async def advance_goal(
             return await goal_view(db, run, owner_id=owner_id)
         if run.status == "waiting_approval" and not (
             goal.get("phase") == "executing"
-            or (goal.get("phase") == "stopped" and goal.get("stop_code") == "step_limit")
+            or (
+                goal.get("phase") == "stopped"
+                and goal.get("stop_code")
+                in {"step_limit", "step_receipt_applied"}
+            )
         ):
             raise ConflictError("当前目标正在等待计划或步骤确认")
         if goal.get("phase") == "paused":
@@ -3492,6 +3512,154 @@ async def approve_goal_step(
         goal["stop_reason"] = "步骤已确认，正在重新核对基线后执行"
         run = await _save_goal(db, run, goal, status="running")
         return await _advance_steps_locked(db, run, owner_id=owner_id)
+
+
+async def reconcile_goal_step(
+    db: AsyncSession,
+    novel_id: str,
+    run_id: str,
+    step_id: str,
+    data: GoalOutcomeReconciliation,
+    owner_id: str,
+) -> dict[str, Any]:
+    async with _goal_run_lock(db, run_id):
+        run = await _load_goal_run(db, novel_id, run_id, owner_id, lock=True)
+        goal = _goal_state(run)
+        if int(goal.get("revision") or 1) != data.expected_revision:
+            raise ConflictError("目标结果已更新，请刷新后再核对")
+        if run.status != "waiting_approval":
+            raise ConflictError("当前目标没有等待核对的步骤")
+        record = _step_records(goal).get(step_id)
+        if record is None or record.get("status") != "outcome_unknown":
+            raise ConflictError("该步骤没有待核对的未知结果")
+        plan = _validated_plan(goal)
+        step = next((item for item in plan.steps if item.step_id == step_id), None)
+        if step is None:
+            raise NotFoundError("目标步骤不存在")
+
+        reference = record.get("reference")
+        stable_operation_id = record.get("operation_id")
+        call_id = _goal_trace_call_id(run, goal, step_id)
+        if data.decision == "still_unknown":
+            record["reconciliation"] = {
+                "decision": data.decision,
+                "operation_id": stable_operation_id,
+                "call_id": call_id,
+                "receipt_fingerprint": digest(reference)
+                if isinstance(reference, Mapping)
+                else None,
+                "confirmed_by": owner_id,
+                "confirmed_at": datetime.now(UTC).isoformat(),
+            }
+            goal["phase"] = "stopped"
+            goal["stop_code"] = "task_outcome_unknown"
+            goal["stop_reason"] = "原领域回执仍无法确认；目标保持阻断且不会重放。"
+            run = await _save_goal(db, run, goal, status="waiting_approval")
+            return await goal_view(db, run, owner_id=owner_id)
+
+        task_type = TASK_OPERATION_TYPES.get(step.operation_id)
+        operation = _operation_registry().get(step.operation_id)
+        parameter_hash = record.get("parameter_fingerprint")
+        if (
+            operation is None
+            or operation.read_result is None
+            or task_type is None
+            or not isinstance(reference, Mapping)
+            or not isinstance(stable_operation_id, str)
+            or not isinstance(parameter_hash, str)
+            or stable_operation_id
+            != step_operation_id(str(run.id), step_id, parameter_hash)
+            or record.get("plan_step_fingerprint")
+            != digest(step.model_dump(mode="json"))
+            or reference.get("operation_id") != stable_operation_id
+            or reference.get("task_id") != stable_operation_id
+            or reference.get("task_type") != task_type
+            or reference.get("type") != task_type
+        ):
+            raise ConflictError("缺少与原步骤绑定的领域任务回执，仍须保持阻断")
+
+        try:
+            task = await _stable_task_for_step(
+                db, run, task_type, stable_operation_id
+            )
+        except ValueError as error:
+            raise ConflictError("原领域任务标识不可核实，目标仍保持阻断") from error
+        if task is None or task.status not in {"done", "failed", "cancelled"}:
+            raise ConflictError("原领域任务尚无可核实的终态回执")
+        try:
+            receipt = await operation.read_result(db, str(run.novel_id), dict(reference))
+        except Exception as error:
+            raise ConflictError("原领域回执暂时无法核实，目标仍保持阻断") from error
+        if (
+            not isinstance(receipt, dict)
+            or len(canonical(receipt).encode("utf-8")) > 512_000
+        ):
+            raise ConflictError("原领域回执格式不可核实，目标仍保持阻断")
+
+        receipt_status = receipt.get("status")
+        usage_snapshot = _envelope_from_run(run).snapshot()
+        usage_unknown = (
+            usage_snapshot.charge_state is AIChargeState.possible
+            or bool(usage_snapshot.requests_unknown)
+        )
+        if data.decision == "applied":
+            if task.status != "done" or receipt_status != "completed":
+                raise ConflictError("原领域回执没有证明该步骤已完成")
+            record.update(
+                {
+                    "status": "completed",
+                    "result": _json_copy(receipt),
+                    "read_result": _json_copy(receipt),
+                    "completed_at": datetime.now(UTC).isoformat(),
+                }
+            )
+            record.pop("stop_reason", None)
+            record.pop("stop_code", None)
+            if usage_unknown:
+                goal["stop_code"] = "unknown_charge"
+                goal["stop_reason"] = (
+                    "原领域回执已核实为已完成，但模型用量仍未知；目标保持阻断且不会返还用量。"
+                )
+            else:
+                goal["stop_code"] = "step_receipt_applied"
+                goal["stop_reason"] = "服务端已核实原领域回执；请检查后续步骤再继续。"
+        else:
+            terminal_statuses = {
+                "failed": {"failed", "not_applied"},
+                "cancelled": {"cancelled", "not_applied"},
+            }
+            if receipt_status not in terminal_statuses.get(task.status, set()):
+                raise ConflictError("原领域回执没有证明该步骤未应用")
+            record.update(
+                {
+                    "status": "failed",
+                    "read_result": _json_copy(receipt),
+                }
+            )
+            record.pop("result", None)
+            if usage_unknown:
+                goal["stop_code"] = "unknown_charge"
+                goal["stop_reason"] = (
+                    "原领域回执已核实为未应用，但模型用量仍未知；不能重规划或返还用量。"
+                )
+            else:
+                goal["stop_code"] = "step_receipt_not_applied"
+                goal["stop_reason"] = (
+                    "服务端已核实原领域回执没有应用；可在剩余预算内重新规划，"
+                    "系统不会重放原操作或返还未知用量。"
+                )
+
+        record["reconciliation"] = {
+            "decision": data.decision,
+            "operation_id": stable_operation_id,
+            "call_id": call_id,
+            "receipt_fingerprint": digest(receipt),
+            "confirmed_by": owner_id,
+            "confirmed_at": datetime.now(UTC).isoformat(),
+        }
+        goal["phase"] = "stopped"
+        run = await _save_goal(db, run, goal, status="waiting_approval")
+        return await goal_view(db, run, owner_id=owner_id)
 
 
 async def replan_goal(

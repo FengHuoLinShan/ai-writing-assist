@@ -131,6 +131,7 @@ function setupApi(overrides = {}) {
     startGoal: vi.fn(),
     approveGoal: vi.fn(),
     approveGoalStep: vi.fn(),
+    reconcileGoalStep: vi.fn(),
     advanceGoal: vi.fn(),
     pauseGoal: vi.fn(),
     resumeGoal: vi.fn(),
@@ -355,4 +356,46 @@ it("shows a confirmed R3 stop and keeps recovery options visible", async () => {
   expect(wrapper.text()).toContain("确认并执行这一步")
   expect(wrapper.text()).toContain("恢复可恢复的修改")
   expect(wrapper.text()).toContain("取消不会撤销已完成修改")
+})
+
+it("lets the author keep an unknown result blocked or confirm a checked receipt", async () => {
+  const unknown = goalView({
+    phase: "stopped",
+    stop_code: "task_outcome_unknown",
+    stop_reason: "原领域回执仍无法确认。",
+    can_approve_plan: false,
+    can_replan: false,
+    can_pause: false,
+    steps: [{
+      ...goalView().steps[0],
+      status: "outcome_unknown",
+      status_label: "结果待核对",
+      can_confirm: false,
+      can_reconcile: true,
+    }],
+  })
+  const stillUnknown = goalView({
+    ...unknown,
+    revision: 4,
+    steps: unknown.steps.map(step => ({ ...step, status: "outcome_unknown" })),
+  })
+  const api = setupApi({
+    recentGoals: vi.fn().mockResolvedValue([unknown]),
+    reconcileGoalStep: vi.fn().mockResolvedValue(stillUnknown),
+  })
+  const wrapper = await mountedPanel(api)
+
+  expect(wrapper.text()).toContain("原工作台核对这一步")
+  expect(wrapper.text()).toContain("不会重放操作或重置已用额度")
+  await wrapper.get(".goal-runs-reconciliation button:last-child").trigger("click")
+  await flushPromises()
+
+  expect(api.reconcileGoalStep).toHaveBeenCalledExactlyOnceWith(
+    "project-1",
+    "internal-run-id",
+    "internal-step-id",
+    { expected_revision: 3, decision: "still_unknown" },
+  )
+  expect(wrapper.text()).not.toContain("internal-run-id")
+  expect(wrapper.text()).not.toContain("internal-step-id")
 })

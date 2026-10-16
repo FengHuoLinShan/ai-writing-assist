@@ -8,21 +8,25 @@ from types import SimpleNamespace
 
 import pytest
 from pydantic import BaseModel
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.exc import IntegrityError
 
 from core.container import container_scope
-from core.errors import NotFoundError
+from core.errors import ConflictError, NotFoundError
+from infrastructure.tasks.models import AsyncTask
 from modules.account.facade import current_account_id
 from modules.assistant.contracts import AssistantOperation
 from modules.assistant.goal_runs.contracts import (
     GoalAction,
     GoalBudget,
     GoalOperationSelection,
+    GoalOutcomeReconciliation,
     GoalPlan,
     GoalPlanApproval,
+    GoalReplanRequest,
     GoalResume,
     GoalRunStart,
+    GoalStep,
     GoalStepApproval,
 )
 from modules.assistant.models import AssistantRun
@@ -248,6 +252,534 @@ async def _approve_goal_plan(
         ),
     )
     return service, prepared, approved
+
+
+async def _unknown_goal_step(
+    db,
+    novel_id: str,
+    owner_id: str,
+    monkeypatch,
+    *,
+    task_status="done",
+    receipt_status="incomplete",
+):
+    from modules.assistant.goal_runs import service
+
+    plan = GoalPlan(
+        title="核对原扫描回执",
+        steps=[
+            {
+                "step_id": "scan",
+                "operation_id": "project.scan_duplicates",
+                "parameters": {"query": "资料"},
+                "intent": "扫描已选资料",
+            }
+        ],
+    )
+    calls = []
+    applies = []
+    receipt = {
+        "value": {"status": receipt_status, "receipt_id": "domain-receipt"}
+    }
+
+    async def prepare(_db, _novel_id, _args, *, context=None):
+        return {"effect": "扫描资料"}
+
+    async def apply(*_args, **_kwargs):
+        applies.append(True)
+        return {"status": "unexpected_apply"}
+
+    async def read_result(_db, _novel_id, reference):
+        calls.append(dict(reference))
+        return receipt["value"]
+
+    operation = AssistantOperation(
+        label="扫描资料",
+        schema=ReadProject,
+        prepare=prepare,
+        apply=apply,
+        permission="confirm",
+        read_result=read_result,
+        risk_level="R3",
+        fee_category="free",
+        target_type="project",
+        transaction_mode="multi_stage",
+    )
+    _install_offline_goal_planner(monkeypatch, plan)
+    monkeypatch.setattr(
+        service,
+        "_operation_registry",
+        lambda: {"project.scan_duplicates": operation},
+    )
+    request = _start_request(uuid.UUID(novel_id))
+    request.budget.requests = 10
+    request.budget.possible_charge_requests = 10
+    prepared = await service.start_goal(db, request, owner_id)
+    approved = await service.approve_goal_plan(
+        db,
+        novel_id=novel_id,
+        run_id=prepared["run_id"],
+        owner_id=owner_id,
+        data=GoalPlanApproval(
+            expected_revision=prepared["revision"],
+            plan=plan,
+            budget=request.budget,
+            auto_r2=True,
+        ),
+    )
+    assert approved["phase"] == "step_review", (
+        approved.get("stop_code"), approved.get("stop_reason")
+    )
+    run = await service._load_goal_run(db, novel_id, prepared["run_id"], owner_id)
+    goal = service._goal_state(run)
+    step = plan.steps[0]
+    parameter_hash = service.parameter_fingerprint(operation, step.parameters)
+    stable_operation_id = service.step_operation_id(
+        str(run.id), step.step_id, parameter_hash
+    )
+    task_type = service.TASK_OPERATION_TYPES[step.operation_id]
+    reference = {
+        "type": task_type,
+        "task_id": stable_operation_id,
+        "task_type": task_type,
+        "operation_id": stable_operation_id,
+    }
+    db.add(
+        AsyncTask(
+            id=uuid.UUID(stable_operation_id),
+            novel_id=uuid.UUID(novel_id),
+            task_type=task_type,
+            status=task_status,
+            meta={"_parent_task_id": str(run.task_id)},
+            result={"status": receipt_status},
+        )
+    )
+    record = service._step_records(goal)[step.step_id]
+    record.update(
+        {
+            "status": "outcome_unknown",
+            "operation_id": stable_operation_id,
+            "parameter_fingerprint": parameter_hash,
+            "plan_step_fingerprint": service.digest(
+                step.model_dump(mode="json")
+            ),
+            "resolved_parameters": step.parameters,
+            "reference": reference,
+            "read_result": {"status": "incomplete"},
+        }
+    )
+    goal["phase"] = "stopped"
+    goal["stop_code"] = "task_outcome_unknown"
+    goal["stop_reason"] = "原领域任务结果仍未落定。"
+    run = await service._save_goal(db, run, goal, status="waiting_approval")
+    return (
+        service,
+        approved,
+        await service.goal_view(db, run, owner_id=owner_id),
+        operation,
+        calls,
+        applies,
+        receipt,
+    )
+
+
+@pytest.mark.asyncio
+async def test_goal_unknown_step_reconciliation_requires_bound_domain_receipt(
+    db_session, test_project_id, monkeypatch
+):
+    owner_id = str(current_account_id())
+    (
+        service,
+        _approved,
+        unknown,
+        _operation,
+        calls,
+        applies,
+        receipt,
+    ) = await _unknown_goal_step(
+        db_session, test_project_id, owner_id, monkeypatch
+    )
+    original_usage = unknown["budget"]["used"].copy()
+    assert unknown["steps"][0]["can_reconcile"] is True
+    assert unknown["can_replan"] is False
+
+    with pytest.raises(ConflictError, match="没有证明该步骤已完成"):
+        await service.reconcile_goal_step(
+            db_session,
+            test_project_id,
+            unknown["run_id"],
+            "scan",
+            GoalOutcomeReconciliation(
+                expected_revision=unknown["revision"], decision="applied"
+            ),
+            owner_id,
+        )
+
+    still_unknown = await service.get_goal(
+        db_session, test_project_id, unknown["run_id"], owner_id
+    )
+    assert still_unknown["steps"][0]["status"] == "outcome_unknown"
+    assert still_unknown["budget"]["used"] == original_usage
+
+    with pytest.raises(ConflictError, match="没有证明该步骤未应用"):
+        await service.reconcile_goal_step(
+            db_session,
+            test_project_id,
+            unknown["run_id"],
+            "scan",
+            GoalOutcomeReconciliation(
+                expected_revision=still_unknown["revision"],
+                decision="not_applied",
+            ),
+            owner_id,
+        )
+
+    receipt["value"] = {
+        "status": "completed",
+        "receipt_id": "domain-receipt",
+        "summary": "扫描完成",
+    }
+    resolved = await service.reconcile_goal_step(
+        db_session,
+        test_project_id,
+        unknown["run_id"],
+        "scan",
+        GoalOutcomeReconciliation(
+            expected_revision=still_unknown["revision"], decision="applied"
+        ),
+        owner_id,
+    )
+    assert resolved["steps"][0]["status"] == "completed"
+    assert resolved["steps"][0]["can_reconcile"] is False
+    assert resolved["stop_code"] == "step_receipt_applied"
+    assert resolved["can_advance"] is True
+    assert resolved["budget"]["used"] == original_usage
+    assert len(calls) == 3
+    assert calls[0] == calls[1] == calls[2]
+    run = await service._load_goal_run(
+        db_session, test_project_id, unknown["run_id"], owner_id
+    )
+    record = service._step_records(service._goal_state(run))["scan"]
+    assert record["reconciliation"]["call_id"] == service._goal_trace_call_id(
+        run, service._goal_state(run), "scan"
+    )
+    assert record["reconciliation"]["confirmed_by"] == owner_id
+    assert applies == []
+
+    completed = await service.advance_goal(
+        db_session,
+        test_project_id,
+        unknown["run_id"],
+        owner_id,
+        GoalAction(expected_revision=resolved["revision"]),
+    )
+    assert completed["status"] == "completed"
+    assert applies == []
+
+
+@pytest.mark.asyncio
+async def test_goal_not_applied_requires_terminal_receipt_and_keeps_unknown_usage(
+    db_session, test_project_id, monkeypatch
+):
+    from infrastructure.llm.schemas import AIRequestOutcome
+    from infrastructure.llm.workflow_budget import ai_run_scope, managed_step_scope
+
+    owner_id = str(current_account_id())
+    (
+        service,
+        _approved,
+        unknown,
+        _operation,
+        calls,
+        applies,
+        _receipt,
+    ) = await _unknown_goal_step(
+        db_session,
+        test_project_id,
+        owner_id,
+        monkeypatch,
+        task_status="failed",
+        receipt_status="not_applied",
+    )
+    run = await service._load_goal_run(
+        db_session, test_project_id, unknown["run_id"], owner_id
+    )
+    envelope = service._live_envelope(db_session, run)
+    context = service._managed_context(
+        _PlanningClient(_plan()),
+        step=service.GOAL_PLAN_STEP,
+        fingerprint="u" * 64,
+    )
+    with ai_run_scope(envelope), managed_step_scope(context):
+        reservation = await envelope.reserve()
+        await envelope.settle(reservation, outcome=AIRequestOutcome.unknown)
+
+    run = await service._load_goal_run(
+        db_session, test_project_id, unknown["run_id"], owner_id
+    )
+    before = await service.goal_view(db_session, run, owner_id=owner_id)
+    resolved = await service.reconcile_goal_step(
+        db_session,
+        test_project_id,
+        unknown["run_id"],
+        "scan",
+        GoalOutcomeReconciliation(
+            expected_revision=before["revision"], decision="not_applied"
+        ),
+        owner_id,
+    )
+    assert resolved["steps"][0]["status"] == "failed"
+    assert resolved["can_replan"] is False
+    assert resolved["stop_code"] == "unknown_charge"
+    assert resolved["budget"]["used"]["charge_state"] == "possible"
+    assert resolved["budget"]["used"]["requests"] == before["budget"]["used"]["requests"]
+    assert resolved["budget"]["used"]["requests"] == 3
+    assert len(calls) == 1
+    assert applies == []
+
+
+@pytest.mark.asyncio
+async def test_goal_verified_not_applied_allows_cumulative_replan_without_replay(
+    db_session, test_project_id, monkeypatch
+):
+    owner_id = str(current_account_id())
+    service, _approved, unknown, _operation, calls, applies, _receipt = (
+        await _unknown_goal_step(
+            db_session,
+            test_project_id,
+            owner_id,
+            monkeypatch,
+            task_status="failed",
+            receipt_status="not_applied",
+        )
+    )
+    before = unknown["budget"]["used"].copy()
+    resolved = await service.reconcile_goal_step(
+        db_session,
+        test_project_id,
+        unknown["run_id"],
+        "scan",
+        GoalOutcomeReconciliation(
+            expected_revision=unknown["revision"], decision="not_applied"
+        ),
+        owner_id,
+    )
+    assert resolved["steps"][0]["status"] == "failed"
+    assert resolved["can_replan"] is True
+    assert resolved["budget"]["used"] == before
+
+    replanned = await service.replan_goal(
+        db_session,
+        test_project_id,
+        unknown["run_id"],
+        GoalReplanRequest(
+            expected_revision=resolved["revision"], reason="按原预算重新安排剩余工作"
+        ),
+        owner_id,
+    )
+    assert replanned["phase"] in {"plan_review", "scope_expanded"}
+    assert replanned["budget"]["used"]["requests"] > before["requests"]
+    assert len(calls) == 1
+    assert applies == []
+
+
+@pytest.mark.asyncio
+async def test_goal_still_unknown_is_cas_protected_and_never_reads_or_replays(
+    db_session, test_project_id, monkeypatch
+):
+    owner_id = str(current_account_id())
+    service, _approved, unknown, _operation, calls, applies, _receipt = (
+        await _unknown_goal_step(
+            db_session,
+            test_project_id,
+            owner_id,
+            monkeypatch,
+            task_status="running",
+        )
+    )
+    kept = await service.reconcile_goal_step(
+        db_session,
+        test_project_id,
+        unknown["run_id"],
+        "scan",
+        GoalOutcomeReconciliation(
+            expected_revision=unknown["revision"], decision="still_unknown"
+        ),
+        owner_id,
+    )
+    assert kept["steps"][0]["status"] == "outcome_unknown"
+    assert kept["can_replan"] is False
+    assert calls == []
+    assert applies == []
+    with pytest.raises(ConflictError, match="目标结果已更新"):
+        await service.reconcile_goal_step(
+            db_session,
+            test_project_id,
+            unknown["run_id"],
+            "scan",
+            GoalOutcomeReconciliation(
+                expected_revision=unknown["revision"], decision="applied"
+            ),
+            owner_id,
+        )
+
+
+@pytest.mark.parametrize("risk_level", ["R2", "R3"])
+@pytest.mark.asyncio
+async def test_auto_r2_keeps_unrestorable_r2_and_r3_at_step_review(
+    db_session, test_project_id, monkeypatch, risk_level
+):
+    from core.service_keys import ASSISTANT_REQUIRE_OPERATION_TARGETS
+    from modules.assistant.goal_runs import service
+
+    plan = GoalPlan(
+        title="修改选定对象",
+        steps=[
+            {
+                "step_id": "edit",
+                "operation_id": "project.goal_test.edit",
+                "targets": [
+                    {"target_type": "artifact", "target_id": "artifact-1"}
+                ],
+                "parameters": {"target_id": "artifact-1", "value": "新值"},
+                "intent": "修改选定对象",
+            }
+        ],
+    )
+    apply_calls = []
+
+    async def apply(*_args, **_kwargs):
+        apply_calls.append(True)
+        return {"target_id": "artifact-1"}
+
+    operation = replace(_edit_operation(), risk_level=risk_level, apply=apply)
+
+    async def no_target_gate(*_args, **_kwargs):
+        return None
+
+    _install_offline_goal_planner(monkeypatch, plan)
+    monkeypatch.setattr(
+        service,
+        "_operation_registry",
+        lambda: {"project.goal_test.edit": operation},
+    )
+    owner_id = str(current_account_id())
+    request = _start_request(uuid.UUID(test_project_id))
+    with container_scope({ASSISTANT_REQUIRE_OPERATION_TARGETS: no_target_gate}):
+        proposed = await service.start_goal(db_session, request, owner_id)
+        tasks_before = await db_session.scalar(
+            select(func.count()).select_from(AsyncTask)
+        )
+        approved_result = await service.approve_goal_plan(
+            db_session,
+            novel_id=test_project_id,
+            run_id=proposed["run_id"],
+            owner_id=owner_id,
+            data=GoalPlanApproval(
+                expected_revision=proposed["revision"],
+                plan=plan,
+                budget=request.budget,
+                auto_r2=True,
+            ),
+        )
+    approved = (
+        approved_result
+        if isinstance(approved_result, dict)
+        else await service.goal_view(db_session, approved_result, owner_id=owner_id)
+    )
+    tasks_after = await db_session.scalar(
+        select(func.count()).select_from(AsyncTask)
+    )
+
+    assert approved["phase"] == "step_review", (
+        approved.get("stop_code"), approved.get("stop_reason")
+    )
+    assert approved["stop_code"] == "step_approval"
+    assert approved["steps"][0]["status"] == "prepared"
+    assert approved["steps"][0]["can_auto_restore"] is False
+    assert approved["budget"]["used"] == proposed["budget"]["used"]
+    assert apply_calls == []
+    assert tasks_after == tasks_before
+
+
+def test_r4_stays_unavailable_without_preparing_or_applying():
+    from modules.assistant.goal_runs import service
+
+    calls = []
+
+    async def prepare(*_args, **_kwargs):
+        calls.append("prepare")
+        return {}
+
+    async def apply(*_args, **_kwargs):
+        calls.append("apply")
+        return {}
+
+    operation = AssistantOperation(
+        label="需要独立授权的操作",
+        schema=EditArtifact,
+        prepare=prepare,
+        apply=apply,
+        risk_level="R4",
+        fee_category="free",
+    )
+    plan = GoalPlan(
+        title="需要独立授权",
+        steps=[
+            {
+                "step_id": "r4",
+                "operation_id": "project.goal_test.r4",
+                "parameters": {"target_id": "artifact-1", "value": "新值"},
+                "intent": "执行需要独立授权的操作",
+            }
+        ],
+    )
+    with pytest.raises(ConflictError, match="需在原工作台独立授权"):
+        service._assert_plan_operations_supported(
+            plan, {"project.goal_test.r4": operation}
+        )
+    assert calls == []
+    assert service._step_is_manual(plan.steps[0], operation, {"auto_r2": True}, {})
+
+
+def test_auto_r2_restore_catalog_requires_supported_fields_and_single_transaction():
+    from modules.assistant.goal_runs import service
+
+    operation = AssistantOperation(
+        label="更新待办",
+        schema=EditArtifact,
+        prepare=_preview_artifact_edit,
+        risk_level="R2",
+        transaction_mode="single_transaction",
+    )
+    supported = GoalStep(
+        step_id="task",
+        operation_id="project.update_task",
+        parameters={"changes": {"title": "新标题"}},
+        intent="更新待办标题",
+    )
+    unsupported = supported.model_copy(
+        update={"parameters": {"changes": {"status": "completed"}}}
+    )
+    assert service._r2_restore_is_supported(
+        supported, operation, supported.parameters
+    )
+    assert not service._r2_restore_is_supported(
+        unsupported, operation, unsupported.parameters
+    )
+    assert service._step_is_manual(
+        unsupported, operation, {"auto_r2": True}, unsupported.parameters
+    )
+
+    dossier = GoalStep(
+        step_id="dossier",
+        operation_id="world.dossier.entry.edit",
+        parameters={},
+        intent="编辑对象档案",
+    )
+    assert service._r2_restore_is_supported(dossier, operation, {})
+    multi_stage = replace(operation, transaction_mode="multi_stage")
+    assert not service._r2_restore_is_supported(dossier, multi_stage, {})
 
 
 @pytest.mark.asyncio
