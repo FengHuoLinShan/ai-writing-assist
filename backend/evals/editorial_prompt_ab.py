@@ -41,6 +41,7 @@ from modules.account.contracts import BOOTSTRAP_ACCOUNT_ID
 from modules.account.settings_service import SettingsService
 from modules.assistant.editorial_contracts import ReviewSubmit
 from modules.assistant.editorial_models import EditorialReview
+from modules.project.contracts import ProjectLLMConfigurationError
 from modules.project.editorial_brief import EditorialBrief
 from modules.project.facade import open_project_llm_client
 from modules.project.models import Project
@@ -1015,6 +1016,10 @@ async def run(output: Path, *, phase: str, candidate_sha: str) -> dict:
                         mapping_dir=mapping_dir,
                     )
                 except ProfileMismatchError:
+                    state["paused_reason"] = "profile_mismatch"
+                    _write_private_json(state_path, state)
+                    raise
+                except ProjectLLMConfigurationError:
                     state["paused_reason"] = "profile_mismatch"
                     _write_private_json(state_path, state)
                     raise
