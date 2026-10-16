@@ -2,13 +2,28 @@
 
 from __future__ import annotations
 
+from uuid import UUID
+
+from sqlalchemy import select
+
 from core.errors import ConflictError, NotFoundError
+from modules.story.models import CharacterArcPlanRevision
 
 from .schemas import (
     ArchiveArcPlanInput,
     ConfirmArcPlanInput,
     RestoreArcPlanInput,
 )
+
+
+async def _prior_revision(db, novel_id, character_id, operation_id):
+    return await db.scalar(
+        select(CharacterArcPlanRevision).where(
+            CharacterArcPlanRevision.novel_id == UUID(str(novel_id)),
+            CharacterArcPlanRevision.character_id == character_id,
+            CharacterArcPlanRevision.operation_id == operation_id,
+        )
+    )
 
 
 async def _preview_save(db, novel_id, args, *, context=None):
@@ -20,8 +35,8 @@ async def _preview_save(db, novel_id, args, *, context=None):
 async def _apply_save(db, novel_id, args, preview, *, context=None):
     if not args.preview_fingerprint:
         raise ConflictError("确认保存前需要提交预览指纹", code="PREVIEW_REQUIRED")
-    from .service import preview_plan_save, save_plan
     from .schemas import ArcPlanWriteInput
+    from .service import preview_plan_save, save_plan
 
     current = await preview_plan_save(db, novel_id, args)
     if current.model_dump(mode="json") != preview:
@@ -29,35 +44,40 @@ async def _apply_save(db, novel_id, args, preview, *, context=None):
     return await save_plan(
         db,
         novel_id,
-        ArcPlanWriteInput.model_validate(args.model_dump(exclude={"preview_fingerprint"})),
+        ArcPlanWriteInput.model_validate(
+            args.model_dump(exclude={"preview_fingerprint"})
+        ),
         args.preview_fingerprint,
     )
 
 
 async def _preview_restore(db, novel_id, args, *, context=None):
-    from .service import _head, _revision, _validated_plan_target
-    from .service import _owned_project
     from infrastructure.llm.collaboration import content_hash
 
-    await _owned_project(db, novel_id)
+    from .service import (
+        _assert_owner,
+        _head,
+        _owned_project,
+        _revision,
+        _validated_plan_target,
+    )
+
+    project = await _owned_project(db, novel_id)
     _scene, _character = await _validated_plan_target(
         db, novel_id, str(args.scene_id), str(args.character_id)
     )
     request_hash = content_hash(
-        [str(args.scene_id), str(args.character_id), str(args.revision_id), args.expected_version]
+        [
+            str(args.scene_id),
+            str(args.character_id),
+            str(args.revision_id),
+            args.expected_version,
+        ]
     )
-    from modules.story.models import CharacterArcPlanRevision
-    from sqlalchemy import select
-    from uuid import UUID
-
-    prior = await db.scalar(
-        select(CharacterArcPlanRevision).where(
-            CharacterArcPlanRevision.novel_id == UUID(str(novel_id)),
-            CharacterArcPlanRevision.character_id == args.character_id,
-            CharacterArcPlanRevision.operation_id == args.operation_id,
-        )
-    )
+    prior = await _prior_revision(db, novel_id, args.character_id, args.operation_id)
     if prior is not None:
+        if str(prior.owner_id) != str(project.owner_id):
+            raise NotFoundError("人物弧计划不可访问")
         if prior.request_hash != request_hash or prior.source != "author_restore":
             raise ConflictError("操作标识已用于另一份恢复请求", code="OPERATION_MISMATCH")
         base = await _revision(
@@ -76,11 +96,18 @@ async def _preview_restore(db, novel_id, args, *, context=None):
             "restore_revision_id": str(revision.id),
             "restore_hash": revision.content_hash,
             "fingerprint": content_hash(
-                [str(prior.head_id), version, str(base.id), str(revision.id), revision.content_hash]
+                [
+                    str(prior.head_id),
+                    version,
+                    str(base.id),
+                    str(revision.id),
+                    revision.content_hash,
+                ]
             ),
             "effect": "该恢复请求已成功写入；重试将返回原版本，不会新增修订。",
         }
     head = await _head(db, novel_id, str(args.character_id))
+    _assert_owner(head, project)
     if head is None or head.deleted_at is not None:
         raise NotFoundError("人物弧计划不存在或已归档")
     if head.version_number != args.expected_version:
@@ -95,7 +122,13 @@ async def _preview_restore(db, novel_id, args, *, context=None):
         "restore_revision_id": str(revision.id),
         "restore_hash": revision.content_hash,
         "fingerprint": content_hash(
-            [str(head.id), head.version_number, str(head.current_revision_id), str(revision.id), revision.content_hash]
+            [
+                str(head.id),
+                head.version_number,
+                str(head.current_revision_id),
+                str(revision.id),
+                revision.content_hash,
+            ]
         ),
         "effect": "从所选历史生成新的作者确认修订，保留完整版本历史。",
     }
@@ -113,14 +146,39 @@ async def _apply_restore(db, novel_id, args, preview, *, context=None):
 
 
 async def _preview_archive(db, novel_id, args, *, context=None):
-    from .service import _head, _owned_project, _validated_plan_target
     from infrastructure.llm.collaboration import content_hash
 
-    await _owned_project(db, novel_id)
+    from .service import _assert_owner, _head, _owned_project, _validated_plan_target
+
+    project = await _owned_project(db, novel_id)
     _scene, _character = await _validated_plan_target(
         db, novel_id, str(args.scene_id), str(args.character_id)
     )
+    request_hash = content_hash(
+        [str(args.scene_id), str(args.character_id), args.expected_version, "archive"]
+    )
+    prior = await _prior_revision(db, novel_id, args.character_id, args.operation_id)
+    if prior is not None:
+        if str(prior.owner_id) != str(project.owner_id):
+            raise NotFoundError("人物弧计划不可访问")
+        if prior.request_hash != request_hash or prior.source != "author_archive":
+            raise ConflictError(
+                "操作标识已用于另一项人物弧操作", code="OPERATION_MISMATCH"
+            )
+        if prior.base_revision_id is None:
+            raise NotFoundError("人物弧归档来源不可访问")
+        version = prior.version_number - 1
+        return {
+            "head_id": str(prior.head_id),
+            "version": version,
+            "current_revision_id": str(prior.base_revision_id),
+            "fingerprint": content_hash(
+                [str(prior.head_id), version, str(prior.base_revision_id)]
+            ),
+            "effect": "该归档请求已成功执行；重试将返回原结果。",
+        }
     head = await _head(db, novel_id, str(args.character_id))
+    _assert_owner(head, project)
     if head is None or head.deleted_at is not None:
         raise NotFoundError("人物弧计划不存在或已归档")
     if head.version_number != args.expected_version:
@@ -129,7 +187,9 @@ async def _preview_archive(db, novel_id, args, *, context=None):
         "head_id": str(head.id),
         "version": head.version_number,
         "current_revision_id": str(head.current_revision_id),
-        "fingerprint": content_hash([str(head.id), head.version_number, str(head.current_revision_id)]),
+        "fingerprint": content_hash(
+            [str(head.id), head.version_number, str(head.current_revision_id)]
+        ),
         "effect": "将计划移入项目内归档；历史修订保留，可由作者恢复。",
     }
 
@@ -146,14 +206,39 @@ async def _apply_archive(db, novel_id, args, preview, *, context=None):
 
 
 async def _preview_unarchive(db, novel_id, args, *, context=None):
-    from .service import _head, _owned_project, _validated_plan_target
     from infrastructure.llm.collaboration import content_hash
 
-    await _owned_project(db, novel_id)
+    from .service import _assert_owner, _head, _owned_project, _validated_plan_target
+
+    project = await _owned_project(db, novel_id)
     _scene, _character = await _validated_plan_target(
         db, novel_id, str(args.scene_id), str(args.character_id)
     )
+    request_hash = content_hash(
+        [str(args.scene_id), str(args.character_id), args.expected_version, "unarchive"]
+    )
+    prior = await _prior_revision(db, novel_id, args.character_id, args.operation_id)
+    if prior is not None:
+        if str(prior.owner_id) != str(project.owner_id):
+            raise NotFoundError("人物弧计划不可访问")
+        if prior.request_hash != request_hash or prior.source != "author_unarchive":
+            raise ConflictError(
+                "操作标识已用于另一项人物弧操作", code="OPERATION_MISMATCH"
+            )
+        if prior.base_revision_id is None:
+            raise NotFoundError("人物弧恢复来源不可访问")
+        version = prior.version_number - 1
+        return {
+            "head_id": str(prior.head_id),
+            "version": version,
+            "current_revision_id": str(prior.base_revision_id),
+            "fingerprint": content_hash(
+                [str(prior.head_id), version, str(prior.base_revision_id), "restore"]
+            ),
+            "effect": "该恢复请求已成功执行；重试将返回原结果。",
+        }
     head = await _head(db, novel_id, str(args.character_id))
+    _assert_owner(head, project)
     if head is None or head.deleted_at is None:
         raise NotFoundError("已归档人物弧计划不存在")
     if head.version_number != args.expected_version:
@@ -162,7 +247,9 @@ async def _preview_unarchive(db, novel_id, args, *, context=None):
         "head_id": str(head.id),
         "version": head.version_number,
         "current_revision_id": str(head.current_revision_id),
-        "fingerprint": content_hash([str(head.id), head.version_number, str(head.current_revision_id), "restore"]),
+        "fingerprint": content_hash(
+            [str(head.id), head.version_number, str(head.current_revision_id), "restore"]
+        ),
         "effect": "恢复已归档的当前计划；历史与内容版本不变。",
     }
 

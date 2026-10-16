@@ -16,6 +16,7 @@ class ArcPlanModel(BaseModel):
 class ArcPlanWriteInput(ArcPlanModel):
     operation_id: UUID
     scene_id: UUID
+    character_id: UUID
     expected_version: int = Field(ge=0)
     plan_text: str = Field(min_length=1, max_length=8000)
 
@@ -82,6 +83,7 @@ class ArcPlanRevisionView(ArcPlanModel):
 class RestoreArcPlanInput(ArcPlanModel):
     operation_id: UUID
     scene_id: UUID
+    character_id: UUID
     revision_id: UUID
     expected_version: int = Field(ge=0)
     preview_fingerprint: str | None = Field(default=None, pattern=r"^[0-9a-f]{64}$")
@@ -90,6 +92,7 @@ class RestoreArcPlanInput(ArcPlanModel):
 class ArchiveArcPlanInput(ArcPlanModel):
     operation_id: UUID
     scene_id: UUID
+    character_id: UUID
     expected_version: int = Field(ge=1)
     preview_fingerprint: str | None = Field(default=None, pattern=r"^[0-9a-f]{64}$")
 
@@ -133,6 +136,7 @@ class CharacterArcComparisonResponse(ArcPlanModel):
     character_id: UUID
     character_name: str
     plan: ArcPlanView | None = None
+    plan_archived: bool = False
     cutoff: ArcCutoffView
     actual_events: list[ArcEvidenceEvent] = Field(default_factory=list, max_length=60)
     unknowns: list[str] = Field(default_factory=list, max_length=30)

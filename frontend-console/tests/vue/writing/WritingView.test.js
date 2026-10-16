@@ -1,6 +1,9 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
+import "../../../apiContracts.js"
 import { DOMWrapper, flushPromises, mount } from "@vue/test-utils"
 import WritingView from "../../../vue/views/writing/WritingView.vue"
+import AutoExtractionDialog from "../../../vue/views/writing/components/AutoExtractionDialog.vue"
+import SceneCockpit from "../../../vue/views/writing/components/SceneCockpit.vue"
 import { getAppState, resetBridgeOverrides, setBridgeOverrides } from "../../../vue/bridge/index.js"
 import { ISLAND_LEAVE_GUARD } from "../../../vue/mountIsland.js"
 import {
@@ -112,6 +115,26 @@ describe("WritingView", () => {
     const call = globalThis.router.navigate.mock.calls.at(-1)
     expect(call.slice(0, 3)).toEqual(["writing", null, true])
     expect(call[3].get("home")).toBe("1")
+    wrapper.unmount()
+  })
+
+  it("Evolution 阅读提醒从写作统一提醒打开既有阅读面板", async () => {
+    const wrapper = mount(WritingView, { props: props(), attachTo: document.body })
+    await flushPromises()
+    const cockpit = wrapper.findComponent(SceneCockpit)
+    expect(cockpit.exists()).toBe(true)
+
+    await cockpit.vm.$emit("open-notice", {
+      notice_key: "evolution.reading:unread:chapter-1",
+      source_id: "evolution.reading",
+      category: "reading_unread",
+      target: { chapter_index: 1, scene_id: "s1" },
+      actions: [{ kind: "navigate", page: "writing", chapter_index: 1, scene_id: "s1", open_evolution_reading: true }],
+    })
+    await flushPromises()
+
+    expect(wrapper.findComponent(AutoExtractionDialog).props("model").open).toBe(true)
+    expect(globalThis.api.evolution.status).toHaveBeenCalled()
     wrapper.unmount()
   })
 

@@ -23,10 +23,10 @@ from modules.writing.facade import build_manuscript_range_ref
 from .schemas import (
     ArcCutoffView,
     ArcEvidenceEvent,
+    ArchiveArcPlanInput,
     ArcPlanPreviewResponse,
     ArcPlanRevisionView,
     ArcPlanView,
-    ArchiveArcPlanInput,
     ArcPlanWriteInput,
     CharacterArcComparisonResponse,
     RestoreArcPlanInput,
@@ -53,6 +53,22 @@ def _chapter_indices(scene) -> list[int]:
     return sorted(set(values))
 
 
+def _summary_value(value):
+    if isinstance(value, str):
+        return value[:320]
+    if isinstance(value, (int, float, bool)) or value is None:
+        return value
+    if isinstance(value, list):
+        return f"已记录 {len(value)} 项状态"
+    if isinstance(value, dict):
+        for key in ("label", "summary", "name", "title"):
+            text = value.get(key)
+            if isinstance(text, str) and text.strip():
+                return text.strip()[:320]
+        return f"已记录 {len(value)} 项结构化状态"
+    return "状态已记录"
+
+
 async def _owned_project(db, novel_id: str):
     await require_active_project(db, novel_id, allow_demo_readonly=False)
     project = await get_any_project_context(db, novel_id)
@@ -69,9 +85,7 @@ async def _scene(db, novel_id: str, scene_id: str):
 
 
 async def _scene_characters(db, novel_id: str, scene):
-    assets = await get_scene_story_assets(
-        db, novel_id=novel_id, scene_id=str(scene.id)
-    )
+    assets = await get_scene_story_assets(db, novel_id=novel_id, scene_id=str(scene.id))
     value = _dump(assets)
     ids = {
         str(item.get("character_id"))
@@ -97,7 +111,9 @@ async def _scene_characters(db, novel_id: str, scene):
                 is_pov=character_id == str(scene.pov_character_id or ""),
             )
         )
-    options.sort(key=lambda item: (not item.is_pov, item.character_name, str(item.character_id)))
+    options.sort(
+        key=lambda item: (not item.is_pov, item.character_name, str(item.character_id))
+    )
     return options
 
 
@@ -123,7 +139,9 @@ async def scene_character_options(db, novel_id: str, scene_id: str):
 
 async def _require_selected_character(db, novel_id: str, scene, character_id: str):
     options = await _scene_characters(db, novel_id, scene)
-    chosen = next((item for item in options if str(item.character_id) == character_id), None)
+    chosen = next(
+        (item for item in options if str(item.character_id) == character_id), None
+    )
     if chosen is None:
         raise NotFoundError("人物不属于当前场景或已不可访问")
     return chosen
@@ -137,6 +155,11 @@ async def _head(db, novel_id: str, character_id: str, *, lock=False):
     if lock:
         query = query.with_for_update()
     return await db.scalar(query.execution_options(populate_existing=True))
+
+
+def _assert_owner(row, project):
+    if row is not None and str(row.owner_id) != str(project.owner_id):
+        raise NotFoundError("人物弧计划不可访问")
 
 
 async def _revision(db, novel_id: str, revision_id: str, *, head_id=None):
@@ -183,7 +206,12 @@ async def _plan_view(db, novel_id, head, character_name):
     revision = await _revision(
         db, novel_id, str(head.current_revision_id), head_id=str(head.id)
     )
-    if revision is None:
+    if (
+        revision is None
+        or revision.character_id != head.character_id
+        or revision.owner_id != head.owner_id
+        or revision.version_number != head.version_number
+    ):
         return None
     return _revision_plan_view(revision, character_name)
 
@@ -198,7 +226,11 @@ def _cutoff(scene):
         chapter_indices=chapters,
         chapter_cutoff=chapter_cutoff,
         order_fingerprint=content_hash(
-            {"scene_id": str(scene.id), "scene_index": scene.scene_index, "chapters": chapters}
+            {
+                "scene_id": str(scene.id),
+                "scene_index": scene.scene_index,
+                "chapters": chapters,
+            }
         ),
     )
 
@@ -282,7 +314,7 @@ async def _verified_event(db, novel_id, scene, chapter_cutoff, item):
                 continue
             return ArcEvidenceEvent(
                 field=str(item.get("field") or "人物状态"),
-                value=item.get("value"),
+                value=_summary_value(item.get("value")),
                 occurred_at=occurred_at,
                 chapter_index=source_chapter,
                 source_label=f"第 {source_chapter} 章正式正文",
@@ -296,7 +328,7 @@ async def _verified_event(db, novel_id, scene, chapter_cutoff, item):
 
 
 async def compare_character_arc(db, novel_id: str, scene_id: str, character_id: str):
-    await _owned_project(db, novel_id)
+    project = await _owned_project(db, novel_id)
     scene = await _scene(db, novel_id, scene_id)
     character = await _require_selected_character(db, novel_id, scene, character_id)
     brief = _dump(
@@ -310,16 +342,20 @@ async def compare_character_arc(db, novel_id: str, scene_id: str, character_id: 
             include_patterns=False,
         )
     )
-    if (
-        str(brief.get("novel_id")) != str(novel_id)
-        or str(brief.get("scene_id")) != str(scene.id)
+    if str(brief.get("novel_id")) != str(novel_id) or str(brief.get("scene_id")) != str(
+        scene.id
     ):
         raise NotFoundError("截止点证据不可访问")
     cutoff = _cutoff(scene)
     head = await _head(db, novel_id, str(character.character_id))
+    _assert_owner(head, project)
     plan = await _plan_view(db, novel_id, head, character.character_name)
     unknowns = []
-    if plan is None:
+    if head is not None and head.deleted_at is not None:
+        unknowns.append("作者人物弧计划已归档。")
+    elif head is not None and plan is None:
+        unknowns.append("人物弧当前修订指针与版本不一致，计划内容未展示。")
+    elif plan is None:
         unknowns.append("尚无作者已确认的人物弧计划。")
     if cutoff.chapter_cutoff is None:
         unknowns.append("当前场景没有章节映射，不能核验正文中的实际经历。")
@@ -352,7 +388,8 @@ async def compare_character_arc(db, novel_id: str, scene_id: str, character_id: 
                 break
     if skipped_facts:
         unknowns.append(
-            f"有 {skipped_facts} 条状态未满足已发生事实与正式正文来源核验，未列入实际经历。"
+            f"有 {skipped_facts} 条状态未满足已发生事实与正式正文来源核验，"
+            "未列入实际经历。"
         )
     if not actual_events:
         unknowns.append("截止点没有可核验的正文连续性事实；不能据此判断人物弧是否完成。")
@@ -374,10 +411,13 @@ async def compare_character_arc(db, novel_id: str, scene_id: str, character_id: 
         character_id=character.character_id,
         character_name=character.character_name,
         plan=plan,
+        plan_archived=bool(head and head.deleted_at is not None),
         cutoff=cutoff,
         actual_events=actual_events,
         unknowns=unknowns,
-        coverage=coverage if coverage in {"complete", "partial", "unknown"} else "unknown",
+        coverage=coverage
+        if coverage in {"complete", "partial", "unknown"}
+        else "unknown",
         comparison_basis_fingerprint=fingerprint,
     )
 
@@ -389,12 +429,17 @@ async def _validated_plan_target(db, novel_id, scene_id, character_id):
 
 
 async def preview_plan_save(db, novel_id: str, data: ArcPlanWriteInput):
-    await _owned_project(db, novel_id)
+    project = await _owned_project(db, novel_id)
     scene, character = await _validated_plan_target(
         db, novel_id, str(data.scene_id), str(data.character_id)
     )
     request_hash = content_hash(
-        [str(data.scene_id), str(data.character_id), data.expected_version, data.plan_text]
+        [
+            str(data.scene_id),
+            str(data.character_id),
+            data.expected_version,
+            data.plan_text,
+        ]
     )
     prior = await db.scalar(
         select(CharacterArcPlanRevision).where(
@@ -404,10 +449,16 @@ async def preview_plan_save(db, novel_id: str, data: ArcPlanWriteInput):
         )
     )
     if prior is not None:
+        if str(prior.owner_id) != str(project.owner_id):
+            raise NotFoundError("人物弧计划不可访问")
         if prior.request_hash != request_hash or prior.source != "author_confirmed":
-            raise ConflictError("操作标识已用于另一份人物弧计划", code="OPERATION_MISMATCH")
+            raise ConflictError(
+                "操作标识已用于另一份人物弧计划", code="OPERATION_MISMATCH"
+            )
         base = (
-            await _revision(db, novel_id, str(prior.base_revision_id), head_id=str(prior.head_id))
+            await _revision(
+                db, novel_id, str(prior.base_revision_id), head_id=str(prior.head_id)
+            )
             if prior.base_revision_id
             else None
         )
@@ -434,6 +485,7 @@ async def preview_plan_save(db, novel_id: str, data: ArcPlanWriteInput):
             effect="该确认请求已成功写入；重试将返回原版本，不会新增修订。",
         )
     head = await _head(db, novel_id, str(character.character_id))
+    _assert_owner(head, project)
     if head is not None and head.deleted_at is not None:
         raise NotFoundError("人物弧计划已归档，请先恢复")
     current_version = head.version_number if head else 0
@@ -444,9 +496,7 @@ async def preview_plan_save(db, novel_id: str, data: ArcPlanWriteInput):
             context={"current_version": current_version},
         )
     current = (
-        await _revision(
-            db, novel_id, str(head.current_revision_id), head_id=str(head.id)
-        )
+        await _revision(db, novel_id, str(head.current_revision_id), head_id=str(head.id))
         if head and head.current_revision_id
         else None
     )
@@ -486,7 +536,10 @@ async def _trace(
     result=None,
     error_code=None,
 ):
-    from modules.assistant.contracts import AssistantOperation, AssistantOperationTraceRule
+    from modules.assistant.contracts import (
+        AssistantOperation,
+        AssistantOperationTraceRule,
+    )
 
     from .operations import OPERATIONS_SPEC
 
@@ -533,11 +586,16 @@ async def _trace(
 
 async def save_plan(db, novel_id: str, data: ArcPlanWriteInput, preview_fingerprint: str):
     project = await _owned_project(db, novel_id)
-    scene, character = await _validated_plan_target(
+    _scene, character = await _validated_plan_target(
         db, novel_id, str(data.scene_id), str(data.character_id)
     )
     request_hash = content_hash(
-        [str(data.scene_id), str(data.character_id), data.expected_version, data.plan_text]
+        [
+            str(data.scene_id),
+            str(data.character_id),
+            data.expected_version,
+            data.plan_text,
+        ]
     )
     prior = await db.scalar(
         select(CharacterArcPlanRevision).where(
@@ -547,8 +605,12 @@ async def save_plan(db, novel_id: str, data: ArcPlanWriteInput, preview_fingerpr
         )
     )
     if prior is not None:
+        if str(prior.owner_id) != str(project.owner_id):
+            raise NotFoundError("人物弧计划不可访问")
         if prior.request_hash != request_hash:
-            raise ConflictError("操作标识已用于另一份人物弧计划", code="OPERATION_MISMATCH")
+            raise ConflictError(
+                "操作标识已用于另一份人物弧计划", code="OPERATION_MISMATCH"
+            )
         return _revision_plan_view(prior, character.character_name)
 
     preview = await preview_plan_save(db, novel_id, data)
@@ -556,6 +618,7 @@ async def save_plan(db, novel_id: str, data: ArcPlanWriteInput, preview_fingerpr
         raise ConflictError("预览内容或当前版本已变化，请重新预览", code="PREVIEW_STALE")
 
     head = await _head(db, novel_id, str(data.character_id), lock=True)
+    _assert_owner(head, project)
     current_version = head.version_number if head else 0
     if head is not None and head.deleted_at is not None:
         raise NotFoundError("人物弧计划已归档，请先恢复")
@@ -603,20 +666,30 @@ async def save_plan(db, novel_id: str, data: ArcPlanWriteInput, preview_fingerpr
         "story.character_arc_plan.save",
         "confirmed",
         {**data.model_dump(mode="json"), "preview_fingerprint": preview_fingerprint},
-        result={"type": "story.character_arc_plan", "id": str(head.id), "version": head.version_number},
+        result={
+            "type": "story.character_arc_plan",
+            "id": str(head.id),
+            "version": head.version_number,
+        },
     )
     character = await _require_selected_character(
-        db, novel_id, await _scene(db, novel_id, str(data.scene_id)), str(data.character_id)
+        db, novel_id, _scene, str(data.character_id)
     )
     return await _plan_view(db, novel_id, head, character.character_name)
 
 
 async def plan_history(db, novel_id: str, scene_id: str, character_id: str):
-    await _owned_project(db, novel_id)
+    project = await _owned_project(db, novel_id)
     scene, character = await _validated_plan_target(db, novel_id, scene_id, character_id)
     head = await _head(db, novel_id, character_id)
+    _assert_owner(head, project)
     if head is None:
-        return {"character_id": character.character_id, "character_name": character.character_name, "deleted": False, "items": []}
+        return {
+            "character_id": character.character_id,
+            "character_name": character.character_name,
+            "deleted": False,
+            "items": [],
+        }
     revisions = (
         await db.scalars(
             select(CharacterArcPlanRevision)
@@ -643,7 +716,12 @@ async def restore_revision(db, novel_id: str, data: RestoreArcPlanInput):
         db, novel_id, str(data.scene_id), str(data.character_id)
     )
     request_hash = content_hash(
-        [str(data.scene_id), str(data.character_id), str(data.revision_id), data.expected_version]
+        [
+            str(data.scene_id),
+            str(data.character_id),
+            str(data.revision_id),
+            data.expected_version,
+        ]
     )
     prior = await db.scalar(
         select(CharacterArcPlanRevision).where(
@@ -653,10 +731,13 @@ async def restore_revision(db, novel_id: str, data: RestoreArcPlanInput):
         )
     )
     if prior is not None:
+        if str(prior.owner_id) != str(project.owner_id):
+            raise NotFoundError("人物弧计划不可访问")
         if prior.request_hash != request_hash:
             raise ConflictError("操作标识已用于另一份恢复请求", code="OPERATION_MISMATCH")
         return _revision_plan_view(prior, character.character_name)
     head = await _head(db, novel_id, str(data.character_id), lock=True)
+    _assert_owner(head, project)
     if head is None or head.deleted_at is not None:
         raise NotFoundError("人物弧计划不存在或已归档")
     if head.version_number != data.expected_version:
@@ -696,7 +777,11 @@ async def restore_revision(db, novel_id: str, data: RestoreArcPlanInput):
         "story.character_arc_plan.restore",
         "restored",
         data.model_dump(mode="json"),
-        result={"type": "story.character_arc_plan", "id": str(head.id), "version": head.version_number},
+        result={
+            "type": "story.character_arc_plan",
+            "id": str(head.id),
+            "version": head.version_number,
+        },
     )
     return await _plan_view(db, novel_id, head, character.character_name)
 
@@ -717,10 +802,19 @@ async def archive_plan(db, novel_id: str, data: ArchiveArcPlanInput):
         )
     )
     if prior is not None:
+        if str(prior.owner_id) != str(project.owner_id):
+            raise NotFoundError("人物弧计划不可访问")
         if prior.request_hash != request_hash or prior.source != "author_archive":
-            raise ConflictError("操作标识已用于另一项人物弧操作", code="OPERATION_MISMATCH")
-        return {"character_id": character.character_id, "deleted": True, "version": prior.version_number}
+            raise ConflictError(
+                "操作标识已用于另一项人物弧操作", code="OPERATION_MISMATCH"
+            )
+        return {
+            "character_id": character.character_id,
+            "deleted": True,
+            "version": prior.version_number,
+        }
     head = await _head(db, novel_id, str(data.character_id), lock=True)
+    _assert_owner(head, project)
     if head is None or head.deleted_at is not None:
         raise NotFoundError("人物弧计划不存在或已归档")
     if head.version_number != data.expected_version:
@@ -729,7 +823,9 @@ async def archive_plan(db, novel_id: str, data: ArchiveArcPlanInput):
             code="STALE_VERSION",
             context={"current_version": head.version_number},
         )
-    current = await _revision(db, novel_id, str(head.current_revision_id), head_id=str(head.id))
+    current = await _revision(
+        db, novel_id, str(head.current_revision_id), head_id=str(head.id)
+    )
     if current is None or current.source == "author_archive":
         raise NotFoundError("人物弧计划当前版本不可访问")
     revision = CharacterArcPlanRevision(
@@ -762,9 +858,18 @@ async def archive_plan(db, novel_id: str, data: ArchiveArcPlanInput):
         "story.character_arc_plan.archive",
         "confirmed",
         data.model_dump(mode="json"),
-        result={"type": "story.character_arc_plan", "id": str(head.id), "deleted": True, "version": head.version_number},
+        result={
+            "type": "story.character_arc_plan",
+            "id": str(head.id),
+            "deleted": True,
+            "version": head.version_number,
+        },
     )
-    return {"character_id": character.character_id, "deleted": True, "version": head.version_number}
+    return {
+        "character_id": character.character_id,
+        "deleted": True,
+        "version": head.version_number,
+    }
 
 
 async def unarchive_plan(db, novel_id: str, data: ArchiveArcPlanInput):
@@ -783,10 +888,15 @@ async def unarchive_plan(db, novel_id: str, data: ArchiveArcPlanInput):
         )
     )
     if prior is not None:
+        if str(prior.owner_id) != str(project.owner_id):
+            raise NotFoundError("人物弧计划不可访问")
         if prior.request_hash != request_hash or prior.source != "author_unarchive":
-            raise ConflictError("操作标识已用于另一项人物弧操作", code="OPERATION_MISMATCH")
+            raise ConflictError(
+                "操作标识已用于另一项人物弧操作", code="OPERATION_MISMATCH"
+            )
         return _revision_plan_view(prior, character.character_name)
     head = await _head(db, novel_id, str(data.character_id), lock=True)
+    _assert_owner(head, project)
     if head is None or head.deleted_at is None:
         raise NotFoundError("已归档人物弧计划不存在")
     if head.version_number != data.expected_version:
@@ -795,7 +905,9 @@ async def unarchive_plan(db, novel_id: str, data: ArchiveArcPlanInput):
             code="STALE_VERSION",
             context={"current_version": head.version_number},
         )
-    current = await _revision(db, novel_id, str(head.current_revision_id), head_id=str(head.id))
+    current = await _revision(
+        db, novel_id, str(head.current_revision_id), head_id=str(head.id)
+    )
     if current is None or current.source != "author_archive":
         raise NotFoundError("归档中的人物弧计划当前版本不可访问")
     revision = CharacterArcPlanRevision(
@@ -828,6 +940,11 @@ async def unarchive_plan(db, novel_id: str, data: ArchiveArcPlanInput):
         "story.character_arc_plan.archive",
         "restored",
         data.model_dump(mode="json"),
-        result={"type": "story.character_arc_plan", "id": str(head.id), "deleted": False, "version": head.version_number},
+        result={
+            "type": "story.character_arc_plan",
+            "id": str(head.id),
+            "deleted": False,
+            "version": head.version_number,
+        },
     )
     return await _plan_view(db, novel_id, head, character.character_name)

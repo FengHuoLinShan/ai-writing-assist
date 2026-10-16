@@ -468,12 +468,16 @@ class CharacterArcPlanHead(Base, UUIDMixin, TimestampMixin, NovelMixin):
             "character_id",
             name="uq_story_character_arc_plan_character",
         ),
-        UniqueConstraint(
-            "novel_id", "id", name="uq_story_character_arc_plan_head_novel"
+        UniqueConstraint("novel_id", "id", name="uq_story_character_arc_plan_head_novel"),
+        CheckConstraint(
+            "version_number >= 0", name="ck_story_character_arc_plan_head_version"
         ),
         ForeignKeyConstraint(
-            ["current_revision_id", "novel_id"],
-            ["story_character_arc_plan_revisions.id", "story_character_arc_plan_revisions.novel_id"],
+            ["novel_id", "current_revision_id"],
+            [
+                "story_character_arc_plan_revisions.novel_id",
+                "story_character_arc_plan_revisions.id",
+            ],
             name="fk_story_character_arc_plan_head_current_revision",
             use_alter=True,
         ),
@@ -487,9 +491,7 @@ class CharacterArcPlanHead(Base, UUIDMixin, TimestampMixin, NovelMixin):
 
     character_id: Mapped[uuid.UUID] = mapped_column(UUIDType, nullable=False, index=True)
     owner_id: Mapped[uuid.UUID] = mapped_column(UUIDType, nullable=False, index=True)
-    current_revision_id: Mapped[uuid.UUID | None] = mapped_column(
-        UUIDType, nullable=True
-    )
+    current_revision_id: Mapped[uuid.UUID | None] = mapped_column(UUIDType, nullable=True)
     version_number: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     deleted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     deleted_by: Mapped[uuid.UUID | None] = mapped_column(UUIDType, nullable=True)
@@ -513,22 +515,32 @@ class CharacterArcPlanRevision(Base, UUIDMixin, TimestampMixin, NovelMixin):
             name="uq_story_character_arc_plan_operation",
         ),
         UniqueConstraint(
-            "id", "novel_id", name="uq_story_character_arc_plan_revision_novel"
+            "novel_id", "id", name="uq_story_character_arc_plan_revision_novel"
         ),
+        CheckConstraint("version_number >= 1", name="ck_story_arc_plan_revision_version"),
         ForeignKeyConstraint(
-            ["head_id", "novel_id"],
-            ["story_character_arc_plan_heads.id", "story_character_arc_plan_heads.novel_id"],
+            ["novel_id", "head_id"],
+            [
+                "story_character_arc_plan_heads.novel_id",
+                "story_character_arc_plan_heads.id",
+            ],
             name="fk_story_character_arc_plan_revision_head",
             ondelete="CASCADE",
         ),
         ForeignKeyConstraint(
-            ["base_revision_id", "novel_id"],
-            ["story_character_arc_plan_revisions.id", "story_character_arc_plan_revisions.novel_id"],
+            ["novel_id", "base_revision_id"],
+            [
+                "story_character_arc_plan_revisions.novel_id",
+                "story_character_arc_plan_revisions.id",
+            ],
             name="fk_story_character_arc_plan_revision_base",
         ),
         ForeignKeyConstraint(
-            ["restored_from_revision_id", "novel_id"],
-            ["story_character_arc_plan_revisions.id", "story_character_arc_plan_revisions.novel_id"],
+            ["novel_id", "restored_from_revision_id"],
+            [
+                "story_character_arc_plan_revisions.novel_id",
+                "story_character_arc_plan_revisions.id",
+            ],
             name="fk_story_character_arc_plan_revision_restored_from",
         ),
         CheckConstraint(
@@ -536,8 +548,13 @@ class CharacterArcPlanRevision(Base, UUIDMixin, TimestampMixin, NovelMixin):
             name="ck_story_character_arc_plan_director_only",
         ),
         CheckConstraint(
-            "source IN ('author_confirmed','author_restore')",
+            "source IN ('author_confirmed', 'author_restore', "
+            "'author_archive', 'author_unarchive')",
             name="ck_story_character_arc_plan_revision_source",
+        ),
+        CheckConstraint(
+            "length(request_hash) = 64 AND length(content_hash) = 64",
+            name="ck_story_character_arc_plan_hashes",
         ),
         Index(
             "ix_story_character_arc_plan_revision_history",
@@ -554,7 +571,9 @@ class CharacterArcPlanRevision(Base, UUIDMixin, TimestampMixin, NovelMixin):
     version_number: Mapped[int] = mapped_column(Integer, nullable=False)
     plan_text: Mapped[str] = mapped_column(Text, nullable=False)
     source: Mapped[str] = mapped_column(String(32), nullable=False)
-    audience: Mapped[str] = mapped_column(String(32), nullable=False, default="director_only")
+    audience: Mapped[str] = mapped_column(
+        String(32), nullable=False, default="director_only"
+    )
     operation_id: Mapped[uuid.UUID] = mapped_column(UUIDType, nullable=False)
     request_hash: Mapped[str] = mapped_column(String(64), nullable=False)
     content_hash: Mapped[str] = mapped_column(String(64), nullable=False)
