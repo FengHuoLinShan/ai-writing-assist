@@ -3,7 +3,7 @@ id: T-20261016-editorial-diagnosis-v1
 title: 编辑审读诊断 A/B 试跑与盲评交接
 status: active
 created: 2026-10-16T18:02:35+08:00
-updated: 2026-10-16T19:40:00+08:00
+updated: 2026-10-16T19:47:00+08:00
 ---
 
 # 编辑审读诊断 A/B 试跑与盲评交接
@@ -13,7 +13,7 @@ updated: 2026-10-16T19:40:00+08:00
 - 目标：实施对照试跑工程补缺，用 Codex gpt-6-luna/max 完成旧/新提示词冒烟及全量运行；交付盲评包与 HANDOFF，等待作者另开 Claude Sonnet 5.5 任务评分。本轮不做评分。
 - 工作树：/Users/tywww/项目/ai-writing-assist/.worktrees/editorial-diagnosis-v1；分支 codex/editorial-diagnosis-v1。
 - 已有提交：第一阶段 04424535a2a164f0274aee2f65dd8d300b3f236f（提示词、桥接、v2）。
-- 候选组固定提交：c0f4fd2b28237ff6ce1ed35c45d2644cf2a95a4c；基线提示词来自 00d861283e34bdc0ef3f34ee5605c71e1f89c553。
+- 候选组固定提交：c0a32c7778ab4faaaa9f949ef8ba8a7de0606318；基线提示词来自 00d861283e34bdc0ef3f34ee5605c71e1f89c553。
 - 真实模型请求：0。没有调用其他模型。
 - 另有未跟踪 TEST-COVERAGE.md（本任务目录）记录并行测试补充；作为既有 WIP 保留，不纳入本轮文件写入或提交。
 - 下一步：核验专用数据库和 owner Codex 连接；配置不符即停；通过后先跑 S01 两臂冒烟，再按冒烟验收决定是否启动全量运行。
@@ -42,7 +42,7 @@ updated: 2026-10-16T19:40:00+08:00
 - [x] review.py 15 项盲评导入 schema 与契约测试；Assistant fake-client 注入测试。
 - [x] 定向 Assistant 与评测测试：186 passed（2026-10-16）；make lint 通过；make prompt-contracts 26 contracts 通过。
 - [x] git diff --check 通过。make docs-check BASE_REF=origin/main 因 module-tasks 规则列出 3 份未变文档；按维护流程以无当前架构影响说明复跑 scripts/check_architecture_docs.py 并通过。理由：只增加 Assistant 评测专用 db.info 钩子；任务注册、队列/租约/生命周期、API、跨模块契约及恢复语义未变，Assistant 与 Prompt README 已同步。
-- [x] 工程与数据本地提交：c0f4fd2b28237ff6ce1ed35c45d2644cf2a95a4c。候选提示词固定于该提交。
+- [x] 工程与数据本地提交：c0f4fd2b28237ff6ce1ed35c45d2644cf2a95a4c；Project profile mismatch fail-closed 修正：c0a32c7778ab4faaaa9f949ef8ba8a7de0606318。候选提示词固定于后者。
 - [ ] 只在离线门禁通过后运行 S01 两臂 smoke；确认每臂 7 次、共 14 次、输出完整、来源验证有效后再跑余下 28 例。
 - [ ] 生成私有盲评包和 HANDOFF；不运行评分。
 
