@@ -69,6 +69,7 @@ Evidence 的只读 port 可按 `visibility_filter=public` 在分页、计数和�
 串行化写入但整份 JSON 仍是最后写者胜出。PATCH 省略 `data_json` 保持不变，显式 `null` 清除当前值并留修订历史。
 六类强类型档案仅按迁移冻结的稳定字段清单双向兼容：旧 Profile PUT 保留旧接口 omitted/null 语义并在同一事务追加
 带表前缀 `legacy_field_key` 的 Dossier 修订；Dossier 编辑/恢复同步对应旧投影，清除追加 `cleared` 修订。
+类型切换恢复只同步该清单中的字段，保留档案快照元数据；草稿值写为 `needs_review`，不因恢复而采用。
 JSON 数组修订同时保留原类型值；修改数组须提交 `legacy_value` 并与展示文本一致，不能由 prose 反解析。
 地图控制关系、持有人及揭示状态等动态字段不桥接。Profile 与 Dossier GET 均为只读，不在读取时物化或写回。
 档案条目可选绑定 `story_field_key`；只有同一对象、同一登记字段、可信确认来源且早于 cutoff Scene 的 Story

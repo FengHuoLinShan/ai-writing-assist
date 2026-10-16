@@ -643,9 +643,10 @@ class WorldObjectDossierService:
         field: str,
         value: Any,
         *,
+        profile_type: str | None = None,
         profile_metadata: dict[str, Any] | None = None,
     ) -> None:
-        binding = PROFILE_REGISTRY.get(entity.entity_type)
+        binding = PROFILE_REGISTRY.get(profile_type or entity.entity_type)
         facing = binding.dossier_fields.get(field) if binding else None
         if binding is None or facing is None:
             return

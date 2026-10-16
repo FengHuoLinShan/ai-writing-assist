@@ -8,6 +8,7 @@ from sqlalchemy import select
 
 from core.errors import ConflictError
 from modules.project.models import Project
+from modules.world.dossier_service import WorldObjectDossierService
 from modules.world.models import (
     Character,
     CoreEntity,
@@ -17,6 +18,7 @@ from modules.world.models import (
     SpeciesProfile,
     WorldBiblePage,
     WorldBiblePageDraft,
+    WorldObjectDossierEntry,
 )
 from modules.world.schemas import (
     CoreEntityCreate,
@@ -429,6 +431,111 @@ async def test_profile_mutations_request_entity_and_profile_row_locks(db_session
         ("entity", True),
         ("generic", True),
         ("strong", True),
+    ]
+
+
+@pytest.mark.asyncio
+async def test_type_transition_restores_generic_mapped_fields_to_dossier(
+    db_session,
+) -> None:
+    novel_id = uuid.uuid4()
+    entity_id = uuid.uuid4()
+    entity = CoreEntity(
+        id=entity_id,
+        novel_id=novel_id,
+        entity_type="custom_species",
+        name="雾生族",
+        status="canonical",
+    )
+    generic = GenericEntityProfile(
+        novel_id=novel_id,
+        entity_id=entity_id,
+        profile_type="custom_species",
+        status="draft",
+        source="imported",
+        confidence=0.73,
+        evidence_refs_json=[{"kind": "source", "id": "chapter:2"}],
+        data_json={
+            "origin_summary": "从雾海迁徙而来",
+            "abilities_json": [{"name": "夜视"}],
+            "public_baseline": False,
+        },
+        extra_json={"author_note": "迁移时保留"},
+    )
+    db_session.add_all([Project(id=novel_id, title="A"), entity, generic])
+    await db_session.flush()
+
+    await EntityTypeTransitionService().transition(
+        db_session,
+        entity=entity,
+        new_type="species",
+    )
+
+    strong = await db_session.get(SpeciesProfile, entity_id)
+    assert strong is not None
+    assert strong.status == "draft"
+    assert strong.source == "imported"
+    assert strong.confidence == 0.73
+    assert strong.evidence_refs_json == [{"kind": "source", "id": "chapter:2"}]
+    assert strong.origin_summary == "从雾海迁徙而来"
+    assert strong.abilities_json == [{"name": "夜视"}]
+    assert strong.public_baseline is False
+    assert strong.extra_json["author_note"] == "迁移时保留"
+    assert generic.status == "migrated"
+
+    pending_rows = list(
+        (
+            await db_session.scalars(
+                select(WorldObjectDossierEntry).where(
+                    WorldObjectDossierEntry.novel_id == novel_id,
+                    WorldObjectDossierEntry.entity_id == entity_id,
+                    WorldObjectDossierEntry.status == "needs_review",
+                )
+            )
+        ).all()
+    )
+    assert {row.legacy_field_key for row in pending_rows} == {
+        "species_profiles.origin_summary",
+        "species_profiles.abilities_json",
+    }
+    abilities_revision = next(
+        row
+        for row in pending_rows
+        if row.legacy_field_key == "species_profiles.abilities_json"
+    )
+    assert abilities_revision.legacy_value_json == [{"name": "夜视"}]
+
+    entity.entity_type = "species"
+    dossier_service = WorldObjectDossierService()
+    draft_read = await dossier_service.read(db_session, str(novel_id), str(entity_id))
+    assert all(
+        item.legacy_field_key
+        not in {
+            "species_profiles.origin_summary",
+            "species_profiles.abilities_json",
+        }
+        for item in draft_read.entries
+    )
+    assert all(
+        item.field_key != "public_baseline" for item in draft_read.legacy_profile_fields
+    )
+    await WorldProfileService().upsert_profile(
+        db_session,
+        str(novel_id),
+        str(entity_id),
+        WorldProfileUpsertRequest(status="canonical"),
+    )
+    adopted_read = await dossier_service.read(
+        db_session, str(novel_id), str(entity_id)
+    )
+    adopted_entries = {
+        item.legacy_field_key: item
+        for item in adopted_read.entries
+        if item.legacy_field_key
+    }
+    assert adopted_entries["species_profiles.origin_summary"].content == "从雾海迁徙而来"
+    assert adopted_entries["species_profiles.abilities_json"].legacy_value == [
+        {"name": "夜视"}
     ]
 
 

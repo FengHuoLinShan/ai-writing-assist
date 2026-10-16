@@ -482,6 +482,27 @@ class EntityTypeTransitionService:
                 new_type,
                 restore_snapshot,
             )
+            profile_binding = PROFILE_REGISTRY[new_type]
+            profile_metadata = {
+                "profile_type": new_type,
+                "status": target.status,
+                "source": target.source,
+                "confidence": target.confidence,
+                "evidence_refs_json": target.evidence_refs_json or [],
+                "extra_json": target.extra_json or {},
+            }
+            restored_data = restore_snapshot.get("data") or {}
+            for field in profile_binding.dossier_fields:
+                if field not in restored_data:
+                    continue
+                await self.dossier.sync_strong_profile_field(
+                    db,
+                    entity,
+                    field,
+                    restored_data[field],
+                    profile_type=new_type,
+                    profile_metadata=profile_metadata,
+                )
             if source is not None and source is not target:
                 source.status = "migrated"
             generic.status = "migrated"
