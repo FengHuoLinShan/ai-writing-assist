@@ -11,7 +11,10 @@ from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 from core.errors import ConflictError
 from modules.account.contracts import BOOTSTRAP_ACCOUNT_ID
 from modules.assistant.contracts import AssistantOperationContext
-from modules.assistant.operation_trace_models import AssistantOperationTrace
+from modules.assistant.operation_trace_models import (
+    AssistantOperationTrace,
+    AssistantOperationTracePreference,
+)
 from modules.assistant.operation_trace_service import set_operation_trace_preference
 from modules.assistant.schemas import WorkContext
 from modules.project.models import Project
@@ -175,77 +178,106 @@ async def test_arc_http_trace_matches_original_revision_on_restore(
     novel_id = seeded["project_id"]
     scene_id = str(seeded["scene_ids"][0])
     character_id = str(seeded["entity_ids"]["克莱恩·莫雷蒂"])
-    await set_operation_trace_preference(db_session, str(BOOTSTRAP_ACCOUNT_ID), True)
-    params = {"novel_id": novel_id}
-    base = "/api/story/character-arcs/plans"
-    save_input = {
-        "operation_id": str(uuid.uuid4()),
-        "scene_id": scene_id,
-        "character_id": character_id,
-        "expected_version": 0,
-        "plan_text": "合成人物弧：先求助，再行动。",
-    }
-    preview = await async_client.post(f"{base}/preview", params=params, json=save_input)
-    assert preview.status_code == 200, preview.text
-    save_input["preview_fingerprint"] = preview.json()["preview_fingerprint"]
-    saved = await async_client.post(f"{base}/confirm", params=params, json=save_input)
-    assert saved.status_code == 200, saved.text
-    save_result = saved.json()
-
-    restore_input = {
-        "operation_id": str(uuid.uuid4()),
-        "scene_id": scene_id,
-        "character_id": character_id,
-        "revision_id": save_result["revision_id"],
-        "expected_version": 1,
-    }
-    restored_preview = await async_client.post(
-        f"{base}/restore/preview", params=params, json=restore_input
+    preference = await db_session.get(
+        AssistantOperationTracePreference, BOOTSTRAP_ACCOUNT_ID
     )
-    assert restored_preview.status_code == 200, restored_preview.text
-    restore_input["preview_fingerprint"] = restored_preview.json()["fingerprint"]
-    restored = await async_client.post(
-        f"{base}/restore/confirm", params=params, json=restore_input
+    original_preference = (
+        {
+            column.name: getattr(preference, column.name)
+            for column in preference.__table__.columns
+        }
+        if preference is not None
+        else None
     )
-    assert restored.status_code == 200, restored.text
-    assert restored.json()["reversal_ref"] == {
-        "type": "revision",
-        "id": save_result["revision_id"],
-    }
-    replay = await async_client.post(
-        f"{base}/restore/confirm", params=params, json=restore_input
-    )
-    assert replay.status_code == 200, replay.text
-    traces = (
-        await db_session.scalars(
-            select(AssistantOperationTrace)
-            .where(AssistantOperationTrace.novel_id == uuid.UUID(novel_id))
-            .order_by(AssistantOperationTrace.id)
+    try:
+        await set_operation_trace_preference(db_session, str(BOOTSTRAP_ACCOUNT_ID), True)
+        params = {"novel_id": novel_id}
+        base = "/api/story/character-arcs/plans"
+        save_input = {
+            "operation_id": str(uuid.uuid4()),
+            "scene_id": scene_id,
+            "character_id": character_id,
+            "expected_version": 0,
+            "plan_text": "合成人物弧：先求助，再行动。",
+        }
+        preview = await async_client.post(
+            f"{base}/preview", params=params, json=save_input
         )
-    ).all()
-    saved_execution = [
-        row
-        for row in traces
-        if row.op_id == "story.character_arc_plan.save" and row.event_type == "executed"
-    ]
-    reversal = [
-        row
-        for row in traces
-        if row.op_id == "story.character_arc_plan.save" and row.event_type == "restored"
-    ]
-    assert len(saved_execution) == len(reversal) == 1
-    assert saved_execution[0].call_id == reversal[0].call_id
-    assert {"type": "revision", "id": save_result["revision_id"]} in saved_execution[
-        0
-    ].result_refs
-    assert [
-        row.event_type
-        for row in traces
-        if row.op_id == "story.character_arc_plan.restore"
-    ].count("executed") == 1
-    assert all(
-        save_input["plan_text"] not in str(row.parameter_summary) for row in traces
-    )
+        assert preview.status_code == 200, preview.text
+        save_input["preview_fingerprint"] = preview.json()["preview_fingerprint"]
+        saved = await async_client.post(f"{base}/confirm", params=params, json=save_input)
+        assert saved.status_code == 200, saved.text
+        save_result = saved.json()
+
+        restore_input = {
+            "operation_id": str(uuid.uuid4()),
+            "scene_id": scene_id,
+            "character_id": character_id,
+            "revision_id": save_result["revision_id"],
+            "expected_version": 1,
+        }
+        restored_preview = await async_client.post(
+            f"{base}/restore/preview", params=params, json=restore_input
+        )
+        assert restored_preview.status_code == 200, restored_preview.text
+        restore_input["preview_fingerprint"] = restored_preview.json()["fingerprint"]
+        restored = await async_client.post(
+            f"{base}/restore/confirm", params=params, json=restore_input
+        )
+        assert restored.status_code == 200, restored.text
+        assert restored.json()["reversal_ref"] == {
+            "type": "revision",
+            "id": save_result["revision_id"],
+        }
+        replay = await async_client.post(
+            f"{base}/restore/confirm", params=params, json=restore_input
+        )
+        assert replay.status_code == 200, replay.text
+        traces = (
+            await db_session.scalars(
+                select(AssistantOperationTrace)
+                .where(AssistantOperationTrace.novel_id == uuid.UUID(novel_id))
+                .order_by(AssistantOperationTrace.id)
+            )
+        ).all()
+        saved_execution = [
+            row
+            for row in traces
+            if row.op_id == "story.character_arc_plan.save"
+            and row.event_type == "executed"
+        ]
+        reversal = [
+            row
+            for row in traces
+            if row.op_id == "story.character_arc_plan.save"
+            and row.event_type == "restored"
+        ]
+        assert len(saved_execution) == len(reversal) == 1
+        assert saved_execution[0].call_id == reversal[0].call_id
+        assert {"type": "revision", "id": save_result["revision_id"]} in saved_execution[
+            0
+        ].result_refs
+        assert [
+            row.event_type
+            for row in traces
+            if row.op_id == "story.character_arc_plan.restore"
+        ].count("executed") == 1
+        assert all(
+            save_input["plan_text"] not in str(row.parameter_summary) for row in traces
+        )
+
+    finally:
+        preference = await db_session.get(
+            AssistantOperationTracePreference, BOOTSTRAP_ACCOUNT_ID
+        )
+        if original_preference is None:
+            if preference is not None:
+                await db_session.delete(preference)
+        else:
+            assert preference is not None
+            for key, value in original_preference.items():
+                setattr(preference, key, value)
+        await db_session.flush()
 
 
 @pytest.mark.asyncio

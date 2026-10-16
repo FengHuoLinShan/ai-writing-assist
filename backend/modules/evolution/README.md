@@ -621,8 +621,9 @@ Failed/incomplete run state and unresolved boundary/structure review come from t
 `workflow.reading_status` projection and its persisted run/task/review data. Scene and chapter scopes
 are bounded by the current selected cutoff; source and ordering fingerprints make changes reappear
 after a prior disposition. The provider only reads: it does not enqueue, resume, retry, call a provider,
-or manufacture failure state. Its `NOTICE_SOURCE_SPEC` is ready for the app registry but is not yet
-materialized in this branch because the composition registry is owned by the integration pass. Writing
+or manufacture failure state. Its `NOTICE_SOURCE_SPEC` is registered in the app notice registry;
+the read scans for the latest run relevant to the selected cutoff so a newer future run does not hide
+an earlier failed or unresolved read. Writing
 notice actions open the existing Evolution `ReadingFlow`; unresolved boundary confirmation routes to
 the Outline workbench. The legacy import/restore entry remains until Evolution meets the documented
 default-entry replacement gate.

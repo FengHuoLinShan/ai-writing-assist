@@ -196,9 +196,10 @@ async def api_preview_character_arc_plan(
     novel_id: NovelIdQuery,
 ) -> ArcPlanPreviewResponse:
     try:
-        return ArcPlanPreviewResponse.model_validate(
-            await _preview_operation(db, novel_id, "story.character_arc_plan.save", data)
+        preview = await _preview_operation(
+            db, novel_id, "story.character_arc_plan.save", data
         )
+        return ArcPlanPreviewResponse.model_validate(preview)
     except Exception as exc:
         raise _error(exc) from exc
 

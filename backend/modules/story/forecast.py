@@ -2,6 +2,11 @@
 
 import json
 
+from core.container import get
+from core.service_keys import (
+    EVIDENCE_READ_OBJECT_DOSSIER_BRIEF,
+    WORLD_GET_CHARACTERS_CONTEXT,
+)
 from modules.world.contracts import MapSpatialBriefRequest
 
 INSTRUCTIONS = {
@@ -219,10 +224,8 @@ def _character_brief_payload(brief):
 
 
 async def _character_response_fact(db, novel_id, focus):
-    from modules.evidence.facade import read_object_dossier_brief
     from modules.story.facade import get_scene_story_assets
     from modules.story.outline_state.facade import get_scene_contract
-    from modules.world.facade import get_characters_context
 
     if not focus.scene_id:
         return None
@@ -248,13 +251,13 @@ async def _character_response_fact(db, novel_id, focus):
     )
     if not character_id or character_id not in scene_character_ids:
         return None
-    character_context = await get_characters_context(
+    character_context = await get(WORLD_GET_CHARACTERS_CONTEXT)(
         db, novel_id, [character_id], reveal_mode="character"
     )
     if not character_context.characters:
         return None
     character_name = character_context.characters[0].name
-    brief = await read_object_dossier_brief(
+    brief = await get(EVIDENCE_READ_OBJECT_DOSSIER_BRIEF)(
         db,
         novel_id=novel_id,
         scene_id=str(scene.id),

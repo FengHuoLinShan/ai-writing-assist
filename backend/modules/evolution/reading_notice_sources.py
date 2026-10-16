@@ -350,90 +350,16 @@ def _reading_attention_notice(
     }
 
 
-async def list_reading_notices(
-    db, novel_id: str, scope: dict[str, object]
-) -> list[dict[str, Any]]:
-    """Materialized by the app notice registry; this function never changes state."""
-    await require_active_project(db, str(novel_id))
-    scene_id = str(scope.get("scene_id") or "") or None
-    scene = await get_scene_contract(db, str(novel_id), scene_id) if scene_id else None
-    if scene_id and scene is None:
-        return []
-    chapter_cutoff = _chapter_cutoff(scope, scene)
-    scene_index = int(scene.scene_index) if scene is not None else None
-    sources = await get_manuscript_source_manifest(
-        db,
-        str(novel_id),
-        content_mode="canonical",
-        **({"chapter_to": chapter_cutoff} if chapter_cutoff else {}),
-    )
-    if chapter_cutoff is not None:
-        sources = [
-            source
-            for source in sources
-            if int(source.get("chapter_index") or 0) <= chapter_cutoff
-        ]
-    completed = set(await read_completed_chapter_indices(db, str(novel_id)))
-    unread = [
-        source
-        for source in sources
-        if int(source.get("chapter_index") or 0) not in completed
-    ]
-    scope_hash = _scope_fingerprint(
-        novel_id=str(novel_id),
-        chapter_cutoff=chapter_cutoff,
-        scene_id=scene_id,
-        scene_index=scene_index,
-        sources=sources,
-    )
-    notices: list[dict[str, Any]] = []
-    if unread:
-        unread_rows = [_source_key(source) for source in unread]
-        chapters = [int(source["chapter_index"]) for source in unread_rows]
-        start = min(chapters)
-        scope_key = scene_id or f"chapter-{chapter_cutoff or 0}"
-        notices.append(
-            {
-                "notice_key": f"{SOURCE_ID}:unread:{scope_key}",
-                "source_id": SOURCE_ID,
-                "category": "reading_unread",
-                "severity": "low",
-                "target": {"chapter_index": start, "scene_id": scene_id},
-                "summary": (
-                    f"当前已采用正文中有 {len(unread)} 章"
-                    "尚无覆盖当前版本的完整成功阅读回执。"
-                    f"从第 {start} 章开始。"
-                ),
-                "evidence": [
-                    {
-                        "chapter_index": start,
-                        "note": (
-                            "是否已读只按当前正文版本对应的成功回执判断；"
-                            "准备计划和失败尝试不算完成。"
-                        ),
-                    }
-                ],
-                "basis_fingerprint": stable_hash(
-                    {"scope": scope_hash, "unread": unread_rows}
-                ),
-                "stale": False,
-                "actions": [_action(chapter_index=start, scene_id=scene_id)],
-                "disposition_ref": None,
-            }
-        )
-
-    latest = await db.scalar(
-        select(EvolutionRun)
-        .where(
-            EvolutionRun.novel_id == UUID(str(novel_id)),
-            EvolutionRun.execution_mode == "live",
-            EvolutionRun.reading_plan_json.is_not(None),
-        )
-        .order_by(EvolutionRun.created_at.desc(), EvolutionRun.id.desc())
-        .limit(1)
-    )
-    if latest is None:
-        return notices
+async def _run_attention(
+    db,
+    novel_id: str,
+    latest: EvolutionRun,
+    *,
+    scope_hash: str,
+    chapter_cutoff: int | None,
+    scene_index: int | None,
+    scene_id: str | None,
+) -> dict[str, Any] | None:
     plan = latest.reading_plan_json or {}
     steps = plan.get("steps") or []
     preparation = plan.get("preparation") or {}
@@ -518,8 +444,105 @@ async def list_reading_notices(
         scene_index=scene_index,
         scene_id=scene_id,
     )
-    if attention:
-        notices.append(attention)
+    return attention
+
+
+async def list_reading_notices(
+    db, novel_id: str, scope: dict[str, object]
+) -> list[dict[str, Any]]:
+    """Materialized by the app notice registry; this function never changes state."""
+    await require_active_project(db, str(novel_id))
+    scene_id = str(scope.get("scene_id") or "") or None
+    scene = await get_scene_contract(db, str(novel_id), scene_id) if scene_id else None
+    if scene_id and scene is None:
+        return []
+    chapter_cutoff = _chapter_cutoff(scope, scene)
+    scene_index = int(scene.scene_index) if scene is not None else None
+    sources = await get_manuscript_source_manifest(
+        db,
+        str(novel_id),
+        content_mode="canonical",
+        **({"chapter_to": chapter_cutoff} if chapter_cutoff else {}),
+    )
+    if chapter_cutoff is not None:
+        sources = [
+            source
+            for source in sources
+            if int(source.get("chapter_index") or 0) <= chapter_cutoff
+        ]
+    completed = set(await read_completed_chapter_indices(db, str(novel_id)))
+    unread = [
+        source
+        for source in sources
+        if int(source.get("chapter_index") or 0) not in completed
+    ]
+    scope_hash = _scope_fingerprint(
+        novel_id=str(novel_id),
+        chapter_cutoff=chapter_cutoff,
+        scene_id=scene_id,
+        scene_index=scene_index,
+        sources=sources,
+    )
+    notices: list[dict[str, Any]] = []
+    if unread:
+        unread_rows = [_source_key(source) for source in unread]
+        chapters = [int(source["chapter_index"]) for source in unread_rows]
+        start = min(chapters)
+        scope_key = scene_id or f"chapter-{chapter_cutoff or 0}"
+        notices.append(
+            {
+                "notice_key": f"{SOURCE_ID}:unread:{scope_key}",
+                "source_id": SOURCE_ID,
+                "category": "reading_unread",
+                "severity": "low",
+                "target": {"chapter_index": start, "scene_id": scene_id},
+                "summary": (
+                    f"当前已采用正文中有 {len(unread)} 章"
+                    "尚无覆盖当前版本的完整成功阅读回执。"
+                    f"从第 {start} 章开始。"
+                ),
+                "evidence": [
+                    {
+                        "chapter_index": start,
+                        "note": (
+                            "是否已读只按当前正文版本对应的成功回执判断；"
+                            "准备计划和失败尝试不算完成。"
+                        ),
+                    }
+                ],
+                "basis_fingerprint": stable_hash(
+                    {"scope": scope_hash, "unread": unread_rows}
+                ),
+                "stale": False,
+                "actions": [_action(chapter_index=start, scene_id=scene_id)],
+                "disposition_ref": None,
+            }
+        )
+
+    runs = (
+        await db.scalars(
+            select(EvolutionRun)
+            .where(
+                EvolutionRun.novel_id == UUID(str(novel_id)),
+                EvolutionRun.execution_mode == "live",
+                EvolutionRun.reading_plan_json.is_not(None),
+            )
+            .order_by(EvolutionRun.created_at.desc(), EvolutionRun.id.desc())
+        )
+    ).all()
+    for run in runs:
+        attention = await _run_attention(
+            db,
+            novel_id,
+            run,
+            scope_hash=scope_hash,
+            chapter_cutoff=chapter_cutoff,
+            scene_index=scene_index,
+            scene_id=scene_id,
+        )
+        if attention is not None:
+            notices.append(attention)
+            break
     return notices
 
 
