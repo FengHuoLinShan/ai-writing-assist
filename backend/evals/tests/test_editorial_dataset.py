@@ -18,9 +18,10 @@ def test_editorial_samples_are_frozen_and_cover_risky_judgments():
     for case in cases:
         assert case["evaluation_focus"]
         for chapter in [*case["chapters"], *case.get("revised_chapters", [])]:
-            assert hashlib.sha256(chapter["content"].encode()).hexdigest() == chapter[
-                "content_sha256"
-            ]
+            assert (
+                hashlib.sha256(chapter["content"].encode()).hexdigest()
+                == chapter["content_sha256"]
+            )
 
 
 def test_editorial_v2_preserves_v1_and_hashes_all_synthetic_cases():
@@ -56,15 +57,75 @@ def test_editorial_v2_preserves_v1_and_hashes_all_synthetic_cases():
     assert cases[: len(v1["cases"])] == v1["cases"]
     assert len(cases) == len(v1["cases"]) + len(new_ids)
     assert len(ids) == len(set(ids))
-    assert set(ids[len(v1["cases"]):]) == new_ids
+    assert set(ids[len(v1["cases"]) :]) == new_ids
     assert all("mismatch_type" not in case for case in cases)
 
-    for case in cases[len(v1["cases"]):]:
+    for case in cases[len(v1["cases"]) :]:
         assert case["evaluation_focus"]
         assert 1 <= len(case["chapters"]) <= 3
         if "scope_note" in case:
             assert case["scope_note"]
         for chapter in [*case["chapters"], *case.get("revised_chapters", [])]:
-            assert hashlib.sha256(chapter["content"].encode()).hexdigest() == chapter[
-                "content_sha256"
-            ]
+            assert (
+                hashlib.sha256(chapter["content"].encode()).hexdigest()
+                == chapter["content_sha256"]
+            )
+
+
+def test_editorial_v3_preserves_frozen_versions_and_balances_positive_controls():
+    datasets = Path(__file__).parents[1] / "datasets"
+    v2 = json.loads((datasets / "editorial_cases_v2.json").read_text(encoding="utf-8"))
+    v3 = json.loads((datasets / "editorial_cases_v3.json").read_text(encoding="utf-8"))
+    v2_cases = {case["id"]: case for case in v2["cases"]}
+    cases = v3["cases"]
+    by_id = {case["id"]: case for case in cases}
+    positive_controls = {
+        "S02_objective_record_conflict",
+        "S08_mystery_promise_unfulfilled",
+        "S09_revenge_promise_unfulfilled",
+        "S17_serialized_promise_abandoned",
+        "S19_active_goal_passivity_mismatch",
+    }
+
+    assert v3["version"] == 3
+    assert len(cases) == 29
+    assert len(by_id) == len(cases)
+    assert set(v3["expected_result_values"]) == {"report", "no_report", "unchecked"}
+    assert {case["expected_result"] for case in cases} <= set(
+        v3["expected_result_values"]
+    )
+    assert sum(case["expected_result"] == "report" for case in cases) == 11
+    assert sum(case["expected_result"] == "no_report" for case in cases) == 17
+    assert sum(case["expected_result"] == "unchecked" for case in cases) == 1
+    assert set(by_id) - set(v2_cases) == positive_controls | {
+        "S18_intentional_passive_character_control"
+    }
+    for case_id, old_case in v2_cases.items():
+        current = dict(by_id[case_id])
+        current.pop("expected_result")
+        if case_id == "S01_hard_contradiction":
+            assert current != old_case
+            assert "铜钥匙" not in "".join(
+                chapter["content"] for chapter in current["chapters"]
+            )
+            assert "左手" in "".join(
+                chapter["content"] for chapter in current["chapters"]
+            )
+        else:
+            assert current == old_case
+    assert all(
+        by_id[case_id]["expected_result"] == "report" for case_id in positive_controls
+    )
+    assert (
+        by_id["S18_intentional_passive_character_control"]["expected_result"]
+        == "no_report"
+    )
+
+    for case in cases:
+        assert 1 <= len(case["chapters"]) <= 3
+        assert case["evaluation_focus"]
+        for chapter in [*case["chapters"], *case.get("revised_chapters", [])]:
+            assert (
+                hashlib.sha256(chapter["content"].encode()).hexdigest()
+                == chapter["content_sha256"]
+            )

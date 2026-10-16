@@ -12,6 +12,9 @@ from evals.report import (
     render_markdown_report,
 )
 from evals.review import (
+    EDITORIAL_BLIND_REVIEWER,
+    EDITORIAL_RUBRIC_KEYS,
+    EditorialBlindReviewRecord,
     ReviewRecord,
     apply_review_records,
     export_review_csv,
@@ -20,6 +23,7 @@ from evals.review import (
     human_review_quality,
     inter_reviewer_agreement,
     judge_human_agreement,
+    load_editorial_blind_reviews,
     load_review_records,
     select_balanced_review_supplement,
     select_double_review_cases,
@@ -251,6 +255,54 @@ def test_edited_review_requires_corrected_reference() -> None:
             [ReviewRecord(case_id="rag-edit", status="edited")],
             reviewer_version="human-v1",
         )
+
+
+def test_editorial_blind_review_import_requires_all_rubric_and_finding_labels(
+    tmp_path: Path,
+) -> None:
+    record = EditorialBlindReviewRecord(
+        case_id="blind-random-id",
+        reviewer_version=EDITORIAL_BLIND_REVIEWER,
+        expected_result="report",
+        case_outcome="hit",
+        scores={
+            key: {"score": 2, "reason": "理由。", "quote": "输出原文。"}
+            for key in EDITORIAL_RUBRIC_KEYS
+        },
+        finding_count=1,
+        finding_assessments=[
+            {
+                "finding_index": 0,
+                "classification": "hit",
+                "reason": "对应预期问题。",
+                "quote": "这条意见。",
+            }
+        ],
+    )
+    path = tmp_path / "ratings.jsonl"
+    path.write_text(record.model_dump_json() + "\n", encoding="utf-8")
+
+    assert load_editorial_blind_reviews(path) == [record]
+
+    bad_record = record.model_dump(mode="json")
+    bad_record["scores"].pop(next(iter(EDITORIAL_RUBRIC_KEYS)))
+    with pytest.raises(ValueError, match="all 15"):
+        EditorialBlindReviewRecord.model_validate(bad_record)
+
+    miss = EditorialBlindReviewRecord.model_validate(
+        {
+            **record.model_dump(mode="json"),
+            "case_outcome": "miss",
+            "finding_assessments": [
+                {
+                    **record.finding_assessments[0].model_dump(),
+                    "classification": "false_positive",
+                }
+            ],
+            "missed_expected_issues": ["正文承诺的问题未被发现。"],
+        }
+    )
+    assert miss.case_outcome == "miss"
 
 
 def test_independent_review_disagreement_requires_adjudication() -> None:

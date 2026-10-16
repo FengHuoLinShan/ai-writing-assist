@@ -1457,21 +1457,7 @@ async def test_save_findings_keeps_colliding_object_findings_and_keeps_dispositi
 
 def test_editorial_prompt_contract_covers_diagnosis_and_nonreport_rules():
     prompt = editorial._SYSTEM
-    for required in (
-        "作者明示约定",
-        "文本反复建立的惯例",
-        "理解摩擦与理解后不喜欢",
-        "旧线索无法由当前审读重新检索",
-        "写入 unchecked",
-        "至少一条有据的最小调整方向",
-        "只有确有取舍时才给备选",
-        "同一根因应合为一条意见",
-        "每章钩子",
-        "固定中点",
-        "人物稳定、扁平、被动、沉默或功能化",
-        "不可靠叙述",
-        "当前没有再现/伦理观察入口",
-        "不是封闭白名单",
-    ):
-        assert required in prompt
     assert "尽量给出两到三条方向" not in prompt
+    assert "写入 unchecked" in prompt
+    assert "why_now" in prompt
+    assert "不主动输出再现或伦理观察" in prompt

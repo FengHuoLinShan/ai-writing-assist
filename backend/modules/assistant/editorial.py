@@ -69,7 +69,7 @@ _SYSTEM = (
     "开放结局、反高潮、预言、意象不回收、伏笔延迟、结尾未解释一切，"
     "作者不采纳/暂缓 AI 建议、标记刻意安排或读者美感分歧，都不能单独成为错误卡。"
     "角色说错事实、不可靠叙述者自相矛盾或有限视角不知道答案，若作品未承诺为客观事实，也不自动算矛盾。"
-    "当前没有再现/伦理观察入口，不主动输出这类观察或仅凭群体身份宣判作品伦理失败。"
+    "不主动输出再现或伦理观察，也不只凭群体身份宣判作品伦理失败。"
     "无网络/来源核对时不得断言历史、职业、医疗、法律或现实制度事实错误。"
     "允许零问题。提出意见须有当前唯一原文依据、可能反证和未核对范围；高严重度须有明确原文，不能只凭自信。"
     "若声称关联作者意图，intent_quote 必须精确引用本轮给出的编辑约定；"
@@ -1281,7 +1281,7 @@ async def _finish(db, row, *, partial_reason=None):
     await db.flush()
 
 
-async def _synthesize(db, row, client, call, budget):
+async def _synthesize(db, row, client, call, budget, *, system_prompt):
     progress = dict(row.progress_json)
     if "synthesis_nodes" not in progress:
         progress["synthesis_nodes"] = [
@@ -1327,7 +1327,7 @@ async def _synthesize(db, row, client, call, budget):
         }
         result = await call(
             client,
-            _SYSTEM
+            system_prompt
             + (
                 "合并以下所列章节的共同根因和反证。章节可能有缺失或排除。"
                 "跨章判断须分别引用所给准确原文；不可新增未提供的引文。"
@@ -1361,7 +1361,8 @@ async def _synthesize(db, row, client, call, budget):
             },
         ]
         progress["synthesis_cursor"] = cursor + len(group)
-        row.progress_json = {**progress, "budget": budget.model_dump(mode="json")}
+        progress["budget"] = budget.model_dump(mode="json")
+        row.progress_json = dict(progress)
         await db.commit()
     if len(progress["synthesis_nodes"]) > 1 and progress["synthesis_cursor"] >= len(
         progress["synthesis_nodes"]
@@ -1373,9 +1374,18 @@ async def _synthesize(db, row, client, call, budget):
         await db.commit()
 
 
-async def execute(db, task):
+async def execute(
+    db,
+    task,
+    *,
+    _system_prompt=None,
+    _before_request=None,
+    _after_request=None,
+    _injected_client=None,
+):
     if not getattr(db, "task_checkpoint_enabled", False):
         raise RuntimeError("Editorial review requires a lease-fenced session")
+    system_prompt = _SYSTEM if _system_prompt is None else _system_prompt
     novel_id = str(task.novel_id)
     row = await _require_review(db, novel_id, UUID(task.meta["review_id"]))
     if str(row.task_id) != str(task.id) or row.status not in {"queued", "running"}:
@@ -1411,24 +1421,38 @@ async def execute(db, task):
     async def call(client, instructions, payload):
         await guard()
         await db.commit()
-        with workflow_budget(budget, checkpoint):
-            return await run_managed_structured(
-                client,
-                LLMCallRequest(
-                    model=client.model_name,
-                    messages=[
-                        LLMMessage(role="system", content=instructions),
-                        LLMMessage(
-                            role="user", content=json.dumps(payload, ensure_ascii=False)
-                        ),
-                    ],
-                ),
-                ReviewPass,
-                step_name="assistant.editorial.review",
-                capability_id="assistant.editorial",
-                max_fix_attempts=0,
-                transport_retries=False,
+        request_state = None
+        if _before_request is not None:
+            request_state = await _before_request(
+                db, row, client, budget, instructions, payload
             )
+        try:
+            with workflow_budget(budget, checkpoint):
+                result = await run_managed_structured(
+                    client,
+                    LLMCallRequest(
+                        model=client.model_name,
+                        messages=[
+                            LLMMessage(role="system", content=instructions),
+                            LLMMessage(
+                                role="user",
+                                content=json.dumps(payload, ensure_ascii=False),
+                            ),
+                        ],
+                    ),
+                    ReviewPass,
+                    step_name="assistant.editorial.review",
+                    capability_id="assistant.editorial",
+                    max_fix_attempts=0,
+                    transport_retries=False,
+                )
+        except BaseException as exc:
+            if _after_request is not None:
+                await _after_request(request_state, budget, None, exc)
+            raise
+        if _after_request is not None:
+            await _after_request(request_state, budget, result, None)
+        return result
 
     try:
         row = await guard()
@@ -1439,8 +1463,13 @@ async def execute(db, task):
             raise ConflictError("上次模型用量尚未确认", code="USAGE_UNKNOWN")
         row.status = "running"
         await db.commit()
+        client_options = (
+            {"injected_client": _injected_client}
+            if _injected_client is not None
+            else {}
+        )
         async with open_project_snapshot_llm_client(
-            db, novel_id, row.llm_snapshot_json
+            db, novel_id, row.llm_snapshot_json, **client_options
         ) as client:
             await db.commit()
             while budget.requests < 4:
@@ -1483,7 +1512,7 @@ async def execute(db, task):
                         break
                     reader = await call(
                         client,
-                        _SYSTEM
+                        system_prompt
                         + (
                             "你是顺序初读者；只见当前片段与此前读者认知，"
                             "不见作者约定、后文或私有设定。"
@@ -1526,7 +1555,7 @@ async def execute(db, task):
                         )
                     editorial = await call(
                         client,
-                        _SYSTEM,
+                        system_prompt,
                         {
                             **base,
                             "dimensions": other,
@@ -1571,7 +1600,9 @@ async def execute(db, task):
                 row.progress_json["source_index"] == len(row.source_json)
                 and row.scope_json["scope"] != "chapter"
             ):
-                await _synthesize(db, row, client, call, budget)
+                await _synthesize(
+                    db, row, client, call, budget, system_prompt=system_prompt
+                )
         await db.commit()
         await lock_chapter_versions_for_revalidation(
             db,

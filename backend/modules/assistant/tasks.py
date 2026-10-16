@@ -45,6 +45,9 @@ async def handle_assistant_forecast(db, task):
 async def handle_assistant_editorial_review(db, task):
     from modules.assistant.editorial import execute
 
+    options = db.info.get("editorial_prompt_ab_options")
+    if options is not None:
+        return await execute(db, task, **options)
     return await execute(db, task)
 
 

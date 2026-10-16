@@ -12,7 +12,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Literal
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from evals.metrics import cohens_kappa, spearman_rho
 from evals.schemas import (
@@ -34,6 +34,109 @@ class ReviewRecord(BaseModel):
     reason: str | None = None
     score: int | None = Field(default=None, ge=1, le=5)
     corrected_reference: dict | None = None
+
+
+EDITORIAL_RUBRIC_KEYS = frozenset(
+    {
+        "source_misread",
+        "strong_false_positive",
+        "major_issue_miss",
+        "direction_actionability",
+        "author_voice_respect",
+        "post_revision_judgment",
+        "intentional_form_misjudgment",
+        "taste_as_error",
+        "understanding_vs_dislike",
+        "lookback_and_alternatives",
+        "minimal_revision_and_level",
+        "voice_overediting",
+        "issue_aggregation_and_burden",
+        "ethics_presentation_boundary",
+        "external_fact_restraint",
+    }
+)
+EDITORIAL_BLIND_REVIEWER = "AI 盲评（Claude Sonnet 5.5，单评阅者）"
+
+
+class EditorialRubricScore(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    score: int = Field(ge=0, le=2)
+    reason: str = Field(min_length=1, max_length=2000)
+    quote: str = Field(min_length=1, max_length=2000)
+
+
+class EditorialFindingAssessment(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    finding_index: int = Field(ge=0)
+    classification: Literal["hit", "false_positive"]
+    reason: str = Field(min_length=1, max_length=2000)
+    quote: str = Field(min_length=1, max_length=2000)
+
+
+class EditorialBlindReviewRecord(BaseModel):
+    """Importable, non-aggregated rubric scores for one blinded report."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    case_id: str = Field(min_length=1)
+    reviewer_version: Literal["AI 盲评（Claude Sonnet 5.5，单评阅者）"]
+    expected_result: Literal["report", "no_report", "unchecked"]
+    case_outcome: Literal[
+        "hit", "false_positive", "miss", "no_report", "unchecked", "unchecked_missed"
+    ]
+    scores: dict[str, EditorialRubricScore]
+    finding_count: int = Field(ge=0)
+    finding_assessments: list[EditorialFindingAssessment]
+    missed_expected_issues: list[str] = Field(default_factory=list)
+
+    @model_validator(mode="after")
+    def validate_rubric_and_findings(self):
+        if set(self.scores) != EDITORIAL_RUBRIC_KEYS:
+            raise ValueError("all 15 editorial rubric scores are required")
+        indices = [item.finding_index for item in self.finding_assessments]
+        if len(indices) != len(set(indices)) or set(indices) != set(
+            range(self.finding_count)
+        ):
+            raise ValueError("every report finding must have one assessment")
+        hits = [item for item in self.finding_assessments if item.classification == "hit"]
+        if self.expected_result == "report":
+            if self.case_outcome not in {"hit", "miss"}:
+                raise ValueError("report-positive case must be hit or miss")
+            if (self.case_outcome == "hit") != bool(hits):
+                raise ValueError("report case outcome must match its finding assessments")
+        elif self.expected_result == "no_report":
+            expected = "false_positive" if self.finding_count else "no_report"
+            if self.case_outcome != expected or hits:
+                raise ValueError("no-report case outcome must match its finding count")
+            if any(
+                item.classification != "false_positive"
+                for item in self.finding_assessments
+            ):
+                raise ValueError("no-report findings must all be false positives")
+        else:
+            expected = "unchecked" if hits else "unchecked_missed"
+            if self.case_outcome != expected:
+                raise ValueError("unchecked outcome must match its finding assessments")
+        if (
+            self.case_outcome in {"miss", "unchecked_missed"}
+            and not self.missed_expected_issues
+        ):
+            raise ValueError("a missed case must describe the expected issue")
+        return self
+
+
+def load_editorial_blind_reviews(path: Path) -> list[EditorialBlindReviewRecord]:
+    """Read Sonnet's blinded JSONL without turning scores into a quality total."""
+    records = [
+        EditorialBlindReviewRecord.model_validate_json(line)
+        for line in path.read_text(encoding="utf-8").splitlines()
+        if line.strip()
+    ]
+    if len({record.case_id for record in records}) != len(records):
+        raise ValueError("duplicate blinded review case IDs")
+    return records
 
 
 def select_review_cases(
