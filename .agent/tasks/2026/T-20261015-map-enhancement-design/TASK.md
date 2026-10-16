@@ -3,19 +3,29 @@ id: T-20261015-map-enhancement-design
 title: 地图系统增强设计与分批实施（自动冷启动、参与创作决策、题材鲁棒性）
 status: active
 created: 2026-10-15T10:54:00+08:00
-updated: 2026-10-16T15:00:41+08:00
+updated: 2026-10-16T18:16:50+08:00
 ---
 
 # 地图系统增强设计
 
 ## 恢复快照
 
+- 本地提交收尾（2026-10-16T20:13:41+08:00）：用户要求地图增强系列对应工作树收尾并提交。后续补修已提交为 `651df05722abc7bbc6a47a42dbee77c43b5faf5f`，原始范围为 `59537b4cb376da20b67cd8152f4cca3ba6f286d0..651df05722abc7bbc6a47a42dbee77c43b5faf5f`；另保全旧操作留痕原型与历史评审报告，未合入此树。39个系列工作树及待review范围见[提交交接](../T-20261016-worktree-checkpoints/REVIEW.md)。本轮后端145、前端120及lint/docs/repo-gates通过；最近全量覆盖率84.37%未达85%的原阻塞仍保留，本轮未重跑全量/PG/浏览器/模型。各计划仍active，真实质量与R3–R6封存、holdout、能力门禁不变；未push/PR/合并/部署。下方“未提交”等表述为原时点历史。
+
+- 后续审查补修（2026-10-16T18:16:50+08:00）：针对 `dd9946dd0..59537b4cb` 的8项复核问题已在本地工作树补修，代码仍基于 `59537b4cb376da20b67cd8152f4cca3ba6f286d0`，未提交。详情与逐项证据见[修复账本](../T-20261015-character-world-progression/artifacts/REVIEW-REMEDIATION-20261016.md#第四批复核报告8项补修)。141项受影响后端定向测试通过，专用PG档案E2E 3项通过；全后端9088 passed/2 skipped，但总覆盖率84.37%未达到85%门槛，`make test-ci`退出2。全前端3229项、ESLint、生产构建、Ruff、25个改动Python文件格式检查、`make docs-check BASE_REF=origin/main`、`make module-import-gate`和`make repo-gates`通过。未做真实模型/稿件/作者或真人浏览器验收；无commit/push/PR/main合并/部署。下一步：保留覆盖率门禁失败和WIP，供后续确定基线归因后处理。
+
+- 执行完成（2026-10-16T16:40:12+08:00）：按用户要求完成剩余17项，排除真实模型/真实稿件/作者验收。8条隔离 worktree 的实现共10个提交已集成到`codex/map-enhancement-plan`，HEAD=`59537b4cb376da20b67cd8152f4cca3ba6f286d0`。覆盖M4/M6/L4、L3、M7、L8、L10/L12、M9/L27/L28、M16、L1/L20–L23；M4以Dossier为主记录、L3降级显式清有效期、L28仅自动化具备恢复manifest与CAS的R2。主树另有根写入的说明和PG回归用例尚未提交；原任务记录WIP保留。验证：目标后端定向单测187通过；保留工程PG上11个E2E文件59通过（含六类strong Profile↔Dossier写回和跨项目manifest v2 JSON回环）；前端257文件3226通过，lint/build通过；`make docs-check BASE_REF=origin/main`、`make module-import-gate`、`make repo-gates`、Ruff、`git diff --check`通过。repo-gates保留文件长度提示（Goal Runs service 4502行、context compiler 3085行）；前端Vitest日志另出现一次localhost:3000连接拒绝，但所有3226项通过。未运行模型、真实稿件/作者验收、浏览器真人验收或通用outbox worker；封存评测库/R3–R6和能力门禁保持原样。无push/PR/main合并/部署。
+
+- 执行起点（2026-10-16T15:30:50+08:00）：用户授权并行完成剩余17项，并允许本地HTTP/隔离PG工程验收；排除真实模型/真实稿件/作者验收。独立实现worktree从`dd9946dd0caf5d842d4421d7949e7f14a3a6b44a`建立，按[剩余问题交接](../T-20261015-character-world-progression/artifacts/REVIEW-HANDOFF-20261016.md)分域。主worktree原有任务/交接文档WIP保留；不碰封存评测库、R3–R6，不push/PR/合并main/部署。
+
+- 最新 handoff（2026-10-16T15:07:39+08:00）：用户仅要求记录剩余问题；[剩余问题交接](../T-20261015-character-world-progression/artifacts/REVIEW-HANDOFF-20261016.md)列明全部 17 项、修复顺序、验证与封存边界。平台目标仍 paused，本轮仅文档，无业务改动或提交；恢复以该交接和当前指令为准。
+
 - 执行停止检查点（2026-10-16T15:00:41+08:00）：平台get_goal返回paused，主会话核实后停止实现；任务内容仍未完成，当前代码70e305540db5626aba92d24673f09328ae88cc8f。项目任务active表示开放工作，不构成恢复平台目标授权；用户恢复后继续review剩余17项（首项M4），无未保存的M4改动。
 
 - 最新review第二批（2026-10-16T14:53:23+08:00）：M2/L2完成，累计30修复/1纠正/17待继续；1975 World+evals及2 PG通过。Map pipeline=df32dbcf8c4779cbe03b1ebbfc71b5bc7e477bed355f6a47a65030f31a4c05ea，旧e493/38da仅历史。下一步主会话实施review M4强Profile收敛，再M6交换保真；详情见[修复账本](../T-20261015-character-world-progression/artifacts/REVIEW-REMEDIATION-20261016.md)。所有封存评测及能力门禁保持。
 
-- 当前授权：三份计划全部实施；用户最新要求剩余工作全部由主会话完成，禁止再开或恢复子代理。地图验收采用已确认的“模拟作者显式指定 Scene 地点后对比辅助写作”，保持 `human_validated=false`。不 push、PR、合并 main、发布或部署。
-- 工作区：`/Users/tywww/项目/ai-writing-assist/.worktrees/map-enhancement-plan`，分支 `codex/map-enhancement-plan`；R6历史代码固定点 `81785cd16d1310f747e7790832567a593d6a9952`；最新托盘拒绝路径尾修的Map pipeline为`38da6d39b70ec51b64b7c7dcfb62a38ed2fdda5dfc15b04efca9d4c0eae225fa`，未续跑R6。当前代码和记录均只由root写入；所有其他worktree、WIP与数据库保留。原Desktop路径已失效。
+- 当前范围：本轮明确授权只覆盖余下17个工程审查项及其工程验证；地图真实验收仍采用“模拟作者显式指定 Scene 地点后对比辅助写作”，保持 `human_validated=false`。不 push、PR、合并 main、发布或部署。
+- 工作区：`/Users/tywww/项目/ai-writing-assist/.worktrees/map-enhancement-plan`，分支 `codex/map-enhancement-plan`；R6历史代码固定点 `81785cd16d1310f747e7790832567a593d6a9952`；最新托盘拒绝路径尾修的Map pipeline为`38da6d39b70ec51b64b7c7dcfb62a38ed2fdda5dfc15b04efca9d4c0eae225fa`，未续跑R6。本轮源代码提交经隔离worktree集成到此分支；根代理新增文档与`test_world_dossier_postgres.py`回归用例仍为本地未提交更改。其他worktree、WIP与数据库均保留。原Desktop路径已失效。
 - 工程结果：M0–M4、A0–A4、C0及C2–C5当前能力已集成。`526d3ef60f`完整9023后端/3212前端/74PG及lint/build通过；`30e3afa580`卡片修订状态尾修204 Story通过；`81785cd16`地图代理作者待采用地点提示尾修67定向、455evals/2skip、ruff/docs/repo-gates通过。后两尾修没有冒称重新跑完整9023。
 - 真实评测：R3、R4、R5与导演R1/R2均封存诊断，不恢复/改绑/重放。R4两个独立信封16请求/257677tokens；R5两族12任务65请求/1006437tokens/unknown0，另3族attempt0正常取消；Sol seed费用/usage未知。R2角色facts仍0，无导演/WP新SUT；不制造记忆。详情与完整账本索引见[最新检查点](../T-20261015-character-world-progression/artifacts/C5-C0-C3-A1-CHECKPOINT.md)。
 - 最新真实评测：R6私有根 `/Users/tywww/.codex/private/map-spatial-evaluation-20261016-r6` 已封存，原pipeline `a3ad2b84a661fa02a61bde9ad3b427afb903b06bb3a486d589f46655b326ce2a` 不改绑。五题材各6任务共30个不同信封均done/attempt1，161个业务请求/2517759tokens/unknown0；五seed另计usage/费用未知，实际总调用166。各域64原上限合320，余159不续借。

@@ -3,12 +3,20 @@ id: T-20261015-character-world-progression
 title: 世界对象档案、场景导演、写作副驾驶与世界推进设计
 status: active
 created: 2026-10-15T16:00:00+08:00
-updated: 2026-10-16T15:00:41+08:00
+updated: 2026-10-16T19:01:43+08:00
 ---
 
 # 世界对象档案、场景导演、写作副驾驶与世界推进设计
 
 ## 恢复快照
+
+- 本地提交收尾（2026-10-16T20:13:41+08:00）：用户要求地图增强系列对应工作树收尾并提交。后续补修已提交为 `651df05722abc7bbc6a47a42dbee77c43b5faf5f`，原始范围为 `59537b4cb376da20b67cd8152f4cca3ba6f286d0..651df05722abc7bbc6a47a42dbee77c43b5faf5f`；另保全旧操作留痕原型与历史评审报告，未合入此树。39个系列工作树及待review范围见[提交交接](../T-20261016-worktree-checkpoints/REVIEW.md)。本轮后端145、前端120及lint/docs/repo-gates通过；最近全量覆盖率84.37%未达85%的原阻塞仍保留，本轮未重跑全量/PG/浏览器/模型。各计划仍active，真实质量与R3–R6封存、holdout、能力门禁不变；未push/PR/合并/部署。下方“未提交”等表述为原时点历史。
+
+- 本轮四项审查修复（2026-10-16T19:01:43+08:00）：用户明确要求“修复”，主会话在原 WIP 上独立完成 4 条 P2，并补齐 Chromium 实测发现的前端 v2 清单导入校验。Scene 匹配更新刷新章序基准；Generic 同名目标字段进入显式跳过的冲突流程；数组新增保留元素类型；结构化值由服务端派生存储文本。后端9092 passed/2 skipped、前端3234 passed、独立临时PG 7 passed、Chromium 2 passed，lint/docs/repo-gates通过；完整CI仍因84.37%覆盖率低于85%失败。临时PG已停止，日志及细节见[第五批账本](artifacts/REVIEW-REMEDIATION-20261016.md#第五批四项p2与清单前端回环)。本轮修复本地完成，未提交/推送/部署；下一步若继续交付，先处理覆盖率门禁并重新评审。原任务真实模型/作者验收与封存边界不变。
+
+- 后续复核补修（2026-10-16T18:16:50+08:00）：地图分支复核项3–6/8已本地补修：章节重排后的Scene重提取使用新投影时间基准；显式空值同步清除Profile/Dossier；编辑器写回类型化legacy数组；预览/写入共用varchar长度校验；地图类型差异解析固定修订名称。详细证据见[修复账本](artifacts/REVIEW-REMEDIATION-20261016.md#第四批复核报告8项补修)。受影响定向/档案PG测试通过；全后端9088项通过但总覆盖率84.37%未达85%门槛。未做真实验收或远端交付。
+
+- 最新 handoff（2026-10-16T15:07:39+08:00）：用户仅要求记录剩余问题；[剩余问题交接](artifacts/REVIEW-HANDOFF-20261016.md)逐项列出 5 medium / 12 low、代码入口、验收、环境与封存边界。写文档前 HEAD 为 dd9946dd0caf5d842d4421d7949e7f14a3a6b44a、工作树干净；本轮没有业务改动或提交。平台目标仍 paused；下方历史“下一步”不构成恢复授权。
 
 - 执行停止检查点（2026-10-16T15:00:41+08:00）：平台get_goal返回paused，主会话核实后停止实现；任务内容仍未完成，当前代码70e305540db5626aba92d24673f09328ae88cc8f。项目任务active表示开放工作，不构成恢复平台目标授权；用户恢复后继续review剩余17项（首项M4），无未保存的M4改动。
 
@@ -22,7 +30,7 @@ updated: 2026-10-16T15:00:41+08:00
 - 质量结果：都市/修仙/西幻作者审核completed，地点/地图分别1/1、0/0、2/2；科幻和悬疑分别10/7步后因candidate source_clue_ids为空且无法追溯共同Scene失败关闭、审核unknown，未重放。五族正常eligibility均not_run，无Scene PATCH、Writing/Assistant/judge，development gate blocked/passed=false，holdout未解码。去原文统计见[五题材结果](../T-20261015-map-enhancement-design/artifacts/evaluation/R6-COLDSTART-RESULTS.md)。
 - 封存：exec36844和全部业务worker已exit0。正常engine read_only已停止五个active域根，取消任务0，30个已完成任务meta/result哈希及原预算均未变化。另17个原发布/RAG outbox均pending/attempt0/no envelope，原样保留、未执行；不排通用队列或预热embedding。最终聚合、逐族会计、source-coverage/all-five.json、operator-diagnostic-seal.json与原失败审核回执均私有不可覆盖。/tmp/map-r6-finalize-coldstart-20261016.py与seal脚本均已执行，严禁再跑。
 - 最新修复：已确认tray-only候选是合法待放置载体，World没有丢失来源；来源实际在同批次同node的tray clue中。root只修评测驱动的拒绝路径，按实际本族Scene追溯并独立记录rejection_tray_clue_ids；不改World构建、不将tray变成几何来源或用于采用。2红/7绿复现后9项全绿，77项控制链+实际World服务、461evals/2skip均通过；ruff通过。新pipeline `38da6d39b70ec51b64b7c7dcfb62a38ed2fdda5dfc15b04efca9d4c0eae225fa`，R6原a3ad和审核unknown全部保持。
-- 下一步：按[外部review修复账本](artifacts/REVIEW-REMEDIATION-20261016.md)由主会话逐项复现、修复并验证；当前已开始第一批，整体实施/质量门禁保持未完成。
+- 恢复后下一步：按[剩余问题交接](artifacts/REVIEW-HANDOFF-20261016.md)从 M4 + L4 的双向失配复现与类型策略开始；随后 M6。当前只完成 handoff，整体实施/质量门禁保持未完成。
 - 未完成条件：完整真实矩阵/作者验收未过；C1等P4真实长篇，M5与C5势力扩展等外部路线图，RP迁移等Interaction独立评测，A4数周真实数据和真实Top3仍缺。holdout未解码，能力默认门禁不放宽。逐项边界见[实施对账](artifacts/FULL-SCOPE-ACCEPTANCE.md)。
 - 最后核实：2026-10-16T13:54:06+08:00。下方设计与各历史固定点仅作追溯；旧恢复段可从提交81785cd16读取，不再按旧委派或过期“下一步”执行。
 
