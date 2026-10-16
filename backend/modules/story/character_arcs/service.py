@@ -154,6 +154,9 @@ async def _head(db, novel_id: str, character_id: str, *, lock=False):
 
 async def _lock_character_plan(db, novel_id: str, character_id: str) -> None:
     """Serialize the first write too, when no head row exists to lock."""
+    bind = db.get_bind()
+    if bind is None or bind.dialect.name != "postgresql":
+        return
     await db.execute(
         text("SELECT pg_advisory_xact_lock(hashtextextended(:key, 0))"),
         {"key": f"story.character_arc_plan:{novel_id}:{character_id}"},
