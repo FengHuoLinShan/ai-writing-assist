@@ -115,3 +115,57 @@ async def test_evaluation_discloses_merged_source_as_historical_only(
     assert exported["merged_into_node_id"] == target["id"]
     assert exported["official"] is False
     assert result["revisions"][0]["node_id"] == str(source.id)
+
+
+@pytest.mark.asyncio
+async def test_tray_only_candidate_retains_scoped_provenance_and_can_be_rejected(
+    db_session, test_project_id
+):
+    from modules.world.map_spatial_clue_schemas import MapSpatialClueDecisionRequest
+    from modules.world.map_spatial_clue_service import review_spatial_clue
+    from modules.world.map_structure_schemas import MapRevisionReview
+    from modules.world.map_structure_service import MapStructureService
+
+    scene, _start, _end, clue = await _stage_bound_clue(db_session, test_project_id)
+    await review_spatial_clue(
+        db_session,
+        test_project_id,
+        str(clue.id),
+        MapSpatialClueDecisionRequest(
+            action="reject", expected_fingerprint=clue.fingerprint, confirmed=True
+        ),
+    )
+    built = await build_map_auto_drafts(
+        db_session, test_project_id, _build_request(scene, clue)
+    )
+    artifacts = await read_map_spatial_evaluation_artifacts(
+        db_session, test_project_id, clue.run_id, [str(scene.id)]
+    )
+    assert built.revisions and built.tray_items
+    assert artifacts["clues"][0]["scene_id"] == str(scene.id)
+    assert artifacts["clues"][0]["status"] == "rejected"
+    batch = next(
+        item for item in artifacts["batches"] if item["id"] == str(built.batch_id)
+    )
+    for ref in batch["result_refs"]:
+        assert not ref["source_clue_ids"]
+        tray = [item for item in batch["tray_items"] if item["node_id"] == ref["node_id"]]
+        assert tray and {item["clue_id"] for item in tray} == {str(clue.id)}
+        rejected = await MapStructureService().review(
+            db_session,
+            test_project_id,
+            ref["node_id"],
+            ref["revision_id"],
+            MapRevisionReview(action="reject", base_revision_id=None),
+        )
+        assert rejected.status == "rejected"
+    after = await read_map_spatial_evaluation_artifacts(
+        db_session, test_project_id, clue.run_id, [str(scene.id)]
+    )
+    assert all(
+        ref["status"] == "rejected"
+        for row in after["batches"]
+        for ref in row["result_refs"]
+    )
+    assert after["batches"][0]["tray_items"] == batch["tray_items"]
+    assert not any(node["official"] or node["head"] for node in after["nodes"])

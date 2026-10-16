@@ -1585,11 +1585,21 @@ async def review_map_family(
                     )
                 )
                 action = "adopt" if may_adopt else "reject"
+                rejection_tray_clue_ids = set()
+                if action == "reject" and not source_clue_ids:
+                    # Tray-only drafts retain their provenance outside the geometry.
+                    # This can justify rejection, never adoption of the empty draft.
+                    rejection_tray_clue_ids = {
+                        item["clue_id"]
+                        for item in batch.get("tray_items", [])
+                        if item.get("node_id") == node_id and item.get("clue_id")
+                    }
+                trace_clue_ids = source_clue_ids or rejection_tray_clue_ids
                 source_scene_ids = sorted(
                     {
                         clue.get("scene_id")
                         for clue in artifacts.get("clues", [])
-                        if clue.get("id") in source_clue_ids
+                        if clue.get("id") in trace_clue_ids
                         and clue.get("scene_id") in case_by_scene
                     },
                     key=lambda scene_id: case_order[case_by_scene[scene_id]],
@@ -1719,6 +1729,11 @@ async def review_map_family(
                         "node_id": node_id,
                         "revision_id": revision_id,
                         "source_clue_ids": sorted(source_clue_ids),
+                        **(
+                            {"rejection_tray_clue_ids": sorted(rejection_tray_clue_ids)}
+                            if rejection_tray_clue_ids
+                            else {}
+                        ),
                         "scene_ids": source_scene_ids,
                         "action": action,
                         "status": adopted_revision.get("status"),

@@ -5,6 +5,8 @@
 
 R3、地图R4、R5与导演R1/R2均已封存诊断，不续跑或重写回执。R5两个题材各6个精确任务全部done/attempt1：65请求/1006437tokens/unknown0，五个Sol seed另外计且用量未知；其余三族在attempt0经正常API停止，业务模型调用0。西幻代理作者审核暴露驱动误把“地点尚待采用”提示当阻断，未产可用地图，未执行Writing/Assistant/judge；root已补正常采用先于地图采用的回归并修复，仅允许这一已知提示，其他警告仍拒绝。67项定向与整套evals455/2skip通过，当前新pipeline a3ad2b84a661fa02a61bde9ad3b427afb903b06bb3a486d589f46655b326ce2a，后续需要全新身份/校准/预算，不改绑旧scope。费用和Sol token未知，holdout未解码，均不代表真实质量或作者验收通过。最新状态以[检查点](C5-C0-C3-A1-CHECKPOINT.md)最后一节为准；下方固定点是历史证据。
 
+最新R6（2026-10-16T13:44:00+08:00）：五题材各六任务共30均done/attempt1，业务161请求/2517759tokens/unknown0；加五独立Sol seed合166调用，seed token与费用未知。都市/修仙/西幻完成审核、保存1/0/2地图；科幻/悬疑10/7步后因无共同Scene线索来源失败关闭，原审核unknown保留。五族eligibility均not_run、无Scene PATCH/Writing/Assistant/judge，开发gate blocked/passed=false。五根已正常read_only停止，预算不清零，30完成任务哈希保留；17个发布/RAG outbox未尝试原样留存。原代码81785/pipeline a3ad封存；root已按实际同node托盘来源修复reject-only评测路径，77定向与461evals/2skip通过，新pipeline 38da6d39b70ec51b64b7c7dcfb62a38ed2fdda5dfc15b04efca9d4c0eae225fa，旧评测未恢复，地图覆盖/质量门禁仍缺。
+
 | 批次 | 当前工程结果 | 仍需完成或满足的条件 |
 | --- | --- | --- |
 | 地图M0–M2 | 类型词表、空间契约、可选发现、增量候选、作者审核及助手操作已集成并审修 | 五题材真实端到端评测尚未通过 |

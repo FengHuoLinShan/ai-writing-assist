@@ -806,21 +806,28 @@ async def test_assistant_driver_uses_unknown_intent_and_exact_enabled_worker(
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize(
-    "warnings,adopt",
+    "warnings,adopt,source_mode",
     [
-        ([], True),
-        (["部分地点尚未采用，地图草图保留候选身份绑定"], True),
+        ([], True, "direct"),
+        (["部分地点尚未采用，地图草图保留候选身份绑定"], True, "direct"),
         (
             [
                 "部分地点尚未采用，地图草图保留候选身份绑定",
                 "草图依赖的来源或线索已变化，请重新映射",
             ],
             False,
+            "direct",
         ),
+        ([], False, "tray"),
+        (["草图依赖的来源或线索已变化，请重新映射"], False, "tray"),
+        ([], False, "other_node_tray"),
+        ([], False, "unknown_clue_tray"),
+        ([], False, "missing_tray"),
+        ([], False, "unknown_direct"),
     ],
 )
 async def test_proxy_author_promotes_through_original_route_then_confirms_map_separately(
-    tmp_path, monkeypatch, warnings, adopt
+    tmp_path, monkeypatch, warnings, adopt, source_mode
 ):
     import uuid
 
@@ -882,6 +889,25 @@ async def test_proxy_author_promotes_through_original_route_then_confirms_map_se
         "revisions": [{"id": revision_id, "base_revision_id": None}],
         "drafts": [{"revision_id": revision_id, "warnings": warnings}],
     }
+    candidate = artifacts["batches"][0]["result_refs"][0]
+    if source_mode != "direct":
+        candidate["source_clue_ids"] = (
+            [str(uuid.uuid4())] if source_mode == "unknown_direct" else []
+        )
+        artifacts["batches"][0]["tray_items"] = (
+            []
+            if source_mode == "missing_tray"
+            else [
+                {
+                    "node_id": str(uuid.uuid4())
+                    if source_mode == "other_node_tray"
+                    else node_id,
+                    "clue_id": str(uuid.uuid4())
+                    if source_mode == "unknown_clue_tray"
+                    else clue_id,
+                }
+            ]
+        )
     calls = []
 
     async def evolution(*args):
@@ -972,13 +998,28 @@ async def test_proxy_author_promotes_through_original_route_then_confirms_map_se
     assert control._source_binding_matches(
         clue["source_binding"], scope["source_refs"], world_clue=True
     )
-    result = await control.review_map_family(
-        private_root=root,
-        family_id=family_id,
-        api_base_url="http://map-spatial-eval.internal",
-        max_actions=20,
-        execute=True,
-    )
+    options = {
+        "private_root": root,
+        "family_id": family_id,
+        "api_base_url": "http://map-spatial-eval.internal",
+        "max_actions": 20,
+        "execute": True,
+    }
+    if source_mode not in {"direct", "tray"}:
+        with pytest.raises(MapSpatialEvalError, match="没有可追溯到共同Scene"):
+            await control.review_map_family(**options)
+        record = map_spatial._read_private_json(
+            control._review_record_path(root, family_id)
+        )
+        assert record["status"] == "unknown"
+        assert not record["map_candidate_reviews"]
+        assert not any(
+            url.endswith(("review-preview", f"revisions/{revision_id}/review"))
+            or "/promote?" in url
+            for url, _ in calls
+        )
+        return
+    result = await control.review_map_family(**options)
     assert result["status"] == "completed"
     assert result["review_steps"] == (3 if adopt else 2)
     record = map_spatial._read_private_json(control._review_record_path(root, family_id))
@@ -986,6 +1027,12 @@ async def test_proxy_author_promotes_through_original_route_then_confirms_map_se
         ["spatial_clue_review", "world_location_promote", "map_revision_review"]
         if adopt
         else ["spatial_clue_review", "map_revision_review"]
+    )
+    reviewed = record["map_candidate_reviews"][0]
+    assert reviewed["scene_ids"] == [scope["scene_id"]]
+    assert reviewed["source_clue_ids"] == ([clue_id] if source_mode == "direct" else [])
+    assert reviewed.get("rejection_tray_clue_ids", []) == (
+        [clue_id] if source_mode == "tray" else []
     )
     assert len([url for url, _ in calls if url.endswith("review-preview")]) == (
         2 if adopt else 0

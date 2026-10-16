@@ -213,3 +213,82 @@ root在两族任务全部结束后，对其他三族确认pending/attempt0/no en
 root新增警告参数化整条控制链回归：无警告→正常采用；只有待采用地点提示→先原World promote（fresh source CAS）、再重新预览和独立地图采用；同时有来源变化/其他警告→不promote、不发采用预览并拒绝。首轮1红/2绿复现缺陷，随后只允许已知待采用提示，原owner/精确source/支持线索、独立采用和CAS校验均保留。67项控制链+实际World服务测试通过（12.71秒），整套evals455 passed/2 skipped（30.17秒，/tmp/map-proxy-pending-location-all-evals-20261016.log），ruff/format通过；红例日志/tmp/map-proxy-pending-location-contract-red-20261016.log。新Map pipeline a3ad2b84a661fa02a61bde9ad3b427afb903b06bb3a486d589f46655b326ce2a，旧f76b属于已封存R5。docs/repo-gates均通过（/tmp/map-proxy-pending-location-final-{docs,gates}-20261016.log），本轮净修复随本提交；9023/3212/74PG仍是526d固定点证据，不冒称尾修后全量重跑。
 
 R2也已唯一封存operator-readiness-diagnostic-seal.json：12基础理解请求/191022tokens，角色facts缺失/关系事件门控，不制造记忆、不改旧preflight。没有导演/WP新SUT和该scope seed/teacher/judge。后续先验证一个新题材完整地图链，再扩其他题材；R6尚未创建，新预检必须使用当时实际代码/owner snapshot、独立身份和预算，旧所有数据不覆写。不启代理、不push/PR/main合并/部署。
+
+
+## 2026-10-16T12:03:00+08:00 固定驱动修复与独立R6单题材
+
+驱动尾修本地提交`81785cd16d1310f747e7790832567a593d6a9952`，提交后干净；67定向、455evals/2skip、ruff/format、docs/repo-gates均通过，前端未改。Root仍独自工作，没有代理、push/PR/main合并或部署。
+
+新私有R6 `/Users/tywww/.codex/private/map-spatial-evaluation-20261016-r6` 唯一创建；十族source/expected仅从原R3逐字节复制并hash核验，holdout只hash未解码；仅复制五份在旧SUT前声明的case role输入，未复制旧run/seed/绑定/预算/输出。owner当前verified Codex Luna/max经只读Project facade/snapshot重验，Map pipeline a3ad2b84a661fa02a61bde9ad3b427afb903b06bb3a486d589f46655b326ce2a。
+
+只通过正常API新建都市Project740dba94-0071-4ff3-bbfd-cf291aecc016与五canonical Scene、共同空地图基线。first-family-calibration-budget.json先冻结1个Sol6.1/xhigh/attempt1/300s，新seed已completed（usage/费用unknown）。实际preview operation125d927a-66eb-468e-aaa4-e50b10ced3ca，M21+Q10/limit64/headroom33、completion_guaranteed=false；first-family-evolution-budget.json只授权都市Evolution64加已计seed1、本阶段上界65，Writing/Assistant/judge不在本阶段。正常start已执行，单family同进程精确worker每batch最多2 task；`/tmp/map-r6-first-family-20261016.py run --batch1`正在执行（exec95654、R6/urban-batch01.log）。freeze/start已执行，禁止重放；pending时才可run --batch2/3；unknown/failed不重试。
+
+`/tmp/map-r6-{prepare-materials,owner-profile-preflight,control}-20261016.py`已创建，前两及都市setup/common/calibrate/preview均已执行，禁止重初始化/覆盖。其余四题材只有原始资料/预声明角色文件，尚无Project、seed或业务根。后续先一个题材验证完整链，再扩其他题材；author_scene_location须基于真实采用地图/地点UUID，缺失写not_run。R5所有封存文件/DB原结果保持，R2角色来源诊断保持，不为了质量新造记忆或改绑旧preflight。
+
+
+2026-10-16T12:09:59+08:00：R6都市batch1正常exit0，两个精确Scene task完成；batch2已沿同一64根启动，exec87444、R6/urban-batch02.log，当前第三Scene task7f490879-9f12-46fa-8995-5f0732916e8f。不要重复batch1/2，后续须确认pending且累计4任务后再batch3。前三份TASK恢复段已精简并链接正式检查点，旧恢复全文在81785提交中保留；历史检查点与原始私有回执均未删除。
+
+
+2026-10-16T12:17:57+08:00：R6都市batch2正常exit0，累计4个精确Scene task完成；batch3已沿原64根启动，exec42947、R6/urban-batch03.log，下一/当前第五Scene taskbed49eb2-ad2c-4b1d-9722-d07f961497df，随后只允许最终结构task。不要重复batch1/2/3，不加第7个任务；6任务completed后才正常review。已结算的前两Scene12请求/175216tokens/unknown0，不能把这个局部值当当前完整合计；在途用量另从独立信封读取。
+
+
+## 2026-10-16T12:32:42+08:00 R6都市完整基础阅读及真实作者采用、扩展其余开发题材
+
+都市六task已全部done/attempt1，private accounting-scope-proof.json独立6个run_id合计29 started/settled、unknown0、417734tokens，域根64剩35；1个Sol seed另计usage未知。batch3 exec42947已exit0。正常作者review pass1已completed，12步：6clue采用/2拒绝、1个原World地点promote后地图保存（另2地图候选拒绝），证实81785待采用提示修复真实跑通，未改变角色/来源门禁。地图node38cff05a-95ab-4efd-bf57-76203f433151，saved head66f5b422-361d-4c46-8875-7962737a6ad2，地点f7ec0568-bf4c-5dfe-bed1-bf5f105c1278，源仅p5 Scene722a2ad1-ef8e-43c4-af98-13b72c3a8f41。私有review-diagnostics和urban-author-location-readiness.json留存。
+
+p1-p3没有截止点内已采用地图；p5虽有潜在已采用地图，但全family的4个positive地点manifest不能满足。未按名字猜UUID、未用p5未来地图补早Scene、未patch任何Scene、未伪造全量manifest。正常freeze已输出bindings/map-urban-development-v1-writing-eligibility.json：4positive unavailable/scene_location_unavailable、p4 omission_control available，整个family Writing仍not_run。没有Writing/Assistant/judge请求，不把1张采用地图当完整质量通过。实际多数clue端点仍unresolved surface；作者plan修正未变成角色事实，Source/模态保持。
+
+root改为继续完成其余四题材的开发冷启动/覆盖核对，保持完整五题材范围并如实保留未运行案例，不再因一个题材的数据不足停止整矩阵；不保证Writing必可执行。四个新Project/各5Scene与共同空地图基线已正常API完成：修仙90f8f53c-654f-430c-99a4-0c625e70245f，西幻c5804618-782a-4e10-9f15-db467bbf7ac2，科幻15daa42d-59eb-4dc3-afbb-7820148e2a1e，悬疑ef59cbf3-2925-46ed-819e-b67994f8f78f；旧Urban和所有R3/R4/R5项目不重用。新remaining-four-calibration-budget.json预先冻结四个独立Sol seed（累计R6五seed）；exec3462正逐族calibrate→preview64，日志R6/family-calibration.log与family-evolution-preview.log。只读预览不产生业务模型调用；目前四根尚未freeze/start，业务worker未运行。准备脚本已执行，禁止重新setup/common。
+
+下一步检查3462，四seed/preview均成功后依实际预览独立冻结四根各64、总256；加都市64和五seed，冷启动阶段总上界325。然后normal start与同进程Semaphore2精确worker，单family单batch最多2task，最多三批6task/族，未知不重试。新四family runner尚未创建，不能使用旧R5绑定或预算。Writing/Assistant/judge仍需后续独立预算与实际有效绑定。Map pipeline保持a3ad；主工作区只根任务记录dirty，生产代码仍81785。所有开发协作由root完成，其他四域质量judge、holdout、P4长篇、势力前置、A4真实数周与作者门禁保持。
+
+
+## 2026-10-16T12:39:30+08:00 R6其余四根预算与单进程有界完整执行
+
+3462已exit0，四新seed与preview全部完成，本R6累计5个seed，Sol usage/费用未知。四实际预览均M21(static minimum)+Q10(child maximum)、limit64/headroom33、completion_guaranteed=false。四operation：修仙9570ce34-059a-43d0-ba8e-60782ee47d08，西幻e6d1ad1a-3aa6-4e0b-a954-39613c39d74a，科幻b55df362-cd11-40ba-a18b-2f5c350c4958，悬疑86c0843e-0f13-4307-bb03-90344daa10c1。
+
+remaining-four-evolution-budget.json已在四根start前唯一冻结（Code81785、pipeline a3ad），本批256请求上界；加Urban64、五seed，完整冷启动阶段上界325，不能把360预览总上界当Writing等阶段授权。正常start四根已完成，各首task29aa3a61-9e25-4033-9c4b-40cb15c08512、82007bc6-f167-405c-be55-f58a964a3185、7ccefe11-79cc-49e8-8fa5-2db5f1ee2371、e12bbb57-f12e-4e0f-b3f8-f36658bcaca5。没有新连接验证或通用worker。
+
+`/tmp/map-r6-remaining-four-20261016.py`已创建且freeze/start已执行，run正执行（exec36844、R6/remaining-four-complete-run.log）。为减少两批间空等，本次在四新根运行前明确冻结：每family固定最多6个精确task；单次调用c.run_evolution仍最多2task，wrapper最多3次正常pending连续调用，只走新Root未尝试next_task；unknown/failed立即该族停止，绝不重试或加第7任务。整族执行持有Semaphore2：先修仙/西幻，完成后启动科幻/悬疑，任何时刻最多2精确业务worker，同进程共享模型池。不是开发子代理，root独自负责代码、审查与验证。严禁再运行旧manual batch2/3或第二runner；程序自己会在固定范围内继续。输出每invocation带family/status/tasks_completed；异常私有remaining-four-batch-01-family-error.json。
+
+后续只检查36844/各族持久状态；已经completed的族可先正常作者review零模型，不扩大模型并发。所有后续模型SUT阶段仍须实际完整有效绑定与独立预算；数据不足记not_run、Source身份不猜、作者计划不升事实、早Scene不借未来地图，holdout关闭。Urban原6task/29请求/417734tokens与采用1地点1地图的证据保持，bindings/map-urban-development-v1-writing-eligibility.json为不可覆盖的负向诊断；无Scene patch、Writing/Assistant/judge。R2与R5全部封存仍不恢复。
+
+
+2026-10-16T12:47:05+08:00：root额外只读repeatable-read事务复核旧封存R3的Project完整行、failed/attempt1 Task完整行及全部Scene行hash，与R4迁移后基线逐项相等；schema仍20261016_chapter_order。私有R6/sealed-r3-preservation-after-r6-20261016.json记录hash，无新模型请求、无数据写入或重建。
+
+
+## 2026-10-16T13:16:00+08:00 R6前三题材结算与完整地点覆盖不足
+
+都市、修仙、西幻均已完成固定六个精确任务，attempt均1，无重试；分别29/417734、32/502436、33/518675请求/tokens，已完成合94请求/1438845tokens/unknown0，独立信封与域根扣减一致。五个Sol seed另外计且usage/费用未知；科幻、悬疑仍在单一exec36844原预算runner中，不将完成小计写成全R6总量。
+
+三族作者审核均completed：都市12步（6clue采用/2拒绝、1地点/1地图）；修仙5步（4clue处置、0地点/地图）；西幻15步（10clue处置、2地点/2地图）。西幻两个saved head分别b650ce56-b613-4b68-a875-5cf4b40f7305、65f0c4cb-93bd-41a0-9b12-6356df42fe5d，只关联p1/p2和p4的精确来源。不能证明完整5个positive的Scene地点；Urban同样只在p5有地图、修仙无地图。正常freeze已分别输出三族bindings/*-writing-eligibility.json，status均not_run；未patch任何Scene、未做部分清单或借未来Scene地图，不更改预声明positive/control来过检。
+
+私有family-accounting、review-diagnostics和source-coverage/three-families.json记录真实来源覆盖（描述性计数，不是质量分数）。81785的“待采用地点提示”修复在都市/西幻实际World promote→重预览→独立地图采用路径均跑通；地图已保存也不等于写作参考已可用。科幻/悬疑完成后仍须先各自会计证明、正常作者审核、来源覆盖诊断；有完整有效清单才按原Scene地点口径继续，否则诚实记未运行。C1长篇、势力前置、A4真实数周及其余质量/作者门禁不变，holdout仍未解码。不启代理、不push/PR/main合并/部署。
+
+
+2026-10-16T13:27:00+08:00：单一runner36844仍正常执行，悬疑累计4任务、第五任务0bfab24a-f0c5-4bb7-b697-cfe789165a5b在途；科幻累计2任务，第三任务22e53455-a2f6-4c6c-871d-dbf479964315已10 started/9 settled，说明仍有进展，不能重发。只读live-status-third-scifi.log确认各根剩39/40，不能把在途未结算当unknown0的最终统计。其他三族审核、会计与negative freeze均完成。root已准备纯本地/零模型最终聚合脚本/tmp/map-r6-finalize-coldstart-20261016.py（0600，py_compile通过），尚未执行；只在五族全部6任务completed、五份正常作者审核及writing-eligibility全部最终冻结后运行。该脚本校验30个独立信封、各域64扣减、五seed，重算development gate但不冻结未通过gate，holdout只哈希；不是新的业务生产器。全五族诊断/source-coverage/all-five.json也尚未生成。科幻/悬疑后续各family-accounting proof、作者review与diag各只运行一次，未知/失败不重试。
+
+
+## 2026-10-16T13:44:00+08:00 R6五题材结算、真实失败与正常封存
+
+exec36844最终exit0，五题材各5Scene+1结构共30精确任务均done/attempt1。逐族请求/tokens：都市29/417734、修仙32/502436、西幻33/518675、科幻35/569966、悬疑32/508948；业务合161/2517759、unknown0，30个不同run_id且各域预算扣减一致；另5个Sol seed用量/费用未知，本R6实际166模型调用。冷启动原上界325、余159不续借，不是费用为0。
+
+都市/修仙/西幻作者审核completed，已保存地图1/0/2；科幻、悬疑分别在10步、7步后遇candidate ref.source_clue_ids为空，无法追溯共同Scene，原控制链失败关闭并将审核记unknown。其业务161请求均结算，这一unknown指作者审核，不是业务计费未知。两族不重试或强行猜Scene，所有原失败日志与审核JSON保留。两族各有1/2个空来源候选；原World草图同时有来源/线索变化提示。所有五族正常freeze均产writing-eligibility not_run：完整positive作者地点清单仍不足，Scene地点PATCH/Writing/Assistant/judge均0。source-coverage/all-five.json显式记录两个审核unknown，只有描述性计数；development gate重算blocked/passed=false，未冻结通过gate，holdout仅hash。
+
+私有coldstart-final-diagnostic.json已唯一冻结，并由正常engine接口将五根全部read_only/stopped，cancelled_tasks0、imports0；30完成任务全部meta/result哈希前后相等、域原预算/余量相同。首封存脚本在任何写入前因误认为项目只有6个Task而断言失败；只读盘点确认另有17个正常发布/RAG outbox均pending/attempt0/no envelope，未执行/未排队列。root只修一次性校验以原样保留这些outbox，再走正常封存成功，首失败日志不改写。operator-diagnostic-seal.json及逐族normal-stop保存完整回执。所有R6业务/审核/聚合/封存命令已结束，不重放。普通report.json仍只是prepared模板；Git去原文结果见地图任务artifacts/evaluation/R6-COLDSTART-RESULTS.md。
+
+root只读源码已定位可疑产品根因：map_auto_draft_service在assigned_node_ids包含tray节点、当前可放置线索为空时，仍append source_clue_ids=[]的shard；原read_map_spatial_evaluation_artifacts只是原样回读，并非过滤掉来源。接下来先现有小夹具复现：保留待核对tray与历史、不为tray-only节点造无来源候选，严格来源/采用/Scene门禁不放宽。尚无新生产代码或新真实模型请求；R6固定81785/a3ad封存，不将新修复绑回旧运行。其余C1长篇、势力前置、A4真实数周、RP和作者验收仍缺；三份TASK active。不启代理，不push/PR/main合并/部署。
+
+
+## 2026-10-16T13:54:06+08:00 托盘来源拒绝尾修与离线验证
+
+进一步只读核对原R6批次：科幻1个、悬疑2个空source_clue_ids候选的同batch同node tray均含真实clue_id，且这些clue都属于common的实际Scene。World原合同允许这种没有几何、仍可待放置的candidate载体；现有non_event_modality测试也明确保留空几何修订。故未按初步假设删除候选或改World构建，未破坏托盘放置/历史。实际缺陷是评测驱动只从geometry source_clue_ids找拒绝决定的Scene，没有读取独立托盘出处。
+
+root只改evals/map_spatial_control.py的reject分支：当geometry source IDs为空，提取同批次同node tray clue IDs，经当前owner/novel-scoped artifact中的clue映射到本族共同Scene后，才正常拒绝；采用判定在此之前已按原严格来源和警告完成，tray永远不能参与adopt、地点promote或几何来源。回执source_clue_ids保持原空值，另记rejection_tray_clue_ids；无同node tray、未知clue、无共同Scene或非空但不可追溯的几何来源，仍原样unknown失败关闭。
+
+扩原完整控制链参数化9项，首次2红/7绿复现，修复后9绿；跨node、unknown clue、missing tray、非空坏direct来源均保持禁止map API和promote。新增真实World服务回归从正式拒绝clue→build→只读facade→正常map reject，确认源在同node tray、本族Scene、拒绝后tray保留且无official head。77项控制链/World auto-draft/read服务通过（13.49秒，/tmp/map-reject-tray-provenance-focused-20261016.log），全部evals461 passed/2 skipped（29.91秒，/tmp/map-reject-tray-provenance-all-evals-20261016.log），RuntimeWarning转error，ruff/format通过。未修改前端/模型/DB schema或并发，所以不重跑既有9023/3212/74PG，也不冒称尾修后全套；原固定点证据保留。
+
+新Map pipeline `38da6d39b70ec51b64b7c7dcfb62a38ed2fdda5dfc15b04efca9d4c0eae225fa`。R6所有JSON/回执/失败审核及a3ad绑定不改写、不恢复，新修复没有额外真实模型调用；总R6仍161 Luna+5 Sol seed，2517759已知Luna tokens，费用/seed usage未知。五题材完整地点覆盖和质量gate仍未通过。三份TASK保持active，C1/P4真实长篇、势力前置、A4真实数周、RP与作者验收仍缺。接下来只完成最终docs/repo-gates、diff核对和本地提交，不push/PR/main合并/部署。
+
+
+2026-10-16T13:54:06+08:00：最终docs-check BASE_REF=origin/main与repo-gates均exit0（/tmp/map-reject-tray-provenance-final-{docs,gates}-20261016.log）；依赖方向61/9/0/517、两项既有文件长度warning未新增。三改动Python的ruff format/check与git diff --check通过。当前源码及去原文结果准备保存在主题分支本地提交；最终HEAD/status以Git核实，无push/PR/main合并/部署。没有新真实模型请求；R6封存原a3ad、角色质量R1/R2和旧R3/R4/R5保持，整体目标仍未满足全部条件。
