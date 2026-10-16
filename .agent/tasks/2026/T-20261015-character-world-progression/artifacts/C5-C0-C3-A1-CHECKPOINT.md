@@ -1,6 +1,6 @@
 # C5/C0 组合与 C3/A1 实施检查点
 
-2026-10-16T07:27:00+08:00，root 更新。本记录优先于三份 TASK 的此前批次历史，不新增授权。
+2026-10-16T08:02:20+08:00，root 更新。本记录末尾最新检查点优先于三份 TASK 的此前批次历史，不新增授权。
 
 primary 为 `05f51aaca7e965e3ade532467a24f84b74d18e59`（笔记在 `710dbce43107504104a3ed4840d63e249648b7d1` 之后）；产品 C4 为 `c579beb872e7f6193476ff4d0abd0d034810f95c`，Sol 净 PG 隔离 fixture 已合入。普通后端 8919、保留库 45 PG、同源前端 3182 与 lint/build/docs/repo gates 通过，日志及截图见 C4-C5-HANDOFF。当前无运行中的 root 验证进程。
 
@@ -56,3 +56,21 @@ root已准备仅复用脚本`/tmp/map-c5-c0-primary-reuse-pg-20261016.py`（0600
 C3现已回报核验0600工程env后，确认不存在才一次CREATE `copilot_alignment_impl_test_20261016`，并实际upgrade至未提交的`20261016_story_character_arc_plan`；没有启停服务，专库保留。该已应用迁移冻结，后续约束修补须新增独立迁移。为防分叉，A1的库与apply继续hold到C3独立Sol确定最终DDL头后，不能只按Luna初稿parent提前apply。A1可继续SQLite/HTTP/UI及迁移源码，等待不阻止独立实现。
 
 C3真实PG3项和范围核验SQLite2项/parity已由Luna自查通过；root又发现已应用Arc迁移仅按trigger深度放行head/revision删除，存续Project下nested/TEMP可绕过，与C5此前同类问题相同。该第三项root finding已明确交Sol以新后继迁移直接修，不能重写已用DDL或用现有3PG声称覆盖。Luna确认没有覆盖nested/TEMP。具体三项finding与后续审修边界已保存[C3尾项交接](C3-ALIGNMENT-TAIL.md)。
+
+## 2026-10-16T08:02:20+08:00 已集成 C5/C0，下一批审修
+
+C5 Sol最终净提交为 `339d43eded2e96ce8dda9f885bd1a52beccdcf21`，不是上文中断的全量进程。固定源码后普通后端实际exit0：8959通过/2跳过/8 deselected/1既有Pydantic warning，326.95s，RuntimeWarning转error；`/tmp/world-progression-c0-c5-full-backend-exit0-20261016.log`。同点前端254文件3191项、lint/build/docs/repo gates与517/517方向棘轮通过；前端日志 `/tmp/world-progression-c0-c5-full-frontend-final-20261016.log`。
+
+真实入口永久PG `test_world_progression_real_entry_postgres.py` 使用实际Project、published canonical Writing、Story Scene0及World对象，实际HTTP预算200→Evidence确认→stale预算409且零root→start202→精确TaskWorker；仅模型client为离线替身，实际2调用/1持久Step。Sol修正Scene0真值判断、嵌套SceneContext字段、bare World身份/来源、root先flush避免PG复合FK以及task.meta novel_id。新增Assistant窄Scene/参与者/排除/原确认负例与同Scene正例。测试账户的临时验证连接和默认偏好按全部原列finally恢复，不解密或打印秘密。固定点12组合PG日志 `/tmp/world-progression-c0-c5-final-pg-fixed339-20261016.log` 已读。
+
+root无冲突合339为primary `d624bde723bb8b4856ed63cc500b2b301f9b3671`，并用git diff证明backend/frontend-console/docs与审修固定点完全相同，沿用其完整同源普通后端及前端证据。root已执行预备的无CREATE脚本 `/tmp/map-c5-c0-primary-reuse-pg-20261016.py`，在原 `operation_trace_report_primary_test_20261016` 从C4增量升级至 `20261016_wp_read_count`，head/ORM parity与15文件57PG全部通过（21.03s）。日志 `/tmp/map-c5-c0-primary-{migration,head,metadata,pg}-20261016.log`；保留原数据，不重建。root已实际查看390/1280的real-preview图；对应日志证明两宽度真实HTTP preview200、1参与者、errors=[]。C5的18594/18595已停，C5/C0专库同wp_read_count头均保留。
+
+root集成后的docs-check/repo-gates也实际exit0：`/tmp/map-c5-c0-primary-docs-20261016.log` 与 `/tmp/map-c5-c0-primary-repo-gates-20261016.log`。没有扩大依赖棘轮（61/9/0/517）；两个既有文件超3000行仅warning。此次没有新后端普通/前端源码差异，因此不重复同源全套。
+
+C3 Luna继续人物弧/forecast v2/Evolution只读notice，已报告notice真实task失败与撤回canonical后提醒保留、cutoff/改稿fingerprint和无queue副作用的2PG及83前端定向通过；纯notice/Arc路由尚待共享hub组合。root登记的第四项为Arc pureSPEC忽略可信work/原确认范围，和前三项一起交Sol，不由Luna改root审查finding。Sol当前已在map-clue-review从d624建 `codex/copilot-alignment-review`，先只读独立审查C3 WIP，收到Luna净提交后再由root释放直接修复；不并发写原树，不提前应用DDL。
+
+A1 Luna净领域checkpoint `003f809dd4fb8a48d3a4b7f3d591d08a77936d52` 曾因纯SPEC未装配而无法导入应用。root暂停其写入后由Sol独写该树：合339为 `4a1fc13fa`（数据库文档冲突保留两侧表），净装配 `fe5bc6247`；后继v16物化三Writing章顺序操作和一Story事实时间线，旧v15保留，唯一core `story.chapter_order`及Story continuity facade/前端storyTimeline已接。应用DI、Assistant30/route8/API14及ruff/lint/docs/module gate通过；领域尚3失败，不能当A1完成。Sol已释放写权，root正式恢复Luna领域/Git自查；专库仍HOLD到C3独立Sol最终DDL头，尚未CREATE。
+
+A1下一Sol另需直接审修跨操作历史投影：当前 `_current_chapter_index` 按receipt逐一紧邻应用map/inverse；两个非交换重排A/B后、恢复B/A时，期间新增事件会错误按inverseA→inverseB投影。应先实际复现再按全局操作时间处理，不能重写不可变历史。该问题与scope/restored原调用关联由Sol修；现有旧页99前端通过不能替代新增modal/timeline交互。MemoryService/EventRepository复用、SceneSpan哈希与非连续区间、owner/cutoff/paging/source组合及PG并发仍需独立检查。
+
+真实地图R3仍封存，holdout不解码，本批零新真实模型请求。C1长篇、M5势力路线图、RP协议、A4数周真实用量与作者验收仍未满足。下一步是C3净提交→Sol直接修复/安全后继DDL/真实组合→root集成，再按最终线性头放行A1 PG与独立审修。

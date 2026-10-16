@@ -174,3 +174,9 @@ Luna已形成Writing全版本CAS预览/执行/恢复和Story-owned Scene/Span绑
 root已读并明确交本批后续Sol直接修的finding：Writing重排prepare/apply/history与Story timeline纯SPEC忽略传入context（直接`del context`）。Assistant通用read/prepare只是传context，不替域证明全部targets。窄Scene/对象/排除项/原Evidence确认范围可能扩读全书历史、未来Scene与timeline选项，或确认跨章重排；需经可信work+公开目标范围端口在prepare/apply重验，不能仅信模型cutoff/entity_id或R3确认。HTTP作者全书界面可保留。Luna已确认此门禁pending，不据root finding直接修。
 
 恢复路由声明`x-novelcraft-operation-terminal-event: restored`，当前共享HTTP adapter未接该字段。Sol须提供真实restored/result refs并匹配原重排执行`(op_id,call_id)`，单给新restore op随机call_id会在A4报表成为unmatched。不要改统计口径掩盖生产关联。C3/A1均会改WritingView/useWritingWorkspace或writing-desk.css的各自接线，最终Sol顺序merge时保留人物弧和章节重排两者，不能覆盖一侧。主代理不解Git冲突。
+
+## 2026-10-16T08:02:20+08:00 应用装配解除阻断
+
+Luna领域checkpoint `003f809dd4fb8a48d3a4b7f3d591d08a77936d52` 后按root安排停止产品/Git写入，由Sol单写该树合C5/C0净339为 `4a1fc13fa`，数据库设计冲突已由Sol保留两侧表并修标题。Sol净装配 `fe5bc6247` 增后继runtime v16、上述4项SPEC、唯一 `story.chapter_order` key、公开Story continuity端口与api.js的storyTimeline。旧v15及以前冻结不变；DI import、Assistant30/route8/API14、ruff/lint/docs/module gate绿。现已恢复Luna领域实现/Git自查，定向3失败仍需核实（两例旧blockers预期、恢复timelineNone）。C3最终安全DDL未定，A1库仍未创建，不能提前upgrade。
+
+Luna只读审查又发现非交换多次重排的投影风险，保留给Sol：`StoryFactTimelineService._current_chapter_index` 将每receipt的apply与restore紧邻处理；事件在A+B执行后才发生、随后B再A恢复时，实际应逆B→逆A，当前可能逆A→逆B。需真实回归复现并按全局时间处理投影，不改原MemoryEvent。还需核取数复用既有MemoryService/EventRepository或明确窄projection职责，以及SceneSpan hash/多章倒置/OutlineArc非连续冲突、owner与cutoff分页source组合、实际modal/timeline浏览器/PG并发；旧WritingView与OutlineStoryTab99测试及lint/build不证明新组件链路。scope与restored关联root findings仍留Sol直接修，不因装配绿色关闭。
