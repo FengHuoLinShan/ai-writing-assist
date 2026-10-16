@@ -1,10 +1,14 @@
 """Offline guards for the private editorial prompt comparison runner."""
 
+import json
+from contextlib import asynccontextmanager
 from pathlib import Path
 from types import SimpleNamespace
+from uuid import uuid4
 
 import pytest
 
+from evals import editorial_prompt_ab as runner
 from evals.editorial_prompt_ab import (
     BASELINE_SHA,
     EXPECTED_EFFORT,
@@ -157,3 +161,83 @@ async def test_unverified_owner_connection_refuses_start(monkeypatch) -> None:
     monkeypatch.setattr("evals.editorial_prompt_ab.SettingsService", FakeSettingsService)
     with pytest.raises(ProfileMismatchError, match="Verified active owner"):
         await _verify_owner_connection(object())
+
+
+async def test_arm_persists_json_state_path_without_starting_provider(
+    tmp_path: Path, monkeypatch
+) -> None:
+    repo = Path(__file__).resolve().parents[3]
+    output = tmp_path / "editorial-run"
+    raw_dir, blind_dir, mapping_dir = _ensure_private_output(output, repo)
+    state_path = output / "state.json"
+    state = {
+        "state_path": str(state_path),
+        "cases": {},
+        "request_count": 0,
+        "request_limit": 406,
+        "dependency_failure_streak": 0,
+        "paused_reason": None,
+        "observations": [],
+    }
+    ledger = RequestLedger(
+        state,
+        lambda: runner._write_private_json(Path(state["state_path"]), state),
+        request_limit=406,
+    )
+    project = SimpleNamespace(id=uuid4())
+    review = SimpleNamespace(
+        id=uuid4(),
+        task_id=uuid4(),
+        llm_snapshot_json={
+            "profile": {
+                "provider_id": EXPECTED_PROVIDER,
+                "model": EXPECTED_MODEL,
+                "native_wrapper": {
+                    "version": runner.CODEX_TEXT_ADAPTER_VERSION,
+                    "instructions_hash": runner.CODEX_TEXT_INSTRUCTIONS_HASH,
+                },
+                "connection_verified": True,
+            }
+        },
+    )
+
+    @asynccontextmanager
+    async def open_client(*_args, **_kwargs):
+        yield FakeLLMClient()
+
+    async def make_project(*_args, **_kwargs):
+        return project
+
+    async def submit_review(*_args, **_kwargs):
+        return review
+
+    async def stop_before_worker(*_args, **_kwargs):
+        raise RuntimeError("stop before provider")
+
+    monkeypatch.setattr(runner, "open_project_llm_client", open_client)
+    monkeypatch.setattr(runner, "_make_project", make_project)
+    monkeypatch.setattr(runner, "_submit_review", submit_review)
+    monkeypatch.setattr(runner, "run_task_inline", stop_before_worker)
+    db = SimpleNamespace(info={})
+
+    with pytest.raises(RuntimeError, match="stop before provider"):
+        await runner._run_arm(
+            db=db,
+            case={"id": "S01_hard_contradiction", "chapters": []},
+            condition="baseline",
+            prompt="test prompt",
+            manifest_hash="test-manifest",
+            state=state,
+            ledger=ledger,
+            raw_dir=raw_dir,
+            blind_dir=blind_dir,
+            mapping_dir=mapping_dir,
+        )
+
+    assert state["request_count"] == 0
+    assert state["cases"]["S01_hard_contradiction"]["status"] == "stopped"
+    assert json.loads(state_path.read_text())["request_count"] == 0
+    raw = json.loads(
+        (raw_dir / "S01_hard_contradiction.baseline.json").read_text()
+    )
+    assert raw["status"] == "stopped"

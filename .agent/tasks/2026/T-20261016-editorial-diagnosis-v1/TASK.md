@@ -3,7 +3,7 @@ id: T-20261016-editorial-diagnosis-v1
 title: 编辑审读诊断 A/B 试跑与盲评交接
 status: active
 created: 2026-10-16T18:02:35+08:00
-updated: 2026-10-16T21:04:00+08:00
+updated: 2026-10-16T21:10:00+08:00
 ---
 
 # 编辑审读诊断 A/B 试跑与盲评交接
@@ -19,8 +19,8 @@ updated: 2026-10-16T21:04:00+08:00
 - 连接验证与原因：在默认工作区沙箱内有2次 synthetic ready 尝试以 exit_code=1 / `codex_result_unknown` 结束，无 CLI event 或 `turn_started`，用量未知、无 request_id；之后以提权进程执行同一 `SettingsService().connect_account_llm_provider(db, "codex", None)` 成功1次。三次均只用 ChatGPT 订阅的 gpt-6-luna/max ready 请求，不含稿件，单独记账、不计入406。错误分类显示外层沙箱阻止 Codex CLI 写 PATH alias（`Operation not permitted`）；提权执行后 `codex-text-v3` 成功，未改适配器。
 - 连接只读核验通过：active provider=`codex`，model=`gpt-6-luna`，`connected=true`，`verified_at=2026-10-16T12:50:51.946704+00:00`。
 - 新持久私有目录 manifest hash `d2a86df68d7f09ca9ce50362a360ccfabef66e7657980e3fa6595ef5e7c5fe48`，29例、上限406。S01 冒烟启动后在 assistant submit 前置路径遇到 `AttributeError`；没有评测 provider 请求（request_count=0、observations=0），case 已标 `stopped`，不重放。仅生成一份 baseline `started` 元数据；blind/mapping 为空。旧 `/private/tmp` 目录请求数仍为0，弃用且不删除。
-- 当前进度：旧账本中的 S01 保持 `stopped` 且不重放。离线复核确认 owner/profile、Project facade client、审读提交和快照校验通过；运行器遗漏 `register_task_handlers()`，已在 eval runner 补齐既有应用启动注册。此前 raw 只保留 `started` 元数据，未保存异常栈，因此不能断言该缺口就是历史 `AttributeError` 的唯一来源；新账本需重新冒烟验证。
-- 下一步：将 runner 修复与本次任务记录本地提交，使用新私有运行目录和固定候选提交执行 S01 两组冒烟；只有两臂输出、validator 与请求回执均通过后才继续其余样本。
+- 当前进度：原运行目录与 attempt-2 中的 S01 均为 `stopped`、0 次评测请求，不重放。离线复现定位根因：JSON state 中 `state_path` 是字符串，但 `_run_arm()` 直接传给需要 `Path` 的私有写入函数。已在 `_run_arm()` 先转为 `Path`，并补齐 task-handler 注册；新增 fake-client 离线回归覆盖路径持久化且在 provider 前停止。
+- 下一步：提交修复与本次任务记录，使用新的持久私有 attempt 目录和固定候选提交执行 S01 两组冒烟；只有两臂输出、validator 与请求回执均通过后才继续其余样本。
 
 ## 范围与边界
 
@@ -52,15 +52,17 @@ updated: 2026-10-16T21:04:00+08:00
 - [x] 重跑 S01 两臂预检；第一次在 owner 连接门禁停止，request_count=0。
 - [x] 创建持久私有目录与 0700 子目录；生成新的 manifest/state，文件权限0600，固定 candidate SHA、数据集及随机次序，request_count=0。
 - [x] 连接验证：两次默认沙箱尝试未知，一次提权后验证成功；四项 profile 只读核对通过。真实生成总计3次，均为合成 ready，不计入406。
-- [x] 启动 S01 两臂 smoke；在评测请求预留前遇 `AttributeError`。request_count=0，无 provider attempt；case 已停止，不重放。
-- [x] 离线复核 Project facade profile、审读提交、来源快照与 wrapper snapshot；确认 eval runner 缺少 `register_task_handlers()`，现已补齐既有应用启动注册，避免 inline runner 无 task handler。
-- [x] 修复后定向 Assistant/评测/任务注册测试 77 passed；`make lint`、`make prompt-contracts`、基础 `make docs-check`、`git diff --check` 通过。`make docs-check BASE_REF=origin/main` 列出既有 module-tasks 文档核对项；使用正式 checker 加无当前架构影响说明后通过。
-- [ ] 将修复提交为新的固定候选提交，在独立私有运行目录重跑 S01 两组 smoke；旧账本与旧 S01 不重放或改写。
+- [x] 两次独立 S01 smoke 初始化均在首次评测请求前遇 `AttributeError`，每份账本 `request_count=0`、`observations=0`，S01 保持停止态；原始账本未覆盖或重放。
+- [x] 定位 state path 类型错误并修复；运行器同时调用既有 `register_task_handlers()`。fake-client 回归验证 JSON 字符串路径可持久化，且在 worker/provider 之前中止。
+- [x] 修复后相关 Assistant/评测/任务注册测试 78 passed；`make lint`、`make prompt-contracts`、基础 `make docs-check`、`git diff --check` 通过。`make docs-check BASE_REF=origin/main` 列出既有 module-tasks 文档核对项；使用正式 checker 附无当前架构影响说明后通过。
+- [ ] 将修复提交为新的固定候选提交，在独立持久私有目录重跑 S01 两组 smoke；旧账本与旧 S01 不重放或改写。
 - [ ] 生成私有盲评包和 HANDOFF；不运行评分。
 
 ## 试跑产物路径
 
 - 私有运行根目录：/Users/tywww/novelcraft-private/editorial-diagnosis-v1-run-20261016/
+- 原 run S01 账本：该目录；manifest hash `d2a86df68d7f09ca9ce50362a360ccfabef66e7657980e3fa6595ef5e7c5fe48`，状态停止、请求数0。
+- attempt-2 S01 账本：/Users/tywww/novelcraft-private/editorial-diagnosis-v1-run-20261016-attempt-2/；manifest hash `3888e0a845025c1fecff92e938ea519e966737d7b4464004d3ba831db3f632c4`，状态停止、请求数0。
 - 原始输出：/Users/tywww/novelcraft-private/editorial-diagnosis-v1-run-20261016/raw/
 - 盲评包：/Users/tywww/novelcraft-private/editorial-diagnosis-v1-run-20261016/blind/
 - 盲号映射：/Users/tywww/novelcraft-private/editorial-diagnosis-v1-run-20261016/mapping/blind-map.json
@@ -69,4 +71,4 @@ updated: 2026-10-16T21:04:00+08:00
 
 ## 最终交付状态与下一步
 
-Codex 连接已验证并通过四项 profile 检查；真实评测运行时外层进程需有权启动 CLI 自身的只读沙箱。旧 S01 保留为停止态，0 次评测请求，不修改旧账本。runner 缺少既有 task handler 注册现已修复并通过离线回归；下一步在新私有目录和新的固定候选提交上重新做 S01 smoke，成功后继续全量。盲评包和 HANDOFF 尚未生成，不评分。
+Codex 连接已验证并通过四项 profile 检查；真实评测运行时外层进程需有权启动 CLI 自身的只读沙箱。两份旧 S01 账本均保留停止态、评测请求数为0。JSON state 的 `state_path` 字符串/Path 类型错误已修复并有离线回归；task handler 注册也已补齐。下一步在全新的私有目录和固定候选提交上重跑 S01 smoke，成功后继续全量。盲评包和 HANDOFF 尚未生成，不评分。

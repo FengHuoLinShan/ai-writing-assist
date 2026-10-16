@@ -627,6 +627,7 @@ async def _run_arm(
     mapping_dir: Path,
 ) -> None:
     case_id = case["id"]
+    state_path = Path(state["state_path"])
     case_state = state["cases"].get(case_id, {})
     if case_state.get("status") in {"stopped", "complete"}:
         return
@@ -643,7 +644,7 @@ async def _run_arm(
     _write_private_json(raw_path, raw)
     project = await _make_project(db, case, manifest_hash=manifest_hash)
     arm["project_id"] = str(project.id)
-    _write_private_json(state["state_path"], state)
+    _write_private_json(state_path, state)
 
     async with open_project_llm_client(db, str(project.id)) as client:
         profile = validate_profile(client)
@@ -652,7 +653,7 @@ async def _run_arm(
         _profile_snapshot(review)
         arm["review_id"] = str(review.id)
         arm["snapshot_profile"] = profile
-        _write_private_json(state["state_path"], state)
+        _write_private_json(state_path, state)
 
         async def before_request(
             request_db, _row, worker_client, budget, instructions, payload
@@ -753,7 +754,7 @@ async def _run_arm(
                     ).model_dump(mode="json")
                 )
             _write_private_json(raw_path, raw)
-            _write_private_json(state["state_path"], state)
+            _write_private_json(state_path, state)
             if status != "succeeded":
                 raise RunStoppedError(f"case stopped after {status} request")
 
@@ -853,9 +854,9 @@ async def _run_arm(
                     state,
                     case_id,
                     reason,
-                    lambda: _write_private_json(state["state_path"], state),
+                    lambda: _write_private_json(state_path, state),
                 )
-            _write_private_json(state["state_path"], state)
+            _write_private_json(state_path, state)
             raw.update(status="stopped", error_kind=type(exc).__name__)
             _write_private_json(raw_path, raw)
             raise
