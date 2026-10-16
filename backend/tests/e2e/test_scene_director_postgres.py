@@ -364,8 +364,11 @@ async def test_http_preview_and_start_write_a_scoped_task_without_a_provider(
 ):
     from sqlalchemy.ext.asyncio import AsyncSession
 
-    from app.main import _install_operation_trace_route_adapters, app
+    from app.main import app
     from infrastructure.tasks.models import AsyncTask
+    from modules.assistant.operation_trace_http_adapter import (
+        install_operation_trace_route_adapters,
+    )
     from modules.story.director_budget import preview_director_budget
     from modules.story.director_schemas import DirectorBudgetPreviewRequest
 
@@ -410,7 +413,7 @@ async def test_http_preview_and_start_write_a_scoped_task_without_a_provider(
             "entity_ids": [],
         }
     )
-    _install_operation_trace_route_adapters(app)
+    install_operation_trace_route_adapters(app)
     with (
         patch(
             "modules.story.director_api.read_director_source",

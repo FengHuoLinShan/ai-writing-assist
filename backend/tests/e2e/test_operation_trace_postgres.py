@@ -10,11 +10,14 @@ from sqlalchemy import event, func, select, text
 from sqlalchemy.exc import DBAPIError
 from sqlalchemy.orm import Session
 
-from app.main import _install_operation_trace_route_adapters, app
+from app.main import app
 from core.database import get_manager
 from core.dependencies import DbSession
 from modules.account.contracts import BOOTSTRAP_ACCOUNT_ID
 from modules.account.models import Account
+from modules.assistant.operation_trace_http_adapter import (
+    install_operation_trace_route_adapters,
+)
 from modules.assistant.operation_trace_models import (
     AssistantOperationTrace,
     AssistantOperationTraceAggregate,
@@ -68,7 +71,7 @@ async def test_http_operation_trace_follows_real_db_session_commit(fail_final_co
         openapi_extra={"x-novelcraft-operation-id": "project.add_task"},
     )
     route = app.routes[-1]
-    _install_operation_trace_route_adapters(app)
+    install_operation_trace_route_adapters(app)
     event.listen(Session, "before_commit", fail_commit)
     try:
         async with XhrAsyncClient(

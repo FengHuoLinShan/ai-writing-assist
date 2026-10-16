@@ -11,13 +11,13 @@ from fastapi.testclient import TestClient
 from pydantic import BaseModel
 from starlette.requests import Request
 
-from app.main import (
-    _install_operation_trace_route_adapters,
-    _trace_route_arguments,
-    app,
-)
+from app.main import app
 from core.container import get
 from core.service_keys import ASSISTANT_OPERATIONS
+from modules.assistant.operation_trace_http_adapter import (
+    _trace_route_arguments,
+    install_operation_trace_route_adapters,
+)
 
 A1_BOUND_ROUTES = {
     "/api/world/revision-notes": "world.history.set_note",
@@ -338,8 +338,8 @@ def test_route_adapter_handles_included_and_late_routes_without_changing_openapi
 
     probe.include_router(initial)
     expected_openapi = probe.openapi()
-    _install_operation_trace_route_adapters(probe)
-    _install_operation_trace_route_adapters(probe)
+    install_operation_trace_route_adapters(probe)
+    install_operation_trace_route_adapters(probe)
     assert probe.openapi() == expected_openapi
 
     late = APIRouter(prefix="/api/late")
@@ -349,7 +349,7 @@ def test_route_adapter_handles_included_and_late_routes_without_changing_openapi
         return {"ok": True}
 
     probe.include_router(late)
-    _install_operation_trace_route_adapters(probe)
+    install_operation_trace_route_adapters(probe)
     probe.openapi_schema = None
     assert (
         probe.openapi()["paths"]["/api/late/bound"]["post"]["x-novelcraft-operation-id"]
