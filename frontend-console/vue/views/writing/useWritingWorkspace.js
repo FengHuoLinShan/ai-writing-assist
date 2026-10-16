@@ -2181,6 +2181,8 @@ export function useWritingWorkspace(props) {
     candidateComparisonAvailable,
     saveStatus,
     selectChapter,
+    reloadChapters,
+    reloadScenes,
     retryChapterLoad,
     selectScene,
     loadSceneLens,
