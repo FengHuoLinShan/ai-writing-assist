@@ -4,6 +4,7 @@ import { DOMWrapper, flushPromises, mount } from "@vue/test-utils"
 import WritingView from "../../../vue/views/writing/WritingView.vue"
 import AutoExtractionDialog from "../../../vue/views/writing/components/AutoExtractionDialog.vue"
 import SceneCockpit from "../../../vue/views/writing/components/SceneCockpit.vue"
+import ChapterOrderDialog from "../../../vue/views/writing/components/ChapterOrderDialog.vue"
 import { getAppState, resetBridgeOverrides, setBridgeOverrides } from "../../../vue/bridge/index.js"
 import { ISLAND_LEAVE_GUARD } from "../../../vue/mountIsland.js"
 import {
@@ -1135,6 +1136,54 @@ describe("WritingView", () => {
     expect(wrapper.text()).toContain("旧正文")
     expect(wrapper.text()).toContain("新正文")
     wrapper.unmount()
+  })
+
+  it.each([false, true])("章节顺序完成后刷新目录和场景，并跟随当前正文（恢复=%s）", async (restored) => {
+    const initialChapter = restored ? 2 : 1
+    const targetChapter = restored ? 1 : 2
+    globalThis.api.writing.listChapters.mockResolvedValue({ chapters: [
+      { chapter_index: 1, title: restored ? "原第一章" : "原第二章" },
+      { chapter_index: 2, title: restored ? "原第二章" : "原第一章" },
+    ] })
+    globalThis.api.outline.listScenesOrdered.mockResolvedValue([
+      { ...props().scenes[0], chapter_ids: [String(targetChapter)], scene_chunks: [] },
+    ])
+    const wrapper = mount(WritingView, { props: props({
+      chapterList: [1, 2],
+      requestedLocation: { chapter: initialChapter, draftId: "d1" },
+      scenes: [{ ...props().scenes[0], chapter_ids: [String(initialChapter)], scene_chunks: [] }],
+    }), attachTo: document.body })
+    await flushPromises()
+    wrapper.findComponent(ChapterOrderDialog).vm.$emit("completed", {
+      result: { chapter_map: { 1: 2, 2: 1 } }, restored,
+      projectId: "p1", selectedChapter: initialChapter,
+    })
+    await flushPromises()
+    const vm = wrapper.vm.$.setupState.vm
+    expect(globalThis.api.writing.listChapters).toHaveBeenCalledWith("p1")
+    expect(globalThis.api.outline.listScenesOrdered).toHaveBeenCalledWith("p1")
+    expect(vm.selectedChapter.value).toBe(targetChapter)
+    expect(vm.currentScene.value.id).toBe("s1")
+    expect(vm.currentScene.value.chapter_ids).toEqual([String(targetChapter)])
+    expect(toastMock).toHaveBeenCalledWith(restored ? "章节顺序已恢复" : "章节顺序已更新", "success")
+    wrapper.unmount()
+  })
+
+  it("章节重排后刷新期间离开写作页，不在新页面弹出旧刷新反馈", async () => {
+    const wrapper = mount(WritingView, { props: props(), attachTo: document.body })
+    await flushPromises()
+    toastMock.mockClear()
+    const pending = deferred()
+    globalThis.api.writing.listChapters.mockImplementationOnce(() => pending.promise)
+    wrapper.findComponent(ChapterOrderDialog).vm.$emit("completed", {
+      result: { chapter_map: { 1: 2, 2: 1 } }, restored: false,
+      projectId: "p1", selectedChapter: 1,
+    })
+    wrapper.unmount()
+    pending.resolve({ chapters: [] })
+    await flushPromises()
+    expect(toastMock).not.toHaveBeenCalledWith(expect.stringContaining("页面刷新失败"), expect.anything())
+    expect(toastMock).not.toHaveBeenCalledWith("章节顺序已更新", "success")
   })
 
   it.each(["save", "restore", "archive", "unarchive"])("人物弧 %s 后刷新保留另一人物的未保存输入", async (action) => {

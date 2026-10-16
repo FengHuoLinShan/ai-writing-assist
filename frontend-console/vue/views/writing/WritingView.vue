@@ -490,6 +490,7 @@ async function startStateTrial(stateTrial = null) {
   }
 }
 const vm = useWritingWorkspace(props)
+let viewDisposed = false
 /* 空白作品：没有章节时右侧资料栏与状态栏无内容可展示，切换为单栏欢迎布局 */
 const isBlankWork = computed(() => !props.publicDemo
   && !vm.homeMode.value
@@ -532,10 +533,17 @@ async function onChapterOrderCompleted({ result, restored, projectId, selectedCh
   const targetChapter = restored
     ? Number(Object.entries(chapterMap).find(([, target]) => Number(target) === currentChapter)?.[0] || currentChapter)
     : Number(chapterMap[currentChapter] || currentChapter)
-  const reloaded = await vm.reloadChapters()
-  if (reloaded && targetChapter && vm.chapterList.value.includes(targetChapter)) {
+  const [chaptersReloaded, scenesReloaded] = await Promise.all([vm.reloadChapters(), vm.reloadScenes()])
+  if (viewDisposed) return
+  if (!chaptersReloaded || !scenesReloaded) {
+    getToast()("章节顺序已更新，但页面刷新失败，请重新打开写作页。", "warning")
+    return
+  }
+  if (targetChapter && vm.chapterList.value.includes(targetChapter)) {
     await vm.selectChapter(targetChapter)
   }
+  if (viewDisposed) return
+  await vm.loadOutlineArcComparisons({ force: true })
   getToast()(restored ? "章节顺序已恢复" : "章节顺序已更新", "success")
 }
 async function onExampleSaved() {
@@ -938,6 +946,7 @@ onMounted(() => {
   document.addEventListener("pointerdown", onDocumentPointerdown)
 })
 onBeforeUnmount(() => {
+  viewDisposed = true
   window.removeEventListener("keydown", onFocusKeydown)
   document.removeEventListener("pointerdown", onDocumentPointerdown)
   flowHost.dispose()
