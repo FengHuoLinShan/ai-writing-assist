@@ -1,7 +1,7 @@
 """Pure unified-notice source contract for deterministic Scene Director findings.
 
-The application registry deliberately does not import this source yet; the
-composition root integration is listed in the C4b handoff.
+The application notice registry composes this read-only source for the author
+workbench alongside the other domain notice providers.
 """
 
 from __future__ import annotations

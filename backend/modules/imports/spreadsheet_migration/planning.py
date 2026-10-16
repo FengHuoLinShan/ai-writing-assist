@@ -351,10 +351,9 @@ def _accumulate_entity_row(
     if not name:
         return
 
-    entity_type = (
-        synonyms.normalize_entity_type(raw_entity_type)
-        if raw_entity_type
-        else (
+    entity_type = synonyms.normalize_entity_type(
+        raw_entity_type
+        or (
             "character"
             if sheet.kind == "characters"
             else (sheet.default_entity_type or sheet.dossier_profile_type or "concept")
@@ -362,7 +361,7 @@ def _accumulate_entity_row(
     )
     if dossier_values and (
         not sheet.dossier_profile_type
-        or entity_type != sheet.dossier_profile_type.strip().lower()
+        or entity_type != synonyms.normalize_entity_type(sheet.dossier_profile_type)
     ):
         raise ValidationError(
             "档案列对应的对象类型与此行不一致；请按对象类型拆分表格或重新选择映射",

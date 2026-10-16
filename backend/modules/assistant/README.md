@@ -66,7 +66,7 @@ Goal 父任务经统一 enqueuer 保存为确定 ID 的 `inline_only` / `manual_
 的重放不重新写入。人工正文可使用 `review_world_constraints`，原 AI 建议继续用原资料审稿。
 实现与验收状态见项目持久任务记录；仅离线协议通过不等于原生联网或产品质量验收。
 
-新作者运行使用 v11：在 v10 的 C4b 场景导演八项之上加入 C0c 的五项项目设置、关系读取与 Story 状态操作；v9 包含 C2 三项，v8 包含 A1 首批 15 项。v1–v10 冻结目录不自动获得新项。运行快照冻结每项操作的完整参数 schema、版本与目录元数据（用途、
+新作者运行使用 v17，加入章节重排与事实时间线读取；下文 v11/v16 表示历史集成批次。v11：在 v10 的 C4b 场景导演八项之上加入 C0c 的五项项目设置、关系读取与 Story 状态操作；v9 包含 C2 三项，v8 包含 A1 首批 15 项。v1–v10 冻结目录不自动获得新项。运行快照冻结每项操作的完整参数 schema、版本与目录元数据（用途、
 R0–R4 风险、可能计费类别、可撤销性、前置条件、产出、目标类型、事务形态及留痕规则）。
 模型先用 `find_operations` 获取至多八项摘要，再用 `describe_operation` 读取单项完整说明；
 R0 目录读取经 `read_operation` 进入领域读取端口。已下线或改版的冻结项仍可查看原说明，
@@ -82,7 +82,7 @@ R0 目录读取经 `read_operation` 进入领域读取端口。已下线或改�
 留痕只保存声明参数的类型、长度、分桶或按作品独立盐值生成的 HMAC；未声明字段只保存出现标记，
 不存正文、prompt、模型输出或密钥。单事务写入把成功事件放在业务事务内，trace 自身用 savepoint
 隔离；多阶段异常记为结果未知，不自动重放。留痕写入失败不阻断业务；响应发送前的 HTTP 留痕缺口用
-`x-novelcraft-operation-trace-incomplete` 标记，v7–v11 助手运行在 checkpoint 和结果中标记
+`x-novelcraft-operation-trace-incomplete` 标记，v7–v17 助手运行在 checkpoint 和结果中标记
 `operation_trace_incomplete`，以便作者识别记录缺口。绑定操作的 HTTP 入口先验证当前 owner 和未回收项目，
 再读取留痕开关或写入盐值；终态留痕只可使用与该请求业务会话同一数据库引擎的会话，异库时标记缺口。
 账户偏好由 `/operation-traces/preference`
@@ -110,7 +110,7 @@ A1 首批已注册 World 4、Story 3、Writing 4、Evidence 3、Evolution 1 个�
 作者提交相同参数和 `confirmed=true` 后重新准备、对比指纹再调用领域服务；R3 融合/合并
 须领域 `confirmed=true`，Evolution 的 HTTP 预览只记预览、不启动任务或记成作者最终授权。
 旧宽体类型编辑、正文 checkpoint 和任意正文冲突检查路由保留原用途，不标作这些窄操作。
-本批不包含安全章节重排或一般事实时间线编辑，完整 A1/A2–A4 仍待后续切片。
+后续 v17 已接入安全章节重排（预览、确认及回执恢复）和只读事实时间线；不提供任意覆盖历史事件。A4 数周真实使用与作者验收仍未完成。
 
 C2 新增对象简报 R0 读取及人物卡/人物反应 R1 建议；窄 HTTP 对象简报入口只读，
 Story 窄入口只准备并留痕预览，不排队。Assistant 执行先无 operation_id 准备，
@@ -121,11 +121,11 @@ Story 窄入口只准备并留痕预览，不排队。Assistant 执行先无 ope
 C0c 新增 `project.object_validity_settings.read/edit`、`world.relations.read` 与
 `story.custom_text_state.confirm`、`story.map_declaration_state.confirm`。两项 Story 状态操作
 按已确认正史写入定为 R3，prepare 与 apply 均重验 Scene、对象或当前已采用地图修订；
-实际 HTTP 写入先验证 owner 与活跃项目，Story 事件只追加、重复幂等。新运行使用 v11，
+实际 HTTP 写入先验证 owner 与活跃项目，Story 事件只追加、重复幂等。C0c 批次使用 v11，
 旧 v1–v10 快照不升级；对象档案六项既有操作升修订 2，模板编辑升修订 3，旧冻结项
 可描述但发生 schema 或修订漂移时不能执行。项目设置采用预期版本 CAS，默认关闭。
 
-C3 新运行使用 v16：在正式 v15 目录之后加入 Story 人物弧的三项 R0 读取与四项 R3
+C3 集成批次使用 v16：在正式 v15 目录之后加入 Story 人物弧的三项 R0 读取与四项 R3
 写入；v1–v15 冻结目录均不自动获得这些能力。R0 历史和实际对照需要完整作品可信工作范围，
 写入须预览、显式确认及领域 CAS。恢复留痕凭同一修订回执关联原执行的
 `op_id/call_id`，重放不重复记录恢复；缺少原回执时只标留痕不完整。

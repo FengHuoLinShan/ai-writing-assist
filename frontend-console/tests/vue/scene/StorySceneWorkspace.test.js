@@ -430,6 +430,31 @@ describe("Story Scene workspace panels", () => {
     expect(sceneRuntimeSession("p1", "s1").scriptDraft).toBe(activeDraft)
   })
 
+  it("restores every reaction decision when more than 96 small reactions fit the backup", () => {
+    const reactions = Array.from({ length: 105 }, (_, id) => ({ id: String(id), status: id % 2 ? "kept" : "rejected" }))
+    const result = persistSceneRuntimeDraft("p1", "s1", { simulation: { reactions } })
+    expect(result.backupComplete).toBe(true)
+    resetSceneRuntimeSession("p1", "s1")
+    expect(sceneRuntimeSession("p1", "s1").simulation.reactions.map(({ id, status }) => ({ id, status }))).toEqual(reactions)
+  })
+
+  it("never drops reaction decisions or claims a complete backup when capacity is exceeded", () => {
+    persistSceneRuntimeDraft("p1", "s1", { scriptDraft: "上次完整备份" })
+    const previous = localStorage.getItem(sceneRuntimeDraftKey("p1", "s1"))
+    const reaction = {
+      id: "reaction-large", status: "kept", schemaVersion: "story.reaction.v2",
+      selectedPerformance: { motivation: "甲".repeat(12000), action: "乙".repeat(12000) },
+      fullInternalPressure: "丙".repeat(12000), motivation: "丁".repeat(12000),
+    }
+    const result = persistSceneRuntimeDraft("p1", "s1", {
+      simulation: { reactions: Array.from({ length: 10 }, (_, id) => ({ ...reaction, id: String(id) })) },
+    })
+    expect(result.backupComplete).toBe(false)
+    expect(sceneRuntimeSession("p1", "s1").simulation.reactions).toHaveLength(10)
+    expect(sceneRuntimeSession("p1", "s1").simulation.reactions[0].status).toBe("kept")
+    expect(localStorage.getItem(sceneRuntimeDraftKey("p1", "s1"))).toBe(previous)
+  })
+
   it("keeps the Scene script in memory and reports whether local persistence really succeeded", () => {
     const originalSetItem = localStorage.setItem.bind(localStorage)
     const storage = vi.spyOn(localStorage, "setItem").mockImplementation((key, value) => {

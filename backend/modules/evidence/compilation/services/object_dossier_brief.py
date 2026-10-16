@@ -403,18 +403,27 @@ class ObjectDossierBriefService:
                     limit=250,
                     offset=0,
                     visibility_filter="public" if safe_view else None,
-                    visible_contents=(
-                        sorted(
-                            {
-                                fact["value"]
+                    visible_contents=None,
+                    visible_fields=(
+                        {
+                            field: sorted(
+                                {
+                                    fact["value"]
+                                    for fact in facts
+                                    if str(fact.get("subject_id") or "") == entity_id
+                                    and fact.get("field") == field
+                                    and fact.get("layer") == "fact"
+                                    and fact.get("confidence") == "confirmed"
+                                    and fact.get("possibly_false") is not True
+                                    and isinstance(fact.get("value"), str)
+                                }
+                            )
+                            for field in {
+                                fact.get("field")
                                 for fact in facts
-                                if str(fact.get("subject_id") or "") == entity_id
-                                and fact.get("layer") == "fact"
-                                and fact.get("confidence") == "confirmed"
-                                and fact.get("possibly_false") is not True
-                                and isinstance(fact.get("value"), str)
+                                if isinstance(fact.get("field"), str)
                             }
-                        )
+                        }
                         if role_view
                         else None
                     ),

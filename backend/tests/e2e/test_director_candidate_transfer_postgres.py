@@ -31,6 +31,17 @@ from tests.support.http import XhrAsyncClient
 pytestmark = [pytest.mark.asyncio, pytest.mark.e2e]
 
 
+@pytest.fixture(autouse=True)
+def enable_scene_director(monkeypatch):
+    from core.config import get_settings
+
+    monkeypatch.setenv("STORY_SCENE_DIRECTOR_ENABLED", "true")
+    get_settings.cache_clear()
+    yield
+    monkeypatch.undo()
+    get_settings.cache_clear()
+
+
 @pytest.mark.parametrize("with_event", [False, True])
 async def test_author_transfers_exact_round_once_and_world_stays_candidate(with_event):
     novel_id, other_id, other_owner, scene_id, actor_id = (uuid4() for _ in range(5))

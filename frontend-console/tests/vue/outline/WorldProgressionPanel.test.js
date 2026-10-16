@@ -3,6 +3,10 @@ import { flushPromises, mount } from "@vue/test-utils"
 import { resetBridgeOverrides, setBridgeOverrides } from "../../../vue/bridge/index.js"
 import WorldProgressionPanel from "../../../vue/views/outline/components/WorldProgressionPanel.vue"
 
+vi.mock("../../../shared/aiReferenceModal.js", () => ({
+  confirmAiReference: vi.fn(async () => ({ id: "confirmation-hook" })),
+}))
+
 function deferred() {
   let resolve
   let reject
@@ -142,7 +146,7 @@ describe("WorldProgressionPanel", () => {
     expect(wrapper.find("#progression-preview-title").exists()).toBe(false)
   })
 
-  it("交汇可以准备带候选假设的导演起点并先预览独立预算", async () => {
+  it.each([true, false])("钩子预览成功=%s 后保留已编辑的导演起点与预算", async (success) => {
     const api = makeApi({
       charactersByProject: {
         "project-a": [actor("林澈", 1), actor("沈闻", 2)],
@@ -175,6 +179,7 @@ describe("WorldProgressionPanel", () => {
                   created_at: "2026-10-16T00:00:00Z",
                   result: {
                     narrative_summary: "两人在渡口停下交涉。",
+                    plot_hooks: [{ hook_id: "hook-1", title: "渡口争端", summary: "交涉尚未完成", start_chapter: 1, end_chapter: 2 }],
                     actor_intents: [],
                     intent_outcomes: [],
                     intersections: {
@@ -215,6 +220,10 @@ describe("WorldProgressionPanel", () => {
       token_budget: { estimate_minimum: 100, estimate_maximum: 200 },
       fee_status: "可能计费",
     }))
+    api.story.previewWorldProgressionHook = vi.fn(async () => {
+      if (!success) throw new Error("钩子读取失败")
+      return { window: { start_chapter: 1, end_chapter: 2 }, effect: "只读预览" }
+    })
     const wrapper = mountPanel(api)
     await openPanel(wrapper)
     expect(wrapper.text()).toContain("交涉结果仍为候选假设")
@@ -222,11 +231,17 @@ describe("WorldProgressionPanel", () => {
     const panel = wrapper.get(".world-progression__director-draft")
     expect(panel.find("textarea").element.value).toContain("作者选择的世界推进交汇起点")
     expect(panel.text()).toContain("未被当作已发生事实")
+    await panel.find("textarea").setValue("保留作者手输的起点假设")
     const previewButton = panel.findAll("button").find((button) => button.text().includes("预算"))
     await previewButton.trigger("click")
     await flushPromises()
     expect(api.story.previewSceneDirectorBudget).toHaveBeenCalledTimes(1)
     expect(panel.text()).toContain("100–200 Token")
     expect(panel.text()).toContain("确认并开始导演候选")
+    await wrapper.findAll("button").find((button) => button.text().includes("预览滚动规划窗口")).trigger("click")
+    await flushPromises()
+    expect(api.story.previewWorldProgressionHook).toHaveBeenCalledTimes(1)
+    expect(wrapper.get(".world-progression__director-draft textarea").element.value).toBe("保留作者手输的起点假设")
+    expect(wrapper.get(".world-progression__director-draft").text()).toContain("100–200 Token")
   })
 })

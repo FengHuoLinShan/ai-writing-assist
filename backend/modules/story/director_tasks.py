@@ -155,6 +155,9 @@ async def _mirror_run_envelope(session, task, payload):
 )
 async def handle_scene_director(db, task):
     require_task_checkpoint_session(db)
+    from modules.story.director_feature import require_scene_director_enabled
+
+    require_scene_director_enabled()
     meta = _meta(task)
     novel_id = str(task.novel_id)
     root_id = str(meta.get("director_root_id") or "")

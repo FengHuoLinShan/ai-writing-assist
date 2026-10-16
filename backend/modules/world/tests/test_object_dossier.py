@@ -1203,3 +1203,93 @@ async def test_demo_readonly_identity_cannot_write_dossier(db_session) -> None:
             )
     finally:
         reset_principal(token)
+
+
+@pytest.mark.asyncio
+async def test_role_dossier_rejects_oversize_update_and_preserves_revision(async_client):
+    novel_id, entity = await _project_and_character(async_client)
+    base = f"/api/world/entities/{entity['id']}/dossier"
+    params = {"novel_id": novel_id}
+    created = await async_client.post(
+        base + "/entries",
+        params=params,
+        json={
+            "facing": {"kind": "core", "key": "identity_position"},
+            "legacy_field_key": "role",
+            "content": "甲" * 64,
+        },
+    )
+    assert created.status_code == 201, created.text
+    entry = created.json()
+    response = await async_client.patch(
+        base + "/entries/" + entry["id"],
+        params=params,
+        json={"expected_revision_id": entry["id"], "content": "乙" * 65},
+    )
+    assert response.status_code == 400, response.text
+    assert response.json()["error"] == "dossier_role_too_long"
+    current = await async_client.get(base, params=params)
+    assert [(item["id"], item["content"]) for item in current.json()["entries"]] == [
+        (entry["id"], "甲" * 64)
+    ]
+
+
+@pytest.mark.asyncio
+async def test_character_merge_updates_visible_dossier(async_client, db_session):
+    from modules.world.services.core.dedup_service import EntityDedupService
+
+    novel_id, target = await _project_and_character(async_client)
+    created = await async_client.post(
+        "/api/world/entities",
+        params={"novel_id": novel_id},
+        json={"entity_type": "character", "name": "另一个人物", "status": "canonical"},
+    )
+    assert created.status_code == 201, created.text
+    candidate = created.json()
+    for entity, appearance in [(target, "短发"), (candidate, "左眉有疤")]:
+        response = await async_client.post(
+            f"/api/world/entities/{entity['id']}/dossier/entries",
+            params={"novel_id": novel_id},
+            json={
+                "facing": {"kind": "core", "key": "appearance"},
+                "legacy_field_key": "appearance",
+                "content": appearance,
+            },
+        )
+        assert response.status_code == 201, response.text
+    assert await EntityDedupService()._sync_character_on_merge(
+        db_session, novel_id, candidate["id"], target["id"]
+    )
+    current = await async_client.get(
+        f"/api/world/characters/{target['id']}", params={"novel_id": novel_id}
+    )
+    assert current.status_code == 200, current.text
+    assert "短发" in current.json()["appearance"]
+    assert "左眉有疤" in current.json()["appearance"]
+
+
+@pytest.mark.asyncio
+async def test_role_dossier_visibility_requires_matching_field_not_just_content(
+    async_client, db_session
+):
+    novel_id, entity = await _project_and_character(async_client)
+    service = WorldObjectDossierService()
+    for field, facing in [("appearance", "appearance"), ("personality", "personality")]:
+        await service.create_entry(
+            db_session,
+            novel_id,
+            entity["id"],
+            DossierEntryCreate(
+                facing=DossierFacingRef(kind="core", key=facing),
+                legacy_field_key=field,
+                content="同一句话",
+            ),
+        )
+    view = await service.read(
+        db_session,
+        novel_id,
+        entity["id"],
+        visibility_filter="public",
+        visible_fields={"appearance": ["同一句话"]},
+    )
+    assert [item.legacy_field_key for item in view.entries] == ["appearance"]

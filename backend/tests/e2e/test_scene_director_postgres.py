@@ -47,6 +47,17 @@ from tests.support.http import XhrAsyncClient
 pytestmark = [pytest.mark.asyncio, pytest.mark.e2e]
 
 
+@pytest.fixture(autouse=True)
+def enable_scene_director(monkeypatch):
+    from core.config import get_settings
+
+    monkeypatch.setenv("STORY_SCENE_DIRECTOR_ENABLED", "true")
+    get_settings.cache_clear()
+    yield
+    monkeypatch.undo()
+    get_settings.cache_clear()
+
+
 @pytest.fixture
 async def director_pg_engine():
     url = os.environ["DATABASE_URL"]
@@ -887,3 +898,85 @@ async def test_exact_worker_continues_same_root_and_stops_new_unknown(
         assert envelope.deadline_at == original_deadline_at
         assert envelope.run_id == str(accepted.root_id)
     await client.close()
+
+
+async def test_api_delete_uses_worker_root_then_branch_lock_order(director_pg_engine):
+    from sqlalchemy import delete
+
+    from modules.account.context import bind_principal, reset_principal
+    from modules.account.contracts import AccountPrincipal
+    from modules.story.director_api import api_delete_director_branch
+    from modules.story.director_schemas import DirectorDeleteBranchRequest
+
+    sessions = async_sessionmaker(director_pg_engine, expire_on_commit=False)
+    owner_id, novel_id, scene_id = (uuid4() for _ in range(3))
+    token = bind_principal(
+        AccountPrincipal(
+            account_id=owner_id,
+            status="active",
+            identity_type="email",
+            support_code=owner_id.hex,
+        )
+    )
+    deletion = None
+    try:
+        async with sessions.begin() as db:
+            db.add(Account(id=owner_id, support_code=owner_id.hex))
+            db.add(Project(id=novel_id, owner_id=owner_id, title="导演锁顺序回归"))
+            await db.flush()
+            root_id, branch_id, _ = await _seed_history(db, novel_id, scene_id)
+        started = asyncio.Event()
+        deletion_pid = None
+
+        async def delete_branch():
+            nonlocal deletion_pid
+            async with sessions.begin() as db:
+                deletion_pid = await db.scalar(text("SELECT pg_backend_pid()"))
+                started.set()
+                return await api_delete_director_branch(
+                    str(branch_id),
+                    DirectorDeleteBranchRequest(novel_id=str(novel_id), confirm=True),
+                    db,
+                )
+
+        async with sessions.begin() as worker:
+            await worker.scalar(
+                select(StorySceneDirectorRoot)
+                .where(StorySceneDirectorRoot.id == root_id)
+                .with_for_update()
+            )
+            deletion = asyncio.create_task(delete_branch())
+            await asyncio.wait_for(started.wait(), timeout=5)
+
+            async def wait_for_root_contention():
+                # The fixture has two connections; use a separate observer so
+                # the worker and deleting request can both retain their locks.
+                observer_engine = create_async_engine(director_pg_engine.url, pool_size=1)
+                try:
+                    async with observer_engine.connect() as observer:
+                        while not await observer.scalar(
+                            text("SELECT cardinality(pg_blocking_pids(:pid))"),
+                            {"pid": deletion_pid},
+                        ):
+                            await asyncio.sleep(0.01)
+                finally:
+                    await observer_engine.dispose()
+
+            await asyncio.wait_for(wait_for_root_contention(), timeout=5)
+            await asyncio.wait_for(
+                worker.scalar(
+                    select(StorySceneDirectorBranch)
+                    .where(StorySceneDirectorBranch.id == branch_id)
+                    .with_for_update()
+                ),
+                timeout=2,
+            )
+        await asyncio.wait_for(deletion, timeout=5)
+    finally:
+        if deletion is not None and not deletion.done():
+            deletion.cancel()
+            await asyncio.gather(deletion, return_exceptions=True)
+        async with sessions.begin() as db:
+            await db.execute(delete(Project).where(Project.id == novel_id))
+            await db.execute(delete(Account).where(Account.id == owner_id))
+        reset_principal(token)

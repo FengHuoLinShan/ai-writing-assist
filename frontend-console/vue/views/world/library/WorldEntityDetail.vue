@@ -40,6 +40,11 @@ watch(() => [props.projectId, props.entity.id || props.entity.entity_id], () => 
 onBeforeUnmount(() => { infoEpoch += 1 })
 const profileOpen = ref(false)
 const worldDossierOpen = ref(false)
+const worldDossierMounted = ref(false)
+function toggleDossier(event) {
+  worldDossierOpen.value = event.target.open
+  if (event.target.open) worldDossierMounted.value = true
+}
 const dossierDirty = ref(false)
 const publicDemoReadOnly = computed(() => getPublicDemoReadOnly())
 const profileLoading = ref(false)
@@ -233,6 +238,7 @@ watch(() => props.entity?.id || props.entity?.entity_id, () => {
   profileError.value = ""
   fillProfile()
   worldDossierOpen.value = false
+  worldDossierMounted.value = false
   dossierDirty.value = false
 })
 onBeforeUnmount(() => { basicGeneration += 1; profileGeneration += 1; emit("profile-dirty", false) })
@@ -321,10 +327,10 @@ onBeforeUnmount(() => { basicGeneration += 1; profileGeneration += 1; emit("prof
       @restored="emit('refresh', entity.id || entity.entity_id)"
     />
     <TargetedCompletionPanel :project-id="projectId" :entity-id="entity.id || entity.entity_id" :initial-name="entity.name || ''" @applied="emit('refresh', entity.id || entity.entity_id)" />
-    <details class="world-entity-dossier" @toggle="worldDossierOpen = $event.target.open">
+    <details class="world-entity-dossier" @toggle="toggleDossier">
       <summary>对象档案 <span>稳定设定、有效范围与模板</span></summary>
       <WorldObjectDossierEditor
-        v-if="worldDossierOpen"
+        v-if="worldDossierMounted"
         :entity="entity"
         :project-id="projectId"
         :read-only="publicDemoReadOnly"

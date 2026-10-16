@@ -1325,11 +1325,17 @@ class TestDedupSyncCharacterOnMerge:
         char_repo.get.side_effect = [candidate_char, target_char]
         char_repo.update = AsyncMock()
 
-        with patch(
-            "modules.world.services.core.dedup_service.CharacterRepository",
-            return_value=char_repo,
-            autospec=True,
+        with (
+            patch(
+                "modules.world.services.core.dedup_service.CharacterRepository",
+                return_value=char_repo,
+                autospec=True,
+            ),
+            patch(
+                "modules.world.dossier_service.WorldObjectDossierService", autospec=True
+            ) as dossier,
         ):
+            dossier.return_value.legacy_character_values.return_value = {}
             result = await svc._sync_character_on_merge(
                 MagicMock(),
                 str(uuid.uuid4()),

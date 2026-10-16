@@ -43,6 +43,15 @@ describe("WorldEntityDetail 人物档案", () => {
     wrapper.findComponent({ name: "WorldObjectDossierEditor" }).vm.$emit("dirty", true)
     await wrapper.vm.$nextTick()
     expect(wrapper.emitted("profile-dirty").at(-1)).toEqual([true])
+    const editor = wrapper.findComponent({ name: "WorldObjectDossierEditor" })
+    section.element.open = false
+    await section.trigger("toggle")
+    expect(editor.exists()).toBe(true)
+    expect(wrapper.findComponent({ name: "WorldObjectDossierEditor" }).element).toBe(editor.element)
+    expect(wrapper.emitted("profile-dirty").at(-1)).toEqual([true])
+    section.element.open = true
+    await section.trigger("toggle")
+    expect(api.world.getEntityDossier).toHaveBeenCalledTimes(1)
     wrapper.unmount()
   })
 

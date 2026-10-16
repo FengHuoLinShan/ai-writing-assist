@@ -719,6 +719,10 @@ class EntityDedupService:
         """若 candidate 有 Character 扩展行，将其数据合并到 target 的 Character。"""
         import uuid as _uuid
 
+        from modules.world.dossier_service import (
+            LEGACY_CHARACTER_FACINGS,
+            WorldObjectDossierService,
+        )
         from modules.world.schemas import CharacterUpdate
 
         cid = _uuid.UUID(candidate_id)
@@ -734,7 +738,23 @@ class EntityDedupService:
         if target_char is None:
             # candidate 有 Character 而 target 没有：直接迁移 Character 行
             migrated = await char_repo.migrate_entity_id(db, cid, tid, novel_id=nid)
+            if migrated:
+                for field in LEGACY_CHARACTER_FACINGS:
+                    await WorldObjectDossierService().sync_character_legacy_field(
+                        db,
+                        candidate_char,
+                        field,
+                        getattr(candidate_char, field),
+                        force_create=True,
+                    )
             return migrated
+
+        dossier_service = WorldObjectDossierService()
+        current_values = await dossier_service.legacy_character_values(
+            db, novel_id, [target_char, candidate_char]
+        )
+        target_values = current_values.get(target_char.entity_id, {})
+        candidate_values = current_values.get(candidate_char.entity_id, {})
 
         # 合并别名
         target_aliases: list[dict] = list(target_char.aliases or [])
@@ -751,46 +771,51 @@ class EntityDedupService:
                 target_aliases.append(alias)
                 existing_alias_texts.add(text)
 
-        await char_repo.update(
-            db,
-            target_char,
-            CharacterUpdate(
-                aliases=target_aliases,
-                appearance=merge_text_field(
-                    target_char.appearance,
-                    candidate_char.appearance,
-                ),
-                personality=merge_text_field(
-                    target_char.personality,
-                    candidate_char.personality,
-                ),
-                desire=merge_text_field(
-                    target_char.desire,
-                    candidate_char.desire,
-                ),
-                fear=merge_text_field(
-                    target_char.fear,
-                    candidate_char.fear,
-                ),
-                secret=merge_text_field(
-                    target_char.secret,
-                    candidate_char.secret,
-                ),
-                weakness=merge_text_field(
-                    target_char.weakness,
-                    candidate_char.weakness,
-                ),
-                current_goal=merge_text_field(
-                    target_char.current_goal,
-                    candidate_char.current_goal,
-                ),
-                relationship_summary=merge_text_field(
-                    target_char.relationship_summary,
-                    candidate_char.relationship_summary,
-                ),
-                meta={**candidate_char.meta, **target_char.meta},
+        update = CharacterUpdate(
+            aliases=target_aliases,
+            appearance=merge_text_field(
+                target_values.get("appearance", target_char.appearance),
+                candidate_values.get("appearance", candidate_char.appearance),
             ),
+            personality=merge_text_field(
+                target_values.get("personality", target_char.personality),
+                candidate_values.get("personality", candidate_char.personality),
+            ),
+            desire=merge_text_field(
+                target_values.get("desire", target_char.desire),
+                candidate_values.get("desire", candidate_char.desire),
+            ),
+            fear=merge_text_field(
+                target_values.get("fear", target_char.fear),
+                candidate_values.get("fear", candidate_char.fear),
+            ),
+            secret=merge_text_field(
+                target_values.get("secret", target_char.secret),
+                candidate_values.get("secret", candidate_char.secret),
+            ),
+            weakness=merge_text_field(
+                target_values.get("weakness", target_char.weakness),
+                candidate_values.get("weakness", candidate_char.weakness),
+            ),
+            current_goal=merge_text_field(
+                target_char.current_goal,
+                candidate_char.current_goal,
+            ),
+            relationship_summary=merge_text_field(
+                target_values.get(
+                    "relationship_summary", target_char.relationship_summary
+                ),
+                candidate_values.get(
+                    "relationship_summary", candidate_char.relationship_summary
+                ),
+            ),
+            meta={**candidate_char.meta, **target_char.meta},
         )
+        for field in update.model_fields_set & LEGACY_CHARACTER_FACINGS.keys():
+            await WorldObjectDossierService().sync_character_legacy_field(
+                db, target_char, field, getattr(update, field)
+            )
+        await char_repo.update(db, target_char, update)
 
         return True
 

@@ -11,6 +11,7 @@ from core.container import get
 from core.service_keys import WORLD_READ_MAP_CHAPTER_CONSUMERS
 from infrastructure.stable_hash import stable_hash
 from modules.evolution.models import EvolutionReceiptRecord
+from modules.project.facade import require_active_project
 from modules.writing.facade import get_manuscript_source_manifest
 
 SOURCE_ID = "world.map_source"
@@ -193,6 +194,7 @@ def _receipt_coverage_notice(*, novel_id: str, chapter_index: int) -> dict[str, 
 async def list_map_source_notices(
     db, novel_id: str, scope: dict[str, object]
 ) -> list[dict[str, Any]]:
+    await require_active_project(db, novel_id)
     raw_chapter = scope.get("chapter_index")
     if raw_chapter is None:
         # A Scene-only scope is not a canonical chapter-source identity.

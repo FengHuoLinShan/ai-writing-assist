@@ -60,7 +60,7 @@ Evolution。内核面向按对象类型固定，项目面向复用 `ProjectVocab
 并将 Story 与 Evolution 标为尚未聚合。Evidence 简报只接纳 canonical 对象和 profile；
 World 管理读口仍可展示工作稿以供作者处理。
 Evidence 的只读 port 可按 `visibility_filter=public` 在分页、计数和指纹计算前筛选公开条目；
-角色读取还可用 `visible_contents` 限定同 Scene 已获事实证明的文本。旧 profile 无逐字段公开标记，
+角色读取用 `visible_fields` 同时限定已获事实证明的字段与文本，按明确 Story/legacy/Generic 字段键匹配；`visible_contents` 仅保留旧只读调用兼容，不作为角色字段证明。旧 profile 无逐字段公开标记，
 这两种安全投影均不返回它。原作者管理读口不传筛选参数，仍显示完整档案。
 
 `GenericEntityProfile.data_json` 旧 PUT 经 Dossier 领域服务按字段追加修订；明确模板映射的字段保留面向，

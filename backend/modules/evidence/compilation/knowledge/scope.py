@@ -43,6 +43,8 @@ REFERENCE_USAGES = frozenset({REFERENCE_USAGE_CREATION, REFERENCE_USAGE_AUDIT_ON
 _MAX_TOKEN_GROUPS_PER_SOURCE = 32
 
 SECTION_DIMENSION_MAP: dict[str, str] = {
+    "object_dossier": "object_dossier",
+    "character_pattern": "character_pattern",
     "map_spatial": "map_spatial",
     "director_reference": "director_reference",
     "world_entities": "world_entities",

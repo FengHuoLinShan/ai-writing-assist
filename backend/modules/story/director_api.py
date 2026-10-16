@@ -6,7 +6,7 @@ from datetime import UTC, datetime, timedelta
 from types import SimpleNamespace
 from uuid import UUID, uuid4
 
-from fastapi import APIRouter, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query
 from fastapi import status as http_status
 from sqlalchemy import select
 
@@ -35,6 +35,7 @@ from modules.story.director_budget import (
 )
 from modules.story.director_candidate_transfer import transfer_director_candidate
 from modules.story.director_context import read_director_source
+from modules.story.director_feature import require_scene_director_enabled
 from modules.story.director_schemas import (
     DirectorAdvanceRequest,
     DirectorBudgetPreviewRequest,
@@ -76,7 +77,11 @@ from modules.story.models import (
     StorySceneDirectorRoot,
 )
 
-router = APIRouter(prefix="/api/story", tags=["story-scene-director"])
+router = APIRouter(
+    prefix="/api/story",
+    tags=["story-scene-director"],
+    dependencies=[Depends(require_scene_director_enabled)],
+)
 DIRECTOR_CAPABILITY = "story.scene_director"
 
 
@@ -173,6 +178,7 @@ async def _existing_director_task(
 
 async def submit_director_start(db, data: DirectorStartRequest) -> DirectorTaskAccepted:
     """Create one frozen root and enqueue its first isolated branch."""
+    require_scene_director_enabled()
     novel_id = data.novel_id
     request_payload = {"mode": "start", **data.model_dump(mode="json")}
     fingerprint_payload = {
@@ -316,6 +322,7 @@ async def continue_director_root(
     root_id: str,
     data: DirectorContinueRequest,
 ) -> DirectorTaskAccepted:
+    require_scene_director_enabled()
     novel_id = data.novel_id
     request_payload = {"mode": "continue", **data.model_dump(mode="json")}
     fingerprint_payload = {
@@ -782,8 +789,9 @@ async def api_delete_director_branch(
     if not data.confirm:
         raise HTTPException(status_code=400, detail="请先确认将删除此分支及其历史引用")
     try:
-        branch = await get_director_branch(db, data.novel_id, branch_id, lock=True)
+        branch = await get_director_branch(db, data.novel_id, branch_id)
         root = await get_director_root(db, data.novel_id, str(branch.root_id), lock=True)
+        branch = await get_director_branch(db, data.novel_id, branch_id, lock=True)
         await _require_root_idle(db, root)
         return await delete_director_branch(db, data.novel_id, branch_id)
     except Exception as error:

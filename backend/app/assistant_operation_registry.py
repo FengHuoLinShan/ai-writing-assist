@@ -46,10 +46,10 @@ from modules.story.assistant_structure_workflow import (
     OPERATIONS_SPEC as _STORY_STRUCTURE,
 )
 from modules.story.assistant_tools import OPERATIONS_SPEC as _STORY
-from modules.story.continuity.operations import OPERATIONS_SPEC as _STORY_FACT_TIMELINE
 from modules.story.character_arcs.operations import (
     OPERATIONS_SPEC as _STORY_CHARACTER_ARCS,
 )
+from modules.story.continuity.operations import OPERATIONS_SPEC as _STORY_FACT_TIMELINE
 from modules.story.director_operations import OPERATIONS_SPEC as _STORY_DIRECTOR
 from modules.story.world_progression_operations import (
     OPERATIONS_SPEC as _STORY_WORLD_PROGRESSION,

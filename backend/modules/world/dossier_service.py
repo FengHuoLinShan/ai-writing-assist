@@ -481,6 +481,13 @@ class WorldObjectDossierService:
         return result
 
     @staticmethod
+    def _validate_legacy_content(field: str | None, content: str | None) -> None:
+        if field == "role" and content is not None and len(content) > 64:
+            raise ValidationError(
+                "人物角色字段最多 64 个字符", code="dossier_role_too_long"
+            )
+
+    @staticmethod
     def _validate_legacy_field(
         entity: CoreEntity,
         facing: DossierFacingRef,
@@ -681,11 +688,14 @@ class WorldObjectDossierService:
         offset: int = 0,
         visibility_filter: str | None = None,
         visible_contents: list[str] | None = None,
+        visible_fields: dict[str, list[str]] | None = None,
         story_viewpoint: dict[str, Any] | None = None,
     ) -> DossierReadResponse:
         if visibility_filter not in {None, "public"}:
             raise ValidationError("档案可见性筛选仅支持 public")
-        if visible_contents is not None and visibility_filter != "public":
+        if (
+            visible_contents is not None or visible_fields is not None
+        ) and visibility_filter != "public":
             raise ValidationError("内容证明筛选只能用于公开档案读取")
         entity = await self._entity(db, novel_id, entity_id)
         nid = parse_uuid(novel_id, "novel_id")
@@ -728,6 +738,17 @@ class WorldObjectDossierService:
         if visible_contents is not None:
             allowed = set(visible_contents)
             entries = [row for row in entries if row.content in allowed]
+        if visible_fields is not None:
+
+            def field_is_visible(row):
+                keys = {
+                    row.story_field_key,
+                    row.legacy_field_key,
+                    (row.metadata_json or {}).get("generic_profile_field_key"),
+                } - {None, ""}
+                return any(row.content in visible_fields.get(key, []) for key in keys)
+
+            entries = [row for row in entries if field_is_visible(row)]
         labels = await self._labels(db, nid, entries)
         legacy_profile_fields = (
             await self._legacy_profile_fields(db, entity, generic_unknown)
@@ -1491,6 +1512,7 @@ class WorldObjectDossierService:
         metadata_json: dict[str, Any] | None = None,
         restored_from_id: uuid.UUID | None = None,
     ) -> WorldObjectDossierEntry:
+        self._validate_legacy_content(legacy_field_key, content)
         if source not in DOSSIER_SOURCES:
             raise ValidationError("档案来源不在支持的来源类型中")
         if metadata_json is not None:
@@ -1552,6 +1574,7 @@ class WorldObjectDossierService:
             db, nid, entity.entity_type, data.facing, lock_template=True
         )
         self._validate_legacy_field(entity, data.facing, data.legacy_field_key)
+        self._validate_legacy_content(data.legacy_field_key, data.content)
         await self._validate_story_field_key(db, entity, data.story_field_key)
         if data.legacy_field_key == "secret" and data.visibility != "secret":
             raise ValidationError("人物秘密档案必须保持秘密可见性")
@@ -1596,6 +1619,7 @@ class WorldObjectDossierService:
             db, entity.novel_id, entity.entity_type, data.facing
         )
         self._validate_legacy_field(entity, data.facing, data.legacy_field_key)
+        self._validate_legacy_content(data.legacy_field_key, data.content)
         await self._validate_story_field_key(db, entity, data.story_field_key)
         if data.legacy_field_key == "secret" and data.visibility != "secret":
             raise ValidationError("人物秘密档案必须保持秘密可见性")
@@ -1654,6 +1678,7 @@ class WorldObjectDossierService:
                 DossierFacingRef(kind="core", key=row.facing_key),
             )
         values = self._updated_values(row, data)
+        self._validate_legacy_content(row.legacy_field_key, values["content"])
         await self._validate_validity(db, entity.novel_id, values["validity"])
         await self._validate_story_field_key(db, entity, values["story_field_key"])
         return {
@@ -1739,6 +1764,7 @@ class WorldObjectDossierService:
                 lock_template=True,
             )
         values = self._updated_values(row, data)
+        self._validate_legacy_content(row.legacy_field_key, values["content"])
         clearing = not values["content"].strip()
         if clearing:
             values.update(
@@ -2086,6 +2112,7 @@ class WorldObjectDossierService:
         if not legacy_field_key:
             return
         value = legacy_value if legacy_value is not None else content
+        self._validate_legacy_content(legacy_field_key, value)
         if (
             entity.entity_type == "character"
             and legacy_field_key in LEGACY_CHARACTER_FACINGS

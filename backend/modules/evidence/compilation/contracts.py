@@ -85,6 +85,7 @@ class WorldObjectDossierReadPort(Protocol):
         offset: int,
         visibility_filter: str | None,
         visible_contents: list[str] | None,
+        visible_fields: dict[str, list[str]] | None,
     ) -> object: ...
 
 

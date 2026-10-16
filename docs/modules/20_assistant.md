@@ -19,13 +19,14 @@ ADR-0040 §13 的后端首批还声明 `/api/assistant/unified-notices`。GET �
 活跃项目先校验，Scene 再由 Story typed DI service 按同一 novel 校验。列表通过登记表并行读取，
 provider 独占 DB session；任一 provider 失败或超时以不可用来源占位，其余结果仍返回。
 
-当前 registry providers 是 `story.structure`、`writing.conflict`、`writing.invalidation`、
-`assistant.proactive`、`assistant.forecast`。既有处置由 provider 转发；其余处置写入独立的
-`assistant_notice_dispositions`，类别静默写入 `assistant_notice_category_mutes`，均有 CAS，
-不会把业务 finding 搬进 `assistant_notices`。G8b 地图基线通过 Writing 冲突检查投影；G8a Evolution
-地图册来源核对、编辑员意见的原审读队列裁定、地图空间/对象一致性/世界推进等 provider 仍需后续
-接入。组合根需注册 provider registry、挂 router，并装配这两张模型；离线后端切片不代表 app
-组合或前端提醒标签已经上线。
+当前 registry 登记 11 个来源：`assistant.proactive`、`assistant.editorial`、
+`assistant.forecast`、`story.structure`、`story.scene_director`、`story.world_progression`、
+`writing.conflict`、`writing.invalidation`、`world.map_source`、`world.object_validity` 与
+`evolution.reading`。组合根已装配 registry、路由及处置模型；列表经独立 session 并行读取，
+来源失败保留占位。编辑员原审读队列裁定仍转发所属领域；G8a 读取当前地图来源，G8b 通过
+Writing 冲突检查投影。地图/对象有效期、导演、世界推进与演化待核对项目都由各域提供。
+其余处置写入独立 `assistant_notice_dispositions`，类别静默写入
+`assistant_notice_category_mutes`，均有 CAS，不复制业务 finding 到 `assistant_notices`。
 
 引导流程（ADR-0032）入口为 `/api/assistant/flows`：服务端注册、带版本的确定性步骤表与停点推导；流程运行复用 `assistant_runs`（`guided_flow_v1`），不建新表。已注册五个流程（同一 `flows.py` 注册表）：`continue_writing` v3（确认资料 → 候选 → 独立审查 → 可审阅；采用后经作者确认滚动规划后续章节，BR-6 只到剧情线/篇章大纲候选，窗口默认 3 章、上限 5 章，后方已规划不足 2 章时提示补足）、`new_book_opening` v1（一句构想 → 方向卡候选 → 选定方向 → 世界观骨架包逐条取舍采用 → 停在「骨架可用」，BR-5；方向卡是 Assistant 侧定向 LLM step，卡片只存运行检查点）、`editorial_revision` v1（审读台选中意见 → 桥接批注修订 → 候选可审阅 → 采用后自动改后复核，BR-4）、`map_cold_start` v1（地图冷启动工作流）和 `world_progression_review` v1（世界推进复核）。开始请求按流程携带输入，推进请求支持 `choice` 作者选择输入；视图 `panel` 承载当前停点的作者面向载荷。AI 输出一律候选，采用与确认语义不变；滚动规划只在流程内经作者确认触发。
 
@@ -105,14 +106,14 @@ Writing 批注工作流需要相关资料提案时，在同一项目创建禁联
 
 ### 地图目录与来源边界
 
-新作者运行冻结为 v11：v10 包含 C4b 导演八项，v9 包含 C2 三项，v8 包含 A1 首批 15 项；v11 再加入 C0c 五项有效期操作。旧 v1–v10 不自动获得新增项。操作完整参数 schema、版本及目录元数据随 run 保存，
+新作者运行冻结为 v17（`service.py` 的运行协议版本）：v17 增加安全章节重排与事实时间线读取；v16 增加人物弧计划；v15 及以前沿用各自冻结目录。历史批次中，v10 包含 C4b 导演八项，v9 包含 C2 三项，v8 包含 A1 首批 15 项；v11 再加入 C0c 五项有效期操作。旧 v1–v10 不自动获得新增项。操作完整参数 schema、版本及目录元数据随 run 保存，
 `find_operations` 只返回少量名称、摘要、风险与可能计费类别；`describe_operation` 提供单项完整
 说明。已下线或改版项仍能查看原冻结说明，但执行失败关闭，不影响其他未变化项。
 既有 v7 不自动获得新操作；v1–v6 已有运行继续使用原两字段操作快照和 `available_operations`；旧 MapNodeCreate
 参数按原 schema 恢复，不因新类型字段或工具出现而扩大权限。目录回调和已绑定的 HTTP 写入口
 使用同一留痕端口；单事务操作的成功事件随业务写入提交，过期明细由现有 worker 维护节拍逐作品
 聚合并删除。留痕开关本机默认开启、公开账户默认关闭、演示账户禁用；只有作者可读取去标识汇总。
-响应发送前的 HTTP 留痕失败通过响应头标记，v7–v11 助手运行在 checkpoint 与结果中保留留痕不完整标记；
+响应发送前的 HTTP 留痕失败通过响应头标记，v7–v17 助手运行在 checkpoint 与结果中保留留痕不完整标记；
 多阶段回执结果未知时，批次停止并禁止自动重试。
 Evolution 的两个空间入口只提供授权预览；图片与付费确认继续在领域工作台。
 
@@ -121,8 +122,9 @@ A1 首批窄入口 `/api/assistant/operation-http` 先按目录 schema 校验参
 标题改名/编辑准备/批注处置/确定性冲突检查、Evidence 项目检索/精确来源回读/目标范围预览，
 以及 Evolution 阅读授权预览。目录与 HTTP 使用同一领域服务；宽体类型编辑、正文 checkpoint、
 任意正文冲突检查和 Evidence 原宽检索路由不冒充窄操作。新窄写入口要求预览指纹和作者明确确认，
-R3 仍由作者确认，Evolution 只准备预览、独立工作台另行授权启动。章节重排与一般事实时间线
-尚无安全领域写入服务，不属于本首批闭环。
+R3 仍由作者确认，Evolution 只准备预览、独立工作台另行授权启动。
+后续 v17 已接入 `writing.chapter.reorder`（R3 预览/确认/回执恢复）与
+`story.fact_timeline.read`（R0 按当前章节顺序读取）；事实事件不提供任意覆盖编辑。
 
 C2 增加对象简报读取 R0、人物卡建议 R1、人物反应建议 v2/R1。窄 HTTP 对象简报
 入口只读；Story 窄入口仅准备预览，不创建任务。Assistant 建议应用沿父任务的模型快照

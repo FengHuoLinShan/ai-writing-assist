@@ -20,6 +20,7 @@ async def read_world_object_dossier(
     offset: int = 0,
     visibility_filter: str | None = None,
     visible_contents: list[str] | None = None,
+    visible_fields: dict[str, list[str]] | None = None,
     story_viewpoint: dict | None = None,
 ):
     return await _service.read(
@@ -31,6 +32,7 @@ async def read_world_object_dossier(
         offset=offset,
         visibility_filter=visibility_filter,
         visible_contents=visible_contents,
+        visible_fields=visible_fields,
         story_viewpoint=story_viewpoint,
     )
 

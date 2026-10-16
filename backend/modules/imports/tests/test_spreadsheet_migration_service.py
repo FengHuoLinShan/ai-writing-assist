@@ -334,9 +334,7 @@ async def test_get_rows_after_apply_returns_410(
     await db_session.flush()
     service = SpreadsheetMigrationService()
     with pytest.raises(ConflictError) as exc_info:
-        await service.get_rows(
-            session=session_row, sheet_key="f0s0", offset=0, limit=50
-        )
+        await service.get_rows(session=session_row, sheet_key="f0s0", offset=0, limit=50)
     assert exc_info.value.status_code == 410
 
 
@@ -558,20 +556,14 @@ async def test_save_mapping_preserves_default_entity_type(
     from modules.imports.spreadsheet_migration.synonyms import normalize_entity_type
 
     service = SpreadsheetMigrationService()
-    assert (
-        session_row.mapping_json["sheets"][0]["default_entity_type"] == "character"
-    )
+    assert session_row.mapping_json["sheets"][0]["default_entity_type"] == "character"
     assert world_objects_session_row.mapping_json["sheets"][0][
         "default_entity_type"
     ] == normalize_entity_type("地点")
 
     def _sheets_without_default(session: ImportMigrationSession) -> list[dict]:
         return [
-            {
-                key: value
-                for key, value in sheet.items()
-                if key != "default_entity_type"
-            }
+            {key: value for key, value in sheet.items() if key != "default_entity_type"}
             for sheet in session.mapping_json["sheets"]
         ]
 
@@ -792,3 +784,28 @@ async def test_parse_upload_bounds_concurrency() -> None:
     assert all(result.file_type == "xlsx" for result in results)
     assert state["peak"] <= PARSE_CONCURRENCY
     assert state["peak"] >= 2, "并发请求应至少出现两个同时在解析"
+
+
+@pytest.mark.parametrize("default_type", ["concept", " Concept ", "CONCEPT"])
+def test_entity_default_type_matches_normalized_dossier_profile(default_type):
+    from modules.imports.spreadsheet_migration.planning import (
+        SheetContext,
+        _accumulate_entity_row,
+    )
+
+    sheet = SheetContext(
+        sheet_key="f0s0",
+        name="自定义对象",
+        kind="entities",
+        header_row=0,
+        default_entity_type=default_type,
+        dossier_profile_type=" Concept ",
+        facing_mappings={"c1": {"kind": "core", "key": "overview"}},
+        rows=[["名称", "概要"], ["承诺", "不附加新事实"]],
+    )
+    entities = {}
+    _accumulate_entity_row(
+        sheet, 1, sheet.rows[1], [("c0", "name"), ("c1", "dossier_facing")], entities, {}
+    )
+    assert list(entities) == [("承诺", "concept")]
+    assert entities[("承诺", "concept")].dossier_fields[0]["content"] == "不附加新事实"

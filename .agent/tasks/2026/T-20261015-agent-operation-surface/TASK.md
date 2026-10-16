@@ -3,7 +3,7 @@ id: T-20261015-agent-operation-surface
 title: 全模块 AI 操作入口、目标运行与操作留痕设计
 status: active
 created: 2026-10-15T14:30:00+08:00
-updated: 2026-10-16T13:54:06+08:00
+updated: 2026-10-16T14:41:14+08:00
 ---
 
 # 全模块 AI 操作入口、目标运行与操作留痕设计
@@ -21,6 +21,8 @@ updated: 2026-10-16T13:54:06+08:00
 - 下一步：本批docs-check、repo-gates、ruff与diff检查均已通过，完成本地交付后保持整体目标active；恢复时先核实C1长篇、势力前置、A4真实数周及作者来源。拒绝路径尾修不会增加可采用地图覆盖，没有新的可验证改进假设时不新开付费批次，不重放任何封存运行。
 - 未完成条件：完整真实矩阵/作者验收未过；C1等P4真实长篇，M5与C5势力扩展等外部路线图，RP迁移等Interaction独立评测，A4数周真实数据和真实Top3仍缺。holdout未解码，能力默认门禁不放宽。逐项边界见[实施对账](../T-20261015-character-world-progression/artifacts/FULL-SCOPE-ACCEPTANCE.md)。
 - 最后核实：2026-10-16T13:54:06+08:00。下方设计与各历史固定点仅作追溯；旧恢复段可从提交81785cd16读取，不再按旧委派或过期“下一步”执行。
+
+- 外部review第一批（2026-10-16T14:41:14+08:00）：主会话复核并修复28项，L25 N轮指控不成立，19项待继续。9044后端、195尾修定向、3217前端/12导演尾例、24PG与lint/build/docs/repo-gates通过；能力总开关默认关闭。恢复按 [主修复账本](../T-20261015-character-world-progression/artifacts/REVIEW-REMEDIATION-20261016.md)，不再沿用封存前的评测续跑步骤。
 
 ## 目标与验收
 

@@ -1,12 +1,12 @@
-"""Real HTTP and independent PostgreSQL sessions for the seven notice sources."""
+"""Real HTTP and independent PostgreSQL sessions for the eleven notice sources."""
 
 from dataclasses import replace
-from uuid import UUID, uuid4
+from uuid import uuid4
 
 import pytest
 import pytest_asyncio
 from httpx import ASGITransport
-from sqlalchemy import func, select
+from sqlalchemy import delete, func, select
 
 from app.main import app
 from core.config import Settings
@@ -17,7 +17,7 @@ from core.database import (
 )
 from core.service_keys import ASSISTANT_NOTICE_SOURCES
 from modules.account.context import bind_principal, reset_principal
-from modules.account.contracts import BOOTSTRAP_ACCOUNT_ID, AccountPrincipal
+from modules.account.contracts import AccountPrincipal
 from modules.account.models import Account
 from modules.assistant.notice_models import (
     AssistantNoticeCategoryMute,
@@ -33,27 +33,33 @@ pytestmark = [pytest.mark.asyncio, pytest.mark.e2e]
 
 @pytest_asyncio.fixture(autouse=True)
 async def isolated_global_database_manager():
-    """The API holds one connection while seven sources open their own."""
+    """The API holds one connection while eleven sources open their own."""
     url = require_e2e_database_url(DATABASE_URL)
-    settings = Settings(database_url=url, pool_size=8, max_overflow=0)
+    settings = Settings(database_url=url, pool_size=12, max_overflow=0)
     async with isolated_database_manager_for_testing(settings) as manager:
         assert_database_target_for_testing(url, manager.engine.url)
         yield manager
 
 
-async def test_unified_notice_http_reads_seven_sources_and_persists_author_actions(
+async def test_unified_notice_http_reads_all_sources_and_persists_author_actions(
     isolated_global_database_manager,
 ):
     manager = isolated_global_database_manager
     novel_id = uuid4()
     foreign_owner_id = uuid4()
-    created_account = False
+    owner_id = uuid4()
+    owner_token = bind_principal(
+        AccountPrincipal(
+            account_id=owner_id,
+            status="active",
+            identity_type="email",
+            support_code=owner_id.hex,
+        )
+    )
     async with manager.session() as db:
-        if await db.get(Account, BOOTSTRAP_ACCOUNT_ID) is None:
-            db.add(Account(id=BOOTSTRAP_ACCOUNT_ID, support_code="notice-integration"))
-            created_account = True
+        db.add(Account(id=owner_id, support_code=owner_id.hex))
         db.add(Account(id=foreign_owner_id, support_code=uuid4().hex))
-        db.add(Project(id=novel_id, owner_id=BOOTSTRAP_ACCOUNT_ID, title="提醒组合测试"))
+        db.add(Project(id=novel_id, owner_id=owner_id, title="提醒组合测试"))
 
     try:
         registry = get(ASSISTANT_NOTICE_SOURCES)
@@ -65,6 +71,10 @@ async def test_unified_notice_http_reads_seven_sources_and_persists_author_actio
             "writing.conflict",
             "writing.invalidation",
             "world.map_source",
+            "world.object_validity",
+            "evolution.reading",
+            "story.scene_director",
+            "story.world_progression",
         }
         async with XhrAsyncClient(
             transport=ASGITransport(app=app), base_url="http://test"
@@ -200,7 +210,7 @@ async def test_unified_notice_http_reads_seven_sources_and_persists_author_actio
                 reset_principal(foreign_token)
             demo_token = bind_principal(
                 AccountPrincipal(
-                    account_id=BOOTSTRAP_ACCOUNT_ID,
+                    account_id=owner_id,
                     status="active",
                     identity_type="demo_readonly",
                     support_code="notice-demo",
@@ -236,15 +246,9 @@ async def test_unified_notice_http_reads_seven_sources_and_persists_author_actio
                 )
             assert after == before
     finally:
+        reset_principal(owner_token)
         async with manager.session() as db:
-            project = await db.get(Project, UUID(str(novel_id)))
-            if project is not None:
-                await db.delete(project)
-            foreign_account = await db.get(Account, foreign_owner_id)
-            if foreign_account is not None:
-                await db.delete(foreign_account)
-        if created_account:
-            async with manager.session() as db:
-                account = await db.get(Account, BOOTSTRAP_ACCOUNT_ID)
-                if account is not None:
-                    await db.delete(account)
+            await db.execute(delete(Project).where(Project.id == novel_id))
+            await db.execute(
+                delete(Account).where(Account.id.in_([owner_id, foreign_owner_id]))
+            )

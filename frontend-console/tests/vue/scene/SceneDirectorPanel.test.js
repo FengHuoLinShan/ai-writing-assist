@@ -64,6 +64,18 @@ describe("SceneDirectorPanel", () => {
     return wrapper
   }
 
+  it("shows the closed feature state without exposing start controls and can refresh after enabling", async () => {
+    api.story.sceneDirectorHistory.mockRejectedValueOnce(Object.assign(new Error("场景导演尚未开启"), { status: 503 }))
+    const wrapper = mountPanel("scene-a")
+    await flushPromises()
+    expect(wrapper.text()).toContain("场景导演尚未开启")
+    expect(wrapper.find(".scene-director__setup").exists()).toBe(false)
+    const refresh = wrapper.findAll("button").find((button) => button.text().includes("刷新历史"))
+    await refresh.trigger("click")
+    await flushPromises()
+    expect(wrapper.find(".scene-director__setup").exists()).toBe(true)
+  })
+
   it("ignores late history responses after switching the current Scene", async () => {
     let resolveOld
     api.story.sceneDirectorHistory.mockImplementation((_projectId, sceneId) => (
@@ -195,6 +207,28 @@ describe("SceneDirectorPanel", () => {
     }))
     const other = method === "advanceSceneDirector" ? "continueSceneDirector" : "advanceSceneDirector"
     expect(api.story[other]).not.toHaveBeenCalled()
+  })
+
+  it("keeps continuation input when refreshed history no longer contains its parent", async () => {
+    api.story.sceneDirectorHistory.mockResolvedValueOnce({
+      ...history("scene-a"),
+      roots: [{ id: "root-a", character_ids: ["actor-a"] }],
+      branches: [{ id: "branch-a", root_id: "root-a", round_ids: ["round-a"] }],
+      rounds: [{ id: "round-a", branch_id: "branch-a", round_number: 1, basis_status: "current" }],
+    })
+    api.story.previewSceneDirectorContinuation = vi.fn()
+    const wrapper = mountPanel("scene-a")
+    await flushPromises()
+    await wrapper.findAll("button").find((button) => button.text() === "从此回合继续").trigger("click")
+    const draft = wrapper.get(".scene-director__continue textarea")
+    await draft.setValue("保留续算假设")
+    await wrapper.findAll("button").find((button) => button.text() === "刷新历史").trigger("click")
+    await flushPromises()
+    await wrapper.get(".scene-director__continue").findAll("button").find((button) => button.text() === "预览同一累计根预算").trigger("click")
+    await flushPromises()
+    expect(api.story.previewSceneDirectorContinuation).not.toHaveBeenCalled()
+    expect(wrapper.text()).toContain("导演历史尚未载入")
+    expect(draft.element.value).toBe("保留续算假设")
   })
 
   it("opens a mobile full-screen workspace and closes it with Escape", async () => {

@@ -3,7 +3,7 @@ id: T-20261015-character-world-progression
 title: 世界对象档案、场景导演、写作副驾驶与世界推进设计
 status: active
 created: 2026-10-15T16:00:00+08:00
-updated: 2026-10-16T13:54:06+08:00
+updated: 2026-10-16T14:41:14+08:00
 ---
 
 # 世界对象档案、场景导演、写作副驾驶与世界推进设计
@@ -18,9 +18,11 @@ updated: 2026-10-16T13:54:06+08:00
 - 质量结果：都市/修仙/西幻作者审核completed，地点/地图分别1/1、0/0、2/2；科幻和悬疑分别10/7步后因candidate source_clue_ids为空且无法追溯共同Scene失败关闭、审核unknown，未重放。五族正常eligibility均not_run，无Scene PATCH、Writing/Assistant/judge，development gate blocked/passed=false，holdout未解码。去原文统计见[五题材结果](../T-20261015-map-enhancement-design/artifacts/evaluation/R6-COLDSTART-RESULTS.md)。
 - 封存：exec36844和全部业务worker已exit0。正常engine read_only已停止五个active域根，取消任务0，30个已完成任务meta/result哈希及原预算均未变化。另17个原发布/RAG outbox均pending/attempt0/no envelope，原样保留、未执行；不排通用队列或预热embedding。最终聚合、逐族会计、source-coverage/all-five.json、operator-diagnostic-seal.json与原失败审核回执均私有不可覆盖。/tmp/map-r6-finalize-coldstart-20261016.py与seal脚本均已执行，严禁再跑。
 - 最新修复：已确认tray-only候选是合法待放置载体，World没有丢失来源；来源实际在同批次同node的tray clue中。root只修评测驱动的拒绝路径，按实际本族Scene追溯并独立记录rejection_tray_clue_ids；不改World构建、不将tray变成几何来源或用于采用。2红/7绿复现后9项全绿，77项控制链+实际World服务、461evals/2skip均通过；ruff通过。新pipeline `38da6d39b70ec51b64b7c7dcfb62a38ed2fdda5dfc15b04efca9d4c0eae225fa`，R6原a3ad和审核unknown全部保持。
-- 下一步：本批docs-check、repo-gates、ruff与diff检查均已通过，完成本地交付后保持整体目标active；恢复时先核实C1长篇、势力前置、A4真实数周及作者来源。拒绝路径尾修不会增加可采用地图覆盖，没有新的可验证改进假设时不新开付费批次，不重放任何封存运行。
+- 下一步：按[外部review修复账本](artifacts/REVIEW-REMEDIATION-20261016.md)由主会话逐项复现、修复并验证；当前已开始第一批，整体实施/质量门禁保持未完成。
 - 未完成条件：完整真实矩阵/作者验收未过；C1等P4真实长篇，M5与C5势力扩展等外部路线图，RP迁移等Interaction独立评测，A4数周真实数据和真实Top3仍缺。holdout未解码，能力默认门禁不放宽。逐项边界见[实施对账](artifacts/FULL-SCOPE-ACCEPTANCE.md)。
 - 最后核实：2026-10-16T13:54:06+08:00。下方设计与各历史固定点仅作追溯；旧恢复段可从提交81785cd16读取，不再按旧委派或过期“下一步”执行。
+
+- 外部review第一批（2026-10-16T14:41:14+08:00）：主会话复核并修复28项，L25 N轮指控不成立，19项待继续。9044后端、195尾修定向、3217前端/12导演尾例、24PG与lint/build/docs/repo-gates通过；能力总开关默认关闭。恢复按 [主修复账本](../T-20261015-character-world-progression/artifacts/REVIEW-REMEDIATION-20261016.md)，不再沿用封存前的评测续跑步骤。
 
 ## 目标与验收
 

@@ -130,3 +130,79 @@ async def test_dossier_competing_edit_and_failed_write_preserve_current_revision
             await db.execute(delete(Account).where(Account.id == owner_id))
         reset_principal(token)
         await engine.dispose()
+
+
+async def test_role_dossier_validates_storage_limit_before_changing_current_revision():
+    from modules.world.models import Character
+
+    engine = create_async_engine(require_e2e_database_url(), pool_size=2)
+    sessions = async_sessionmaker(engine, expire_on_commit=False)
+    owner_id, novel_id, entity_id = (uuid4() for _ in range(3))
+    token = bind_principal(
+        AccountPrincipal(
+            account_id=owner_id,
+            status="active",
+            identity_type="email",
+            support_code=owner_id.hex,
+        )
+    )
+    service = WorldObjectDossierService()
+    try:
+        async with sessions.begin() as db:
+            db.add(Account(id=owner_id, status="active", support_code=owner_id.hex))
+            db.add(Project(id=novel_id, owner_id=owner_id, title="角色长度回归"))
+            db.add(
+                CoreEntity(
+                    id=entity_id,
+                    novel_id=novel_id,
+                    entity_type="character",
+                    name="合成人物",
+                    status="canonical",
+                )
+            )
+            await db.flush()
+            db.add(
+                Character(
+                    entity_id=entity_id, novel_id=novel_id, name="合成人物", role="旧定位"
+                )
+            )
+        async with sessions.begin() as db:
+            first = await service.create_entry(
+                db,
+                str(novel_id),
+                str(entity_id),
+                DossierEntryCreate(
+                    facing=DossierFacingRef(kind="core", key="identity_position"),
+                    legacy_field_key="role",
+                    content="甲" * 64,
+                ),
+            )
+            current = await service.update_entry(
+                db,
+                str(novel_id),
+                str(entity_id),
+                str(first.id),
+                DossierEntryUpdate(expected_revision_id=first.id, content="乙" * 64),
+            )
+            with pytest.raises(ValidationError) as raised:
+                await service.update_entry(
+                    db,
+                    str(novel_id),
+                    str(entity_id),
+                    str(current.id),
+                    DossierEntryUpdate(
+                        expected_revision_id=current.id, content="丙" * 65
+                    ),
+                )
+            assert raised.value.code == "dossier_role_too_long"
+            assert (await db.get(Character, entity_id)).role == "乙" * 64
+            view = await service.read(db, str(novel_id), str(entity_id))
+            assert [(row.id, row.content) for row in view.entries] == [
+                (current.id, "乙" * 64)
+            ]
+    finally:
+        async with sessions.begin() as db:
+            await db.execute(delete(Project).where(Project.id == novel_id))
+            await db.execute(delete(Account).where(Account.id == owner_id))
+        reset_principal(token)
+        await engine.dispose()

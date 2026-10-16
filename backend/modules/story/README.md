@@ -299,6 +299,9 @@ Story 新建的排演使用 `simulation_v3`。通用 `/tasks/one-click` 默认�
 
 ### 场景导演（C4b）
 
+`STORY_SCENE_DIRECTOR_ENABLED` 默认关闭，评测验收后显式开启；API、助手操作及后台执行共享此门禁。
+关闭时界面保留输入并显示未开启状态，可刷新重试。
+
 `director_api.py`、`director_tasks.py`、`director_context.py` 与 `director_service.py` 定义了独立的
 Story 导演根、分支、不可变回合、预算续算、作者历史操作与内容副本。入口使用显式 N 轮和独立请求、Token、
 时限上限；每个回合沿用 `simulation_v3` 的 `SimulationIntentDraft`、有限结算与状态回放。分支续算复用同一个

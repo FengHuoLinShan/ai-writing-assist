@@ -537,3 +537,31 @@ def test_confirmed_knowledge_source_count_dedupes_across_sections() -> None:
     )
     context = SimpleNamespace(compiled=compiled)
     assert confirmed_knowledge_source_count(context) == 3
+
+
+@pytest.mark.parametrize("dimension", ["object_dossier", "character_pattern"])
+def test_object_reference_budget_omission_remains_advisory(dimension):
+    build = build_scope_receipt(
+        CompiledContext(
+            sections=[_section("world_entities", [_source("world_entity", "a")])],
+            omitted_items=[
+                ContextItem(
+                    key=f"{dimension}:reference-1",
+                    content="参考资料",
+                    source=_source(dimension, "reference-1"),
+                    selection_state="omitted",
+                    omission_reason="超过预算",
+                )
+            ],
+        ),
+        require_capability_policy("writing.generate"),
+        _subject(),
+        novel_id="novel-1",
+    )
+    assert not build.receipt.omitted
+    assert build.receipt.scope_complete
+    assert any(
+        item.dimension == dimension and item.source_key == f"{dimension}:reference-1"
+        for item in build.receipt.advisory_omitted
+    )
+    require_scope_complete(build)

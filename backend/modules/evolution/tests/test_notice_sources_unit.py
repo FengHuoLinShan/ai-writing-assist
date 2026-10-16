@@ -9,6 +9,14 @@ from modules.evolution import notice_sources as source
 NOVEL_ID = "11111111-1111-4111-8111-111111111111"
 
 
+@pytest.fixture(autouse=True)
+def authorize_notice_project(monkeypatch):
+    async def require_project(_db, novel_id):
+        assert novel_id == NOVEL_ID
+
+    monkeypatch.setattr(source, "require_active_project", require_project)
+
+
 class ScalarResult:
     def __init__(self, rows):
         self.rows = rows
@@ -201,3 +209,15 @@ def test_candidate_auto_draft_notice_uses_the_world_report_kind():
         matching_receipt_id=None,
     )
     assert item["basis_fingerprint"] != saved["basis_fingerprint"]
+
+
+@pytest.mark.asyncio
+async def test_notice_project_authorization_precedes_source_io(monkeypatch):
+    from core.errors import NotFoundError
+
+    async def denied(_db, _novel_id):
+        raise NotFoundError("project unavailable")
+
+    monkeypatch.setattr(source, "require_active_project", denied)
+    with pytest.raises(NotFoundError):
+        await source.list_map_source_notices(None, NOVEL_ID, {"chapter_index": 3})

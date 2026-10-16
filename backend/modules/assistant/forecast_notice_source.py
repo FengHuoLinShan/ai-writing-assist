@@ -146,10 +146,16 @@ async def decide_forecast_notice(
     from modules.assistant.schemas import NoticeDecision
 
     reference = item.get("disposition_ref") or {}
+    try:
+        candidate_id = UUID(str(reference.get("candidate_id")))
+    except (ValueError, TypeError, AttributeError) as error:
+        raise ConflictError(
+            "此提醒仅提供导航，请到前瞻列表查看", code="NOTICE_NOT_ACTIONABLE"
+        ) from error
     candidate = await db.scalar(
         select(ForecastCandidate).where(
             ForecastCandidate.novel_id == UUID(str(novel_id)),
-            ForecastCandidate.id == UUID(str(reference.get("candidate_id"))),
+            ForecastCandidate.id == candidate_id,
         )
     )
     if candidate is None or candidate.assessment_hash != reference.get("assessment_hash"):

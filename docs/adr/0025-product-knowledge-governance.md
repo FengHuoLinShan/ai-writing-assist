@@ -78,5 +78,5 @@
   不进 `omitted`、不影响 `scope_complete`，审查只出提示；必查维度的规则不变。ADR-0040 追加
   `object_dossier`、`character_pattern`、`director_reference` 三个参考维度，规则相同。
 - 实施记录（2026-10-15）：声明参考维度的知识治理 receipt/policy 升为 v2，增加独立参考省略记录；
-  没有语义变化的能力继续使用 v1。旧 receipt 保留原读取与指纹语义。地图简报尚未接线，
-  登记 `map_spatial` 不会加载资料或启用功能。
+  没有语义变化的能力继续使用 v1。旧 receipt 保留原读取与指纹语义。地图简报与首批消费端现已接线（ADR-0037），
+  仅显式开启的能力加载参考资料；能力开关默认空，质量与作者验收未通过。

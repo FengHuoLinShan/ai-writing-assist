@@ -623,3 +623,15 @@ async def test_real_registered_sources_can_read_an_empty_project_without_ai(
     assert results[4] == []
     assert results[5] == []
     assert results[6] == []
+
+
+@pytest.mark.asyncio
+async def test_navigation_only_forecast_notice_rejects_disposition_without_io():
+    from core.errors import ConflictError
+    from modules.assistant.forecast_notice_source import decide_forecast_notice
+
+    with pytest.raises(ConflictError) as raised:
+        await decide_forecast_notice(
+            None, str(UUID(int=1)), {"notice_key": "more"}, "read", None
+        )
+    assert raised.value.code == "NOTICE_NOT_ACTIONABLE"

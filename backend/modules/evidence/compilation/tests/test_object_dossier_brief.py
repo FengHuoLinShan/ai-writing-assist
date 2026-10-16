@@ -125,6 +125,7 @@ def _world_dossier() -> dict:
                 "facing": {"kind": "core", "key": "history"},
                 "facing_label": "长期历史",
                 "legacy_field_key": None,
+                "story_field_key": "condition",
                 "content": "北门关闭",
                 "tags": ["access"],
                 "evidence": [
@@ -299,6 +300,7 @@ def facade_reads(monkeypatch):
         offset,
         visibility_filter,
         visible_contents,
+        visible_fields,
         story_viewpoint,
     ):
         assert novel_id == NOVEL_ID
@@ -314,6 +316,11 @@ def facade_reads(monkeypatch):
                 for item in value["entries"]
                 if item.get("visibility") == "public"
                 and (visible_contents is None or item.get("content") in visible_contents)
+                and (
+                    visible_fields is None
+                    or item.get("content")
+                    in visible_fields.get(item.get("story_field_key"), [])
+                )
             ]
             value["entries"] = entries[offset : offset + limit]
             value["total_count"] = len(entries)

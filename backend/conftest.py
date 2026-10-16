@@ -17,10 +17,11 @@ os.environ.setdefault(
     "LLM_SETTINGS_ENCRYPTION_KEY",
     "MDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDA=",
 )
-# Settings 的布尔开关一律按代码默认值（均为 false）运行：core.config 的 load_env_file
+# Settings 的布尔开关一律按代码默认值运行：core.config 的 load_env_file
 # 不覆盖已存在的环境变量，先 setdefault 即可让本机 backend/.env 的开关不进入测试。
 # 新增布尔开关须同步此处；tests/unit/test_config.py 的守护用例会指出遗漏。
 os.environ.setdefault("ASSISTANT_ENABLED", "false")
+os.environ.setdefault("ASSISTANT_OPERATION_TRACE_ENABLED", "true")
 os.environ.setdefault("ASSISTANT_GOAL_RUNS_ENABLED", "false")
 os.environ.setdefault("ASSISTANT_GOAL_RUNS_PROJECT_ALLOWLIST", "")
 os.environ.setdefault("ASSISTANT_EDITORIAL_ENABLED", "false")
@@ -40,6 +41,7 @@ os.environ.setdefault("INTERACTION_FORECAST_ENABLED", "false")
 os.environ.setdefault("INTERACTION_AGENT_ENABLED", "false")
 os.environ.setdefault("INTERACTION_TEAM_ENABLED", "false")
 os.environ.setdefault("STORY_REHEARSAL_ENABLED", "false")
+os.environ.setdefault("STORY_SCENE_DIRECTOR_ENABLED", "false")
 os.environ.setdefault("RERANKER_ENABLED", "false")
 os.environ.setdefault("RAG_QUERY_PLANNER_ENABLED", "false")
 os.environ.setdefault("RAG_PREWARM_ON_STARTUP", "false")

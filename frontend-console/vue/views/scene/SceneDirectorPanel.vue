@@ -17,6 +17,7 @@
       <p>导演只围绕当前明确选择的场景运行。</p>
     </div>
 
+    <p v-else-if="featureDisabled" class="scene-director__notice" role="status">场景导演尚未开启；当前输入已保留。开启后可刷新历史继续。</p>
     <template v-else>
       <section class="scene-director__setup" aria-labelledby="director-start-title">
         <div class="scene-director__section-heading">
@@ -305,6 +306,7 @@ const charactersError = ref("")
 const history = ref(null)
 const historyLoading = ref(false)
 const historyError = ref("")
+const featureDisabled = ref(false)
 const startPreview = ref(null)
 const continuationPreview = ref(null)
 const startPreviewLoading = ref(false)
@@ -493,6 +495,7 @@ async function loadHistory() {
     const result = await getApi().story.sceneDirectorHistory(props.projectId, props.scene.id)
     if (!owns(token, key)) return
     history.value = result
+    featureDisabled.value = false
     for (const round of result.rounds || []) {
       for (const choice of round.candidate_transfer_choices || []) {
         const key = candidateKey(round, choice)
@@ -505,7 +508,10 @@ async function loadHistory() {
     }
     for (const reference of result.references || []) referenceAnnotations[reference.id] ??= reference.annotation || ""
   } catch (cause) {
-    if (owns(token, key)) historyError.value = cause?.message || "导演历史暂不可用。"
+    if (owns(token, key)) {
+      featureDisabled.value = Number(cause?.status) === 503
+      historyError.value = cause?.message || "导演历史暂不可用。"
+    }
   } finally {
     if (owns(token, key)) historyLoading.value = false
   }
@@ -728,6 +734,10 @@ async function previewContinue() {
   if (!canPreviewContinuation.value || busy.value) return
   const parent = roundById(continuation.parentRoundId)
   const branch = history.value?.branches?.find((item) => item.id === parent?.branch_id)
+  if (!parent || !branch) {
+    error.value = "导演历史尚未载入，请重新读取历史后预览；分支输入已保留。"
+    return
+  }
   const token = requestGeneration
   const key = currentContextKey
   continuationPreviewLoading.value = true

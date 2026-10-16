@@ -220,7 +220,7 @@ class AssistantToolContext:
                         for expected in guard["baseline"]
                     ):
                         raise ConflictError(
-                            "確認後地圖參考已變化，請重新讀取後再引用",
+                            "确认后地图参考已变化，请重新读取后再引用",
                             code="assistant_source_stale",
                         )
                     continue

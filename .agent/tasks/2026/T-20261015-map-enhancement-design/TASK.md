@@ -3,7 +3,7 @@ id: T-20261015-map-enhancement-design
 title: 地图系统增强设计与分批实施（自动冷启动、参与创作决策、题材鲁棒性）
 status: active
 created: 2026-10-15T10:54:00+08:00
-updated: 2026-10-16T13:54:06+08:00
+updated: 2026-10-16T14:41:14+08:00
 ---
 
 # 地图系统增强设计
@@ -57,6 +57,8 @@ updated: 2026-10-16T13:54:06+08:00
 - 所有实现独立工作树和分支，主代理顺序集成；schema/migration/共享合同单一写入者。主 TASK.md 仅主代理写入，子代理不改开放索引。
 - 受影响测试、lint、必要 PostgreSQL/浏览器、prompt contracts 与收尾 `make docs-check BASE_REF=origin/main`、`git diff --check`；工程绿色与模型/作者验收分别报告。
 - 代码级 review 使用用户指定 Sol/high；业务真实请求须遵守 owner 已验证 Codex Luna/max 与 Project facade/snapshot 门禁，教师/评分守卫不因本任务绕过。
+
+- 外部review第一批（2026-10-16T14:41:14+08:00）：主会话复核并修复28项，L25 N轮指控不成立，19项待继续。9044后端、195尾修定向、3217前端/12导演尾例、24PG与lint/build/docs/repo-gates通过；能力总开关默认关闭。恢复按 [主修复账本](../T-20261015-character-world-progression/artifacts/REVIEW-REMEDIATION-20261016.md)，不再沿用封存前的评测续跑步骤。
 
 ## 目标与验收
 

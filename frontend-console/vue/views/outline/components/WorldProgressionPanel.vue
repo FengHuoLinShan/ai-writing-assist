@@ -1412,14 +1412,6 @@ async function previewHook(root, step, hook) {
   } finally {
     if (owns(token, projectId)) {
       hookLoadingId.value = ""
-  directorDraft.key = ""
-  directorDraft.rootId = ""
-  directorDraft.sceneId = ""
-  directorDraft.characterIds = []
-  directorDraft.relatedObjectIds = []
-  directorDraft.intervention = ""
-  directorDraft.preview = null
-  directorDraft.busy = false
       busy.value = false
     }
   }

@@ -9,7 +9,7 @@ from uuid import uuid4
 
 import pytest
 from httpx import ASGITransport
-from sqlalchemy import select
+from sqlalchemy import select, text
 from sqlalchemy.exc import DBAPIError
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 
@@ -379,8 +379,14 @@ async def test_postgres_archive_and_owner_read_serialize_without_double_counting
                 lock_taken.set()
                 await allow_commit.wait()
 
+        report_started = asyncio.Event()
+        report_pid = None
+
         async def read_report():
+            nonlocal report_pid
             async with sessions() as db:
+                report_pid = await db.scalar(text("SELECT pg_backend_pid()"))
+                report_started.set()
                 return await build_operation_trace_report(
                     db,
                     str(project_id),
@@ -391,8 +397,24 @@ async def test_postgres_archive_and_owner_read_serialize_without_double_counting
         archive_task = asyncio.create_task(archive_holding_transaction())
         await asyncio.wait_for(lock_taken.wait(), timeout=5)
         report_task = asyncio.create_task(read_report())
-        await asyncio.sleep(0.1)
-        allow_commit.set()
+        try:
+            await asyncio.wait_for(report_started.wait(), timeout=5)
+
+            async def wait_until_report_is_blocked():
+                async with sessions() as observer:
+                    while True:
+                        blockers = await observer.scalar(
+                            text("SELECT cardinality(pg_blocking_pids(:pid))"),
+                            {"pid": report_pid},
+                        )
+                        if blockers:
+                            return
+                        await asyncio.sleep(0.01)
+
+            await asyncio.wait_for(wait_until_report_is_blocked(), timeout=5)
+            assert not report_task.done()
+        finally:
+            allow_commit.set()
         await asyncio.wait_for(archive_task, timeout=5)
         first = await asyncio.wait_for(report_task, timeout=5)
         second = await read_report()

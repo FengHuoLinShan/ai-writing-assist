@@ -376,6 +376,9 @@ class Settings:
             if value.strip()
         )
     )
+    story_scene_director_enabled: bool = field(
+        default_factory=lambda: _env_bool("STORY_SCENE_DIRECTOR_ENABLED", False)
+    )
     object_dossier_enabled_capabilities: tuple[str, ...] = field(
         default_factory=lambda: tuple(
             value.strip()

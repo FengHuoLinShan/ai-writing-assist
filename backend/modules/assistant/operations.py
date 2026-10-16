@@ -17,6 +17,7 @@ from pydantic import create_model, field_validator
 from pydantic_ai import ModelRetry, RunContext, Tool
 from sqlalchemy import select
 
+from core.config import get_settings
 from core.container import get
 from core.errors import ConflictError, DomainError, NotFoundError, ValidationError
 from core.service_keys import (
@@ -246,7 +247,14 @@ def resolve_operations(
 
 
 def _run_operations(ctx: RunContext[AssistantToolContext]):
-    return catalog() if ctx.deps.operations is None else ctx.deps.operations
+    operations = catalog() if ctx.deps.operations is None else ctx.deps.operations
+    if get_settings().story_scene_director_enabled:
+        return operations
+    return {
+        name: operation
+        for name, operation in operations.items()
+        if not name.startswith("story.scene_director.")
+    }
 
 
 async def available_operations(ctx: RunContext[AssistantToolContext]) -> dict:

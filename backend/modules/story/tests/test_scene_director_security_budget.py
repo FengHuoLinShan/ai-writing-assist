@@ -595,3 +595,67 @@ def test_consistency_reports_exact_scene_and_world_validity_conflicts():
         item.field == "author_validity" and item.severity == "unknown"
         for item in consistency.findings
     )
+
+
+@pytest.mark.asyncio
+async def test_disabled_director_rejects_all_entries_before_io(async_client, monkeypatch):
+    from core.config import get_settings
+    from core.errors import DomainError
+    from modules.story.director_api import submit_director_start
+    from modules.story.director_operations import _require_project
+
+    monkeypatch.setenv("STORY_SCENE_DIRECTOR_ENABLED", "false")
+    get_settings.cache_clear()
+    response = await async_client.get(
+        f"/api/story/scenes/{uuid4()}/director/history",
+        params={"novel_id": str(uuid4()), "scene_id": str(uuid4())},
+    )
+    assert response.status_code == 503, response.text
+    assert response.json()["error"] == "scene_director_disabled"
+    with pytest.raises(DomainError) as raised:
+        _require_project("same", SimpleNamespace(novel_id="same"))
+    assert raised.value.status_code == 503
+    with pytest.raises(DomainError):
+        await submit_director_start(None, None)
+    monkeypatch.undo()
+    get_settings.cache_clear()
+
+
+@pytest.mark.asyncio
+async def test_director_advance_rechecks_active_project_before_parent_read(monkeypatch):
+    from core.config import get_settings
+    from core.errors import NotFoundError
+    from modules.story import director_operations
+
+    async def inactive(_db, _novel_id):
+        raise NotFoundError("project unavailable")
+
+    try:
+        with monkeypatch.context() as scoped:
+            scoped.setenv("STORY_SCENE_DIRECTOR_ENABLED", "true")
+            get_settings.cache_clear()
+            scoped.setattr(director_operations, "require_active_project", inactive)
+            with pytest.raises(NotFoundError):
+                await director_operations._apply_advance(
+                    None, "same", SimpleNamespace(novel_id="same"), None
+                )
+    finally:
+        get_settings.cache_clear()
+
+
+def test_disabled_director_is_not_in_the_assistant_executable_directory(monkeypatch):
+    from core.config import get_settings
+    from modules.assistant.operations import _run_operations
+
+    operations = {"story.scene_director.start": object(), "world.get_entity": object()}
+    context = SimpleNamespace(deps=SimpleNamespace(operations=operations))
+    try:
+        with monkeypatch.context() as scoped:
+            scoped.setenv("STORY_SCENE_DIRECTOR_ENABLED", "false")
+            get_settings.cache_clear()
+            assert set(_run_operations(context)) == {"world.get_entity"}
+            scoped.setenv("STORY_SCENE_DIRECTOR_ENABLED", "true")
+            get_settings.cache_clear()
+            assert _run_operations(context) == operations
+    finally:
+        get_settings.cache_clear()

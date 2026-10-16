@@ -1,7 +1,7 @@
 """add append-only assistant operation lifecycle traces
 
 Revision ID: 20261015_operation_trace_v2
-Revises: 20261015_map_node_merge
+Revises: 20261015_object_dossier_v2
 Create Date: 2026-10-15
 """
 

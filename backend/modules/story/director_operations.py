@@ -69,6 +69,9 @@ def _metadata(
 def _require_project(novel_id: str, args) -> None:
     if str(args.novel_id) != str(novel_id):
         raise PermissionError("操作作品与当前作者工作范围不一致")
+    from modules.story.director_feature import require_scene_director_enabled
+
+    require_scene_director_enabled()
 
 
 async def _prepare_preview(db, novel_id, args, *, context=None):
@@ -241,6 +244,7 @@ async def _apply_advance(db, novel_id, args, preview, *, context=None):
     from modules.story.director_api import continue_director_root
 
     _require_project(novel_id, args)
+    await require_active_project(db, novel_id)
     parent, _ = await get_director_round(db, novel_id, str(args.parent_round_id))
     result = await continue_director_root(db, root_id=str(parent.root_id), data=args)
     return result.model_dump(mode="json")
