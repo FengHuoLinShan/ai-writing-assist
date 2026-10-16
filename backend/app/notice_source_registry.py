@@ -12,6 +12,7 @@ from modules.assistant.editorial_notice_source import NOTICE_SOURCE_SPEC as _EDI
 from modules.assistant.forecast_notice_source import NOTICE_SOURCE_SPEC as _FORECAST
 from modules.assistant.notice_sources import NOTICE_SOURCE_SPEC as _ASSISTANT
 from modules.evolution.notice_sources import NOTICE_SOURCE_SPEC as _MAP_SOURCE
+from modules.evolution.reading_notice_sources import NOTICE_SOURCE_SPEC as _READING
 from modules.story.director_notice_sources import NOTICE_SOURCE_SPEC as _STORY_DIRECTOR
 from modules.story.notice_sources import NOTICE_SOURCE_SPEC as _STORY
 from modules.story.world_progression_continuous import (
@@ -55,6 +56,7 @@ _specs = [
     _STORY_PROGRESSION,
     *_WRITING,
     _MAP_SOURCE,
+    _READING,
     _WORLD_VALIDITY,
 ]
 notice_sources: dict[str, NoticeSourceSpec] = {}

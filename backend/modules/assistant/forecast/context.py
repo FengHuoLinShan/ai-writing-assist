@@ -59,7 +59,13 @@ async def authorize(db, novel_id, *, persona="author"):
 
 
 async def materialize(
-    db, novel_id, focus: FocusRequest, *, persona="author", include_understanding=True
+    db,
+    novel_id,
+    focus: FocusRequest,
+    *,
+    persona="author",
+    include_understanding=True,
+    capabilities=None,
 ):
     if persona == "rp":
         return await get(ASSISTANT_FORECAST_PERSONAS)["rp"]["materialize"](
@@ -67,6 +73,19 @@ async def materialize(
         )
     if focus.page == "interaction":
         raise NotFoundError("请从旅程入口查看互动建议")
+    character_response_v2 = capabilities is not None and (
+        "story.character_response.v2" in capabilities
+    )
+    if character_response_v2 and set(capabilities) != {"story.character_response.v2"}:
+        raise ValidationError(
+            "人物表演候选需要单独按角色知识范围生成",
+            code="INCOMPATIBLE_CAPABILITIES",
+        )
+    if character_response_v2 and focus.context_confirmation_id:
+        raise ValidationError(
+            "人物表演候选不能读取混合作者确认资料；请从本场角色入口重新请求",
+            code="CHARACTER_SCOPE_UNAVAILABLE",
+        )
     project = await authorize(db, novel_id)
     watch = await _watch(db, novel_id)
     generation = watch.generation if watch else 0
@@ -188,7 +207,7 @@ async def materialize(
                 raise ConflictError(
                     "焦点正文不在原确认的资料内", code="CONFIRMATION_SCOPE_CONFLICT"
                 )
-        if content and not confirmed:
+        if content and not confirmed and not character_response_v2:
             if selected is None and focus.cursor_offset is not None:
                 cursor = focus.cursor_offset
                 if cursor > len(content):
@@ -273,10 +292,32 @@ async def materialize(
             raise ConflictError(
                 "焦点资料不在原确认中", code="CONFIRMATION_SCOPE_CONFLICT"
             )
+    if character_response_v2:
+        if not focus.scene_id:
+            raise ValidationError(
+                "人物表演候选需要从当前场景发起",
+                code="CHARACTER_SCOPE_UNAVAILABLE",
+                status_code=422,
+            )
+        scene = await get_scene_contract(db, novel_id, str(focus.scene_id))
+        if scene is None:
+            raise NotFoundError("场景不可访问")
+        try:
+            scene_chapters = [int(value) for value in (scene.chapter_ids or [])]
+        except (TypeError, ValueError):
+            raise ValidationError(
+                "场景章节映射不可核验", code="CHARACTER_SCOPE_UNAVAILABLE"
+            ) from None
+        if scene_chapters:
+            scene_cutoff = min(scene_chapters)
+            chapter_index = (
+                min(chapter_index, scene_cutoff) if chapter_index else scene_cutoff
+            )
+
     targets = []
-    if focus.scene_id:
+    if focus.scene_id and not character_response_v2:
         targets.append(("scene", focus.scene_id))
-    if focus.target:
+    if focus.target and not character_response_v2:
         targets.append((focus.target.resource_kind, focus.target.resource_id))
     understanding_boundary_known = True
     for kind, resource_id in targets:
@@ -319,28 +360,41 @@ async def materialize(
             raise NotFoundError("焦点资料不可访问")
         remember(kind, resource_id, inspection, label="当前工作资料")
     facts = []
-    domains = {
-        "writing": ["writing", "story"],
-        "scene": ["story", "writing"],
-        "outline": ["story"],
-        "world": ["world"],
-        "map": ["world"],
-        "rag": ["evidence"],
-        "imports": ["imports"],
-        "assistant": ["assistant", "world"],
-        "project": ["project", "assistant"],
-        "today": ["project", "assistant"],
-        "account": ["account"],
-    }.get(focus.page, [])
+    domains = (
+        ["story"]
+        if character_response_v2
+        else {
+            "writing": ["writing", "story"],
+            "scene": ["story", "writing"],
+            "outline": ["story"],
+            "world": ["world"],
+            "map": ["world"],
+            "rag": ["evidence"],
+            "imports": ["imports"],
+            "assistant": ["assistant", "world"],
+            "project": ["project", "assistant"],
+            "today": ["project", "assistant"],
+            "account": ["account"],
+        }.get(focus.page, [])
+    )
     # A confirmation is the entire selected/excluded set. Derived domain queries
     # never widen that set; selected confirmation text was rematerialized above.
-    if focus.prior_forecast_run_id and "assistant" not in domains:
+    if (
+        focus.prior_forecast_run_id
+        and not character_response_v2
+        and "assistant" not in domains
+    ):
         domains.append("assistant")
     if not focus.context_confirmation_id:
-        for domain in dict.fromkeys([*domains, "account"]):
-            for raw in await get(ASSISTANT_FORECAST_SOURCES)[domain](
-                db, novel_id, focus, excluded
-            ):
+        domains_to_read = domains if character_response_v2 else [*domains, "account"]
+        for domain in dict.fromkeys(domains_to_read):
+            provider = get(ASSISTANT_FORECAST_SOURCES)[domain]
+            raw_facts = (
+                await provider(db, novel_id, focus, excluded, capabilities=capabilities)
+                if domain == "story" and capabilities is not None
+                else await provider(db, novel_id, focus, excluded)
+            )
+            for raw in raw_facts:
                 fact = ForecastDomainFact.model_validate(raw)
                 identity = uuid5(
                     UUID(novel_id),
@@ -353,25 +407,31 @@ async def materialize(
                     label=fact.title,
                 )
                 facts.append((fact, refs[-1]))
-        policy = (watch.policy_json or {}).get("forecast_v1", {}) if watch else {}
-        fact = ForecastDomainFact(
-            capability_id="account.cost_gate.v1",
-            subject="forecast_authorization",
-            title="按本次授权开始计算",
-            summary="手动分析最多四次模型请求；后台计算还需单独授权，并与主动检查共享每日上限。",
-            source={"policy": policy, "generation": generation, "request_limit": 4},
-            scope_label="当前前瞻授权分区与固定请求上限；不推算未经验证的模型价格",
-            target={"page": "assistant"},
-        )
-        remember(
-            "policy",
-            uuid5(UUID(novel_id), "forecast-cost-policy"),
-            fact.model_dump(mode="json"),
-            label=fact.title,
-        )
-        facts.append((fact, refs[-1]))
+        if not character_response_v2:
+            policy = (watch.policy_json or {}).get("forecast_v1", {}) if watch else {}
+            fact = ForecastDomainFact(
+                capability_id="account.cost_gate.v1",
+                subject="forecast_authorization",
+                title="按本次授权开始计算",
+                summary="手动分析最多四次模型请求；后台计算还需单独授权，并与主动检查共享每日上限。",
+                source={"policy": policy, "generation": generation, "request_limit": 4},
+                scope_label="当前前瞻授权分区与固定请求上限；不推算未经验证的模型价格",
+                target={"page": "assistant"},
+            )
+            remember(
+                "policy",
+                uuid5(UUID(novel_id), "forecast-cost-policy"),
+                fact.model_dump(mode="json"),
+                label=fact.title,
+            )
+            facts.append((fact, refs[-1]))
     understanding = {}
-    if include_understanding and not confirmed and understanding_boundary_known:
+    if (
+        include_understanding
+        and not character_response_v2
+        and not confirmed
+        and understanding_boundary_known
+    ):
         collect_forecast_understanding = get(COLLABORATION_COLLECT_FORECAST_UNDERSTANDING)
         packet, omissions = await collect_forecast_understanding(
             db, novel_id, chapter_index=chapter_index, excluded=excluded
@@ -435,19 +495,22 @@ async def materialize(
                     "records": [],
                     "excluded": [{"reason": "not_selected_capacity"}],
                 }
-    elif include_understanding and not confirmed:
+    elif include_understanding and not character_response_v2 and not confirmed:
         understanding = {
             "records": [],
             "excluded": [{"reason": "historical_understanding_unavailable"}],
         }
     # Include the authorized collection, not just cited hits, in negative-query freshness.
-    manuscript = await list_manuscript_sources(db, novel_id, content_mode="working")
-    collection = [
-        (source.chapter_index, source.id, source.content_hash)
-        for source in manuscript
-        if str(source.id) not in excluded
-        and (chapter_index is None or source.chapter_index <= chapter_index)
-    ]
+    if character_response_v2:
+        collection = []
+    else:
+        manuscript = await list_manuscript_sources(db, novel_id, content_mode="working")
+        collection = [
+            (source.chapter_index, source.id, source.content_hash)
+            for source in manuscript
+            if str(source.id) not in excluded
+            and (chapter_index is None or source.chapter_index <= chapter_index)
+        ]
     manifest_hash = content_hash(collection)
     dependencies.append(
         {

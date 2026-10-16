@@ -127,6 +127,7 @@ def _assistant_catalog_budget_scope(
         "14",
         "15",
         "16",
+        "17",
     } or not isinstance(frozen_operations, dict):
         return None
     current = operation_manifest()
@@ -622,7 +623,7 @@ class AssistantService:
             for name, value in operation_manifest().items()
             if operation_names is None or name in operation_names
         }
-        catalog_budget_scope = _assistant_catalog_budget_scope("16", frozen_operations)
+        catalog_budget_scope = _assistant_catalog_budget_scope("17", frozen_operations)
         run = AssistantRun(
             id=data.operation_id,
             novel_id=data.novel_id,
@@ -632,7 +633,7 @@ class AssistantService:
             request_json=frozen_payload
             | {
                 "llm_snapshot": snapshot,
-                "runtime_version": "16",
+                "runtime_version": "17",
                 **({"team": team} if team else {}),
                 "web_search": search_snapshot()
                 if data.allow_web and data.web_backend == "searxng-v1"
@@ -640,7 +641,7 @@ class AssistantService:
                 "operations": frozen_operations,
                 "read_tools": {
                     tool.name: fingerprint(tool.function_schema.json_schema)
-                    for tool in author_read_tools(allow_web=True, version="16")
+                    for tool in author_read_tools(allow_web=True, version="17")
                     if tool.name
                     not in {
                         "map_spatial_brief",
@@ -731,6 +732,7 @@ class AssistantService:
             "14",
             "15",
             "16",
+            "17",
         } and (run.checkpoint_json or {}).get("operation_trace_incomplete"):
             result["operation_trace_incomplete"] = True
         return {
@@ -1073,7 +1075,7 @@ class AssistantService:
         operations = resolve_operations(
             protocol["operations"],
             allow_stale=runtime_version
-            in {"7", "8", "9", "10", "11", "12", "13", "14", "15", "16"},
+            in {"7", "8", "9", "10", "11", "12", "13", "14", "15", "16", "17"},
         )
         read_tools = {
             tool.name: tool
@@ -1192,6 +1194,7 @@ class AssistantService:
                             "14",
                             "15",
                             "16",
+                            "17",
                         }
                         else verified_native_search(profile.provider_id, profile.model)
                     )
@@ -1221,7 +1224,7 @@ class AssistantService:
                     content=(
                         _V7_INSTRUCTIONS
                         if runtime_version
-                        in {"7", "8", "9", "10", "11", "12", "13", "14", "15", "16"}
+                        in {"7", "8", "9", "10", "11", "12", "13", "14", "15", "16", "17"}
                         else _INSTRUCTIONS
                     )
                     + f"\n本次请求的日历日期为 {today}（{work.timezone}）。"
@@ -1339,7 +1342,19 @@ class AssistantService:
                     ]
                     + operation_discovery_tools(
                         legacy=runtime_version
-                        not in {"7", "8", "9", "10", "11", "12", "13", "14", "15", "16"},
+                        not in {
+                            "7",
+                            "8",
+                            "9",
+                            "10",
+                            "11",
+                            "12",
+                            "13",
+                            "14",
+                            "15",
+                            "16",
+                            "17",
+                        },
                         operations=operations,
                     )
                     + [Tool(review_assets, sequential=True)]

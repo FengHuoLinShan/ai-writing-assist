@@ -355,8 +355,23 @@
   <OutlineFloat
     :model="vm.outlineFloat"
     :current-chapter="vm.selectedChapter.value"
+    :current-scene="vm.currentScene.value"
+    :public-demo="props.publicDemo"
     @close="vm.toggleOutlineFloat"
     @select="selectChapterFromTree"
+    @refresh-arcs="vm.loadOutlineArcComparisons"
+    @update-arc-draft="vm.updateArcDraft"
+    @preview-arc="vm.previewCharacterArcPlan"
+    @confirm-arc="vm.confirmCharacterArcPlan"
+    @cancel-arc-preview="vm.cancelCharacterArcPreview"
+    @toggle-arc-history="vm.toggleCharacterArcHistory"
+    @preview-restore-arc="vm.previewRestoreCharacterArcPlan"
+    @confirm-restore-arc="vm.confirmRestoreCharacterArcPlan"
+    @preview-unarchive="vm.previewUnarchiveCharacterArcPlan"
+    @confirm-unarchive="vm.confirmUnarchiveCharacterArcPlan"
+    @preview-archive="vm.previewArchiveCharacterArcPlan"
+    @confirm-archive="vm.confirmArchiveCharacterArcPlan"
+    @cancel-arc-management-preview="vm.cancelCharacterArcManagementPreview"
   />
   <AutoExtractionDialog :project-id="props.projectId" :model="vm.autoExtraction" @submit="vm.submitAutoExtraction" />
   <ConflictOptionsDialog :model="vm.conflictOptions" @submit="vm.runConflictCheck" />
@@ -675,6 +690,10 @@ async function openCockpitNotice(item) {
       issueId: action.issue_id || null,
       chapterIndex: chapterIndex || vm.selectedChapter.value,
     })
+    return
+  }
+  if (item?.source_id === "evolution.reading" && action.open_evolution_reading === true) {
+    vm.autoExtraction.open = true
     return
   }
   if (item?.source_id === "writing.invalidation") {

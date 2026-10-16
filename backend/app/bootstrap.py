@@ -257,6 +257,7 @@ from app.assistant_operation_registry import story_state_operations
 from app.assistant_operation_registry import story_director_operations
 from app.assistant_operation_registry import story_world_progression_operations
 from app.assistant_operation_registry import story_fact_timeline_operations
+from app.assistant_operation_registry import story_character_arc_operations
 from app.assistant_operation_registry import story_generation_operations
 from app.assistant_operation_registry import story_structure_operations
 from app.assistant_operation_registry import writing_candidate_operations
@@ -492,6 +493,7 @@ def _container_services() -> Iterable[tuple[ServiceKey[Any], Any]]:
                 **story_director_operations,
                 **story_world_progression_operations,
                 **story_fact_timeline_operations,
+                **story_character_arc_operations,
                 **story_generation_operations,
                 **world_opening_operations,
                 **imports_operations,
