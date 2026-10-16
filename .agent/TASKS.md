@@ -30,6 +30,7 @@
 |---|---|---|
 | Agent 核心接入与全项目能力整合 | 已合入本地 main；正式验收、人工质量与发布延期 | [主记录](tasks/agent-integration.md) |
 | 全库代码简化审查 | 审查完成；首批批量选择旧 DOM 清理完成，验证通过；其余候选未执行 | [主记录](tasks/code-simplification-audit.md) |
+| 编辑审读诊断与合成评测第一阶段 | 工程改进与零费用预检完成；真实模型试跑待费用和评阅安排授权 | [任务记录](tasks/2026/T-20261016-editorial-diagnosis-v1/TASK.md) |
 
 仅用于导航，详细状态以各 TASK.md 为准；已关闭任务保留原目录。
 
