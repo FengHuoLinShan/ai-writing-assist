@@ -3,12 +3,14 @@ id: T-20261015-agent-operation-surface
 title: 全模块 AI 操作入口、目标运行与操作留痕设计
 status: active
 created: 2026-10-15T14:30:00+08:00
-updated: 2026-10-16T14:41:14+08:00
+updated: 2026-10-16T15:00:41+08:00
 ---
 
 # 全模块 AI 操作入口、目标运行与操作留痕设计
 
 ## 恢复快照
+
+- 执行停止检查点（2026-10-16T15:00:41+08:00）：平台get_goal返回paused，主会话核实后停止实现；任务内容仍未完成，当前代码70e305540db5626aba92d24673f09328ae88cc8f。项目任务active表示开放工作，不构成恢复平台目标授权；用户恢复后继续review剩余17项（首项M4），无未保存的M4改动。
 
 - 当前授权：三份计划全部实施；用户最新要求剩余工作全部由主会话完成，禁止再开或恢复子代理。地图验收采用已确认的“模拟作者显式指定 Scene 地点后对比辅助写作”，保持 `human_validated=false`。不 push、PR、合并 main、发布或部署。
 - 工作区：`/Users/tywww/项目/ai-writing-assist/.worktrees/map-enhancement-plan`，分支 `codex/map-enhancement-plan`；R6历史代码固定点 `81785cd16d1310f747e7790832567a593d6a9952`；最新托盘拒绝路径尾修的Map pipeline为`38da6d39b70ec51b64b7c7dcfb62a38ed2fdda5dfc15b04efca9d4c0eae225fa`，未续跑R6。当前代码和记录均只由root写入；所有其他worktree、WIP与数据库保留。原Desktop路径已失效。
