@@ -7,6 +7,15 @@ from modules.evidence.team_projection import (
 )
 
 
+def restrict_object_dossier_brief(brief: dict, compiled) -> dict:
+    """Keep only complete, selected dossier items from a materialized confirmation."""
+    from modules.evidence.compilation.services.object_dossier_sections import (
+        ObjectDossierSectionBuilder,
+    )
+
+    return ObjectDossierSectionBuilder.restrict_brief(brief, compiled)
+
+
 async def retrieve_focused_evidence(db, request, *, llm_client=None, before_llm=None):
     """Read the next scoped root/one-hop evidence slice; never adopt assets."""
     from modules.evidence.compilation.services.focused_evidence import (

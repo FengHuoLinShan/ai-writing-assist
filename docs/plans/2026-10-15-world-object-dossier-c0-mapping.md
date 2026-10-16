@@ -41,7 +41,7 @@ CoreEntity 的 `public_info` 汇总公开条目，`hidden_truth` 汇总秘密条
 | `assistant.turn` | `assistant.turn` | Evidence 能识别该 capability，但本树未找到 Assistant context compile 以 `consumer_action="assistant.turn"` 调用对象简报的实际入口；目前不能算已消费。后续 Assistant 接线须由服务端固定 action、沿同一确认/预算快照消费，且不得把工具返回的旧 snapshot 当作授权。 |
 | `writing.generate`、`writing.targeted_revision`、`writing.semantic_review`、`writing.conflict_check.ai_review`；`story.one_click.simulate` | 同 action 的 capability ID | 既有 action 映射保留；本批未改 one-click simulation。 |
 
-对象档案与倾向开关目前由 Evidence loader 分别读取 `object_dossier_enabled_capabilities`、`character_pattern_enabled_capabilities`，未配置时均为空集关闭；`only_adopted_patterns` 默认 `false`。当前 `core.config.Settings` 尚无这两个 tuple 设置字段和 env 解析，所以部署/应用尚无正式 opt-in 配置入口；需要后续加入 `OBJECT_DOSSIER_ENABLED_CAPABILITIES`、`CHARACTER_PATTERN_ENABLED_CAPABILITIES`（逗号分隔 capability ID、默认空 tuple），并测默认关闭、单独启用两维、能力隔离与未知 capability 不加载。本批没有修改配置层。
+对象档案与倾向开关由 Evidence loader 分别读取 `object_dossier_enabled_capabilities`、`character_pattern_enabled_capabilities`，未配置时均为空集关闭；`only_adopted_patterns` 默认 `false`。`core.config.Settings` 已提供独立的 `OBJECT_DOSSIER_ENABLED_CAPABILITIES`、`CHARACTER_PATTERN_ENABLED_CAPABILITIES` 环境配置入口（逗号分隔 capability ID、默认空 tuple）；现有测试覆盖默认关闭、单独启用两维、能力隔离与未知 capability 不加载。
 
 卡片/反应/剧本的确认用途由已知 Story action 在服务端解析为 `story_character_card`、`story_character_reaction`、`story_scene_script`；Story card/reaction 若提交与 action 不匹配的 retrieval purpose 会以 400 拒绝。`consumer_action` 仅为内部 `CompileOptions` 参数，不是客户端确认 schema 字段。R0 简报读取不创建 apply 事务或模型任务。
 

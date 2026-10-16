@@ -9,7 +9,10 @@ from typing import Any
 from core.container import get
 from core.service_keys import WORLD_READ_OBJECT_VALIDITY_NOTICES
 from infrastructure.llm.collaboration import content_hash
-from modules.evidence.facade import read_object_dossier_brief
+from modules.evidence.facade import (
+    read_object_dossier_brief,
+    restrict_object_dossier_brief,
+)
 from modules.project.facade import read_author_examples_for_writing
 from modules.story.director_state import build_scene_simulation_context
 from modules.story.facade import get_scene_story_context
@@ -342,6 +345,65 @@ async def read_director_source(
         "author_examples": examples,
         "simulation_context": simulation_context.model_dump(mode="json"),
         "source_hash": source_hash,
+    }
+
+
+def director_confirmation_scope(confirmed) -> str:
+    return content_hash(
+        {
+            "rendered": confirmed.rendered_markdown,
+            "items": [
+                [section.key, item.key, item.content, item.source]
+                for section in confirmed.compiled.sections
+                for item in section.materialize_items().items
+            ],
+        }
+    )
+
+
+def require_director_confirmation_scope(source: dict, scope: str) -> None:
+    if source.get("confirmation_scope_hash") != scope:
+        raise ValueError("资料确认范围已变化或旧回合缺少范围证明，请新建导演运行")
+
+
+async def scope_director_source(db, source: dict, confirmed) -> dict:
+    """Intersect confirmed selection with each role's independently verified POV."""
+    author = restrict_object_dossier_brief(
+        {**source["author_brief"], "scene_id": source["scene_id"]}, confirmed.compiled
+    )
+    participants = set(source["role_briefs"])
+    roles = {}
+    for actor_id, role in source["role_briefs"].items():
+        brief = restrict_object_dossier_brief(
+            {**role["brief"], "scene_id": source["scene_id"]}, confirmed.compiled
+        )
+        roles[actor_id] = {
+            "brief": brief,
+            "style_anchors": _style_anchors(brief, actor_id),
+            "source_index": _role_source_index(brief),
+            "known_participant_ids": _known_participant_ids(
+                brief, actor_id, participants
+            ),
+        }
+    simulation = await build_scene_simulation_context(
+        db,
+        novel_id=source["novel_id"],
+        scene_id=source["scene_id"],
+        character_ids=list(roles),
+        related_object_ids=[],
+        brief=author,
+    )
+    return {
+        "novel_id": source["novel_id"],
+        "scene_id": source["scene_id"],
+        "scene_context": {"confirmed_context": confirmed.rendered_markdown},
+        "author_brief": author,
+        "role_briefs": roles,
+        "author_examples": None,
+        "object_validity_notices": [],
+        "simulation_context": simulation.model_dump(mode="json"),
+        "source_hash": source["source_hash"],
+        "confirmation_scope_hash": director_confirmation_scope(confirmed),
     }
 
 

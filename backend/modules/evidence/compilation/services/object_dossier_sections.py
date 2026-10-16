@@ -19,6 +19,89 @@ from modules.evidence.compilation.services.compiled_context import (
 
 
 class ObjectDossierSectionBuilder:
+    @classmethod
+    def restrict_brief(cls, brief: dict, compiled) -> dict:
+        """Intersect a POV brief with complete items in the final confirmed context."""
+        selected = {
+            (section.key, item.key, item.content, stable_hash(item.source))
+            for section in compiled.sections
+            for item in section.materialize_items().items
+            if item.selection_state not in {"excluded", "omitted"}
+        }
+        fields = {
+            "world_items": (
+                "entity_id",
+                "entity_type",
+                "kind",
+                "entry_id",
+                "revision_id",
+                "profile_id",
+                "template_id",
+                "field_key",
+                "facing",
+                "facing_label",
+                "content",
+                "value",
+            ),
+            "continuity_items": (
+                "entity_id",
+                "dimension",
+                "field",
+                "layer",
+                "value",
+                "checkpoint_id",
+                "checkpoint_source_hash",
+                "possibly_false",
+            ),
+            "pattern_items": ("entry_id", "revision_id", "statement", "modality"),
+        }
+        result = {"scene_id": brief.get("scene_id"), "coverage": "confirmed_scope"}
+        for group, keys in fields.items():
+            result[group] = []
+            for row in brief.get(group) or []:
+                candidate = {"scene_id": brief.get("scene_id"), group: [row]}
+                sections = cls.build(
+                    StructureContextBundle(
+                        novel_id="",
+                        task="",
+                        scope="full",
+                        object_dossier_brief=candidate,
+                        object_reference_dimensions=[
+                            "object_dossier",
+                            "character_pattern",
+                        ],
+                    ),
+                    None,
+                )
+                if not any(
+                    (section.key, item.key, item.content, stable_hash(item.source))
+                    in selected
+                    for section in sections
+                    for item in section.items
+                    if item.key
+                    not in {"object_dossier:coverage", "character_pattern:coverage"}
+                ):
+                    continue
+                projected = {key: row[key] for key in keys if key in row}
+                if group == "world_items" and row.get("content") is not None:
+                    projected.pop("value", None)
+                if group == "continuity_items":
+                    provenance = row.get("provenance") or {}
+                    projected["provenance"] = {
+                        key: provenance[key]
+                        for key in ("status", "field")
+                        if key in provenance
+                    }
+                result[group].append(projected)
+        result["fingerprint"] = stable_hash(result)
+        result["omitted_count"] = sum(
+            len(brief.get(group) or []) - len(result[group]) for group in fields
+        )
+        result["omissions"] = (
+            ["未获本次资料确认的档案条目已排除"] if result["omitted_count"] else []
+        )
+        return result
+
     @staticmethod
     def _reference_text(value: Any) -> str:
         if isinstance(value, str):

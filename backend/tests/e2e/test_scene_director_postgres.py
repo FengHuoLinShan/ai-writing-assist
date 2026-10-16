@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import asyncio
-import json
 import os
 import traceback
 from contextlib import asynccontextmanager
@@ -534,7 +533,7 @@ async def test_exact_worker_continues_same_root_and_stops_new_unknown(
 ):
     from app.main import app as _app  # noqa: F401 - production task registration
     from infrastructure.llm.client import LLMClient
-    from infrastructure.llm.schemas import LLMCallResponse, LLMUsage, read_ai_run_envelope
+    from infrastructure.llm.schemas import read_ai_run_envelope
     from infrastructure.tasks.registry import TaskRegistry
     from infrastructure.tasks.worker import TaskWorker
     from modules.story.director_api import continue_director_root, submit_director_start
@@ -589,12 +588,16 @@ async def test_exact_worker_continues_same_root_and_stops_new_unknown(
         budget_preview_hash="0" * 64,
     )
     start.budget_preview_hash = preview_director_budget(start, source)["preview_hash"]
+    from modules.evidence.compilation.services.compiled_context import CompiledContext
+
     confirmation = SimpleNamespace(
+        compiled=CompiledContext(sections=[]),
+        rendered_markdown="合成场景资料",
         compile_options={
             "scene_id": str(scene_id),
             "character_ids": [str(actor_id)],
             "entity_ids": [],
-        }
+        },
     )
 
     async def confirmed(*_args, **_kwargs):
@@ -606,103 +609,9 @@ async def test_exact_worker_continues_same_root_and_stops_new_unknown(
             "profile": {"provider_id": "deepseek", "model": "deepseek-flash"},
         }
 
-    class Provider:
-        name = "offline-director"
-        calls = 0
-        fail_next = False
+    from modules.story.tests.director_test_support import DirectorOfflineProvider
 
-        async def generate(self, request):
-            self.calls += 1
-            if self.fail_next:
-                self.fail_next = False
-                raise TimeoutError("offline synthetic unknown charge")
-            data = json.loads(
-                next(
-                    message.content
-                    for message in reversed(request.messages)
-                    if message.role == "user"
-                )
-            )
-            if self.calls % 4 == 1:
-                payload = {"kind": "observe", "action": "听门外风声", "effect": "none"}
-            elif self.calls % 4 == 2:
-                payload = {
-                    "outcomes": [
-                        {"intent_id": item["intent_id"], "outcome": "succeeded"}
-                        for item in data["intents"]
-                    ]
-                }
-            elif self.calls % 4 == 3:
-                payload = {
-                    "character_id": str(actor_id),
-                    "action": "停下脚步",
-                    "expression": "眉间收紧",
-                    "body_language": "侧身倾听",
-                    "voice_and_dialogue": "低声说：等等。",
-                    "subtext": "判断门外是谁",
-                    "motive_and_emotion": "谨慎",
-                    "trigger_and_defense": "风声骤停",
-                    "attention": "门外",
-                    "ignored": "桌面",
-                    "change_from_previous": "初次",
-                    "basis": [{"source_kind": "director_inference", "note": "合成候选"}],
-                }
-            else:
-                payload = {
-                    "materials": [
-                        {
-                            "material_id": "north-gate-wind",
-                            "category": "environment",
-                            "content": "北门的风声突然停了",
-                            "senses": ["sound"],
-                            "source_kind": "director_inference",
-                        }
-                    ],
-                    "recommended_angles": [
-                        {
-                            "angle_id": "close",
-                            "label": "阿澄视角",
-                            "viewpoint_kind": "character",
-                            "viewpoint_character_id": str(actor_id),
-                            "narrative_distance": "close",
-                            "focus": "门外",
-                            "detail_and_pacing": "放慢",
-                            "material_ids": ["north-gate-wind"],
-                        },
-                        {
-                            "angle_id": "wide",
-                            "label": "全知视角",
-                            "viewpoint_kind": "omniscient",
-                            "narrative_distance": "omniscient",
-                            "focus": "全场",
-                            "detail_and_pacing": "简洁",
-                            "material_ids": ["north-gate-wind"],
-                        },
-                    ],
-                    "alternatives": [
-                        {
-                            "alternative_id": "a",
-                            "label": "谨慎",
-                            "branch_instruction": "维持沉默",
-                            "divergence": "conservative",
-                        },
-                        {
-                            "alternative_id": "b",
-                            "label": "行动",
-                            "branch_instruction": "走向北门",
-                            "divergence": "balanced",
-                        },
-                    ],
-                }
-            return LLMCallResponse(
-                content=json.dumps(payload, ensure_ascii=False),
-                finish_reason="stop",
-                model="deepseek-flash",
-                provider=self.name,
-                usage=LLMUsage(prompt_tokens=5, completion_tokens=5, total_tokens=10),
-            )
-
-    provider = Provider()
+    provider = DirectorOfflineProvider(str(actor_id))
     client = LLMClient.from_project_settings(
         {"llm": {"provider_id": "deepseek", "model": "deepseek-flash"}}
     )
@@ -717,6 +626,9 @@ async def test_exact_worker_continues_same_root_and_stops_new_unknown(
     )
     monkeypatch.setattr(
         "modules.story.director_api.require_fresh_confirmation", confirmed
+    )
+    monkeypatch.setattr(
+        "modules.story.director_api.prepare_confirmed_ai_action", confirmed
     )
     monkeypatch.setattr("modules.story.director_api.attach_result_ref", confirmed)
     monkeypatch.setattr(

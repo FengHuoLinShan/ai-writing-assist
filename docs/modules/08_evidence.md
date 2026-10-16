@@ -587,6 +587,11 @@ character POV 只保留本人表演及有感知回执的素材，reader view 不
 写入 `advisory_omitted` 并提示作者，不影响核心 `scope_complete`；任务冻结已确认副本，后续删除或来源漂移不会
 改写当前任务输入。参考副本不是已采用剧本，也不进入 Story basis hash。app bootstrap 已注册该 DI port。
 
+场景导演生成端重物化同一 confirmation 后，`restrict_object_dossier_brief` 将作者与各角色的独立 POV 简报
+限定在最终编译条目的身份、完整内容及来源交集内；检索元数据不证明被排除、逐出或截断的条目仍可使用。
+作者侧只使用确认后渲染的上下文，原始卡片、示例与有效期提醒不得旁路注入。回合与恢复检查点保存确认范围指纹；
+续跑与单人物重写在追加预算及模型请求前重验父回合范围，旧快照无证明或范围变化时须新建运行。
+
 ### 第一阶段整改后的读取边界
 
 Scene Lens 完整返回对象字段、位置/知识来源、逐项未知、新鲜度与状态指纹；POV 知识只读本 Scene 的角色投影，World 名称不能补今天事实。来源可沿同项目父 checkpoint 和 event 回读，历史依据不是当前事实。私有 RP 缓存的全行容量、PG 并发、匿名禁用、撤权清理与备份恢复冷启动见 [compilation README](../../backend/modules/evidence/compilation/README.md)；冻结来源的检索保留不同原文范围，关键证据与知识边界独立验收。

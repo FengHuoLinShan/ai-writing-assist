@@ -1,6 +1,7 @@
 """Exercise the registered reader against isolated SQLite domain records."""
 
 import uuid
+from copy import deepcopy
 from dataclasses import replace
 
 import pytest
@@ -9,6 +10,7 @@ from core.container import get
 from core.service_keys import WORLD_READ_MAP_SPATIAL_ADVISORIES
 from modules.story.outline_state.models import Scene
 from modules.world.map_atlas_models import MapAtlasNode, MapAtlasRevision
+from modules.world.map_declaration_state import map_declaration_subject_id
 from modules.world.map_structure_schemas import MapDocument
 from modules.world.map_structure_service import source_digest, source_payload
 from modules.world.models import CoreEntity
@@ -107,6 +109,110 @@ async def seed(db, novel_id):
     node.current_revision_id = revision.id
     await db.flush()
     return scene, node, revision, places, content
+
+
+@pytest.mark.parametrize(
+    "override,exact,mode,expected",
+    [
+        (True, True, "author_safe", True),
+        (False, True, "author_safe", False),
+        (True, False, "author_safe", False),
+        (True, True, "reader", False),
+    ],
+)
+async def test_advisory_honors_exact_story_override_without_widening_reader_scope(
+    db_session, test_project_id, monkeypatch, override, exact, mode, expected
+):
+    from core.service_keys import STORY_SCENE_SOURCE
+    from modules.world import map_spatial_advisory_service as service
+
+    scene, node, old_revision, _, _ = await seed(db_session, test_project_id)
+    prior = Scene(
+        novel_id=uuid.UUID(test_project_id),
+        scene_index=0,
+        title="旧时",
+        status="canonical",
+    )
+    db_session.add(prior)
+    await db_session.flush()
+    document = deepcopy(old_revision.document)
+    document["features"][0]["effective"] = {"end": {"kind": "scene", "id": str(prior.id)}}
+    revision = MapAtlasRevision(
+        novel_id=node.novel_id,
+        node_id=node.id,
+        status="saved",
+        document=document,
+        geometry_hash="b" * 64,
+    )
+    db_session.add(revision)
+    await db_session.flush()
+    node.current_revision_id = revision.id
+    await db_session.flush()
+    feature_id = document["features"][0]["id"]
+    subject = map_declaration_subject_id(
+        test_project_id, str(node.id), "feature", feature_id
+    )
+    fact = {
+        "subject_id": subject,
+        "field": "effective_status",
+        "value": "active",
+        "confidence": "confirmed",
+        "occurred_at": {"scene_index": 0, "scene_sequence": 1},
+        "source": {
+            "provenance": {
+                "object_type": "map_declaration",
+                "field": "effective_status",
+                "event_id": "synthetic-map-event",
+                "author_confirmed": True,
+                "identity_ref": {
+                    "contract_version": 1,
+                    "novel_id": test_project_id,
+                    "node_id": str(node.id),
+                    "revision_id": str(revision.id if exact else old_revision.id),
+                    "subject_id": subject,
+                    "declaration_kind": "feature",
+                    "declaration_id": feature_id,
+                    "field_key": "effective_status",
+                },
+            }
+        },
+    }
+    real_get = service.get
+    real_port = real_get(STORY_SCENE_SOURCE)
+    requested = []
+
+    class Port:
+        def __getattr__(self, name):
+            return getattr(real_port, name)
+
+        async def get_scene_state_view(self, *_args, **kwargs):
+            requested.extend(kwargs["include_dimensions"])
+            return {
+                "novel_id": test_project_id,
+                "scene_id": str(scene.id),
+                "scene_index": 1,
+                "dimensions": [
+                    {"dimension": "entities", "status": "ok", "facts": [fact]}
+                ],
+            }
+
+    async def settings(*_args):
+        return {"allow_story_override": override}
+
+    monkeypatch.setattr(
+        service, "get", lambda key: Port() if key == STORY_SCENE_SOURCE else real_get(key)
+    )
+    monkeypatch.setattr(service, "read_object_dossier_settings", settings)
+    result = await service.MapSpatialAdvisoryService().read(
+        db_session,
+        {
+            "novel_id": test_project_id,
+            "scene_id": str(scene.id),
+            "reveal_mode": mode,
+        },
+    )
+    assert ("direction_conflict" in [item.rule_code for item in result.items]) is expected
+    assert ("entities" in requested) is (mode != "reader")
 
 
 @pytest.mark.asyncio

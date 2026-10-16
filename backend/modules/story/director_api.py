@@ -23,7 +23,11 @@ from infrastructure.tasks.facade import (
     get_operation_task,
 )
 from infrastructure.tasks.models import AsyncTask
-from modules.evidence.facade import attach_result_ref, require_fresh_confirmation
+from modules.evidence.facade import (
+    attach_result_ref,
+    prepare_confirmed_ai_action,
+    require_fresh_confirmation,
+)
 from modules.project.facade import (
     build_project_llm_execution_snapshot,
     require_active_project,
@@ -34,7 +38,11 @@ from modules.story.director_budget import (
     preview_director_continuation,
 )
 from modules.story.director_candidate_transfer import transfer_director_candidate
-from modules.story.director_context import read_director_source
+from modules.story.director_context import (
+    director_confirmation_scope,
+    read_director_source,
+    require_director_confirmation_scope,
+)
 from modules.story.director_feature import require_scene_director_enabled
 from modules.story.director_schemas import (
     DirectorAdvanceRequest,
@@ -396,6 +404,16 @@ async def continue_director_root(
             related_object_ids=list(root_request.get("related_object_ids") or []),
         ),
     )
+    confirmed = await prepare_confirmed_ai_action(
+        db,
+        novel_id=novel_id,
+        action=STORY_ONE_CLICK_ACTION,
+        confirmation_id=data.context_confirmation_id,
+    )
+    require_director_confirmation_scope(
+        (parent_round.input_json or {}).get("source_snapshot") or {},
+        director_confirmation_scope(confirmed),
+    )
     raw = read_ai_run_envelope(root.run_envelope_json)
     if (
         raw is None
@@ -612,7 +630,6 @@ async def api_director_continue_preview(
                 branch_kind=data.branch_kind,
                 basis_choice=data.basis_choice,
                 rewrite_character_id=data.rewrite_character_id,
-                selected_alternative=data.selected_alternative,
             ),
             source,
             parent_round_id=str(parent.id),

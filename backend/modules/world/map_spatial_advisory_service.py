@@ -14,12 +14,14 @@ from core.service_keys import PROJECT_REQUIRE_ACTIVE
 from infrastructure.stable_hash import stable_hash
 from modules.evidence import facade as evidence_facade
 from modules.evidence.contracts import VisibilityContextContract
+from modules.project.facade import read_object_dossier_settings
 from modules.world.map_spatial_advisory_schemas import (
     MapSpatialAdvisoryItem,
     MapSpatialAdvisoryMapRevision,
     MapSpatialAdvisoryRequest,
     MapSpatialAdvisoryResponse,
 )
+from modules.world.validity_policy import resolve_map_declaration_validity
 from modules.writing.contracts import SourceRangeRefContract
 
 _ACTIVE_SCENES = frozenset({"candidate", "draft", "canonical"})
@@ -48,20 +50,39 @@ def _as_dict(value: object) -> dict[str, Any]:
     return {}
 
 
-def _within_cutoff(item: object, *, scenes: list[dict], scene_index: int) -> bool:
+def _declaration_validity(item, *, scenes, scene_index, **identity):
     effective = getattr(item, "effective", None)
-    if effective is None:
-        return True
     from modules.world.map_spatial_anchors import resolve_validity
 
-    resolved = resolve_validity(effective, scenes)
-    return bool(
-        resolved.valid
-        and (
-            resolved.start_scene_index is None
-            or resolved.start_scene_index <= scene_index
+    resolved = resolve_validity(effective, scenes) if effective is not None else None
+    active = True
+    if resolved is not None:
+        active = (
+            None
+            if not resolved.valid
+            else (
+                (
+                    resolved.start_scene_index is None
+                    or resolved.start_scene_index <= scene_index
+                )
+                and (
+                    resolved.end_scene_index is None
+                    or scene_index <= resolved.end_scene_index
+                )
+            )
         )
-        and (resolved.end_scene_index is None or scene_index <= resolved.end_scene_index)
+    # Unanchored declarations have no temporal conflict to override.
+    return resolve_map_declaration_validity(
+        author_active=active,
+        anchor_gap=resolved.reason
+        if resolved is not None and not resolved.valid
+        else None,
+        cutoff_scene_index=scene_index,
+        declaration_id=str(item.id),
+        **{
+            **identity,
+            "story_view": identity["story_view"] if effective is not None else None,
+        },
     )
 
 
@@ -76,24 +97,6 @@ def _outside_cutoff(item: object, *, scenes: list[dict], scene_index: int) -> bo
         resolved.valid
         and resolved.end_scene_index is not None
         and resolved.end_scene_index < scene_index
-    )
-
-
-def _excluded_by_validity(item: object, *, scenes: list[dict], scene_index: int) -> bool:
-    effective = getattr(item, "effective", None)
-    if effective is None:
-        return False
-    from modules.world.map_spatial_anchors import resolve_validity
-
-    resolved = resolve_validity(effective, scenes)
-    return bool(
-        resolved.valid
-        and (
-            resolved.start_scene_index is not None
-            and resolved.start_scene_index > scene_index
-            or resolved.end_scene_index is not None
-            and resolved.end_scene_index < scene_index
-        )
     )
 
 
@@ -270,12 +273,18 @@ class MapSpatialAdvisoryService:
             if str(value).isdigit() and int(value) > 0
         ]
         cutoff_chapter = max(scene_chapters, default=None)
+        author_view = data.reveal_mode in {"author_full", "author_safe"}
+        settings = (
+            await read_object_dossier_settings(db, data.novel_id) if author_view else {}
+        )
         state_view = await story_port.get_scene_state_view(
             db,
             data.novel_id,
             data.scene_id,
             viewpoint={"kind": "author"},
-            include_dimensions=["locations"],
+            include_dimensions=["locations", "entities"]
+            if author_view
+            else ["locations"],
         )
         state_view = _as_dict(state_view)
         if state_view.get("status") != "degraded":
@@ -558,6 +567,21 @@ class MapSpatialAdvisoryService:
         items: list[MapSpatialAdvisoryItem] = []
         baselines: list[MapSpatialAdvisoryMapRevision] = []
         for node, revision, document in docs:
+
+            def declaration_validity(item, kind):
+                return _declaration_validity(
+                    item,
+                    scenes=temporal_scenes,
+                    scene_index=scene_index,
+                    story_view=state_view if author_view else None,
+                    novel_id=data.novel_id,
+                    cutoff_scene_id=data.scene_id,
+                    node_id=str(node.id),
+                    revision_id=str(revision.id),
+                    declaration_kind=kind,
+                    allow_story_override=settings.get("allow_story_override") is True,
+                )
+
             feature_by_id = {feature.id: feature for feature in document.features}
             unavailable_spaces = {
                 space.id
@@ -589,13 +613,10 @@ class MapSpatialAdvisoryService:
                 resolved = resolved_types.get(pair) if feature.type_ref else None
                 if feature.type_ref and resolved is None:
                     continue
-                if _within_cutoff(
-                    feature, scenes=temporal_scenes, scene_index=scene_index
-                ):
+                decision = declaration_validity(feature, "feature")
+                if decision.effective:
                     valid_features[feature.id] = feature
-                elif feature.entity_id is not None and _excluded_by_validity(
-                    feature, scenes=temporal_scenes, scene_index=scene_index
-                ):
+                elif feature.entity_id is not None and decision.author_active is not None:
                     inactive_location_features[str(feature.entity_id)] = feature
                     continue
                 else:
@@ -670,12 +691,14 @@ class MapSpatialAdvisoryService:
                         or "cross_space" not in resolved["traits"].connection
                     ):
                         continue
-                if _within_cutoff(
-                    constraint, scenes=temporal_scenes, scene_index=scene_index
-                ):
+                decision = declaration_validity(constraint, "constraint")
+                if decision.effective:
                     valid_constraints.append(constraint)
-                elif constraint.relation in _CONNECTIONS and _outside_cutoff(
-                    constraint, scenes=temporal_scenes, scene_index=scene_index
+                elif constraint.relation in _CONNECTIONS and (
+                    decision.status == "story_override"
+                    or _outside_cutoff(
+                        constraint, scenes=temporal_scenes, scene_index=scene_index
+                    )
                 ):
                     expired_connections.append(constraint)
 
@@ -704,9 +727,7 @@ class MapSpatialAdvisoryService:
             for journey in document.journeys:
                 if (
                     journey.modality != "event_observed"
-                    or not _within_cutoff(
-                        journey, scenes=temporal_scenes, scene_index=scene_index
-                    )
+                    or not declaration_validity(journey, "journey").effective
                     or journey.origin not in valid_features
                     or journey.destination not in valid_features
                     or not await sources_current(

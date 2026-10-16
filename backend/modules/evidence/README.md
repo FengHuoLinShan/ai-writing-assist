@@ -1,5 +1,8 @@
 # Evidence 模块
 
+`restrict_object_dossier_brief` 将重读的 POV 简报与 confirmation 最终编译条目按条目身份、完整内容及来源取交集，
+不从未裁剪的检索元数据恢复已排除或逐出的条目；返回仅保留调用方需要的已确认字段，不透传原始提醒及备注。
+
 编译产物的 Markdown 渲染（`render_compiled_context`）按资料性质标注事实等级并在有预算
 裁剪时追加裁剪记录（详见 `compilation/README.md` 与 `docs/modules/08_evidence.md`）；
 剧情线 loader 只取未终结线索、超期保留并标注，编辑约定 loader 仅在作者显式开启

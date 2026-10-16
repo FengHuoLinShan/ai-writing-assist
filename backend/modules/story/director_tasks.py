@@ -34,8 +34,11 @@ from modules.story.director_consistency import (
 )
 from modules.story.director_context import (
     actor_packet,
+    director_confirmation_scope,
     director_only_packet,
     read_director_source,
+    require_director_confirmation_scope,
+    scope_director_source,
 )
 from modules.story.director_schemas import (
     DirectorContinueRequest,
@@ -250,6 +253,9 @@ async def handle_scene_director(db, task):
         frozen_source = (parent_round.input_json or {}).get("source_snapshot")
         if not isinstance(frozen_source, dict):
             raise ValueError("所选导演回合缺少可恢复的来源快照")
+        require_director_confirmation_scope(
+            frozen_source, director_confirmation_scope(confirmed)
+        )
         source = current_source if basis_choice == "current" else frozen_source
         source_changed = current_source.get("source_hash") != frozen_source.get(
             "source_hash"
@@ -326,6 +332,12 @@ async def handle_scene_director(db, task):
     ):
         raise ValueError("Evidence Scene 截止点已变化")
 
+    pending_source = (branch.pending_round_json or {}).get("source_snapshot")
+    if pending_source:
+        require_director_confirmation_scope(
+            pending_source, director_confirmation_scope(confirmed)
+        )
+    source = await scope_director_source(db, source, confirmed)
     state_context = SimulationV3Context.model_validate(source["simulation_context"])
     await validate_simulation_context_refs(db, novel_id, state_context)
     source_hash = source["source_hash"]

@@ -29,6 +29,13 @@ def _uuid(value: str | UUID) -> UUID:
         raise ValueError("导演记录标识无效") from exc
 
 
+def _restore_expired(deadline: datetime | None, now: datetime) -> bool:
+    # SQLite reloads UTC deadlines without tzinfo.
+    if deadline is not None and deadline.tzinfo is None:
+        deadline = deadline.replace(tzinfo=UTC)
+    return deadline is None or deadline < now
+
+
 async def get_director_root(db, novel_id: str, root_id: str, *, lock=False):
     query = select(StorySceneDirectorRoot).where(
         StorySceneDirectorRoot.novel_id == _uuid(novel_id),
@@ -611,7 +618,7 @@ async def restore_director_branch(db, novel_id: str, branch_id: str) -> dict:
     if row is None:
         raise NotFoundError("可恢复的导演分支不存在")
     now = datetime.now(UTC)
-    if row.restore_until is None or row.restore_until < now:
+    if _restore_expired(row.restore_until, now):
         raise ConflictError("导演分支已超过 30 天恢复期限")
     row.deleted_at = None
     row.restore_until = None
@@ -789,7 +796,7 @@ async def restore_director_reference(db, novel_id: str, reference_id: str) -> di
     )
     if row is None:
         raise NotFoundError("可恢复的参考剧本不存在")
-    if row.restore_until is None or row.restore_until < now:
+    if _restore_expired(row.restore_until, now):
         raise ConflictError("参考剧本已超过 30 天恢复期限")
     row.deleted_at = None
     row.restore_until = None
