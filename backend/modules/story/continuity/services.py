@@ -21,6 +21,11 @@ from core.service_keys import (
     WORLD_REQUIRE_CUSTOM_TEXT_STATE_FIELD,
     WORLD_REQUIRE_MAP_DECLARATION_STATE,
 )
+from modules.story.continuity.chapter_order_projection import (
+    MAX_CHAPTER_EVENT_CANDIDATES,
+    ChapterOrderTransition,
+    project_current_chapter_index,
+)
 from modules.story.continuity.contracts import (
     SCENE_MEMORY_DIMENSIONS,
     ConfirmedContinuityEventIngest,
@@ -64,7 +69,7 @@ _SNAPSHOT_INTERVAL = 10  # K=10
 MEMORY_REPLAY_EVENT_BATCH_SIZE = 500
 MEMORY_EVENT_LIST_BATCH_SIZE = 500
 DELTA_ROLLBACK_BATCH_SIZE = 500
-MAX_MEMORY_EVENTS_PER_CHAPTER = 500
+MAX_MEMORY_EVENTS_PER_CHAPTER = MAX_CHAPTER_EVENT_CANDIDATES
 MAX_MEMORY_EVENT_PAYLOAD_CHARS = 20000
 # evolution 机器路径派生事件的 source 标记（evolution/tasks.py applier 注入，
 # 配合 replace_scene_memory_events 的 producer_family="evolution"）。机器知识
@@ -627,12 +632,16 @@ class MemoryService:
         db: AsyncSession,
         novel_id: str,
         chapter_index: int,
+        *,
+        order_transitions: tuple[ChapterOrderTransition, ...] | None = None,
     ) -> dict[str, Any]:
         """重放事件至指定章节，返回完整世界状态
 
         优先从最近快照 + 增量事件重放。
         """
         nid = parse_uuid(novel_id)
+        if order_transitions is None:
+            order_transitions = await self._load_order_transitions(db, nid)
         nearest = await self._snapshot_repo.get_nearest(db, nid, chapter_index)
 
         if nearest:
@@ -654,6 +663,7 @@ class MemoryService:
                 start_chapter,
                 chapter_index,
                 state,
+                order_transitions,
             )
 
         return state
@@ -667,14 +677,24 @@ class MemoryService:
         db: AsyncSession,
         novel_id: str,
         chapter_index: int,
+        *,
+        order_transitions: tuple[ChapterOrderTransition, ...] | None = None,
     ) -> SnapshotResponse:
         """物化事件重放结果；绝不把当前 World 注入历史章节。"""
         nid = parse_uuid(novel_id)
-        full_state = await self.replay_state(db, novel_id, chapter_index)
+        if order_transitions is None:
+            order_transitions = await self._load_order_transitions(db, nid)
+        full_state = await self.replay_state(
+            db, novel_id, chapter_index, order_transitions=order_transitions
+        )
 
         # 计算该快照覆盖的事件数，不加载完整事件流
         events_until = await self._event_repo.count_by_chapter_range(
-            db, nid, 1, chapter_index
+            db,
+            nid,
+            1,
+            chapter_index,
+            **self._order_query_kwargs(order_transitions),
         )
 
         snapshot = await self._snapshot_repo.create(
@@ -988,6 +1008,7 @@ class MemoryService:
         没有任何快照/事件时返回 stage0 空状态，禁止当前 World 泄漏到历史。
         """
         nid = parse_uuid(novel_id)
+        order_transitions = await self._load_order_transitions(db, nid)
         nearest = await self._snapshot_repo.get_nearest(db, nid, chapter_index)
 
         if nearest:
@@ -1000,6 +1021,7 @@ class MemoryService:
                     start_chapter,
                     chapter_index,
                     state,
+                    order_transitions,
                 )
         else:
             # 没有任何快照 — 检查是否有事件可重放
@@ -1009,6 +1031,7 @@ class MemoryService:
                 1,
                 chapter_index,
                 self._empty_replay_state(),
+                order_transitions,
             )
 
         return self._build_panorama(novel_id, chapter_index, state)
@@ -1030,8 +1053,13 @@ class MemoryService:
         nid = parse_uuid(novel_id)
         nearest = await self._snapshot_repo.get_nearest(db, nid, previous_chapter)
         if not nearest:
+            order_transitions = await self._load_order_transitions(db, nid)
             event_count = await self._event_repo.count_by_chapter_range(
-                db, nid, 1, previous_chapter
+                db,
+                nid,
+                1,
+                previous_chapter,
+                **self._order_query_kwargs(order_transitions),
             )
             if event_count == 0:
                 return None
@@ -1085,9 +1113,13 @@ class MemoryService:
     async def read_events_by_ids(
         self, db: AsyncSession, novel_id: str, event_ids: list[uuid.UUID]
     ) -> EventListResponse:
-        records = await self._event_repo.get_by_ids(db, parse_uuid(novel_id), event_ids)
+        nid = parse_uuid(novel_id)
+        records = await self._event_repo.get_by_ids(db, nid, event_ids)
+        order_transitions = await self._load_order_transitions(db, nid)
+        items = [self._event_response(row, order_transitions) for row in records]
+        items.sort(key=lambda item: (item.chapter_index, item.sequence, item.id))
         return EventListResponse(
-            items=[MemoryEventResponse.model_validate(row) for row in records],
+            items=items,
             total=len(records),
         )
 
@@ -1100,8 +1132,13 @@ class MemoryService:
     ) -> EventListResponse:
         """按章节范围查询事件列表"""
         nid = parse_uuid(novel_id)
+        order_transitions = await self._load_order_transitions(db, nid)
         total = await self._event_repo.count_by_chapter_range(
-            db, nid, from_chapter, to_chapter
+            db,
+            nid,
+            from_chapter,
+            to_chapter,
+            **self._order_query_kwargs(order_transitions),
         )
         items: list[MemoryEventResponse] = []
         cursor: tuple[int, int, uuid.UUID] | None = None
@@ -1114,12 +1151,19 @@ class MemoryService:
                 to_chapter,
                 after=cursor,
                 limit=min(MEMORY_EVENT_LIST_BATCH_SIZE, remaining),
+                **self._order_query_kwargs(order_transitions),
             )
             if not page:
                 break
-            items.extend(MemoryEventResponse.model_validate(event) for event in page)
+            items.extend(self._event_response(event, order_transitions) for event in page)
             last = page[-1]
-            cursor = (last.chapter_index, last.sequence, last.id)
+            cursor = (
+                project_current_chapter_index(
+                    last.chapter_index, last.created_at, order_transitions
+                ),
+                last.sequence,
+                last.id,
+            )
             if len(page) < MEMORY_EVENT_LIST_BATCH_SIZE:
                 break
         return EventListResponse(items=items, total=total)
@@ -1135,14 +1179,17 @@ class MemoryService:
         """获取单个实体的变化时间线"""
         nid = parse_uuid(novel_id)
         eid = parse_uuid(entity_id)
+        order_transitions = await self._load_order_transitions(db, nid)
         events, total = await self._event_repo.get_by_entity(
             db,
             nid,
             eid,
             skip=skip,
             limit=limit,
+            **self._order_query_kwargs(order_transitions),
         )
-        items = [MemoryEventResponse.model_validate(e) for e in events]
+        items = [self._event_response(event, order_transitions) for event in events]
+        items.sort(key=lambda item: (item.chapter_index, item.sequence, item.id))
         return EventListResponse(items=items, total=total)
 
     async def list_snapshots(
@@ -1193,11 +1240,16 @@ class MemoryService:
         只从已有事件确定性重放并重建稀疏章节快照；不读取当前 World。
         """
         nid = parse_uuid(novel_id)
+        order_transitions = await self._load_order_transitions(db, nid)
         # Preserve snapshot history: rebuilt current snapshots are superseded,
         # not hard-deleted.  Snapshots before the correction point remain valid.
         await self._snapshot_repo.mark_stale_from(db, nid, from_chapter)
         max_chapter = await self._event_repo.get_max_chapter_in_range(
-            db, nid, from_chapter, 999999
+            db,
+            nid,
+            from_chapter,
+            999999,
+            **self._order_query_kwargs(order_transitions),
         )
         # 重建快照（每 K 章一个，加上最新章）
         final_chapter = max_chapter or from_chapter
@@ -1205,7 +1257,9 @@ class MemoryService:
         rebuilt_count = 0
         for ch in range(from_chapter, final_chapter + 1):
             if ch % _SNAPSHOT_INTERVAL == 0 or ch == final_chapter:
-                await self.capture_snapshot(db, novel_id, ch)
+                await self.capture_snapshot(
+                    db, novel_id, ch, order_transitions=order_transitions
+                )
                 rebuilt_count += 1
 
         return {
@@ -1235,6 +1289,7 @@ class MemoryService:
         from_chapter: int,
         to_chapter: int,
         state: dict[str, Any],
+        order_transitions: tuple[ChapterOrderTransition, ...],
     ) -> tuple[dict[str, Any], int]:
         replay_state = self._normalize_replay_state(state)
         cursor: tuple[int, int, uuid.UUID] | None = None
@@ -1248,6 +1303,7 @@ class MemoryService:
                 to_chapter,
                 after=cursor,
                 limit=MEMORY_REPLAY_EVENT_BATCH_SIZE,
+                **self._order_query_kwargs(order_transitions),
             )
             if not page:
                 break
@@ -1255,11 +1311,42 @@ class MemoryService:
                 self._apply_event_to_replay_state(replay_state, event)
             events_seen += len(page)
             last = page[-1]
-            cursor = (last.chapter_index, last.sequence, last.id)
+            cursor = (
+                project_current_chapter_index(
+                    last.chapter_index, last.created_at, order_transitions
+                ),
+                last.sequence,
+                last.id,
+            )
             if len(page) < MEMORY_REPLAY_EVENT_BATCH_SIZE:
                 break
 
         return self._finalize_replay_state(replay_state), events_seen
+
+    @staticmethod
+    def _event_response(
+        event: Any,
+        order_transitions: tuple[ChapterOrderTransition, ...],
+    ) -> MemoryEventResponse:
+        payload = MemoryEventResponse.model_validate(event).model_dump()
+        payload["chapter_index"] = project_current_chapter_index(
+            event.chapter_index, event.created_at, order_transitions
+        )
+        return MemoryEventResponse.model_validate(payload)
+
+    async def _load_order_transitions(
+        self, db: AsyncSession, novel_id: uuid.UUID
+    ) -> tuple[ChapterOrderTransition, ...]:
+        if not isinstance(self._event_repo, EventRepository):
+            return ()
+        return await self._event_repo.get_chapter_order_transitions(db, novel_id)
+
+    def _order_query_kwargs(
+        self, order_transitions: tuple[ChapterOrderTransition, ...]
+    ) -> dict[str, tuple[ChapterOrderTransition, ...]]:
+        if not isinstance(self._event_repo, EventRepository):
+            return {}
+        return {"order_transitions": order_transitions}
 
     def _apply_events(self, state: dict[str, Any], events: list[Any]) -> dict[str, Any]:
         """应用事件序列到状态上"""

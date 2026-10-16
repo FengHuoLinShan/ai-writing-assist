@@ -1153,6 +1153,201 @@ class TestReplayState:
         event_repo.get_by_chapter_range.assert_not_awaited()
 
     @pytest.mark.asyncio
+    async def test_chapter_reorder_projects_ranges_counts_replay_and_snapshots(
+        self,
+        db_session: AsyncSession,
+        test_project_id: str,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        from modules.story.continuity.models import MemoryEvent, StoryChapterOrderReceipt
+
+        novel_id = uuid.UUID(test_project_id)
+        origin = datetime(2026, 10, 16, 0, 0, tzinfo=UTC)
+        entity_ids = [uuid.uuid4() for _ in range(5)]
+        events = [
+            MemoryEvent(
+                novel_id=novel_id,
+                chapter_index=1,
+                sequence=1,
+                event_type="entity_created",
+                entity_id=entity_ids[0],
+                entity_type="character",
+                snapshot_after={
+                    "id": str(entity_ids[0]),
+                    "name": "重排前第一章",
+                    "entity_type": "character",
+                },
+                source="author",
+                created_at=origin,
+            ),
+            MemoryEvent(
+                novel_id=novel_id,
+                chapter_index=2,
+                sequence=1,
+                event_type="entity_created",
+                entity_id=entity_ids[1],
+                entity_type="character",
+                snapshot_after={
+                    "id": str(entity_ids[1]),
+                    "name": "第一次重排后",
+                    "entity_type": "character",
+                },
+                source="author",
+                created_at=origin.replace(hour=1, minute=30),
+            ),
+            MemoryEvent(
+                novel_id=novel_id,
+                chapter_index=3,
+                sequence=1,
+                event_type="entity_created",
+                entity_id=entity_ids[2],
+                entity_type="character",
+                snapshot_after={
+                    "id": str(entity_ids[2]),
+                    "name": "第二次重排后",
+                    "entity_type": "character",
+                },
+                source="author",
+                created_at=origin.replace(hour=2, minute=30),
+            ),
+            MemoryEvent(
+                novel_id=novel_id,
+                chapter_index=1,
+                sequence=2,
+                event_type="entity_created",
+                entity_id=entity_ids[3],
+                entity_type="character",
+                snapshot_after={
+                    "id": str(entity_ids[3]),
+                    "name": "全部恢复后第一章",
+                    "entity_type": "character",
+                },
+                source="author",
+                created_at=origin.replace(hour=4, minute=30),
+            ),
+            MemoryEvent(
+                novel_id=novel_id,
+                chapter_index=2,
+                sequence=2,
+                event_type="entity_created",
+                entity_id=entity_ids[4],
+                entity_type="character",
+                snapshot_after={
+                    "id": str(entity_ids[4]),
+                    "name": "全部恢复后第二章",
+                    "entity_type": "character",
+                },
+                source="author",
+                created_at=origin.replace(hour=5),
+            ),
+        ]
+        first = StoryChapterOrderReceipt(
+            novel_id=novel_id,
+            status="restored",
+            chapter_map_json={"1": 2, "2": 1},
+            before_fingerprint="a" * 64,
+            after_fingerprint="b" * 64,
+            impact_json={},
+            manifest_json={},
+            created_at=origin.replace(hour=1),
+            restored_at=origin.replace(hour=4),
+        )
+        second = StoryChapterOrderReceipt(
+            novel_id=novel_id,
+            status="restored",
+            chapter_map_json={"2": 3, "3": 2},
+            before_fingerprint="c" * 64,
+            after_fingerprint="d" * 64,
+            impact_json={},
+            manifest_json={},
+            created_at=origin.replace(hour=2),
+            restored_at=origin.replace(hour=3),
+        )
+        db_session.add_all([*events, first, second])
+        await db_session.flush()
+        monkeypatch.setattr(
+            "modules.story.continuity.services.MEMORY_EVENT_LIST_BATCH_SIZE", 1
+        )
+        monkeypatch.setattr(
+            "modules.story.continuity.services.MEMORY_REPLAY_EVENT_BATCH_SIZE", 1
+        )
+
+        service = MemoryService()
+        chapter_one = await service.list_events(db_session, test_project_id, 1, 1)
+        chapter_two = await service.list_events(db_session, test_project_id, 2, 2)
+        chapter_one_rows = await service._event_repo.get_by_chapter_range(
+            db_session, novel_id, 1, 1
+        )
+        entity_timeline = await service.get_entity_timeline(
+            db_session, test_project_id, str(entity_ids[1]), skip=0, limit=10
+        )
+        panorama = await service.get_panorama(db_session, test_project_id, 1)
+        snapshot = await service.capture_snapshot(db_session, test_project_id, 1)
+        current_max = await service._event_repo.get_max_chapter_in_range(
+            db_session, novel_id, 1, 999999
+        )
+
+        assert chapter_one.total == 4
+        assert len(chapter_one.items) == 4
+        assert {item.chapter_index for item in chapter_one.items} == {1}
+        assert len(chapter_one_rows) == 4
+        assert chapter_two.total == 1
+        assert chapter_two.items[0].entity_id == str(entity_ids[4])
+        assert entity_timeline.items[0].chapter_index == 1
+        assert {item.name for item in panorama.entities} == {
+            "重排前第一章",
+            "第一次重排后",
+            "第二次重排后",
+            "全部恢复后第一章",
+        }
+        assert snapshot.events_until == 4
+        assert current_max == 2
+        assert [event.chapter_index for event in events] == [1, 2, 3, 1, 2]
+
+    @pytest.mark.asyncio
+    async def test_chapter_reorder_candidate_bound_fails_closed(
+        self,
+        db_session: AsyncSession,
+        test_project_id: str,
+    ) -> None:
+        from core.errors import ConflictError
+        from modules.story.continuity.chapter_order_projection import (
+            MAX_CHAPTER_EVENT_CANDIDATES,
+        )
+        from modules.story.continuity.models import MemoryEvent, StoryChapterOrderReceipt
+
+        novel_id = uuid.UUID(test_project_id)
+        origin = datetime(2026, 10, 16, 0, 0, tzinfo=UTC)
+        db_session.add_all(
+            MemoryEvent(
+                novel_id=novel_id,
+                chapter_index=2,
+                sequence=sequence,
+                event_type="entity_created",
+                snapshot_after={"name": "bounded candidate"},
+                source="author",
+                created_at=origin,
+            )
+            for sequence in range(1, MAX_CHAPTER_EVENT_CANDIDATES + 2)
+        )
+        db_session.add(
+            StoryChapterOrderReceipt(
+                novel_id=novel_id,
+                status="applied",
+                chapter_map_json={"1": 2, "2": 1},
+                before_fingerprint="a" * 64,
+                after_fingerprint="b" * 64,
+                impact_json={},
+                manifest_json={},
+                created_at=origin.replace(hour=1),
+            )
+        )
+        await db_session.flush()
+
+        with pytest.raises(ConflictError, match="500 条读取边界"):
+            await MemoryService().list_events(db_session, test_project_id, 1, 1)
+
+    @pytest.mark.asyncio
     async def test_get_panorama_no_snapshot_no_events_returns_stage0_without_world(
         self,
         monkeypatch: pytest.MonkeyPatch,

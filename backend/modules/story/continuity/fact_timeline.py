@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import re
 import uuid
-from datetime import UTC, datetime
 from typing import Any
 
 from sqlalchemy import and_, func, or_, select
@@ -12,6 +11,10 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from core.errors import NotFoundError
 from modules.story.continuity.chapter_order import StoryChapterOrderService
+from modules.story.continuity.chapter_order_projection import (
+    build_chapter_order_transitions,
+    project_current_chapter_index,
+)
 from modules.story.continuity.models import (
     MemoryEvent,
     StoryChapterOrderReceipt,
@@ -79,6 +82,7 @@ class StoryFactTimelineService:
                 )
             ).all()
         )
+        order_transitions = build_chapter_order_transitions(receipts)
         pending_scene_ids = {
             uuid.UUID(value)
             for receipt in receipts
@@ -161,7 +165,9 @@ class StoryFactTimelineService:
         items: list[StoryFactTimelineItemResponse] = []
         for event, scene in page:
             status = _event_status(event, pending_scene_ids)
-            chapter_index = _current_chapter_index(event, receipts)
+            chapter_index = project_current_chapter_index(
+                event.chapter_index, event.created_at, order_transitions
+            )
             if scene is None:
                 status = "unknown"
                 chapter_index = None
@@ -345,39 +351,6 @@ def _event_status(event: MemoryEvent, pending_scene_ids: set[uuid.UUID]) -> str:
     if event.source_stale or event.scene_id in pending_scene_ids:
         return "stale"
     return "current"
-
-
-def _current_chapter_index(
-    event: MemoryEvent,
-    receipts: list[StoryChapterOrderReceipt],
-) -> int | None:
-    if event.chapter_index is None:
-        return None
-    event_time = _as_utc(event.created_at)
-    chapter_index = int(event.chapter_index)
-    transitions: list[tuple[datetime, int, str, dict[int, int]]] = []
-    for receipt in receipts:
-        applied_at = _as_utc(receipt.created_at)
-        mapping = {
-            int(source): int(target)
-            for source, target in (receipt.chapter_map_json or {}).items()
-        }
-        if applied_at is not None:
-            transitions.append((applied_at, 0, str(receipt.id), mapping))
-        restored_at = _as_utc(receipt.restored_at)
-        if restored_at is not None:
-            inverse = {target: source for source, target in mapping.items()}
-            transitions.append((restored_at, 1, str(receipt.id), inverse))
-    for occurred_at, _phase, _receipt_id, mapping in sorted(transitions):
-        if event_time is not None and event_time < occurred_at:
-            chapter_index = mapping.get(chapter_index, chapter_index)
-    return chapter_index
-
-
-def _as_utc(value: datetime | None) -> datetime | None:
-    if value is None:
-        return None
-    return value.replace(tzinfo=UTC) if value.tzinfo is None else value.astimezone(UTC)
 
 
 def _entity_label(entity_type: str | None, snapshot: Any) -> str:
