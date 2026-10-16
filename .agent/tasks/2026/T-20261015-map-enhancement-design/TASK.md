@@ -10,6 +10,8 @@ updated: 2026-10-16T18:16:50+08:00
 
 ## 恢复快照
 
+- 旧分支review与工程收尾（2026-10-16T21:01:03+08:00）：9个旧分支已对账，修复 `d4feba902`，历史归并 `8834efccd`；39个地图工作树干净，旧分支及数据保留。最终完整CI exit0：后端9108/2skip、85.00%覆盖率，前端3234、部署324；专用PG10通过。详见[最终审查与集成](../T-20261016-worktree-checkpoints/INTEGRATION-REVIEW.md)。仅本地提交，无push/PR/main合并/部署；原真实模型/作者、长期与外部路线图验收仍开放，冻结证据与能力门禁不变。下方为历史时点记录。
+
 - 本地提交收尾（2026-10-16T20:13:41+08:00）：用户要求地图增强系列对应工作树收尾并提交。后续补修已提交为 `651df05722abc7bbc6a47a42dbee77c43b5faf5f`，原始范围为 `59537b4cb376da20b67cd8152f4cca3ba6f286d0..651df05722abc7bbc6a47a42dbee77c43b5faf5f`；另保全旧操作留痕原型与历史评审报告，未合入此树。39个系列工作树及待review范围见[提交交接](../T-20261016-worktree-checkpoints/REVIEW.md)。本轮后端145、前端120及lint/docs/repo-gates通过；最近全量覆盖率84.37%未达85%的原阻塞仍保留，本轮未重跑全量/PG/浏览器/模型。各计划仍active，真实质量与R3–R6封存、holdout、能力门禁不变；未push/PR/合并/部署。下方“未提交”等表述为原时点历史。
 
 - 后续审查补修（2026-10-16T18:16:50+08:00）：针对 `dd9946dd0..59537b4cb` 的8项复核问题已在本地工作树补修，代码仍基于 `59537b4cb376da20b67cd8152f4cca3ba6f286d0`，未提交。详情与逐项证据见[修复账本](../T-20261015-character-world-progression/artifacts/REVIEW-REMEDIATION-20261016.md#第四批复核报告8项补修)。141项受影响后端定向测试通过，专用PG档案E2E 3项通过；全后端9088 passed/2 skipped，但总覆盖率84.37%未达到85%门槛，`make test-ci`退出2。全前端3229项、ESLint、生产构建、Ruff、25个改动Python文件格式检查、`make docs-check BASE_REF=origin/main`、`make module-import-gate`和`make repo-gates`通过。未做真实模型/稿件/作者或真人浏览器验收；无commit/push/PR/main合并/部署。下一步：保留覆盖率门禁失败和WIP，供后续确定基线归因后处理。

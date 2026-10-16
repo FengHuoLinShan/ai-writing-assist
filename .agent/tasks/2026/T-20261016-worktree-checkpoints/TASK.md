@@ -1,53 +1,41 @@
 ---
 id: T-20261016-worktree-checkpoints
-title: 地图增强系列工作树本地提交与待审查清单
-status: active
+title: 地图增强旧分支审查、修复、集成与本地提交
+status: completed
 created: 2026-10-16T20:05:54+08:00
-updated: 2026-10-16T20:58:14+08:00
+updated: 2026-10-16T21:01:03+08:00
 ---
 
-# 地图增强系列工作树提交与审查交接
+# 地图增强旧分支收尾
 
 ## 恢复快照
 
-- 用户续接授权（2026-10-16）：直接review这些旧分支、修复、集成、提交并收尾；恢复本任务作为唯一主记录。当前固定基线 `34574f6cf70701116997a1aa7919468ff1391168`，在 `codex/map-enhancement-plan` 集成，不合入main、不推送或部署，不运行模型或重放冻结评测。
-- 当前阶段：Standards/Spec 两路已完成9分支语义对账，27个补丁及旧留痕原型均由当前实现保留/替代；修复提交 `d4feba9023f5ed1daceb72e663f7ed88f000c297`。最终完整CI exit0：后端9108/2skip、85.00%覆盖率，前端3234、部署324通过，PG10通过。另修HTTP续算预算预览500与UTC历史恢复；待历史归并与关闭记录。
-- 新恢复快照：`/private/tmp/map-old-branch-integration-20261016-201744`，保存全worktree/branch/stash初始状态；上轮提交与清单继续保留历史身份。
-- 新下一步：完成完整门禁与专用PG回归，补齐分支对账报告；只在确认所有旧行为已覆盖后执行topic分支历史归并，提交业务修复及收尾记录。覆盖率仍保持85%原门槛，未访问业务或冻结评测库。
-
-下方为上轮仅提交整理的完成记录；其中限制已由本轮上述明确授权扩展为工程review与修复集成。
-
-- 用户先要求提交各工作树并列出 review 清单，随后将收尾重点收敛为地图增强系列对应工作树。仅本地 Git 提交，不推送、合并、部署或运行模型；其他文档、研究与冻结评测树保持原样。
-- 已核实 60 个注册 worktree，9 个有改动，共 174 个原有文件；原始 HEAD、文件哈希、二进制差异和文件副本保存在 `/private/tmp/ai-writing-assist-worktree-commits-20261016-200554/manifest.json` 及同目录。
-- 主工作区：`.worktrees/map-enhancement-plan`，分支 `codex/map-enhancement-plan`；原始 HEAD `59537b4cb376da20b67cd8152f4cca3ba6f286d0`。
-- 已完成：地图系列39树核对、两个含代码WIP的主题提交、地图历史报告提交；最终交接记录随本文件单独提交。
-- 下一步：按[待review清单](REVIEW.md)优先审查固定增量 651df05722abc7bbc6a47a42dbee77c43b5faf5f；覆盖率84.37%未达85%的原阻塞仍保留。
+- 用户授权：先保存地图系列各工作树，再直接 review 旧分支、修复、集成、提交并收尾。所有工程动作在 `codex/map-enhancement-plan` 完成；没有 push、PR、main 合并或部署，也未调用真实模型或重放冻结评测。
+- 审查基线：`34574f6cf70701116997a1aa7919468ff1391168`；本轮业务修复 `d4feba9023f5ed1daceb72e663f7ed88f000c297`，审查证据 `9e5726aaa5534ceca30a02b993ec60f4abe468b2`，历史归并 `8834efccd6aa05339dff141b5114f568ecf24cdd`。最后的任务关闭提交由 Git HEAD 查询；之后仅文档记录变化。
+- 9个固定旧HEAD（8分支27个差异补丁、旧留痕原型1个）均已语义对账，有效能力在当前实现中保留或被更严格实现替代；无独有生产功能遗漏。两轴结论和逐分支处置见 [审查报告](INTEGRATION-REVIEW.md) 及 [机器对账](artifacts/old-branch-disposition.json)。
+- 本轮修复：导演确认条目与各角色 POV 交集、父回合/冻结/恢复范围证明；空间提醒复用精确Story有效期策略；HTTP续算预算预览500；UTC历史恢复期限；C0配置状态文档。旧原型migration没有引入。
+- 归并前后tree相同，9个旧HEAD已可达；39个地图工作树均已核对干净，其他59个worktree HEAD、其他refs与stash不变。保留全部旧分支、工作树及ignored数据，不执行删除。
+- 下一步：本次旧分支工程收尾无剩余必需工作。三份产品计划继续active，真实模型/作者、长篇、长期使用及外部路线图条件仍按原任务验收，不能从工程绿色推定通过。
 
 ## 目标与验收
 
-- 地图增强系列中有改动的各树均获得可恢复的本地提交；已干净的相关树核对是否仍有未集成补丁，不直接提交 main。
-- 保留原业务行为和冻结证据原始字节，不执行评测驱动、不访问业务数据库，不新增业务修复；仅格式化已改 dossier_interchange.py，原文件恢复副本保留。
-- 提交清单给出分支、前后 SHA、验证结果、待 review 范围及原有阻塞。
-- 清理前后核对全部工作树，干净树不更改；不删除 worktree、分支、stash 或 ignored 数据。
+- [x] 保全原WIP、本地提交、固定待review范围。
+- [x] Standards / Spec 两轴审查9分支、按真实调用链修复并回归。
+- [x] 完整本地门禁达到既有阈值，不删除断言、不改覆盖率范围。
+- [x] 在地图主题分支记录已被替代的分支历史，核实文件树不变和旧HEAD可达。
+- [x] 更新报告、开放任务索引及三份计划恢复快照，提交收尾记录。
 
-## 上下文与决定
+## 验证
 
-- 复用主目录的 `T-20261016-branch-progress` 作为历史背景；实际状态以本次 Git 与文件指纹为准。
-- 地图整合分支含 47 个已跟踪修改和 1 个未跟踪交接文件，其中 19 个测试文件；已有记录的后端覆盖率 84.37% 未达 85%，本地提交不代表合并门禁通过。
-- 审读新增 17 项测试已纳入 `c0f4fd2b2`，其测试说明与其他非地图工作树不纳入本次收尾。
-- 旧操作留痕树有 9 个未提交文件，含 migration/ORM/DI 的未完成实现；作为 WIP 保存，不能直接交付或覆盖地图整合实现。
-- G6b/G6c 与 Guimi v3 的冻结配置和账本保持不变，只检查格式、安全与静态来源，不重跑、改写冻结或访问原始私有证据。
-- 文档刷新树为历史基线成果，本次不提交或改写；主目录仅单独保存地图历史评审报告。
+- 最终 `make test-ci TEST_WORKERS=2` exit0：后端**9108 passed / 2 skipped**，覆盖率**85.00%**（145112 statements / 21765 missing，门槛85%），前端**257文件 / 3234 passed**，部署契约**324 passed**；Ruff、依赖审计、secret hygiene与docs通过。
+- 独立临时PostgreSQL 17导演历史/锁/预算/真实worker回归**10 passed**；传输使用合成响应，该专库已停止、保留数据和日志。
+- `make docs-check BASE_REF=origin/main`、`make repo-gates`、12个变动Python文件格式及 `git diff --check` 通过；保留3个既有长度提示。
+- 59项定向回归、12项确认范围与完整离线流程回归通过；首轮9101项通过但84.78%未达门槛及85.02%增量统计仅作过程记录，最终采用从头全量85.00%。
+- [验证摘要](artifacts/verification.json)、[集成与范围外保护核对](artifacts/integration-verification.json)、[地图工作树快照](artifacts/worktrees-after-review.csv)。覆盖率刚达门槛，后续生产代码变动须继续运行同一门禁。
 
-## 进度
+## 边界与保留
 
-- [x] 全工作树盘点和私有恢复副本。
-- [x] 地图系列逐树检查和主题提交。
-- [x] 固定提交的review清单与提交前状态/文件指纹核对；最终记录提交后再核Git状态。
-
-## 验证与交付
-
-- 本轮：后端145、前端120通过；Ruff/受影响格式/ESLint/docs/repo-gates通过；各提交staged差异与secret hygiene通过。
-- 提交：整合业务 `651df05722abc7bbc6a47a42dbee77c43b5faf5f`；旧原型 `9fd1c83055db8390c0599b09825e3f5809089f57`；历史报告 `cd4bf9705f4228b3b6163d749a3e499bf890cc0e`。
-- 39树明细见[WORKTREES.csv](WORKTREES.csv)，8个待补丁对账分支与门禁边界见[REVIEW.md](REVIEW.md)。
-- 未重跑全量覆盖率、PG、浏览器或真实模型；未push/PR/合并/部署。旧原型7项Ruff和docs失败如实保留。
+- R3–R6、holdout、能力默认开关、Guimi v3固定HEAD与受保护验收项目/数据库未更动；无真实模型、稿件、作者、浏览器或生产验收。
+- 原126个范围外文件有125个原始字节不变；另一个editorial覆盖率说明文件在范围外被移除，现场还存在其任务笔记WIP，本轮未修改、恢复或提交。原副本在任务前备份保留。其他任务与范围外WIP不纳入本次提交。
+- 新恢复快照 `/private/tmp/map-old-branch-integration-20261016-201744`；原WIP/文件哈希/归档 `/private/tmp/ai-writing-assist-worktree-commits-20261016-200554`。
+- 上轮提交：整合业务 `651df05722abc7bbc6a47a42dbee77c43b5faf5f`、旧原型WIP `9fd1c83055db8390c0599b09825e3f5809089f57`、主目录历史报告 `cd4bf9705f4228b3b6163d749a3e499bf890cc0e`；原39树明细 [WORKTREES.csv](WORKTREES.csv)，原待审查清单 [REVIEW.md](REVIEW.md) 保留历史身份。

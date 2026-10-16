@@ -34,11 +34,11 @@
 
 ## 集成方式
 
-先提交本轮安全与有效期修复，再以保留当前树内容的历史归并记录已核实的9个旧HEAD。这只在地图主题分支归并已被替代的分支历史，避免普通 cherry-pick 恢复旧实现或重复 migration。归并前后 tree hash 必须相同，且9个固定HEAD均可达。旧分支、工作树、stash及私有恢复副本保留；归并结果由收尾快照核实。
+本轮修复提交后，以 `8834efccd6aa05339dff141b5114f568ecf24cdd` 保留当前树内容并历史归并已核实的9个旧HEAD。这只在地图主题分支归并已被替代的分支历史，避免普通 cherry-pick 恢复旧实现或重复 migration。已核实归并前后 tree hash 均为 `80b467f7b506f45f4ae19f2601fc7d7c042d21eb`，且9个固定HEAD均可达。旧分支、工作树、stash及私有恢复副本保留；归并与39个干净地图工作树见 [收尾核对](artifacts/integration-verification.json) 与 [工作树快照](artifacts/worktrees-after-review.csv)。
 
 ## 验证
 
-- 定向59项通过；另有12项确认范围、完整离线workflow、worker零请求拒绝、HTTP历史/参考副本/批量删除恢复、失败预算与Writing消费回归通过。
+- 定向59项通过；确认范围及完整离线流程回归12项通过，覆盖worker零请求拒绝、HTTP历史/参考副本/批量删除恢复、失败预算与Writing消费。
 - 专用 PostgreSQL 17 的导演回归10项通过（合成模型传输）；不连接业务或冻结评测库。
 - 最终 `make test-ci TEST_WORKERS=2` **exit 0**：后端9108 passed/2 skipped、覆盖率**85.00%**（原门槛85%），前端257文件/3234项通过，部署契约324项通过；文档、secret hygiene、依赖审计与Ruff通过。首轮84.78%失败和85.02%增量结果仅作过程记录，最终以从头全量结果为准，阈值与统计范围未改。
 - `make docs-check BASE_REF=origin/main`、`make repo-gates` 通过；长度提示保持非阻断。
