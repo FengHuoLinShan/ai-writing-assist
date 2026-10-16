@@ -97,7 +97,7 @@ describe("ChapterOrderDialog", () => {
 
     expect(api.writing.previewChapterOrder).toHaveBeenCalledWith("project-1", [2, 1, 3])
     expect(wrapper.text()).toContain("第 1 章 → 第 2 章")
-    expect(wrapper.text()).toContain("章节锚点将迁移并待重验")
+    expect(wrapper.text()).toContain("这些剧情安排需要重新核对")
     expect(wrapper.text()).not.toContain("internal-plan-id")
 
     await wrapper.findAll("button").find((button) => button.text() === "确认并重排章节").trigger("click")

@@ -74,7 +74,7 @@ describe("StoryFactTimelinePanel", () => {
     await wrapper.get(".story-fact-timeline__filters").trigger("submit")
     await flushPromises()
     expect(wrapper.text()).toContain("拿到钥匙")
-    expect(wrapper.text()).toContain("1 条事件没有可确认的 Scene 时间")
+    expect(wrapper.text()).toContain("1 条事件没有可确认的场景时间")
     expect(wrapper.text()).not.toContain("project-1-entity-1")
 
     const filters = wrapper.findAll(".story-fact-timeline__filters select")

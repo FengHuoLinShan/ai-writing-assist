@@ -3,9 +3,9 @@
     <div class="chapter-order-dialog__layout">
       <header class="chapter-order-dialog__header">
         <div>
-          <p class="chapter-order-dialog__eyebrow">正文结构 · R3</p>
+          <p class="chapter-order-dialog__eyebrow">调整前需确认</p>
           <h2 id="chapter-order-title">章节顺序</h2>
-          <p class="chapter-order-dialog__intro">调整正文目录顺序。所有版本和批注会随原章节移动；Story 的精确来源会迁移或在冲突时停止。</p>
+          <p class="chapter-order-dialog__intro">调整正文目录顺序。正文版本和批注会跟随原章节；相关场景的章节位置会同步更新，遇到来源冲突时会停止。</p>
         </div>
         <button type="button" class="btn btn-sm btn-ghost" aria-label="关闭章节顺序" @click="close">关闭</button>
       </header>
@@ -50,10 +50,10 @@
 
         <section v-if="preview" class="chapter-order-review" aria-labelledby="chapter-order-review-title" :aria-busy="busy ? 'true' : undefined">
           <header>
-            <p class="chapter-order-dialog__eyebrow">预览已保存 · 作者确认前不会移动正文</p>
+            <p class="chapter-order-dialog__eyebrow">预览已生成 · 确认前不会调整正文</p>
             <h3 id="chapter-order-review-title">确认前检查影响</h3>
           </header>
-          <p class="chapter-order-review__summary">本操作会改变章节的实际正文位置，且可能改变 Story 对章节顺序的解释。请确认下列映射和待重验项。</p>
+          <p class="chapter-order-review__summary">这次调整会改变正文的实际章节位置，并影响相关场景和剧情安排。请核对下列变化与待重验项。</p>
 
           <ol class="chapter-order-moves" aria-label="章节位置变化">
             <li v-for="move in preview.moves" :key="`${move.from_chapter_index}-${move.to_chapter_index}`">
@@ -64,15 +64,15 @@
           </ol>
 
           <dl class="chapter-order-impact">
-            <div><dt>Scene 章节绑定</dt><dd>{{ Number(preview.story_impact?.scene_binding_count || 0) }}</dd></div>
+            <div><dt>场景章节关联</dt><dd>{{ Number(preview.story_impact?.scene_binding_count || 0) }}</dd></div>
             <div><dt>正文片段来源</dt><dd>{{ Number(preview.story_impact?.scene_span_count || 0) }}</dd></div>
-            <div><dt>事实事件</dt><dd>{{ Number(preview.story_impact?.fact_event_count || 0) }} <span>历史事件保留，时间线按新顺序标待重验</span></dd></div>
+            <div><dt>已记录事实事件</dt><dd>{{ Number(preview.story_impact?.fact_event_count || 0) }} <span>原记录保留，受影响的时间线标为待重验</span></dd></div>
             <div><dt>待重验计划</dt><dd>{{ Number(preview.story_impact?.plan_review_count || 0) }}</dd></div>
             <div><dt>失效快照与检查点</dt><dd>{{ Number(preview.story_impact?.snapshot_count || 0) + Number(preview.story_impact?.scene_checkpoint_count || 0) + Number(preview.story_impact?.scene_snapshot_count || 0) + Number(preview.story_impact?.scene_summary_count || 0) }}</dd></div>
           </dl>
 
           <section v-if="preview.story_impact?.plan_review_refs?.length" class="chapter-order-review__plans" aria-labelledby="chapter-order-plans-title">
-            <h4 id="chapter-order-plans-title">章节锚点将迁移并待重验</h4>
+            <h4 id="chapter-order-plans-title">这些剧情安排需要重新核对</h4>
             <ul>
               <li v-for="(item, index) in preview.story_impact.plan_review_refs" :key="`${item.target_type}-${item.target_id}-${index}`">
                 <strong>{{ item.label || planTypeLabel(item.target_type) }}</strong>
@@ -96,8 +96,8 @@
           </section>
 
           <aside class="chapter-order-review__confirm" role="note">
-            <strong>这是 R3 章节结构操作</strong>
-            <p>确认后会原子移动全部版本、跟随章节的批注和 Story 章节绑定；旧事实事件与 Evolution 冻结记录保持不变。恢复也会先检查重排后是否出现了新编辑。</p>
+            <strong>这次调整需要确认</strong>
+            <p>确认后，正文版本、批注和相关场景的章节位置会一起更新。已记录的事实事件会保留；如果之后又编辑了相关内容，恢复原顺序前会先停止并请你核对。</p>
             <button type="button" class="btn btn-primary" :disabled="busy || !canConfirm" @click="confirmOrder">
               {{ confirming ? '正在执行…' : '确认并重排章节' }}
             </button>
@@ -109,7 +109,7 @@
         <div class="chapter-order-dialog__section-heading">
           <div>
             <h3 id="chapter-order-history-title">重排历史</h3>
-            <p>可以恢复最近已执行的调整。恢复会重验正文、批注与 Story 来源，任何新编辑都会阻止覆盖。</p>
+            <p>可以恢复最近已执行的调整。恢复前会核对正文、批注与场景来源；新编辑不会被覆盖。</p>
           </div>
           <button type="button" class="btn btn-sm" :disabled="busy || !canUseTargetProject" @click="loadHistory">{{ loadingHistory ? '正在读取…' : '刷新' }}</button>
         </div>
@@ -133,11 +133,11 @@
         </ul>
 
         <section v-if="restorePreview" class="chapter-order-review chapter-order-restore" aria-labelledby="chapter-order-restore-title">
-          <p class="chapter-order-dialog__eyebrow">恢复预览 · R3</p>
+          <p class="chapter-order-dialog__eyebrow">恢复前需确认</p>
           <h3 id="chapter-order-restore-title">{{ restorePreview.can_restore ? '可以恢复原顺序' : '当前来源有变化' }}</h3>
           <p>{{ restorePreview.can_restore
-            ? '恢复会按这次调整之前的顺序放回所有正文版本与 Story 绑定。请再确认一次。'
-            : '重排后正文、批注或 Story 绑定已变化。为保护新内容，系统不会覆盖恢复。' }}</p>
+            ? '恢复会把正文版本和相关场景放回这次调整前的章节位置。请再确认一次。'
+            : '重排后正文、批注或场景来源已变化。为保护新内容，系统不会覆盖恢复。' }}</p>
           <ul v-if="restorePreview.blockers?.length" class="chapter-order-blockers__list">
             <li v-for="blocker in restorePreview.blockers" :key="blocker.kind">{{ blocker.message }}</li>
           </ul>
@@ -377,8 +377,8 @@ function planTypeLabel(type) {
     foreshadowing_plan: "伏笔计划",
     reveal_plan: "揭示计划",
     scene_span_order: "正文片段",
-    scene_cross_chapter_order: "跨章 Scene",
-    scene_multi_chapter_binding_order: "多章 Scene",
+    scene_cross_chapter_order: "跨章场景",
+    scene_multi_chapter_binding_order: "多章场景",
     plan_interval_inverted: "计划区间",
     plan_interval_non_contiguous: "计划区间",
   })[type] || "章节来源"

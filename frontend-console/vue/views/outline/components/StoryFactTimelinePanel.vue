@@ -9,7 +9,7 @@
     </summary>
 
     <div class="story-fact-timeline__body" :aria-busy="loading ? 'true' : 'false'">
-      <p class="story-fact-timeline__intro">这里只读取 Story 已记录的事实事件，不会把伏笔、揭示安排或篇章计划当作已发生事实。选择 Scene 截止时间后，只显示该 Scene 及之前可确认的事件。</p>
+      <p class="story-fact-timeline__intro">这里只展示已记录的事实事件，不会把伏笔、揭示安排或篇章计划当作已发生事实。选择截至场景后，只显示该场景及之前可确认的事件。</p>
       <p v-if="error" class="story-fact-timeline__error" role="alert">{{ error }}</p>
       <p v-if="result?.pending_revalidations?.length" class="story-fact-timeline__pending" role="status">
         <strong>{{ result.pending_revalidations.length }} 项计划仍待重验</strong>
@@ -24,11 +24,11 @@
 
       <form class="story-fact-timeline__filters" @submit.prevent="loadFacts(true)">
         <label>
-          <span>截止 Scene</span>
+          <span>截至场景</span>
           <select v-model="filters.cutoffSceneId">
             <option value="">全部可确认时间</option>
             <option v-for="scene in result?.scene_options || []" :key="scene.scene_id" :value="scene.scene_id">
-              {{ scene.title || `Scene ${scene.scene_index}` }} · 顺序 {{ scene.scene_index }}
+              {{ scene.title || `场景 ${scene.scene_index}` }} · 顺序 {{ scene.scene_index }}
             </option>
           </select>
         </label>
@@ -61,7 +61,7 @@
       </form>
 
       <p v-if="result?.unknown_time_count" class="story-fact-timeline__unknown" role="status">
-        {{ result.unknown_time_count }} 条事件没有可确认的 Scene 时间；列表会将它们标为未知，无法按截止时间推断先后。
+        {{ result.unknown_time_count }} 条事件没有可确认的场景时间；列表会将它们标为未知，无法按截止时间推断先后。
       </p>
       <p v-if="!loading && !(result?.items || []).length" class="story-fact-timeline__empty">当前筛选下没有事实事件。</p>
 
@@ -72,7 +72,7 @@
             <span class="story-fact-timeline__status" :class="`is-${event.time_status}`">{{ statusLabel(event.time_status) }}</span>
           </div>
           <p class="story-fact-timeline__position">
-            <template v-if="event.current_scene_index != null">Scene {{ event.current_scene_index }}</template>
+            <template v-if="event.current_scene_index != null">场景 {{ event.current_scene_index }}</template>
             <template v-if="event.current_chapter_index != null"> · 第 {{ event.current_chapter_index }} 章</template>
             <template v-if="event.entity_label"> · {{ event.entity_label }}</template>
             <template v-else-if="event.entity_type"> · {{ entityTypeLabel(event.entity_type) }}</template>
