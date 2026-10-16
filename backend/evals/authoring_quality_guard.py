@@ -738,6 +738,15 @@ def _start_request(
             )
         if len(journal["requests"]) >= AUTHORING_QUALITY_MAX_REQUESTS:
             raise AuthoringQualityError("authoring-quality request budget is exhausted")
+        _write_private_json(
+            root,
+            f"request-{key}.json",
+            {
+                "step_name": step_name,
+                "prompt": prompt,
+                "response_schema": schema,
+            },
+        )
         journal["requests"][key] = {
             "domain": entry.domain,
             "phase": entry.phase,
@@ -765,6 +774,15 @@ def _finish_request(
         )
         if completed and response is not None:
             _write_private_json(root, f"response-{key}.json", json.loads(response))
+        elif response is not None:
+            _write_private_json(
+                root,
+                f"unknown-response-{key}.json",
+                {
+                    "raw_response": response,
+                    "sha256": _sha256_bytes(response.encode("utf-8")),
+                },
+            )
         _write_private_json(root, "request-journal.json", journal)
 
 

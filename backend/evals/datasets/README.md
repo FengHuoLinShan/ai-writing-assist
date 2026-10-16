@@ -502,6 +502,8 @@ The executor remains pinned to Codex `gpt-6.1-sol/xhigh`, 300 seconds, and one
 attempt. Each frozen private run permits at most 12 requests and a 160,000-byte
 prompt; started, failed/unknown, and completed requests all consume admission.
 No unknown request is automatically repeated.
+The exact request/schema and successful or malformed raw output are retained as
+0600 private artifacts; repository logs contain no source text or model output.
 
 The manifest binds one active owner and dedicated `AUTHORING-QUALITY:` author
 Project, its unchanged verified Luna/max business snapshot, an isolated loopback

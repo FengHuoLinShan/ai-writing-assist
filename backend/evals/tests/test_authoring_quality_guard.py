@@ -356,6 +356,14 @@ async def test_invalid_provider_result_is_unknown_and_never_retried(
     assert [
         x["status"] for x in guard._read_journal(scope.private_root)["requests"].values()
     ] == ["unknown"]
+    key = next(iter(guard._read_journal(scope.private_root)["requests"]))
+    request = scope.private_root / f"request-{key}.json"
+    response = scope.private_root / f"unknown-response-{key}.json"
+    assert json.loads(request.read_text())["prompt"] == _prompt(scope)
+    assert json.loads(json.loads(response.read_text())["raw_response"]) == {
+        "invalid": True
+    }
+    assert request.stat().st_mode & 0o777 == response.stat().st_mode & 0o777 == 0o600
 
 
 @pytest.mark.asyncio
