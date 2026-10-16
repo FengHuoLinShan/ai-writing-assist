@@ -58,6 +58,7 @@ if TYPE_CHECKING:
     from modules.world.services.worldbuilding.adoption_package_service import (
         WorldAdoptionPackageService,
     )
+    from modules.writing.contracts import StoryChapterOrderPort
     from modules.writing.manuscript_source_port import ManuscriptSourcePort
 
 # --- assistant -----------------------------------------------------------
@@ -306,6 +307,7 @@ EVOLUTION_READ_COMPLETED_CHAPTERS: ServiceKey[Callable[..., Any]] = ServiceKey(
 STORY_INVALIDATE_WORLD_PROGRESSION_FOR_REORDER: ServiceKey[Callable[..., Any]] = (
     ServiceKey("story.invalidate_world_progression_for_reorder")
 )
+STORY_CHAPTER_ORDER: ServiceKey[StoryChapterOrderPort] = ServiceKey("story.chapter_order")
 
 # --- world ------------------------------------------------------------------
 
@@ -502,6 +504,7 @@ ALL_SERVICE_KEYS: tuple[ServiceKey[Any], ...] = (
     STORY_QUEUE_WORLD_PROGRESSION_READ_CHECK,
     EVOLUTION_READ_COMPLETED_CHAPTERS,
     STORY_INVALIDATE_WORLD_PROGRESSION_FOR_REORDER,
+    STORY_CHAPTER_ORDER,
     WORLD_MAP_CAPABILITIES,
     WORLD_REVIEW_TEAM_STRESS,
     WORLD_LIST_ADOPTED_MAP_CONTINUITY_FACTS,

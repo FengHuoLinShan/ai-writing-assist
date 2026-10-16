@@ -87,7 +87,7 @@ async def select_plan(db, run_id, selection, owner_id):
         operations=resolve_operations(
             runtime_protocol(run.request_json)["operations"],
             allow_stale=run.request_json.get("runtime_version")
-            in {"7", "8", "9", "10", "11", "12", "13", "14", "15"},
+            in {"7", "8", "9", "10", "11", "12", "13", "14", "15", "16"},
         )
         if run.request_json.get("runtime_version")
         else None,

@@ -2,10 +2,14 @@
 
 from __future__ import annotations
 
+import hashlib
+import json
+import uuid
 from copy import deepcopy
 from datetime import UTC, datetime
 from typing import Any
 
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from core.container import get
@@ -14,20 +18,33 @@ from core.service_keys import (
     ASSISTANT_EDITORIAL_POST_ADOPTION_RECHECKS,
     ASSISTANT_MARK_EDITORIAL_READY,
     EVIDENCE_CONFIRMATION_READS,
+    STORY_CHAPTER_ORDER,
+    STORY_INVALIDATE_WORLD_PROGRESSION_FOR_REORDER,
 )
 from infrastructure.llm.redaction import redact_diagnostic
 from modules.project.contracts import WorkspaceCreationProgressItem
 from modules.writing.contracts import (
+    StoryChapterOrderPort,
     WritingDraftContract,
     WritingProjectStatsContract,
 )
-from modules.writing.models import WritingDraft
+from modules.writing.models import (
+    WritingChapterOrderOperation,
+    WritingComment,
+    WritingDraft,
+)
 from modules.writing.repositories import (
     INVALIDATION_VIEW_ATTR,
     WORKING_DRAFT_STATUSES,
     WritingDraftRepository,
 )
 from modules.writing.schemas import (
+    ChapterOrderHistoryItem,
+    ChapterOrderHistoryResponse,
+    ChapterOrderPreviewRequest,
+    ChapterOrderPreviewResponse,
+    ChapterOrderRestorePreviewResponse,
+    ChapterOrderResultResponse,
     ChapterSummaryItem,
     DraftListItem,
     EditorialReadyRequest,
@@ -1520,3 +1537,632 @@ class WritingDraftService:
             )
             for novel_id in parsed_ids
         }
+
+
+class WritingChapterOrderService:
+    """Preview, execute and safely restore a complete Writing chapter order."""
+
+    def __init__(self, repo: WritingDraftRepository | None = None) -> None:
+        self._repo = repo or WritingDraftRepository()
+
+    async def preview(
+        self,
+        db: AsyncSession,
+        novel_id: str,
+        request: ChapterOrderPreviewRequest,
+    ) -> ChapterOrderPreviewResponse:
+        state = await self._load_state(db, novel_id)
+        source_order = state["chapter_indices"]
+        target_order = [int(index) for index in request.chapter_indices]
+        if not source_order:
+            raise ValidationError("当前没有可调整顺序的章节")
+        if target_order != source_order and sorted(target_order) != source_order:
+            raise ValidationError("请用当前章节完整顺序提交，不能漏章或重复")
+        if target_order == source_order:
+            raise ValidationError("章节顺序没有变化")
+
+        chapter_map = self._chapter_map_for_orders(source_order, target_order)
+        story = self._story_port()
+        story_preview = await story.preview(
+            db,
+            novel_id,
+            chapter_map,
+            state["source_versions"],
+        )
+        operation_id = uuid.uuid4()
+        moves = self._moves(state, chapter_map)
+        writing_blockers = self._writing_blockers(state)
+        story_impact = {
+            **story_preview["impact"],
+            "writing": {
+                "draft_version_count": len(state["drafts"]),
+                "comment_count": len(state["comments"]),
+                "unlisted_version_chapter_count": len(state["unlisted_chapter_indices"]),
+            },
+            "blockers": [*story_preview["blockers"], *writing_blockers],
+        }
+        preview_value = {
+            "receipt_id": str(operation_id),
+            "source_order": source_order,
+            "target_order": target_order,
+            "moves": moves,
+            "story_impact": story_impact,
+            "blockers": story_impact["blockers"],
+        }
+        preview_hash = _chapter_order_hash(preview_value)
+        operation = WritingChapterOrderOperation(
+            id=operation_id,
+            novel_id=_parse_uuid(novel_id, "novel_id"),
+            status="previewed",
+            source_order_json=source_order,
+            target_order_json=target_order,
+            before_fingerprint=state["fingerprint"],
+            preview_hash=preview_hash,
+            story_fingerprint=story_preview["fingerprint"],
+            story_receipt_id=operation_id,
+            impact_json=story_impact,
+            preview_json=preview_value,
+        )
+        db.add(operation)
+        await db.flush()
+        return ChapterOrderPreviewResponse(
+            **preview_value,
+            preview_hash=preview_hash,
+        )
+
+    async def confirm(
+        self,
+        db: AsyncSession,
+        novel_id: str,
+        receipt_id: str,
+        *,
+        expected_preview_hash: str,
+        confirmed: bool,
+    ) -> ChapterOrderResultResponse:
+        if confirmed is not True:
+            raise ValidationError("需要作者明确确认章节顺序")
+        operation = await self._get_operation(db, novel_id, receipt_id, for_update=True)
+        if expected_preview_hash != operation.preview_hash:
+            raise ConflictError("章节顺序预览已变化，请重新核对")
+        if operation.status == "executed":
+            return self._result(operation, "executed", replayed=True)
+        if operation.status == "restored":
+            raise ConflictError("这项章节顺序调整已经恢复，请重新预览")
+        if (operation.impact_json or {}).get("blockers"):
+            raise ConflictError("Story 来源尚有未解决冲突，不能执行章节重排")
+
+        chapter_map = self._chapter_map(operation)
+        await self._lock_chapters(db, novel_id, chapter_map)
+        state = await self._load_state(db, novel_id, for_update=True)
+        if state["fingerprint"] != operation.before_fingerprint:
+            raise ConflictError("章节正文、版本或批注已变化，请重新预览")
+
+        story_result = await self._story_port().apply(
+            db,
+            novel_id,
+            str(operation.story_receipt_id),
+            chapter_map,
+            state["source_versions"],
+            operation.story_fingerprint,
+        )
+        await self._move_writing_rows(db, state, chapter_map)
+        await self._invalidate_standing_authorization(db, novel_id)
+        await db.flush()
+
+        after = await self._load_state(db, novel_id)
+        operation.status = "executed"
+        operation.after_fingerprint = after["fingerprint"]
+        operation.executed_at = datetime.now(UTC)
+        operation.result_ref_json = {
+            "type": "writing_chapter_order",
+            "id": str(operation.id),
+        }
+        operation.impact_json = {
+            **(operation.impact_json or {}),
+            "story": story_result.get("impact") or operation.impact_json,
+        }
+        await db.flush()
+        return self._result(operation, "executed", replayed=False)
+
+    async def preview_restore(
+        self,
+        db: AsyncSession,
+        novel_id: str,
+        receipt_id: str,
+    ) -> ChapterOrderRestorePreviewResponse:
+        operation = await self._get_operation(db, novel_id, receipt_id, for_update=True)
+        if operation.status != "executed":
+            raise ConflictError("只有尚未恢复的已执行重排可以预览恢复")
+        state = await self._load_state(db, novel_id)
+        story_preview = await self._story_port().preview_restore(
+            db,
+            novel_id,
+            str(operation.story_receipt_id),
+        )
+        preview_value = self._restore_preview_value(operation, state, story_preview)
+        preview_hash = _chapter_order_hash(preview_value)
+        operation.restore_preview_hash = preview_hash
+        operation.restore_preview_json = preview_value
+        await db.flush()
+        return ChapterOrderRestorePreviewResponse(
+            receipt_id=operation.id,
+            status="executed",
+            can_restore=not preview_value["blockers"],
+            restore_preview_hash=preview_hash,
+            chapter_map=self._chapter_map(operation),
+            story_impact=operation.impact_json or {},
+            blockers=preview_value["blockers"],
+        )
+
+    async def restore(
+        self,
+        db: AsyncSession,
+        novel_id: str,
+        receipt_id: str,
+        *,
+        confirmed: bool,
+        expected_preview_hash: str,
+    ) -> ChapterOrderResultResponse:
+        if confirmed is not True:
+            raise ValidationError("需要作者明确确认恢复章节顺序")
+        operation = await self._get_operation(db, novel_id, receipt_id, for_update=True)
+        if operation.status == "restored":
+            return self._result(operation, "restored", replayed=True)
+        if operation.status != "executed" or not operation.after_fingerprint:
+            raise ConflictError("这项章节顺序调整尚未执行，不能恢复")
+        if (
+            not operation.restore_preview_hash
+            or expected_preview_hash != operation.restore_preview_hash
+        ):
+            raise ConflictError("恢复预览已变化，请重新核对")
+
+        chapter_map = self._chapter_map(operation)
+        await self._lock_chapters(db, novel_id, chapter_map)
+        state = await self._load_state(db, novel_id, for_update=True)
+        story_preview = await self._story_port().preview_restore(
+            db,
+            novel_id,
+            str(operation.story_receipt_id),
+        )
+        preview_value = self._restore_preview_value(operation, state, story_preview)
+        current_preview_hash = _chapter_order_hash(preview_value)
+        if (
+            preview_value["blockers"]
+            or current_preview_hash != operation.restore_preview_hash
+            or current_preview_hash != expected_preview_hash
+        ):
+            raise ConflictError(
+                "重排后的正文、批注或 Story 来源已有变化；为保护新内容，请重新预览"
+            )
+
+        story_result = await self._story_port().restore(
+            db,
+            novel_id,
+            str(operation.story_receipt_id),
+        )
+        inverse = {target: source for source, target in chapter_map.items()}
+        await self._move_writing_rows(db, state, inverse)
+        await self._invalidate_standing_authorization(db, novel_id)
+        await db.flush()
+        operation.status = "restored"
+        operation.restored_at = datetime.now(UTC)
+        operation.impact_json = {
+            **(operation.impact_json or {}),
+            "story": story_result.get("impact") or operation.impact_json,
+        }
+        await db.flush()
+        return self._result(operation, "restored", replayed=False)
+
+    @staticmethod
+    def _restore_preview_value(
+        operation: WritingChapterOrderOperation,
+        state: dict[str, Any],
+        story_preview: dict[str, Any],
+    ) -> dict[str, Any]:
+        blockers = []
+        if state["fingerprint"] != operation.after_fingerprint:
+            blockers.append(
+                {
+                    "kind": "writing_source_changed",
+                    "message": "重排后正文、版本或批注已有新变化，不能覆盖恢复",
+                }
+            )
+        for blocker in story_preview.get("blockers", []):
+            kind = blocker.get("kind")
+            blockers.append(
+                {
+                    "kind": kind or "story_source_changed",
+                    "message": ("Story 绑定或派生来源已有新变化，不能覆盖恢复"),
+                }
+            )
+        return {
+            "receipt_id": str(operation.id),
+            "writing_fingerprint": state["fingerprint"],
+            "story_fingerprint": story_preview.get("story_fingerprint"),
+            "expected_story_fingerprint": story_preview.get("expected_story_fingerprint"),
+            "story_impact": operation.impact_json or {},
+            "blockers": blockers,
+        }
+
+    async def list_history(
+        self,
+        db: AsyncSession,
+        novel_id: str,
+        *,
+        limit: int = 20,
+    ) -> ChapterOrderHistoryResponse:
+        operations = (
+            await db.scalars(
+                select(WritingChapterOrderOperation)
+                .where(
+                    WritingChapterOrderOperation.novel_id
+                    == _parse_uuid(novel_id, "novel_id")
+                )
+                .order_by(
+                    WritingChapterOrderOperation.created_at.desc(),
+                    WritingChapterOrderOperation.id.desc(),
+                )
+                .limit(max(1, min(int(limit), 100)))
+            )
+        ).all()
+        return ChapterOrderHistoryResponse(
+            items=[
+                ChapterOrderHistoryItem(
+                    receipt_id=operation.id,
+                    status=operation.status,
+                    source_order=operation.source_order_json or [],
+                    target_order=operation.target_order_json or [],
+                    preview_hash=operation.preview_hash,
+                    story_impact=operation.impact_json or {},
+                    can_restore=operation.status == "executed",
+                    created_at=operation.created_at,
+                    executed_at=operation.executed_at,
+                    restored_at=operation.restored_at,
+                )
+                for operation in operations
+            ]
+        )
+
+    async def _load_state(
+        self,
+        db: AsyncSession,
+        novel_id: str,
+        *,
+        for_update: bool = False,
+    ) -> dict[str, Any]:
+        nid = _parse_uuid(novel_id, "novel_id")
+        chapter_indices = await self._repo.list_chapter_indices(db, nid)
+        if not chapter_indices:
+            return {
+                "chapter_indices": [],
+                "unlisted_chapter_indices": [],
+                "drafts": [],
+                "comments": [],
+                "source_versions": {},
+                "fingerprint": _chapter_order_hash({"drafts": [], "comments": []}),
+            }
+        all_chapter_indices = await self._repo.list_all_chapter_indices(db, nid)
+        unlisted_chapter_indices = sorted(set(all_chapter_indices) - set(chapter_indices))
+        statement = (
+            select(WritingDraft)
+            .where(
+                WritingDraft.novel_id == nid,
+                WritingDraft.chapter_index.in_(chapter_indices),
+            )
+            .order_by(
+                WritingDraft.chapter_index, WritingDraft.version_number, WritingDraft.id
+            )
+        )
+        if for_update:
+            statement = statement.with_for_update()
+        statement = statement.execution_options(populate_existing=True)
+        drafts = list((await db.scalars(statement)).all())
+        draft_ids = [draft.id for draft in drafts]
+        comments: list[WritingComment] = []
+        if draft_ids:
+            comment_statement = (
+                select(WritingComment)
+                .where(
+                    WritingComment.novel_id == nid,
+                    WritingComment.draft_id.in_(draft_ids),
+                )
+                .order_by(WritingComment.id)
+            )
+            if for_update:
+                comment_statement = comment_statement.with_for_update()
+            comment_statement = comment_statement.execution_options(
+                populate_existing=True
+            )
+            comments = list((await db.scalars(comment_statement)).all())
+        source_versions: dict[int, list[dict[str, str]]] = {}
+        for draft in drafts:
+            source_versions.setdefault(int(draft.chapter_index), []).append(
+                {"draft_id": str(draft.id), "content_hash": str(draft.content_hash)}
+            )
+        return {
+            "chapter_indices": [int(index) for index in chapter_indices],
+            "unlisted_chapter_indices": unlisted_chapter_indices,
+            "drafts": drafts,
+            "comments": comments,
+            "source_versions": source_versions,
+            "fingerprint": self._fingerprint(drafts, comments),
+        }
+
+    @staticmethod
+    def _fingerprint(drafts: list[WritingDraft], comments: list[WritingComment]) -> str:
+        payload = {
+            "drafts": sorted(
+                (
+                    str(row.id),
+                    int(row.chapter_index),
+                    int(row.version_number),
+                    str(row.status),
+                    str(row.content_hash),
+                    _text_hash(row.content),
+                    _text_hash(row.title),
+                    _dt_key(row.updated_at),
+                )
+                for row in drafts
+            ),
+            "comments": sorted(
+                (
+                    str(row.id),
+                    str(row.draft_id),
+                    int(row.chapter_index),
+                    int(row.version_number),
+                    str(row.source_hash),
+                    row.range_hash,
+                    row.start_offset,
+                    row.end_offset,
+                    _text_hash(row.excerpt),
+                    _text_hash(row.body),
+                    row.status,
+                    row.origin,
+                    row.severity,
+                    str(row.review_task_id) if row.review_task_id else None,
+                    row.finding_id,
+                    str(row.last_run_task_id) if row.last_run_task_id else None,
+                    _dt_key(row.updated_at),
+                )
+                for row in comments
+            ),
+        }
+        return _chapter_order_hash(payload)
+
+    @staticmethod
+    def _moves(
+        state: dict[str, Any], chapter_map: dict[int, int]
+    ) -> list[dict[str, Any]]:
+        counts: dict[int, int] = {}
+        published: set[int] = set()
+        titles: dict[int, tuple[int, str | None]] = {}
+        for draft in state["drafts"]:
+            chapter_index = int(draft.chapter_index)
+            counts[chapter_index] = counts.get(chapter_index, 0) + 1
+            if draft.status in {"published", "canonical"}:
+                published.add(chapter_index)
+            previous = titles.get(chapter_index)
+            if previous is None or int(draft.version_number) > previous[0]:
+                titles[chapter_index] = (int(draft.version_number), draft.title)
+        return [
+            {
+                "from_chapter_index": source,
+                "to_chapter_index": target,
+                "title": titles.get(source, (0, None))[1],
+                "version_count": counts.get(source, 0),
+                "has_published_version": source in published,
+            }
+            for source, target in chapter_map.items()
+            if source != target
+        ]
+
+    @staticmethod
+    def _writing_blockers(state: dict[str, Any]) -> list[dict[str, Any]]:
+        blockers: list[dict[str, Any]] = []
+        unlisted = state["unlisted_chapter_indices"]
+        if unlisted:
+            blockers.append(
+                {
+                    "kind": "unlisted_chapter_versions",
+                    "count": len(unlisted),
+                    "message": (
+                        "有未出现在当前章节列表中的历史或建议版本；"
+                        "请先恢复或明确处理这些章节，再重排。"
+                    ),
+                    "examples": [{"chapter_index": index} for index in unlisted[:8]],
+                }
+            )
+
+        hash_mismatches = [
+            draft
+            for draft in state["drafts"]
+            if str(draft.content_hash or "") != hash_text(draft.content)
+        ]
+        if hash_mismatches:
+            blockers.append(
+                {
+                    "kind": "writing_source_hash_mismatch",
+                    "count": len(hash_mismatches),
+                    "message": "部分正文来源指纹不匹配，请先修复这些版本。",
+                    "examples": [
+                        {
+                            "chapter_index": int(draft.chapter_index),
+                            "version_number": int(draft.version_number),
+                        }
+                        for draft in hash_mismatches[:8]
+                    ],
+                }
+            )
+
+        draft_by_id = {draft.id: draft for draft in state["drafts"]}
+        misbound_comments = [
+            comment
+            for comment in state["comments"]
+            if (draft := draft_by_id.get(comment.draft_id)) is not None
+            and (
+                int(comment.chapter_index) != int(draft.chapter_index)
+                or int(comment.version_number) != int(draft.version_number)
+            )
+        ]
+        if misbound_comments:
+            blockers.append(
+                {
+                    "kind": "writing_comment_binding_mismatch",
+                    "count": len(misbound_comments),
+                    "message": "部分批注与其正文版本的章节记录不一致，请先核对这些批注。",
+                    "examples": [
+                        {
+                            "chapter_index": int(comment.chapter_index),
+                            "version_number": int(comment.version_number),
+                        }
+                        for comment in misbound_comments[:8]
+                    ],
+                }
+            )
+        return blockers
+
+    async def _move_writing_rows(
+        self,
+        db: AsyncSession,
+        state: dict[str, Any],
+        chapter_map: dict[int, int],
+    ) -> None:
+        if not state["drafts"]:
+            return
+        all_indices = (
+            await db.scalars(
+                select(WritingDraft.chapter_index)
+                .where(WritingDraft.novel_id == state["drafts"][0].novel_id)
+                .distinct()
+            )
+        ).all()
+        if any(int(index) < 1 for index in all_indices):
+            raise ConflictError("作品中存在无效章节号，不能安全重排")
+        temporary = {
+            source: min([int(index) for index in all_indices] + [0]) - offset - 1
+            for offset, source in enumerate(sorted(chapter_map))
+        }
+        original_by_draft = {row.id: int(row.chapter_index) for row in state["drafts"]}
+        for row in state["drafts"]:
+            row.chapter_index = temporary[original_by_draft[row.id]]
+        await db.flush()
+        for row in state["drafts"]:
+            row.chapter_index = chapter_map[original_by_draft[row.id]]
+        comment_source = {
+            row.id: original_by_draft[row.draft_id]
+            for row in state["comments"]
+            if row.draft_id in original_by_draft
+        }
+        for row in state["comments"]:
+            source = comment_source.get(row.id)
+            if source in chapter_map:
+                row.chapter_index = chapter_map[source]
+        await db.flush()
+
+    async def _lock_chapters(
+        self,
+        db: AsyncSession,
+        novel_id: str,
+        chapter_map: dict[int, int],
+    ) -> None:
+        nid = _parse_uuid(novel_id, "novel_id")
+        await self._repo.lock_chapter_catalog_for_reorder(db, nid)
+        await self._repo.lock_version_chapters_for_revalidation(
+            db,
+            nid,
+            list(chapter_map),
+        )
+
+    async def _get_operation(
+        self,
+        db: AsyncSession,
+        novel_id: str,
+        receipt_id: str,
+        *,
+        for_update: bool = False,
+    ) -> WritingChapterOrderOperation:
+        statement = select(WritingChapterOrderOperation).where(
+            WritingChapterOrderOperation.novel_id == _parse_uuid(novel_id, "novel_id"),
+            WritingChapterOrderOperation.id == _parse_uuid(receipt_id, "receipt_id"),
+        )
+        if for_update:
+            statement = statement.with_for_update().execution_options(
+                populate_existing=True
+            )
+        operation = await db.scalar(statement)
+        if operation is None:
+            raise NotFoundError("章节顺序操作记录不存在")
+        return operation
+
+    def _chapter_map(self, operation: WritingChapterOrderOperation) -> dict[int, int]:
+        source_order = [int(index) for index in operation.source_order_json]
+        target_order = [int(index) for index in operation.target_order_json]
+        target_slots = sorted(source_order)
+        return {
+            source: target_slots[position] for position, source in enumerate(target_order)
+        }
+
+    @staticmethod
+    def _chapter_map_for_orders(
+        source_order: list[int], target_order: list[int]
+    ) -> dict[int, int]:
+        target_slots = sorted(source_order)
+        return {
+            source: target_slots[position] for position, source in enumerate(target_order)
+        }
+
+    def _story_port(self) -> StoryChapterOrderPort:
+        # Story is the owner of its binding rows; bootstrap registers the adapter.
+        return get(STORY_CHAPTER_ORDER)
+
+    async def _invalidate_standing_authorization(
+        self,
+        db: AsyncSession,
+        novel_id: str,
+    ) -> None:
+        await get(STORY_INVALIDATE_WORLD_PROGRESSION_FOR_REORDER)(
+            db,
+            novel_id=novel_id,
+        )
+
+    @staticmethod
+    def _result(
+        operation: WritingChapterOrderOperation,
+        status: str,
+        *,
+        replayed: bool,
+    ) -> ChapterOrderResultResponse:
+        return ChapterOrderResultResponse(
+            receipt_id=operation.id,
+            status=status,
+            replayed=replayed,
+            chapter_map=WritingChapterOrderService._chapter_map_for_orders(
+                [int(index) for index in operation.source_order_json],
+                [int(index) for index in operation.target_order_json],
+            ),
+            story_impact=operation.impact_json or {},
+            result_ref=operation.result_ref_json
+            or {"type": "writing_chapter_order", "id": str(operation.id)},
+        )
+
+
+def _chapter_order_hash(value: Any) -> str:
+    encoded = json.dumps(
+        value, sort_keys=True, ensure_ascii=False, separators=(",", ":"), default=str
+    )
+    return hashlib.sha256(encoded.encode("utf-8")).hexdigest()
+
+
+def _text_hash(value: str | None) -> str | None:
+    if value is None:
+        return None
+    return hashlib.sha256(value.encode("utf-8")).hexdigest()
+
+
+def _dt_key(value: datetime | None) -> str | None:
+    if value is None:
+        return None
+    normalized = (
+        value.replace(tzinfo=UTC) if value.tzinfo is None else value.astimezone(UTC)
+    )
+    return normalized.isoformat()

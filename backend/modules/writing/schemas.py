@@ -672,6 +672,102 @@ class WritingDraftAutosaveCreate(BaseModel):
     content: str | None = Field(None, max_length=100000, description="草稿正文")
 
 
+class ChapterOrderPreviewRequest(BaseModel):
+    """Desired order of the currently visible chapter identities."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    chapter_indices: list[int] = Field(
+        ...,
+        min_length=1,
+        max_length=2000,
+        description=(
+            "按希望正文出现顺序提交当前章节号。系统将按现有章节槽位重新编号；"
+            "有编号空洞时也保持列表所表达的顺序。"
+        ),
+    )
+
+    @model_validator(mode="after")
+    def validate_indices(self) -> ChapterOrderPreviewRequest:
+        if any(index < 1 for index in self.chapter_indices):
+            raise ValueError("章节号必须为正整数")
+        if len(set(self.chapter_indices)) != len(self.chapter_indices):
+            raise ValueError("章节顺序不能包含重复章节")
+        return self
+
+
+class ChapterOrderConfirmedRequest(BaseModel):
+    """Explicit author confirmation bound to the exact saved preview."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    expected_preview_hash: str = Field(..., pattern=r"^[a-f0-9]{64}$")
+    confirmed: Literal[True]
+
+
+class ChapterOrderRestoreConfirmedRequest(BaseModel):
+    """Explicit confirmation bound to the current recovery preview."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    expected_preview_hash: str = Field(..., pattern=r"^[a-f0-9]{64}$")
+    confirmed: Literal[True]
+
+
+class ChapterOrderMove(BaseModel):
+    from_chapter_index: int
+    to_chapter_index: int
+    title: str | None = None
+    version_count: int = 0
+    has_published_version: bool = False
+
+
+class ChapterOrderPreviewResponse(BaseModel):
+    receipt_id: uuid.UUID
+    preview_hash: str
+    source_order: list[int]
+    target_order: list[int]
+    moves: list[ChapterOrderMove]
+    story_impact: dict[str, Any]
+    requires_r3_confirmation: Literal[True] = True
+
+
+class ChapterOrderResultResponse(BaseModel):
+    receipt_id: uuid.UUID
+    status: Literal["executed", "restored"]
+    replayed: bool = False
+    chapter_map: dict[int, int]
+    story_impact: dict[str, Any]
+    result_ref: dict[str, str]
+
+
+class ChapterOrderRestorePreviewResponse(BaseModel):
+    receipt_id: uuid.UUID
+    status: Literal["executed", "restored"]
+    can_restore: bool
+    restore_preview_hash: str
+    chapter_map: dict[int, int]
+    story_impact: dict[str, Any]
+    blockers: list[dict[str, Any]] = Field(default_factory=list)
+
+
+class ChapterOrderHistoryItem(BaseModel):
+    receipt_id: uuid.UUID
+    status: Literal["previewed", "executed", "restored"]
+    source_order: list[int]
+    target_order: list[int]
+    preview_hash: str
+    story_impact: dict[str, Any]
+    can_restore: bool
+    created_at: datetime | None = None
+    executed_at: datetime | None = None
+    restored_at: datetime | None = None
+
+
+class ChapterOrderHistoryResponse(BaseModel):
+    items: list[ChapterOrderHistoryItem]
+
+
 class WritingConflictCheckCreate(BaseModel):
     """创建剧情设定冲突检查。"""
 

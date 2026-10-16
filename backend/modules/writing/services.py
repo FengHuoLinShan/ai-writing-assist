@@ -3,6 +3,9 @@
 from modules.writing.conflict_check_service import (
     WritingConflictCheckService as WritingConflictCheckService,
 )
+from modules.writing.draft_service import (
+    WritingChapterOrderService as WritingChapterOrderService,
+)
 from modules.writing.draft_service import WritingDraftService as WritingDraftService
 from modules.writing.generation_service import (
     WritingGenerationService as WritingGenerationService,
