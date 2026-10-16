@@ -3,7 +3,7 @@ id: T-20261016-map-series-claude-review
 title: 地图增强系列实现的独立 review（分批）
 status: active
 created: 2026-10-16T21:30:00+08:00
-updated: 2026-10-16T21:59:00+08:00
+updated: 2026-10-16T22:40:00+08:00
 ---
 
 # 地图增强系列实现的独立 review（分批）
@@ -12,15 +12,17 @@ updated: 2026-10-16T21:59:00+08:00
 
 - 实际完成：第 1 批（M0 空间模型 v2 与项目词表），报告见 [BATCH-1.md](BATCH-1.md)；第 2 批（M1 演化
   可选步骤与空间发现），报告见 [BATCH-2.md](BATCH-2.md)；第 3 批（M2 自动草图与地图编辑），报告见
-  [BATCH-3.md](BATCH-3.md)。确认的问题都有 strict xfail 回归测试。
-- 当前里程碑：第 4 批 M3/M4 空间简报、提醒、声明与 Evidence 编译。
-- 下一步：审 `backend/modules/world/map_spatial_brief_service.py`，再审 `map_spatial_advisory_service.py`、
-  `map_declaration_state.py`、`evidence/compilation` 改动、writing/world `notice_sources`、ask_world、
-  evolution 的 `reading_notice_sources.py`；重点核对 BATCH-3.md 转来的“节点合并后 Context 排除”边界。
+  [BATCH-3.md](BATCH-3.md)；第 4 批（M3/M4 空间简报、提醒、声明与 Evidence 编译），报告见
+  [BATCH-4.md](BATCH-4.md)。能复现的问题都有 strict xfail 回归测试。
+- 当前里程碑：第 5 批地图前端。
+- 下一步：在 `frontend-console/vue/` 下找地图相关视图与组件（地图册、自动草图托盘、空间线索审核、
+  冷启动引导、简报/提醒展示），对照 `docs/modules/15_map.md` 核对首次进入、空态、失败/冲突、保存反馈、
+  误操作保护与作者语言；顺带核对第 2 批转来的两点：补扫运行期间是否禁用 append、英文
+  `ValidationError` 是否直接显示给作者。前端回归测试按 `frontend-console/tests/vue/` 既有写法补。
 - 阻塞：无。
 - 工作区：`.worktrees/map-series-claude-review`，分支 `codex/map-series-claude-review`，基于
   `codex/map-enhancement-plan` @ `a479e006b`；只有本任务记录与回归测试的本地提交。
-- 最后核实：2026-10-16T21:59:00+08:00。
+- 最后核实：2026-10-16T22:40:00+08:00。
 
 ## 目标与验收
 
@@ -55,7 +57,7 @@ updated: 2026-10-16T21:59:00+08:00
   `world/map_spatial_clue_service.py`/schemas。
 - [x] 3. M2：`map_auto_draft_service.py`、`map_node_merge.py`、`assistant_map_tools.py`、
   `map_progression_state`、map_cold_start 引导流程。
-- [ ] 4. M3/M4：`map_spatial_brief_service.py`、`map_spatial_advisory_service.py`、
+- [x] 4. M3/M4：`map_spatial_brief_service.py`、`map_spatial_advisory_service.py`、
   `map_declaration_state.py`、`evidence/compilation` 改动、writing/world notice_sources、ask_world；
   另含 evolution 的 `reading_notice_sources.py`。
 - [ ] 5. 地图前端。
@@ -79,6 +81,9 @@ updated: 2026-10-16T21:59:00+08:00
   层级）、B3-F4（P2，带时效的关系把两端地点移出布局）、B3-F6（P2，Q2 确认：只有作者安排的行程进入
   读者预览）、B3-F3（P3，拒绝一条线索冻结整个批次）、B3-F5（P3，v1 旧地图上助手结构编辑失败）。
   Q2 关闭。详见 BATCH-3.md。
+- 2026-10-16：第 4 批确认“节点合并后 Context 排除”边界成立。发现 B4-F1（P2，途经点为文字标签时提醒
+  误报通路未连通）、B4-F2（P3，被重算取代的 drained 运行持续提醒“上次阅读已暂停”）、B4-F3（P3，问世界
+  打开地图引用不带原排除项；修复需新增引用字段，未写测试）。详见 BATCH-4.md。
 
 ## 验证证据
 
@@ -91,10 +96,13 @@ updated: 2026-10-16T21:59:00+08:00
   B2-F5 状态为 `pending_verification`、B2-F6 未抛 ConflictError）。ruff format/check 通过。
 - 第 3 批后（2026-10-16，同一基线与命令）：`14 xfailed`；`--runxfail` 为 `14 failed`，新增 6 条各自失败在
   对应位置（见 BATCH-3.md“回归测试”）。ruff format/check 通过。
+- 第 4 批后（2026-10-16，同一基线与命令）：`16 xfailed`；`--runxfail` 为 `16 failed`，B4-F1 失败在
+  `route_no_active_connection` 断言，B4-F2 失败在 `reading-original` 提醒断言。B4-F1 另有去掉途经点的
+  临时对照测试通过（已删除）。ruff format/check 通过。
 
 ## 交付结果
 
-- 已交付：第 1–3 批报告；14 条 strict xfail 回归测试。
-- 未交付：第 4–9 批。
+- 已交付：第 1–4 批报告；16 条 strict xfail 回归测试。
+- 未交付：第 5–9 批。
 - 交付边界：只有本地提交；未推送，无 PR、CI、部署。
 - 正式知识与后续任务：无。

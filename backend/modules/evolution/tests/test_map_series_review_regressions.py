@@ -251,3 +251,61 @@ async def test_b2_completed_spatial_rescan_is_not_planned_again(monkeypatch):
                 operation_id=uuid4(), from_scene_index=0, through_scene_index=0
             ),
         )
+
+
+@pytest.mark.xfail(
+    strict=True,
+    reason="B4-F2: reading notices walk past a newer completed run to a drained run "
+    "it superseded and report the dead run as paused",
+)
+async def test_b4_superseded_drained_run_does_not_raise_a_reading_notice(
+    db_session, evolution_project_id
+):
+    from datetime import UTC, datetime, timedelta
+
+    from modules.evolution.models import EvolutionRun
+    from modules.evolution.reading_notice_sources import list_reading_notices
+
+    steps = [
+        {"scene_index": index, "source_binding": {"chapter_index": 1}} for index in (0, 1)
+    ]
+    started = datetime.now(UTC)
+    # The first reading stopped after one Scene; scoped recompute drained it
+    # (workflow.start_reading) and the replacement run finished both Scenes.
+    db_session.add_all(
+        [
+            EvolutionRun(
+                novel_id=UUID(evolution_project_id),
+                run_key="reading-original",
+                mode="bootstrap",
+                status="drained",
+                execution_mode="live",
+                committed_scene_index=0,
+                reading_plan_json={
+                    "steps": steps,
+                    "preparation": {"stage": "complete"},
+                },
+                created_at=started,
+            ),
+            EvolutionRun(
+                novel_id=UUID(evolution_project_id),
+                run_key="reading-recompute",
+                mode="scoped_recompute",
+                status="active",
+                execution_mode="live",
+                committed_scene_index=1,
+                reading_plan_json={
+                    "steps": steps,
+                    "preparation": {"stage": "complete"},
+                },
+                created_at=started + timedelta(minutes=5),
+            ),
+        ]
+    )
+    await db_session.flush()
+
+    notices = await list_reading_notices(db_session, evolution_project_id, {})
+
+    # reading_status (the panel) shows the completed recompute; the drained
+    # run cannot be resumed, so a "上次阅读已暂停" notice is stale noise.
+    assert [item for item in notices if item["category"] == "reading_run"] == []

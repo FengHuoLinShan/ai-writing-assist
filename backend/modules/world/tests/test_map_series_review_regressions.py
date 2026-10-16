@@ -618,3 +618,99 @@ async def test_b3_reader_preview_omits_journeys_without_verbatim_sources(
 
     # docs/modules/15_map.md: reader journeys must pass the verbatim-source check.
     assert [journey["id"] for journey in projection["journeys"]] == ["ferry-trip"]
+
+
+@pytest.mark.xfail(
+    strict=True,
+    reason="B4-F1: the advisory route graph links only entity-bound features, so a "
+    "declared route through a text-only waypoint reads as a disconnected network",
+)
+async def test_b4_route_through_text_only_waypoint_is_not_reported_disconnected(
+    db_session, test_project_id
+):
+    from copy import deepcopy
+
+    from core.container import get
+    from core.service_keys import WORLD_READ_MAP_SPATIAL_ADVISORIES
+    from modules.world.map_structure_service import source_digest, source_payload
+    from modules.world.tests.test_map_spatial_advisory_integration import seed
+
+    scene, node, revision, places, _ = await seed(db_session, test_project_id)
+    towns = [
+        CoreEntity(
+            novel_id=revision.novel_id,
+            entity_type="location",
+            name=name,
+            summary=name,
+            public_info=name,
+            reveal_level="revealed",
+            status="canonical",
+        )
+        for name in ("北镇", "南镇")
+    ]
+    db_session.add_all(towns)
+    await db_session.flush()
+
+    def source(place):
+        return {
+            "kind": "entity",
+            "id": str(place.id),
+            "quote": place.name,
+            "source_hash": source_digest(source_payload(place)),
+        }
+
+    document = deepcopy(revision.document)
+    document["features"] += [
+        {
+            "id": key,
+            "kind": "location",
+            "label": town.name,
+            "entity_id": str(town.id),
+            "sources": [source(town)],
+        }
+        for key, town in (("north-town", towns[0]), ("south-town", towns[1]))
+    ]
+    # A drawn mountain pass the author labelled without binding a world object.
+    document["features"].append({"id": "pass", "kind": "landmark", "label": "山口"})
+    east, west = places
+    document["constraints"] = [
+        {
+            "id": "pass-road",
+            "subject": "east",
+            "target": "west",
+            "relation": "connects",
+            "via": ["pass"],
+            "sources": [source(east), source(west)],
+        },
+        {
+            "id": "east-north",
+            "subject": "east",
+            "target": "north-town",
+            "relation": "adjacent",
+            "sources": [source(east), source(towns[0])],
+        },
+        {
+            "id": "west-south",
+            "subject": "west",
+            "target": "south-town",
+            "relation": "adjacent",
+            "sources": [source(west), source(towns[1])],
+        },
+    ]
+    revision.document = MapDocument.model_validate(document).model_dump(mode="json")
+    await db_session.flush()
+
+    result = await get(WORLD_READ_MAP_SPATIAL_ADVISORIES)(
+        db_session,
+        {
+            "novel_id": test_project_id,
+            "scene_id": str(scene.id),
+            "transitions": [
+                {"from_location_id": str(east.id), "to_location_id": str(west.id)}
+            ],
+        },
+    )
+
+    # The map declares 东城 → 山口 → 西城 as one active road.
+    codes = [item.rule_code for item in result.items]
+    assert "route_no_active_connection" not in codes, result.items
