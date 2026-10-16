@@ -180,6 +180,7 @@ def verify_materials(
             raise MapSpatialEvalError(f"资料族应有五个配对案例: {family_id}")
         if len({case.get("source_excerpt") for case in source_cases}) != 5:
             raise MapSpatialEvalError(f"资料族案例原文必须彼此不同: {family_id}")
+        _require_case_instructions(source_cases)
         if (
             source.get("human_validated") is not False
             or expected.get("human_validated") is not False
@@ -241,6 +242,15 @@ def _family_for(matrix: dict[str, Any], family_id: str) -> dict[str, Any]:
         if family["family_id"] == family_id:
             return family
     raise MapSpatialEvalError("矩阵中没有该资料族")
+
+
+def _require_case_instructions(cases: list[dict]) -> None:
+    if any(
+        not isinstance(case.get(field), str) or not case[field].strip()
+        for case in cases
+        for field in ("writing_scene_instruction", "assistant_request")
+    ):
+        raise MapSpatialEvalError("Writing 与 Assistant 必须包含非空文本冻结指令")
 
 
 def _case_for(source: dict[str, Any], case_id: str) -> dict[str, Any]:

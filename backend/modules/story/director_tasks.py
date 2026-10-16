@@ -530,7 +530,13 @@ async def handle_scene_director(db, task):
             baseline_requests_started=baseline_requests_started,
             baseline_recent_attempts_overflow=baseline_attempts_overflow,
         )
-        if stop_reason:
+        if total_completed == rounds_requested and stop_reason in {
+            "request_budget_80_percent",
+            "token_budget_80_percent",
+            "time_budget_80_percent",
+        }:
+            warnings.append("所选回合已完成；预算达到 80%，继续试演前需要追加授权。")
+        elif stop_reason:
             branch.status = "paused_budget"
             root.status = branch.status
             root.current_task_id = None

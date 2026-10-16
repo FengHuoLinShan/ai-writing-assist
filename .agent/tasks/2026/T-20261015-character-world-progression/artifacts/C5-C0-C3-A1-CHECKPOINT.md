@@ -142,3 +142,37 @@ root仅只读检查原真实评测DB：127.0.0.1:65302、database map_spatial_ev
 
 
 2026-10-16T09:48:27+08:00：root补质量工具私有原始请求/schema、成功及无效原始输出留存（全部0600、仓库外），净 `f9ef3d2d6`；整套evals445通过/2skip（28.44s，`/tmp/authoring-quality-root-raw-artifacts-tests-20261016.log`），这是对31d9的28行局部补充，不新增产品领域行为。9011完整后端证据适用于其前31d9固定点，最终集成验证按本次实际文件差异判断，不误称新源码重跑过整套。新R4素材初始化脚本首试因PYTHONPATH未含backend在导入前退出，无私有目录或模型副作用；后续仅在确认新目标不存在时重跑。
+
+
+## 2026-10-16T10:09:36+08:00 最终工程集成与独立R4准备
+
+质量工具31d9及私有原始artifact尾修f9ef已合primary `6f00ad2285cf76d24e52ccea98407c22bf4b618c`，当前干净。root从主目录以git diff证明backend/frontend-console/docs与f9ef一致。docs/repo-gates通过（/tmp/map-quality-integrated-{docs,repo-gates}-20261016.log）；原主专库无CREATE复用并在最终代码重跑19文件72PG全部通过（27.95秒），head20261016_chapter_order、ORM parity无差异。完整普通后端9011属于31d9固定点；之后仅28行eval私有artifact I/O尾修由整套445evals/2skip通过，不误称9011在尾修后重跑。最终前端未再变化，沿用3209/lint/build和root真实页面证据。
+
+新仓库外私有root `/Users/tywww/.codex/private/map-spatial-evaluation-20261016-r4` 已唯一创建，0700目录/0600文件。十族source/expected逐字节复制、哈希与公开矩阵一致；五development JSON通过验证，五holdout仅复制/哈希，未解码。未复制旧运行、预算、绑定或账本。初始化脚本已执行，禁止盲重跑/覆盖。
+
+原隔离评测库127.0.0.1:65302/map_spatial_eval_20261015，经逐项核查19个增量revision及delegated SQL无业务DML后，正常alembic升级从map_node_merge到唯一head chapter_order，head与ORM parity通过。升级前后项目/任务数量、封存R3失败Task完整行、Project完整行及全部Scene行hash均相同。私有migration-before/after、upgrade/head/parity/schema-readiness留存；无CREATE/DROP、无旧任务恢复。初次只读检查误用了attempt_count，实际为attempt，已在任何迁移/写入前修正。
+
+只读owner预检的owner-runtime-preflight.json已存在，状态verified_runtime_no_execution；owner 00000000-0000-0000-0000-000000000000、现有verified Codex gpt-6-luna/max，经Project facade snapshot/restore核验，无新连接验证。manager.close在实际源码存在，预检进程已退出。Map新pipeline `56bdf121e65c9ff1f1fb4a5116064251f1fc19fc116e4ecac82d56e0f4360d3e`，snapshot哈希e9852fbad2556f91853f3ebbd7cd00e58e04fdd13fc5e504df389fe36599011d。该快照只读参照旧R3Project，未修改或续跑旧R3。当前新模型请求仍为0，预算未冻结。
+
+下一步root独自经同进程ASGI正常API新建development族及五精确Scene、冻结空地图共同基线/角色，执行新seed校准并取得实际Evolution预览，核对新父预算后才精确执行任务。描述性导演/推进小批单独冻结源/rubric与SUT预算；不得借Map许可或旧51额度。holdout、条件能力与human_validated=false门禁保留；不启子代理、不推送/发布/main合并/部署。
+
+
+## 2026-10-16T10:51:00+08:00 真实诊断、根因修复与最终工程验证
+
+root仍独自工作，未开代理。R4五development项目/25个精确Scene、预声明Writing角色和空地图共同基线全部冻结；五个同族seed均一次完成，模型Sol6.1/xhigh、usage/费用未知，不能当human一致性。五项目依次为9deef14b-af19-4e88-8c85-37c63c88cba2、8d036e35-1f6b-4ff3-8bcc-8cb7405b99ee、3a5416a8-7323-47e8-8f38-57cfa01a29fd、4f48dd51-ee6a-4667-8fe1-d45c8a4948d0、92aca03e-eeda-43eb-809c-29ec882cfc5e。都市p4/悬疑p4在任何SUT前声明为omission_control，其余positive需真实已采用对象才可显式指定地点，缺失记not_run。
+
+初次request_limit1只读preview被产品409拒绝，无模型请求；随后独立64预览得到mandatory静态minimum21+spatial最大10，余量33。已冻结本阶段只执行修仙Evolution64（五已完成seed另计），其余SUT阶段未授权执行。正常start operation c8429dcd-352c-4413-9032-a30f6c2c4a55；精确两task c50290cb-2d79-4f7d-9ba0-bf3156ed6301与ccf291a7-b0b4-46f1-a0b8-b7e51da497a5均done/attempt1。第二个信封累计11个Luna请求、171324tokens、settled11/unknown0/usage_complete；首个5请求是累计中间值，不能5+11相加。
+
+root核实实际冻结source的Assistant字段为文本assistant_request，驱动却读取测试夹具独有assistant.request；正常助手阶段必然无法启动。等两项任务完整落盘后，经正常engine接口read_only/expected_epoch2→3/stop_active确认停1run、取消1个未尝试待执行任务，after run stopped；operator-diagnostic-seal.json留在R4。R4 Evolution原账本保留pending历史，不回写成新流水线成功；Writing/Assistant/judge未执行，holdout未解码。旧R3完全不续跑。
+
+独立quality R1 root `/Users/tywww/.codex/private/authoring-quality-pilot-20261016-r1`，作者输入/5项逐域rubric先于SUT冻结；Project7f46d19d-d37d-4a52-a819-07e5310a3feb、Scene2746aeb8-2b91-479d-8504-1e11feca682e，两手工已采用人物/表达档案/卡，正常Evidence确认。实际preview导演4–6请求、7522级估计到25062tokens，授权8请求/120000tokens；WP预览3请求、授权4/60000。仅导演Task2188135b-ee8f-4540-be29-23a3f5f9144f实际执行，root742092df-2d52-4a25-a662-2749cb6cf510；6请求/98624tokens/unknown0，一整轮已落盘，但结束后的token80%检查错误标paused_budget。原始输入/候选/信封已私有封存，不续跑、不抹回执，不评分；WP及新scope教师/评分未运行。角色Brief缺逐字段POV来源，不能凭手工卡冒充角色已知；后续先做正常基础理解后核对角色资料，不放宽Evidence。
+
+root修复三处根因：地图驱动直接读取assistant_request，verify与setup loader均前置验证Writing/Assistant非空冻结指令；夹具改为真实结构，9项回归先红后绿。导演仅在最后已选回合完整落盘且到请求/Token/时长80%时返回complete并提醒，仍有轮次或未知/不完整用量仍停。扩展真实PG到请求阈值、Token阈值、两轮只完成一轮的停点及新unknown，3项通过（4.79秒）。由该回归新发现只追加Token在UI走错advance、累计账本又拒绝0新增请求：已修正常continue选择及显式授权允许只增Token（至少一项为正），请求上限/计数/起始/原期限与unknown均保留，回执可roundtrip；旧正请求回执兼容。新增4单元与3真实Vue交互，Token-only PG真实续算成功，后续无新授权依然409、新unknown仍paused_unknown。没有自动增加请求或重置期限。
+
+最终固定产品源：完整普通后端 `/tmp/map-live-final-full-backend-20261016.log` 9023 passed/2 skipped/8 deselected/1既有Pydantic warning、337.16秒，RuntimeWarning转error；定向1148通过/2skip/2deselected。257文件前端3212/lint/build全通过，`/tmp/map-live-final-{full-frontend,frontend-lint,frontend-build}-20261016.log`。无CREATE克隆复用脚本 `/tmp/map-live-final-primary-reuse-pg-20261016.py` 已执行，原主保留专库head/parity及19文件74PG全通过（31.13秒），日志 `/tmp/map-live-final-primary-{migration,head,metadata,pg}-20261016.log`。docs/repo gates/ruff format全通过，依赖方向仍61/9/0/517。不存在真实质量通过或作者验收。
+
+新R5私有root `/Users/tywww/.codex/private/map-spatial-evaluation-20261016-r5` 已唯一准备，十族字节与hash保留，holdout只复制hash，未复制旧运行/预算/绑定/seed。已复核当前owner verified Luna/max，Map新pipeline f76b7dcf132c3fe1d8e18a784473d58526b62385fb7c73d840af6676fa29fc8f。五族新Project依次0893feef-2a1b-4494-b489-a09f8cf0ed48、32ff1b33-4256-46d0-92d5-224ca5241ad6、d3ee4524-1192-4d99-974a-d0e230cead8a、caa70de9-5c75-4866-85f8-70b4dd087bab、a9c784b2-c5f1-4fec-a369-bf93f88e32e4，各5精确Scene共同基线已冻结，新模型请求0。脚本/tmp/map-r5-{prepare-materials,owner-profile-preflight,control}-20261016.py，前两已执行，禁止重初始化。
+
+新quality R2 root `/Users/tywww/.codex/private/authoring-quality-pilot-20261016-r2`，Project345bc136-15e2-4006-9ab7-1e10a67500bd、Scene863d3275-420e-4bab-b4f8-0d95b468cade，2人物及原作者资料/标准已先冻结。已通过正常API切Evolution并取得单Scene预算32、无可选发现的preview，fingerprint f724131048980aef42ea35d22ab15c9cac01996ce968c6c1d01b55f7dbdf952e；此无spatial预览不会返回mandatory_request_reserve，不能假填。当前无任何模型调用。/tmp/authoring-quality-pilot-prepare-r2-20261016.py已执行，勿重复；/tmp/authoring-quality-foundation-r2-20261016.py尚未执行start/run，只允许该新Project单Scene与最终结构最多2个精确task，不用Map-only read seam（该seam正确要求discover_spatial）；正常GET reading读取task_id。
+
+下一步：本地提交本轮修复和记录后，R5单次5个新seed与新预算/精确任务；R2先正常基础理解，再实际核对role briefs/表达锚点，未具备不发导演/推进质量调用。之后以真实不可变输出冻结独立manifest和盲teacher，unknown不重发。不开子代理、不推送/main合并/发布/部署，条件与真人门禁不抹平。

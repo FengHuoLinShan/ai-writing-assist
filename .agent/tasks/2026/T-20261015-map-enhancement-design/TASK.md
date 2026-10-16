@@ -3,14 +3,14 @@ id: T-20261015-map-enhancement-design
 title: 地图系统增强设计与分批实施（自动冷启动、参与创作决策、题材鲁棒性）
 status: active
 created: 2026-10-15T10:54:00+08:00
-updated: 2026-10-16T09:15:06+08:00
+updated: 2026-10-16T10:51:00+08:00
 ---
 
 # 地图系统增强设计
 
 ## 恢复快照
 
-最新状态见 [实施与验证检查点](../T-20261015-character-world-progression/artifacts/C5-C0-C3-A1-CHECKPOINT.md)。按用户“不再开子代理”的指令，root 已独立完成 C3/A1 修复与本地集成，primary `9e33477354`；后端8980、最终前端3209及原保留库72PG通过，正式390/1280页面已验证。root 正收尾受限质量评测工具和新流水线的真实评测准备，真实/条件/作者门禁未完成。以下旧委派条目仅作历史。
+最新状态见 [实施与验证检查点](../T-20261015-character-world-progression/artifacts/C5-C0-C3-A1-CHECKPOINT.md)。按用户“不再开子代理”的指令，root 独自完成 C3/A1、质量工具及本轮真实运行发现的修复。基线 primary `6f00ad2285`，本轮最终后端9023、前端3212、保留库74PG（31.13秒）以及lint/build/docs/repo-gates全通过；见当前提交和检查点。地图R4（5个校准请求、根累计11个Luna请求）与导演R1（6个Luna请求）已封存诊断，不续跑、不改旧回执；旧R3继续保留。R5五族/25Scene空地图基线、导演R2单Scene基础理解预览已全新准备，当前两新批次零模型请求，等待按新预算启动。root 继续独立推进真实评测，真实/条件/作者门禁未完成。以下旧委派条目仅作历史。
 
 - 当前授权：2026-10-15 用户 `/goal` 要求执行 `codex/map-enhancement-plan` 的计划；Luna/max 子代理并行实现，Sol/high 按批次 review 与修复。只做本地开发验证；没有发布、真实数据破坏或对外发送授权。用户16:43补充“修复由sol子代理直接修”：后续代码修复均由Sol/high子代理直接执行。用户曾要求“由你收尾”；其后明确答复范围为三份计划全部实施，包括操作目录、对象档案、导演、世界推进。root继续负责分批拆解、集成、验证、任务记录与实际隔离评测；已明确确认采用“模拟作者显式指定Scene地点后做辅助Writing对比”。
 - 主工作区：`/Users/tywww/项目/ai-writing-assist/.worktrees/map-enhancement-plan`，分支 `codex/map-enhancement-plan`。原 Desktop 路径已失效；仓库实际已迁至 `/Users/tywww/项目/ai-writing-assist`。

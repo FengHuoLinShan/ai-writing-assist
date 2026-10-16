@@ -524,3 +524,7 @@ and immutable input/output/parent hashes. The other four judges stay closed unti
 equivalent readers exist. Caller-supplied success flags cannot replace receipts.
 These tools and their offline tests are evaluation preparation; they do not mark
 model quality, author acceptance, canon adoption, or feature rollout as passed.
+
+地图私有素材在 setup 前核验每例的 `writing_scene_instruction` 与 `assistant_request`
+均为非空文本；正常 Assistant 驱动直接读取后者。评测 fixture 与冻结素材保持同一结构，
+不得用测试专属嵌套字段替代真实资料协议。修正此驱动后使用新私有运行身份，保留旧回执。

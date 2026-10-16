@@ -410,10 +410,16 @@ class AIRunAuthorizationV1(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     revision: int = Field(ge=1)
-    additional_requests: int = Field(ge=1)
+    additional_requests: int = Field(ge=0)
     additional_tokens: int = Field(default=0, ge=0)
     reason: AIRunAuthorizationReason
     authorized_at: datetime
+
+    @model_validator(mode="after")
+    def require_positive_allowance(self) -> AIRunAuthorizationV1:
+        if not (self.additional_requests or self.additional_tokens):
+            raise ValueError("authorization must add requests or tokens")
+        return self
 
 
 class AIStepAttemptV1(BaseModel):

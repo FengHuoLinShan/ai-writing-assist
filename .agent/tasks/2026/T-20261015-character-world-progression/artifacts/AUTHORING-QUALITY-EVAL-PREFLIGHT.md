@@ -3,13 +3,16 @@
 2026-10-16，root依据Luna/max只读范围与公开调用链规划整理。本文件是待执行方案，
 不证明质量通过，不扩大授权，不续用封存运行的预算。当前没有新增真实模型请求。
 
+
+最新执行事实（10:51）：导演R1正常API+精确TaskWorker产出一整轮，6次Luna/max、98624tokens、unknown0；最后预算检查误报paused_budget，且缺少角色POV来源，已封存为诊断。世界推进和本scope教师/评分均未运行。root已修完成/停点语义、Token-only授权及前端路由并通过9023后端/3212前端/74PG。新R2先准备正常Evolution基础理解（单Scene、32请求封顶、当前未执行），在实际角色来源与表达锚点成立后才重新冻结导演/推进SUT预览与预算；不得靠放宽Evidence角色门禁让手工资料冒充已知。原作者输入/标准在任何模型前已冻结；holdout与其他四域judge保持关闭。
+
 ## 固定代码之前
 
-C3/A1已由root独立收尾，primary9e3347735，同源后端8980/最终前端3209/保留库72PG及正式页面通过。按用户最新要求不再使用子代理。新受限scope由root接管完成，含31个新离线用例；最终后端9011项通过，导演与世界推进均通过正常API+精确离线TaskWorker的真实PG取证，仍不等于真实模型质量。
+C3/A1已由root独立收尾，primary6f00ad2285，完整普通后端9011及私有artifact尾修445项evals/最终前端3209/保留库72PG及正式页面通过。按用户最新要求不再使用子代理。新受限scope由root接管完成，含31个新离线用例；最终后端9011项通过，导演与世界推进均通过正常API+精确离线TaskWorker的真实PG取证，仍不等于真实模型质量。
 
 旧Map/G7/AskWorld许可不能借给新领域，全局缺省校准门禁保持关闭。新scope每个私有运行最多12个请求、每prompt160000字节，绑定同一owner/隔离Project/数据库、模型、pipeline/schema/rubric/input/split及实际产品回执；seed和同case teacher回执不得改绑新manifest。source/rubric须先冻结，teacher始终看不到SUT输出。当前只有director/world_progression可评分，其他四域仅seed/teacher；holdout仍关闭。六Project完整矩阵的76估算须重算，不能以此作为本批授权或实际用量。
 
-Root拟先完成一个独立的描述性导演/推进小批（每域seed/teacher/judge各1，额外6请求；SUT业务请求另按真实预算预览），验证可执行取证链。source/rubric先冻结，SUT完成后把不可预测的真实输出ID和哈希绑定到不可变manifest；之后不追加case或换manifest复用旧seed。需最终源码集成、owner当前verified快照与独立批次预算，尚未启动。地图仍使用既有map_spatial控制链，R3不重试不续额，新R4需独立身份及实际预览。
+Root拟先完成一个独立的描述性导演/推进小批（每域seed/teacher/judge各1，额外6请求；SUT业务请求另按真实预算预览），验证可执行取证链。source/rubric先冻结，SUT完成后把不可预测的真实输出ID和哈希绑定到不可变manifest；之后不追加case或换manifest复用旧seed。最终源码已集成；R4地图独立材料、schema和owner当前verified快照已完成，仍需各自独立批次预算，尚未启动模型请求。地图仍使用既有map_spatial控制链，R3不重试不续额，新R4需独立身份及实际预览。
 
 ## 最小描述性小批
 

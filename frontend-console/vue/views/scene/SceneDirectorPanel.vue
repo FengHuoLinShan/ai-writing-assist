@@ -239,7 +239,7 @@
             <label v-if="continuationPreview?.current_budget?.unknown_requests" class="scene-director__duplicate-confirm"><input v-model="continuation.allowPossibleDuplicateCharge" type="checkbox" @change="onContinuationChanged"><span>我已核对累计账本，明确确认旧请求可能重复计费后再续算。</span></label>
             <div class="scene-director__actions">
               <button type="button" class="btn" :disabled="busy || !canPreviewContinuation" @click="previewContinue">{{ continuationPreviewLoading ? "正在预览…" : "预览同一累计根预算" }}</button>
-              <button type="button" class="btn btn-primary" :disabled="readOnly || busy || !continuationPreview || !canSubmitContinuation" @click="submitContinuation">{{ submitting ? "正在提交…" : Number(continuation.additionalRequests || 0) === 0 && Number(continuation.rounds) === 1 ? "用原预算推进一轮" : "确认续算并创建分支" }}</button>
+              <button type="button" class="btn btn-primary" :disabled="readOnly || busy || !continuationPreview || !canSubmitContinuation" @click="submitContinuation">{{ submitting ? "正在提交…" : usesExistingContinuationBudget ? "用原预算推进一轮" : "确认续算并创建分支" }}</button>
             </div>
             <div v-if="continuationPreview" class="scene-director__budget" aria-live="polite">
               <div><strong>同一累计根账本</strong><span>已用 {{ continuationPreview.current_budget?.requests_used ?? 0 }} / {{ continuationPreview.current_budget?.requests_authorized ?? "—" }} 请求</span><span>已用 {{ number(continuationPreview.current_budget?.tokens_used) }} / {{ continuationPreview.current_budget?.tokens_authorized ?? "—" }} Token</span></div>
@@ -395,6 +395,8 @@ const parentAlternatives = computed(() => roundById(continuation.parentRoundId)?
 const canPreviewContinuation = computed(() => Boolean(
   continuation.parentRoundId && Number.isInteger(Number(continuation.rounds)) && Number(continuation.rounds) >= 1,
 ))
+const usesExistingContinuationBudget = computed(() => Number(continuation.additionalRequests || 0) === 0
+  && Number(continuation.additionalTokens || 0) === 0 && Number(continuation.rounds) === 1)
 const canSubmitContinuation = computed(() => Number(continuation.additionalRequests) >= 0
   && Number(continuation.additionalTokens) >= 0
   && (!continuationPreview.value?.current_budget?.unknown_requests || Number(continuation.additionalRequests) > 0)
@@ -763,7 +765,7 @@ async function submitContinuation() {
       allow_possible_duplicate_charge: continuation.allowPossibleDuplicateCharge,
       budget_preview_hash: continuationPreview.value.preview_hash,
     }
-    const useExistingBudget = Number(continuation.additionalRequests || 0) === 0 && Number(continuation.rounds) === 1
+    const useExistingBudget = usesExistingContinuationBudget.value
     const result = useExistingBudget
       ? await getApi().story.advanceSceneDirector(rootId, payload)
       : await getApi().story.continueSceneDirector(rootId, payload)

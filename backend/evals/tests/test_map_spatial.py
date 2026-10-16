@@ -44,10 +44,13 @@ def _fixture(tmp_path: Path, monkeypatch):
                 "genre": genre,
                 "split": split,
                 "human_validated": False,
+                "project_setup": {"chapter_index": 2},
                 "cases": [
                     {
                         "case_id": case_id,
                         "source_excerpt": f"原创文本-{genre}-{split}-{index}",
+                        "writing_scene_instruction": "只按给定原文写当前场景。",
+                        "assistant_request": "预览调整当前地图",
                     }
                     for index, case_id in enumerate(case_ids, 1)
                 ],
@@ -102,6 +105,22 @@ def test_private_material_contract_checks_hashes_splits_and_case_pairs(
     source["cases"][0]["source_excerpt"] = "被修改的材料"
     _write_private_json(family, source)
     with pytest.raises(MapSpatialEvalError, match="哈希与冻结矩阵不符"):
+        verify_materials(private_root, matrix)
+
+
+@pytest.mark.parametrize("field", ["assistant_request", "writing_scene_instruction"])
+@pytest.mark.parametrize("bad_value", [None, "", "   ", {"request": "不是冻结数据协议"}])
+def test_private_materials_reject_missing_stage_instructions_before_setup(
+    tmp_path, monkeypatch, field, bad_value
+):
+    private_root, _, matrix = _fixture(tmp_path, monkeypatch)
+    family = next(row for row in matrix["families"] if row["split"] == "development")
+    source_path = private_root / family["family_id"] / "source.json"
+    source = json.loads(source_path.read_text())
+    source["cases"][0][field] = bad_value
+    _write_private_json(source_path, source)
+    family["source_sha256"] = hashlib.sha256(source_path.read_bytes()).hexdigest()
+    with pytest.raises(MapSpatialEvalError, match="Writing.*Assistant.*冻结指令"):
         verify_materials(private_root, matrix)
 
 

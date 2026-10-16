@@ -423,6 +423,35 @@ class TestRunLedger:
             is AIRunAuthorizationReason.duplicate_charge_confirmed
         )
 
+    async def test_token_only_authorization_preserves_request_limit_and_deadline(self):
+        deadline = _STARTED_AT + timedelta(minutes=5)
+        ledger = _ledger(request_limit=10, token_limit=50, deadline_at=deadline)
+        before = ledger.snapshot()
+        await ledger.authorize_additional_requests(
+            0, additional_tokens=100, reason=AIRunAuthorizationReason.author_resume
+        )
+        snapshot = read_ai_run_envelope(ledger.snapshot().model_dump(mode="json"))
+        assert snapshot.request_limit == before.request_limit == 10
+        assert snapshot.token_limit == 150
+        assert snapshot.requests_started == before.requests_started
+        assert snapshot.started_at == before.started_at
+        assert snapshot.deadline_at == deadline
+        assert snapshot.authorizations[-1].additional_requests == 0
+        assert snapshot.authorizations[-1].additional_tokens == 100
+        assert snapshot.authorization_revision == 1
+
+    @pytest.mark.parametrize("requests,tokens", [(0, 0), (-1, 100), (0, -1)])
+    async def test_nonpositive_authorization_never_mutates_budget(self, requests, tokens):
+        ledger = _ledger(request_limit=10, token_limit=50)
+        before = ledger.snapshot().model_dump(mode="json")
+        with pytest.raises(ValueError):
+            await ledger.authorize_additional_requests(
+                requests,
+                additional_tokens=tokens,
+                reason=AIRunAuthorizationReason.author_resume,
+            )
+        assert ledger.snapshot().model_dump(mode="json") == before
+
     async def test_overflow_keeps_every_aggregate_count(self) -> None:
         limit = AI_RUN_RECENT_ATTEMPT_LIMIT + 44
         ledger = _ledger(request_limit=limit)

@@ -644,10 +644,12 @@ class AIRunEnvelope:
         additional_tokens: int = 0,
     ) -> None:
         """作者明确续算或确认可能重复扣费时增加额度；不移动既有 deadline。"""
-        if additional < 1:
-            raise ValueError("additional requests must be positive")
+        if additional < 0:
+            raise ValueError("additional requests must be nonnegative")
         if additional_tokens < 0:
             raise ValueError("additional tokens must be nonnegative")
+        if not (additional or additional_tokens):
+            raise ValueError("authorization must add requests or tokens")
         if self._envelope.request_limit is None:
             raise ValueError(
                 "confirmed_scope does not accept additional request allowances"

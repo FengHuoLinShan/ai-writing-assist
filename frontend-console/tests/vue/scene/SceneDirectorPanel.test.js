@@ -3,6 +3,14 @@ import { flushPromises, mount } from "@vue/test-utils"
 import { resetBridgeOverrides, setBridgeOverrides } from "../../../vue/bridge/index.js"
 import SceneDirectorPanel from "../../../vue/views/scene/SceneDirectorPanel.vue"
 
+vi.mock("../../../shared/aiReferenceModal.js", () => ({
+  confirmAiReference: vi.fn(async () => ({ id: "confirmation-a" })),
+}))
+vi.mock("../../../shared/workflowProgress.js", async (importOriginal) => ({
+  ...await importOriginal(),
+  pollTaskProgress: vi.fn(() => ({ stop: vi.fn() })),
+}))
+
 const history = (name) => ({
   roots: [],
   branches: [],
@@ -147,6 +155,46 @@ describe("SceneDirectorPanel", () => {
     expect(second.findAll("textarea")[0].element.value).toBe("共同听见的钟声")
     expect(second.findAll("textarea")[1].element.value).toBe("仅导演可见的停顿")
     expect(api.story.sceneDirectorHistory).toHaveBeenCalledTimes(1)
+  })
+
+  it.each([
+    [0, 0, "advanceSceneDirector"],
+    [0, 100, "continueSceneDirector"],
+    [2, 0, "continueSceneDirector"],
+  ])("routes %s added requests and %s added tokens through %s", async (requests, tokens, method) => {
+    api.story.sceneDirectorHistory.mockResolvedValue({
+      ...history("scene-a"),
+      roots: [{ id: "root-a", character_ids: ["actor-a"] }],
+      branches: [{ id: "branch-a", root_id: "root-a", round_ids: ["round-a"] }],
+      rounds: [{ id: "round-a", branch_id: "branch-a", round_number: 1, basis_status: "current" }],
+    })
+    api.story.previewSceneDirectorContinuation = vi.fn(async () => ({
+      preview_hash: "a".repeat(64), current_budget: { unknown_requests: 0 },
+      request_count: { minimum: 4, maximum: 4 },
+      token_count: { minimum: 10, maximum: 100 },
+      time_seconds: { minimum: 1, maximum: 10 },
+    }))
+    api.story.advanceSceneDirector = vi.fn(async () => ({ task_id: "task-a" }))
+    api.story.continueSceneDirector = vi.fn(async () => ({ task_id: "task-a" }))
+    const wrapper = mountPanel("scene-a")
+    await flushPromises()
+    await wrapper.findAll("button").find((b) => b.text() === "从此回合继续").trigger("click")
+    const section = wrapper.get(".scene-director__continue")
+    const labels = section.findAll("label")
+    await labels.find((l) => l.text().includes("新增请求额度")).get("input").setValue(requests)
+    await labels.find((l) => l.text().includes("新增 Token 额度")).get("input").setValue(tokens)
+    await section.findAll("button").find((b) => b.text() === "预览同一累计根预算").trigger("click")
+    await flushPromises()
+    const submit = section.get("button.btn-primary")
+    expect(submit.text()).toBe(requests || tokens ? "确认续算并创建分支" : "用原预算推进一轮")
+    await submit.trigger("click")
+    await flushPromises()
+    expect(api.story[method]).toHaveBeenCalledWith("root-a", expect.objectContaining({
+      additional_requests: requests, additional_tokens: tokens,
+      context_confirmation_id: "confirmation-a",
+    }))
+    const other = method === "advanceSceneDirector" ? "continueSceneDirector" : "advanceSceneDirector"
+    expect(api.story[other]).not.toHaveBeenCalled()
   })
 
   it("opens a mobile full-screen workspace and closes it with Escape", async () => {

@@ -507,8 +507,16 @@ async def test_assistant_bridge_accepts_only_owned_ordinary_author_turn(
         await db.rollback()
 
 
+@pytest.mark.parametrize(
+    ("request_limit", "token_limit", "initial_rounds", "threshold"),
+    [
+        (10, 20_000, 1, "request_budget_80_percent"),
+        (100, 100, 1, "token_budget_80_percent"),
+        (100, 50, 2, "token_budget_80_percent"),
+    ],
+)
 async def test_exact_worker_continues_same_root_and_stops_new_unknown(
-    director_pg_engine, monkeypatch
+    director_pg_engine, monkeypatch, request_limit, token_limit, initial_rounds, threshold
 ):
     from app.main import app as _app  # noqa: F401 - production task registration
     from infrastructure.llm.client import LLMClient
@@ -559,9 +567,9 @@ async def test_exact_worker_continues_same_root_and_stops_new_unknown(
         novel_id=str(novel_id),
         scene_id=str(scene_id),
         character_ids=[str(actor_id)],
-        rounds=1,
-        request_limit=10,
-        token_limit=20_000,
+        rounds=initial_rounds,
+        request_limit=request_limit,
+        token_limit=token_limit,
         time_budget_seconds=120,
         context_confirmation_id=str(uuid4()),
         budget_preview_hash="0" * 64,
@@ -742,6 +750,12 @@ async def test_exact_worker_continues_same_root_and_stops_new_unknown(
         else "no task"
     )
     assert provider.calls == 4, result.result
+    if initial_rounds > 1:
+        assert result.result["status"] == "paused_budget"
+        assert result.result["completed_rounds"] == 1
+        assert result.result["needs_author_resume"] is True
+    else:
+        assert result.result["status"] == "complete"
     async with sessions() as db:
         root = await db.get(StorySceneDirectorRoot, accepted.root_id)
         rounds = list(
@@ -767,6 +781,7 @@ async def test_exact_worker_continues_same_root_and_stops_new_unknown(
         context_confirmation_id=start.context_confirmation_id,
         operation_id=uuid4(),
         parent_round_id=parent_round_id,
+        additional_tokens=50 if initial_rounds > 1 else 0,
         basis_choice="frozen",
         budget_preview_hash="0" * 64,
     )
@@ -787,6 +802,8 @@ async def test_exact_worker_continues_same_root_and_stops_new_unknown(
         continued.error_message if continued else "no task"
     )
     assert provider.calls == 8
+    assert continued.result["status"] == "complete"
+    assert not continued.result.get("needs_author_resume", False)
     async with sessions() as db:
         root = await db.get(StorySceneDirectorRoot, accepted.root_id)
         rounds = list(
@@ -805,9 +822,12 @@ async def test_exact_worker_continues_same_root_and_stops_new_unknown(
         assert envelope.usage.total_tokens == 80
         assert envelope.started_at == original_started_at
         assert envelope.deadline_at == original_deadline_at
-        assert budget_stop_reason(AIRunEnvelope(envelope)) == "request_budget_80_percent"
+        assert budget_stop_reason(AIRunEnvelope(envelope)) == threshold
+        assert root.status == "ready"
     continuation.operation_id = uuid4()
     continuation.parent_round_id = rounds[-1].id
+    continuation.additional_requests = 0
+    continuation.additional_tokens = 0
     async with sessions() as db:
         _root, _parent, preview = await _continuation_preview(
             db, str(novel_id), continuation
@@ -846,6 +866,7 @@ async def test_exact_worker_continues_same_root_and_stops_new_unknown(
     continuation.operation_id = uuid4()
     continuation.allow_possible_duplicate_charge = True
     continuation.additional_requests = 10
+    continuation.additional_tokens = 100 if token_limit <= 100 else 0
     provider.fail_next = True
     async with sessions.begin() as db:
         accepted_unknown = await continue_director_root(

@@ -21,6 +21,7 @@ from evals.map_spatial import (
     _family_for,
     _gate_path,
     _read_private_json,
+    _require_case_instructions,
     _sha256_file,
     _write_private_json,
     load_matrix,
@@ -129,6 +130,7 @@ def _load_family_source(root: Path, family: dict, *, allow_holdout: bool = False
         or any(not isinstance(item.get("source_excerpt"), str) for item in cases)
     ):
         raise MapSpatialEvalError("开发族必须有五段互异的原文")
+    _require_case_instructions(cases)
     return source
 
 
@@ -1078,8 +1080,7 @@ async def _run_assistant_turn(
     record_path = _assistant_record_path(root, family_id, case_id)
     source = _load_family_source(root, family, allow_holdout=family["split"] == "holdout")
     case = _case_for(source, case_id)
-    assistant_case = case.get("assistant")
-    message = assistant_case.get("request") if isinstance(assistant_case, dict) else None
+    message = case.get("assistant_request")
     scope = binding.get("case_bindings", {}).get(case_id)
     if not isinstance(message, str) or not message.strip() or not scope:
         raise MapSpatialEvalError("Assistant案例缺少冻结请求或Scene绑定")

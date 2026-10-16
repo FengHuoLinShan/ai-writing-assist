@@ -728,10 +728,7 @@ async def test_assistant_driver_uses_unknown_intent_and_exact_enabled_worker(
     case_id, scope = next(iter(binding["case_bindings"].items()))
     monkeypatch.setenv("MAP_SPATIAL_EVAL_ALLOW_LIVE", "1")
     monkeypatch.setenv("APP_ENV", "test")
-    source = {
-        "cases": [{"case_id": case_id, "assistant": {"request": "预览调整当前地图"}}]
-    }
-    monkeypatch.setattr(control, "_load_family_source", lambda *_a, **_k: source)
+    source = map_spatial._read_private_json(root / family_id / "source.json")
     task_id, session_id = str(uuid.uuid4()), str(uuid.uuid4())
     task = SimpleNamespace(
         task_type="assistant_turn", status="pending", attempt=0, meta={}, result={}
@@ -801,6 +798,7 @@ async def test_assistant_driver_uses_unknown_intent_and_exact_enabled_worker(
         execute=True,
     )
     assert result["status"] == "completed"
+    assert requests[1][1]["message"] == source["cases"][0]["assistant_request"]
     assert requests[1][1]["context"]["task_hint"] == "unknown"
     assert requests[1][1]["context"]["scene_id"] == scope["scene_id"]
     assert "assistant.turn" not in get_settings().map_spatial_enabled_capabilities
