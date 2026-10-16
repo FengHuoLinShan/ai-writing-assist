@@ -1,0 +1,904 @@
+{
+  "reviewed_baseline": "34574f6cf70701116997a1aa7919468ff1391168",
+  "axes": [
+    "Standards",
+    "Spec"
+  ],
+  "method": "Fixed merge-base diffs, current call chains, original functions/classes, migrations, specs and regression tests; not ancestry alone.",
+  "branches": [
+    {
+      "branch": "codex/c2-ui-acceptance",
+      "head": "2c8c11c263da612af6a9b7ad8d40582d156871b1",
+      "merge_base": "d2ebc8f6d10c14adb673789f7691e0c86d210511",
+      "disposition": "已通过改写集成；旧弱证明逻辑由新版同字段精确来源证明替代",
+      "integration_commits": [
+        {
+          "sha": "13a11cff03815e01913548670fa673ca5b9ca596",
+          "title": "feat(world): add revisioned object dossiers"
+        },
+        {
+          "sha": "5aef9209095eabc18d4d33da1e89381af93aeff7",
+          "title": "checkpoint: evidence object dossier aggregation WIP"
+        },
+        {
+          "sha": "2a4be54b62381ee699ce4629ac3486efdac301d6",
+          "title": "feat(assistant): add unified notice backend slice"
+        },
+        {
+          "sha": "cd9162d41f613e0fbd665ad83c4ed806271b2ef8",
+          "title": "fix(assistant): restore timed notice wake and source coverage"
+        },
+        {
+          "sha": "af89bcbf1df76a74ec3db832cb51aa0ed8724435",
+          "title": "fix(story): retain unresolved reading reveal candidates"
+        },
+        {
+          "sha": "158cbe57bbf06dc0a7575df4f24d6eba19811b5c",
+          "title": "fix(assistant): deny demo writes to unified notices"
+        },
+        {
+          "sha": "b81ba688712bcb9e94cdabbcf672b6ee9c3c9cb5",
+          "title": "fix(world): harden dossier revision migration and review boundaries"
+        },
+        {
+          "sha": "04dfbe9b4c1ddfbf368ab6f47c2d8b12bd6bc5d8",
+          "title": "feat(evidence): add scene object dossier brief"
+        },
+        {
+          "sha": "3fced27ae1c650f87595c7d254df3f68cd4daf6e",
+          "title": "fix(evidence): enforce safe dossier projection and wire read ports"
+        },
+        {
+          "sha": "b9307c4df9039ae3e21d66b4682034e771a04bc4",
+          "title": "fix(evidence): prove safe dossier visibility before pagination"
+        },
+        {
+          "sha": "cb3e932388b17ee0616b397244d422c9b63f662a",
+          "title": "Merge commit 'f6c3790ccb3b096509c5ec84583d6386e364ddaf' into codex/object-dossier-consumer-review"
+        },
+        {
+          "sha": "1b9afc7b1e18b972e16856611d46e6aca997bc44",
+          "title": "Review C2 dossier consumers and freeze assistant v9 operations"
+        },
+        {
+          "sha": "651df05722abc7bbc6a47a42dbee77c43b5faf5f",
+          "title": "fix(map): preserve dossier values, scene order and goal receipts"
+        }
+      ],
+      "current_symbols": [
+        "backend/modules/world/dossier_service.py:962 WorldObjectDossierService.read: visibility public + visible_fields match before pagination; effective Scene anchors; immutable per-group revision",
+        "backend/modules/world/dossier_service.py:1436 generic_profile_projection; :1577 replace_generic_profile_data with exact CAS/explicit clear/history",
+        "backend/modules/world/dossier_service.py:2057 update_entry; :2216 restore_entry",
+        "backend/modules/evidence/compilation/services/object_dossier_brief.py:68 _bridged_generic_value_visible: same subject + field + confirmed fact + exact current checkpoint/source + same value; :166 _dossier_entry_visible; :229 ObjectDossierBriefService.load",
+        "backend/modules/story/tasks.py:186 _compile_character_reveals independently compiles POV/Scene/cutoff and original excluded/pinned refs; :334 _prepare_task_input; :508 _revalidate_character_generation_sources",
+        "backend/modules/story/task_submission.py:26 validate_story_generation_confirmation; :83 enqueue_confirmed_story_task",
+        "backend/modules/story/generation.py:301 StoryGenerationService.card_preview sets immutable fact/pattern basis and model-only interpretations; reaction_preview produces 2-4 sourced performances",
+        "backend/modules/assistant/notice_service.py:64 list_notices; :254 apply_disposition requires active author; backend/modules/story/outline_state/reading_structure.py:94 persist_structure_drafts preserves unresolved reveals",
+        "backend/modules/evidence/compilation/assistant_dossier_tools.py:97 evidence.object_dossier_brief.read; backend/core/config.py:382,389 two independent opt-in flags"
+      ],
+      "semantic_comparisons": [
+        "f6f559f92 early motivations-v2 preview was superseded by cb3e93238 sourced performance-v2 and 1b9afc7b1 compatibility/registry corrections; Story v1 remains readable",
+        "f6c3790cc added-line multiset is fully contained in cb3e93238; original commit is not an ancestor because integration was recorded as a single-parent rewrite",
+        "_legacy_value_visible was intentionally replaced by stricter _bridged_generic_value_visible; same text in another field does not prove eligibility",
+        "5217f5310 schema expansion v2 is retained; subsequent borrowed/state fields raise template edit/read to v3 as documented in Assistant README"
+      ],
+      "reviewed_patches": [
+        {
+          "sha": "23e322e01c40d8ddcb324aff4c7facbdc0c94b41",
+          "title": "23e322e01 feat(world): add revisioned object dossiers",
+          "files": [
+            "backend/alembic/versions/20261015_object_dossier_v2.py",
+            "backend/modules/story/README.md",
+            "backend/modules/story/continuity/field_provenance.py",
+            "backend/modules/story/continuity/scene_projection.py",
+            "backend/modules/story/continuity/scene_state_view.py",
+            "backend/modules/story/continuity/schemas.py",
+            "backend/modules/story/continuity/tests/test_p2a_write_side.py",
+            "backend/modules/story/continuity/tests/test_typed_state_registry.py",
+            "backend/modules/story/facade.py",
+            "backend/modules/world/README.md",
+            "backend/modules/world/api/__init__.py",
+            "backend/modules/world/api/dossier.py",
+            "backend/modules/world/assistant_dossier_tools.py",
+            "backend/modules/world/dossier_facade.py",
+            "backend/modules/world/dossier_repository.py",
+            "backend/modules/world/dossier_service.py",
+            "backend/modules/world/facade.py",
+            "backend/modules/world/models/__init__.py",
+            "backend/modules/world/models/character.py",
+            "backend/modules/world/models/dossier.py",
+            "backend/modules/world/repositories.py",
+            "backend/modules/world/schemas/__init__.py",
+            "backend/modules/world/schemas/characters.py",
+            "backend/modules/world/schemas/context.py",
+            "backend/modules/world/schemas/dossier.py",
+            "backend/modules/world/services/core/character_service.py",
+            "backend/modules/world/tests/test_assistant_dossier_tools.py",
+            "backend/modules/world/tests/test_object_dossier.py",
+            "\"docs/01_\\346\\225\\260\\346\\215\\256\\345\\272\\223\\350\\256\\276\\350\\256\\241.md\"",
+            "docs/plans/2026-10-15-world-object-dossier-c0-mapping.md"
+          ]
+        },
+        {
+          "sha": "633293ee2a28cfddfae090e5cdfebc50167dfee5",
+          "title": "633293ee2 checkpoint: evidence object dossier aggregation WIP",
+          "files": [
+            "backend/modules/evidence/compilation/contracts.py",
+            "backend/modules/evidence/compilation/services/object_dossier_brief.py",
+            "backend/modules/evolution/evidence_read.py",
+            "backend/modules/world/dossier_service.py",
+            "backend/modules/world/schemas/dossier.py",
+            "backend/modules/world/services/worldbuilding/profile_service.py",
+            "backend/modules/world/tests/test_object_dossier.py"
+          ]
+        },
+        {
+          "sha": "cb9d8f0ae9eae74ad1728a67583892e7a2da38af",
+          "title": "cb9d8f0ae feat(assistant): add unified notice backend slice",
+          "files": [
+            "backend/alembic/versions/20261015_notice_dispositions.py",
+            "backend/app/notice_source_registry.py",
+            "backend/modules/assistant/README.md",
+            "backend/modules/assistant/forecast_notice_source.py",
+            "backend/modules/assistant/notice_contracts.py",
+            "backend/modules/assistant/notice_disposition_operations.py",
+            "backend/modules/assistant/notice_models.py",
+            "backend/modules/assistant/notice_service.py",
+            "backend/modules/assistant/notice_sources.py",
+            "backend/modules/assistant/notices_api.py",
+            "backend/modules/assistant/tests/test_unified_notices.py",
+            "backend/modules/story/README.md",
+            "backend/modules/story/notice_sources.py",
+            "backend/modules/writing/README.md",
+            "backend/modules/writing/notice_sources.py",
+            "development-guide.md",
+            "\"docs/01_\\346\\225\\260\\346\\215\\256\\345\\272\\223\\350\\256\\276\\350\\256\\241.md\"",
+            "docs/architecture/README.md",
+            "docs/architecture/architecture-documents.toml",
+            "docs/architecture/documentation-maintenance.md",
+            "docs/modules/11_writing.md",
+            "docs/modules/19_story.md",
+            "docs/modules/20_assistant.md",
+            "testing-guide.md"
+          ]
+        },
+        {
+          "sha": "136163c4cd2d8ccb62e29a2d6ccbdfd196703cce",
+          "title": "136163c4c fix(assistant): restore timed notice wake and source coverage",
+          "files": [
+            "backend/modules/assistant/README.md",
+            "backend/modules/assistant/forecast_notice_source.py",
+            "backend/modules/assistant/notice_disposition_operations.py",
+            "backend/modules/assistant/notice_service.py",
+            "backend/modules/assistant/tests/test_unified_notices.py",
+            "backend/modules/writing/notice_sources.py"
+          ]
+        },
+        {
+          "sha": "f0d78e96e30e77ef103fddfaacc826977926618c",
+          "title": "f0d78e96e fix(story): retain unresolved reading reveal candidates",
+          "files": [
+            "backend/modules/evolution/tests/test_workflow.py",
+            "backend/modules/evolution/workflow.py",
+            "backend/modules/story/outline_state/reading_structure.py",
+            "backend/modules/story/outline_state/tests/test_reading_structure.py",
+            "docs/modules/19_story.md",
+            "docs/modules/22_evolution.md"
+          ]
+        },
+        {
+          "sha": "ede40401ff7bf78f7fecd435bcda82916a71f7dc",
+          "title": "ede40401f fix(assistant): deny demo writes to unified notices",
+          "files": [
+            "backend/modules/assistant/README.md",
+            "backend/modules/assistant/notice_service.py",
+            "backend/modules/assistant/tests/test_unified_notices.py"
+          ]
+        },
+        {
+          "sha": "4cb98784d0bee5468c4c8633cf93077edb30a44a",
+          "title": "4cb98784d fix(world): harden dossier revision migration and review boundaries",
+          "files": [
+            "backend/alembic/versions/20261015_notice_dispositions.py",
+            "backend/alembic/versions/20261015_object_dossier_v2.py",
+            "backend/modules/story/continuity/scene_projection.py",
+            "backend/modules/story/continuity/schemas.py",
+            "backend/modules/story/continuity/tests/test_typed_state_registry.py",
+            "backend/modules/world/assistant_dossier_tools.py",
+            "backend/modules/world/dossier_service.py",
+            "backend/modules/world/tests/test_assistant_dossier_tools.py",
+            "backend/modules/world/tests/test_object_dossier.py",
+            "backend/tests/e2e/test_world_dossier_postgres.py",
+            "docs/plans/2026-10-15-world-object-dossier-c0-mapping.md"
+          ]
+        },
+        {
+          "sha": "30d5b06982afca2d63c0153dfa166e72c8959d1e",
+          "title": "30d5b0698 feat(evidence): add scene object dossier brief",
+          "files": [
+            "backend/modules/evidence/compilation/README.md",
+            "backend/modules/evidence/compilation/api.py",
+            "backend/modules/evidence/compilation/facade.py",
+            "backend/modules/evidence/compilation/object_dossier_schemas.py",
+            "backend/modules/evidence/compilation/services/object_dossier_brief.py",
+            "backend/modules/evidence/compilation/tests/test_object_dossier_brief.py",
+            "backend/modules/evolution/evidence_read.py",
+            "backend/modules/evolution/tests/test_evidence_read.py"
+          ]
+        },
+        {
+          "sha": "f6f559f922c946ba7ee7bc4e4c40103d7b0a005c",
+          "title": "f6f559f92 WIP checkpoint: Story card and reaction v2",
+          "files": [
+            "backend/modules/evidence/compilation/README.md",
+            "backend/modules/evidence/compilation/assistant_dossier_tools.py",
+            "backend/modules/evidence/compilation/contracts.py",
+            "backend/modules/evidence/compilation/knowledge/policies.py",
+            "backend/modules/evidence/compilation/knowledge/tests/test_policies.py",
+            "backend/modules/evidence/compilation/services/context_compiler.py",
+            "backend/modules/evidence/compilation/services/loaders/object_dossier_loader.py",
+            "backend/modules/evidence/compilation/services/object_dossier_brief.py",
+            "backend/modules/evidence/compilation/services/object_dossier_sections.py",
+            "backend/modules/evidence/compilation/tests/test_assistant_dossier_tools.py",
+            "backend/modules/evidence/compilation/tests/test_object_dossier_context_sections.py",
+            "backend/modules/story/README.md",
+            "backend/modules/story/api.py",
+            "backend/modules/story/assistant_generation_tools.py",
+            "backend/modules/story/facade.py",
+            "backend/modules/story/generation.py",
+            "backend/modules/story/schemas.py",
+            "backend/modules/story/task_submission.py",
+            "backend/modules/story/tasks.py",
+            "backend/modules/story/tests/test_assistant_generation_tools.py",
+            "backend/modules/story/tests/test_story_api.py",
+            "backend/modules/story/tests/test_story_generation.py",
+            "backend/modules/story/tests/test_story_tasks.py"
+          ]
+        },
+        {
+          "sha": "3c556dfd0e8f6532d74b23a8f40050d7f9c7e5d8",
+          "title": "3c556dfd0 fix(evidence): enforce safe dossier projection and wire read ports",
+          "files": [
+            "backend/app/bootstrap.py",
+            "backend/core/service_keys.py",
+            "backend/modules/evidence/README.md",
+            "backend/modules/evidence/compilation/README.md",
+            "backend/modules/evidence/compilation/api.py",
+            "backend/modules/evidence/compilation/contracts.py",
+            "backend/modules/evidence/compilation/services/object_dossier_brief.py",
+            "backend/modules/evidence/compilation/tests/test_object_dossier_brief.py",
+            "backend/modules/evolution/README.md",
+            "backend/modules/evolution/evidence_read.py",
+            "backend/modules/evolution/tests/test_evidence_read.py",
+            "backend/modules/story/README.md",
+            "backend/modules/story/facade.py",
+            "backend/modules/world/README.md",
+            "backend/modules/world/dossier_service.py",
+            "backend/modules/world/schemas/dossier.py",
+            "backend/tests/e2e/test_object_dossier_brief_postgres.py",
+            "docs/adr/0031-module-dependency-directions.md",
+            "docs/modules/08_evidence.md"
+          ]
+        },
+        {
+          "sha": "b5beb713110581f4a9a551d6dbb66fa7189eb4eb",
+          "title": "b5beb7131 style(evidence): remove trailing blank test line",
+          "files": [
+            "backend/tests/e2e/test_object_dossier_brief_postgres.py"
+          ]
+        },
+        {
+          "sha": "c00a619617b01408f28bac61b2cc0559fd26e35f",
+          "title": "c00a61961 fix(evidence): prove safe dossier visibility before pagination",
+          "files": [
+            "backend/modules/evidence/compilation/README.md",
+            "backend/modules/evidence/compilation/api.py",
+            "backend/modules/evidence/compilation/contracts.py",
+            "backend/modules/evidence/compilation/services/object_dossier_brief.py",
+            "backend/modules/evidence/compilation/tests/test_object_dossier_brief.py",
+            "backend/modules/world/README.md",
+            "backend/modules/world/dossier_facade.py",
+            "backend/modules/world/dossier_repository.py",
+            "backend/modules/world/dossier_service.py",
+            "backend/modules/world/schemas/dossier.py",
+            "backend/tests/e2e/test_object_dossier_brief_postgres.py"
+          ]
+        },
+        {
+          "sha": "9a9759ba48f118567f357ce73bb233dfad1c5356",
+          "title": "9a9759ba4 test(evidence): pin reader proof for safe dossier facts",
+          "files": [
+            "backend/modules/evidence/compilation/tests/test_object_dossier_brief.py"
+          ]
+        },
+        {
+          "sha": "5217f53107eeeaa6c9a95745fc2eee659b53beab",
+          "title": "5217f5310 fix: version dossier template operation after schema expansion",
+          "files": [
+            "backend/modules/assistant/README.md",
+            "backend/modules/assistant/tests/test_output_validation.py",
+            "backend/modules/story/tests/test_assistant_structure_window.py",
+            "backend/modules/world/assistant_dossier_tools.py",
+            "backend/modules/world/tests/test_assistant_dossier_tools.py",
+            "backend/tests/unit/test_assistant_operation_registry.py"
+          ]
+        },
+        {
+          "sha": "f6c3790ccb3b096509c5ec84583d6386e364ddaf",
+          "title": "f6c3790cc feat: bridge generic world profiles and story evidence",
+          "files": [
+            "backend/modules/evidence/compilation/README.md",
+            "backend/modules/evidence/compilation/api.py",
+            "backend/modules/evidence/compilation/schemas.py",
+            "backend/modules/evidence/compilation/services/confirmation_service.py",
+            "backend/modules/evidence/compilation/services/loaders/object_dossier_loader.py",
+            "backend/modules/evidence/compilation/services/object_dossier_brief.py",
+            "backend/modules/evidence/compilation/tests/test_confirmation_api.py",
+            "backend/modules/evidence/compilation/tests/test_object_dossier_brief.py",
+            "backend/modules/evidence/compilation/tests/test_object_dossier_context_sections.py",
+            "backend/modules/story/README.md",
+            "backend/modules/story/assistant_generation_tools.py",
+            "backend/modules/story/generation.py",
+            "backend/modules/story/schemas.py",
+            "backend/modules/story/task_submission.py",
+            "backend/modules/story/tasks.py",
+            "backend/modules/story/tests/test_assistant_generation_tools.py",
+            "backend/modules/story/tests/test_story_api.py",
+            "backend/modules/story/tests/test_story_generation.py",
+            "backend/modules/story/tests/test_story_tasks.py",
+            "backend/modules/world/README.md",
+            "backend/modules/world/dossier_service.py",
+            "backend/modules/world/schemas/workspace.py",
+            "backend/modules/world/services/core/entity_type_transition_service.py",
+            "backend/modules/world/services/worldbuilding/profile_service.py",
+            "backend/modules/world/tests/test_custom_entity_types.py",
+            "backend/modules/world/tests/test_object_dossier.py",
+            "backend/modules/world/tests/test_world_background_hash.py",
+            "backend/modules/world/tests/test_world_facade.py",
+            "backend/modules/world/world_background.py",
+            "docs/plans/2026-10-15-world-object-dossier-c0-mapping.md"
+          ]
+        }
+      ]
+    },
+    {
+      "branch": "codex/scene-director-impl",
+      "head": "1628717107a158b09f8f683c7223fbc65906e9ae",
+      "merge_base": "ea8889f1691d75393fe471ca4a1dd0abff75a592",
+      "disposition": "已通过改写集成并修复；无需直接cherry-pick",
+      "integration_commits": [
+        {
+          "sha": "1bcbe7df654a4eed3e8dc6e1cb21a37116709b2c",
+          "title": "feat(story): integrate scene director and repair review findings"
+        },
+        {
+          "sha": "10b5f6f006ec97eb5e90fcf3506784470a794ee3",
+          "title": "merge: combine goal runs and scene director review fixes"
+        },
+        {
+          "sha": "526d3ef60f19d55cf07773cf13cf32a2963e4599",
+          "title": "Fix live evaluation inputs and director completion and token authorization"
+        },
+        {
+          "sha": "30e3afa580a242d14db6c796e10b84bc050b2c1c",
+          "title": "Fix director reference card revision status contract"
+        }
+      ],
+      "current_symbols": [
+        "backend/modules/story/director_service.py:139 list_director_history; :327 read_director_history_view; :800 save_director_reference; :900 read_director_references_for_writing",
+        "backend/modules/story/director_api.py Director start/continue/rewrite routes; backend/modules/story/director_tasks.py independent deterministic task handlers",
+        "backend/modules/evidence/compilation/services/loaders/director_reference_loader.py DirectorReferenceLoader; frontend-console/vue/views/scene/SceneDirectorPanel.vue"
+      ],
+      "semantic_comparisons": [
+        "All 134 old production functions survive; reworked resume authorization, immutable-history basis, multi-dimension advisory and legacy protocol display are deliberate fixes covered by reviewed integration commits",
+        "Old branch itself is not an integration candidate because newer code repairs source/authorization/budget/transaction boundaries"
+      ],
+      "reviewed_patches": [
+        {
+          "sha": "1628717107a158b09f8f683c7223fbc65906e9ae",
+          "title": "162871710 feat(story): add isolated scene director workflow",
+          "files": [
+            "backend/alembic/versions/20261016_story_scene_director.py",
+            "backend/infrastructure/tasks/README.md",
+            "backend/modules/evidence/compilation/README.md",
+            "backend/modules/evidence/compilation/api.py",
+            "backend/modules/evidence/compilation/contracts.py",
+            "backend/modules/evidence/compilation/facade.py",
+            "backend/modules/evidence/compilation/knowledge/policies.py",
+            "backend/modules/evidence/compilation/knowledge/scope.py",
+            "backend/modules/evidence/compilation/markdown_renderer.py",
+            "backend/modules/evidence/compilation/schemas.py",
+            "backend/modules/evidence/compilation/services/compiled_context.py",
+            "backend/modules/evidence/compilation/services/confirmation_service.py",
+            "backend/modules/evidence/compilation/services/context_compiler.py",
+            "backend/modules/evidence/compilation/services/director_reference_config.py",
+            "backend/modules/evidence/compilation/services/director_reference_sections.py",
+            "backend/modules/evidence/compilation/services/loaders/__init__.py",
+            "backend/modules/evidence/compilation/services/loaders/director_reference_loader.py",
+            "backend/modules/evidence/compilation/tests/test_director_reference_dimension.py",
+            "backend/modules/story/README.md",
+            "backend/modules/story/api.py",
+            "backend/modules/story/contracts.py",
+            "backend/modules/story/director_api.py",
+            "backend/modules/story/director_budget.py",
+            "backend/modules/story/director_consistency.py",
+            "backend/modules/story/director_context.py",
+            "backend/modules/story/director_notice_sources.py",
+            "backend/modules/story/director_operations.py",
+            "backend/modules/story/director_schemas.py",
+            "backend/modules/story/director_service.py",
+            "backend/modules/story/director_state.py",
+            "backend/modules/story/director_tasks.py",
+            "backend/modules/story/facade.py",
+            "backend/modules/story/models.py",
+            "backend/modules/story/tasks.py",
+            "backend/modules/story/tests/test_scene_director_history.py",
+            "backend/modules/story/tests/test_scene_director_security_budget.py",
+            "backend/modules/writing/generation_service.py",
+            "backend/modules/writing/schemas.py",
+            "backend/modules/writing/semantic_review.py",
+            "backend/modules/writing/service_support.py",
+            "backend/modules/writing/tasks.py",
+            "backend/modules/writing/tests/test_director_reference_callers.py",
+            "\"docs/01_\\346\\225\\260\\346\\215\\256\\345\\272\\223\\350\\256\\276\\350\\256\\241.md\"",
+            "docs/modules/08_evidence.md",
+            "docs/modules/11_writing.md",
+            "docs/modules/12_infrastructure.md",
+            "docs/modules/19_story.md",
+            "frontend-console/api/story.js",
+            "frontend-console/shared/aiReferenceModal.js",
+            "frontend-console/shared/workflowProgress.js",
+            "frontend-console/tests/vue/assistant/TeamDomainControls.test.js",
+            "frontend-console/tests/vue/scene/SceneDirectorPanel.test.js",
+            "frontend-console/tests/vue/scene/StorySceneWorkspace.test.js",
+            "frontend-console/tests/vue/writing/SceneCockpit.test.js",
+            "frontend-console/tests/vue/writing/writingCommandController.test.js",
+            "frontend-console/vue/views/scene/SceneDirectorPanel.vue",
+            "frontend-console/vue/views/scene/SceneRehearsalPanel.vue",
+            "frontend-console/vue/views/scene/SceneSimulationPanel.vue",
+            "frontend-console/vue/views/scene/SceneWorkbenchView.vue",
+            "frontend-console/vue/views/writing/WritingView.vue",
+            "frontend-console/vue/views/writing/components/SceneCockpit.vue",
+            "frontend-console/vue/views/writing/controllers/writingCommandController.js",
+            "frontend-console/vue/views/writing/useWritingWorkspace.js"
+          ]
+        }
+      ]
+    },
+    {
+      "branch": "codex/map-clues-drafts",
+      "head": "a58027bedfca8f28bf6c14c71262d2e65848fe2a",
+      "merge_base": "59e30ca92fbd57de927f8f4bcd8e654cddcb9c47",
+      "disposition": "已通过改写集成，且被后续边界修复增强",
+      "integration_commits": [
+        {
+          "sha": "899c8ca0087d3ada155897525585b6cdb1c86cdd",
+          "title": "feat(world): register spatial clue metadata and migration"
+        },
+        {
+          "sha": "381598e515cd645e4058f181f481975cc35ee0c5",
+          "title": "feat(world): stage and review spatial clue candidates"
+        },
+        {
+          "sha": "aab2924e6135430b5b579bdc85e6e65ff5ee8247",
+          "title": "fix(world): enforce spatial clue source and review boundaries"
+        }
+      ],
+      "current_symbols": [
+        "backend/modules/world/map_spatial_clue_service.py:745 stage_spatial_discovery; :1195 list_spatial_clues; :1243 review_spatial_clue",
+        "backend/modules/world/map_spatial_clue_api.py; backend/alembic/versions/20261015_spatial_clues.py"
+      ],
+      "semantic_comparisons": [
+        "a58027bed has 100 percent of added/deleted path+line multiset in381598e51; migration lineage/doc context reordering explains initial metadata patch mismatch",
+        "Candidate review remains source-bound and does not mutate saved map heads"
+      ],
+      "reviewed_patches": [
+        {
+          "sha": "2238e26020792acca6ce04c53c23ec2af7e95420",
+          "title": "2238e2602 feat(world): register spatial clue metadata and migration",
+          "files": [
+            "backend/alembic/env.py",
+            "backend/alembic/versions/20261015_spatial_clues.py",
+            "backend/app/bootstrap.py",
+            "backend/conftest.py",
+            "backend/modules/world/contracts.py",
+            "backend/modules/world/map_spatial_clue_models.py",
+            "\"docs/01_\\346\\225\\260\\346\\215\\256\\345\\272\\223\\350\\256\\276\\350\\256\\241.md\""
+          ]
+        },
+        {
+          "sha": "a58027bedfca8f28bf6c14c71262d2e65848fe2a",
+          "title": "a58027bed feat(world): stage and review spatial clue candidates",
+          "files": [
+            "backend/modules/world/map_atlas_api.py",
+            "backend/modules/world/map_spatial_clue_api.py",
+            "backend/modules/world/map_spatial_clue_schemas.py",
+            "backend/modules/world/map_spatial_clue_service.py",
+            "backend/modules/world/map_structure_schemas.py",
+            "backend/modules/world/tests/test_map_spatial_clues.py",
+            "docs/modules/15_map.md"
+          ]
+        }
+      ]
+    },
+    {
+      "branch": "codex/map-evolution-spatial",
+      "head": "8a2aec71d974aa4915b065cc537eb5d5c30be2a1",
+      "merge_base": "d8c0a64ed664083f7e0cd1a79d581968a61685b4",
+      "disposition": "已通过改写集成；旧边界bug不可复活",
+      "integration_commits": [
+        {
+          "sha": "899c8ca0087d3ada155897525585b6cdb1c86cdd",
+          "title": "feat(world): register spatial clue metadata and migration"
+        },
+        {
+          "sha": "381598e515cd645e4058f181f481975cc35ee0c5",
+          "title": "feat(world): stage and review spatial clue candidates"
+        },
+        {
+          "sha": "aab2924e6135430b5b579bdc85e6e65ff5ee8247",
+          "title": "fix(world): enforce spatial clue source and review boundaries"
+        },
+        {
+          "sha": "70e305540db5626aba92d24673f09328ae88cc8f",
+          "title": "fix: bound map evidence reads and reuse scoped source checks"
+        },
+        {
+          "sha": "651df05722abc7bbc6a47a42dbee77c43b5faf5f",
+          "title": "fix(map): preserve dossier values, scene order and goal receipts"
+        }
+      ],
+      "current_symbols": [
+        "backend/modules/world/map_spatial_clue_service.py:204 _scene_contract; :320 _evidence_is_current; :483 _revalidate_stored_clue; :745 stage_spatial_discovery; :901 read_spatial_discovery_context; :1243 review_spatial_clue",
+        "backend/modules/story/scene_source_port.py implements current Scene/source contracts via registered DI"
+      ],
+      "semantic_comparisons": [
+        "Old43aa89d38 follows pre-DI source imports and narrow vocabulary status projection; aab2924e6 keeps validation while routing through STORY_SCENE_SOURCE and retaining author-confirmed archived/merged type identity",
+        "Stored clue evidence is revalidated at stage/read/review; content mode, Scene order and current source/range hashes remain enforced"
+      ],
+      "reviewed_patches": [
+        {
+          "sha": "968bb8a0f6615867c41092673be37bc30efc41be",
+          "title": "968bb8a0f feat(world): register spatial clue metadata and migration",
+          "files": [
+            "backend/alembic/env.py",
+            "backend/alembic/versions/20261015_spatial_clues.py",
+            "backend/app/bootstrap.py",
+            "backend/conftest.py",
+            "backend/modules/world/contracts.py",
+            "backend/modules/world/map_spatial_clue_models.py",
+            "\"docs/01_\\346\\225\\260\\346\\215\\256\\345\\272\\223\\350\\256\\276\\350\\256\\241.md\""
+          ]
+        },
+        {
+          "sha": "db00ae365a5f95529045826588fff122880e3ec2",
+          "title": "db00ae365 feat(world): stage and review spatial clue candidates",
+          "files": [
+            "backend/modules/world/map_atlas_api.py",
+            "backend/modules/world/map_spatial_clue_api.py",
+            "backend/modules/world/map_spatial_clue_schemas.py",
+            "backend/modules/world/map_spatial_clue_service.py",
+            "backend/modules/world/map_structure_schemas.py",
+            "backend/modules/world/tests/test_map_spatial_clues.py",
+            "docs/modules/15_map.md"
+          ]
+        },
+        {
+          "sha": "43aa89d38ee819ddf421202febfff8f1fbf63170",
+          "title": "43aa89d38 fix(world): enforce spatial clue source and review boundaries",
+          "files": [
+            "backend/modules/story/README.md",
+            "backend/modules/story/outline_state/scene_facade.py",
+            "backend/modules/story/outline_state/services.py",
+            "backend/modules/story/scene_source_port.py",
+            "backend/modules/world/map_spatial_clue_api.py",
+            "backend/modules/world/map_spatial_clue_schemas.py",
+            "backend/modules/world/map_spatial_clue_service.py",
+            "backend/modules/world/tests/test_map_spatial_clue_boundaries.py",
+            "backend/tests/e2e/test_map_spatial_storage_postgres.py",
+            "docs/modules/15_map.md"
+          ]
+        }
+      ]
+    },
+    {
+      "branch": "codex/map-spatial-advisories",
+      "head": "0369360723a7b48c3b7c1ba173f48becf54ee424",
+      "merge_base": "fdd6851126ca81c0b14358adc92f9bbb337d0be4",
+      "disposition": "已通过改写集成并补修",
+      "integration_commits": [
+        {
+          "sha": "6795504f95a5f5d611e9d964f7671cd83c8f7a78",
+          "title": "feat(world): add deterministic map spatial advisories"
+        },
+        {
+          "sha": "5ce9b693ade489161dcf2c51ce66abaf008ff86f",
+          "title": "fix: address first map enhancement review findings"
+        },
+        {
+          "sha": "70e305540db5626aba92d24673f09328ae88cc8f",
+          "title": "fix: bound map evidence reads and reuse scoped source checks"
+        }
+      ],
+      "current_symbols": [
+        "backend/modules/world/map_spatial_advisory_service.py:188 MapSpatialAdvisoryService.read; :1016 read_map_spatial_advisories",
+        "backend/modules/writing/conflict_check_service.py consumes deterministic spatial advisory; backend/modules/story/forecast.py consumes advisory"
+      ],
+      "semantic_comparisons": [
+        "Original036936072 path+line change multiset fully included in6795504f9; current read validates adopted/source-current facts, cutoff and deterministic modality semantics",
+        "Advisory does not become required writing dimension or block prose"
+      ],
+      "reviewed_patches": [
+        {
+          "sha": "0369360723a7b48c3b7c1ba173f48becf54ee424",
+          "title": "036936072 feat(world): add deterministic map spatial advisories",
+          "files": [
+            "backend/modules/assistant/forecast/capabilities.json",
+            "backend/modules/assistant/forecast/registry.py",
+            "backend/modules/story/forecast.py",
+            "backend/modules/story/tests/test_spatial_forecast.py",
+            "backend/modules/world/README.md",
+            "backend/modules/world/contracts.py",
+            "backend/modules/world/facade.py",
+            "backend/modules/world/map_atlas_facade.py",
+            "backend/modules/world/map_spatial_advisory_schemas.py",
+            "backend/modules/world/map_spatial_advisory_service.py",
+            "backend/modules/world/tests/test_map_spatial_advisory.py",
+            "backend/modules/writing/README.md",
+            "backend/modules/writing/conflict_check_service.py",
+            "backend/modules/writing/service_support.py",
+            "backend/modules/writing/tests/test_conflict_checks.py",
+            "backend/modules/writing/tests/test_spatial_advisory_unit.py",
+            "docs/modules/15_map.md"
+          ]
+        }
+      ]
+    },
+    {
+      "branch": "codex/map-spatial-brief",
+      "head": "4a39dd7524e3b7212a2eed785da757984e36cff7",
+      "merge_base": "fa057ed31082f8b29741120b419b6afc547e31ff",
+      "disposition": "已通过改写集成并补修",
+      "integration_commits": [
+        {
+          "sha": "a8305aa666582759cf2d2ec2d3dc3cd32a4a2e62",
+          "title": "feat(world): add source-checked spatial brief facade"
+        },
+        {
+          "sha": "fdd6851126ca81c0b14358adc92f9bbb337d0be4",
+          "title": "feat(evidence): integrate adopted map spatial briefs"
+        },
+        {
+          "sha": "70e305540db5626aba92d24673f09328ae88cc8f",
+          "title": "fix: bound map evidence reads and reuse scoped source checks"
+        }
+      ],
+      "current_symbols": [
+        "backend/modules/world/map_spatial_brief_service.py:217 MapSpatialBriefService.read; :1085 _page_source_visible; :1125 read_map_spatial_brief",
+        "backend/modules/evidence/compilation/services/loaders/map_spatial_loader.py MapSpatialLoader; services/confirmation_service.py and snapshot_service.py preserve same confirmation baseline",
+        "backend/modules/assistant/evidence_tools.py:958 map_spatial_enabled_capabilities explicitly gates Assistant read; world ask_world_service consumes reference under capability opt-in"
+      ],
+      "semantic_comparisons": [
+        "acda90caa and4a39dd752 each have 100 percent changed path+line multiset contained in a8305aa66/fdd685112",
+        "Current source-verified bounded pagination retains omission receipts and does not weaken scope_complete when optional spatial reference is unavailable"
+      ],
+      "reviewed_patches": [
+        {
+          "sha": "acda90caaa66d128c56c27659fb14cc92a39a375",
+          "title": "acda90caa feat(world): add source-checked spatial brief facade",
+          "files": [
+            "backend/modules/world/contracts.py",
+            "backend/modules/world/facade.py",
+            "backend/modules/world/map_spatial_brief_schemas.py",
+            "backend/modules/world/map_spatial_brief_service.py",
+            "backend/modules/world/tests/test_map_spatial_brief.py",
+            "backend/tests/unit/test_facade_public_api.py"
+          ]
+        },
+        {
+          "sha": "4a39dd7524e3b7212a2eed785da757984e36cff7",
+          "title": "4a39dd752 feat(evidence): integrate adopted map spatial briefs",
+          "files": [
+            "backend/core/config.py",
+            "backend/modules/assistant/README.md",
+            "backend/modules/assistant/evidence_tools.py",
+            "backend/modules/assistant/operations.py",
+            "backend/modules/assistant/service.py",
+            "backend/modules/assistant/tests/test_assistant.py",
+            "backend/modules/assistant/tests/test_web_tools.py",
+            "backend/modules/evidence/README.md",
+            "backend/modules/evidence/compilation/README.md",
+            "backend/modules/evidence/compilation/contracts.py",
+            "backend/modules/evidence/compilation/knowledge/scope.py",
+            "backend/modules/evidence/compilation/knowledge/tests/test_scope.py",
+            "backend/modules/evidence/compilation/markdown_renderer.py",
+            "backend/modules/evidence/compilation/schemas.py",
+            "backend/modules/evidence/compilation/services/confirmation_service.py",
+            "backend/modules/evidence/compilation/services/confirmed_ai_action.py",
+            "backend/modules/evidence/compilation/services/context_compiler.py",
+            "backend/modules/evidence/compilation/services/loaders/__init__.py",
+            "backend/modules/evidence/compilation/services/loaders/map_spatial_loader.py",
+            "backend/modules/evidence/compilation/services/planned_retrieval_service.py",
+            "backend/modules/evidence/compilation/services/snapshot_service.py",
+            "backend/modules/evidence/compilation/tests/test_map_spatial_loader.py",
+            "backend/modules/evidence/compilation/tests/test_map_spatial_snapshot.py",
+            "backend/modules/story/tasks.py",
+            "backend/modules/world/README.md",
+            "backend/modules/world/map_spatial_brief_service.py",
+            "backend/modules/world/schemas/ask_world.py",
+            "backend/modules/world/services/worldbuilding/ask_world_service.py",
+            "backend/modules/world/services/worldbuilding/knowledge_governance.py",
+            "backend/modules/world/tests/test_map_spatial_brief.py",
+            "docs/adr/0037-map-spatial-advisory-dimension.md",
+            "docs/modules/08_evidence.md",
+            "docs/modules/15_map.md"
+          ]
+        }
+      ]
+    },
+    {
+      "branch": "codex/map-spatial-eval-driver",
+      "head": "465a7e509f713ade38e0c8610d7fda501a2dc021",
+      "merge_base": "83bb15f04b05d62bfaf489e44738de578c042dde",
+      "disposition": "已通过改写集成并加固有界只读",
+      "integration_commits": [
+        {
+          "sha": "e1a11c591610e0bf0301ec822a9c4497be45af64",
+          "title": "feat(map): expose owner-scoped persisted evaluation evidence"
+        },
+        {
+          "sha": "70e305540db5626aba92d24673f09328ae88cc8f",
+          "title": "fix: bound map evidence reads and reuse scoped source checks"
+        }
+      ],
+      "current_symbols": [
+        "backend/modules/world/map_evaluation_read_service.py:39 read_map_spatial_evaluation_artifacts: owner/project guard, 1-200 Scene restriction, actual run and bounded vocabulary revisions",
+        "backend/modules/evolution/map_evaluation_read_service.py:18 read_map_spatial_evaluation_receipts: exact run/operation/Scene frozen authorization binding",
+        "backend/modules/assistant/map_evaluation_read_service.py:13 read_map_spatial_evaluation_turn: active project/current owner, author project and run-only; no reconciliation or replay"
+      ],
+      "semantic_comparisons": [
+        "e1a11c591 includes old932-line feature except context/doc/facade ordering; removed facade export lines are still present at world/facade.py119,274",
+        "Persisted receipts and artifacts cannot claim human validation; unknown tool invocation stays unknown"
+      ],
+      "reviewed_patches": [
+        {
+          "sha": "8c3573718127a66e1fcc365ea1e5ca419db28e59",
+          "title": "8c3573718 feat(map): expose owner-scoped persisted evaluation evidence",
+          "files": [
+            "backend/modules/assistant/facade.py",
+            "backend/modules/assistant/map_evaluation_read_service.py",
+            "backend/modules/assistant/tests/test_map_evaluation_read_service.py",
+            "backend/modules/evolution/facade.py",
+            "backend/modules/evolution/map_evaluation_read_service.py",
+            "backend/modules/evolution/tests/test_map_evaluation_read_service.py",
+            "backend/modules/world/facade.py",
+            "backend/modules/world/map_evaluation_read_service.py",
+            "backend/modules/world/map_spatial_clue_service.py",
+            "backend/modules/world/tests/test_map_evaluation_read_service.py",
+            "docs/modules/15_map.md",
+            "docs/modules/20_assistant.md",
+            "docs/modules/22_evolution.md"
+          ]
+        }
+      ]
+    },
+    {
+      "branch": "codex/operation-trace-report-impl",
+      "head": "b55497379b377dc8a5f12d6aa57c687d0c879598",
+      "merge_base": "9b9c022a53f57570fb3f1409ee6d49f15e710c59",
+      "disposition": "已通过改写集成；旧aggregation primitives被更正确的新版实现替代",
+      "integration_commits": [
+        {
+          "sha": "f8b8423b5b4653e10d0ba7e06bea49d88d4ae07f",
+          "title": "feat(assistant): add private operation trace reports"
+        },
+        {
+          "sha": "bb6d27a46b9bb94d970dc4f22ce0791b313e7871",
+          "title": "fix(assistant): preserve exact trace retention and measurable restoration reports"
+        },
+        {
+          "sha": "5339b7d978a32fe99cee988bd8d9a77d576a1954",
+          "title": "refactor assistant operation trace HTTP adapter"
+        },
+        {
+          "sha": "651df05722abc7bbc6a47a42dbee77c43b5faf5f",
+          "title": "fix(map): preserve dossier values, scene order and goal receipts"
+        }
+      ],
+      "current_symbols": [
+        "backend/modules/assistant/operation_trace_service.py:290 operation_trace_sequence_records; :329 _lifecycle_daily_counts requires ordered call-correlated evidence; :519 operation_trace_cutoff; :622 archive_expired_operation_traces",
+        "backend/modules/assistant/operation_trace_report.py:158 _cross_day_restoration_groups; :219 _lifecycle_report; :412 build_operation_trace_report; :758 operation_trace_report_csv",
+        "backend/modules/assistant/api.py:100 _operation_trace_aggregate owner-only; :136 operation_trace_aggregate; :155 export_operation_trace_aggregate; frontend-console/vue/views/settings/components/OperationTraceReport.vue"
+      ],
+      "semantic_comparisons": [
+        "f8b8423b5 combines ce676631b andb55497379; old naive event-set acceptance/restoration counters are replaced by ordered deterministic matching and explicit partial/unmeasurable gaps",
+        "bb6d27a46 keeps GET read-only; exact180-day retention, once-per-day ID-free aggregates, and cross-day restoration count dedupe preserve reporting accuracy",
+        "Output allow-lists exclude raw text/hash/IDs; CSV formula-leading values escaped; owner/principal enforced before report materialization"
+      ],
+      "reviewed_patches": [
+        {
+          "sha": "ce676631be929b4a0f09e3c88e7642cc0994951b",
+          "title": "ce676631b WIP add report aggregation primitives",
+          "files": [
+            "backend/modules/assistant/operation_trace_models.py",
+            "backend/modules/assistant/operation_trace_service.py"
+          ]
+        },
+        {
+          "sha": "b55497379b377dc8a5f12d6aa57c687d0c879598",
+          "title": "b55497379 feat(assistant): add private operation trace reports",
+          "files": [
+            "backend/alembic/versions/20261016_operation_trace_reports.py",
+            "backend/alembic/versions/20261016_operation_trace_unlinked_outcomes.py",
+            "backend/modules/assistant/README.md",
+            "backend/modules/assistant/api.py",
+            "backend/modules/assistant/goal_runs/service.py",
+            "backend/modules/assistant/operation_trace_models.py",
+            "backend/modules/assistant/operation_trace_report.py",
+            "backend/modules/assistant/operation_trace_service.py",
+            "backend/modules/assistant/operations.py",
+            "backend/modules/assistant/tests/test_operation_trace.py",
+            "backend/modules/assistant/tests/test_operation_trace_report.py",
+            "backend/tests/e2e/test_operation_trace_report_postgres.py",
+            "frontend-console/api/assistant.js",
+            "frontend-console/tests/vue/settings/OperationTraceReport.test.js",
+            "frontend-console/tests/vue/settings/ProjectSettingsView.test.js",
+            "frontend-console/tests/vue/settingsIslands.test.js",
+            "frontend-console/tests/vue/world/WorldEntityDetail.test.js",
+            "frontend-console/vue/views/settings/ProjectSettingsView.vue",
+            "frontend-console/vue/views/settings/components/OperationTraceReport.vue"
+          ]
+        }
+      ]
+    },
+    {
+      "branch": "codex/map-operation-catalog-impl",
+      "head": "9fd1c83055db8390c0599b09825e3f5809089f57",
+      "merge_base": "ba20dc79388133ee903e5522e9cf30ceae2905ba",
+      "disposition": "新版替代；原9文件472行原型已通过98cbdced9重写纳入后续完整实现，无独有有效缺口",
+      "integration_commits": [
+        {
+          "sha": "98cbdced9f8aa99aa4e638ebab3455e13ce1dbe3",
+          "title": "wip: add operation trace storage primitives"
+        },
+        {
+          "sha": "1f77bf4dcbd875b13cce5dd43b60782ca9547a4d",
+          "title": "wip: wire assistant operation trace lifecycle"
+        },
+        {
+          "sha": "d20d275171a7f97875eaee4f12447528c3741c4a",
+          "title": "fix assistant operation trace dispatch and retention"
+        },
+        {
+          "sha": "f8b8423b5b4653e10d0ba7e06bea49d88d4ae07f",
+          "title": "feat(assistant): add private operation trace reports"
+        },
+        {
+          "sha": "bb6d27a46b9bb94d970dc4f22ce0791b313e7871",
+          "title": "fix(assistant): preserve exact trace retention and measurable restoration reports"
+        },
+        {
+          "sha": "5339b7d978a32fe99cee988bd8d9a77d576a1954",
+          "title": "refactor assistant operation trace HTTP adapter"
+        }
+      ],
+      "current_symbols": [
+        "backend/modules/assistant/operation_trace_models.py AssistantOperationTrace and owner privacy/salt/aggregate models",
+        "backend/modules/assistant/operation_trace_service.py:533 operation_trace_enabled; :559 _project_salt; :913 record_operation_trace with best-effort savepoint/incomplete marker",
+        "backend/app/bootstrap.py:524 ASSISTANT_OPERATION_TRACE; backend/core/service_keys.py:79 port",
+        "backend/modules/assistant/operation_trace_http_adapter.py server-owned HTTP lifecycle capture"
+      ],
+      "semantic_comparisons": [
+        "Every old prototype added/deleted(path,line) occurs in98cbdced9; no original capability unique to9fd1c8305",
+        "Successor adds per-account privacy opt-in, project random salt, unknown-field minimization, safe UUID refs, call identity, lifecycle completeness, retention and report tests",
+        "Do not replace current migrations or services with prototype; old append-only delete rules would break retention and lack current safeguards"
+      ],
+      "reviewed_patches": [
+        {
+          "sha": "9fd1c83055db8390c0599b09825e3f5809089f57",
+          "title": "WIP operation trace prototype"
+        }
+      ]
+    }
+  ]
+}
