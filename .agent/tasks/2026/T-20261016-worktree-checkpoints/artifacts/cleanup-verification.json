@@ -1,0 +1,121 @@
+{
+  "verified_at": "2026-10-16T21:12:54.630001+08:00",
+  "integration_branch": "codex/map-enhancement-plan",
+  "integration_head_before_cleanup": "2f9d2b1806b5bc0228d58e04e6b75ac1e1123bd0",
+  "archive_path": "/Users/tywww/项目/ai-writing-assist/.git/cleanup-archives/map-old-branch-cleanup-20261016-210626",
+  "bundle_sha256": "4108dec35cdeb594c165a3daff8a1fecb71282370160d006bbfac68ef42ea47d",
+  "bundle_restore_fetch_verified": true,
+  "bundle_restore_fsck_exit": 0,
+  "complete_worktree_archives_verified": 9,
+  "archived_source_regular_file_bytes": 1271195441,
+  "removed_local_branches": [
+    {
+      "branch": "codex/c2-ui-acceptance",
+      "head": "2c8c11c263da612af6a9b7ad8d40582d156871b1",
+      "path": "/Users/tywww/项目/ai-writing-assist/.worktrees/map-assistant-operations",
+      "archive": "map-assistant-operations.tar.gz",
+      "archive_sha256": "fa16ea81b7fa2f261e44ffa16034fba203b2d9b1eba19c3bbb0757c00e29341c"
+    },
+    {
+      "branch": "codex/scene-director-impl",
+      "head": "1628717107a158b09f8f683c7223fbc65906e9ae",
+      "path": "/Users/tywww/项目/ai-writing-assist/.worktrees/map-assistant-structure",
+      "archive": "map-assistant-structure.tar.gz",
+      "archive_sha256": "8a9876120e7d8d4c6220658ad09a444fdb84f9befc62286b26c441643a2c812e"
+    },
+    {
+      "branch": "codex/map-clues-drafts",
+      "head": "a58027bedfca8f28bf6c14c71262d2e65848fe2a",
+      "path": "/Users/tywww/项目/ai-writing-assist/.worktrees/map-clues-drafts",
+      "archive": "map-clues-drafts.tar.gz",
+      "archive_sha256": "404e9f0e4f499b8d458df911ad8398d97d1d23f4ff7d97de14d0a9b23ef5830a"
+    },
+    {
+      "branch": "codex/map-evolution-spatial",
+      "head": "8a2aec71d974aa4915b065cc537eb5d5c30be2a1",
+      "path": "/Users/tywww/项目/ai-writing-assist/.worktrees/map-evolution-spatial",
+      "archive": "map-evolution-spatial.tar.gz",
+      "archive_sha256": "87ebefb4c92c588b191fbac120338f9eca92316ef65d00109a453b5809022e7a"
+    },
+    {
+      "branch": "codex/map-spatial-advisories",
+      "head": "0369360723a7b48c3b7c1ba173f48becf54ee424",
+      "path": "/Users/tywww/项目/ai-writing-assist/.worktrees/map-spatial-advisories",
+      "archive": "map-spatial-advisories.tar.gz",
+      "archive_sha256": "50d291462840f841d47b79c973f6f306f079f314853328107616dbc6a6a7fbac"
+    },
+    {
+      "branch": "codex/map-spatial-brief",
+      "head": "4a39dd7524e3b7212a2eed785da757984e36cff7",
+      "path": "/Users/tywww/项目/ai-writing-assist/.worktrees/map-spatial-brief",
+      "archive": "map-spatial-brief.tar.gz",
+      "archive_sha256": "a156d3a93c998ce906b3e83b0fc52154724b0d0f6d6233d6acdb4314313a1de3"
+    },
+    {
+      "branch": "codex/map-spatial-eval-driver",
+      "head": "465a7e509f713ade38e0c8610d7fda501a2dc021",
+      "path": "/Users/tywww/项目/ai-writing-assist/.worktrees/map-spatial-eval-driver",
+      "archive": "map-spatial-eval-driver.tar.gz",
+      "archive_sha256": "ca3f43614c118782f585c3bbc269bda1bead38b0840a4a2bcb18830e3677f50d"
+    },
+    {
+      "branch": "codex/operation-trace-report-impl",
+      "head": "b55497379b377dc8a5f12d6aa57c687d0c879598",
+      "path": "/Users/tywww/项目/ai-writing-assist/.worktrees/operation-trace-report-impl",
+      "archive": "operation-trace-report-impl.tar.gz",
+      "archive_sha256": "70e7d920554ab3cb7c11316492d98161433458a7af59a54a92c4fd4aaa5370fe"
+    },
+    {
+      "branch": "codex/map-operation-catalog-impl",
+      "head": "9fd1c83055db8390c0599b09825e3f5809089f57",
+      "path": "/Users/tywww/项目/ai-writing-assist/.worktrees/map-operation-catalog-impl",
+      "archive": "map-operation-catalog-impl.tar.gz",
+      "archive_sha256": "1291ea28ab58ed06d32bd9e671f79360dac3d5af37bdca23e816561fe2c4028b"
+    }
+  ],
+  "worktrees_before": 60,
+  "worktrees_after": 51,
+  "map_worktrees_before": 39,
+  "map_worktrees_after": 30,
+  "remaining_map_worktrees_clean_except_task_docs": true,
+  "remaining_other_worktree_heads_unchanged": 49,
+  "remaining_other_worktrees_status_unchanged": 49,
+  "protected_file_entries_unchanged": 115,
+  "external_changes_not_touched": [
+    {
+      "path": "/Users/tywww/项目/ai-writing-assist/.worktrees/editorial-diagnosis-v1",
+      "before_head": "4a85b5137e614b16ba893cfc7329d96eca0cd019",
+      "current_head": "30cf2ab3852de678b8250de457f97e6ccd4b99e3",
+      "disposition": "Concurrent outside-scope append-only commit; not touched by cleanup."
+    },
+    {
+      "path": "/Users/tywww/项目/ai-writing-assist/.worktrees/editorial-diagnosis-v1",
+      "before_status": [
+        ""
+      ],
+      "current_status": [
+        " M .agent/tasks/2026/T-20261016-editorial-diagnosis-v1/TASK.md",
+        ""
+      ],
+      "disposition": "Concurrent outside-scope modifications; not touched or restored by cleanup."
+    }
+  ],
+  "other_refs_unchanged": 178,
+  "external_ref_changes_not_touched": [
+    {
+      "ref": "refs/heads/codex/editorial-diagnosis-v1",
+      "before": "4a85b5137e614b16ba893cfc7329d96eca0cd019",
+      "after": "30cf2ab3852de678b8250de457f97e6ccd4b99e3"
+    }
+  ],
+  "stash_unchanged": true,
+  "root_status_unchanged": true,
+  "integration_production_files_unchanged": true,
+  "remote_actions": [],
+  "note": "Final integration HEAD will advance only for cleanup documentation. No business test rerun for Git cleanup.",
+  "cleanup_document_checks": {
+    "docs_check_base_origin_main": "passed",
+    "secret_hygiene": "passed",
+    "git_diff_check": "passed"
+  }
+}

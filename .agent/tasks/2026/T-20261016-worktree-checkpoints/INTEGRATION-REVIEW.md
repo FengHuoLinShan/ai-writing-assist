@@ -34,7 +34,7 @@
 
 ## 集成方式
 
-本轮修复提交后，以 `8834efccd6aa05339dff141b5114f568ecf24cdd` 保留当前树内容并历史归并已核实的9个旧HEAD。这只在地图主题分支归并已被替代的分支历史，避免普通 cherry-pick 恢复旧实现或重复 migration。已核实归并前后 tree hash 均为 `80b467f7b506f45f4ae19f2601fc7d7c042d21eb`，且9个固定HEAD均可达。旧分支、工作树、stash及私有恢复副本保留；归并与39个干净地图工作树见 [收尾核对](artifacts/integration-verification.json) 与 [工作树快照](artifacts/worktrees-after-review.csv)。
+本轮修复提交后，以 `8834efccd6aa05339dff141b5114f568ecf24cdd` 保留当前树内容并历史归并已核实的9个旧HEAD。这只在地图主题分支归并已被替代的分支历史，避免普通 cherry-pick 恢复旧实现或重复 migration。已核实归并前后 tree hash 均为 `80b467f7b506f45f4ae19f2601fc7d7c042d21eb`，且9个固定HEAD均可达。归并时旧分支、工作树、stash及私有恢复副本保留；用户随后授权清理其中9个旧分支及工作树，完整归档和恢复方式见[清理记录](CLEANUP.md)。归并时39个干净地图工作树见 [收尾核对](artifacts/integration-verification.json) 与 [工作树快照](artifacts/worktrees-after-review.csv)。
 
 ## 验证
 
