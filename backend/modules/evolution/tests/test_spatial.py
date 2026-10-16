@@ -607,6 +607,205 @@ async def test_unknown_rescan_attempt_blocks_a_new_operation_for_its_scene():
     )
     assert unresolved == {3}
 
+    class MissingStore:
+        async def load_frozen(self, run_key, attempt_id):
+            return None
+
+    unresolved = await _unresolved_rescan_scenes(
+        MissingStore(),
+        "reading-spatial-test",
+        {
+            "spatial_rescans": [
+                {
+                    "attempt_ids": [frozen.attempt_id],
+                    "from_scene_index": 2,
+                    "through_scene_index": 4,
+                }
+            ]
+        },
+    )
+    assert unresolved == {2, 3, 4}
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "failure",
+    ["missing_run", "missing_entry", "wrong_task", "missing_attempt", "unknown"],
+)
+async def test_spatial_rescan_handler_fails_closed_before_recovery(monkeypatch, failure):
+    import modules.evolution.spatial_rescan as rescan
+
+    operation_id = str(uuid4())
+    attempt_id = str(uuid4())
+    task_id = str(uuid4())
+    frozen = _frozen().model_copy(
+        update={
+            "attempt_id": attempt_id,
+            "payload": {
+                **_frozen().payload,
+                "spatial_rescan_operation_id": operation_id,
+                **(
+                    {"scene_spatial_discovery": {"stage": "sampling"}}
+                    if failure == "unknown"
+                    else {}
+                ),
+            },
+        }
+    )
+    operation = {
+        "operation_id": operation_id,
+        "task_id": str(uuid4()) if failure == "wrong_task" else task_id,
+        "attempt_ids": [attempt_id],
+    }
+    run = SimpleNamespace(
+        status="active",
+        reading_plan_json={
+            "spatial_rescans": [] if failure == "missing_entry" else [operation]
+        },
+        llm_snapshot_json={},
+    )
+    if failure == "missing_run":
+        run = None
+
+    class Store:
+        async def load_run(self, run_key):
+            return run
+
+        async def load_frozen(self, run_key, requested_attempt_id):
+            assert requested_attempt_id == attempt_id
+            return None if failure == "missing_attempt" else frozen
+
+    statuses = []
+
+    async def status(_db, _store, _run_key, _operation_id, value):
+        statuses.append(value)
+
+    monkeypatch.setattr(rescan, "PostgresAttemptStore", lambda *_: Store())
+    monkeypatch.setattr(rescan, "_status", status)
+    task = SimpleNamespace(
+        id=task_id,
+        meta={
+            "novel_id": str(frozen.novel_id),
+            "run_key": frozen.run_id,
+            "operation_id": operation_id,
+        },
+        result=None,
+    )
+
+    with pytest.raises(ConflictError):
+        await rescan.handle_spatial_rescan(object(), task)
+
+    assert task.meta["recovery_required"] is False
+    assert task.result == {
+        "recovery_required": False,
+        "recoverable": False,
+        "status": "needs_reconciliation",
+    }
+    expected_statuses = (
+        ["needs_reconciliation"] if failure in {"missing_attempt", "unknown"} else []
+    )
+    assert statuses == expected_statuses
+
+
+@pytest.mark.asyncio
+async def test_cancelled_spatial_rescan_with_unknown_call_is_not_resumable(monkeypatch):
+    import asyncio
+
+    import modules.evolution.sampler as sampler
+    import modules.evolution.spatial as spatial
+    import modules.evolution.spatial_rescan as rescan
+
+    operation_id = str(uuid4())
+    task_id = str(uuid4())
+    frozen = _frozen().model_copy(
+        update={
+            "payload": {
+                **_frozen().payload,
+                "spatial_rescan_operation_id": operation_id,
+                "spatial_rescan_status": "pending",
+                "source_binding": _source().model_dump(mode="json"),
+                "spatial_rescan_origin": {
+                    "run_key": "origin-run",
+                    "attempt_id": "origin-attempt",
+                },
+            }
+        }
+    )
+    origin = frozen.model_copy(
+        update={"run_id": "origin-run", "attempt_id": "origin-attempt"}
+    )
+    operation = {
+        "operation_id": operation_id,
+        "task_id": task_id,
+        "attempt_ids": [frozen.attempt_id],
+    }
+    run = SimpleNamespace(
+        status="active",
+        reading_plan_json={"spatial_rescans": [operation]},
+        llm_snapshot_json={},
+    )
+
+    class Store:
+        def __init__(self):
+            self.current = frozen
+
+        async def load_run(self, run_key):
+            return run
+
+        async def load_frozen(self, run_key, attempt_id):
+            if run_key == "origin-run":
+                return origin
+            return self.current if attempt_id == frozen.attempt_id else None
+
+    store = Store()
+    statuses = []
+
+    async def status(_db, _store, _run_key, _operation_id, value):
+        statuses.append(value)
+
+    async def no_prefix_check(*_args, **_kwargs):
+        return None
+
+    async def cancelled_call(*_args, **_kwargs):
+        store.current = store.current.model_copy(
+            update={
+                "payload": {
+                    **store.current.payload,
+                    "scene_spatial_discovery": {"stage": "sampling"},
+                }
+            }
+        )
+        raise asyncio.CancelledError
+
+    class Db:
+        async def rollback(self):
+            return None
+
+        async def checkpoint_task_progress(self):
+            return True
+
+    monkeypatch.setattr(rescan, "PostgresAttemptStore", lambda *_: store)
+    monkeypatch.setattr(rescan, "_status", status)
+    monkeypatch.setattr(rescan, "require_current_prefix", no_prefix_check)
+    monkeypatch.setattr(spatial, "finish_scene_spatial", cancelled_call)
+    monkeypatch.setattr(sampler, "SceneMethodCaller", lambda *_args, **_kwargs: object())
+    task = SimpleNamespace(
+        id=task_id,
+        meta={
+            "novel_id": str(frozen.novel_id),
+            "run_key": frozen.run_id,
+            "operation_id": operation_id,
+        },
+        result=None,
+    )
+
+    with pytest.raises(asyncio.CancelledError):
+        await rescan.handle_spatial_rescan(Db(), task)
+
+    assert statuses == ["running", "needs_reconciliation"]
+    assert task.meta["recovery_required"] is False
+    assert task.result["recoverable"] is False
+
 
 @pytest.mark.parametrize(
     "journal_key", ["scene_spatial_discovery", "scene_spatial_review"]

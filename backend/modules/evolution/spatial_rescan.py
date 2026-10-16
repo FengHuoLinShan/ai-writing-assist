@@ -112,7 +112,14 @@ async def _unresolved_rescan_scenes(store, run_key, plan):
     for operation in plan.get("spatial_rescans", []):
         for attempt_id in operation.get("attempt_ids", []):
             frozen = await store.load_frozen(run_key, attempt_id)
-            if frozen and _unknown_spatial_call(frozen.payload):
+            if frozen is None:
+                unresolved.update(
+                    range(
+                        int(operation["from_scene_index"]),
+                        int(operation["through_scene_index"]) + 1,
+                    )
+                )
+            elif _unknown_spatial_call(frozen.payload):
                 unresolved.add(int(frozen.payload["scene_index"]))
     return unresolved
 
@@ -134,7 +141,9 @@ async def spatial_rescan_states(db, novel_id, run):
             await store.load_frozen(run.run_key, attempt_id)
             for attempt_id in entry["attempt_ids"]
         ]
-        unknown = any(item and _unknown_spatial_call(item.payload) for item in frozen)
+        unknown = any(
+            item is None or _unknown_spatial_call(item.payload) for item in frozen
+        )
         recoverable = bool(
             lifecycle
             and lifecycle.recovery_required
@@ -458,6 +467,15 @@ async def _status(db, store, run_key, operation_id, status):
     await db.commit()
 
 
+def _mark_task_needs_reconciliation(task, meta):
+    task.meta = {**meta, "recovery_required": False}
+    task.result = {
+        "recovery_required": False,
+        "recoverable": False,
+        "status": "needs_reconciliation",
+    }
+
+
 async def resume_spatial_rescan(db, novel_id, run_key, operation_id):
     await require_active_project_exclusive(db, str(novel_id))
     store = PostgresAttemptStore(db, novel_id)
@@ -585,17 +603,46 @@ async def handle_spatial_rescan(db, task):
 
     meta = dict(task.meta or {})
     novel_id, run_key, operation_id = (
-        meta["novel_id"],
-        meta["run_key"],
-        meta["operation_id"],
+        meta.get("novel_id"),
+        meta.get("run_key"),
+        meta.get("operation_id"),
     )
+    if not all(
+        isinstance(value, str) and value for value in (novel_id, run_key, operation_id)
+    ):
+        _mark_task_needs_reconciliation(task, meta)
+        raise ConflictError("空间补扫任务信息缺失，不能继续执行")
     store = PostgresAttemptStore(db, novel_id)
     run = await store.load_run(run_key)
+    entries = (run.reading_plan_json or {}).get("spatial_rescans", []) if run else []
     entry = next(
-        item
-        for item in run.reading_plan_json["spatial_rescans"]
-        if item["operation_id"] == operation_id
+        (item for item in entries if item.get("operation_id") == operation_id),
+        None,
     )
+    if (
+        run is None
+        or run.status != "active"
+        or entry is None
+        or str(entry.get("task_id")) != str(task.id)
+    ):
+        _mark_task_needs_reconciliation(task, meta)
+        raise ConflictError("空间补扫运行、确认或任务来源缺失，不能继续执行")
+    attempt_ids = entry.get("attempt_ids")
+    if not isinstance(attempt_ids, list) or not attempt_ids:
+        await _status(db, store, run_key, operation_id, "needs_reconciliation")
+        _mark_task_needs_reconciliation(task, meta)
+        raise ConflictError("空间补扫尝试来源缺失，不能继续执行")
+    for attempt_id in attempt_ids:
+        frozen = await store.load_frozen(run_key, attempt_id)
+        if (
+            frozen is None
+            or frozen.payload.get("spatial_rescan_operation_id") != operation_id
+            or _unknown_spatial_call(frozen.payload)
+        ):
+            await _status(db, store, run_key, operation_id, "needs_reconciliation")
+            _mark_task_needs_reconciliation(task, meta)
+            raise ConflictError("空间补扫尝试来源缺失或结果未核清，不能重发")
+
     await _status(db, store, run_key, operation_id, "running")
     try:
         from types import SimpleNamespace
@@ -607,6 +654,8 @@ async def handle_spatial_rescan(db, task):
         )
         for attempt_id in entry["attempt_ids"]:
             frozen = await store.load_frozen(run_key, attempt_id)
+            if frozen is None:
+                raise ConflictError("空间补扫冻结尝试已丢失，不能继续执行")
             if frozen.payload.get("spatial_rescan_status") == "completed":
                 continue
             origin_ref = frozen.payload["spatial_rescan_origin"]
@@ -624,11 +673,13 @@ async def handle_spatial_rescan(db, task):
     except (Exception, asyncio.CancelledError):
         await db.rollback()
         attempts = [await store.load_frozen(run_key, key) for key in entry["attempt_ids"]]
-        unknown = any(item and _unknown_spatial_call(item.payload) for item in attempts)
+        unknown = any(
+            item is None or _unknown_spatial_call(item.payload) for item in attempts
+        )
         status = "needs_reconciliation" if unknown else "failed"
         await _status(db, store, run_key, operation_id, status)
         run = await store.load_run(run_key)
-        recoverable = not unknown and run.status == "active"
+        recoverable = not unknown and run is not None and run.status == "active"
         task.meta = {**meta, "recovery_required": recoverable}
         task.result = {"recovery_required": recoverable, "recoverable": recoverable}
         if not await db.checkpoint_task_progress():

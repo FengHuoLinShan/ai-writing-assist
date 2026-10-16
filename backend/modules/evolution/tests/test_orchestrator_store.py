@@ -159,6 +159,90 @@ async def test_receipt_persist_advances_cursor_and_head(
     assert frozen is not None and frozen.owner_epoch == 1
 
 
+@pytest.mark.asyncio
+async def test_live_receipt_requires_and_calls_read_check_in_the_commit_transaction(
+    db_session: AsyncSession,
+    evolution_project_id: str,
+    monkeypatch,
+) -> None:
+    from sqlalchemy import select
+
+    from core.container import container_scope
+    from core.service_keys import STORY_QUEUE_WORLD_PROGRESSION_READ_CHECK
+    from modules.evolution.models import EvolutionFrozenAttempt
+
+    await _register(db_session, evolution_project_id)
+    checks = []
+
+    async def no_op_read_check(db, *, novel_id):
+        assert novel_id == evolution_project_id
+        store = PostgresAttemptStore(db, novel_id)
+        run = await store.load_run(NOVEL_RUN)
+        head = await store.load_head_receipt(NOVEL_RUN)
+        assert run.committed_scene_index == 0
+        assert head is not None
+        assert await store.load_receipt(NOVEL_RUN, head.attempt_id) == head
+        frozen_status = await db.scalar(
+            select(EvolutionFrozenAttempt.status).where(
+                EvolutionFrozenAttempt.novel_id == uuid.UUID(novel_id),
+                EvolutionFrozenAttempt.run_key == NOVEL_RUN,
+                EvolutionFrozenAttempt.attempt_key == head.attempt_id,
+            )
+        )
+        assert frozen_status == "applied"
+        checks.append(head.attempt_id)
+
+    with container_scope({STORY_QUEUE_WORLD_PROGRESSION_READ_CHECK: no_op_read_check}):
+        store, receipt = await _commit_attempt(
+            db_session, evolution_project_id, prefix=_prefix(0)
+        )
+    assert checks == [receipt.attempt_id]
+    assert await store.load_head_receipt(NOVEL_RUN) == receipt
+
+    # A missing required port fails before the fenced receipt/head/frozen writes.
+    store = PostgresAttemptStore(db_session, evolution_project_id)
+    frozen = _frozen(
+        evolution_project_id,
+        new_attempt_id(),
+        previous_receipt=receipt.attempt_id,
+        previous_prefix=_prefix(0),
+    )
+    await freeze_attempt(store, frozen)
+    await db_session.commit()
+    import core.container as container
+
+    real_get = container.get
+
+    def missing_read_check(key):
+        if key == STORY_QUEUE_WORLD_PROGRESSION_READ_CHECK:
+            raise KeyError(str(key))
+        return real_get(key)
+
+    monkeypatch.setattr(container, "get", missing_read_check)
+    with pytest.raises(KeyError, match="story.queue_world_progression_read_check"):
+        await apply_frozen(
+            db_session,
+            frozen=frozen,
+            store=store,
+            applier=_noop_applier(_prefix(1)),
+            source_verifier=_noop_verifier,
+            owner_epoch_provider=store.owner_epoch_provider(NOVEL_RUN),
+        )
+    assert await store.load_receipt(NOVEL_RUN, frozen.attempt_id) is None
+    run = await store.load_run(NOVEL_RUN)
+    assert run.committed_scene_index == 0
+    assert await store.load_head_receipt(NOVEL_RUN) == receipt
+    assert (await store.load_frozen(NOVEL_RUN, frozen.attempt_id)) is not None
+    frozen_status = await db_session.scalar(
+        select(EvolutionFrozenAttempt.status).where(
+            EvolutionFrozenAttempt.novel_id == uuid.UUID(evolution_project_id),
+            EvolutionFrozenAttempt.run_key == NOVEL_RUN,
+            EvolutionFrozenAttempt.attempt_key == frozen.attempt_id,
+        )
+    )
+    assert frozen_status == "frozen"
+
+
 # ---------------------------------------------------------------------------
 # T07 前序屏障
 # ---------------------------------------------------------------------------
