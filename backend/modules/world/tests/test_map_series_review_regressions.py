@@ -33,7 +33,7 @@ from modules.world.map_structure_schemas import (
     MapSaveRequest,
 )
 from modules.world.map_structure_service import MapStructureService
-from modules.world.models import CoreEntity
+from modules.world.models import CoreEntity, WorldObjectDossierEntry
 from modules.world.project_vocabulary_schemas import (
     VocabularyMergeRequest,
     VocabularyTermCreate,
@@ -714,3 +714,139 @@ async def test_b4_route_through_text_only_waypoint_is_not_reported_disconnected(
     # The map declares 东城 → 山口 → 西城 as one active road.
     codes = [item.rule_code for item in result.items]
     assert "route_no_active_connection" not in codes, result.items
+
+
+async def _location_with_backfilled_public_info(async_client, db_session, name):
+    """A location whose public_info predates the dossier tables.
+
+    The entry mirrors the 20261015_object_dossier_v2 backfill row for
+    ``core_entities.public_info`` (facing ``public_info``, legacy key, legacy_import).
+    """
+    project = await async_client.post("/api/projects", json={"title": "档案回填"})
+    assert project.status_code == 201, project.text
+    params = {"novel_id": project.json()["id"]}
+    created = await async_client.post(
+        "/api/world/entities",
+        params=params,
+        json={
+            "entity_type": "location",
+            "name": name,
+            "status": "canonical",
+            "public_info": "城门日落关闭",
+        },
+    )
+    assert created.status_code == 201, created.text
+    entry = WorldObjectDossierEntry(
+        id=uuid.uuid4(),
+        novel_id=uuid.UUID(params["novel_id"]),
+        entity_id=uuid.UUID(created.json()["id"]),
+        entry_group_id=uuid.uuid4(),
+        revision_number=1,
+        facing_kind="core",
+        facing_key="public_info",
+        legacy_field_key="public_info",
+        content="城门日落关闭",
+        tags_json=[],
+        metadata_json={},
+        source="legacy_import",
+        source_refs_json=[],
+        visibility="public",
+        status="active",
+        revision_reason="legacy_backfill",
+    )
+    db_session.add(entry)
+    await db_session.flush()
+    return params, created.json(), entry
+
+
+@pytest.mark.xfail(
+    strict=True,
+    reason="B6-F1: CoreEntity summary/public_info/hidden_truth edits bypass dossier "
+    "entries, so the backfilled entry stays active with the old value (ADR-0039 兼容)",
+)
+async def test_b6_entity_public_info_edit_keeps_its_dossier_entry_current(
+    async_client, db_session
+):
+    params, entity, _entry = await _location_with_backfilled_public_info(
+        async_client, db_session, "旧城"
+    )
+
+    edited = await async_client.put(
+        f"/api/world/entities/{entity['id']}",
+        params=params,
+        json={
+            "public_info": "城门彻夜开放",
+            "expected_updated_at": entity["updated_at"],
+        },
+    )
+    assert edited.status_code == 200, edited.text
+    assert edited.json()["public_info"] == "城门彻夜开放"
+
+    dossier = await async_client.get(
+        f"/api/world/entities/{entity['id']}/dossier", params=params
+    )
+    assert dossier.status_code == 200, dossier.text
+    # ADR-0039: public_info is the aggregate of the public entries, so the dossier
+    # read (and the Evidence brief built from it) must not keep the old value.
+    contents = [
+        item["content"]
+        for item in dossier.json()["entries"]
+        if item.get("legacy_field_key") == "public_info"
+    ]
+    assert contents == ["城门彻夜开放"], contents
+
+
+@pytest.mark.xfail(
+    strict=True,
+    reason="B6-F2: backfilled overview/public_info/truth facing keys are not in "
+    "CORE_FACINGS, so editing the entry is rejected by _validate_facing",
+)
+async def test_b6_backfilled_public_info_entry_is_editable_in_the_dossier(
+    async_client, db_session
+):
+    params, entity, entry = await _location_with_backfilled_public_info(
+        async_client, db_session, "旧城"
+    )
+
+    edited = await async_client.patch(
+        f"/api/world/entities/{entity['id']}/dossier/entries/{entry.id}",
+        params=params,
+        json={"expected_revision_id": str(entry.id), "content": "城门彻夜开放"},
+    )
+
+    # ADR-0039: author edits go through the dossier revision entry point.
+    assert edited.status_code == 200, edited.text
+    assert edited.json()["content"] == "城门彻夜开放"
+
+
+@pytest.mark.xfail(
+    strict=True,
+    reason="B6-F2: a manifest exported from a backfilled public_info entry is "
+    "rejected on import (facing and legacy key validation)",
+)
+async def test_b6_manifest_with_backfilled_public_info_can_be_imported(
+    async_client, db_session
+):
+    params, entity, _entry = await _location_with_backfilled_public_info(
+        async_client, db_session, "旧城"
+    )
+    exported = await async_client.get(
+        f"/api/world/entities/{entity['id']}/dossier/manifest", params=params
+    )
+    assert exported.status_code == 200, exported.text
+    target = await async_client.post(
+        "/api/world/entities",
+        params=params,
+        json={"entity_type": "location", "name": "新城", "status": "canonical"},
+    )
+    assert target.status_code == 201, target.text
+
+    preview = await async_client.post(
+        f"/api/world/entities/{target.json()['id']}/dossier/manifest/preview",
+        params=params,
+        json={"manifest": exported.json()},
+    )
+
+    # The export the product produced for this object must be importable.
+    assert preview.status_code == 200, preview.text
+    assert preview.json()["create_count"] == 1

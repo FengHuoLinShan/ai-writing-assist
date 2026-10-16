@@ -3,7 +3,7 @@ id: T-20261016-map-series-claude-review
 title: 地图增强系列实现的独立 review（分批）
 status: active
 created: 2026-10-16T21:30:00+08:00
-updated: 2026-10-16T23:30:00+08:00
+updated: 2026-10-16T23:55:00+08:00
 ---
 
 # 地图增强系列实现的独立 review（分批）
@@ -13,18 +13,18 @@ updated: 2026-10-16T23:30:00+08:00
 - 实际完成：第 1 批（M0 空间模型 v2 与项目词表），报告见 [BATCH-1.md](BATCH-1.md)；第 2 批（M1 演化
   可选步骤与空间发现），报告见 [BATCH-2.md](BATCH-2.md)；第 3 批（M2 自动草图与地图编辑），报告见
   [BATCH-3.md](BATCH-3.md)；第 4 批（M3/M4 空间简报、提醒、声明与 Evidence 编译），报告见
-  [BATCH-4.md](BATCH-4.md)；第 5 批（地图前端），报告见 [BATCH-5.md](BATCH-5.md)。能复现的问题都有
-  回归测试：后端 strict xfail，前端 vitest `it.fails`。
-- 当前里程碑：第 6 批档案。
-- 下一步：读 `backend/modules/world/` 的 `dossier_service.py`、`dossier_interchange.py`，evidence 的档案
-  简报（`object_dossier_brief.py` 等）、`assistant_dossier_tools.py`，以及 evolution 的 `evidence_read.py`、
-  `completed_read_chapters.py`；先用 `git diff --stat 00d861283 a479e006b -- <路径>` 定范围，对照档案相关
-  ADR 与 `docs/modules/02_world.md` 核对 `novel_id` 隔离、揭示/可见性过滤、确认与 CAS、导入导出校验。
+  [BATCH-4.md](BATCH-4.md)；第 5 批（地图前端），报告见 [BATCH-5.md](BATCH-5.md)；第 6 批（对象档案），
+  报告见 [BATCH-6.md](BATCH-6.md)。能复现的问题都有回归测试：后端 strict xfail，前端 vitest `it.fails`。
+- 当前里程碑：第 7 批 Story。
+- 下一步：用 `git diff --stat 00d861283 a479e006b -- modules/story` 定范围，读 director_*、
+  world_progression_*、continuity、character_arcs、simulation；对照 `backend/modules/story/README.md`、
+  ADR-0039 §6（场景导演）与相关 migration，核对 `novel_id` 隔离、作者确认与 CAS、候选不自动采用、
+  Evidence confirmation 重验。
 - 阻塞：无。
 - 工作区：`.worktrees/map-series-claude-review`，分支 `codex/map-series-claude-review`，基于
   `codex/map-enhancement-plan` @ `a479e006b`；只有本任务记录与回归测试的本地提交。前端依赖已在工作树内
   按 lock `npm ci`（node_modules 被 git 忽略），前端测试用 `npm --prefix ../frontend-console run test`。
-- 最后核实：2026-10-16T23:30:00+08:00。
+- 最后核实：2026-10-16T23:55:00+08:00。
 
 ## 目标与验收
 
@@ -64,7 +64,7 @@ updated: 2026-10-16T23:30:00+08:00
   `map_declaration_state.py`、`evidence/compilation` 改动、writing/world notice_sources、ask_world；
   另含 evolution 的 `reading_notice_sources.py`。
 - [x] 5. 地图前端。
-- [ ] 6. 档案：`dossier_service.py`、`dossier_interchange.py`、evidence 档案简报、`assistant_dossier_tools.py`；
+- [x] 6. 档案：`dossier_service.py`、`dossier_interchange.py`、evidence 档案简报、`assistant_dossier_tools.py`；
   另含 evolution 的 `evidence_read.py`、`completed_read_chapters.py`。
 - [ ] 7. Story：director_*、world_progression_*、continuity、character_arcs、simulation。
 - [ ] 8. Assistant：goal_runs、operation_trace*、notice_service、operations.py、guided_flow。
@@ -91,6 +91,9 @@ updated: 2026-10-16T23:30:00+08:00
   重读的 bootstrap）、B5-F1（P3，空间补扫运行中仍可追加阅读，第 2 批疑点 2 成立）、B5-F3（P3，未开空间
   发现的旧阅读，引导默认选项必被后端拒绝）、B5-F4（P3，非主空间的选中图元重开后丢失）。疑点 1 关闭。
   前端回归测试用 vitest `it.fails`（语义同 strict xfail），追加到对应组件的既有测试文件。详见 BATCH-5.md。
+- 2026-10-16：第 6 批发现 B6-F1（P2，实体接口改概要/公开信息/隐藏真相不同步档案，回填条目保留旧值）、
+  B6-F2（P2，回填条目的面向键不在 `CORE_FACINGS`，无法编辑、清除、恢复或导入）、B6-F3（P2，较早截止点
+  的人物倾向读取绕过作者后来的拒绝/更正）。详见 BATCH-6.md。
 
 ## 验证证据
 
@@ -110,10 +113,13 @@ updated: 2026-10-16T23:30:00+08:00
   3234 passed、5 expected fail；去掉 `.fails` 的临时副本各自失败在目标断言（B5-F1 按钮可用、B5-F2
   `mode: bootstrap`、B5-F3 `mode: append` 且开空间发现、B5-F4 选中列表为空），B5-F4 另有主空间对照通过；
   临时文件已删除。`npm --prefix ../frontend-console run lint` 通过。后端回归文件未改动。
+- 第 6 批后（2026-10-16，基线 `a479e006b`，同一后端命令）：`20 xfailed`；`--runxfail` 为 `20 failed`，B6-F1
+  失败在档案仍为旧值，B6-F2 两条分别返回 400“该对象类型不支持此内核面向”和“清单中的内核面向已失效”，
+  B6-F3 返回修订 1。ruff format/check 通过。
 
 ## 交付结果
 
-- 已交付：第 1–5 批报告；16 条后端 strict xfail 与 5 条前端 `it.fails` 回归测试。
-- 未交付：第 6–9 批。
+- 已交付：第 1–6 批报告；20 条后端 strict xfail 与 5 条前端 `it.fails` 回归测试。
+- 未交付：第 7–9 批。
 - 交付边界：只有本地提交；未推送，无 PR、CI、部署。
 - 正式知识与后续任务：无。

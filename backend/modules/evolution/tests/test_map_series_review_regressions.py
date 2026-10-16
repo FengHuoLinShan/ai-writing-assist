@@ -309,3 +309,94 @@ async def test_b4_superseded_drained_run_does_not_raise_a_reading_notice(
     # reading_status (the panel) shows the completed recompute; the drained
     # run cannot be resumed, so a "上次阅读已暂停" notice is stale noise.
     assert [item for item in notices if item["category"] == "reading_run"] == []
+
+
+@pytest.mark.xfail(
+    strict=True,
+    reason="B6-F3: the pattern read picks the newest revision at or before the "
+    "cutoff, so a later author reject/correct is ignored for earlier Scenes",
+)
+async def test_b6_author_reject_after_extension_applies_at_earlier_cutoff(
+    db_session, evolution_project_id, monkeypatch
+):
+    from core.container import container_scope
+    from core.service_keys import STORY_SCENE_SOURCE
+    from modules.evolution.evidence_read import read_evolution_object_patterns
+    from modules.evolution.models import EvolutionLedgerEntry, EvolutionLedgerRevision
+    from modules.evolution.tests.test_evidence_read import (
+        ENTITY_ID,
+        SCENE_ID,
+        _claim,
+        _ScenePort,
+    )
+
+    async def current(*_args, **_kwargs):
+        return "current"
+
+    async def active_project(*_args, **_kwargs):
+        return None
+
+    for name in ("_identity_status", "claim_freshness", "_claim_ranges_current"):
+        monkeypatch.setattr(f"modules.evolution.evidence_read.{name}", current)
+    monkeypatch.setattr(
+        "modules.evolution.evidence_read.require_active_project", active_project
+    )
+
+    nid = UUID(evolution_project_id)
+    first = _claim().model_dump(mode="json")
+    # A later extraction strengthens the same entry with Scene 5 evidence; the
+    # ledger stores the revision at max(dependency.scene_index).
+    extended = {
+        **first,
+        "dependencies": [
+            *first["dependencies"],
+            {**first["dependencies"][0], "scene_id": str(uuid4()), "scene_index": 5},
+        ],
+    }
+    reject = {"decision": "reject", "scene_index": 5, "basis_revision": 2}
+    entry = EvolutionLedgerEntry(
+        id=uuid4(),
+        novel_id=nid,
+        origin_key="b6-f3",
+        category="conditional_behavior",
+        head_revision=3,
+        author_decision_json=reject,
+    )
+    db_session.add(entry)
+    await db_session.flush()
+    for revision, scene_index, claim, decision, kind in (
+        (1, 2, first, {}, "create"),
+        (2, 5, extended, {}, "update"),
+        (3, 5, extended, reject, "author_decision"),
+    ):
+        db_session.add(
+            EvolutionLedgerRevision(
+                id=uuid4(),
+                novel_id=nid,
+                entry_id=entry.id,
+                revision=revision,
+                operation_key=f"b6-f3-{revision}",
+                request_hash=f"b6-f3-{revision}",
+                scene_index=scene_index,
+                kind=kind,
+                body_json={
+                    "claim": claim,
+                    "review": {"verdict": "supported"},
+                    "author_decision": decision,
+                    "proposal_target": None,
+                },
+            )
+        )
+    await db_session.flush()
+
+    with container_scope({STORY_SCENE_SOURCE: _ScenePort()}):
+        result = await read_evolution_object_patterns(
+            db_session,
+            novel_id=evolution_project_id,
+            scene_id=SCENE_ID,
+            entity_ids=[ENTITY_ID],
+        )
+
+    # The author rejected this interpretation; a Scene-2 brief must not bring
+    # the pre-decision revision back (README: 逐条核验复核/作者决定).
+    assert result["items"] == [], result["items"]
