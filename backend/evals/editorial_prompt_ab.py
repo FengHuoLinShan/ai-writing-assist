@@ -25,6 +25,7 @@ from pydantic import BaseModel
 from sqlalchemy.engine import make_url
 
 from app.bootstrap import register_container_services
+from app.task_runtime import register_task_handlers
 from core.config import get_settings
 from core.database import get_manager
 from core.execution_context import system_execution_scope
@@ -967,6 +968,7 @@ async def run(output: Path, *, phase: str, candidate_sha: str) -> dict:
     if state.get("paused_reason"):
         raise RunStoppedError(f"run is paused: {state['paused_reason']}")
     register_container_services()
+    register_task_handlers()
     manager = get_manager()
     settings = get_settings()
     if not (settings.assistant_enabled and settings.assistant_editorial_enabled):
