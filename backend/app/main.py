@@ -17,7 +17,7 @@ import time
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from functools import wraps
-from uuid import UUID, uuid4
+from uuid import NAMESPACE_URL, UUID, uuid4, uuid5
 
 from app.bootstrap import register_container_services
 from app.http_rate_limit import HttpRateLimitMiddleware
@@ -779,6 +779,7 @@ from modules.project.settings_api import (  # noqa: E402
     defaults_handler_router as project_defaults_handler_router,
 )
 from modules.story import api as story_api  # noqa: E402
+from modules.story.character_arcs.api import router as story_character_arcs_router  # noqa: E402
 from modules.story.continuity import api as memory_api  # noqa: E402
 from modules.story.director_api import router as story_director_router  # noqa: E402
 from modules.story.outline_state import api as outline_api  # noqa: E402
@@ -817,6 +818,7 @@ app.include_router(evolution_api.router)
 app.include_router(writing_api.router)
 app.include_router(story_api.router)
 app.include_router(story_director_router)
+app.include_router(story_character_arcs_router)
 app.include_router(story_world_progression_router)
 app.include_router(tasks_api.router)
 if not _public_mode:
@@ -883,6 +885,7 @@ def _install_operation_trace_route_adapters(application: FastAPI) -> None:
     """Bind operation-marked HTTP writes to the same trace port/transaction."""
     from core.container import get
     from core.service_keys import ASSISTANT_OPERATIONS
+    from modules.assistant.evidence_tools import fingerprint
     from modules.assistant.operation_trace_service import (
         bind_operation_trace_context,
         current_operation_trace_context,
@@ -906,6 +909,90 @@ def _install_operation_trace_route_adapters(application: FastAPI) -> None:
                         yield effective
 
     operations = get(ASSISTANT_OPERATIONS)
+
+    async def record_reversal(db, *, trace_context, reference, original_op_ids) -> None:
+        """Match a completed domain receipt to its original traced execution."""
+        from sqlalchemy import String, cast, select
+
+        from modules.assistant.operation_trace_models import AssistantOperationTrace
+
+        if not isinstance(reference, dict):
+            trace_context["incomplete_count"] = (
+                trace_context.get("incomplete_count", 0) + 1
+            )
+            return
+        kind, ref_id = reference.get("type"), reference.get("id")
+        try:
+            ref_id = str(UUID(str(ref_id)))
+        except (TypeError, ValueError, AttributeError):
+            trace_context["incomplete_count"] = (
+                trace_context.get("incomplete_count", 0) + 1
+            )
+            return
+        if not isinstance(kind, str) or not kind or len(kind) > 80:
+            trace_context["incomplete_count"] = (
+                trace_context.get("incomplete_count", 0) + 1
+            )
+            return
+        rows = (
+            await db.scalars(
+                select(AssistantOperationTrace)
+                .where(
+                    AssistantOperationTrace.novel_id == UUID(trace_context["novel_id"]),
+                    AssistantOperationTrace.owner_id == UUID(trace_context["owner_id"]),
+                    AssistantOperationTrace.op_id.in_(original_op_ids),
+                    AssistantOperationTrace.event_type == "executed",
+                    cast(AssistantOperationTrace.result_refs, String).like(f"%{ref_id}%"),
+                )
+                .order_by(AssistantOperationTrace.id.desc())
+            )
+        ).all()
+        original = next(
+            (
+                row
+                for row in rows
+                if {"type": kind, "id": ref_id} in (row.result_refs or [])
+                and row.call_id is not None
+            ),
+            None,
+        )
+        if original is None:
+            trace_context["incomplete_count"] = (
+                trace_context.get("incomplete_count", 0) + 1
+            )
+            return
+        prior_restored = await db.scalar(
+            select(AssistantOperationTrace.id)
+            .where(
+                AssistantOperationTrace.novel_id == original.novel_id,
+                AssistantOperationTrace.owner_id == original.owner_id,
+                AssistantOperationTrace.op_id == original.op_id,
+                AssistantOperationTrace.call_id == original.call_id,
+                AssistantOperationTrace.event_type == "restored",
+            )
+            .limit(1)
+        )
+        if prior_restored is not None:
+            return
+        saved = await record_operation_trace(
+            db,
+            enabled=True,
+            novel_id=trace_context["novel_id"],
+            owner_id=trace_context["owner_id"],
+            operation=operations[original.op_id],
+            event_type="restored",
+            arguments=trace_context.get("arguments"),
+            result={"result_ref": {"type": kind, "id": ref_id}},
+            actor_type="ui",
+            entrypoint="assistant.http",
+            call_id=str(original.call_id),
+            parent_call_id=trace_context["call_id"],
+        )
+        if saved is False:
+            trace_context["incomplete_count"] = (
+                trace_context.get("incomplete_count", 0) + 1
+            )
+
     for route in concrete_routes(application.routes):
         if getattr(route, "_trace_adapter_installed", False):
             continue
@@ -933,6 +1020,26 @@ def _install_operation_trace_route_adapters(application: FastAPI) -> None:
         confirmation_field = (route.openapi_extra or {}).get(
             "x-novelcraft-operation-confirmation-field"
         )
+        call_id_field = (route.openapi_extra or {}).get(
+            "x-novelcraft-operation-call-id-field"
+        )
+        terminal_event = (route.openapi_extra or {}).get(
+            "x-novelcraft-operation-terminal-event"
+        )
+        reversal_op_ids = (route.openapi_extra or {}).get(
+            "x-novelcraft-operation-reversal-op-ids", ()
+        )
+        reversal_ref_field = (route.openapi_extra or {}).get(
+            "x-novelcraft-operation-reversal-ref-field", "result_ref"
+        )
+        if terminal_event is not None and (
+            terminal_event != "restored"
+            or operation_phase != "execute"
+            or not reversal_op_ids
+            or any(op_id not in operations for op_id in reversal_op_ids)
+            or not isinstance(reversal_ref_field, str)
+        ):
+            raise RuntimeError(f"Invalid HTTP reversal declaration: {operation_id}")
         if trace_fields is not None and set(trace_fields) != set(
             operation.schema.model_fields
         ):
@@ -949,6 +1056,10 @@ def _install_operation_trace_route_adapters(application: FastAPI) -> None:
             __trace_fields=trace_fields,
             __operation_phase=operation_phase,
             __confirmation_field=confirmation_field,
+            __call_id_field=call_id_field,
+            __terminal_event=terminal_event,
+            __reversal_op_ids=tuple(reversal_op_ids),
+            __reversal_ref_field=reversal_ref_field,
             **kwargs,
         ):
             trace_context = current_operation_trace_context()
@@ -995,6 +1106,27 @@ def _install_operation_trace_route_adapters(application: FastAPI) -> None:
                 # preference/salt/events must never touch another owner's or
                 # a recycled project, even when tracing is disabled.
                 await require_active_project(db, novel_id)
+            if __call_id_field:
+                stable_value = _trace_route_arguments(
+                    kwargs, trace_fields={"stable": __call_id_field}
+                ).get("stable")
+                try:
+                    stable_uuid = str(UUID(str(stable_value)))
+                except (TypeError, ValueError, AttributeError) as exc:
+                    raise RuntimeError(
+                        f"HTTP operation stable call field missing: {__operation.op_id}"
+                    ) from exc
+                normalized = {
+                    key: value
+                    for key, value in arguments.items()
+                    if key != "preview_fingerprint"
+                }
+                trace_context["call_id"] = str(
+                    uuid5(
+                        NAMESPACE_URL,
+                        f"{novel_id}:{__operation.op_id}:{stable_uuid}:{fingerprint(normalized)}",
+                    )
+                )
             business_bind = db.get_bind()
             trace_context.update(
                 owner_id=owner_id,
@@ -1006,6 +1138,26 @@ def _install_operation_trace_route_adapters(application: FastAPI) -> None:
             if not novel_id or not await operation_trace_enabled(db, owner_id):
                 return await __endpoint(*args, **kwargs)
             trace_context["enabled"] = True
+            already_terminal = None
+            if __call_id_field:
+                from sqlalchemy import select
+
+                from modules.assistant.operation_trace_models import (
+                    AssistantOperationTrace,
+                )
+
+                already_terminal = await db.scalar(
+                    select(AssistantOperationTrace.id)
+                    .where(
+                        AssistantOperationTrace.novel_id == UUID(novel_id),
+                        AssistantOperationTrace.owner_id == UUID(owner_id),
+                        AssistantOperationTrace.op_id == __operation.op_id,
+                        AssistantOperationTrace.call_id == UUID(trace_context["call_id"]),
+                        AssistantOperationTrace.event_type == "executed",
+                    )
+                    .limit(1)
+                )
+            trace_context["replayed_trace"] = already_terminal is not None
             explicitly_confirmed = (
                 _trace_route_arguments(
                     kwargs, trace_fields={"confirmed": __confirmation_field}
@@ -1018,6 +1170,7 @@ def _install_operation_trace_route_adapters(application: FastAPI) -> None:
                 __operation.permission == "confirm"
                 and __operation_phase == "execute"
                 and explicitly_confirmed
+                and already_terminal is None
             ):
                 await record_operation_trace(
                     db,
@@ -1045,6 +1198,29 @@ def _install_operation_trace_route_adapters(application: FastAPI) -> None:
                 )
                 raise
             trace_context["result"] = _trace_result(result)
+            if __terminal_event == "restored" and already_terminal is None:
+                reference = trace_context["result"]
+                for part in __reversal_ref_field.split("."):
+                    reference = (
+                        reference.get(part) if isinstance(reference, dict) else None
+                    )
+                try:
+                    async with db.begin_nested():
+                        await record_reversal(
+                            db,
+                            trace_context=trace_context,
+                            reference=reference,
+                            original_op_ids=__reversal_op_ids,
+                        )
+                except Exception as trace_error:
+                    trace_context["incomplete_count"] = (
+                        trace_context.get("incomplete_count", 0) + 1
+                    )
+                    logger.warning(
+                        "HTTP reversal trace unavailable op_id=%s error_type=%s",
+                        __operation.op_id,
+                        type(trace_error).__name__,
+                    )
             if __operation.transaction_mode == "single_transaction":
                 from sqlalchemy import select
 
@@ -1055,6 +1231,9 @@ def _install_operation_trace_route_adapters(application: FastAPI) -> None:
                 already_recorded = await db.scalar(
                     select(AssistantOperationTrace.id)
                     .where(
+                        AssistantOperationTrace.novel_id == UUID(novel_id),
+                        AssistantOperationTrace.owner_id == UUID(owner_id),
+                        AssistantOperationTrace.op_id == __operation.op_id,
                         AssistantOperationTrace.call_id == UUID(trace_context["call_id"]),
                         AssistantOperationTrace.event_type.in_(
                             ("previewed", "executed", "outcome_unknown")
@@ -1064,7 +1243,7 @@ def _install_operation_trace_route_adapters(application: FastAPI) -> None:
                     )
                     .limit(1)
                 )
-                if already_recorded is None:
+                if already_recorded is None and not trace_context.get("replayed_trace"):
                     await record_operation_trace(
                         db,
                         enabled=True,
@@ -1167,6 +1346,7 @@ def _install_operation_trace_route_adapters(application: FastAPI) -> None:
                 elif (
                     trace_context.get("enabled")
                     and __operation.transaction_mode == "multi_stage"
+                    and not trace_context.get("replayed_trace")
                 ):
                     await _record_http_terminal(
                         trace_context,

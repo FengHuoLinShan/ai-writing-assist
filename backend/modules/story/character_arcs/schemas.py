@@ -97,6 +97,14 @@ class ArchiveArcPlanInput(ArcPlanModel):
     preview_fingerprint: str | None = Field(default=None, pattern=r"^[0-9a-f]{64}$")
 
 
+class SceneCharacterReadInput(ArcPlanModel):
+    scene_id: UUID
+
+
+class CharacterArcReadInput(SceneCharacterReadInput):
+    character_id: UUID
+
+
 class SceneCharacterOption(ArcPlanModel):
     character_id: UUID
     character_name: str = Field(min_length=1, max_length=255)
@@ -108,7 +116,7 @@ class SceneCharacterOptionsResponse(ArcPlanModel):
     scene_title: str
     scene_index: int = Field(ge=0)
     chapter_indices: list[int] = Field(default_factory=list)
-    characters: list[SceneCharacterOption] = Field(default_factory=list, max_length=40)
+    characters: list[SceneCharacterOption] = Field(default_factory=list)
     gaps: list[str] = Field(default_factory=list, max_length=20)
 
 

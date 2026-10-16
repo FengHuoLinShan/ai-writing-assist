@@ -2,15 +2,12 @@
 
 from __future__ import annotations
 
-import logging
 from datetime import UTC, datetime
 from uuid import UUID
 
-from sqlalchemy import select
+from sqlalchemy import select, text
 
-from core.container import get
 from core.errors import ConflictError, NotFoundError, ValidationError
-from core.service_keys import ASSISTANT_OPERATION_TRACE
 from infrastructure.llm.collaboration import content_hash
 from modules.evidence.contracts import VisibilityContextContract
 from modules.evidence.facade import read_novel_evidence, read_object_dossier_brief
@@ -33,8 +30,6 @@ from .schemas import (
     SceneCharacterOption,
     SceneCharacterOptionsResponse,
 )
-
-logger = logging.getLogger(__name__)
 
 
 def _dump(value):
@@ -155,6 +150,14 @@ async def _head(db, novel_id: str, character_id: str, *, lock=False):
     if lock:
         query = query.with_for_update()
     return await db.scalar(query.execution_options(populate_existing=True))
+
+
+async def _lock_character_plan(db, novel_id: str, character_id: str) -> None:
+    """Serialize the first write too, when no head row exists to lock."""
+    await db.execute(
+        text("SELECT pg_advisory_xact_lock(hashtextextended(:key, 0))"),
+        {"key": f"story.character_arc_plan:{novel_id}:{character_id}"},
+    )
 
 
 def _assert_owner(row, project):
@@ -524,71 +527,12 @@ async def preview_plan_save(db, novel_id: str, data: ArcPlanWriteInput):
     )
 
 
-async def _trace(
-    db,
-    novel_id,
-    owner_id,
-    operation_id,
-    operation_key,
-    event_type,
-    arguments,
-    *,
-    result=None,
-    error_code=None,
-):
-    from modules.assistant.contracts import (
-        AssistantOperation,
-        AssistantOperationTraceRule,
-    )
-
-    from .operations import OPERATIONS_SPEC
-
-    try:
-        spec = OPERATIONS_SPEC[operation_key]
-        rule = spec["trace_rule"]
-        operation = AssistantOperation(
-            label=spec["label"],
-            schema=spec["schema"],
-            prepare=spec["prepare"],
-            apply=spec.get("apply"),
-            permission=spec.get("permission", "confirm"),
-            revision=spec.get("revision", "1"),
-            op_id=spec.get("op_id", operation_key),
-            op_version=spec["op_version"],
-            description=spec["description"],
-            risk_level=spec["risk_level"],
-            fee_category=spec["fee_category"],
-            reversibility=spec["reversibility"],
-            preconditions=tuple(spec["preconditions"]),
-            produces=tuple(spec["produces"]),
-            target_type=spec["target_type"],
-            ai_available=spec.get("ai_available", True),
-            transaction_mode=spec["transaction_mode"],
-            trace_rule=AssistantOperationTraceRule(**rule),
-        )
-        await get(ASSISTANT_OPERATION_TRACE)(
-            db,
-            enabled=None,
-            novel_id=str(novel_id),
-            owner_id=str(owner_id),
-            operation=operation,
-            event_type=event_type,
-            arguments=arguments,
-            result=result,
-            error_code=error_code,
-            actor_type="ui",
-            entrypoint="story.character_arc_plan",
-            call_id=str(operation_id),
-        )
-    except Exception:
-        logger.warning("character arc operation trace unavailable", exc_info=True)
-
-
 async def save_plan(db, novel_id: str, data: ArcPlanWriteInput, preview_fingerprint: str):
     project = await _owned_project(db, novel_id)
     _scene, character = await _validated_plan_target(
         db, novel_id, str(data.scene_id), str(data.character_id)
     )
+    await _lock_character_plan(db, novel_id, str(data.character_id))
     request_hash = content_hash(
         [
             str(data.scene_id),
@@ -658,20 +602,6 @@ async def save_plan(db, novel_id: str, data: ArcPlanWriteInput, preview_fingerpr
     head.current_revision_id = revision.id
     head.version_number = revision.version_number
     await db.flush()
-    await _trace(
-        db,
-        novel_id,
-        project.owner_id,
-        data.operation_id,
-        "story.character_arc_plan.save",
-        "confirmed",
-        {**data.model_dump(mode="json"), "preview_fingerprint": preview_fingerprint},
-        result={
-            "type": "story.character_arc_plan",
-            "id": str(head.id),
-            "version": head.version_number,
-        },
-    )
     character = await _require_selected_character(
         db, novel_id, _scene, str(data.character_id)
     )
@@ -715,6 +645,7 @@ async def restore_revision(db, novel_id: str, data: RestoreArcPlanInput):
     scene, character = await _validated_plan_target(
         db, novel_id, str(data.scene_id), str(data.character_id)
     )
+    await _lock_character_plan(db, novel_id, str(data.character_id))
     request_hash = content_hash(
         [
             str(data.scene_id),
@@ -769,20 +700,6 @@ async def restore_revision(db, novel_id: str, data: RestoreArcPlanInput):
     head.current_revision_id = revision.id
     head.version_number = revision.version_number
     await db.flush()
-    await _trace(
-        db,
-        novel_id,
-        project.owner_id,
-        data.operation_id,
-        "story.character_arc_plan.restore",
-        "restored",
-        data.model_dump(mode="json"),
-        result={
-            "type": "story.character_arc_plan",
-            "id": str(head.id),
-            "version": head.version_number,
-        },
-    )
     return await _plan_view(db, novel_id, head, character.character_name)
 
 
@@ -791,6 +708,7 @@ async def archive_plan(db, novel_id: str, data: ArchiveArcPlanInput):
     scene, character = await _validated_plan_target(
         db, novel_id, str(data.scene_id), str(data.character_id)
     )
+    await _lock_character_plan(db, novel_id, str(data.character_id))
     request_hash = content_hash(
         [str(data.scene_id), str(data.character_id), data.expected_version, "archive"]
     )
@@ -812,6 +730,7 @@ async def archive_plan(db, novel_id: str, data: ArchiveArcPlanInput):
             "character_id": character.character_id,
             "deleted": True,
             "version": prior.version_number,
+            "revision_id": prior.id,
         }
     head = await _head(db, novel_id, str(data.character_id), lock=True)
     _assert_owner(head, project)
@@ -850,25 +769,11 @@ async def archive_plan(db, novel_id: str, data: ArchiveArcPlanInput):
     head.deleted_at = datetime.now(UTC)
     head.deleted_by = UUID(str(project.owner_id))
     await db.flush()
-    await _trace(
-        db,
-        novel_id,
-        project.owner_id,
-        data.operation_id,
-        "story.character_arc_plan.archive",
-        "confirmed",
-        data.model_dump(mode="json"),
-        result={
-            "type": "story.character_arc_plan",
-            "id": str(head.id),
-            "deleted": True,
-            "version": head.version_number,
-        },
-    )
     return {
         "character_id": character.character_id,
         "deleted": True,
         "version": head.version_number,
+        "revision_id": revision.id,
     }
 
 
@@ -877,6 +782,7 @@ async def unarchive_plan(db, novel_id: str, data: ArchiveArcPlanInput):
     scene, character = await _validated_plan_target(
         db, novel_id, str(data.scene_id), str(data.character_id)
     )
+    await _lock_character_plan(db, novel_id, str(data.character_id))
     request_hash = content_hash(
         [str(data.scene_id), str(data.character_id), data.expected_version, "unarchive"]
     )
@@ -932,19 +838,4 @@ async def unarchive_plan(db, novel_id: str, data: ArchiveArcPlanInput):
     head.deleted_at = None
     head.deleted_by = None
     await db.flush()
-    await _trace(
-        db,
-        novel_id,
-        project.owner_id,
-        data.operation_id,
-        "story.character_arc_plan.archive",
-        "restored",
-        data.model_dump(mode="json"),
-        result={
-            "type": "story.character_arc_plan",
-            "id": str(head.id),
-            "deleted": False,
-            "version": head.version_number,
-        },
-    )
     return await _plan_view(db, novel_id, head, character.character_name)

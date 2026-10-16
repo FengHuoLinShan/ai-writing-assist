@@ -26,10 +26,17 @@ from .schemas import (
     RestoreArcPlanInput,
     SceneCharacterOptionsResponse,
 )
-from .service import _owned_project, _trace
+from .service import _owned_project
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/story/character-arcs", tags=["story-character-arcs"])
+
+
+def _trace_fields(model):
+    return {name: f"data.{name}" for name in model.model_fields}
+
+
+_TRACE_CALL_ID = {"x-novelcraft-operation-call-id-field": "data.operation_id"}
 
 
 class PlanHistoryResponse(BaseModel):
@@ -77,21 +84,11 @@ def _operation_fingerprint(operation_id: str, preview: dict) -> str | None:
 
 
 async def _preview_operation(db, novel_id: str, op_id: str, data):
-    project = await _active_author(db, novel_id)
+    await _active_author(db, novel_id)
     spec = OPERATIONS_SPEC[op_id]
     args = spec["schema"].model_validate(data.model_dump(mode="json"))
     preview = await spec["prepare"](db, novel_id, args, context=None)
     value = preview.model_dump(mode="json") if hasattr(preview, "model_dump") else preview
-    await _trace(
-        db,
-        novel_id,
-        project.owner_id,
-        args.operation_id,
-        op_id,
-        "previewed",
-        args.model_dump(mode="json"),
-        result={"type": "story.character_arc_plan_preview", "id": str(args.character_id)},
-    )
     return value
 
 
@@ -106,7 +103,30 @@ async def _confirm_operation(db, novel_id: str, op_id: str, data):
     if _operation_fingerprint(op_id, value) != args.preview_fingerprint:
         raise ConflictError("人物弧计划预览已变化，请重新核对", code="PREVIEW_STALE")
     result = await spec["apply"](db, novel_id, args, value, context=None)
-    return result.model_dump(mode="json") if hasattr(result, "model_dump") else result
+    rendered = result.model_dump(mode="json") if hasattr(result, "model_dump") else result
+    if op_id in {
+        "story.character_arc_plan.restore",
+        "story.character_arc_plan.unarchive",
+    }:
+        from sqlalchemy import select
+
+        from modules.story.models import CharacterArcPlanRevision
+
+        revision = await db.scalar(
+            select(CharacterArcPlanRevision).where(
+                CharacterArcPlanRevision.novel_id == UUID(str(novel_id)),
+                CharacterArcPlanRevision.id == UUID(str(rendered["revision_id"])),
+                CharacterArcPlanRevision.character_id == args.character_id,
+                CharacterArcPlanRevision.operation_id == args.operation_id,
+            )
+        )
+        if revision is None or revision.base_revision_id is None:
+            raise ConflictError("恢复来源回执不可核验", code="RESTORE_SOURCE_MISSING")
+        rendered = {
+            **rendered,
+            "reversal_ref": {"type": "revision", "id": str(revision.base_revision_id)},
+        }
+    return rendered
 
 
 @router.get("/scenes/{scene_id}/characters", response_model=SceneCharacterOptionsResponse)
@@ -159,7 +179,16 @@ async def api_character_arc_history(
         raise _error(exc) from exc
 
 
-@router.post("/plans/preview", response_model=ArcPlanPreviewResponse)
+@router.post(
+    "/plans/preview",
+    response_model=ArcPlanPreviewResponse,
+    openapi_extra={
+        **_TRACE_CALL_ID,
+        "x-novelcraft-operation-id": "story.character_arc_plan.save",
+        "x-novelcraft-operation-phase": "prepare",
+        "x-novelcraft-operation-trace-fields": _trace_fields(ConfirmArcPlanInput),
+    },
+)
 async def api_preview_character_arc_plan(
     data: ArcPlanWriteInput,
     db: DbSession,
@@ -174,7 +203,14 @@ async def api_preview_character_arc_plan(
         raise _error(exc) from exc
 
 
-@router.post("/plans/confirm")
+@router.post(
+    "/plans/confirm",
+    openapi_extra={
+        **_TRACE_CALL_ID,
+        "x-novelcraft-operation-id": "story.character_arc_plan.save",
+        "x-novelcraft-operation-trace-fields": _trace_fields(ConfirmArcPlanInput),
+    },
+)
 async def api_confirm_character_arc_plan(
     data: ConfirmArcPlanInput,
     db: DbSession,
@@ -189,7 +225,15 @@ async def api_confirm_character_arc_plan(
         raise _error(exc) from exc
 
 
-@router.post("/plans/restore/preview")
+@router.post(
+    "/plans/restore/preview",
+    openapi_extra={
+        **_TRACE_CALL_ID,
+        "x-novelcraft-operation-id": "story.character_arc_plan.restore",
+        "x-novelcraft-operation-phase": "prepare",
+        "x-novelcraft-operation-trace-fields": _trace_fields(RestoreArcPlanInput),
+    },
+)
 async def api_preview_restore_character_arc_plan(
     data: RestoreArcPlanInput,
     db: DbSession,
@@ -204,7 +248,21 @@ async def api_preview_restore_character_arc_plan(
         raise _error(exc) from exc
 
 
-@router.post("/plans/restore/confirm")
+@router.post(
+    "/plans/restore/confirm",
+    openapi_extra={
+        **_TRACE_CALL_ID,
+        "x-novelcraft-operation-id": "story.character_arc_plan.restore",
+        "x-novelcraft-operation-trace-fields": _trace_fields(RestoreArcPlanInput),
+        "x-novelcraft-operation-terminal-event": "restored",
+        "x-novelcraft-operation-reversal-op-ids": (
+            "story.character_arc_plan.save",
+            "story.character_arc_plan.restore",
+            "story.character_arc_plan.unarchive",
+        ),
+        "x-novelcraft-operation-reversal-ref-field": "reversal_ref",
+    },
+)
 async def api_confirm_restore_character_arc_plan(
     data: RestoreArcPlanInput,
     db: DbSession,
@@ -219,7 +277,15 @@ async def api_confirm_restore_character_arc_plan(
         raise _error(exc) from exc
 
 
-@router.post("/plans/archive/preview")
+@router.post(
+    "/plans/archive/preview",
+    openapi_extra={
+        **_TRACE_CALL_ID,
+        "x-novelcraft-operation-id": "story.character_arc_plan.archive",
+        "x-novelcraft-operation-phase": "prepare",
+        "x-novelcraft-operation-trace-fields": _trace_fields(ArchiveArcPlanInput),
+    },
+)
 async def api_preview_archive_character_arc_plan(
     data: ArchiveArcPlanInput,
     db: DbSession,
@@ -234,7 +300,14 @@ async def api_preview_archive_character_arc_plan(
         raise _error(exc) from exc
 
 
-@router.post("/plans/archive/confirm")
+@router.post(
+    "/plans/archive/confirm",
+    openapi_extra={
+        **_TRACE_CALL_ID,
+        "x-novelcraft-operation-id": "story.character_arc_plan.archive",
+        "x-novelcraft-operation-trace-fields": _trace_fields(ArchiveArcPlanInput),
+    },
+)
 async def api_confirm_archive_character_arc_plan(
     data: ArchiveArcPlanInput,
     db: DbSession,
@@ -249,7 +322,15 @@ async def api_confirm_archive_character_arc_plan(
         raise _error(exc) from exc
 
 
-@router.post("/plans/unarchive/preview")
+@router.post(
+    "/plans/unarchive/preview",
+    openapi_extra={
+        **_TRACE_CALL_ID,
+        "x-novelcraft-operation-id": "story.character_arc_plan.unarchive",
+        "x-novelcraft-operation-phase": "prepare",
+        "x-novelcraft-operation-trace-fields": _trace_fields(ArchiveArcPlanInput),
+    },
+)
 async def api_preview_unarchive_character_arc_plan(
     data: ArchiveArcPlanInput,
     db: DbSession,
@@ -264,7 +345,19 @@ async def api_preview_unarchive_character_arc_plan(
         raise _error(exc) from exc
 
 
-@router.post("/plans/unarchive/confirm")
+@router.post(
+    "/plans/unarchive/confirm",
+    openapi_extra={
+        **_TRACE_CALL_ID,
+        "x-novelcraft-operation-id": "story.character_arc_plan.unarchive",
+        "x-novelcraft-operation-trace-fields": _trace_fields(ArchiveArcPlanInput),
+        "x-novelcraft-operation-terminal-event": "restored",
+        "x-novelcraft-operation-reversal-op-ids": (
+            "story.character_arc_plan.archive",
+        ),
+        "x-novelcraft-operation-reversal-ref-field": "reversal_ref",
+    },
+)
 async def api_confirm_unarchive_character_arc_plan(
     data: ArchiveArcPlanInput,
     db: DbSession,

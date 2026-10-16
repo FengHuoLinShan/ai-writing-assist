@@ -1,4 +1,4 @@
-"""Pure Assistant operation declarations for the R3 author-plan directory."""
+"""Pure Assistant operation declarations for the author-plan directory."""
 
 from __future__ import annotations
 
@@ -6,13 +6,17 @@ from uuid import UUID
 
 from sqlalchemy import select
 
+from core.container import get
 from core.errors import ConflictError, NotFoundError
+from core.service_keys import ASSISTANT_REQUIRE_OPERATION_TARGETS
 from modules.story.models import CharacterArcPlanRevision
 
 from .schemas import (
     ArchiveArcPlanInput,
+    CharacterArcReadInput,
     ConfirmArcPlanInput,
     RestoreArcPlanInput,
+    SceneCharacterReadInput,
 )
 
 
@@ -26,13 +30,68 @@ async def _prior_revision(db, novel_id, character_id, operation_id):
     )
 
 
+async def _require_scope(db, novel_id, args, context):
+    if context is None:
+        return
+    # An arc plan belongs to a character across the whole work. Even a preview
+    # can reveal future author-only plans, so a Scene-limited work cannot read it.
+    if context.work.scope != "project":
+        raise PermissionError("人物弧计划需要完整作品工作范围")
+    await get(ASSISTANT_REQUIRE_OPERATION_TARGETS)(
+        db,
+        novel_id,
+        context,
+        [
+            ("outline_scene", str(args.scene_id)),
+            ("core_entity", str(args.character_id)),
+        ],
+        aggregate=True,
+    )
+
+
+async def _read_scene_characters(db, novel_id, args, *, context=None):
+    if context is not None:
+        if context.work.scope == "current" and str(context.work.scene_id) != str(
+            args.scene_id
+        ):
+            raise PermissionError("人物列表 Scene 超出当前作者工作范围")
+        await get(ASSISTANT_REQUIRE_OPERATION_TARGETS)(
+            db, novel_id, context, [("outline_scene", str(args.scene_id))]
+        )
+    from .service import scene_character_options
+
+    return (await scene_character_options(db, novel_id, str(args.scene_id))).model_dump(
+        mode="json"
+    )
+
+
+async def _read_history(db, novel_id, args, *, context=None):
+    await _require_scope(db, novel_id, args, context)
+    from .service import plan_history
+
+    return await plan_history(db, novel_id, str(args.scene_id), str(args.character_id))
+
+
+async def _read_comparison(db, novel_id, args, *, context=None):
+    await _require_scope(db, novel_id, args, context)
+    from .service import compare_character_arc
+
+    return (
+        await compare_character_arc(
+            db, novel_id, str(args.scene_id), str(args.character_id)
+        )
+    ).model_dump(mode="json")
+
+
 async def _preview_save(db, novel_id, args, *, context=None):
+    await _require_scope(db, novel_id, args, context)
     from .service import preview_plan_save
 
     return (await preview_plan_save(db, novel_id, args)).model_dump(mode="json")
 
 
 async def _apply_save(db, novel_id, args, preview, *, context=None):
+    await _require_scope(db, novel_id, args, context)
     if not args.preview_fingerprint:
         raise ConflictError("确认保存前需要提交预览指纹", code="PREVIEW_REQUIRED")
     from .schemas import ArcPlanWriteInput
@@ -52,6 +111,7 @@ async def _apply_save(db, novel_id, args, preview, *, context=None):
 
 
 async def _preview_restore(db, novel_id, args, *, context=None):
+    await _require_scope(db, novel_id, args, context)
     from infrastructure.llm.collaboration import content_hash
 
     from .service import (
@@ -135,6 +195,7 @@ async def _preview_restore(db, novel_id, args, *, context=None):
 
 
 async def _apply_restore(db, novel_id, args, preview, *, context=None):
+    await _require_scope(db, novel_id, args, context)
     if not args.preview_fingerprint:
         raise ConflictError("确认恢复前需要提交预览指纹", code="PREVIEW_REQUIRED")
     current = await _preview_restore(db, novel_id, args, context=context)
@@ -146,6 +207,7 @@ async def _apply_restore(db, novel_id, args, preview, *, context=None):
 
 
 async def _preview_archive(db, novel_id, args, *, context=None):
+    await _require_scope(db, novel_id, args, context)
     from infrastructure.llm.collaboration import content_hash
 
     from .service import _assert_owner, _head, _owned_project, _validated_plan_target
@@ -195,6 +257,7 @@ async def _preview_archive(db, novel_id, args, *, context=None):
 
 
 async def _apply_archive(db, novel_id, args, preview, *, context=None):
+    await _require_scope(db, novel_id, args, context)
     if not args.preview_fingerprint:
         raise ConflictError("确认归档前需要提交预览指纹", code="PREVIEW_REQUIRED")
     current = await _preview_archive(db, novel_id, args, context=context)
@@ -206,6 +269,7 @@ async def _apply_archive(db, novel_id, args, preview, *, context=None):
 
 
 async def _preview_unarchive(db, novel_id, args, *, context=None):
+    await _require_scope(db, novel_id, args, context)
     from infrastructure.llm.collaboration import content_hash
 
     from .service import _assert_owner, _head, _owned_project, _validated_plan_target
@@ -255,6 +319,7 @@ async def _preview_unarchive(db, novel_id, args, *, context=None):
 
 
 async def _apply_unarchive(db, novel_id, args, preview, *, context=None):
+    await _require_scope(db, novel_id, args, context)
     if not args.preview_fingerprint:
         raise ConflictError("确认恢复前需要提交预览指纹", code="PREVIEW_REQUIRED")
     current = await _preview_unarchive(db, novel_id, args, context=context)
@@ -293,7 +358,7 @@ _SAVE = {
     ),
     "produces": ("story.character_arc_plan_revision",),
     "target_type": "story.character_arc_plan",
-    "ai_available": False,
+    "ai_available": True,
     "transaction_mode": "single_transaction",
     "trace_rule": _trace_rule(ConfirmArcPlanInput),
 }
@@ -327,7 +392,54 @@ _UNARCHIVE = {
     "trace_rule": _trace_rule(ArchiveArcPlanInput),
 }
 
+
+def _read_operation(op_id, label, schema, prepare, description, produces):
+    return {
+        "label": label,
+        "schema": schema,
+        "prepare": prepare,
+        "apply": None,
+        "permission": "read",
+        "op_id": op_id,
+        "op_version": "1",
+        "description": description,
+        "risk_level": "R0",
+        "fee_category": "free",
+        "reversibility": "read_only",
+        "preconditions": ("作者可访问活动作品及可信 Story Scene",),
+        "produces": (produces,),
+        "target_type": "story.character_arc_plan",
+        "ai_available": True,
+        "transaction_mode": "single_transaction",
+        "trace_rule": _trace_rule(schema),
+    }
+
+
 OPERATIONS_SPEC = {
+    "story.character_arc_plan.scene_characters": _read_operation(
+        "story.character_arc_plan.scene_characters",
+        "读取 Scene 人物",
+        SceneCharacterReadInput,
+        _read_scene_characters,
+        "读取所选 Scene 的可信角色，不读取作者未来人物弧计划。",
+        "story.scene_character_options",
+    ),
+    "story.character_arc_plan.history": _read_operation(
+        "story.character_arc_plan.history",
+        "读取人物弧历史",
+        CharacterArcReadInput,
+        _read_history,
+        "在完整作品工作范围内读取作者确认的人物弧修订历史。",
+        "story.character_arc_plan_history",
+    ),
+    "story.character_arc_plan.compare": _read_operation(
+        "story.character_arc_plan.compare",
+        "对照人物弧计划与已发生事实",
+        CharacterArcReadInput,
+        _read_comparison,
+        "按所选 Scene 截止点对照作者计划和可核验正文，不替作者裁定人物弧完成。",
+        "story.character_arc_plan_comparison",
+    ),
     "story.character_arc_plan.save": _SAVE,
     "story.character_arc_plan.restore": _RESTORE,
     "story.character_arc_plan.archive": _ARCHIVE,

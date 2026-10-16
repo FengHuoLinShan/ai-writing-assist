@@ -453,6 +453,51 @@ async def test_character_response_v2_runs_through_scene_feed_and_writing_preview
                     }
                 ]
             }
+        elif schema["title"] == "ForecastOutput":
+            value = json.loads(
+                next(
+                    message.content
+                    for message in request.messages
+                    if message.role == "user"
+                )
+            )
+            assert value["sources"] and value["sources"][0]["text"]
+            # This author/transition packet is a separate provider request. It
+            # never shares the role-only card's evidence or output schema.
+            anchor = value["sources"][0]["text"][:8]
+            answer = {
+                "items": [
+                    {
+                        "capability_index": 0,
+                        "question_kind": "continuation",
+                        "anchor_evidence_id": "source_0",
+                        "anchor_text": anchor,
+                        "proposal": {
+                            "title": "保留河岸的转场空间",
+                            "kind": "creative_opportunity",
+                            "statements": [
+                                {
+                                    "text": anchor,
+                                    "basis": "observed",
+                                    "evidence_ids": ["source_0"],
+                                }
+                            ],
+                            "why_now": "当前 Scene 之后仍需作者决定如何衔接。",
+                            "directions": [
+                                {
+                                    "direction_id": "direct_cut",
+                                    "title": "直接切场",
+                                    "condition": "若下一 Scene 已安排",
+                                    "proposal": "留住悬念，直接进入下一场。",
+                                    "narrative_commitment": "low",
+                                    "may_leave_open": True,
+                                }
+                            ],
+                            "verdict": "propose",
+                        },
+                    }
+                ]
+            }
         else:
             assert schema["title"] == "AuditVerdictOutput"
             answer = {
@@ -666,6 +711,85 @@ async def test_character_response_v2_runs_through_scene_feed_and_writing_preview
     )
     assert preview.status_code == 200, preview.text
     assert preview.json()["status"] == "preview_ready"
+
+    pair_submission = await async_client.post(
+        f"{url}/evaluate",
+        params={"novel_id": nid},
+        json={
+            "operation_id": str(uuid4()),
+            "context": focus,
+            "horizon": {"unit": "scene"},
+        },
+    )
+    assert pair_submission.status_code == 202, pair_submission.text
+    pair_run = await db.get(AssistantRun, UUID(pair_submission.json()["run_id"]))
+    assert pair_run.request_json["selected_capabilities"] == [
+        "story.character_response.v2",
+        "story.scene_transition.v1",
+    ]
+    assert pair_run.request_json["companion_scope"] != pair_run.request_json["scope"] or (
+        pair_run.request_json["companion_scope"]["context_hash"]
+        != pair_run.request_json["scope"]["context_hash"]
+    )
+    await runtime.execute(db, await db.get(AsyncTask, pair_run.task_id))
+    await db.refresh(pair_run)
+    assert pair_run.status == "completed"
+    assert pair_run.budget_json["requests"] == 4
+    pair_cards = (
+        await async_client.post(
+            f"{url}/feed", params={"novel_id": nid}, json={"context": focus}
+        )
+    ).json()["items"]
+    assert {"story.character_response.v2", "story.scene_transition.v1"}.issubset(
+        {item["capability_id"] for item in pair_cards}
+    )
+    assert calls[-4:] == [
+        "CharacterResponseForecastOutput",
+        "AuditVerdictOutput",
+        "ForecastOutput",
+        "AuditVerdictOutput",
+    ]
+
+    async def fail_transition(self, request):
+        schema = json.loads(request.messages[-1].content.split("schema: ", 1)[1])
+        if schema["title"] == "ForecastOutput":
+            raise RuntimeError("offline transition provider stopped before usage receipt")
+        return await provider(self, request)
+
+    monkeypatch.setattr(OpenAIProvider, "generate", fail_transition)
+    failed_pair = await async_client.post(
+        f"{url}/evaluate",
+        params={"novel_id": nid},
+        json={
+            "operation_id": str(uuid4()),
+            "context": {
+                **focus,
+                "explicit_instruction": (
+                    "保持克制，不急于解释钥匙的来历；这次先选择有条件的转场"
+                ),
+            },
+            "horizon": {"unit": "scene"},
+        },
+    )
+    assert failed_pair.status_code == 202, failed_pair.text
+    failed_pair_run = await db.get(AssistantRun, UUID(failed_pair.json()["run_id"]))
+    with pytest.raises(RuntimeError, match="offline transition provider stopped"):
+        await runtime.execute(db, await db.get(AsyncTask, failed_pair_run.task_id))
+    await db.refresh(failed_pair_run)
+    assert failed_pair_run.status == "failed"
+    assert failed_pair_run.checkpoint_json["primary_calculated"]
+    assert failed_pair_run.budget_json["requests"] >= 2
+    assert failed_pair_run.budget_json["usage_unknown"], failed_pair_run.budget_json
+    assert (
+        await db.scalar(
+            select(ForecastCandidate).where(
+                ForecastCandidate.run_id == failed_pair_run.id
+            )
+        )
+        is None
+    )
+    assert not (await runtime.view(db, nid, failed_pair_run.id)).can_resume
+    monkeypatch.setattr(OpenAIProvider, "generate", provider)
 
     invalid_basis = True
     failure_focus = {

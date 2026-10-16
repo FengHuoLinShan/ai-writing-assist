@@ -76,7 +76,7 @@ def defaults(page, *, persona="author"):
             "story.open_question.v1",
             "writing.recall_pack.v1",
         ],
-        "scene": ["story.character_response.v2"],
+        "scene": ["story.character_response.v2", "story.scene_transition.v1"],
         "world": ["world.rule_decision.v1", "world.rule_impact.v1"],
         "outline": ["story.information_window.v1", "story.structure_impact.v1"],
         "map": ["world.map_precondition.v1"],

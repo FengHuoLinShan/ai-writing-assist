@@ -1540,21 +1540,22 @@ export function useWritingWorkspace(props) {
       if (!stillOwnsRequest()) return
       outlineFloat.arcGaps = options?.gaps || []
       const characters = options?.characters || []
-      const visible = characters.slice(0, 12)
-      if (characters.length > visible.length) {
-        outlineFloat.arcOmission = `当前 Scene 有 ${characters.length} 位人物；浮窗先显示前 ${visible.length} 位，请在人物卡中检查其余人物。`
-      }
-      const results = await Promise.all(visible.map(async (character) => {
-        try {
-          const comparison = await characterArcs.compare(projectId, sceneId, character.character_id)
-          return { ...character, comparison }
-        } catch (error) {
-          return {
-            ...character,
-            comparisonError: error?.message || "人物弧线对照暂时无法读取。",
+      const results = []
+      for (let index = 0; index < characters.length; index += 8) {
+        const batch = await Promise.all(characters.slice(index, index + 8).map(async (character) => {
+          try {
+            const comparison = await characterArcs.compare(projectId, sceneId, character.character_id)
+            return { ...character, comparison }
+          } catch (error) {
+            return {
+              ...character,
+              comparisonError: error?.message || "人物弧线对照暂时无法读取。",
+            }
           }
-        }
-      }))
+        }))
+        if (!stillOwnsRequest()) return
+        results.push(...batch)
+      }
       if (!stillOwnsRequest()) return
       outlineFloat.characterArcs = results
       outlineFloat.arcDrafts = Object.fromEntries(results.map((item) => [
