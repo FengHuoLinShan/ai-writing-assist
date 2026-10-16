@@ -3,7 +3,7 @@ id: T-20261016-editorial-diagnosis-v1
 title: 编辑审读诊断 A/B 试跑与盲评交接
 status: active
 created: 2026-10-16T18:02:35+08:00
-updated: 2026-10-16T21:10:00+08:00
+updated: 2026-10-17T01:53:00+08:00
 ---
 
 # 编辑审读诊断 A/B 试跑与盲评交接
@@ -13,14 +13,14 @@ updated: 2026-10-16T21:10:00+08:00
 - 目标：实施对照试跑工程补缺，用 Codex gpt-6-luna/max 完成旧/新提示词冒烟及全量运行；交付盲评包与 HANDOFF，等待作者另开 Claude Sonnet 5.5 任务评分。本轮不做评分。
 - 工作树：/Users/tywww/项目/ai-writing-assist/.worktrees/editorial-diagnosis-v1；分支 codex/editorial-diagnosis-v1。
 - 已有提交：第一阶段 04424535a2a164f0274aee2f65dd8d300b3f236f（提示词、桥接、v2）。
-- 候选组固定提交：c0a32c7778ab4faaaa9f949ef8ba8a7de0606318；基线提示词来自 00d861283e34bdc0ef3f34ee5605c71e1f89c553。
+- 候选提示词原始固定提交：c0a32c7778ab4faaaa9f949ef8ba8a7de0606318；当前运行器修复后固定候选提交为 `4133ff93b`（提示词与原 SHA 相同）；基线提示词来自 00d861283e34bdc0ef3f34ee5605c71e1f89c553。
 - 数据库/runtime 已配置：该工作树忽略的 `backend/.env`（0600）指向本机 PostgreSQL 17 `127.0.0.1:18442/codex_luna_runtime_test`，并固定 `APP_ENV=development`、`AUTH_MODE=local`、`CODEX_CLI_COMMAND` 为本机 v0.163.0 可执行文件；只读连通核验通过，账户连接数据仍留在该专用库。
 - 新持久私有目录：`/Users/tywww/novelcraft-private/editorial-diagnosis-v1-run-20261016/`，root/raw/blind/mapping 均为 0700；旧 `/private/tmp/novelcraft-editorial-diagnosis-v1-run-20261016/` 请求数为 0，弃用且不删除。
 - 连接验证与原因：在默认工作区沙箱内有2次 synthetic ready 尝试以 exit_code=1 / `codex_result_unknown` 结束，无 CLI event 或 `turn_started`，用量未知、无 request_id；之后以提权进程执行同一 `SettingsService().connect_account_llm_provider(db, "codex", None)` 成功1次。三次均只用 ChatGPT 订阅的 gpt-6-luna/max ready 请求，不含稿件，单独记账、不计入406。错误分类显示外层沙箱阻止 Codex CLI 写 PATH alias（`Operation not permitted`）；提权执行后 `codex-text-v3` 成功，未改适配器。
 - 连接只读核验通过：active provider=`codex`，model=`gpt-6-luna`，`connected=true`，`verified_at=2026-10-16T12:50:51.946704+00:00`。
 - 新持久私有目录 manifest hash `d2a86df68d7f09ca9ce50362a360ccfabef66e7657980e3fa6595ef5e7c5fe48`，29例、上限406。S01 冒烟启动后在 assistant submit 前置路径遇到 `AttributeError`；没有评测 provider 请求（request_count=0、observations=0），case 已标 `stopped`，不重放。仅生成一份 baseline `started` 元数据；blind/mapping 为空。旧 `/private/tmp` 目录请求数仍为0，弃用且不删除。
-- 当前进度：原运行目录与 attempt-2 中的 S01 均为 `stopped`、0 次评测请求，不重放。离线复现定位根因：JSON state 中 `state_path` 是字符串，但 `_run_arm()` 直接传给需要 `Path` 的私有写入函数。已在 `_run_arm()` 先转为 `Path`，并补齐 task-handler 注册；新增 fake-client 离线回归覆盖路径持久化且在 provider 前停止。
-- 下一步：提交修复与本次任务记录，使用新的持久私有 attempt 目录和固定候选提交执行 S01 两组冒烟；只有两臂输出、validator 与请求回执均通过后才继续其余样本。
+- 当前进度：原运行目录、attempt-2 和 attempt-3 的 S01 均停止且评测请求数为0，不重放。attempt-1/2 的确切根因是 JSON state 的 `state_path` 字符串直接传给 `Path` 写入函数；attempt-3 修复路径写入并通过提交/快照后，task 记录显示 Assistant worker 因普通 session 未声明 lease checkpoint 而拒绝执行。runner 已在 `run_task_inline()` 执行期间临时设置并恢复既有 `task_checkpoint_enabled` 内部标记，新增 fake-client 回归断言该标记与恢复行为。
+- attempt-4 已完成 S01 冒烟及 29 例全量对照：共 304/406 次请求，58/58 臂完成，全部 usage 已知；盲包与 HANDOFF 已生成。当前下一步是等待作者另开 Claude Sonnet 5.5 会话返回盲评分，不在本轮评分或解盲。
 
 ## 范围与边界
 
@@ -47,28 +47,48 @@ updated: 2026-10-16T21:10:00+08:00
 - [x] 补测（已随 `c0f4fd2` 提交）：新增 `test_editorial_execution_hooks.py` 17 项，覆盖提示词传递、多章请求边界与累计预算、注入客户端、失败/未知/取消/来源变化及单方向意见；修复 `_synthesize()` 合并进度覆盖累计请求预算的问题。新增17项通过，结合相关旧审读/桥接测试共48 passed，`make lint` 通过；定向覆盖率从78.1%升至84.2%，未重跑标准全库覆盖率门禁，不据此宣称全库覆盖率通过。
 - [x] `TEST-COVERAGE.md` 的补测要点已并入本节，源文件已删除；原内容对应的补测代码已在 `c0f4fd2` 提交。
 - [x] git diff --check 通过。make docs-check BASE_REF=origin/main 因 module-tasks 规则列出 3 份未变文档；按维护流程以无当前架构影响说明复跑 scripts/check_architecture_docs.py 并通过。理由：只增加 Assistant 评测专用 db.info 钩子；任务注册、队列/租约/生命周期、API、跨模块契约及恢复语义未变，Assistant 与 Prompt README 已同步。
-- [x] 工程与数据本地提交：c0f4fd2b28237ff6ce1ed35c45d2644cf2a95a4c；Project profile mismatch fail-closed 修正：c0a32c7778ab4faaaa9f949ef8ba8a7de0606318。候选提示词固定于后者。
+- [x] 工程与数据本地提交：c0f4fd2b28237ff6ce1ed35c45d2644cf2a95a4c；Project profile mismatch fail-closed 修正：c0a32c7778ab4faaaa9f949ef8ba8a7de0606318；runner 路径修复固定候选提交：`30cf2ab38`，候选 `_SYSTEM` 与原提示词 SHA 相同。
 - [x] 配置专用数据库 URL，并用 PostgreSQL 17 做只读连通核验；数据库目标为 `codex_luna_runtime_test`，没有触碰主工作树应用库。
 - [x] 重跑 S01 两臂预检；第一次在 owner 连接门禁停止，request_count=0。
 - [x] 创建持久私有目录与 0700 子目录；生成新的 manifest/state，文件权限0600，固定 candidate SHA、数据集及随机次序，request_count=0。
 - [x] 连接验证：两次默认沙箱尝试未知，一次提权后验证成功；四项 profile 只读核对通过。真实生成总计3次，均为合成 ready，不计入406。
-- [x] 两次独立 S01 smoke 初始化均在首次评测请求前遇 `AttributeError`，每份账本 `request_count=0`、`observations=0`，S01 保持停止态；原始账本未覆盖或重放。
-- [x] 定位 state path 类型错误并修复；运行器同时调用既有 `register_task_handlers()`。fake-client 回归验证 JSON 字符串路径可持久化，且在 worker/provider 之前中止。
+- [x] 原运行目录与 attempt-2 S01 两次因 `state_path` 类型错误于首个评测请求前停止；各账本 `request_count=0`、`observations=0`，没有覆盖或重放。
+- [x] 修复 state path 转换并补齐既有 `register_task_handlers()`。attempt-3 验证继续到 Assistant task guard，专用库失败记录为 `RuntimeError: Editorial review requires a lease-fenced session`；该账本请求数仍为0，未发起 provider 调用。
+- [x] runner 只在每次 `run_task_inline()` 期间设置并恢复 `task_checkpoint_enabled`；fake-client 回归覆盖路径持久化、guard 标记及 provider 前停止。
 - [x] 修复后相关 Assistant/评测/任务注册测试 78 passed；`make lint`、`make prompt-contracts`、基础 `make docs-check`、`git diff --check` 通过。`make docs-check BASE_REF=origin/main` 列出既有 module-tasks 文档核对项；使用正式 checker 附无当前架构影响说明后通过。
-- [ ] 将修复提交为新的固定候选提交，在独立持久私有目录重跑 S01 两组 smoke；旧账本与旧 S01 不重放或改写。
-- [ ] 生成私有盲评包和 HANDOFF；不运行评分。
+- [x] runner 路径与 task-handler 修复提交 `30cf2ab38`；task checkpoint 标记修复提交 `4133ff93b`；候选 `_SYSTEM` 与 `c0a32c7778ab4faaaa9f949ef8ba8a7de0606318` 相同。
+- [x] attempt-4 S01 两组 smoke：14 次请求，candidate/baseline 各 7 次；两份输出均 coverage_complete、checked chapters 为 1–3、validator_survivors 各 4；回执 14/14 成功。
+- [x] attempt-4 全量 29 例：request_count=304/406；confirmed provider requests=304，uncertain=0，unknown usage=0，dependency failure streak=0，paused_reason=null；29/29 case complete，58/58 arm completed，每臂最多 7 次。
+- [x] 盲包完整性：58 份随机盲号输出，对应 29 个样本各两份；预期标签分布按输出副本计为 report=22、no_report=34、unchecked=2；58 项 coverage_complete=true；58 条映射，两个条件各 29 条。发现辅助上下文有 4 处 `candidate` 一词指作品候选文本，已只在盲评副本中改写为“valid POV confirmation applies to the passage”；原始输入、报告、映射未改，复扫未发现条件名、SHA 或分支名泄漏。
+- [x] 原始结果、状态和盲号映射仍在私有持久目录，目录权限 0700、文件权限 0600；没有复制到仓库。
+- [x] 已生成 `HANDOFF-blind-review.md`，定义 15 项评分、逐意见命中/误报与 case 级漏报格式，并限定评阅者读取范围；本轮未评分、未解盲。
+- [x] 全量结束摘要：两组各 152 次请求；candidate 1,919,061 input / 218,154 output tokens，baseline 1,846,123 input / 301,400 output tokens。摘要只记录已知 usage，不推算费用。
+- [x] 交付门禁：`make docs-check` 通过；`make docs-check BASE_REF=origin/main` 仍报告既有 module-tasks 三份文档清单，附无当前架构影响理由重跑 `scripts/check_architecture_docs.py` 后通过；HANDOFF 的 JSON 示例可解析且包含 15 个精确评分 key，未包含映射文件路径；收尾 `git diff --check` 通过。
+
+## attempt-4 全量结果（2026-10-17）
+
+- 私有运行目录：`/Users/tywww/novelcraft-private/editorial-diagnosis-v1-run-20261016-attempt-4/`；manifest hash `28a5d439651658e85eaa0a46c8cbfe77688f76bb6578bd6d17bed16a0319f695`，固定候选提交 `4133ff93b6e3c27e59e967831dbe4d4322f329a2`，29 个样本、58 个随机化 arm 顺序，全局上限 406。
+- 全量已正常退出（exit 0）。最终账本：reserved=304、confirmed provider requests=304、observations=304，全部 `succeeded`；uncertain=0，unknown usage=0，dependency_failure_streak=0，paused_reason=null。29/29 case complete，58/58 arm completed，单臂最大 7 次。
+- 请求及用量：candidate 152 次（1,919,061 input tokens、218,154 output tokens）；baseline 152 次（1,846,123 input tokens、301,400 output tokens）。不推算费用。
+- 文件完整性：raw 中 58 份 per-arm 完成记录，加 `summary.json` 与 `experiment-evidence.json`；blind 58 份；mapping 58 项。blind 预期结果按输出副本分布为 report=22、no_report=34、unchecked=2，所有 58 份 coverage_complete=true，validator_survivors 均与 finding 数一致。
+- 隐私核验：根目录和 raw/blind/mapping 均 0700；manifest/state 与所有 raw、blind 文件均 0600。评分回收目录 `reviewer-return/` 为 0700，预定评分文件不存在，等待外部评阅。
+- 盲包复扫没有发现分组名、系统提示词、SHA 或分支名；4 个辅助上下文里的 `candidate` 指作品候选文本，已仅在盲包副本改成 `valid POV confirmation applies to the passage`，避免与实验分组混淆。
+- 未做评分或解盲。下一步：作者另开 Claude Sonnet 5.5 任务，按 HANDOFF 交回 JSONL；开发 Agent 验证导入后再解盲汇总。
 
 ## 试跑产物路径
 
-- 私有运行根目录：/Users/tywww/novelcraft-private/editorial-diagnosis-v1-run-20261016/
+- attempt-4 私有运行根目录：/Users/tywww/novelcraft-private/editorial-diagnosis-v1-run-20261016-attempt-4/
+- 原私有运行根目录（attempt-1）：/Users/tywww/novelcraft-private/editorial-diagnosis-v1-run-20261016/
 - 原 run S01 账本：该目录；manifest hash `d2a86df68d7f09ca9ce50362a360ccfabef66e7657980e3fa6595ef5e7c5fe48`，状态停止、请求数0。
 - attempt-2 S01 账本：/Users/tywww/novelcraft-private/editorial-diagnosis-v1-run-20261016-attempt-2/；manifest hash `3888e0a845025c1fecff92e938ea519e966737d7b4464004d3ba831db3f632c4`，状态停止、请求数0。
-- 原始输出：/Users/tywww/novelcraft-private/editorial-diagnosis-v1-run-20261016/raw/
-- 盲评包：/Users/tywww/novelcraft-private/editorial-diagnosis-v1-run-20261016/blind/
-- 盲号映射：/Users/tywww/novelcraft-private/editorial-diagnosis-v1-run-20261016/mapping/blind-map.json
+- attempt-3 S01 账本：/Users/tywww/novelcraft-private/editorial-diagnosis-v1-run-20261016-attempt-3/；manifest hash `a242f8956649c321bc263d2ecac85b7828c06c7551bb805c5a71d1c7bcf16e9e`，状态停止、请求数0；任务失败原因由专用库的任务错误字段核实。
+- attempt-4 原始输出：/Users/tywww/novelcraft-private/editorial-diagnosis-v1-run-20261016-attempt-4/raw/
+- attempt-4 盲评包：/Users/tywww/novelcraft-private/editorial-diagnosis-v1-run-20261016-attempt-4/blind/
+- attempt-4 盲号映射：/Users/tywww/novelcraft-private/editorial-diagnosis-v1-run-20261016-attempt-4/mapping/blind-map.json（仅供开发 Agent 解盲；不得交给评阅者）
+- 评分回收文件：/Users/tywww/novelcraft-private/editorial-diagnosis-v1-run-20261016-attempt-4/reviewer-return/sonnet-review.completed.jsonl
 - 盲评交接：本目录的 HANDOFF-blind-review.md；此文件不得包含映射路径。
 - 新私有根目录及 raw/blind/mapping 子目录权限均为 0700；manifest/state 为0600，request_count=0、无 observation。raw 只有 `S01_hard_contradiction.baseline.json` 的 started 元数据，没有审读输出；blind/mapping 为空。旧 /private/tmp 运行目录 manifest/state 保留但弃用，请求数为0。
 
 ## 最终交付状态与下一步
 
-Codex 连接已验证并通过四项 profile 检查；真实评测运行时外层进程需有权启动 CLI 自身的只读沙箱。两份旧 S01 账本均保留停止态、评测请求数为0。JSON state 的 `state_path` 字符串/Path 类型错误已修复并有离线回归；task handler 注册也已补齐。下一步在全新的私有目录和固定候选提交上重跑 S01 smoke，成功后继续全量。盲评包和 HANDOFF 尚未生成，不评分。
+Codex 连接 profile 已验证；三个旧 S01 账本保留停止态且评测请求数为 0，不重放。runner 路径、task-handler 注册及 task checkpoint 标记修复已本地提交并通过 78 项相关离线回归。attempt-4 S01 冒烟及 29 例全量运行成功，最终 304 次请求、58 份盲包和 58 项映射均已核验。HANDOFF 已生成，本轮未评分、未解盲、未推送。下一步：等待 Sonnet 盲评结果后由开发 Agent 校验、解盲汇总。
