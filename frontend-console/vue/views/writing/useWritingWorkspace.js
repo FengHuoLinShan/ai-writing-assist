@@ -257,6 +257,7 @@ export function useWritingWorkspace(props) {
   let sceneGeneration = 0
   let sceneLensGeneration = 0
   let outlineArcGeneration = 0
+  const outlineArcEdits = new Map()
   let publishGeneration = 0
   let versionDiffGeneration = 0
   let publishPoller = null
@@ -1560,13 +1561,16 @@ export function useWritingWorkspace(props) {
       outlineFloat.characterArcs = results
       outlineFloat.arcDrafts = Object.fromEntries(results.map((item) => [
         item.character_id,
-        item.comparison?.plan?.plan_text || "",
+        outlineArcEdits.get(`${sceneId}:${item.character_id}`) ?? item.comparison?.plan?.plan_text ?? "",
       ]))
       outlineFloat.arcLoadedKey = loadKey
     } catch (error) {
       if (stillOwnsRequest()) outlineFloat.arcError = error?.message || "人物弧线对照加载失败。"
     } finally {
-      if (generation === outlineArcGeneration) outlineFloat.arcLoading = false
+      if (generation === outlineArcGeneration) {
+        outlineFloat.arcLoading = false
+        if (outlineFloat.open && currentScene.value?.id !== sceneId) void loadOutlineArcComparisons()
+      }
     }
   }
 
@@ -1590,12 +1594,14 @@ export function useWritingWorkspace(props) {
     outlineFloat.open = !outlineFloat.open
     if (!outlineFloat.open) {
       outlineArcGeneration += 1
+      outlineFloat.arcLoading = false
       return
     }
     await Promise.all([loadOutlineThreads(), loadOutlineArcComparisons()])
   }
 
   function updateArcDraft(characterId, value) {
+    outlineArcEdits.set(`${currentScene.value?.id}:${characterId}`, value)
     outlineFloat.arcDrafts = { ...outlineFloat.arcDrafts, [characterId]: value }
     const preview = outlineFloat.arcPreviews[characterId]
     if (preview && preview.proposed_plan_text !== value) {
@@ -1668,6 +1674,7 @@ export function useWritingWorkspace(props) {
         plan_text: preview.proposed_plan_text,
         preview_fingerprint: preview.preview_fingerprint,
       })
+      outlineArcEdits.delete(`${sceneId}:${characterId}`)
       toast("人物弧计划已保存为作者确认版本。", "success")
       outlineFloat.arcLoadedKey = null
       await loadOutlineArcComparisons({ force: true })
@@ -1760,6 +1767,7 @@ export function useWritingWorkspace(props) {
         expected_version: preview.expectedVersion,
         preview_fingerprint: preview.fingerprint,
       })
+      outlineArcEdits.delete(`${sceneId}:${characterId}`)
       toast("人物弧计划已从历史版本恢复为新修订。", "success")
       outlineFloat.arcLoadedKey = null
       await loadOutlineArcComparisons({ force: true })
@@ -1822,6 +1830,7 @@ export function useWritingWorkspace(props) {
         expected_version: preview.expectedVersion,
         preview_fingerprint: preview.fingerprint,
       })
+      outlineArcEdits.delete(`${sceneId}:${characterId}`)
       toast("已恢复归档的人物弧计划。", "success")
       outlineFloat.arcLoadedKey = null
       await loadOutlineArcComparisons({ force: true })
@@ -1883,6 +1892,7 @@ export function useWritingWorkspace(props) {
         expected_version: preview.expectedVersion,
         preview_fingerprint: preview.fingerprint,
       })
+      outlineArcEdits.delete(`${sceneId}:${characterId}`)
       toast("计划已归档，历史修订仍保留。", "success")
       outlineFloat.arcLoadedKey = null
       await loadOutlineArcComparisons({ force: true })

@@ -14,6 +14,7 @@ from core.service_keys import (
     ASSISTANT_READ_MAP_AUTHOR_DECISION,
     EVOLUTION_READ_MAP_COLD_START_STATUS,
     EVIDENCE_READ_EVOLUTION_OBJECT_PATTERNS,
+    EVIDENCE_READ_OBJECT_DOSSIER_BRIEF,
     EVIDENCE_READ_STORY_OBJECT_STATE,
     EVIDENCE_READ_WORLD_OBJECT_DOSSIER,
     WORLD_READ_MAP_COLD_START_DRAFTS,
@@ -106,6 +107,7 @@ from core.service_keys import (
     WORLD_READ_SPATIAL_DISCOVERY_CONTEXT,
     WORLD_READ_BIBLE_PAGE_REVISIONS,
     WORLD_LIST_CHARACTERS,
+    WORLD_GET_CHARACTERS_CONTEXT,
     WORLD_LIST_ENTITIES,
     WORLD_LIST_ENTITY_TERMS,
     WORLD_MAP_CAPABILITIES,
@@ -125,6 +127,9 @@ from core.service_keys import (
     WRITING_MANUSCRIPT_SOURCE,
 )
 from modules.evidence.facade import compile_structure_context as _ctx_compile
+from modules.evidence.facade import (
+    read_object_dossier_brief as _evidence_read_object_dossier_brief,
+)
 from modules.evidence.compilation.contracts import EVIDENCE_READ_STORY_DIRECTOR_REFERENCES
 from modules.evidence.facade import (
     compile_generation_background as _ctx_generation_background,
@@ -174,6 +179,7 @@ from modules.writing.project_ports import (
     WritingWorkspaceStatsAdapter as _WritingWorkspaceStatsAdapter,
 )
 from modules.world.facade import (
+    get_characters_context as _world_get_characters_context,
     read_project_vocabulary as _world_read_project_vocabulary,
     create_character as _world_create_char,
     get_character_id_by_world_entity as _world_get_char_id,
@@ -511,6 +517,7 @@ def _container_services() -> Iterable[tuple[ServiceKey[Any], Any]]:
             read_scene_director_references_for_writing,
         ),
         (EVIDENCE_READ_WORLD_OBJECT_DOSSIER, read_world_object_dossier),
+        (EVIDENCE_READ_OBJECT_DOSSIER_BRIEF, _evidence_read_object_dossier_brief),
         (WORLD_REQUIRE_CUSTOM_TEXT_STATE_FIELD, _world_require_custom_text_state_field),
         (WORLD_REQUIRE_MAP_DECLARATION_STATE, _world_require_map_declaration_state),
         (WORLD_READ_OBJECT_VALIDITY_NOTICES, list_object_validity_notices),
@@ -641,6 +648,7 @@ def _container_services() -> Iterable[tuple[ServiceKey[Any], Any]]:
         (WORLD_ASSISTANT_CHAT, _world_assistant.chat),
         (WORLD_ASSISTANT_CHAT_INTENT, _world_assistant.chat_intent),
         (WORLD_LIST_CHARACTERS, _world_list_characters),
+        (WORLD_GET_CHARACTERS_CONTEXT, _world_get_characters_context),
         (WORLD_LIST_ENTITY_TERMS, _world_list_entity_terms),
         (WORLD_LIST_ENTITIES, _world_list_entities),
         (WORLD_RUN_SCENE_ENTITY_EXTRACTION, scene_extraction.extract_by_scenes),

@@ -56,8 +56,8 @@ through its stable facade and never writes World, Memory, or Writing records.
   task registry: `story_character_card_generate`, `story_reaction_propose`,
   `story_scene_script_generate`, and `story_one_click`.
 - `api.py`: author routes under `/api/story`; Scene-centric aliases are under
-  `/api/story/scenes/{scene_id}`. The character arc author router is declared at
-  `/api/story/character-arcs` and still needs composition-root mounting.
+  `/api/story/scenes/{scene_id}`. The character arc author router is mounted at
+  `/api/story/character-arcs`.
 
 ## Writing scene-structure notices
 
@@ -95,15 +95,13 @@ is author-confirmed, director-only, versioned with CAS, and separate from
 continuity events. Comparison uses current source fingerprints and only
 verified, confirmed continuity/prose evidence through the selected Scene.
 Missing or stale evidence remains unknown; the service never marks an arc
-complete. The existing Story router, Assistant operation catalog, Story facade,
-and frontend API namespace need ordered composition before all domain endpoints
-and directory operations are available. Do not register the Assistant operation
-until its trusted work-scope target checks are completed.
-
-The already-applied migration still has a PostgreSQL trigger-depth cascade guard
-that does not verify the referenced Project is deleted. A follow-up migration
-must reject nested-trigger bypass while the Project exists and permit actual
-Project deletion; the original migration must remain immutable.
+complete. Three R0 directory reads expose Scene characters, plan history and
+cutoff comparison; four R3 operations require preview and explicit confirmation.
+Assistant reads of the whole plan require a project-wide trusted work scope and
+recheck excluded/confirmed assets. The original migration remains immutable;
+`20261016_story_arc_guard` permits immutable-history deletion only after the real
+Project has been deleted, rejecting nested triggers and TEMP table shadowing.
+First writes and later CAS/restore operations serialize per work and character.
 
 Continuity checkpoints are versioned: V1 confirmations replay the original four dimensions;
 V2 adds timeline and causality without backfilling missing history as empty facts. Writing may

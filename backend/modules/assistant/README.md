@@ -125,6 +125,11 @@ C0c 新增 `project.object_validity_settings.read/edit`、`world.relations.read`
 旧 v1–v10 快照不升级；对象档案六项既有操作升修订 2，模板编辑升修订 3，旧冻结项
 可描述但发生 schema 或修订漂移时不能执行。项目设置采用预期版本 CAS，默认关闭。
 
+C3 新运行使用 v16：在正式 v15 目录之后加入 Story 人物弧的三项 R0 读取与四项 R3
+写入；v1–v15 冻结目录均不自动获得这些能力。R0 历史和实际对照需要完整作品可信工作范围，
+写入须预览、显式确认及领域 CAS。恢复留痕凭同一修订回执关联原执行的
+`op_id/call_id`，重放不重复记录恢复；缺少原回执时只标留痕不完整。
+
 ## 主动检查与提醒
 
 正文保存与 Evidence 资产失效事件、RP 有效路径/回顾/来源变化在同一事务标记待检。
@@ -156,11 +161,12 @@ Writing 冲突项的领域 `later` 没有唤醒时间，统一入口的定时“
 100 条时，已读取条目继续显示，并附“还有更多”导航提醒，不把整个来源报为不可用。
 
 当前注册 `story.structure`、`writing.conflict`、`writing.invalidation`、
-`assistant.proactive`、`assistant.forecast`、`assistant.editorial` 和 `world.map_source`。
+`assistant.proactive`、`assistant.forecast`、`assistant.editorial`、
+`evolution.reading` 和 `world.map_source`。
 `story.structure` 迁移原前端结构缺项规则，
 冲突检查读取已保存正文基线并包括 G8b 地图基线；短期前瞻仍走原 forecast CAS。Assistant
 主动提醒适配器只投影现有 active AssistantNotice（含当前可见的 map_changes 与 editorial_issue），
-不另立审读结论。除本节记录的编辑意见及 G8a 地图来源外，地图空间提醒、档案/状态、演化阅读、
+不另立审读结论。除本节记录的编辑意见、G8a 地图来源及 Evolution 阅读外，地图空间提醒、档案/状态、
 对象一致性和世界推进提醒仍由各自来源接入；本切片不把它们伪装为已支持。
 
 组合根通过 `ASSISTANT_NOTICE_SOURCES` 注册上述来源并挂载 router；
@@ -298,6 +304,9 @@ pro 模式将本轮实际工具证据冻结为 `assistant.turn` 组级 scope，�
 `forecast_v1` 子路由声明前缀 `/forecasts`，挂载后的完整入口是
 `/api/assistant/forecasts`。feed 仅读取保存稿、领域回执和派生候选，不请求模型或创建任务。
 显式 evaluate 用原 AssistantRun 和 `assistant_forecast`，最多四次请求（含复核与修复）。
+新 Scene 默认在同一父运行预算下分别生成角色已知范围的人物表演卡 v2 和作者视角转场卡；
+两份资料独立物化、独立模型调用和复核，通过后一起发布。第二类调用失败或费用未知时
+保留已完成检查点，但不发布部分候选或自动重试。旧冻结 v1 卡及转场按原来源形状读取。
 语义任务、自动触发与 RP 各有默认关闭的开关。后台 forecast 与原 review 共享 active_run
 和每日额度，分别保留自身稳定期与冷却期；原客户端保存设置不会覆盖新授权分区。
 

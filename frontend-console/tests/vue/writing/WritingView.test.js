@@ -13,6 +13,7 @@ import {
 } from "../../../vue/views/writing/writingSession.js"
 import { projectSettingsSession } from "../../../vue/views/settings/projectSettingsSession.js"
 import { invalidateEditorialReviewCache } from "../../../vue/composables/useEditorialGuard.js"
+import { characterArcs } from "../../../api/characterArcs.js"
 
 function deferred() {
   let resolve
@@ -75,6 +76,7 @@ describe("WritingView", () => {
     Object.defineProperty(window, 'innerWidth', { configurable: true, value: originalWidth })
     vi.useRealTimers()
     resetBridgeOverrides()
+    vi.restoreAllMocks()
   })
 
   it("Vue 模板拥有写作台 DOM，动态内容按文本转义", async () => {
@@ -1132,6 +1134,115 @@ describe("WritingView", () => {
     expect(wrapper.find('[aria-label="版本历史"]').exists()).toBe(true)
     expect(wrapper.text()).toContain("旧正文")
     expect(wrapper.text()).toContain("新正文")
+    wrapper.unmount()
+  })
+
+  it.each(["save", "restore", "archive", "unarchive"])("人物弧 %s 后刷新保留另一人物的未保存输入", async (action) => {
+    const characters = ["a", "b"].map((id) => ({ character_id: id, character_name: id, is_pov: id === "a" }))
+    let savedPlan = "原计划"
+    vi.spyOn(characterArcs, "sceneCharacters").mockResolvedValue({ characters, gaps: [] })
+    vi.spyOn(characterArcs, "compare").mockImplementation(async (_novel, _scene, id) => ({
+      character_id: id,
+      cutoff: { chapter_cutoff: 1 },
+      coverage: "unknown",
+      plan: { plan_text: savedPlan, version: 1 },
+      actual_events: [], unknowns: [],
+    }))
+    const method = { save: "confirmPlan", restore: "confirmRestore", archive: "confirmArchive", unarchive: "confirmUnarchive" }[action]
+    vi.spyOn(characterArcs, method).mockImplementation(async () => { savedPlan = "已确认计划" })
+    vi.spyOn(characterArcs, "history").mockResolvedValue({ items: [] })
+    const wrapper = mount(WritingView, { props: props(), attachTo: document.body })
+    await flushPromises()
+    await wrapper.get('[data-action="toggle-outline-float"]').trigger("click")
+    await flushPromises()
+    const vm = wrapper.vm.$.setupState.vm
+    await wrapper.get('[aria-label="b的人物弧计划"]').setValue("尚未保存的 B 计划")
+    if (action === "save") {
+      await wrapper.get('[aria-label="a的人物弧计划"]').setValue("已确认计划")
+      vm.outlineFloat.arcPreviews.a = { operationId: "save-a", proposed_plan_text: "已确认计划", expected_version: 1, preview_fingerprint: "fp" }
+    } else {
+      vm.outlineFloat.arcRestorePreviews.a = { operationId: `${action}-a`, action, revisionId: "revision-a", expectedVersion: 1, fingerprint: "fp" }
+    }
+    await vm[{
+      save: "confirmCharacterArcPlan", restore: "confirmRestoreCharacterArcPlan",
+      archive: "confirmArchiveCharacterArcPlan", unarchive: "confirmUnarchiveCharacterArcPlan",
+    }[action]]("a")
+    await flushPromises()
+    expect(wrapper.get('[aria-label="b的人物弧计划"]').element.value).toBe("尚未保存的 B 计划")
+    expect(wrapper.get('[aria-label="a的人物弧计划"]').element.value).toBe("已确认计划")
+    wrapper.unmount()
+  })
+
+  it("人物计划保存冲突保留输入与原确认身份，刷新后仍可编辑", async () => {
+    vi.spyOn(characterArcs, "sceneCharacters").mockResolvedValue({ characters: [{ character_id: "a", character_name: "a" }], gaps: [] })
+    vi.spyOn(characterArcs, "compare").mockResolvedValue({ cutoff: {}, plan: { plan_text: "原计划", version: 1 }, actual_events: [], unknowns: [] })
+    vi.spyOn(characterArcs, "previewPlan").mockImplementation(async (_novel, payload) => ({ ...payload, preview_fingerprint: "original-fp" }))
+    const confirm = vi.spyOn(characterArcs, "confirmPlan").mockRejectedValue(new Error("版本冲突，请刷新后再试"))
+    const wrapper = mount(WritingView, { props: props(), attachTo: document.body })
+    await flushPromises()
+    await wrapper.get('[data-action="toggle-outline-float"]').trigger("click")
+    await flushPromises()
+    const vm = wrapper.vm.$.setupState.vm
+    await wrapper.get('[aria-label="a的人物弧计划"]').setValue("不能丢失的新计划")
+    await vm.previewCharacterArcPlan("a")
+    const originalId = vm.outlineFloat.arcPreviews.a.operationId
+    expect(await vm.confirmCharacterArcPlan("a")).toBe(false)
+    expect(wrapper.get('[aria-label="a的人物弧计划"]').element.value).toBe("不能丢失的新计划")
+    expect(vm.outlineFloat.arcPreviews.a.operationId).toBe(originalId)
+    expect(confirm.mock.calls[0][1].operation_id).toBe(originalId)
+    await wrapper.get('[aria-label="刷新人物弧线对照"]').trigger("click")
+    await flushPromises()
+    expect(wrapper.get('[aria-label="a的人物弧计划"]').element.value).toBe("不能丢失的新计划")
+    wrapper.unmount()
+  })
+
+  it("人物对照尚在加载时关闭再打开，重新读取并忽略旧请求", async () => {
+    const pending = deferred()
+    vi.spyOn(characterArcs, "sceneCharacters")
+      .mockImplementationOnce(() => pending.promise)
+      .mockResolvedValue({ characters: [{ character_id: "a", character_name: "当前人物" }], gaps: [] })
+    vi.spyOn(characterArcs, "compare").mockResolvedValue({ cutoff: {}, plan: null, actual_events: [], unknowns: [] })
+    const wrapper = mount(WritingView, { props: props(), attachTo: document.body })
+    await flushPromises()
+    await wrapper.get('[data-action="toggle-outline-float"]').trigger("click")
+    await flushPromises()
+    expect(wrapper.find("#outline-float-panel").text()).toContain("正在核对")
+    await wrapper.get('[aria-label="关闭大纲浮窗"]').trigger("click")
+    await wrapper.get('[data-action="toggle-outline-float"]').trigger("click")
+    await flushPromises()
+    expect(wrapper.find("#outline-float-panel").text()).toContain("当前人物")
+    pending.resolve({ characters: [{ character_id: "old", character_name: "旧请求人物" }], gaps: [] })
+    await flushPromises()
+    expect(wrapper.find("#outline-float-panel").text()).not.toContain("旧请求人物")
+    wrapper.unmount()
+  })
+
+  it("Scene 人物超过十二位时完整加载人物弧线，不静默截断", async () => {
+    const characters = Array.from({ length: 13 }, (_, index) => ({
+      character_id: `character-${index + 1}`,
+      character_name: `人物 ${index + 1}`,
+      is_pov: index === 0,
+    }))
+    vi.spyOn(characterArcs, "sceneCharacters").mockResolvedValue({ characters, gaps: [] })
+    const compare = vi.spyOn(characterArcs, "compare").mockImplementation(async (_novel, _scene, id) => ({
+      character_id: id,
+      cutoff: { chapter_cutoff: 1 },
+      coverage: "unknown",
+      plan: null,
+      actual_events: [],
+      unknowns: [],
+    }))
+    globalThis.api.outline.listThreads.mockResolvedValue({ items: [] })
+    const wrapper = mount(WritingView, {
+      props: props({ scenes: [{ ...props().scenes[0], scene_index: 0 }] }),
+      attachTo: document.body,
+    })
+    await flushPromises()
+    await wrapper.get('[data-action="toggle-outline-float"]').trigger("click")
+    await flushPromises()
+    expect(compare).toHaveBeenCalledTimes(13)
+    expect(wrapper.findAll(".outline-arc-card")).toHaveLength(13)
+    expect(wrapper.find("#outline-float-panel").text()).toContain("人物 13")
     wrapper.unmount()
   })
 
