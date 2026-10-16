@@ -613,3 +613,17 @@ its node and revision exactly match that current head. An old receipt alone cann
 notice visible. Map/source read limits retain verified map rows and add an explicit coverage notice for
 unverified or truncated results. The composition registry now includes this spec so the unified API
 can return it.
+
+`reading_notice_sources.py` declares a separate pure `evolution.reading` notice provider. It derives
+unread chapters from the current published-source manifest minus the completed chapters proven by
+`read_completed_chapter_indices` (exact current source bindings and successful applied Scene receipts).
+Failed/incomplete run state and unresolved boundary/structure review come from the existing
+`workflow.reading_status` projection and its persisted run/task/review data. Scene and chapter scopes
+are bounded by the current selected cutoff; source and ordering fingerprints make changes reappear
+after a prior disposition. The provider only reads: it does not enqueue, resume, retry, call a provider,
+or manufacture failure state. Its `NOTICE_SOURCE_SPEC` is registered in the app notice registry;
+the read scans for the latest run relevant to the selected cutoff so a newer future run does not hide
+an earlier failed or unresolved read. Writing
+notice actions open the existing Evolution `ReadingFlow`; unresolved boundary confirmation routes to
+the Outline workbench. The legacy import/restore entry remains until Evolution meets the documented
+default-entry replacement gate.
