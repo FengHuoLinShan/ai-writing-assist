@@ -6,6 +6,7 @@ import json
 from contextlib import asynccontextmanager
 from copy import deepcopy
 from datetime import UTC, datetime
+from types import SimpleNamespace
 from uuid import UUID, uuid4
 
 import pytest
@@ -39,6 +40,7 @@ from modules.assistant.contracts import AssistantOperationContext
 from modules.assistant.schemas import WorkContext
 from modules.project.models import Project
 from modules.story import world_progression_tasks
+from modules.story.outline_state.models import Scene
 from modules.story.world_progression_models import (
     StoryWorldProgressionRoot,
     StoryWorldProgressionStep,
@@ -381,6 +383,42 @@ async def test_canonical_scene_preview_confirmation_start_and_offline_worker(
         assert scene_snapshot["scene_index"] == 0
         assert root.run_envelope_json["requests_started"] == provider.calls == 2
 
+        from evals.authoring_quality_guard import AuthoringQualityError, ProductReference
+        from evals.authoring_quality_product import read_product_evidence
+
+        evidence_ref = ProductReference(
+            kind="world_progression",
+            scene_id=str(scene_id),
+            root_id=str(root_id),
+            branch_id=started.json()["branch_id"],
+            task_id=str(task_id),
+            source_sha256=steps[0].source_hash,
+            output_ids=[str(steps[0].id)],
+        )
+        evaluation = SimpleNamespace(
+            project_id=str(novel_id),
+            project_snapshot=root.llm_execution_snapshot_json,
+        )
+        evidence = await read_product_evidence(db, evaluation, evidence_ref)
+        assert evidence["task"]["status"] == "done"
+        assert evidence["outputs"][0]["output_sha256"] == steps[0].output_hash
+        assert evidence["confirmation"]["compile_options"]["scene_id"] == str(scene_id)
+        with pytest.raises(AuthoringQualityError):
+            await read_product_evidence(
+                db,
+                evaluation,
+                evidence_ref.model_copy(update={"branch_id": str(uuid4())}),
+            )
+        savepoint = await db.begin_nested()
+        try:
+            changed_scene = await db.get(Scene, scene_id)
+            changed_scene.goal = "合成修订：改变原场景目标"
+            await db.flush()
+            with pytest.raises(AuthoringQualityError, match="source|confirmation"):
+                await read_product_evidence(db, evaluation, evidence_ref)
+        finally:
+            await savepoint.rollback()
+
         current_work = WorkContext(scope="current", scene_id=scene_id)
         other_scene = AssistantOperationContext(
             run_id=str(uuid4()),
@@ -521,3 +559,9 @@ async def test_canonical_scene_preview_confirmation_start_and_offline_worker(
                 scene_id=scene_id,
                 participant_ids=[uuid4()],
             )
+
+    from tests.e2e.authoring_quality_helpers import assert_director_product_evidence
+
+    await assert_director_product_evidence(
+        monkeypatch, novel_id, scene_id, actor_id, confirmation.json()["id"]
+    )

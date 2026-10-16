@@ -16,6 +16,10 @@ from typing import NoReturn, TypeVar
 from pydantic import BaseModel
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from evals.authoring_quality_guard import (
+    AuthoringQualityError,
+    AuthoringQualityEvaluationScope,
+)
 from evals.schemas import (
     ALLOWED_EVAL_TEACHER_MODELS,
     EVAL_TEACHER_MODEL,
@@ -212,6 +216,7 @@ class CodexStructuredExecutor:
         calibration: AskWorldCalibrationScope
         | G7ReviewScope
         | MapSpatialEvaluationScope
+        | AuthoringQualityEvaluationScope
         | None = None,
     ) -> None:
         model = model or os.environ.get("EVAL_CODEX_MODEL", EVAL_TEACHER_MODEL)
@@ -282,6 +287,10 @@ class CodexStructuredExecutor:
             return await self._generate_map_scoped(
                 prompt, response_model, step_name=step_name
             )
+        if isinstance(self.calibration, AuthoringQualityEvaluationScope):
+            return await self._generate_authoring_scoped(
+                prompt, response_model, step_name=step_name
+            )
         allowed_step = (
             "eval.g7.source_field_review"
             if isinstance(self.calibration, G7ReviewScope)
@@ -306,6 +315,39 @@ class CodexStructuredExecutor:
             step_name=step_name,
         )
         return response_model.model_validate_json(payload)
+
+    async def _generate_authoring_scoped(self, prompt, response_model, *, step_name):
+        if (
+            self.model != EVAL_TEACHER_MODEL
+            or self.reasoning_effort != EVAL_TEACHER_REASONING_EFFORT
+            or self.command != "codex"
+            or self.timeout_seconds != 300
+        ):
+            raise CodexExecutionError(
+                "Authoring evaluation requires Codex Sol/xhigh and 300s timeout"
+            )
+        scope = self.calibration
+        schema = _strict_json_schema(response_model.model_json_schema())
+        try:
+            _manifest, entry, _manifest_hash = await scope.authorize(
+                prompt, response_model, step_name, schema
+            )
+            executable = shutil.which(self.command)
+            if executable is None:
+                raise CodexExecutionError("Authoring evaluation Codex CLI is unavailable")
+            key = scope.start_request(entry, step_name, prompt, schema)
+        except AuthoringQualityError as error:
+            raise CodexExecutionError(str(error)) from error
+        payload = None
+        try:
+            payload = await self._invoke(executable, prompt, schema, step_name=step_name)
+            result = response_model.model_validate_json(payload)
+            scope.validate_response(result, entry)
+        except BaseException:
+            scope.finish_request(key, payload, completed=False)
+            raise
+        scope.finish_request(key, result.model_dump_json(), completed=True)
+        return result
 
     async def _generate_map_scoped(self, prompt, response_model, *, step_name):
         from evals.map_spatial_guard import finish_request, start_request
