@@ -3,7 +3,7 @@ id: T-20261016-map-series-claude-review
 title: 地图增强系列实现的独立 review（分批）
 status: active
 created: 2026-10-16T21:30:00+08:00
-updated: 2026-10-16T21:43:00+08:00
+updated: 2026-10-16T21:59:00+08:00
 ---
 
 # 地图增强系列实现的独立 review（分批）
@@ -11,15 +11,16 @@ updated: 2026-10-16T21:43:00+08:00
 ## 恢复快照
 
 - 实际完成：第 1 批（M0 空间模型 v2 与项目词表），报告见 [BATCH-1.md](BATCH-1.md)；第 2 批（M1 演化
-  可选步骤与空间发现），报告见 [BATCH-2.md](BATCH-2.md)。确认的问题都有 strict xfail 回归测试。
-- 当前里程碑：第 3 批 M2 自动草图与地图编辑。
-- 下一步：审 `backend/modules/world/map_auto_draft_service.py`，再审 `map_node_merge.py`、
-  `assistant_map_tools.py`、`map_progression_state`、`modules/assistant/guided_flow/map_cold_start.py`；
-  带上 Q2，并核对 B2-F5 在自动草图路径（传 `allow_identity_transitions=True`）中的表现。
+  可选步骤与空间发现），报告见 [BATCH-2.md](BATCH-2.md)；第 3 批（M2 自动草图与地图编辑），报告见
+  [BATCH-3.md](BATCH-3.md)。确认的问题都有 strict xfail 回归测试。
+- 当前里程碑：第 4 批 M3/M4 空间简报、提醒、声明与 Evidence 编译。
+- 下一步：审 `backend/modules/world/map_spatial_brief_service.py`，再审 `map_spatial_advisory_service.py`、
+  `map_declaration_state.py`、`evidence/compilation` 改动、writing/world `notice_sources`、ask_world、
+  evolution 的 `reading_notice_sources.py`；重点核对 BATCH-3.md 转来的“节点合并后 Context 排除”边界。
 - 阻塞：无。
 - 工作区：`.worktrees/map-series-claude-review`，分支 `codex/map-series-claude-review`，基于
   `codex/map-enhancement-plan` @ `a479e006b`；只有本任务记录与回归测试的本地提交。
-- 最后核实：2026-10-16T21:43:00+08:00。
+- 最后核实：2026-10-16T21:59:00+08:00。
 
 ## 目标与验收
 
@@ -44,14 +45,15 @@ updated: 2026-10-16T21:43:00+08:00
 - 依赖：无。
 - 已确认事实：规模为 374 个提交、805 个文件、约 17.6 万行；前次 Codex 集成审查完整 CI 绿
   （后端 9108 passed / 2 skipped，覆盖率 85.00%）。
-- 假设与待决问题：Q2 见 BATCH-1.md；第 2 批遗留观察见 BATCH-2.md“转入后续批次的疑点”。
+- 假设与待决问题：Q2 已在第 3 批确认为 B3-F6；第 2、3 批遗留观察见 BATCH-2.md、BATCH-3.md 的
+  “疑点”小节。
 
 ## 里程碑与进度
 
 - [x] 1. M0：空间模型 v2、几何指纹、项目词表、migration、助手词表操作。
 - [x] 2. M1：`evolution/spatial.py`、`spatial_rescan.py`、可选步骤 registry/workflow/quota、
   `world/map_spatial_clue_service.py`/schemas。
-- [ ] 3. M2：`map_auto_draft_service.py`、`map_node_merge.py`、`assistant_map_tools.py`、
+- [x] 3. M2：`map_auto_draft_service.py`、`map_node_merge.py`、`assistant_map_tools.py`、
   `map_progression_state`、map_cold_start 引导流程。
 - [ ] 4. M3/M4：`map_spatial_brief_service.py`、`map_spatial_advisory_service.py`、
   `map_declaration_state.py`、`evidence/compilation` 改动、writing/world notice_sources、ask_world；
@@ -73,6 +75,10 @@ updated: 2026-10-16T21:43:00+08:00
   下标）。Q1 关闭。详见 BATCH-2.md。
 - 2026-10-16：按用户追加要求，把确认的问题写成 strict xfail 回归测试，不改生产代码；仓库已有
   xfail 目标形态先例（`test_p2c_revision_adoption.py`），无禁止 xfail 的门禁。
+- 2026-10-16：第 3 批发现 B3-F1（P2，被拒线索回到托盘）、B3-F2（P2，草图挂到同地点的规划节点并改写
+  层级）、B3-F4（P2，带时效的关系把两端地点移出布局）、B3-F6（P2，Q2 确认：只有作者安排的行程进入
+  读者预览）、B3-F3（P3，拒绝一条线索冻结整个批次）、B3-F5（P3，v1 旧地图上助手结构编辑失败）。
+  Q2 关闭。详见 BATCH-3.md。
 
 ## 验证证据
 
@@ -83,10 +89,12 @@ updated: 2026-10-16T21:43:00+08:00
   `uv run --locked --extra ci -- pytest modules/evolution/tests/test_map_series_review_regressions.py modules/world/tests/test_map_series_review_regressions.py --timeout=120 -q -p no:cacheprovider`
   结果 `8 xfailed`；加 `--runxfail` 结果 `8 failed`，各条都失败在对应断言（如 B2-F2 计数为 2、
   B2-F5 状态为 `pending_verification`、B2-F6 未抛 ConflictError）。ruff format/check 通过。
+- 第 3 批后（2026-10-16，同一基线与命令）：`14 xfailed`；`--runxfail` 为 `14 failed`，新增 6 条各自失败在
+  对应位置（见 BATCH-3.md“回归测试”）。ruff format/check 通过。
 
 ## 交付结果
 
-- 已交付：第 1、2 批报告；8 条 strict xfail 回归测试。
-- 未交付：第 3–9 批。
+- 已交付：第 1–3 批报告；14 条 strict xfail 回归测试。
+- 未交付：第 4–9 批。
 - 交付边界：只有本地提交；未推送，无 PR、CI、部署。
 - 正式知识与后续任务：无。
