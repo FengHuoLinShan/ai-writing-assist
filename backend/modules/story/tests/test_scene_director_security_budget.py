@@ -452,7 +452,7 @@ def test_unproven_story_card_stays_out_of_character_packet():
                         "scene_id": scene_id,
                         "character_id": actor_id,
                         "is_current": True,
-                        "status": "active",
+                        "status": "accepted",
                         "content_hash": "f" * 64,
                         "content": {
                             "version": "character_card.v1",

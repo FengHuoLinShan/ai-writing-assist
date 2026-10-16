@@ -728,3 +728,62 @@ async def test_assistant_story_task_keeps_the_root_provider_snapshot(
     assert result.task_id == "task-1"
     assert captured["llm_execution_snapshot"] == snapshot
     assert captured["action"] == "story.character_card.generate"
+
+
+@pytest.mark.asyncio
+async def test_http_current_accepted_card_is_available_to_director_as_reference_only(
+    async_client, db_session
+):
+    from modules.story.director_context import _story_card_status
+    from modules.story.facade import get_scene_story_context
+
+    novel_id = await _create_project(async_client, "导演人物卡状态契约")
+    query = {"novel_id": novel_id}
+    entity_response = await async_client.post(
+        "/api/world/entities",
+        params=query,
+        json={"entity_type": "character", "name": "合成守门人", "status": "canonical"},
+    )
+    assert entity_response.status_code == 201, entity_response.text
+    actor_id = entity_response.json()["id"]
+    character = await async_client.post(
+        "/api/world/characters",
+        params=query,
+        json={"entity_id": actor_id, "name": "合成守门人", "personality": "谨慎"},
+    )
+    assert character.status_code == 201, character.text
+    scene_response = await async_client.post(
+        "/api/outline/scenes",
+        params=query,
+        json={"scene_index": 0, "title": "门前初见"},
+    )
+    assert scene_response.status_code == 201, scene_response.text
+    scene_id = scene_response.json()["id"]
+    response = await async_client.post(
+        "/api/story/character-cards",
+        json={
+            "novel_id": novel_id,
+            "scene_id": scene_id,
+            "character_id": actor_id,
+            "confirmed": True,
+            "content": {
+                "version": "character_card.v1",
+                "personality": "谨慎",
+                "knowledge": ["未有逐字段来源证明的秘密"],
+            },
+        },
+    )
+    assert response.status_code == 201, response.text
+    payload = response.json()
+    assert payload["status"] == "active"
+    assert payload["revision"]["status"] == "accepted"
+    assert payload["revision"]["is_current"] is True
+    context = await get_scene_story_context(
+        db_session, novel_id=novel_id, scene_id=scene_id, character_ids=[actor_id]
+    )
+    status = _story_card_status(context.model_dump(mode="json"), actor_id, scene_id)
+    assert status["available"] is True
+    assert status["revision_id"] == payload["revision"]["id"]
+    assert status["omitted"] is True
+    assert "knowledge" not in status
+    assert "秘密" not in str(status)

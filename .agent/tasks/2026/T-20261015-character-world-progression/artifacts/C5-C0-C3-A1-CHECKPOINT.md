@@ -161,7 +161,7 @@ root仅只读检查原真实评测DB：127.0.0.1:65302、database map_spatial_ev
 
 root仍独自工作，未开代理。R4五development项目/25个精确Scene、预声明Writing角色和空地图共同基线全部冻结；五个同族seed均一次完成，模型Sol6.1/xhigh、usage/费用未知，不能当human一致性。五项目依次为9deef14b-af19-4e88-8c85-37c63c88cba2、8d036e35-1f6b-4ff3-8bcc-8cb7405b99ee、3a5416a8-7323-47e8-8f38-57cfa01a29fd、4f48dd51-ee6a-4667-8fe1-d45c8a4948d0、92aca03e-eeda-43eb-809c-29ec882cfc5e。都市p4/悬疑p4在任何SUT前声明为omission_control，其余positive需真实已采用对象才可显式指定地点，缺失记not_run。
 
-初次request_limit1只读preview被产品409拒绝，无模型请求；随后独立64预览得到mandatory静态minimum21+spatial最大10，余量33。已冻结本阶段只执行修仙Evolution64（五已完成seed另计），其余SUT阶段未授权执行。正常start operation c8429dcd-352c-4413-9032-a30f6c2c4a55；精确两task c50290cb-2d79-4f7d-9ba0-bf3156ed6301与ccf291a7-b0b4-46f1-a0b8-b7e51da497a5均done/attempt1。第二个信封累计11个Luna请求、171324tokens、settled11/unknown0/usage_complete；首个5请求是累计中间值，不能5+11相加。
+初次request_limit1只读preview被产品409拒绝，无模型请求；随后独立64预览得到mandatory静态minimum21+spatial最大10，余量33。已冻结本阶段只执行修仙Evolution64（五已完成seed另计），其余SUT阶段未授权执行。正常start operation c8429dcd-352c-4413-9032-a30f6c2c4a55；精确两task c50290cb-2d79-4f7d-9ba0-bf3156ed6301与ccf291a7-b0b4-46f1-a0b8-b7e51da497a5均done/attempt1。此时误把第二个信封11个Luna请求当成跨任务累计；11:10核对各自run_id后纠正：两个独立信封为5+11=16请求、86353+171324=257677tokens，settled16/unknown0/usage_complete。见私有accounting-scope-proof.json；原逐任务回执未改。
 
 root核实实际冻结source的Assistant字段为文本assistant_request，驱动却读取测试夹具独有assistant.request；正常助手阶段必然无法启动。等两项任务完整落盘后，经正常engine接口read_only/expected_epoch2→3/stop_active确认停1run、取消1个未尝试待执行任务，after run stopped；operator-diagnostic-seal.json留在R4。R4 Evolution原账本保留pending历史，不回写成新流水线成功；Writing/Assistant/judge未执行，holdout未解码。旧R3完全不续跑。
 
@@ -176,3 +176,25 @@ root修复三处根因：地图驱动直接读取assistant_request，verify与se
 新quality R2 root `/Users/tywww/.codex/private/authoring-quality-pilot-20261016-r2`，Project345bc136-15e2-4006-9ab7-1e10a67500bd、Scene863d3275-420e-4bab-b4f8-0d95b468cade，2人物及原作者资料/标准已先冻结。已通过正常API切Evolution并取得单Scene预算32、无可选发现的preview，fingerprint f724131048980aef42ea35d22ab15c9cac01996ce968c6c1d01b55f7dbdf952e；此无spatial预览不会返回mandatory_request_reserve，不能假填。当前无任何模型调用。/tmp/authoring-quality-pilot-prepare-r2-20261016.py已执行，勿重复；/tmp/authoring-quality-foundation-r2-20261016.py尚未执行start/run，只允许该新Project单Scene与最终结构最多2个精确task，不用Map-only read seam（该seam正确要求discover_spatial）；正常GET reading读取task_id。
 
 下一步：本地提交本轮修复和记录后，R5单次5个新seed与新预算/精确任务；R2先正常基础理解，再实际核对role briefs/表达锚点，未具备不发导演/推进质量调用。之后以真实不可变输出冻结独立manifest和盲teacher，unknown不重发。不开子代理、不推送/main合并/发布/部署，条件与真人门禁不抹平。
+
+
+## 2026-10-16T11:15:00+08:00 已启动R5／R2与用量纠正
+
+本轮产品及记录已本地提交 `526d3ef60f19d55cf07773cf13cf32a2963e4599`，其后docs-check通过；9023普通后端/3212前端/lint/build/74PG及gates证据保持。新R5五族新seed全部一次通过；修仙operation73f94f23-82f2-4ade-a43f-e904e3715cef、首task9d6958c7-92e8-48c1-acb7-3ad5e3eeec0e，西幻operation34b2fe3c-f03b-426b-ac65-4117f7eddfd3、首task04f37acd-d5db-451f-ad1f-9a04b5ab6ac2，各实际M21+Q10/limit64/headroom33。私有two-family-evolution-budget.json只授权两族Evolution128、五seed另计5（本阶段133），未授权Writing/Assistant/judge。正常API已start；root等R2基础理解结束后，单进程共享模型池执行两个family、每family最多2个精确task的batch1，正运行中。`/tmp/map-r5-two-family-20261016.py` freeze/start已执行，run --batch 1正在执行，日志R5/two-family-batch01.log；exec session57462。不要重跑batch1、不要动running/unknown回执。后续确认两family pending/completed后才同一脚本run --batch2/3，unknown不重发。
+
+R2基础理解已完成两精确task：Scene851ebfcc-8460-4cbf-9cf0-083d1d4fde81（10请求/170427tokens），最终结构0e12d824-6f4c-4fe3-a012-f5b736b92fd5（2请求/20595tokens）；两个独立run_id，合计12请求/191022tokens/unknown0。foundation-run.json completed，两个task-result原始meta/result私有留存。结构完成不等于角色资料可用：角色brief全部unknown、world/continuity/style/source_index均0，author侧World条目6项；gated_scene_events1，13条observation、16new_candidate/13reuse，未替作者强行采用。正常免费/确定性HTTP scene-checkpoints/ensure为200但coverage仍missing；再次读取角色仍unknown。尚未发导演/WP SUT或新scope教师/评分，不把空角色资料冒充质量样本。
+
+root读实际序列化卡片发现新产品缺陷：正常Card.status active、revision.status accepted、is_current true、stale false，但Director._story_card_status误要求revision.status active，导致有效卡误报不存在。两张手工卡均是此情况。当前正补正常HTTP→实际Story facade上下文→helper的回归及修复；保持未证明卡片自由文本omitted/director_only，绝不为质量放宽角色知识。该helper不在冻结Map pipeline依赖中，修复前后将核验R5 pipeline仍f76b；R2基础理解旧preflight/回执保留原hash，后续如具备来源须在新SUT preflight固定实际新代码，不改旧foundation材料。
+
+用量重要更正：此前误把R4第二Scene的11请求当跨任务累计；已直接核对AsyncTask信封run_id/operation_id，两项分别独立5与11，应16请求/257677tokens，另5个Sol seed用量未知。仓库外accounting-scope-proof.json已唯一保存，旧逐task回执/封存文件不重写；Task顶部/FULL-SCOPE/本检查点错误句已更正，用户已明确告知。R1导演依然6请求/98624tokens。R5业务启动前本次新真实调用总计44（R4 5+16、R1 6、R5 seed5、R2 12），仅已知Luna tokens547323，Sol token与总费用未知；不包含R3旧未知量或在途R5业务请求，不用于宣称整体成本为0。
+
+当前待完成：卡片accepted根因修复与定向正常API验证；只读追踪R2缺失时点事实/被门控事件的实际原因（不制造记忆、不过度采用候选、不重跑已付费基础理解），必要的确定性操作只限此合成Project；继续R5第一批后续两批和作者审核/显式地点/成对Writing/Assistant/judge链。其他三族只有seed完成，未启动业务根；holdout仍只哈希，条件/作者门禁不变。
+
+
+## 2026-10-16T11:33:00+08:00 主会话卡片契约修复与角色证据诊断
+
+root修复Director._story_card_status要求错误修订枚举：人物卡父状态active，当前已确认修订实际accepted；单元假夹具同步为真实状态，并新增正常HTTP创建Project/实体/人物/Scene/确认卡→实际Story facade→helper回归。两项先红后绿；最终完整Story204通过（3.59秒，/tmp/director-card-status-story-final02-20261016.log），ruff/format、docs-check和repo-gates通过（/tmp/director-card-status-final-{docs,gates}-20261016.log）。修复只改变可用性元数据，卡片自由文本仍omitted/director_only，不制造逐字段角色知识；完整9023/3212/74PG证据属于此前526d固定点，尾修不冒称重跑全套。Map pipeline修复前后相同f76b7dcf132c3fe1d8e18a784473d58526b62385fb7c73d840af6676fa29fc8f，因此R5原绑定有效；R2旧foundation preflight保留原hash，后续SUT如具备条件须冻结当时实际新pipeline。
+
+R5 batch1两族各2任务完成；batch2正在两族第四任务，当前各tasks_completed3：修仙8126f6e4-a9e7-43b0-b008-449881efa17f、西幻ba6b77b7-f75a-4ddc-bbab-4099abb5064f；exec session91596，R5/two-family-batch02.log。不得重跑freeze/start/batch1/batch2。batch2正常返回pending且各完成4任务后，再执行同脚本run --batch3，各最多2个精确任务；unknown/failed不重发。两族Evolution共享域根预算各64，单任务信封用量独立，汇总须按run_id去重求和。
+
+R2正常ensure实际返回6个维度条目；前四ready，timeline/causality missing，总coverage missing。底层角色StateView前四状态ok但facts为空，不是status枚举转译问题；MemoryEvent共0，唯一gated关系事件缺resolved endpoints和typed materializable payload（relation_endpoints_unresolved/state_payload_not_materializable）。只读证据见私有state-gate-diagnostics.json，日志/tmp/authoring-quality-r2-state-diagnostics02-20261016.log。第一次诊断误请求角色视角include_checkpoints=True被安全门禁拒绝，已改为False；不放宽该门禁。根因与卡片可用性误报分开，未强行采用候选、编造记忆或重跑已付费基础理解。导演/WP新SUT与质量teacher/judge仍0。root继续完整地图链，其余外部条件与真人门禁保持。

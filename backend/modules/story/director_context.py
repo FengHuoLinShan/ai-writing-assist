@@ -147,7 +147,7 @@ def _story_card_status(scene_context: dict, actor_id: str, scene_id: str) -> dic
         str(revision.get("scene_id") or "") != scene_id
         or str(revision.get("character_id") or "") != actor_id
         or revision.get("is_current") is not True
-        or revision.get("status") != "active"
+        or revision.get("status") != "accepted"
     ):
         return {"available": False, "omitted": True}
     revision_id = str(revision.get("id") or "")
