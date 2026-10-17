@@ -48,7 +48,8 @@ from modules.project.facade import open_project_llm_client
 from modules.project.models import Project
 from modules.writing.models import WritingDraft
 
-BASELINE_SHA = "00d861283e34bdc0ef3f34ee5605c71e1f89c553"
+BASELINE_SHA = "4133ff93b6e3c27e59e967831dbe4d4322f329a2"
+CONDITION_CARRY_FORWARD = {"baseline": False, "candidate": True}
 EXPECTED_PROVIDER = "codex"
 EXPECTED_MODEL = "gpt-6-luna"
 EXPECTED_EFFORT = "max"
@@ -310,11 +311,12 @@ def _validate_request_ledger(state: dict) -> None:
 
 
 def _check_smoke(state: dict, raw_dir: Path, persist) -> None:
-    case = state["cases"].get("S01_hard_contradiction", {})
+    case_id = "unique_key_contradiction"
+    case = state["cases"].get(case_id, {})
     if case.get("status") != "complete":
         raise RunStoppedError("both smoke arms must finish before full evaluation")
     raw_runs = [
-        json.loads((raw_dir / f"S01_hard_contradiction.{condition}.json").read_text())
+        json.loads((raw_dir / f"{case_id}.{condition}.json").read_text())
         for condition in ("baseline", "candidate")
     ]
     if any(
@@ -323,30 +325,60 @@ def _check_smoke(state: dict, raw_dir: Path, persist) -> None:
         for item in raw_runs
     ):
         raise RunStoppedError("smoke output or chapter coverage is incomplete")
-    if any(
-        len(case["arms"][condition]["requests"]) != REQUESTS_PER_ARM
+    counts = [
+        len(case["arms"][condition]["requests"])
+        for condition in ("baseline", "candidate")
+    ]
+    if (
+        not all(0 < count <= REQUESTS_PER_ARM for count in counts)
+        or sum(counts) > 14
         or any(
             receipt.get("status") != "succeeded"
+            for condition in ("baseline", "candidate")
             for receipt in case["arms"][condition]["requests"]
         )
-        for condition in ("baseline", "candidate")
     ):
         raise RunStoppedError(
-            "smoke request accounting did not match seven calls per arm"
+            "smoke requests must be successful, match receipts, and stay within 14"
         )
     if not any(item.get("validator_survivors", 0) for item in raw_runs):
         state["paused_reason"] = "smoke_validator_not_observed"
         persist()
         raise RunStoppedError("smoke did not produce a source-validated finding")
+    b_run = raw_runs[1]
+    forwarded = [
+        (item["chapter_index"], item["quote"], request.get("chapter_index"))
+        for request in b_run.get("requests", [])
+        for item in request.get("prior_evidence", [])
+    ]
+    carried = {
+        (item["chapter_index"], item["quote"])
+        for request in b_run.get("requests", [])
+        for item in (request.get("output") or {}).get("carry_forward", [])
+    }
+    reported = {
+        (item["chapter_index"], item["quote"])
+        for finding in b_run["report"].get("all_findings", [])
+        for item in finding.get("evidence", [])
+    }
+    if not carried or not any(
+        chapter < current_chapter and (chapter, quote) in carried & reported
+        for chapter, quote, current_chapter in forwarded
+    ):
+        state["paused_reason"] = "smoke_cross_chapter_evidence_not_validated"
+        persist()
+        raise RunStoppedError(
+            "B smoke did not forward and validate a carried prior-chapter quote"
+        )
     state["smoke_status"] = "passed"
     persist()
 
 
 def _load_cases(repo: Path) -> tuple[dict, list[dict]]:
-    path = repo / "backend/evals/datasets/editorial_cases_v3.json"
+    path = repo / "backend/evals/datasets/editorial_cases_v4.json"
     dataset = json.loads(path.read_text(encoding="utf-8"))
-    if dataset.get("version") != 3 or not dataset.get("cases"):
-        raise ValueError("editorial case dataset v3 is required")
+    if dataset.get("version") != 4 or not dataset.get("cases"):
+        raise ValueError("editorial case dataset v4 is required")
     if len({case["id"] for case in dataset["cases"]}) != len(dataset["cases"]):
         raise ValueError("duplicate editorial case IDs")
     for case in dataset["cases"]:
@@ -423,8 +455,9 @@ def _manifest(
     adapter_hash = CODEX_TEXT_INSTRUCTIONS_HASH
     core = {
         "dataset_hash": hashlib.sha256(
-            (repo / "backend/evals/datasets/editorial_cases_v3.json").read_bytes()
+            (repo / "backend/evals/datasets/editorial_cases_v4.json").read_bytes()
         ).hexdigest(),
+        "runner_sha": _git(repo, "rev-parse", "HEAD"),
         "case_fingerprints": case_fingerprints,
         "baseline_sha": baseline_sha,
         "candidate_sha": candidate_sha,
@@ -436,6 +469,7 @@ def _manifest(
         "model": EXPECTED_MODEL,
         "reasoning_effort": EXPECTED_EFFORT,
         "request_limit": len(cases) * 2 * REQUESTS_PER_ARM,
+        "connection_validation_provider_requests": 0,
         "dimensions": DIMENSIONS,
     }
     return {
@@ -579,7 +613,7 @@ async def _make_project(db, case: dict, *, manifest_hash: str) -> Project:
                 version_number=1,
                 status="draft",
                 provenance_json={
-                    "source": "editorial_eval_v3",
+                    "source": "editorial_eval_v4",
                     "manifest_hash": manifest_hash,
                 },
             )
@@ -680,6 +714,8 @@ async def _run_arm(
                     "started_at": time.monotonic(),
                     "instruction_hash": _canonical_hash(instructions),
                     "input_hash": _canonical_hash(payload),
+                    "chapter_index": payload.get("chapter_index"),
+                    "prior_evidence": list(payload.get("prior_evidence") or []),
                 },
             )
             raw["requests"].append(dict(receipt))
@@ -763,6 +799,7 @@ async def _run_arm(
             "_before_request": before_request,
             "_after_request": after_request,
             "_injected_client": client,
+            "_carry_forward_enabled": CONDITION_CARRY_FORWARD[condition],
         }
         try:
             task_id = str(review.task_id)
@@ -897,23 +934,23 @@ async def run(output: Path, *, phase: str, candidate_sha: str) -> dict:
     candidate_sha = _git(repo, "rev-parse", candidate_sha)
     if _git(repo, "merge-base", candidate_sha, "HEAD") != candidate_sha:
         raise ValueError("candidate SHA must be a fixed commit on the current branch")
-    fixed_paths = [
+    worker_paths = [
         "backend/modules/assistant",
         "backend/modules/project",
         "backend/infrastructure/llm",
         "backend/infrastructure/tasks",
-        "backend/evals/editorial_prompt_ab.py",
-        "backend/evals/datasets/editorial_cases_v3.json",
     ]
-    if _git(repo, "diff", candidate_sha, "HEAD", "--name-only", "--", *fixed_paths):
-        raise ValueError(
-            "worker inputs or execution code changed after the candidate commit"
-        )
-    if _git(repo, "diff", "HEAD", "--name-only", "--", *fixed_paths):
+    if _git(repo, "diff", candidate_sha, "HEAD", "--name-only", "--", *worker_paths):
+        raise ValueError("Assistant worker inputs changed after the fixed B commit")
+    evaluation_paths = [
+        "backend/evals/editorial_prompt_ab.py",
+        "backend/evals/datasets/editorial_cases_v4.json",
+    ]
+    if _git(repo, "diff", "HEAD", "--name-only", "--", *worker_paths, *evaluation_paths):
         raise ValueError(
             "commit all changes to the evaluation implementation before the run"
         )
-    for path in fixed_paths[4:]:
+    for path in evaluation_paths:
         _git(repo, "ls-files", "--error-unmatch", path)
     manifest = _manifest(dataset, cases, repo, baseline_sha, candidate_sha)
     manifest_path = output.resolve() / "manifest.json"
@@ -986,15 +1023,15 @@ async def run(output: Path, *, phase: str, candidate_sha: str) -> dict:
         with system_execution_scope():
             if phase == "smoke":
                 smoke_cases = [
-                    case for case in cases if case["id"] == "S01_hard_contradiction"
+                    case for case in cases if case["id"] == "unique_key_contradiction"
                 ]
                 if not smoke_cases:
-                    raise ValueError("Smoke sample S01_hard_contradiction is missing")
+                    raise ValueError("Smoke sample unique_key_contradiction is missing")
                 run_order = [
                     item for item in state["order"] if item[0] == smoke_cases[0]["id"]
                 ]
             else:
-                smoke_case = state.get("cases", {}).get("S01_hard_contradiction", {})
+                smoke_case = state.get("cases", {}).get("unique_key_contradiction", {})
                 if (
                     state.get("smoke_status") != "passed"
                     or smoke_case.get("status") != "complete"
@@ -1079,7 +1116,7 @@ async def run(output: Path, *, phase: str, candidate_sha: str) -> dict:
         implementation_files=[
             repo / "backend/modules/assistant/editorial.py",
             repo / "backend/evals/editorial_prompt_ab.py",
-            repo / "backend/evals/datasets/editorial_cases_v3.json",
+            repo / "backend/evals/datasets/editorial_cases_v4.json",
         ],
         receipts=observations,
         effective_profile=SystemUnderTestProfile(
@@ -1095,6 +1132,9 @@ async def run(output: Path, *, phase: str, candidate_sha: str) -> dict:
         "manifest_hash": manifest["manifest_hash"],
         "candidate_sha": candidate_sha,
         "request_limit": state["request_limit"],
+        "connection_validation_provider_requests": manifest[
+            "connection_validation_provider_requests"
+        ],
         "reserved_requests": state["request_count"],
         "confirmed_provider_requests": sum(
             item.status in {"succeeded", "failed", "unknown"}

@@ -1,6 +1,6 @@
 # 开放任务
 
-- [T-20261016-editorial-diagnosis-v1](tasks/2026/T-20261016-editorial-diagnosis-v1/TASK.md) — 编辑审读诊断 A/B 运行、盲评包与交接
+- [T-20261017-editorial-cross-chapter-evidence](tasks/2026/T-20261017-editorial-cross-chapter-evidence/TASK.md) — 编辑审读跨章证据、硬矛盾修正与第二轮盲评交接
 - [T-20261014-audit-first-batch](tasks/2026/T-20261014-audit-first-batch/TASK.md) — 能力审计首批实施与集成验收
 
 - [T-20261009-world-evolution-phase4-impl](tasks/2026/T-20261009-world-evolution-phase4-impl/TASK.md) — 世界演化第四阶段实施：长篇跑通、台账扩类与精细依赖

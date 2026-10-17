@@ -11,11 +11,13 @@ import pytest
 from evals import editorial_prompt_ab as runner
 from evals.editorial_prompt_ab import (
     BASELINE_SHA,
+    CONDITION_CARRY_FORWARD,
     EXPECTED_EFFORT,
     EXPECTED_MODEL,
     EXPECTED_PROVIDER,
     ProfileMismatchError,
     RequestLedger,
+    _check_smoke,
     _ensure_private_output,
     _mark_interrupted_cases,
     _validate_request_ledger,
@@ -58,11 +60,18 @@ class FakeLLMClient:
         )
 
 
-def test_frozen_and_candidate_prompts_are_distinct() -> None:
+def test_ab_prompts_and_internal_ledger_switch_are_distinct() -> None:
     repo = Path(__file__).resolve().parents[3]
-    baseline_prompt = extract_system_prompt(repo, BASELINE_SHA)
-    assert _SYSTEM != baseline_prompt
-    assert extract_system_prompt(repo, BASELINE_SHA) == baseline_prompt
+    dataset, cases = runner._load_cases(repo)
+    candidate_sha = runner._git(repo, "rev-parse", "HEAD")
+    manifest = runner._manifest(dataset, cases, repo, BASELINE_SHA, candidate_sha)
+
+    assert manifest["baseline_prompt"] == extract_system_prompt(repo, BASELINE_SHA)
+    assert manifest["candidate_prompt"] == extract_system_prompt(repo, candidate_sha)
+    assert manifest["baseline_prompt"] != manifest["candidate_prompt"]
+    assert CONDITION_CARRY_FORWARD == {"baseline": False, "candidate": True}
+    assert manifest["request_limit"] == 490
+    assert _SYSTEM == manifest["candidate_prompt"]
 
 
 def test_private_output_stays_outside_repo_and_restricts_permissions(
@@ -132,6 +141,81 @@ def test_three_external_failures_pause_and_interrupted_cases_are_not_replayed() 
     _validate_request_ledger(interrupted)
     with pytest.raises(RuntimeError, match="already stopped"):
         ledger.begin_arm("case-i", "candidate", raw_path="/private/i.json")
+
+
+def test_smoke_requires_a_forwarded_and_validator_accepted_prior_quote(tmp_path):
+    case_id = "unique_key_contradiction"
+    state = {
+        "cases": {
+            case_id: {
+                "status": "complete",
+                "arms": {
+                    condition: {
+                        "requests": [
+                            {"status": "succeeded"} for _ in range(7)
+                        ]
+                    }
+                    for condition in ("baseline", "candidate")
+                },
+            }
+        }
+    }
+    raw_dir = tmp_path / "raw"
+    raw_dir.mkdir()
+    first_quote = "钥匙在第一章被熔化"
+    for condition in ("baseline", "candidate"):
+        raw = {
+            "status": "completed",
+            "report": {
+                "coverage_complete": True,
+                "all_findings": [],
+            },
+            "validator_survivors": 1,
+            "requests": [],
+        }
+        if condition == "candidate":
+            raw["requests"] = [
+                {
+                    "chapter_index": 1,
+                    "prior_evidence": [],
+                    "output": {
+                        "carry_forward": [
+                            {"chapter_index": 1, "quote": first_quote}
+                        ]
+                    },
+                },
+                {
+                    "chapter_index": 3,
+                    "prior_evidence": [
+                        {"chapter_index": 1, "quote": first_quote}
+                    ],
+                    "output": {},
+                },
+            ]
+            raw["report"]["all_findings"] = [
+                {
+                    "evidence": [
+                        {"chapter_index": 1, "quote": first_quote},
+                        {"chapter_index": 3, "quote": "完好钥匙打开了门"},
+                    ]
+                }
+            ]
+        (raw_dir / f"{case_id}.{condition}.json").write_text(json.dumps(raw))
+
+    persisted = []
+    _check_smoke(state, raw_dir, lambda: persisted.append(True))
+    assert state["smoke_status"] == "passed"
+    assert persisted == [True]
+
+    b_path = raw_dir / f"{case_id}.candidate.json"
+    b_raw = json.loads(b_path.read_text())
+    b_raw["report"]["all_findings"] = []
+    b_path.write_text(json.dumps(b_raw))
+    state.pop("smoke_status")
+    with pytest.raises(RuntimeError, match="forward and validate"):
+        _check_smoke(state, raw_dir, lambda: persisted.append(False))
+    assert state["paused_reason"] == "smoke_cross_chapter_evidence_not_validated"
+    assert persisted[-1] is False
 
 
 def test_connection_mismatch_fails_before_any_model_request() -> None:
