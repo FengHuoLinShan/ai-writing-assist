@@ -74,13 +74,37 @@
       <p v-if="display.original_excerpt" class="exploration-result-card__basis">原案：{{ display.original_excerpt }}</p>
     </section>
 
-    <!-- 场景对白：一句对白 + 依据 + withheld -->
+    <!-- 场景对白：单目标一句对白 + 依据 + withheld；多目标逐目标一块；空间诊断独立结论区 -->
     <section v-else-if="isSceneLine" class="exploration-result-card__body">
-      <blockquote class="exploration-result-card__line">{{ display.line }}</blockquote>
-      <p v-if="display.action" class="exploration-result-card__basis">动作：{{ display.action }}</p>
-      <p v-if="display.rationale" class="exploration-result-card__basis">依据：{{ display.rationale }}</p>
-      <p v-if="display.knowledge_basis?.length" class="exploration-result-card__basis">知识来源：{{ display.knowledge_basis.join("；") }}</p>
-      <p v-if="display.withheld?.length" class="exploration-result-card__basis">没有说出口：{{ display.withheld.join("；") }}</p>
+      <template v-if="sceneVariants.length">
+        <div v-for="(variant, index) in sceneVariants" :key="`variant:${index}`" class="exploration-result-card__variant">
+          <p class="exploration-result-card__variant-target">目标：{{ variantTargetLabel(variant) }}</p>
+          <blockquote class="exploration-result-card__line">{{ variant.line }}</blockquote>
+          <p v-if="variant.action" class="exploration-result-card__basis">动作：{{ variant.action }}</p>
+          <p v-if="variant.rationale" class="exploration-result-card__basis">依据：{{ variant.rationale }}</p>
+          <p v-if="variant.knowledge_basis?.length" class="exploration-result-card__basis">知识来源：{{ variant.knowledge_basis.join("；") }}</p>
+          <p v-if="variant.withheld?.length" class="exploration-result-card__basis">没有说出口：{{ variant.withheld.join("；") }}</p>
+        </div>
+      </template>
+      <template v-else>
+        <blockquote v-if="display.line" class="exploration-result-card__line">{{ display.line }}</blockquote>
+        <p v-else-if="!spatialAssessment" class="exploration-result-card__empty">这条结果没有给出对白内容。</p>
+        <p v-if="display.action" class="exploration-result-card__basis">动作：{{ display.action }}</p>
+        <p v-if="display.rationale" class="exploration-result-card__basis">依据：{{ display.rationale }}</p>
+        <p v-if="display.knowledge_basis?.length" class="exploration-result-card__basis">知识来源：{{ display.knowledge_basis.join("；") }}</p>
+        <p v-if="display.withheld?.length" class="exploration-result-card__basis">没有说出口：{{ display.withheld.join("；") }}</p>
+      </template>
+      <div v-if="spatialAssessment" class="exploration-result-card__spatial">
+        <h4>空间诊断</h4>
+        <p class="exploration-result-card__basis">结论：{{ spatialVerdictLabel(spatialAssessment) }}</p>
+        <template v-if="spatialConstraints.length">
+          <p class="exploration-result-card__basis">约束：</p>
+          <ul class="exploration-result-card__list">
+            <li v-for="(constraint, index) in spatialConstraints" :key="`spatial-constraint:${index}`">{{ constraint }}</li>
+          </ul>
+        </template>
+        <p v-if="spatialUnknowns.length" class="exploration-result-card__unknown">未知：{{ spatialUnknowns.join("；") }}</p>
+      </div>
     </section>
 
     <p v-else class="exploration-result-card__empty">暂不支持在卡片中展示这类结果，请在项目助手中查看。</p>
@@ -227,6 +251,25 @@ const goalUnsolvable = computed(() => goalPath.value?.unsolvable || null)
 const goalMissing = computed(() => (Array.isArray(goalUnsolvable.value?.missing) ? goalUnsolvable.value.missing : []))
 const infoBoundary = computed(() => (isEvent.value && Array.isArray(display.value.info_boundary) ? display.value.info_boundary : []))
 const missingItems = computed(() => (Array.isArray(display.value.unsolvable?.missing) ? display.value.unsolvable.missing : []))
+// 场景三态互斥：多目标 variants 逐目标一块；空间诊断独立结论；单目标走原有对白布局。
+const sceneVariants = computed(() => (isSceneLine.value && Array.isArray(display.value.variants) ? display.value.variants : []))
+const spatialAssessment = computed(() => (
+  isSceneLine.value && display.value.spatial_assessment && typeof display.value.spatial_assessment === "object"
+    ? display.value.spatial_assessment
+    : null
+))
+const spatialConstraints = computed(() => (Array.isArray(spatialAssessment.value?.constraints) ? spatialAssessment.value.constraints : []))
+const spatialUnknowns = computed(() => (Array.isArray(spatialAssessment.value?.unknowns) ? spatialAssessment.value.unknowns : []))
+
+// 目标优先展示 label 类字段；payload 只有 ref 时直接显示 ref。
+function variantTargetLabel(variant) {
+  return variant?.target_label || variant?.target_ref || "未标注目标"
+}
+// supported 三态：true 支持 / false 不支持 / 缺失或 null 无法判定。
+function spatialVerdictLabel(assessment) {
+  const supported = assessment?.supported
+  return supported === true ? "支持" : supported === false ? "不支持" : "无法判定"
+}
 
 // 修订定位约定：item_path 是 `chain:0`/`gap:1`/`bridge:2`/`line` 形式的条目路径，
 // item_text 是当前展示文本；服务端以 item_text 与父结果比对防漂移，实现差异会在
@@ -494,7 +537,11 @@ function compactText(payload, kindValue = effectiveKind.value) {
     }
     if (payload.unsolvable) text.push(`无法成立：${payload.unsolvable.reason || ""}`)
   } else if (kindValue === SCENE_LINE) {
-    text.push(payload.line || "")
+    if (Array.isArray(payload.variants) && payload.variants.length) text.push(payload.variants[0]?.line || "")
+    else if (payload.spatial_assessment && typeof payload.spatial_assessment === "object") {
+      const constraint = Array.isArray(payload.spatial_assessment.constraints) ? payload.spatial_assessment.constraints[0] || "" : ""
+      text.push(`空间诊断：${spatialVerdictLabel(payload.spatial_assessment)}${constraint ? `；约束：${constraint}` : ""}`)
+    } else text.push(payload.line || "")
   } else text.push(JSON.stringify(payload))
   if (payload.unknowns?.length) text.push(`未知：${payload.unknowns.join("；")}`)
   return text.filter(Boolean).join("\n") || "（无内容）"
@@ -543,6 +590,12 @@ onBeforeUnmount(() => { poller?.stop?.(); poller = null })
 .exploration-result-card__boundary-list{padding-left:20px;margin:0;display:grid;gap:8px}
 .exploration-result-card__subject{margin:0;display:flex;flex-wrap:wrap;align-items:center;gap:6px}
 .exploration-result-card__missing-tag{padding:1px 8px;border-radius:999px;background:#f3e8d2;color:#8a6116;font-size:12px}
+.exploration-result-card__variant{border:1px solid var(--border-color,var(--border));border-radius:8px;padding:8px;margin:8px 0;min-width:0}
+.exploration-result-card__variant-target{font-weight:600;margin:0 0 4px;overflow-wrap:anywhere}
+.exploration-result-card__variant .exploration-result-card__line{margin:4px 0}
+.exploration-result-card__spatial{border:1px dashed var(--border-color,var(--border));border-radius:8px;padding:8px;margin:8px 0;min-width:0}
+.exploration-result-card__spatial h4{margin:0 0 6px;font-size:13px}
+.exploration-result-card__spatial .exploration-result-card__list{margin:4px 0}
 .exploration-result-card__compare section{padding:8px;border-radius:8px;background:var(--bg-muted);min-width:0}
 .exploration-result-card__compare h4{margin:0 0 6px;font-size:13px}
 .exploration-result-card__compare p{white-space:pre-wrap;overflow-wrap:anywhere;margin:0;font-size:13px}

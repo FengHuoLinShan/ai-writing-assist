@@ -256,6 +256,128 @@ it("renders a scene line with rationale and withheld knowledge", () => {
   expect(text).toContain("没有说出口：A 已失业（B 不知道）")
 })
 
+it("renders multi-target scene lines as one block per target", () => {
+  const wrapper = mountCard({
+    ...sandboxSource,
+    scale: "scene_line",
+    output_kind: "story.exploration.scene_line",
+    payload: {
+      target_ref: "",
+      line: "",
+      rationale: "两个目标各说一句",
+      variants: [
+        { target_ref: "c_evasive", line: "我只是在渡口等人。", rationale: "回避失业话题", action: "把目光移开", withheld: ["他其实刚被辞退"], unknowns: [], warnings: [] },
+        { target_ref: "c_friend", target_label: "老友", line: "缺钱就说一声，别硬撑。", rationale: "察觉对方窘迫", unknowns: [], warnings: [] },
+      ],
+      unknowns: [],
+      warnings: [],
+    },
+  }, {})
+  const text = wrapper.text()
+  // 优先用 target_label；只有 ref 时显示 ref 本身
+  expect(text).toContain("目标：c_evasive")
+  expect(text).toContain("目标：老友")
+  // 每块保留对白+依据+动作布局
+  expect(text).toContain("我只是在渡口等人。")
+  expect(text).toContain("依据：回避失业话题")
+  expect(text).toContain("动作：把目光移开")
+  expect(text).toContain("没有说出口：他其实刚被辞退")
+  expect(text).toContain("缺钱就说一声，别硬撑。")
+  expect(wrapper.findAll(".exploration-result-card__variant")).toHaveLength(2)
+})
+
+it("shows an empty state when a scene line result has no line and no variants", () => {
+  const wrapper = mountCard({
+    ...sandboxSource,
+    scale: "scene_line",
+    output_kind: "story.exploration.scene_line",
+    payload: { target_ref: "", line: "", rationale: "这一轮没有产出对白", unknowns: [], warnings: [] },
+  }, {})
+  expect(wrapper.text()).toContain("这条结果没有给出对白内容。")
+  expect(wrapper.find("blockquote.exploration-result-card__line").exists()).toBe(false)
+})
+
+it("renders the spatial assessment with verdict, constraints and unknowns", () => {
+  const wrapper = mountCard({
+    ...sandboxSource,
+    scale: "scene_line",
+    output_kind: "story.exploration.scene_line",
+    payload: {
+      target_ref: "",
+      line: "",
+      rationale: "按已确认的房间资料核对",
+      spatial_assessment: {
+        supported: true,
+        constraints: ["两人必须隔桌相对，门在背后"],
+        unknowns: ["桌上是否有遮挡物未确认"],
+      },
+      unknowns: [],
+      warnings: [],
+    },
+  }, {})
+  const text = wrapper.text()
+  expect(text).toContain("空间诊断")
+  expect(text).toContain("结论：支持")
+  expect(text).toContain("两人必须隔桌相对，门在背后")
+  expect(text).toContain("未知：桌上是否有遮挡物未确认")
+})
+
+it.each([
+  [false, "不支持"],
+  [null, "无法判定"],
+])("renders the spatial verdict %s when supported=%s", (supported, verdict) => {
+  const wrapper = mountCard({
+    ...sandboxSource,
+    scale: "scene_line",
+    output_kind: "story.exploration.scene_line",
+    payload: {
+      target_ref: "",
+      line: "",
+      rationale: "资料不足以判定",
+      spatial_assessment: { supported, constraints: [], unknowns: [] },
+      unknowns: [],
+      warnings: [],
+    },
+  }, {})
+  expect(wrapper.text()).toContain(`结论：${verdict}`)
+})
+
+it.each([
+  ["multi-target", {
+    target_ref: "",
+    line: "",
+    rationale: "两个目标各一句",
+    variants: [
+      { target_ref: "c_a", line: "第一条对白。", rationale: "a 的动机", unknowns: [], warnings: [] },
+      { target_ref: "c_b", line: "第二条对白。", rationale: "b 的动机", unknowns: [], warnings: [] },
+    ],
+    unknowns: [],
+    warnings: [],
+  }, "第一条对白。", "第二条对白。"],
+  ["spatial", {
+    target_ref: "",
+    line: "",
+    rationale: "按资料核对",
+    spatial_assessment: { supported: false, constraints: ["门必须在东侧"], unknowns: [] },
+    unknowns: [],
+    warnings: [],
+  }, "空间诊断：不支持；约束：门必须在东侧", null],
+])("summarizes %s scene_line follow-ups with the compact form", async (_shape, payload, contained, absent) => {
+  const explorationDetail = vi.fn(async () => ({ task_id: `task-detail-${_shape}` }))
+  const wrapper = mountCard(sandboxSource, { explorationDetail })
+  await wrapper.findAll("button").find(button => button.text() === "说详细点").trigger("click")
+  await flushPromises()
+  pollConfig().onDone({ done: true }, {
+    task_id: `task-detail-${_shape}`,
+    status: "done",
+    result: { result_id: `result-${_shape}`, output_kind: "story.exploration.scene_line", payload },
+  })
+  await flushPromises()
+  const followUpText = wrapper.get(".exploration-result-card__followup").text()
+  expect(followUpText).toContain(contained)
+  if (absent) expect(followUpText).not.toContain(absent)
+})
+
 it("marks author edits as saved versions", () => {
   const wrapper = mountCard({
     ...sandboxSource,
