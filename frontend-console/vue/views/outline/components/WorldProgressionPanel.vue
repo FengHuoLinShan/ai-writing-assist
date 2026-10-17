@@ -6,12 +6,19 @@
         <h2 id="world-progression-title">世界推进</h2>
         <p>从最近已写到的场景出发，查看离场人物与群体接下来可能怎样行动。</p>
       </div>
-      <button
-        type="button"
-        class="btn world-progression__toggle"
-        :aria-expanded="open"
-        @click="toggleOpen"
-      >{{ open ? "收起" : "开始探索" }}</button>
+      <div class="world-progression__header-actions">
+        <button
+          type="button"
+          class="btn world-progression__assist"
+          @click="exploreInAssistant"
+        >在助手中探索</button>
+        <button
+          type="button"
+          class="btn world-progression__toggle"
+          :aria-expanded="open"
+          @click="toggleOpen"
+        >{{ open ? "收起" : "开始探索" }}</button>
+      </div>
     </header>
 
     <div v-if="open" class="world-progression__body" :aria-busy="loading">
@@ -412,7 +419,7 @@
 
 <script setup>
 import { computed, onBeforeUnmount, reactive, ref, watch } from "vue"
-import { getApi, getAppState, getConfirm } from "../../../bridge/index.js"
+import { getApi, getAppState, getAssistantWorkContext, getConfirm, getToast, openProjectAssistant } from "../../../bridge/index.js"
 import { confirmAiReference } from "../../../../shared/aiReferenceModal.js"
 import { createOperationId } from "../../../../shared/workflowProgress.js"
 
@@ -557,6 +564,21 @@ function toggleOpen() {
   if (open.value) {
     loadHistory()
     loadGuidedFlowAvailability()
+  }
+}
+
+// M2 就地入口：从大纲页直接进入助手探索，带上大纲页上下文（query 定位、选区）。
+// context 只使用 captureWorkContext/opener 已支持的字段；失败时提示并保留本页输入。
+async function exploreInAssistant() {
+  const projectId = String(props.projectId || "")
+  if (!projectId) return
+  try {
+    await openProjectAssistant({
+      projectId,
+      context: { ...getAssistantWorkContext(projectId, "outline"), task_hint: "design" },
+    })
+  } catch (cause) {
+    getToast()(cause?.message || "暂时无法打开项目助手。", "error")
   }
 }
 
@@ -1898,6 +1920,7 @@ function formatNumber(value) {
 .world-progression { max-width: 1120px; margin: 20px auto 26px; border: 1px solid var(--border); border-radius: 14px; background: var(--bg-panel); box-shadow: 0 8px 28px color-mix(in srgb, var(--text-primary) 5%, transparent); }
 .world-progression__header { display: flex; align-items: center; justify-content: space-between; gap: 18px; padding: 20px clamp(16px, 2.4vw, 28px); }
 .world-progression__heading { min-width: 0; }
+.world-progression__header-actions { display: flex; flex: 0 0 auto; flex-wrap: wrap; justify-content: flex-end; gap: 8px; }
 .world-progression__eyebrow { margin: 0 0 4px; color: var(--accent); font-size: var(--text-xs); font-weight: 750; letter-spacing: .08em; text-transform: uppercase; }
 .world-progression__heading h2 { margin: 0; font-size: clamp(20px, 2vw, 26px); letter-spacing: -.025em; }
 .world-progression__heading p { margin: 6px 0 0; color: var(--text-secondary); }
@@ -2016,6 +2039,8 @@ function formatNumber(value) {
 }
 @media (max-width: 420px) {
   .world-progression__header { flex-direction: column; }
+  .world-progression__header-actions { width: 100%; }
+  .world-progression__header-actions .btn { flex: 1 1 100%; }
   .world-progression__toggle { width: 100%; }
   .world-progression__field-grid, .world-progression__field-grid--three { grid-template-columns: 1fr; }
   .world-progression__targets { padding: 10px; }

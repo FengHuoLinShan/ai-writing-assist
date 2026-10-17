@@ -13,6 +13,7 @@ import {
   getRouter,
   getShowModalHtml,
   getToast,
+  openProjectAssistant,
   resetBridgeOverrides,
   setBridgeOverrides,
   tryMigrateLocalAuthorPreferences,
@@ -169,5 +170,23 @@ describe("useStateKey", () => {
 
     scope.stop()
     expect(listeners).toHaveLength(0)
+  })
+})
+
+describe("openProjectAssistant", () => {
+  it("作品匹配时把请求原样透传给注册的 opener", async () => {
+    const opener = vi.fn(async () => "opened")
+    setBridgeOverrides({ state: { currentProjectId: "p1" }, assistantOpener: opener })
+    const request = { projectId: "p1", context: { page: "scene", task_hint: "design" } }
+    await expect(openProjectAssistant(request)).resolves.toBe("opened")
+    expect(opener).toHaveBeenCalledTimes(1)
+    expect(opener).toHaveBeenCalledWith(request)
+  })
+
+  it("作品已切换或 opener 未就绪时抛出可提示的错误", async () => {
+    setBridgeOverrides({ state: { currentProjectId: "p1" }, assistantOpener: vi.fn(async () => ({})) })
+    await expect(openProjectAssistant({ projectId: "p2" })).rejects.toThrow("作品已切换，请在当前作品重新打开讨论。")
+    setBridgeOverrides({ assistantOpener: undefined })
+    await expect(openProjectAssistant({ projectId: "p1" })).rejects.toThrow("项目助手正在准备，请稍后从顶部打开。")
   })
 })

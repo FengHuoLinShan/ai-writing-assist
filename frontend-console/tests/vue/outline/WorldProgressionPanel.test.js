@@ -148,6 +148,39 @@ describe("WorldProgressionPanel", () => {
     expect(confirmAiReference).toHaveBeenCalledOnce()
   })
 
+  it("页头提供在助手中探索入口并携带大纲上下文", async () => {
+    const opener = vi.fn(async () => ({}))
+    setBridgeOverrides({ state: { currentProjectId: "project-a" }, assistantOpener: opener })
+    const wrapper = mountPanel(makeApi())
+    const assist = wrapper.findAll("button").find((button) => button.text() === "在助手中探索")
+    expect(assist).toBeTruthy()
+    await assist.trigger("click")
+    await flushPromises()
+    expect(opener).toHaveBeenCalledTimes(1)
+    expect(opener.mock.calls[0][0]).toMatchObject({
+      projectId: "project-a",
+      context: { page: "outline", scope: "current", task_hint: "design" },
+    })
+  })
+
+  it("助手未就绪时提示错误且不影响推进面板", async () => {
+    const toast = vi.fn()
+    setBridgeOverrides({
+      state: { currentProjectId: "project-a" },
+      assistantOpener: vi.fn(async () => {
+        throw new Error("项目助手正在准备，请稍后从顶部打开。")
+      }),
+      toast,
+    })
+    const wrapper = mountPanel(makeApi())
+    await wrapper.findAll("button").find((button) => button.text() === "在助手中探索").trigger("click")
+    await flushPromises()
+    expect(toast).toHaveBeenCalledWith("项目助手正在准备，请稍后从顶部打开。", "error")
+    expect(wrapper.text()).toContain("世界推进")
+    await openPanel(wrapper)
+    expect(wrapper.text()).toContain("选择参与者")
+  })
+
   it("原资料截止 Scene 变化后展示停止原因和恢复入口提示", async () => {
     const api = makeApi({
       charactersByProject: { "project-a": [actor("林澈", 1)] },
