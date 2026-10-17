@@ -53,6 +53,7 @@ from modules.story.exploration_schemas import (
     AUTHOR_EDIT_OUTPUT_KIND,
     EVENT_HINT_LITERAL,
     EVENT_OUTPUT_KIND,
+    LOCK_SET_OUTPUT_KIND,
     MULTI_TARGETS_MAX,
     MULTI_TARGETS_MIN,
     PAYLOAD_MODELS_BY_BASE_KIND,
@@ -75,6 +76,9 @@ from modules.story.exploration_schemas import (
 router = APIRouter(prefix="/api/story/exploration", tags=["story-exploration"])
 
 EXPLORATION_CAPABILITY = "story.exploration"
+
+# 分支 AI 结果指针的有界回扫上限；单分支结果行数远小于该值。
+_TIP_SCAN_CAP = 500
 
 SANDBOX_ACTION = "story.exploration.sandbox.generate"
 EVENT_DIAGNOSE_ACTION = "story.exploration.event.diagnose"
@@ -185,6 +189,22 @@ class ExplorationReviseApiRequest(_ApiModel):
     item_text: str | None = Field(default=None, max_length=4000)
     instruction: str = Field(min_length=1, max_length=2000)
     bridge_target: str | None = Field(default=None, max_length=500)
+
+
+class ExplorationLockApiRequest(_ApiModel):
+    """锁定/解除一条满意内容（M3-A）：零模型调用、无预算。
+
+    幂等键 ``(novel_id, base_result_id, lock, item_path)``；item_text 提供时
+    与该结果行对应条目内容比对防漂移（漂移 409）。``note`` 为可选锁定说明，
+    随 lock_set 载荷冻结；锁定项 ``label`` 由服务端按条目展示文本派生。
+    """
+
+    novel_id: str
+    operation_id: UUID
+    lock: bool
+    item_path: str = Field(min_length=1, max_length=120)
+    item_text: str | None = Field(default=None, max_length=4000)
+    note: str | None = Field(default=None, max_length=500)
 
 
 class ExplorationSaveEditApiRequest(_ApiModel):
@@ -818,29 +838,46 @@ async def start_exploration_task(
 
 
 async def _branch_tip_id(db, novel_id: str, chain: str, branch) -> str | None:
+    """分支最新 AI 结果行：author_edit 与 lock_set 都不算 AI 结果（M3-A 契约）。
+
+    锁定/作者编辑行不改变“说详细点”与局部修订的指针——作者回到最新 AI
+    结果即可继续；其余行为不变。
+    """
+
+    non_ai_kinds = {AUTHOR_EDIT_OUTPUT_KIND, LOCK_SET_OUTPUT_KIND}
     if chain == "progression":
         from modules.story.world_progression_models import StoryWorldProgressionStep
 
-        return await db.scalar(
-            select(StoryWorldProgressionStep.id)
-            .where(
-                StoryWorldProgressionStep.novel_id == UUID(novel_id),
-                StoryWorldProgressionStep.branch_id == branch.id,
+        rows = (
+            await db.scalars(
+                select(StoryWorldProgressionStep)
+                .where(
+                    StoryWorldProgressionStep.novel_id == UUID(novel_id),
+                    StoryWorldProgressionStep.branch_id == branch.id,
+                )
+                .order_by(StoryWorldProgressionStep.step_number.desc())
+                .limit(_TIP_SCAN_CAP)
             )
-            .order_by(StoryWorldProgressionStep.step_number.desc())
-            .limit(1)
-        )
-    from modules.story.models import StorySceneDirectorRound
+        ).all()
+    else:
+        from modules.story.models import StorySceneDirectorRound
 
-    return await db.scalar(
-        select(StorySceneDirectorRound.id)
-        .where(
-            StorySceneDirectorRound.novel_id == UUID(novel_id),
-            StorySceneDirectorRound.branch_id == branch.id,
-        )
-        .order_by(StorySceneDirectorRound.round_number.desc())
-        .limit(1)
-    )
+        rows = (
+            await db.scalars(
+                select(StorySceneDirectorRound)
+                .where(
+                    StorySceneDirectorRound.novel_id == UUID(novel_id),
+                    StorySceneDirectorRound.branch_id == branch.id,
+                )
+                .order_by(StorySceneDirectorRound.round_number.desc())
+                .limit(_TIP_SCAN_CAP)
+            )
+        ).all()
+    for row in rows:
+        envelope = exploration_service.unpack_exploration_output(row)
+        if envelope is None or envelope.output_kind not in non_ai_kinds:
+            return str(row.id)
+    return None
 
 
 async def submit_exploration_follow_up(
@@ -879,6 +916,25 @@ async def submit_exploration_follow_up(
             )
         except ValueError as error:
             raise ConflictError(str(error)) from error
+    # 锁定预检（M3-A）：修订目标被锁定 → 409；全部锁定路径必须仍能在所选
+    # 结果中解析，无法兼容时报告冲突，不偷偷解锁（worker 落库前还会强制回填）。
+    locked_items = await exploration_service.current_locked_items(
+        db, novel_id=novel_id, branch_id=row.branch_id, chain=chain
+    )
+    if locked_items:
+        from modules.story.exploration_tasks import check_revision_target as _resolve
+
+        locked_paths = {item.item_path for item in locked_items}
+        if mode == "revise" and item_path in locked_paths:
+            raise ConflictError("该条目已锁定，请先解锁再修改")
+        payload_dict = envelope.payload.model_dump(mode="json")
+        for locked_path in sorted(locked_paths):
+            try:
+                _resolve(payload_dict, locked_path, None, base_kind)
+            except ValueError as error:
+                raise ConflictError(
+                    f"锁定条目 {locked_path} 与当前结果不一致，请先解锁或重新锁定"
+                ) from error
     branch = await _branch_for(db, novel_id, chain, row.branch_id, lock=True)
     confirmation_id, confirmation_action = _branch_confirmation(branch)
     if not confirmation_id or not confirmation_action:
@@ -1032,8 +1088,46 @@ def validate_start_dump(start_dump: dict):
 
 
 # ---------------------------------------------------------------------------
-# 只读与零模型端点：save-edit / compare / history
+# 零模型端点：lock / save-edit / compare / history
 # ---------------------------------------------------------------------------
+
+
+async def lock_exploration_item(
+    db, *, result_id: str, data: ExplorationLockApiRequest
+) -> dict:
+    """锁定/解除一条满意内容，生成新 lock_set 结果行（零模型调用，M3-A）。"""
+    require_story_exploration_enabled()
+    await require_active_project(db, data.novel_id)
+    row, chain, root = await _locate_exploration_result(
+        db, novel_id=data.novel_id, result_id=result_id, lock=True
+    )
+    envelope = exploration_service.unpack_exploration_output(row)
+    if envelope.output_kind == AUTHOR_EDIT_OUTPUT_KIND:
+        raise ConflictError("作者编辑版本不能设置锁定；请回到原始 AI 结果")
+    # 多目标/空间诊断结果没有可锁定的单条目，与修订同样失败关闭。
+    require_scene_follow_up_supported(envelope)
+    branch = await _branch_for(db, data.novel_id, chain, row.branch_id, lock=True)
+    # 运行中的探索不允许并发改锁定集：worker 生成后要按锁定集强制回填。
+    await _require_root_idle(db, root, branch)
+    new_row, new_envelope = await exploration_service.set_exploration_item_lock(
+        db,
+        novel_id=data.novel_id,
+        owner_id=await _project_owner_id(db, data.novel_id),
+        base_result_id=str(row.id),
+        lock=data.lock,
+        item_path=data.item_path,
+        item_text=data.item_text,
+        note=data.note,
+    )
+    payload = new_envelope.payload
+    return {
+        "result_id": str(new_row.id),
+        "base_result_id": str(row.id),
+        "output_kind": new_envelope.output_kind,
+        "payload": payload.model_dump(mode="json"),
+        "locked_items": [item.item_path for item in payload.locked_items],
+        "created_at": new_row.created_at.isoformat() if new_row.created_at else None,
+    }
 
 
 async def save_exploration_edit(
@@ -1083,6 +1177,7 @@ async def compare_exploration(db, data: ExplorationCompareRequest) -> dict:
             "output_kind": envelope.output_kind,
             "payload": envelope.payload.model_dump(mode="json"),
             "created_at": side["created_at"],
+            "locked_items": list(side["locked_items"]),
         }
 
     response = {
@@ -1190,6 +1285,14 @@ async def api_revise(result_id: str, data: ExplorationReviseApiRequest, db: DbSe
             bridge_target=data.bridge_target,
             revision_of=data.revision_of,
         )
+    except Exception as error:
+        raise _raise_http(error) from error
+
+
+@router.post("/results/{result_id}/lock")
+async def api_lock(result_id: str, data: ExplorationLockApiRequest, db: DbSession):
+    try:
+        return await lock_exploration_item(db, result_id=result_id, data=data)
     except Exception as error:
         raise _raise_http(error) from error
 

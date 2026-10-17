@@ -613,6 +613,106 @@ async def test_revise_rejects_drifted_item_text(exploration_flow):
     assert items  # 父条目未被改动
 
 
+# ---------------------------------------------------------------------------
+# 锁定遵守（M3-A）：worker 生成后强制回填锁定项；修订目标被锁定失败关闭
+# ---------------------------------------------------------------------------
+
+
+async def _lock_chain_item(flow, spec, parent_row, item_path: str):
+    async with flow.sessions.begin() as db:
+        from modules.story.exploration_service import set_exploration_item_lock
+
+        _row, envelope = await set_exploration_item_lock(
+            db,
+            novel_id=str(spec.novel_id),
+            owner_id=OWNER_ID,
+            base_result_id=str(parent_row.id),
+            lock=True,
+            item_path=item_path,
+        )
+    return envelope
+
+
+async def test_detail_backfills_locked_chain_item_verbatim(exploration_flow):
+    """模型试图改锁定项：worker 落库前按父 payload 逐字回填，并记 honored_locks。"""
+    flow = exploration_flow
+    spec, envelope = await flow.setup(chain="progression", scale="sandbox")
+    parent_row, parent_envelope = await _seed_sandbox_result(flow, spec)
+    parent_items = parent_envelope.payload.model_dump(mode="json")["influence_chain"]
+    await _lock_chain_item(flow, spec, parent_row, "chain:0")
+
+    flow.provider.override = {
+        **sandbox_payload(),
+        "influence_chain": [
+            {**parent_items[0], "effect": "模型试图改掉锁定结论"},
+            {**parent_items[1], "mechanism": "清晨顾客变多（更详细）"},
+        ],
+    }
+    task_id = await flow.enqueue(
+        spec,
+        envelope,
+        action="story.exploration.sandbox.generate",
+        mode="detail",
+        parent_result_id=str(parent_row.id),
+    )
+    task = await flow.run(task_id)
+    assert task.status == "done", task.error_message
+    async with flow.sessions() as db:
+        rows = (
+            await db.scalars(
+                select(StoryWorldProgressionStep)
+                .where(StoryWorldProgressionStep.root_id == spec.root_id)
+                .order_by(StoryWorldProgressionStep.step_number)
+            )
+        ).all()
+        assert len(rows) == 3  # 父 + lock_set + detail
+        detail = unpack_exploration_output(rows[2])
+        assert detail is not None
+        chain = detail.payload.model_dump(mode="json")["influence_chain"]
+        # 锁定项逐字保持；未锁定项保留模型输出
+        assert chain[0] == parent_items[0]
+        assert chain[1]["mechanism"].endswith("（更详细）")
+        assert rows[2].input_json["honored_locks"] == ["chain:0"]
+
+
+async def test_revise_locked_target_fails_closed_in_worker(exploration_flow):
+    """绕过 API 预检直接入队修订锁定项：worker 权威拒绝，不产生模型调用。"""
+    flow = exploration_flow
+    spec, envelope = await flow.setup(chain="progression", scale="sandbox")
+    parent_row, parent_envelope = await _seed_sandbox_result(flow, spec)
+    items = parent_envelope.payload.model_dump(mode="json")["influence_chain"]
+    await _lock_chain_item(flow, spec, parent_row, "chain:0")
+
+    task_id = await flow.enqueue(
+        spec,
+        envelope,
+        action="story.exploration.sandbox.generate",
+        mode="revise",
+        parent_result_id=str(parent_row.id),
+        item_path="chain:0",
+        item_text=items[0]["effect"],
+        instruction="把锁定项改掉",
+    )
+    task = await flow.run(task_id)
+    assert task.status == "failed"
+    assert flow.provider.calls == 0
+    async with flow.sessions() as db:
+        rows = (
+            await db.scalars(
+                select(StoryWorldProgressionStep).where(
+                    StoryWorldProgressionStep.root_id == spec.root_id
+                )
+            )
+        ).all()
+        assert len(rows) == 2  # 父 + lock_set：没有新增 AI 结果
+        assert all(
+            unpack_exploration_output(row) is None
+            or unpack_exploration_output(row).output_kind
+            in {SANDBOX_OUTPUT_KIND, "story.exploration.lock_set"}
+            for row in rows
+        )
+
+
 async def _seed_scene_line_result(flow, spec):
     row_envelope = ExplorationOutputEnvelope(
         output_kind=SCENE_LINE_OUTPUT_KIND,

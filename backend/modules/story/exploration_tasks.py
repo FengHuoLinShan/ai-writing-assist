@@ -17,6 +17,7 @@ from __future__ import annotations
 
 import ast
 import json
+import uuid
 from copy import deepcopy
 from uuid import UUID
 
@@ -45,9 +46,11 @@ from modules.story.director_budget import budget_stop_reason
 from modules.story.exploration_budget import preview_exploration_budget
 from modules.story.exploration_feature import require_story_exploration_enabled
 from modules.story.exploration_schemas import (
+    AUTHOR_EDIT_OUTPUT_KIND,
     EVENT_HINT_REQUIRED_ACTION,
     EVENT_OUTPUT_KIND,
     EXPLORATION_OUTPUT_SCHEMA_VERSION,
+    LOCK_SET_OUTPUT_KIND,
     MULTI_TARGETS_MAX,
     MULTI_TARGETS_MIN,
     SANDBOX_OUTPUT_KIND,
@@ -58,6 +61,7 @@ from modules.story.exploration_schemas import (
     SceneLineOutputV1,
 )
 from modules.story.exploration_service import (
+    current_locked_items,
     pack_exploration_output,
     unpack_exploration_output,
 )
@@ -67,7 +71,6 @@ from modules.story.world_progression_models import (
     StoryWorldProgressionStep,
 )
 from modules.story.world_progression_service import (
-    append_progression_step,
     get_progression_branch,
     get_progression_root,
 )
@@ -75,6 +78,9 @@ from modules.story.world_progression_service import (
 EXPLORATION_PROGRESSION_TASK = "story_exploration_progression_task"
 EXPLORATION_SCENE_TASK = "story_exploration_scene_task"
 EXPLORATION_CAPABILITY = "story.exploration"
+
+# 分支续写基线（最新 AI 结果）回扫上限；单分支行数远小于该值。
+_TIP_SCAN_CAP = 500
 
 SANDBOX_ACTION = "story.exploration.sandbox.generate"
 EVENT_DIAGNOSE_ACTION = "story.exploration.event.diagnose"
@@ -731,7 +737,8 @@ def check_revision_target(
     """按冻结路径语法（chain:N/gap:N/bridge:N/line）定位父条目并做防漂移比对。
 
     解析不到、路径越界或 item_text 与父内容不一致即失败关闭；返回
-    ``{"key", "item", "item_content_hash"}``，内容哈希由服务端计算。
+    ``{"key", "item", "item_content_hash", "label"}``，内容哈希与展示标签
+    （锁定项用，截选 0..200）由服务端计算。
     """
 
     path = str(item_path or "").strip()
@@ -751,6 +758,7 @@ def check_revision_target(
         "key": target["key"],
         "item": target["item"],
         "item_content_hash": content_hash(target["item"]),
+        "label": _revision_entry_text(target["key"], target["item"])[:200],
     }
 
 
@@ -789,6 +797,61 @@ def _merge_revision(parent_payload: dict, output, base_kind: str, item_path: str
             if value:
                 merged[key] = value
     return type(output).model_validate(merged)
+
+
+# ---------------------------------------------------------------------------
+# 锁定项强制回填（M3-A：worker 落库前以父 payload 为准，不靠模型自觉）
+# ---------------------------------------------------------------------------
+
+
+def _resolve_revision_items(payload: dict, item_path: str, base_kind: str) -> list[dict]:
+    return [
+        row for row in _revision_items(payload, base_kind) if row["key"] == item_path
+    ]
+
+
+def _write_revision_item(payload: dict, item_path: str, item, base_kind: str) -> None:
+    base_kind = _normalize_base_kind(base_kind)
+    kind, _, raw_index = item_path.partition(":")
+    index = int(raw_index) if raw_index else 0
+    if base_kind == SANDBOX_OUTPUT_KIND:
+        payload["influence_chain"][index] = item
+    elif base_kind == EVENT_OUTPUT_KIND:
+        payload["bridge_candidates" if kind == "bridge" else "gaps"][index] = item
+    else:
+        payload["line"] = item
+
+
+def _enforce_locked_items(
+    parent_payload: dict,
+    new_payload: dict,
+    locked_specs: list[tuple[str, str]],
+    base_kind: str,
+) -> tuple[dict, list[str]]:
+    """生成结果落库前强制回填全部锁定项：内容以父 payload 为准逐字恢复。
+
+    锁定项内容与父不一致只可能因父本身被改——以父 payload 为准回填；
+    锁定路径在父中解析不到，或生成结果缺同一路径（如“说详细点”改变了
+    结构）→ 报告冲突失败关闭，不偷偷解锁；此时任务失败、结果不落库。
+    """
+
+    enforced = deepcopy(new_payload)
+    honored: list[str] = []
+    for item_path, _pinned_hash in locked_specs:
+        parent_rows = _resolve_revision_items(parent_payload, item_path, base_kind)
+        if len(parent_rows) != 1:
+            raise ValueError(
+                f"锁定条目 {item_path} 与父结果不一致，无法保持锁定内容；"
+                "请先解锁或重新锁定"
+            )
+        if len(_resolve_revision_items(enforced, item_path, base_kind)) != 1:
+            raise ValueError(
+                f"锁定条目 {item_path} 无法在生成结果中保持（结构已变化）；"
+                "请调整请求或先解锁再试"
+            )
+        _write_revision_item(enforced, item_path, parent_rows[0]["item"], base_kind)
+        honored.append(item_path)
+    return enforced, honored
 
 
 # ---------------------------------------------------------------------------
@@ -865,6 +928,8 @@ async def _load_parent_result(db, *, model, novel_id: str, branch, parent_id: st
         raise ValueError("来源结果不是探索结果")
     if base_envelope.output_kind == "story.exploration.author_edit":
         raise ValueError("作者编辑版本不能继续详略或修订；请回到原始 AI 结果")
+    if base_envelope.output_kind == LOCK_SET_OUTPUT_KIND:
+        raise ValueError("锁定记录不是可修订的探索结果；请回到 AI 结果")
     return parent_row, base_envelope.payload.model_dump(mode="json")
 
 
@@ -1170,6 +1235,7 @@ async def handle_story_exploration_progression(db, task):
     parent_output_hash: str | None = None
     item_path = ""
     item_content_hash: str | None = None
+    locked_specs: list[tuple[str, str]] = []
     if mode in {"detail", "revise"}:
         parent_row, parent_payload = await _load_parent_result(
             db,
@@ -1198,6 +1264,22 @@ async def handle_story_exploration_progression(db, task):
                 if parent_payload.get("mode") == "bridge"
                 else EVENT_DIAGNOSE_ACTION
             )
+        # 分支当前锁定集（纯值，检查点 expire 不受影响）；修订目标被锁定在
+        # 提交前已拒绝，worker 内再权威校验一次（失败关闭，不产生模型调用）。
+        locked_specs = [
+            (item.item_path, item.item_content_hash)
+            for item in await current_locked_items(
+                db, novel_id=novel_id, branch_id=branch.id, chain="progression"
+            )
+        ]
+        if mode == "revise" and any(item_path == locked for locked, _ in locked_specs):
+            raise ValueError("该条目已锁定，请先解锁再修改")
+        for locked_path, _pinned in locked_specs:
+            if len(_resolve_revision_items(parent_payload, locked_path, scale)) != 1:
+                raise ValueError(
+                    f"锁定条目 {locked_path} 与父结果不一致，无法保持锁定内容；"
+                    "请先解锁或重新锁定"
+                )
 
     pending = dict(branch.pending_step_json or {})
     _require_pending_mode(pending, mode)
@@ -1243,14 +1325,22 @@ async def handle_story_exploration_progression(db, task):
                 user_data=user_data,
                 system_content=_event_system_prompt(action, event_mode_hint),
             )
+        payload_out = (
+            _merge_revision(parent_payload, output, scale, item_path)
+            if mode == "revise"
+            else output
+        )
+        honored_locks: list[str] = []
+        if mode in {"detail", "revise"} and locked_specs:
+            # 服务端强制回填：锁定项按父 payload 逐字恢复，不靠模型自觉。
+            merged_dict, honored_locks = _enforce_locked_items(
+                parent_payload, payload_out.model_dump(mode="json"), locked_specs, scale
+            )
+            payload_out = PAYLOAD_MODEL_BY_ACTION[action].model_validate(merged_dict)
         envelope_out = ExplorationOutputEnvelope(
             output_kind=OUTPUT_KIND_BY_ACTION[action],
             schema_version=EXPLORATION_OUTPUT_SCHEMA_VERSION,
-            payload=(
-                _merge_revision(parent_payload, output, scale, item_path)
-                if mode == "revise"
-                else output
-            ),
+            payload=payload_out,
         )
         row = await _write_progression_result(
             db,
@@ -1263,6 +1353,7 @@ async def handle_story_exploration_progression(db, task):
             envelope_run=envelope,
             item_path=item_path or None,
             item_content_hash=item_content_hash,
+            honored_locks=honored_locks,
         )
     except ExplorationPauseError as pause:
         return await _pause_progression(
@@ -1322,8 +1413,17 @@ async def _write_progression_result(
     envelope_run,
     item_path: str | None,
     item_content_hash: str | None,
+    honored_locks: list[str] | None = None,
 ):
-    """写入结果步骤；parent 标识须在检查点前捕获，避免检查点 expire 后懒加载。"""
+    """写入结果步骤；parent 标识须在检查点前捕获，避免检查点 expire 后懒加载。
+
+    完整性校验与 ``append_progression_step`` 对齐（父存在、属于本根、输出哈希
+    未变），但“期望父步骤”只看 AI 结果行：author_edit 与 lock_set 行不算
+    AI 结果（M3-A），不改变续写基线，因此锁定/编辑之后仍可在最新 AI 结果上
+    续算；写入改为服务内直接落行，不再复用推进链的线性 append 不变量。
+    """
+    from core.errors import ConflictError
+
     root_request = root.request_json or {}
     input_payload = {
         "mode": mode,
@@ -1336,6 +1436,8 @@ async def _write_progression_result(
         "item_path": item_path,
         "item_content_hash": item_content_hash,
     }
+    if honored_locks:
+        input_payload["honored_locks"] = [str(path) for path in honored_locks]
     if root_request.get("counterfactual_of"):
         # 反事实对照（M2）：结果行记录基线与变更条件文本，供对照比较校验链路。
         input_payload["counterfactual_of"] = str(root_request["counterfactual_of"])
@@ -1344,19 +1446,76 @@ async def _write_progression_result(
             for item in (root_request.get("changed_assumptions") or [])
             if isinstance(item, dict)
         ]
-    return await append_progression_step(
-        db,
-        novel_id=str(root.novel_id),
-        root=root,
-        branch=branch,
-        parent_step_id=parent_id,
+
+    if parent_id:
+        parent = await db.get(StoryWorldProgressionStep, UUID(parent_id))
+        if parent is None or str(parent.root_id) != str(root.id):
+            raise ConflictError("续跑步骤不属于当前推进根")
+        if str(parent.output_hash or "") != str(parent_output_hash or ""):
+            raise ConflictError("父步骤哈希已变化，不能续写推进历史")
+    rows = (
+        await db.scalars(
+            select(StoryWorldProgressionStep)
+            .where(
+                StoryWorldProgressionStep.novel_id == root.novel_id,
+                StoryWorldProgressionStep.branch_id == branch.id,
+            )
+            .order_by(StoryWorldProgressionStep.step_number.desc())
+            .limit(_TIP_SCAN_CAP)
+        )
+    ).all()
+    previous_ai = None
+    for row in rows:
+        row_envelope = unpack_exploration_output(row)
+        if (
+            row_envelope is None
+            or row_envelope.output_kind
+            not in {AUTHOR_EDIT_OUTPUT_KIND, LOCK_SET_OUTPUT_KIND}
+        ):
+            previous_ai = row
+            break
+    expected_parent = (
+        str(previous_ai.id)
+        if previous_ai is not None
+        else (str(branch.parent_step_id) if branch.parent_step_id else None)
+    )
+    if expected_parent != (str(parent_id) if parent_id else None):
+        raise ConflictError("推进分支的父步骤已变化，请从当前历史重新选择")
+    number = int(rows[0].step_number) + 1 if rows else 1
+    input_hash = content_hash(
+        {
+            "source_hash": branch.source_hash,
+            "parent_step_id": parent_id,
+            "parent_output_hash": input_payload.get("parent_output_hash"),
+            "input": input_payload,
+        }
+    )
+    output_payload = pack_exploration_output(envelope)
+    row = StoryWorldProgressionStep(
+        id=uuid.uuid4(),
+        novel_id=root.novel_id,
+        root_id=root.id,
+        branch_id=branch.id,
+        parent_step_id=UUID(parent_id) if parent_id else None,
+        step_number=number,
         source_hash=branch.source_hash,
-        input_payload=input_payload,
-        output_payload=pack_exploration_output(envelope),
-        state={},
-        metrics={"mode": mode, "exploration": True},
+        input_hash=input_hash,
+        output_hash=content_hash(
+            {
+                "input_hash": input_hash,
+                "output": output_payload,
+                "state": {},
+            }
+        ),
+        input_json=input_payload,
+        result_json=output_payload,
+        state_json={},
+        metrics_json={"mode": mode, "exploration": True},
         basis_changed=False,
     )
+    db.add(row)
+    await db.flush()
+    return row
 
 
 # ---------------------------------------------------------------------------
@@ -1445,6 +1604,7 @@ async def handle_story_exploration_scene(db, task):
     parent_id: str | None = None
     item_path = ""
     item_content_hash: str | None = None
+    locked_specs: list[tuple[str, str]] = []
     if mode in {"detail", "revise"}:
         parent_row, parent_payload = await _load_parent_result(
             db,
@@ -1465,6 +1625,25 @@ async def handle_story_exploration_scene(db, task):
             )
             item_path = target["key"]
             item_content_hash = target["item_content_hash"]
+        # 分支当前锁定集（纯值，检查点 expire 不受影响）；修订目标被锁定在
+        # 提交前已拒绝，worker 内再权威校验一次（失败关闭，不产生模型调用）。
+        locked_specs = [
+            (item.item_path, item.item_content_hash)
+            for item in await current_locked_items(
+                db, novel_id=novel_id, branch_id=branch.id, chain="scene"
+            )
+        ]
+        if mode == "revise" and any(item_path == locked for locked, _ in locked_specs):
+            raise ValueError("该条目已锁定，请先解锁再修改")
+        for locked_path, _pinned in locked_specs:
+            resolved = _resolve_revision_items(
+                parent_payload, locked_path, SCENE_LINE_OUTPUT_KIND
+            )
+            if len(resolved) != 1:
+                raise ValueError(
+                    f"锁定条目 {locked_path} 与父结果不一致，无法保持锁定内容；"
+                    "请先解锁或重新锁定"
+                )
 
     if mode == "start":
         if multi_targets or diagnostic_question:
@@ -1527,6 +1706,16 @@ async def handle_story_exploration_scene(db, task):
             diagnostic_question=diagnostic_question,
             diagnostic_subject=diagnostic_subject,
         )
+        honored_locks: list[str] = []
+        if mode in {"detail", "revise"} and locked_specs:
+            # 服务端强制回填：锁定台词以父 payload 为准逐字恢复，不靠模型自觉。
+            payload_dict, honored_locks = _enforce_locked_items(
+                parent_payload,
+                payload.model_dump(mode="json"),
+                locked_specs,
+                SCENE_LINE_OUTPUT_KIND,
+            )
+            payload = SceneLineOutputV1.model_validate(payload_dict)
         envelope_out = ExplorationOutputEnvelope(
             output_kind=SCENE_LINE_OUTPUT_KIND,
             schema_version=EXPLORATION_OUTPUT_SCHEMA_VERSION,
@@ -1542,6 +1731,7 @@ async def handle_story_exploration_scene(db, task):
             envelope_run=envelope,
             item_path=item_path or None,
             item_content_hash=item_content_hash,
+            honored_locks=honored_locks,
             multi_targets=multi_targets,
             diagnostic_question=diagnostic_question,
         )
@@ -1597,6 +1787,7 @@ async def _write_scene_result(
     envelope_run,
     item_path: str | None,
     item_content_hash: str | None,
+    honored_locks: list[str] | None = None,
     multi_targets: list[str] | None = None,
     diagnostic_question: str | None = None,
 ):
@@ -1620,6 +1811,8 @@ async def _write_scene_result(
         "item_path": item_path,
         "item_content_hash": item_content_hash,
     }
+    if honored_locks:
+        input_json["honored_locks"] = [str(path) for path in honored_locks]
     if multi_targets:
         input_json["multi_targets"] = [str(item) for item in multi_targets]
     if diagnostic_question:

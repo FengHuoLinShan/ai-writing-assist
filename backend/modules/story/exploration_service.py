@@ -29,10 +29,14 @@ from modules.story.exploration_schemas import (
     AUTHOR_EDIT_OUTPUT_KIND,
     EVENT_MODE_HINTS,
     EVENT_OUTPUT_KIND,
+    EXPLORATION_OUTPUT_SCHEMA_VERSION,
+    LOCK_SET_OUTPUT_KIND,
     PAYLOAD_MODELS_BY_BASE_KIND,
     SANDBOX_OUTPUT_KIND,
     AuthorEditPayloadV1,
     ExplorationOutputEnvelope,
+    LockedItem,
+    LockSetPayloadV1,
     apply_changed_assumptions,
     exploration_start_fingerprint,
 )
@@ -457,6 +461,8 @@ async def compare_exploration_results(
     envelopes = [unpack_exploration_output(row) for row, _chain in located]
     if any(envelope is None for envelope in envelopes):
         raise ConflictError("所选结果不是探索结果，无法比较")
+    if any(envelope.output_kind == LOCK_SET_OUTPUT_KIND for envelope in envelopes):
+        raise ConflictError("锁定记录不参与比较，请选择探索结果")
     changed_conditions: list[str] | None = None
     if mode == "counterfactual":
         changed_conditions = _counterfactual_link_condition(located[0][0], located[1][0])
@@ -485,6 +491,12 @@ async def compare_exploration_results(
                     row.created_at.isoformat() if row.created_at else None
                 ),
                 "envelope": envelope,
+                "locked_items": [
+                    item.item_path
+                    for item in await current_locked_items(
+                        db, novel_id=novel_id, branch_id=row.branch_id, chain=chain
+                    )
+                ],
             }
         )
     result: dict = {
@@ -503,6 +515,50 @@ async def compare_exploration_results(
 # ---------------------------------------------------------------------------
 
 
+async def _require_edit_respects_locks(
+    db,
+    *,
+    novel_id: str,
+    base_row: Any,
+    chain: str,
+    base_envelope: ExplorationOutputEnvelope,
+    edited_payload: Any,
+) -> None:
+    """作者编辑也不能动锁定内容（M3-A）：与所在结果不一致即 409，防误操作。
+
+    锁定项在分支上逐字保持，因此“与编辑基行一致”等价于“与锁定内容一致”；
+    解锁后可改。
+    """
+
+    from modules.story.exploration_tasks import check_revision_target
+
+    locked_items = await current_locked_items(
+        db, novel_id=novel_id, branch_id=base_row.branch_id, chain=chain
+    )
+    if not locked_items:
+        return
+    base_payload = base_envelope.payload
+    if base_envelope.output_kind == AUTHOR_EDIT_OUTPUT_KIND:
+        base_payload = base_payload.edited_payload
+    base_dict = base_payload.model_dump(mode="json")
+    edited_dict = edited_payload.model_dump(mode="json")
+    base_kind = _base_payload_kind(base_envelope)
+    for item in locked_items:
+        try:
+            base_target = check_revision_target(
+                base_dict, item.item_path, None, base_kind
+            )
+            edited_target = check_revision_target(
+                edited_dict, item.item_path, None, base_kind
+            )
+        except ValueError as error:
+            raise ConflictError(
+                f"锁定条目 {item.item_path} 与结果结构不一致：{error}"
+            ) from error
+        if edited_target["item"] != base_target["item"]:
+            raise ConflictError(f"条目 {item.item_path} 已锁定，请先解锁再修改")
+
+
 async def save_exploration_author_edit(
     db,
     *,
@@ -519,6 +575,16 @@ async def save_exploration_author_edit(
     base_envelope = unpack_exploration_output(base_row)
     if base_envelope is None:
         raise ConflictError("所选结果不是探索结果，无法保存编辑")
+    if base_envelope.output_kind == LOCK_SET_OUTPUT_KIND:
+        raise ConflictError("锁定记录不能被编辑；请回到探索结果")
+    await _require_edit_respects_locks(
+        db,
+        novel_id=novel_id,
+        base_row=base_row,
+        chain=chain,
+        base_envelope=base_envelope,
+        edited_payload=edited_payload,
+    )
 
     base_kind = _base_payload_kind(base_envelope)
     expected_model = PAYLOAD_MODELS_BY_BASE_KIND.get(base_kind)
@@ -622,6 +688,237 @@ async def save_exploration_author_edit(
             step_number=next_number,
             source_hash=branch.source_hash,
             input_hash=edit_content_hash,
+            output_hash=content_hash(pack_exploration_output(new_envelope)),
+            input_json=input_json,
+            result_json=pack_exploration_output(new_envelope),
+            state_json={},
+            metrics_json={},
+            basis_changed=False,
+        )
+    db.add(row)
+    await db.flush()
+    return row, new_envelope
+
+
+# ---------------------------------------------------------------------------
+# 满意内容锁定（M3-A）：lock_set 结果行 + 分支当前锁定集（零模型调用）
+# ---------------------------------------------------------------------------
+
+_LOCK_SET_MODE = "lock_set"
+
+
+def _lock_set_payload_of(row: Any) -> LockSetPayloadV1 | None:
+    envelope = unpack_exploration_output(row)
+    if envelope is not None and envelope.output_kind == LOCK_SET_OUTPUT_KIND:
+        return envelope.payload
+    return None
+
+
+async def _branch_rows_desc(
+    db, novel_id: str, branch_id: Any, chain: str
+) -> list[Any]:
+    """分支结果行按序号倒序（有界扫描）；锁定集读取与幂等查找共用。"""
+
+    nid = _uuid(novel_id)
+    bid = _uuid(branch_id)
+    if chain == "progression":
+        query = (
+            select(StoryWorldProgressionStep)
+            .where(
+                StoryWorldProgressionStep.novel_id == nid,
+                StoryWorldProgressionStep.branch_id == bid,
+            )
+            .order_by(StoryWorldProgressionStep.step_number.desc())
+        )
+    else:
+        query = (
+            select(StorySceneDirectorRound)
+            .where(
+                StorySceneDirectorRound.novel_id == nid,
+                StorySceneDirectorRound.branch_id == bid,
+            )
+            .order_by(StorySceneDirectorRound.round_number.desc())
+        )
+    return list((await db.scalars(query.limit(_HISTORY_SCAN_CAP * 4))).all())
+
+
+async def _latest_lock_set_row(
+    db, novel_id: str, branch_id: Any, chain: str
+) -> Any | None:
+    for row in await _branch_rows_desc(db, novel_id, branch_id, chain):
+        if _lock_set_payload_of(row) is not None:
+            return row
+    return None
+
+
+async def current_locked_items(
+    db, *, novel_id: str, branch_id: Any, chain: str
+) -> list[LockedItem]:
+    """分支当前锁定集：该分支最新一条 lock_set 行的 locked_items；无锁定返回空。
+
+    author_edit 与 lock_set 都不算 AI 结果；本函数只认 lock_set 行。
+    """
+
+    latest = await _latest_lock_set_row(db, novel_id, branch_id, chain)
+    if latest is None:
+        return []
+    payload = _lock_set_payload_of(latest)
+    return list(payload.locked_items)
+
+
+async def set_exploration_item_lock(
+    db,
+    *,
+    novel_id: str,
+    owner_id: str,
+    base_result_id: str,
+    lock: bool,
+    item_path: str,
+    item_text: str | None = None,
+    note: str | None = None,
+) -> tuple[Any, ExplorationOutputEnvelope]:
+    """对指定 AI 结果行追加/解除一条锁定，生成新 lock_set 结果行。
+
+    内容 = 该分支当前全部锁定项 ± 本条；零模型调用、无预算。
+    item_content_hash 由服务端按该结果行对应条目内容计算（item_text 防漂移
+    复用 check_revision_target 的解析，漂移 409）。幂等键
+    ``(novel_id, base_result_id, lock, item_path)``：同键重复提交返回同一行；
+    已锁定项重复加锁按分支状态幂等返回当前 lock_set 行；解除未锁定项 409。
+    """
+
+    from modules.story.exploration_tasks import check_revision_target
+
+    await _require_project(db, novel_id, owner_id, for_update=True)
+    base_row, chain = await _locate_result_row(db, novel_id, base_result_id, lock=True)
+    base_envelope = unpack_exploration_output(base_row)
+    if base_envelope is None:
+        raise ConflictError("所选结果不是探索结果，无法设置锁定")
+    if base_envelope.output_kind == AUTHOR_EDIT_OUTPUT_KIND:
+        raise ConflictError("作者编辑版本不能设置锁定；请回到原始 AI 结果")
+    if base_envelope.output_kind == LOCK_SET_OUTPUT_KIND:
+        raise ConflictError("锁定记录不能作为锁定目标")
+    try:
+        target = check_revision_target(
+            base_envelope.payload.model_dump(mode="json"),
+            item_path,
+            item_text,
+            _base_payload_kind(base_envelope),
+        )
+    except ValueError as error:
+        raise ConflictError(str(error)) from error
+
+    lock_op_key = content_hash(
+        {
+            "mode": _LOCK_SET_MODE,
+            "novel_id": str(_uuid(novel_id)),
+            "base_result_id": str(base_row.id),
+            "lock": bool(lock),
+            "item_path": str(item_path),
+        }
+    )
+    nid = _uuid(novel_id)
+    row_model = (
+        StoryWorldProgressionStep if chain == "progression" else StorySceneDirectorRound
+    )
+    existing = await db.scalar(
+        select(row_model).where(
+            row_model.novel_id == nid,
+            row_model.branch_id == base_row.branch_id,
+            row_model.input_hash == lock_op_key,
+        )
+    )
+    if existing is not None and _lock_set_payload_of(existing) is not None:
+        return existing, unpack_exploration_output(existing)  # type: ignore[return-value]
+
+    current = await current_locked_items(
+        db, novel_id=novel_id, branch_id=base_row.branch_id, chain=chain
+    )
+    paths = {item.item_path for item in current}
+    if lock:
+        if item_path in paths:
+            # 分支状态幂等：内容不变，不重复追加同一锁定。
+            latest = await _latest_lock_set_row(db, novel_id, base_row.branch_id, chain)
+            if latest is not None:
+                return latest, unpack_exploration_output(latest)  # type: ignore[return-value]
+        locked_items = list(current)
+        locked_items.append(
+            LockedItem(
+                item_path=item_path,
+                item_content_hash=target["item_content_hash"],
+                label=str(target.get("label") or ""),
+            )
+        )
+    else:
+        if item_path not in paths:
+            raise ConflictError("该条目未锁定，无法解除")
+        locked_items = [item for item in current if item.item_path != item_path]
+    new_envelope = ExplorationOutputEnvelope(
+        output_kind=LOCK_SET_OUTPUT_KIND,
+        schema_version=EXPLORATION_OUTPUT_SCHEMA_VERSION,
+        payload=LockSetPayloadV1(locked_items=locked_items, note=note),
+    )
+    input_json = {
+        "mode": _LOCK_SET_MODE,
+        "lock": bool(lock),
+        "item_path": str(item_path),
+        "item_content_hash": target["item_content_hash"],
+        "base_result_id": str(base_row.id),
+    }
+
+    if chain == "scene":
+        from modules.story.director_service import get_director_branch
+
+        branch = await get_director_branch(
+            db, novel_id, str(base_row.branch_id), lock=True
+        )
+        next_number = (
+            await db.scalar(
+                select(func.max(StorySceneDirectorRound.round_number)).where(
+                    StorySceneDirectorRound.novel_id == nid,
+                    StorySceneDirectorRound.branch_id == base_row.branch_id,
+                )
+            )
+            or 0
+        ) + 1
+        row = StorySceneDirectorRound(
+            id=uuid.uuid4(),
+            novel_id=base_row.novel_id,
+            root_id=base_row.root_id,
+            branch_id=base_row.branch_id,
+            round_number=next_number,
+            parent_round_id=base_row.id,
+            source_hash=branch.source_hash,
+            input_hash=lock_op_key,
+            output_hash=content_hash(pack_exploration_output(new_envelope)),
+            input_json=input_json,
+            output_json=pack_exploration_output(new_envelope),
+            state_json={},
+            run_envelope_json={},
+        )
+    else:
+        from modules.story.world_progression_service import get_progression_branch
+
+        branch = await get_progression_branch(
+            db, novel_id, str(base_row.branch_id), lock=True
+        )
+        next_number = (
+            await db.scalar(
+                select(func.max(StoryWorldProgressionStep.step_number)).where(
+                    StoryWorldProgressionStep.novel_id == nid,
+                    StoryWorldProgressionStep.branch_id == base_row.branch_id,
+                )
+            )
+            or 0
+        ) + 1
+        row = StoryWorldProgressionStep(
+            id=uuid.uuid4(),
+            novel_id=base_row.novel_id,
+            root_id=base_row.root_id,
+            branch_id=base_row.branch_id,
+            parent_step_id=base_row.id,
+            step_number=next_number,
+            source_hash=branch.source_hash,
+            input_hash=lock_op_key,
             output_hash=content_hash(pack_exploration_output(new_envelope)),
             input_json=input_json,
             result_json=pack_exploration_output(new_envelope),
@@ -750,6 +1047,9 @@ async def list_exploration_history_results(
                 continue
             envelope = unpack_exploration_output(row)
             if envelope is None:
+                continue
+            if envelope.output_kind == LOCK_SET_OUTPUT_KIND:
+                # lock_set 是锁定记录，不算 AI 结果：历史 AI 列表过滤（M3-A 契约）。
                 continue
             items.append(
                 {
