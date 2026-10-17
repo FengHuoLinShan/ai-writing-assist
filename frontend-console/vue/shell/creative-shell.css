@@ -128,6 +128,12 @@ html:has(.creative-shell) {
   .creative-shell .topbar-center { justify-content: center; }
   .creative-shell .topbar-workspace-menu .action-menu-btn { padding-inline: 8px; }
   .creative-shell #topbar-project { max-width: 38vw; }
+  .creative-shell .topbar-right { gap: 4px; }
+  .creative-shell button.theme-dot { width: 30px; min-width: 30px; padding: 0; }
+  .creative-shell button.theme-dot > span { display: none; }
+  .creative-shell button.theme-dot::after { content: "◐"; font-size: 16px; }
+  .creative-shell button.theme-dot[data-theme-value="light"]::after { content: "☀"; }
+  .creative-shell button.theme-dot[data-theme-value="dark"]::after { content: "☾"; }
   .creative-shell .creative-assistant-button { padding-inline: 8px; font-size: 0; }
   .creative-shell .creative-assistant-button > span { font-size: 16px; }
   .creative-shell #sidebar { width: 100%; min-width: 0; padding: 0; border-right: 0; overflow-x: hidden; }

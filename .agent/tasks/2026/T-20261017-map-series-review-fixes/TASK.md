@@ -3,7 +3,7 @@ id: T-20261017-map-series-review-fixes
 title: 地图系列 Claude review 并行修复与主会话验收
 status: completed
 created: 2026-10-17T13:50:25+08:00
-updated: 2026-10-17T15:32:56+08:00
+updated: 2026-10-17T15:52:56+08:00
 ---
 
 # 地图系列 review 修复
@@ -110,3 +110,14 @@ updated: 2026-10-17T15:32:56+08:00
 
 - 交付提交：`de34006e40c52106232e177c7bd7271ee350824b` 已推送，创建 [PR #249](https://github.com/FengHuoLinShan/ai-writing-assist/pull/249)。合并结果及远端最终检查在该 PR 持续记录，不将等待状态写成已合并。
 - GitGuardian 四处告警已逐项核对：历史 CSV 中的两个 40 位 commit SHA，`git cat-file -t` 均返回 commit；误报证据已写入 PR。没有实际凭据、没有弱化扫描或改写历史。
+
+## PR 完整浏览器门禁补修
+
+- PR #249 的 `48c88e42b` 已通过 Backend quality（9161 passed / 2 skipped，覆盖率达标）、PostgreSQL critical（108 passed）、Frontend unit quality、Architecture docs、Production image contract、CodeQL 和仓库结构门禁。
+- 完整功能浏览器初轮分片 1 为 186 passed / 1 failed / 1 skipped，分片 2 有 4 failed；未合并或跳过门禁。
+- 窄屏主题文字挤掉作品名：手机主题切换改为保留完整无障碍标签的紧凑符号，继续保留作品名、连接状态和全部主题操作。
+- 浏览器断言迁移到现有导演入口和原确认、完整设置页签顺序、作者偏好专属保存反馈、本场摘要与对象页签；保留保存/冲突/刷新/前进后退/确认边界检查。
+- 手机关闭详情保留当前 Scene 是 `352a45fa5` 的明确行为，用于人物卡/导演/剧本上下文；调查中的清空修改已撤回，保留现有单测和生产行为。
+- 定向复验又发现 Codex 余额不可用分支漏填必需 `queried_at`，修正响应，并新增实际 HTTP 回归断言不请求远端余额；账户连接文件 15 passed。
+- 最终 5 条原失败浏览器流程全部通过；SceneWorkbenchView/ThemePicker/ProjectSettingsView 共 82 passed；前端 lint/build、后端 lint、docs 与 diff 门禁通过。日志 `/tmp/map-series-delivery-browser-recheck.log`、`-browser-unit.log`、`-account-regression.log`、`-browser-lint.log`、`-browser-build.log`、`-final-lint.log`、`-browser-docs.log`。
+- 最新补修提交后等待完整远端必需检查；最终合并状态与证据持续记录在 PR #249。没有运行真实模型或部署。

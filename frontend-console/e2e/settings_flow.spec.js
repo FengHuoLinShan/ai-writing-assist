@@ -112,6 +112,10 @@ test.describe("设置流程", () => {
     )
     await authorTab.focus()
     await page.keyboard.press("End")
+    const traceTab = page.getByRole("tab", { name: "操作留痕" })
+    await expect(traceTab).toBeFocused()
+    await expect(traceTab).toHaveAttribute("aria-selected", "true")
+    await traceTab.press("ArrowLeft")
     await expect(aiTab).toBeFocused()
     await expect(aiTab).toHaveAttribute("aria-selected", "true")
     await expect(page.locator(".ai-capabilities-tab")).toBeVisible()
@@ -133,9 +137,9 @@ test.describe("设置流程", () => {
     await expect(page.getByText(/日更目标/)).toBeVisible()
 
     await page.locator("#author-daily-goal").fill("1350")
-    await expect(page.locator(".author-prefs-tab .settings-save-state")).toHaveText("有未保存修改")
+    await expect(page.locator("#author-prefs-tab-save + .settings-save-state")).toHaveText("有未保存修改")
     await page.getByRole("button", { name: "保存创作偏好" }).click()
-    await expect(page.locator(".author-prefs-tab .settings-save-state")).toContainText("已保存")
+    await expect(page.locator("#author-prefs-tab-save + .settings-save-state")).toContainText("已保存")
     await page.reload()
     await expect(page.locator("#author-daily-goal")).toHaveValue("1350")
 

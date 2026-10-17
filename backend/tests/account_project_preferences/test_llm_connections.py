@@ -277,6 +277,38 @@ async def test_balance_failure_is_auxiliary_and_does_not_disconnect(
 
 
 @pytest.mark.asyncio
+async def test_codex_balance_returns_timestamp_without_remote_query(
+    db_session,
+    async_client: AsyncClient,
+    monkeypatch,
+):
+    query = AsyncMock()
+    monkeypatch.setattr("modules.account.settings_service.query_provider_balance", query)
+    db_session.add(
+        AccountLLMCredential(
+            owner_id=LOCAL_OWNER_ID,
+            provider_id="codex",
+            encrypted_api_key=None,
+            key_fingerprint="synthetic-codex-balance",
+            verified_at=datetime.now(UTC),
+        )
+    )
+    await db_session.flush()
+
+    response = await async_client.get("/api/account/settings/llm-balances")
+
+    assert response.status_code == 200
+    item = next(
+        item for item in response.json()["items"] if item["provider_id"] == "codex"
+    )
+    assert item["status"] == "unavailable"
+    assert item["amount"] is None
+    assert item["currency"] is None
+    assert datetime.fromisoformat(item["queried_at"].replace("Z", "+00:00")).tzinfo
+    query.assert_not_awaited()
+
+
+@pytest.mark.asyncio
 async def test_balance_success_preserves_original_amount_and_currency(
     db_session,
     monkeypatch,
