@@ -272,11 +272,23 @@ downgrade：先检查两表是否存在 `source_kind='provisional'` 行，存在
 | POST `/confirmation/preview` | 经 Evidence facade 生成探索确认预览 |
 | POST `/confirmation` | 落确认（expected_context_fingerprint 机制） |
 | POST `/start` | 入队（幂等 + preview hash + 确认校验）→ 202 {task_id, root_id, branch_id} |
-| POST `/results/{result_id}/detail` | 说详细点 → 202（授权追加） |
-| POST `/results/{result_id}/revise` | 局部修订/补桥 → 202 |
-| POST `/results/{result_id}/save-edit` | 作者编辑新版本（零模型调用） |
-| POST `/compare` | 同起点两结果比较（read） |
-| GET `/history` | 按 owner+novel 列临时/Scene 锚点探索（gate 关闭可读） |
+| POST `/results/{result_id}/detail` | 说详细点 → 202（授权追加；body `{novel_id, operation_id, focus?}`） |
+| POST `/results/{result_id}/revise` | 局部修订/补桥 → 202；body `{novel_id, operation_id, revision_of?, item_path (1..120，形如 chain:0/gap:1/bridge:2/line), item_text? (≤4000，防漂移比对), instruction (1..2000)}` |
+| POST `/results/{result_id}/save-edit` | 作者编辑新版本（零模型调用）；body `{novel_id, base_output_kind, edited_payload, edit_note?}` |
+| POST `/compare` | `{novel_id, first_result_id, second_result_id}` → `{first:{result_id,root_id,branch_id,output_kind,payload,created_at}, second:{...}}`（指纹不同 409） |
+| GET `/history` | `items[]` 平铺 `{root_id, branch_id, result_id, scale, output_kind, label, start_fingerprint, created_at, payload}`（gate 关闭可读） |
+
+### 8.1 集成期冻结的补充契约（2026-10-17，Wave1 回收后）
+
+1. `POST /preview` body：`{novel_id, operation_id, scale?, focus?, start?, task_hint?}`；
+   响应 `{recommended_scale, recommendation_reason, focus_hint, budget, requires_confirmation, ...}`；确定性、无模型调用。
+2. 任务终态 `AsyncTask.result` 统一含 `{status:"completed", result_id, root_id, branch_id, output_kind, payload}`
+   （detail/revise 为新生成行；前端 pollTaskProgress 就地渲染）。
+3. 助手 `display_sources.domain_reference` 白名单扩展：`story_exploration_result`
+   （root_id/branch_id/result_id/scale/output_kind/payload/label）、`story_exploration_recommendation`
+   （scale/focus_hint/reason）。
+4. 修订条目定位用 `item_path + item_text`（服务端以 item_text 与父结果内容比对防漂移，
+   并把服务端计算的条目内容 hash 记入新行 input_json）；不用客户端摘要做定位键。
 
 助手 turn 集成：_operations 目录注册后，作者在助手中自由提问 → preview op 返回推荐
 （`recommend_exploration(scale_hints, has_selection, has_content)` 纯确定性函数，
