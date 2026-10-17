@@ -224,6 +224,31 @@
           <section><h4>对比结果<span v-if="comparison.otherLockedCount" class="exploration-result-card__lock-tag">已锁定 {{ comparison.otherLockedCount }} 项</span></h4><p>{{ comparison.other }}</p></section>
         </div>
       </details>
+      <!-- M4-A 跨尺度移交：按当前尺度列出其余两个目标尺度；派生起点先只读展示，
+           经确认资料范围（confirmation/preview → confirm）后再启动新任务。 -->
+      <details v-if="handoffAvailable" class="exploration-result-card__op">
+        <summary>基于此推演</summary>
+        <p class="exploration-result-card__hint">把这份结果改写成另一尺度的起点；新任务独立运行，不改动原结果。</p>
+        <template v-if="!handoffDerived">
+          <div class="exploration-result-card__targets" role="group" aria-label="选择移交的目标尺度">
+            <button v-for="option in handoffTargetOptions" :key="option.value" type="button" class="exploration-result-card__target" :class="{ 'exploration-result-card__target--on': handoffTarget === option.value }" :aria-pressed="handoffTarget === option.value" :disabled="handoffBusy" @click="handoffTarget = option.value">{{ option.label }}</button>
+          </div>
+          <label v-if="handoffTarget"><span>推演焦点（可留空）</span><textarea v-model="handoffReason" rows="2" maxlength="500" :disabled="handoffBusy" placeholder="想让这次推演聚焦什么，可留空"></textarea></label>
+          <button v-if="handoffTarget" type="button" class="btn btn-sm" :disabled="handoffBusy" @click="requestHandoff">{{ handoffBusy ? "正在生成移交预览…" : "生成移交预览" }}</button>
+        </template>
+        <div v-else class="exploration-result-card__derived">
+          <h4>移交预览（只读）</h4>
+          <p class="exploration-result-card__basis">起点问题：{{ handoffDerived.question }}</p>
+          <p class="exploration-result-card__basis">假设 {{ handoffDerived.assumptionCount }} 条，由原结果派生。</p>
+          <div v-if="handoffConfirmation" class="exploration-result-card__handoff-confirm">
+            <p class="exploration-result-card__basis">资料指纹：{{ handoffConfirmation.fingerprint.slice(0, 12) }}…</p>
+            <p class="exploration-result-card__basis">资料范围：选中 {{ handoffConfirmation.selectedCount }} 项，来源 {{ handoffConfirmation.sourceCount }} 条。</p>
+            <p v-if="handoffConfirmation.blockers.length" class="exploration-result-card__unknown">资料缺口：{{ handoffConfirmation.blockers.join("；") }}</p>
+          </div>
+          <button v-if="!handoffConfirmation" type="button" class="btn btn-sm btn-primary" :disabled="handoffBusy" @click="previewHandoffConfirmation">{{ handoffBusy ? "正在确认资料范围…" : "继续：确认资料范围并开始" }}</button>
+          <button v-else type="button" class="btn btn-sm btn-primary" :disabled="handoffBusy" @click="confirmAndStartHandoff">{{ handoffBusy ? "正在启动新任务…" : "确认并开始" }}</button>
+        </div>
+      </details>
     </div>
 
     <p v-if="status.text" role="status" aria-live="polite" class="exploration-result-card__status">{{ status.text }}</p>
@@ -240,6 +265,9 @@
 // 原样展示服务端 409 中文原因。AI 结果不可变；编辑保存形成新版本。
 // M3-B：完整排演结果整体落一行（服务端对 detail/revise/save-edit/lock 一律 409），
 // 只读渲染逐轮表演卡/素材/观察回执，并提示以同起点新建任务调整。
+// M4-A：跨尺度移交——把当前结果派生为另一尺度的临时起点，经 confirmation/
+// preview → confirm → 预算预览 → start 启动独立新任务；源为作者编辑版、
+// 完整排演或锁定记录时不提供入口。
 import { computed, onBeforeUnmount, ref, watch } from "vue"
 import { getApi } from "../../bridge/index.js"
 import { createOperationId, pollTaskProgress } from "../../../shared/workflowProgress.js"
@@ -255,10 +283,24 @@ const EVENT = "story.exploration.event"
 const SCENE_LINE = "story.exploration.scene_line"
 const AUTHOR_EDIT = "story.exploration.author_edit"
 const FULL_REHEARSAL = "story.exploration.full_rehearsal"
+const LOCK_SET = "story.exploration.lock_set"
 const KIND_LABELS = { [SANDBOX]: "沙盘推演", [EVENT]: "事件诊断", [SCENE_LINE]: "场景对白", [AUTHOR_EDIT]: "作者编辑版", [FULL_REHEARSAL]: "完整排演" }
 // 素材类别沿用后端六类；展示时译为作者语言，未知类别回退原值。
 const REHEARSAL_MATERIAL_LABELS = { environment: "环境", object: "物件", crowd: "人群", mood: "氛围", pacing: "节奏", time: "时间" }
 const SCALE_LABELS = { sandbox: "沙盘", event: "事件", scene_line: "场景对白" }
+// 移交目标尺度按钮沿用 KIND_LABELS 的作者语言；confirmation/confirm/start 的
+// action 按目标尺度固定（服务端校验 action 与 scale 匹配，事件取诊断动作）。
+const HANDOFF_TARGET_SCALES = [
+  { value: "sandbox", label: "沙盘推演" },
+  { value: "event", label: "事件诊断" },
+  { value: "scene_line", label: "场景对白" },
+]
+const HANDOFF_ACTION_BY_SCALE = {
+  sandbox: "story.exploration.sandbox.generate",
+  event: "story.exploration.event.diagnose",
+  scene_line: "story.exploration.scene_line.generate",
+}
+const HANDOFF_SCALE_BY_KIND = { [SANDBOX]: "sandbox", [EVENT]: "event", [SCENE_LINE]: "scene_line" }
 const DRAFT_PREFIX = "novel_exploration_edit_v1"
 
 const busy = ref(false)
@@ -277,6 +319,12 @@ const compareCandidates = ref([])
 const comparing = ref(false)
 const comparison = ref(null)
 const compareMode = ref("same_start")
+// M4-A 移交链状态：目标尺度与焦点 → 派生起点 → 确认指纹/范围 → 新任务。
+const handoffTarget = ref("")
+const handoffReason = ref("")
+const handoffDerived = ref(null)
+const handoffConfirmation = ref(null)
+const handoffBusy = ref(false)
 let poller = null
 
 const current = ref({ resultId: props.source?.result_id || "", kind: props.source?.output_kind || "", payload: props.source?.payload || {} })
@@ -298,6 +346,17 @@ const scaleLabel = computed(() => SCALE_LABELS[props.source?.scale] || props.sou
 const scaleClass = computed(() => props.source?.scale || "unknown")
 const question = computed(() => props.source?.label || display.value.question || "")
 const modelFollowUpAvailable = computed(() => kind.value !== AUTHOR_EDIT && kind.value !== FULL_REHEARSAL && Boolean(current.value.resultId))
+
+// M4-A 移交入口：作者编辑版/完整排演/锁定记录不作为移交源（服务端同样拒绝）。
+const handoffAvailable = computed(() => (
+  Boolean(props.projectId && current.value.resultId)
+  && kind.value !== AUTHOR_EDIT && kind.value !== FULL_REHEARSAL && kind.value !== LOCK_SET
+))
+// 目标尺度排除自身；scale 缺失时按结果类型推断，仍无法判定则列出全部可选。
+const handoffTargetOptions = computed(() => {
+  const own = props.source?.scale || HANDOFF_SCALE_BY_KIND[effectiveKind.value] || ""
+  return HANDOFF_TARGET_SCALES.filter(option => option.value !== own)
+})
 
 const sandboxLinks = computed(() => (isSandbox.value ? display.value.influence_chain || [] : []))
 
@@ -658,6 +717,120 @@ async function requestCompare() {
   } finally { comparing.value = false }
 }
 
+// --- M4-A 跨尺度移交链：handoff → confirmation/preview → confirm → 预算预览 → start ---
+// 焦点取自移交理由输入（placeholder 即“想让这次推演聚焦什么”）；确认冻结的
+// exploration_focus 与 start 请求必须一致，全链复用同一取值。
+
+function handoffRequestBase() {
+  return {
+    novel_id: props.projectId,
+    scale: handoffTarget.value,
+    start: handoffDerived.value?.start,
+    focus: handoffReason.value.trim(),
+    action: HANDOFF_ACTION_BY_SCALE[handoffTarget.value],
+  }
+}
+
+function blockerTexts(blockers) {
+  if (!Array.isArray(blockers)) return []
+  return blockers
+    .map(item => (typeof item === "string" ? item : item?.reason || item?.message || ""))
+    .filter(Boolean)
+}
+
+// 结果版本切换（补充/修订生成新结果）后，旧派生起点不再适用，整段移交状态重置。
+watch(() => current.value.resultId, () => {
+  handoffTarget.value = ""
+  handoffReason.value = ""
+  handoffDerived.value = null
+  handoffConfirmation.value = null
+})
+
+async function requestHandoff() {
+  const projectId = props.projectId
+  if (!current.value.resultId || !projectId || handoffBusy.value || !handoffTarget.value) return
+  handoffBusy.value = true
+  errorMessage.value = ""
+  try {
+    const receipt = await getApi()?.story?.explorationHandoff(current.value.resultId, {
+      novel_id: projectId,
+      operation_id: createOperationId(),
+      target_scale: handoffTarget.value,
+      reason: handoffReason.value.trim(),
+    })
+    const start = receipt?.derived_start
+    if (!start || typeof start !== "object") throw new Error("服务端没有返回派生起点")
+    handoffDerived.value = {
+      start,
+      question: start.question || props.source?.label || "（未标注问题）",
+      assumptionCount: Array.isArray(start.assumptions) ? start.assumptions.length : 0,
+    }
+    handoffConfirmation.value = null
+    status.value = { tone: "ok", text: "移交预览已生成；确认资料范围后才会开始新任务。" }
+  } catch (error) {
+    // 4xx/409 服务端中文原因原样展示。
+    errorMessage.value = error?.message || "移交预览暂时无法生成，请稍后重试。"
+  } finally { handoffBusy.value = false }
+}
+
+async function previewHandoffConfirmation() {
+  if (!handoffDerived.value || handoffBusy.value) return
+  handoffBusy.value = true
+  errorMessage.value = ""
+  status.value = { tone: "info", text: "正在确认资料范围…" }
+  try {
+    const preview = await getApi()?.story?.explorationConfirmationPreview(handoffRequestBase())
+    if (!preview?.context_fingerprint) throw new Error("服务端没有返回资料指纹")
+    handoffConfirmation.value = {
+      fingerprint: String(preview.context_fingerprint),
+      selectedCount: Array.isArray(preview.selected_asset_ids) ? preview.selected_asset_ids.length : 0,
+      sourceCount: Array.isArray(preview.sources) ? preview.sources.length : 0,
+      blockers: blockerTexts(preview.blockers),
+    }
+  } catch (error) {
+    status.value = { tone: "", text: "" }
+    errorMessage.value = error?.message || "资料范围暂时无法确认，请稍后重试。"
+  } finally { handoffBusy.value = false }
+}
+
+async function confirmAndStartHandoff() {
+  const confirmation = handoffConfirmation.value
+  if (!confirmation || handoffBusy.value) return
+  handoffBusy.value = true
+  errorMessage.value = ""
+  status.value = { tone: "info", text: "正在确认资料范围并启动新任务…" }
+  try {
+    const confirmed = await getApi()?.story?.explorationConfirm({
+      ...handoffRequestBase(),
+      expected_context_fingerprint: confirmation.fingerprint,
+    })
+    if (!confirmed?.confirmation_id) throw new Error("服务端没有返回确认标识")
+    // start 校验请求携带的 budget_preview_hash；确认链不回传预算，这里补一次
+    // /preview 取派生起点在当前尺度/焦点下的预算指纹（确定性，无模型调用）。
+    const budgetPreview = await getApi()?.story?.explorationPreview({
+      novel_id: props.projectId,
+      scale: handoffTarget.value,
+      start: handoffDerived.value.start,
+      focus: handoffReason.value.trim(),
+    })
+    const budgetHash = budgetPreview?.budget?.preview_hash
+    if (!budgetHash) throw new Error("服务端没有返回预算预览标识")
+    const receipt = await getApi()?.story?.explorationStart({
+      ...handoffRequestBase(),
+      context_confirmation_id: confirmed.confirmation_id,
+      budget_preview_hash: budgetHash,
+      operation_id: createOperationId(),
+      time_budget_seconds: 3600,
+    })
+    if (!receipt?.task_id) throw new Error("服务端没有返回任务标识")
+    status.value = { tone: "ok", text: "已在新任务中继续；新任务从移交后的起点独立运行。" }
+    emit("refresh")
+  } catch (error) {
+    status.value = { tone: "", text: "" }
+    errorMessage.value = error?.message || "新任务暂时无法开始，请稍后重试。"
+  } finally { handoffBusy.value = false }
+}
+
 function compactText(payload, kindValue = effectiveKind.value) {
   const text = []
   if (!payload || typeof payload !== "object") return "（无内容）"
@@ -771,6 +944,12 @@ onBeforeUnmount(() => { poller?.stop?.(); poller = null })
 .exploration-result-card__compare section{padding:8px;border-radius:8px;background:var(--bg-muted);min-width:0}
 .exploration-result-card__compare h4{margin:0 0 6px;font-size:13px}
 .exploration-result-card__compare p{white-space:pre-wrap;overflow-wrap:anywhere;margin:0;font-size:13px}
+.exploration-result-card__targets{display:flex;flex-wrap:wrap;gap:6px;margin:8px 0}
+.exploration-result-card__target{padding:4px 12px;border:1px solid var(--border-color,var(--border));border-radius:999px;background:var(--bg-muted);color:inherit;font:inherit;font-size:13px;cursor:pointer}
+.exploration-result-card__target--on{background:#e6efeb;border-color:#b7d2c7;color:#36594e;font-weight:600}
+.exploration-result-card__target:disabled{opacity:.6;cursor:default}
+.exploration-result-card__derived{margin-top:8px;display:grid;gap:2px}
+.exploration-result-card__derived h4{margin:0 0 4px;font-size:13px}
 .exploration-result-card__error{color:var(--danger);font-size:13px;margin:8px 0;overflow-wrap:anywhere}
 .exploration-result-card button:focus-visible,.exploration-result-card select:focus-visible,.exploration-result-card textarea:focus-visible,.exploration-result-card summary:focus-visible{outline:3px solid rgba(81,127,111,.35);outline-offset:2px}
 @media(max-width:700px){.exploration-result-card__actions{flex-direction:column}.exploration-result-card__op{flex-basis:auto}.exploration-result-card__compare{grid-template-columns:1fr}.exploration-result-card__affected-excerpts{grid-template-columns:1fr}}

@@ -1030,3 +1030,224 @@ it("shows an empty state when a full rehearsal result has no rounds", () => {
   expect(text).toContain("这次排演没有产出轮次内容。")
   expect(wrapper.find(".exploration-result-card__round").exists()).toBe(false)
 })
+
+// --- M4-A 跨尺度移交入口：handoff → confirmation/preview → confirm → 预算预览 → start ---
+
+const handoffFingerprint = "a".repeat(64)
+const handoffBudgetHash = "b".repeat(64)
+const handoffDerivedStart = {
+  kind: "provisional",
+  question: "如果面包税取消，面包师的一天会怎样？",
+  assumptions: [
+    { kind: "world_rule", text: "面包税在月初取消" },
+    { kind: "state", text: "面包师仍按旧价记账" },
+  ],
+  time_basis: "assumed_now",
+}
+
+function handoffApi(overrides = {}) {
+  const stub = (key, fallback) => vi.fn(async () => {
+    const override = overrides[key]
+    if (typeof override === "function") return await override()
+    return override ?? fallback
+  })
+  return {
+    explorationHandoff: stub("handoff", {
+      derived_start: handoffDerivedStart,
+      source_fingerprint: "f".repeat(64),
+      requires_confirmation: true,
+      preview_hint: "请先对目标尺度调用 confirmation/preview 与 confirmation，再经 /start 发起任务。",
+    }),
+    explorationConfirmationPreview: stub("confirmationPreview", {
+      context_fingerprint: handoffFingerprint,
+      selected_asset_ids: ["asset-1", "asset-2"],
+      sources: [{ evidence_id: "e1" }, { evidence_id: "e2" }, { evidence_id: "e3" }],
+      blockers: [],
+    }),
+    explorationConfirm: stub("confirm", {
+      confirmation_id: "conf-1",
+      action: "story.exploration.event.diagnose",
+      scope: "project",
+      context_fingerprint: handoffFingerprint,
+      result_status: "confirmed",
+      stale_reasons: [],
+      warnings: [],
+    }),
+    explorationPreview: stub("preview", {
+      budget: { preview_hash: handoffBudgetHash, requests_min: 1, requests_max: 1 },
+      action: "story.exploration.event.diagnose",
+    }),
+    explorationStart: stub("start", {
+      task_id: "task-handoff-1",
+      status: "pending",
+      root_id: "root-2",
+      branch_id: "branch-2",
+    }),
+  }
+}
+
+function handoffDetails(wrapper) {
+  return wrapper.findAll("details").find(details => details.find("summary").text() === "基于此推演")
+}
+
+async function submitHandoff(wrapper, { reason = "看面包师的生计" } = {}) {
+  const details = handoffDetails(wrapper)
+  expect(details).toBeTruthy()
+  await details.findAll(".exploration-result-card__target").find(button => button.text() === "事件诊断").trigger("click")
+  if (reason) await details.get("textarea").setValue(reason)
+  await details.findAll("button").find(button => button.text() === "生成移交预览").trigger("click")
+  await flushPromises()
+  return details
+}
+
+it("offers only the other scales as handoff targets for the current result", () => {
+  const sandboxLabels = handoffDetails(mountCard(sandboxSource, {}))
+    .findAll(".exploration-result-card__target").map(button => button.text())
+  expect(sandboxLabels).toEqual(["事件诊断", "场景对白"])
+
+  const sceneLabels = handoffDetails(mountCard({
+    ...sandboxSource,
+    scale: "scene_line",
+    output_kind: "story.exploration.scene_line",
+    payload: { target_ref: "c_b", line: "你是不是又没睡好？我带了热汤。", unknowns: [], warnings: [] },
+  }, {})).findAll(".exploration-result-card__target").map(button => button.text())
+  expect(sceneLabels).toEqual(["沙盘推演", "事件诊断"])
+})
+
+it("sends the handoff request with novel_id, operation_id, target_scale and the optional reason", async () => {
+  const api = handoffApi()
+  const wrapper = mountCard(sandboxSource, api)
+  await submitHandoff(wrapper)
+
+  expect(api.explorationHandoff).toHaveBeenCalledTimes(1)
+  expect(api.explorationHandoff).toHaveBeenCalledWith("result-1", {
+    novel_id: "p1",
+    operation_id: expect.any(String),
+    target_scale: "event",
+    reason: "看面包师的生计",
+  })
+})
+
+it("renders the derived start as a read-only summary with question and assumption count", async () => {
+  const api = handoffApi()
+  const wrapper = mountCard(sandboxSource, api)
+  const details = await submitHandoff(wrapper)
+
+  const derived = details.get(".exploration-result-card__derived")
+  expect(derived.text()).toContain("移交预览（只读）")
+  expect(derived.text()).toContain("起点问题：如果面包税取消，面包师的一天会怎样？")
+  expect(derived.text()).toContain("假设 2 条，由原结果派生。")
+  expect(derived.findAll("button").map(button => button.text())).toContain("继续：确认资料范围并开始")
+  // 移交尚未确认前不进入确认链
+  expect(api.explorationConfirmationPreview).not.toHaveBeenCalled()
+})
+
+it("chains confirmation preview, confirm, budget preview and start with the derived start", async () => {
+  const api = handoffApi()
+  const wrapper = mountCard(sandboxSource, api)
+  const details = await submitHandoff(wrapper)
+
+  await details.findAll("button").find(button => button.text() === "继续：确认资料范围并开始").trigger("click")
+  await flushPromises()
+
+  expect(api.explorationConfirmationPreview).toHaveBeenCalledWith({
+    novel_id: "p1",
+    scale: "event",
+    start: handoffDerivedStart,
+    focus: "看面包师的生计",
+    action: "story.exploration.event.diagnose",
+  })
+  const confirmBlock = details.get(".exploration-result-card__handoff-confirm")
+  expect(confirmBlock.text()).toContain(`资料指纹：${handoffFingerprint.slice(0, 12)}…`)
+  expect(confirmBlock.text()).toContain("资料范围：选中 2 项，来源 3 条。")
+
+  await details.findAll("button").find(button => button.text() === "确认并开始").trigger("click")
+  await flushPromises()
+
+  expect(api.explorationConfirm).toHaveBeenCalledWith(expect.objectContaining({
+    novel_id: "p1",
+    scale: "event",
+    start: handoffDerivedStart,
+    focus: "看面包师的生计",
+    action: "story.exploration.event.diagnose",
+    expected_context_fingerprint: handoffFingerprint,
+  }))
+  expect(api.explorationPreview).toHaveBeenCalledWith({
+    novel_id: "p1",
+    scale: "event",
+    start: handoffDerivedStart,
+    focus: "看面包师的生计",
+  })
+  expect(api.explorationStart).toHaveBeenCalledWith(expect.objectContaining({
+    novel_id: "p1",
+    scale: "event",
+    start: handoffDerivedStart,
+    focus: "看面包师的生计",
+    action: "story.exploration.event.diagnose",
+    context_confirmation_id: "conf-1",
+    budget_preview_hash: handoffBudgetHash,
+    operation_id: expect.any(String),
+    time_budget_seconds: 3600,
+  }))
+  // 调用顺序：confirm → 预算预览 → start
+  const order = [api.explorationConfirm, api.explorationPreview, api.explorationStart]
+    .map(fn => fn.mock.invocationCallOrder[0])
+  expect(order).toEqual([...order].sort((first, second) => first - second))
+  expect(wrapper.get('[role="status"]').text()).toContain("已在新任务中继续")
+  expect(wrapper.emitted("refresh")).toHaveLength(1)
+})
+
+it("shows the server reason and stops the chain when a confirmation step fails", async () => {
+  const api = handoffApi({
+    confirm: async () => { throw Object.assign(new Error("409：资料确认已过期，请重新预览"), { status: 409 }) },
+  })
+  const wrapper = mountCard(sandboxSource, api)
+  const details = await submitHandoff(wrapper)
+  await details.findAll("button").find(button => button.text() === "继续：确认资料范围并开始").trigger("click")
+  await flushPromises()
+  await details.findAll("button").find(button => button.text() === "确认并开始").trigger("click")
+  await flushPromises()
+
+  expect(wrapper.get('[role="alert"]').text()).toContain("资料确认已过期，请重新预览")
+  expect(api.explorationPreview).not.toHaveBeenCalled()
+  expect(api.explorationStart).not.toHaveBeenCalled()
+})
+
+it("shows the server reason and keeps the form retryable when the handoff request fails", async () => {
+  const api = handoffApi({
+    handoff: async () => { throw Object.assign(new Error("409：所选结果不属于独立探索运行"), { status: 409 }) },
+  })
+  const wrapper = mountCard(sandboxSource, api)
+  const details = await submitHandoff(wrapper)
+
+  expect(wrapper.get('[role="alert"]').text()).toContain("所选结果不属于独立探索运行")
+  expect(details.find(".exploration-result-card__derived").exists()).toBe(false)
+  // 失败后可原样重试：焦点输入与目标选择保持不变
+  expect(details.get("textarea").element.value).toBe("看面包师的生计")
+  expect(details.findAll(".exploration-result-card__target--on")).toHaveLength(1)
+})
+
+it.each([
+  ["author_edit", {
+    ...sandboxSource,
+    scale: "scene_line",
+    output_kind: "story.exploration.author_edit",
+    payload: {
+      base_output_kind: "story.exploration.scene_line",
+      base_result_id: "result-0",
+      edited_payload: { target_ref: "c_b", line: "改后的对白", unknowns: [], warnings: [] },
+      edit_note: "",
+    },
+  }],
+  ["full_rehearsal", rehearsalSource()],
+  ["lock_set", {
+    ...sandboxSource,
+    result_id: "result-lock",
+    output_kind: "story.exploration.lock_set",
+    payload: { locked_items: [{ item_path: "chain:0" }] },
+  }],
+])("hides the handoff entry for %s results", (_kindName, source) => {
+  const wrapper = mountCard(source, {})
+  const summaries = wrapper.findAll("summary").map(summary => summary.text())
+  expect(summaries).not.toContain("基于此推演")
+})
