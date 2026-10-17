@@ -82,6 +82,8 @@
    2026-10-16 用户为编辑审读对照试跑定下的分工是“被测只用 Codex Luna；盲评由用户手动开 Sonnet 5.5，
    执行 Agent 不调用裁判，只写 handoff”。如果这一分工也适用于地图评测，live 运行前要用户决定：单独授权
    Sol 裁判，或把 `score` 改成产出盲评包与 handoff。代码本身需要 `--execute` 加 live 开关，不会被误触发。
+   **已定（2026-10-17）**：用户确认地图评测裁判用 Sol，xhigh 可，现有常量不改；上述盲评分工只适用于
+   编辑审读试跑。
 2. `summarize_metric` 的 `without_map` 按带地图一臂的分母加权（`map_spatial_guard.py:1580–1583`）。每个案例
    只有一个无地图分数，两臂观察机会数不同时，汇总的无地图分数会偏向带地图一臂机会多的案例。
 3. 某题材全部案例对门禁指标都是 not_applicable 时，该指标 `passed=False`，门禁一直阻断。README 要求
