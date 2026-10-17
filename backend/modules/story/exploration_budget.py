@@ -3,6 +3,7 @@
 P0 §5：sandbox/event/scene_line 初始恰好 1 次模型请求；“说详细点”/补桥/局部
 修订每次 +1 且须重新 preview + 追加授权（reason 见
 ``AIRunAuthorizationReason.author_detail_expand`` / ``author_revise``）。
+场景多目标（M2）例外：预算 = 目标数（每人一次独立知识包请求）。
 token 区间按输入包字符长度估算，风格对齐 ``director_budget.py``。
 """
 
@@ -53,12 +54,16 @@ def exploration_preview_identity(
     counterfactual_of_result_id: str | None = None,
     changed_assumptions: list[Assumption] | None = None,
     event_mode_hint: str | None = None,
+    multi_targets: list[str] | None = None,
+    diagnostic_question: str | None = None,
 ) -> dict:
     """预算预览身份：起点、尺度与焦点任一变化都会改变 preview_hash。
 
     反事实对照（M2）额外把基线结果 id 与 changed_assumptions 纳入身份，
     保证“同一起点改不同条件”得到不同的预算指纹，worker 可重算复核。
     事件模式提示（M2）同样纳入身份：信息差与导向路径是不同的任务变体。
+    场景多目标（M2）与空间诊断问题（M2）也纳入身份：目标列表决定请求次数，
+    诊断问题是不同的任务内容。
     """
 
     identity: dict = {
@@ -70,6 +75,10 @@ def exploration_preview_identity(
     }
     if event_mode_hint is not None:
         identity["event_mode_hint"] = str(event_mode_hint)
+    if multi_targets:
+        identity["multi_targets"] = [str(item) for item in multi_targets]
+    if diagnostic_question is not None:
+        identity["diagnostic_question_chars"] = len(diagnostic_question)
     if counterfactual_of_result_id is not None:
         identity["counterfactual_of_result_id"] = str(counterfactual_of_result_id)
         identity["changed_assumptions"] = [
@@ -87,19 +96,23 @@ def preview_exploration_budget(
     counterfactual_of_result_id: str | None = None,
     changed_assumptions: list[Assumption] | None = None,
     event_mode_hint: str | None = None,
+    multi_targets: list[str] | None = None,
+    diagnostic_question: str | None = None,
 ) -> ExplorationBudgetPreview:
     if scale not in _OUTPUT_LOW_CHARS_BY_SCALE:
         raise ValueError(f"不支持的探索尺度：{scale}")
+    # 场景人物差异（M2）：每个目标一次独立请求，预算 = 目标数。
+    request_count = len(multi_targets) if multi_targets else 1
     chars = _start_input_chars(start) + len(focus)
     input_low = max(1, int(chars / 4.0))
     input_high = max(input_low, int(chars / 2.5))
-    output_low = _OUTPUT_LOW_CHARS_BY_SCALE[scale] // 3
-    output_high = _OUTPUT_HIGH_CHARS_BY_SCALE[scale] // 3
+    output_low = _OUTPUT_LOW_CHARS_BY_SCALE[scale] // 3 * request_count
+    output_high = _OUTPUT_HIGH_CHARS_BY_SCALE[scale] // 3 * request_count
     tokens_min = input_low + output_low
     tokens_max = input_high + output_high
     return ExplorationBudgetPreview(
-        requests_min=1,
-        requests_max=1,
+        requests_min=request_count,
+        requests_max=request_count,
         follow_up_max_requests=1,
         tokens_min=tokens_min,
         tokens_max=tokens_max,
@@ -117,6 +130,8 @@ def preview_exploration_budget(
                 counterfactual_of_result_id=counterfactual_of_result_id,
                 changed_assumptions=changed_assumptions,
                 event_mode_hint=event_mode_hint,
+                multi_targets=multi_targets,
+                diagnostic_question=diagnostic_question,
             )
         ),
     )

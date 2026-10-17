@@ -17,8 +17,11 @@ from modules.project.facade import require_active_project
 from modules.story.exploration_recommend import recommend_exploration_scale
 from modules.story.exploration_schemas import (
     EVENT_HINT_LITERAL,
+    MULTI_TARGETS_MAX,
+    MULTI_TARGETS_MIN,
     ExplorationCompareRequest,
     ExplorationScale,
+    SceneSpatialDiagnosticRequest,
 )
 
 EXPLORATION_TARGET_TYPE = "story_exploration"
@@ -69,7 +72,10 @@ def _require_gate() -> None:
 
 
 class ExplorationPreviewOperationRequest(BaseModel):
-    """确定性推荐 + 预算/确认范围预览；无模型调用。"""
+    """确定性推荐 + 预算/确认范围预览；无模型调用。
+
+    ``multi_targets``（M2 场景多目标）仅场景尺度接受：名义预算 = 目标数。
+    """
 
     model_config = ConfigDict(extra="forbid")
 
@@ -79,6 +85,12 @@ class ExplorationPreviewOperationRequest(BaseModel):
     focus: str = Field(default="", max_length=2000)
     task_hint: str | None = Field(default=None, max_length=120)
     has_selection: bool = False
+    multi_targets: list[str] | None = Field(
+        default=None,
+        min_length=MULTI_TARGETS_MIN,
+        max_length=MULTI_TARGETS_MAX,
+    )
+    diagnostic: SceneSpatialDiagnosticRequest | None = None
 
 
 class ExplorationStartOperationRequest(BaseModel):
@@ -86,6 +98,7 @@ class ExplorationStartOperationRequest(BaseModel):
 
     ``event_mode_hint``（M2）仅事件尺度接受：info_gap → 信息差诊断，
     goal → 导向路径；与 action 的配对校验由 apply 侧契约模型完成。
+    ``multi_targets`` / ``diagnostic``（M2）仅场景尺度接受，二者互斥。
     """
 
     model_config = ConfigDict(extra="forbid")
@@ -101,6 +114,12 @@ class ExplorationStartOperationRequest(BaseModel):
     time_budget_seconds: int = Field(default=3600, ge=1, le=6 * 3600)
     target_ref: str | None = Field(default=None, min_length=1, max_length=64)
     event_mode_hint: EVENT_HINT_LITERAL | None = None
+    multi_targets: list[str] | None = Field(
+        default=None,
+        min_length=MULTI_TARGETS_MIN,
+        max_length=MULTI_TARGETS_MAX,
+    )
+    diagnostic: SceneSpatialDiagnosticRequest | None = None
 
 
 class ExplorationDetailOperationRequest(BaseModel):
@@ -139,23 +158,35 @@ class ExplorationHistoryOperationRequest(BaseModel):
 # ---------------------------------------------------------------------------
 
 
-def _advisory_budget_payload(*, novel_id: str, scale: str, focus: str) -> dict:
+def _advisory_budget_payload(
+    *,
+    novel_id: str,
+    scale: str,
+    focus: str,
+    multi_targets: list[str] | None = None,
+) -> dict:
     """未冻结起点时的名义预算（请求次数为硬约定，Token 按焦点长度粗估）。"""
     from infrastructure.llm.collaboration import content_hash
     from modules.story.exploration_schemas import ExplorationBudgetPreview
 
     chars = len(focus)
-    tokens_min = max(1, chars // 4) + 100
-    tokens_max = max(tokens_min, chars // 2 + 400)
+    request_count = len(multi_targets) if multi_targets else 1
+    tokens_min = max(1, chars // 4) + 100 * request_count
+    tokens_max = max(tokens_min, chars // 2 + 400 * request_count)
+    identity: dict = {
+        "novel_id": str(novel_id),
+        "scale": scale,
+        "focus_chars": chars,
+    }
+    if multi_targets:
+        identity["multi_targets"] = [str(item) for item in multi_targets]
     return ExplorationBudgetPreview(
-        requests_min=1,
-        requests_max=1,
+        requests_min=request_count,
+        requests_max=request_count,
         follow_up_max_requests=1,
         tokens_min=tokens_min,
         tokens_max=tokens_max,
-        preview_hash=content_hash(
-            {"novel_id": str(novel_id), "scale": scale, "focus_chars": chars}
-        ),
+        preview_hash=content_hash(identity),
     ).model_dump(mode="json")
 
 
@@ -179,12 +210,17 @@ async def _prepare_preview(db, novel_id, args, *, context=None):
     )
     effective_scale = args.scale or recommended
     reason = reason if args.scale is None else "按你指定的尺度预览"
+    if (args.multi_targets or args.diagnostic) and effective_scale != "scene_line":
+        raise ValueError("multi_targets/diagnostic 仅支持场景一句对白尺度")
     return {
         "recommended_scale": effective_scale,
         "recommendation_reason": reason,
         "focus_hint": args.focus,
         "budget": _advisory_budget_payload(
-            novel_id=novel_id, scale=effective_scale, focus=args.focus
+            novel_id=novel_id,
+            scale=effective_scale,
+            focus=args.focus,
+            multi_targets=args.multi_targets,
         ),
         "requires_confirmation": True,
         "confirmation_summary": (
@@ -226,6 +262,10 @@ async def _prepare_start(db, novel_id, args, *, context=None):
         start=start,
         focus=args.focus,
         event_mode_hint=args.event_mode_hint,
+        multi_targets=args.multi_targets,
+        diagnostic_question=(
+            args.diagnostic.question if args.diagnostic is not None else None
+        ),
     )
     return {
         "confirmed": consistent,
@@ -261,6 +301,10 @@ async def _apply_start(db, novel_id, args, preview, *, context=None):
         payload["target_ref"] = args.target_ref
     if args.event_mode_hint:
         payload["event_mode_hint"] = args.event_mode_hint
+    if args.multi_targets:
+        payload["multi_targets"] = args.multi_targets
+    if args.diagnostic is not None:
+        payload["diagnostic"] = args.diagnostic.model_dump(mode="json")
     return await start_exploration_task(
         db, data=ExplorationStartApiRequest.model_validate(payload)
     )

@@ -154,6 +154,25 @@ def scene_line_payload(
     }
 
 
+def scene_diagnostic_payload(*, has_material: bool) -> dict:
+    """空间诊断（M2）合成响应：有资料给约束，无资料只列未知。"""
+    payload = {
+        "target_ref": "",
+        "line": "",
+        "rationale": "只依据已确认空间资料判断，缺失项列入未知。",
+        "spatial_assessment": {
+            "supported": True if has_material else None,
+            "constraints": (
+                ["桌边通道只容一人侧身（来自已确认资料）"] if has_material else []
+            ),
+            "unknowns": [] if has_material else [],
+        },
+        "unknowns": [],
+        "warnings": [],
+    }
+    return payload
+
+
 class ExplorationOfflineProvider:
     """按 system prompt 判别动作并返回合法夹具响应的离线 provider。"""
 
@@ -192,6 +211,10 @@ class ExplorationOfflineProvider:
             elif "导向路径规划器" in system:
                 # 无解变体由测试通过 override 注入，这里默认给可行路径。
                 payload = event_payload("goal")
+            elif "空间诊断器" in system:
+                payload = scene_diagnostic_payload(
+                    has_material=bool(user.get("spatial_material"))
+                )
             elif "事件诊断器" in system:
                 payload = event_payload("diagnose")
             elif "事件补桥器" in system:

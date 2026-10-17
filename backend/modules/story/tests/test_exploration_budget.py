@@ -160,3 +160,69 @@ def test_budget_model_rejects_inconsistent_ranges():
             tokens_max=2,
             preview_hash="not-a-hash",
         )
+
+
+def test_multi_targets_scale_requests_and_identity():
+    """场景多目标（M2）：预算 = 目标数；目标列表纳入身份。"""
+    novel_id, start = str(uuid.uuid4()), _start()
+    targets = ["c_franks", "c_evasive", "c_bystander"]
+    multi = preview_exploration_budget(
+        novel_id=novel_id,
+        scale="scene_line",
+        start=start,
+        multi_targets=targets,
+    )
+    assert multi.requests_min == multi.requests_max == 3
+    assert multi.follow_up_max_requests == 1
+    single = preview_exploration_budget(
+        novel_id=novel_id, scale="scene_line", start=start
+    )
+    assert single.requests_min == single.requests_max == 1
+    assert multi.tokens_max > single.tokens_max  # 输出按目标数放大
+    # 目标列表纳入身份：不同目标集合/顺序 → 不同 hash
+    other = preview_exploration_budget(
+        novel_id=novel_id,
+        scale="scene_line",
+        start=start,
+        multi_targets=["c_evasive", "c_franks", "c_bystander"],
+    )
+    assert multi.preview_hash != other.preview_hash
+    assert multi.preview_hash == preview_exploration_budget(
+        novel_id=novel_id,
+        scale="scene_line",
+        start=start,
+        multi_targets=list(targets),
+    ).preview_hash
+    identity = exploration_preview_identity(
+        novel_id=novel_id, scale="scene_line", start=start, multi_targets=targets
+    )
+    assert identity["multi_targets"] == targets
+
+
+def test_diagnostic_question_changes_budget_identity():
+    """空间诊断（M2）：预算不变（1 请求），诊断问题纳入身份。"""
+    novel_id, start = str(uuid.uuid4()), _start()
+    plain = preview_exploration_budget(
+        novel_id=novel_id, scale="scene_line", start=start
+    )
+    diagnostic = preview_exploration_budget(
+        novel_id=novel_id,
+        scale="scene_line",
+        start=start,
+        diagnostic_question="他能一步从大门跨到桌边吗？",
+    )
+    assert diagnostic.requests_min == diagnostic.requests_max == 1
+    assert diagnostic.preview_hash != plain.preview_hash
+    assert diagnostic.preview_hash == preview_exploration_budget(
+        novel_id=novel_id,
+        scale="scene_line",
+        start=start,
+        diagnostic_question="他能一步从大门跨到桌边吗？",
+    ).preview_hash
+    identity = exploration_preview_identity(
+        novel_id=novel_id,
+        scale="scene_line",
+        start=start,
+        diagnostic_question="他能一步从大门跨到桌边吗？",
+    )
+    assert identity["diagnostic_question_chars"] == len("他能一步从大门跨到桌边吗？")

@@ -798,7 +798,14 @@ def _result_label_of_kind(output_kind: str, payload: dict) -> str:
         return str(payload.get("question") or "")[:120]
     if output_kind == EVENT_OUTPUT_KIND:
         return str(payload.get("original_excerpt") or "")[:120]
-    return str(payload.get("line") or "")[:120]
+    line = str(payload.get("line") or "")
+    if not line:
+        variants = payload.get("variants") or []
+        if variants:
+            line = str((variants[0] or {}).get("line") or "")
+    if not line and payload.get("spatial_assessment") is not None:
+        line = "（空间诊断结论）"
+    return line[:120]
 
 
 async def read_exploration_history(
