@@ -11,7 +11,7 @@ from __future__ import annotations
 import json
 
 from infrastructure.llm.collaboration import content_hash
-from modules.evidence.contracts import ExplorationStart, ProvisionalStart
+from modules.evidence.contracts import Assumption, ExplorationStart, ProvisionalStart
 from modules.story.exploration_schemas import (
     ExplorationBudgetPreview,
     ExplorationTokenEstimate,
@@ -45,17 +45,33 @@ def _start_input_chars(start: ExplorationStart) -> int:
 
 
 def exploration_preview_identity(
-    *, novel_id: str, scale: str, start: ExplorationStart, focus: str = ""
+    *,
+    novel_id: str,
+    scale: str,
+    start: ExplorationStart,
+    focus: str = "",
+    counterfactual_of_result_id: str | None = None,
+    changed_assumptions: list[Assumption] | None = None,
 ) -> dict:
-    """预算预览身份：起点、尺度与焦点任一变化都会改变 preview_hash。"""
+    """预算预览身份：起点、尺度与焦点任一变化都会改变 preview_hash。
 
-    return {
+    反事实对照（M2）额外把基线结果 id 与 changed_assumptions 纳入身份，
+    保证“同一起点改不同条件”得到不同的预算指纹，worker 可重算复核。
+    """
+
+    identity: dict = {
         "novel_id": str(novel_id),
         "scale": scale,
         "focus_chars": len(focus),
         "input_chars": _start_input_chars(start),
         "start": start.model_dump(mode="json"),
     }
+    if counterfactual_of_result_id is not None:
+        identity["counterfactual_of_result_id"] = str(counterfactual_of_result_id)
+        identity["changed_assumptions"] = [
+            item.model_dump(mode="json") for item in (changed_assumptions or [])
+        ]
+    return identity
 
 
 def preview_exploration_budget(
@@ -64,6 +80,8 @@ def preview_exploration_budget(
     scale: str,
     start: ExplorationStart,
     focus: str = "",
+    counterfactual_of_result_id: str | None = None,
+    changed_assumptions: list[Assumption] | None = None,
 ) -> ExplorationBudgetPreview:
     if scale not in _OUTPUT_LOW_CHARS_BY_SCALE:
         raise ValueError(f"不支持的探索尺度：{scale}")
@@ -87,7 +105,12 @@ def preview_exploration_budget(
         ),
         preview_hash=content_hash(
             exploration_preview_identity(
-                novel_id=novel_id, scale=scale, start=start, focus=focus
+                novel_id=novel_id,
+                scale=scale,
+                start=start,
+                focus=focus,
+                counterfactual_of_result_id=counterfactual_of_result_id,
+                changed_assumptions=changed_assumptions,
             )
         ),
     )

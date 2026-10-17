@@ -11,9 +11,13 @@ from modules.account.settings_constants import LOCAL_OWNER_ID
 from modules.evidence.contracts import Assumption, ProvisionalStart
 from modules.story.exploration_budget import preview_exploration_budget
 from modules.story.exploration_schemas import (
+    EVENT_OUTPUT_KIND,
     SANDBOX_OUTPUT_KIND,
+    EventOutputV1,
     ExplorationOutputEnvelope,
     SandboxOutputV1,
+    apply_changed_assumptions,
+    exploration_start_fingerprint,
 )
 from modules.story.exploration_service import (
     create_exploration_root,
@@ -75,27 +79,49 @@ def _sandbox_envelope() -> ExplorationOutputEnvelope:
     )
 
 
-async def _seed_sandbox_result(db_session, project_id):
+def _event_envelope() -> ExplorationOutputEnvelope:
+    return ExplorationOutputEnvelope(
+        output_kind=EVENT_OUTPUT_KIND,
+        schema_version=1,
+        payload=EventOutputV1.model_validate(
+            {
+                "mode": "diagnose",
+                "original_excerpt": "信使不知道地址，却当天把信送到了本人手里",
+                "gaps": [
+                    {
+                        "description": "缺少信使获知收信人行踪的来源",
+                        "why_needed": "解释为何能精准送达",
+                    }
+                ],
+            }
+        ),
+    )
+
+
+_ENVELOPE_BY_SCALE = {
+    "sandbox": _sandbox_envelope,
+    "event": _event_envelope,
+}
+
+
+async def _seed_sandbox_result(db_session, project_id, *, scale="sandbox"):
     from datetime import UTC, datetime, timedelta
 
     from infrastructure.llm.workflow_budget import new_ai_run_envelope
-    from modules.story.exploration_schemas import exploration_start_fingerprint
 
     start = _provisional_start()
     root, branch = await create_exploration_root(
         db_session,
         novel_id=str(project_id),
         owner_id=OWNER_ID,
-        scale="sandbox",
+        scale=scale,
         start=start,
         context_confirmation_id=str(uuid.uuid4()),
     )
     root.request_json = {
         **(root.request_json or {}),
-        "exploration_scale": "sandbox",
-        "exploration_start_fingerprint": exploration_start_fingerprint(
-            start, "sandbox"
-        ),
+        "exploration_scale": scale,
+        "exploration_start_fingerprint": exploration_start_fingerprint(start, scale),
     }
     started_at = datetime.now(UTC)
     envelope = new_ai_run_envelope(
@@ -119,7 +145,7 @@ async def _seed_sandbox_result(db_session, project_id):
         input_hash="a" * 64,
         output_hash="b" * 64,
         input_json={"mode": "start"},
-        result_json=pack_exploration_output(_sandbox_envelope()),
+        result_json=pack_exploration_output(_ENVELOPE_BY_SCALE[scale]()),
         state_json={},
         metrics_json={"mode": "start", "exploration": True},
         basis_changed=False,
@@ -127,6 +153,27 @@ async def _seed_sandbox_result(db_session, project_id):
     db_session.add(step)
     await db_session.flush()
     return root, branch, step, start
+
+
+async def _add_progression_step(db_session, root, branch, *, input_json, step_number):
+    """在同一分支上追加一条可定制的探索结果行（compare 反事实链测试用）。"""
+    step = StoryWorldProgressionStep(
+        novel_id=root.novel_id,
+        root_id=root.id,
+        branch_id=branch.id,
+        step_number=step_number,
+        source_hash=root.source_hash,
+        input_hash="a" * 64,
+        output_hash="b" * 64,
+        input_json=input_json,
+        result_json=pack_exploration_output(_sandbox_envelope()),
+        state_json={},
+        metrics_json={"mode": "start", "exploration": True},
+        basis_changed=False,
+    )
+    db_session.add(step)
+    await db_session.flush()
+    return step
 
 
 # ---------------------------------------------------------------------------
@@ -589,3 +636,258 @@ async def test_history_returns_flat_items_and_isolates_novel(
     )
     assert scoped.status_code == 200
     assert scoped.json()["total"] == 1
+
+
+# ---------------------------------------------------------------------------
+# 反事实条件对照（M2 沙盘）：preview/start/compare
+# ---------------------------------------------------------------------------
+
+
+def _changed_assumptions() -> list[Assumption]:
+    return [Assumption(kind="world_rule", text="重力变化时段从早晨改到傍晚")]
+
+
+def _cloned_start() -> ProvisionalStart:
+    return apply_changed_assumptions(_provisional_start(), _changed_assumptions())
+
+
+def _cf_start_body(novel_id: str, baseline_id: str, *, hash_override=None):
+    changed = _changed_assumptions()
+    cloned = apply_changed_assumptions(_provisional_start(), changed)
+    budget = preview_exploration_budget(
+        novel_id=novel_id,
+        scale="sandbox",
+        start=cloned,
+        counterfactual_of_result_id=baseline_id,
+        changed_assumptions=changed,
+    )
+    return {
+        "novel_id": novel_id,
+        "scale": "sandbox",
+        "focus": "",
+        "start": None,
+        "action": "story.exploration.sandbox.generate",
+        "context_confirmation_id": str(uuid.uuid4()),
+        "budget_preview_hash": hash_override or budget.preview_hash,
+        "operation_id": str(uuid.uuid4()),
+        "counterfactual_of_result_id": baseline_id,
+        "changed_assumptions": [item.model_dump(mode="json") for item in changed],
+    }
+
+
+@pytest.mark.asyncio
+async def test_counterfactual_preview_returns_derived_start_and_baseline_hash(
+    async_client, db_session, test_project_id, monkeypatch
+):
+    _enable_exploration(monkeypatch)
+    _root, _branch, baseline, _start = await _seed_sandbox_result(
+        db_session, test_project_id
+    )
+    response = await async_client.post(
+        "/api/story/exploration/preview",
+        json={
+            "novel_id": test_project_id,
+            "scale": "sandbox",
+            "focus": "",
+            "counterfactual_of_result_id": str(baseline.id),
+            "changed_assumptions": [
+                item.model_dump(mode="json") for item in _changed_assumptions()
+            ],
+        },
+    )
+    assert response.status_code == 200, response.json()
+    body = response.json()
+    expected_start = _cloned_start()
+    assert body["derived_start"] == expected_start.model_dump(mode="json")
+    assert body["counterfactual_of_result_id"] == str(baseline.id)
+    assert body["budget"]["preview_hash"] == preview_exploration_budget(
+        novel_id=test_project_id,
+        scale="sandbox",
+        start=expected_start,
+        counterfactual_of_result_id=str(baseline.id),
+        changed_assumptions=_changed_assumptions(),
+    ).preview_hash
+    # 普通起点的预算身份不含基线，两者不同
+    assert body["budget"]["preview_hash"] != preview_exploration_budget(
+        novel_id=test_project_id, scale="sandbox", start=expected_start
+    ).preview_hash
+
+
+@pytest.mark.asyncio
+async def test_counterfactual_start_rejects_missing_foreign_and_non_sandbox_baseline(
+    async_client, db_session, test_project_id, project_factory, monkeypatch
+):
+    _enable_exploration(monkeypatch)
+    _root, _branch, baseline, _start = await _seed_sandbox_result(
+        db_session, test_project_id
+    )
+    other_project = str(await project_factory.create_project(title="另一本"))
+
+    missing = await async_client.post(
+        "/api/story/exploration/start",
+        json=_cf_start_body(test_project_id, str(uuid.uuid4())),
+    )
+    assert missing.status_code == 404
+    assert "探索结果不存在" in missing.json()["detail"]
+
+    foreign = await async_client.post(
+        "/api/story/exploration/start",
+        json=_cf_start_body(other_project, str(baseline.id)),
+    )
+    assert foreign.status_code == 404
+
+    _eroot, _ebranch, event_row, _estart = await _seed_sandbox_result(
+        db_session, test_project_id, scale="event"
+    )
+    event_baseline = await async_client.post(
+        "/api/story/exploration/start",
+        json=_cf_start_body(test_project_id, str(event_row.id)),
+    )
+    assert event_baseline.status_code == 409
+    assert "沙盘" in event_baseline.json()["detail"]
+
+
+@pytest.mark.asyncio
+async def test_counterfactual_start_clones_baseline_and_fails_closed_on_drift(
+    async_client, db_session, test_project_id, monkeypatch
+):
+    _enable_exploration(monkeypatch)
+    _root, _branch, baseline, base_start = await _seed_sandbox_result(
+        db_session, test_project_id
+    )
+    cloned = _cloned_start()
+    _stub_confirmation(monkeypatch, cloned)
+    response = await async_client.post(
+        "/api/story/exploration/start",
+        json=_cf_start_body(test_project_id, str(baseline.id)),
+    )
+    assert response.status_code == 202, response.json()
+    payload = response.json()
+    root_row = await db_session.get(
+        StoryWorldProgressionRoot, uuid.UUID(payload["root_id"])
+    )
+    request_json = root_row.request_json
+    assert request_json["exploration_start"] == cloned.model_dump(mode="json")
+    assert request_json["exploration_start_fingerprint"] == (
+        exploration_start_fingerprint(cloned, "sandbox")
+    )
+    assert request_json["counterfactual_of"] == str(baseline.id)
+    assert request_json["changed_assumptions"] == [
+        item.model_dump(mode="json") for item in _changed_assumptions()
+    ]
+    # 共同基底逐字保留，只改指定条件
+    assert request_json["exploration_start"]["question"] == base_start.question
+    assert request_json["exploration_start"]["time_basis"] == base_start.time_basis
+    assert request_json["exploration_start"]["assumptions"] == [
+        {"kind": "world_rule", "text": "重力变化时段从早晨改到傍晚"}
+    ]
+
+    # 确认冻结的是基线起点（未克隆）→ 失败关闭
+    _stub_confirmation(monkeypatch, base_start)
+    drifted_confirmation = await async_client.post(
+        "/api/story/exploration/start",
+        json=_cf_start_body(test_project_id, str(baseline.id)),
+    )
+    assert drifted_confirmation.status_code == 409
+    assert "起点与本次请求不一致" in drifted_confirmation.json()["detail"]
+
+    # 预算 hash 用普通身份（不含基线）重放 → 失败关闭
+    _stub_confirmation(monkeypatch, cloned)
+    plain_hash = preview_exploration_budget(
+        novel_id=test_project_id, scale="sandbox", start=cloned
+    ).preview_hash
+    stale_hash = await async_client.post(
+        "/api/story/exploration/start",
+        json=_cf_start_body(test_project_id, str(baseline.id), hash_override=plain_hash),
+    )
+    assert stale_hash.status_code == 409
+    assert "重新预览预算" in stale_hash.json()["detail"]
+
+
+@pytest.mark.asyncio
+async def test_compare_counterfactual_requires_link_and_returns_changed_conditions(
+    async_client, db_session, test_project_id, monkeypatch
+):
+    _enable_exploration(monkeypatch)
+    root, branch, baseline, _start = await _seed_sandbox_result(
+        db_session, test_project_id
+    )
+    variant = await _add_progression_step(
+        db_session,
+        root,
+        branch,
+        input_json={
+            "mode": "start",
+            "counterfactual_of": str(baseline.id),
+            "changed_assumption_texts": ["重力变化时段从早晨改到傍晚"],
+        },
+        step_number=2,
+    )
+    other_root, other_branch, stranger, _stranger_start = await _seed_sandbox_result(
+        db_session, test_project_id
+    )
+
+    def _compare(first, second, mode=None):
+        body = {
+            "novel_id": test_project_id,
+            "first_result_id": str(first),
+            "second_result_id": str(second),
+        }
+        if mode is not None:
+            body["mode"] = mode
+        return async_client.post("/api/story/exploration/compare", json=body)
+
+    # 无反事实衍生关系的两行 → 409（不把两份无关长文当比较）
+    unrelated = await _compare(baseline.id, stranger.id, mode="counterfactual")
+    assert unrelated.status_code == 409
+    assert "反事实衍生关系" in unrelated.json()["detail"]
+
+    # same_start 模式行为不变：同根同指纹仍可比，不校验反事实链
+    legacy = await _compare(baseline.id, variant.id)
+    assert legacy.status_code == 200
+    assert legacy.json()["start_fingerprint"]
+    assert "changed_conditions" not in legacy.json()
+
+    # 基线 ↔ 衍生：changed_conditions 为衍生行文本
+    derived = await _compare(baseline.id, variant.id, mode="counterfactual")
+    assert derived.status_code == 200, derived.json()
+    body = derived.json()
+    assert body["mode"] == "counterfactual"
+    assert body["start_fingerprint"] is None
+    assert body["changed_conditions"] == ["重力变化时段从早晨改到傍晚"]
+
+    # 共享基线：两条变体的对称差集（保持首现顺序）
+    variant_a = await _add_progression_step(
+        db_session,
+        other_root,
+        other_branch,
+        input_json={
+            "mode": "start",
+            "counterfactual_of": str(baseline.id),
+            "changed_assumption_texts": [
+                "重力变化时段从早晨改到傍晚",
+                "面包炉改为电炉",
+            ],
+        },
+        step_number=2,
+    )
+    variant_b = await _add_progression_step(
+        db_session,
+        other_root,
+        other_branch,
+        input_json={
+            "mode": "start",
+            "counterfactual_of": str(baseline.id),
+            "changed_assumption_texts": [
+                "面包炉改为电炉",
+                "城镇粮仓只够两周",
+            ],
+        },
+        step_number=3,
+    )
+    shared = await _compare(variant_a.id, variant_b.id, mode="counterfactual")
+    assert shared.status_code == 200, shared.json()
+    assert shared.json()["changed_conditions"] == [
+        "重力变化时段从早晨改到傍晚",
+        "城镇粮仓只够两周",
+    ]

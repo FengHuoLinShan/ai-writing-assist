@@ -558,7 +558,7 @@ C6_EXPLORATION_SNAPSHOT = {
         "比较同起点探索结果",
         "read",
         "1",
-        "43ec3e56607bbb7607c58dab09ec633fa26a4a203ab1334670c1ae0995b33060",
+        "d8c79212578133aedfc033f0f04e5be8949609ca361869ce8587ad08a2e4f19a",
     ),
     "story.exploration.detail": (
         "对探索结果说详细点",

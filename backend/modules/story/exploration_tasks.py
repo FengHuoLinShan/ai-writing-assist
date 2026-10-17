@@ -30,7 +30,11 @@ from infrastructure.tasks.facade import (
     require_task_checkpoint_session,
 )
 from infrastructure.tasks.registry import task_handler
-from modules.evidence.contracts import ProvisionalStart, SceneAnchorStart
+from modules.evidence.contracts import (
+    Assumption,
+    ProvisionalStart,
+    SceneAnchorStart,
+)
 from modules.evidence.facade import (
     build_hidden_guard_context,
     prepare_confirmed_ai_action,
@@ -276,11 +280,38 @@ def _require_confirmation_matches(
         raise ValueError("冻结起点与本次任务不一致，失败关闭；请重新预览并确认")
 
 
+def _counterfactual_request_params(root_request: dict) -> tuple[str | None, list]:
+    """从根冻结 request_json 读反事实身份；缺失或畸形即失败关闭。"""
+    counterfactual_of = root_request.get("counterfactual_of")
+    if not counterfactual_of:
+        return None, []
+    raw = root_request.get("changed_assumptions")
+    if not isinstance(raw, list) or not raw:
+        raise ValueError("反事实探索根缺少 changed_assumptions，失败关闭")
+    changed = [
+        item if isinstance(item, Assumption) else Assumption.model_validate(item)
+        for item in raw
+    ]
+    return str(counterfactual_of), changed
+
+
 def _require_preview_hash(
-    *, novel_id: str, scale: str, start, focus: str, expected: str
+    *,
+    novel_id: str,
+    scale: str,
+    start,
+    focus: str,
+    expected: str,
+    counterfactual_of_result_id: str | None = None,
+    changed_assumptions: list | None = None,
 ) -> None:
     current = preview_exploration_budget(
-        novel_id=novel_id, scale=scale, start=start, focus=focus
+        novel_id=novel_id,
+        scale=scale,
+        start=start,
+        focus=focus,
+        counterfactual_of_result_id=counterfactual_of_result_id,
+        changed_assumptions=changed_assumptions,
     )
     if current.preview_hash != expected:
         raise ValueError("起点或焦点已变化，预算预览不一致，失败关闭")
@@ -735,6 +766,9 @@ async def handle_story_exploration_progression(db, task):
     _check_envelope_identity(envelope, root_id=root_id, novel_id=novel_id)
     guard = _budget_guard(meta)
     start = _validate_start_dump(start_dump)
+    counterfactual_of, changed_assumptions = _counterfactual_request_params(
+        root_request
+    )
     if mode == "start":
         _require_preview_hash(
             novel_id=novel_id,
@@ -742,6 +776,8 @@ async def handle_story_exploration_progression(db, task):
             start=start,
             focus=focus,
             expected=str(meta.get("budget_preview_hash") or ""),
+            counterfactual_of_result_id=counterfactual_of,
+            changed_assumptions=changed_assumptions,
         )
 
     confirmed = await prepare_confirmed_ai_action(
@@ -923,6 +959,14 @@ async def _write_progression_result(
         "item_path": item_path,
         "item_content_hash": item_content_hash,
     }
+    if root_request.get("counterfactual_of"):
+        # 反事实对照（M2）：结果行记录基线与变更条件文本，供对照比较校验链路。
+        input_payload["counterfactual_of"] = str(root_request["counterfactual_of"])
+        input_payload["changed_assumption_texts"] = [
+            str(item.get("text") or "")
+            for item in (root_request.get("changed_assumptions") or [])
+            if isinstance(item, dict)
+        ]
     return await append_progression_step(
         db,
         novel_id=str(root.novel_id),
