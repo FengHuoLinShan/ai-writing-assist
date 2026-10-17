@@ -7,7 +7,11 @@ import uuid
 import pytest
 from pydantic import ValidationError
 
-from modules.evidence.contracts import ProvisionalStart
+from modules.evidence.contracts import Assumption, CandidateRef, ProvisionalStart
+from modules.story.exploration_budget import (
+    exploration_preview_identity,
+    preview_exploration_budget,
+)
 from modules.story.exploration_schemas import (
     AUTHOR_EDIT_OUTPUT_KIND,
     EVENT_OUTPUT_KIND,
@@ -28,6 +32,7 @@ from modules.story.exploration_schemas import (
     InfluenceLink,
     SandboxOutputV1,
     SceneLineOutputV1,
+    apply_changed_assumptions,
     exploration_start_fingerprint,
 )
 
@@ -493,3 +498,254 @@ def test_start_fingerprint_is_deterministic_and_discriminating():
     assert len(base) == 64
     assert base != exploration_start_fingerprint(start, "event")
     assert base != exploration_start_fingerprint(changed, "sandbox")
+
+
+# ---------------------------------------------------------------------------
+# 反事实条件对照（M2）：请求字段 + 克隆语义 + 预算身份
+# ---------------------------------------------------------------------------
+
+
+def _start_task_base(**overrides):
+    base = {
+        "novel_id": NOVEL_ID,
+        "scale": "sandbox",
+        "action": "story.exploration.sandbox.generate",
+        "start": _provisional_payload(),
+        "operation_id": str(uuid.uuid4()),
+        "context_confirmation_id": "ctx-cf",
+        "budget_preview_hash": "c" * 64,
+    }
+    base.update(overrides)
+    return base
+
+
+def test_start_task_request_accepts_counterfactual_fields():
+    baseline_id = str(uuid.uuid4())
+    request = ExplorationStartTaskRequest.model_validate(
+        {
+            **_start_task_base(start=None),
+            "counterfactual_of_result_id": baseline_id,
+            "changed_assumptions": [
+                {"kind": "world_rule", "text": "重力变化时段从早晨改到傍晚"}
+            ],
+        }
+    )
+    assert request.counterfactual_of_result_id == baseline_id
+    assert request.start is None
+    assert request.changed_assumptions[0].text == "重力变化时段从早晨改到傍晚"
+    with pytest.raises(ValidationError):
+        ExplorationStartTaskRequest.model_validate(
+            {
+                **_start_task_base(start=None),
+                "counterfactual_of_result_id": "not-a-uuid",
+                "changed_assumptions": [
+                    {"kind": "world_rule", "text": "重力变化时段改到傍晚"}
+                ],
+            }
+        )
+
+
+def test_counterfactual_request_rejects_partial_fields_and_explicit_start():
+    baseline_id = str(uuid.uuid4())
+    changed = [{"kind": "world_rule", "text": "重力变化时段改到傍晚"}]
+    # 只给基线不给变更条件
+    with pytest.raises(ValidationError):
+        ExplorationStartTaskRequest.model_validate(
+            _start_task_base(counterfactual_of_result_id=baseline_id)
+        )
+    # 只给变更条件不给基线
+    with pytest.raises(ValidationError):
+        ExplorationStartTaskRequest.model_validate(
+            _start_task_base(changed_assumptions=changed)
+        )
+    # 反事实请求不允许再直接传 start
+    with pytest.raises(ValidationError):
+        ExplorationStartTaskRequest.model_validate(
+            {
+                **_start_task_base(),
+                "counterfactual_of_result_id": baseline_id,
+                "changed_assumptions": changed,
+            }
+        )
+    # 反事实对照仅支持沙盘尺度
+    with pytest.raises(ValidationError):
+        ExplorationStartTaskRequest.model_validate(
+            {
+                **_start_task_base(start=None, scale="event"),
+                "action": "story.exploration.event.diagnose",
+                "counterfactual_of_result_id": baseline_id,
+                "changed_assumptions": changed,
+            }
+        )
+
+
+def test_counterfactual_changed_assumptions_rejects_empty_and_identity_kind():
+    baseline_id = str(uuid.uuid4())
+    with pytest.raises(ValidationError):
+        ExplorationStartTaskRequest.model_validate(
+            {
+                **_start_task_base(start=None),
+                "counterfactual_of_result_id": baseline_id,
+                "changed_assumptions": [],
+            }
+        )
+    with pytest.raises(ValidationError):
+        ExplorationStartTaskRequest.model_validate(
+            {
+                **_start_task_base(start=None),
+                "counterfactual_of_result_id": baseline_id,
+                "changed_assumptions": [
+                    {"kind": "identity", "text": "面包师其实是退役骑兵"}
+                ],
+            }
+        )
+    with pytest.raises(ValidationError):
+        ExplorationStartTaskRequest.model_validate(
+            {
+                **_start_task_base(start=None),
+                "counterfactual_of_result_id": baseline_id,
+                "changed_assumptions": [
+                    {"kind": "state", "text": f"条件{i}"}
+                    for i in range(11)
+                ],
+            }
+        )
+
+
+def test_apply_changed_assumptions_replaces_same_kind_and_keeps_rest_verbatim():
+    start = ProvisionalStart(
+        kind="provisional",
+        question="这个城镇每天只有一小时重力减半，面包师的一天会怎样？",
+        assumptions=[
+            Assumption(kind="world_rule", text="每天只有一小时重力减半"),
+            Assumption(kind="state", text="城镇仍靠手作炉与畜力磨坊"),
+        ],
+        candidates=[CandidateRef(ref_id="c_baker", label="面包师", role="character")],
+        knowledge=[
+            {
+                "subject_ref": "c_baker",
+                "knows": ["自己每天三点起床"],
+                "observed": [],
+                "misbelieves": [],
+            }
+        ],
+        time_basis="收获季第一周",
+    )
+    cloned = apply_changed_assumptions(
+        start,
+        [Assumption(kind="world_rule", text="重力变化时段从早晨改到傍晚")],
+    )
+    # 同 kind：text 以 changed 为准，位置不变
+    assert cloned.assumptions[0].kind == "world_rule"
+    assert cloned.assumptions[0].text == "重力变化时段从早晨改到傍晚"
+    # 未改条件与其余起点内容逐字保留
+    assert cloned.assumptions[1] == start.assumptions[1]
+    assert cloned.question == start.question
+    assert cloned.time_basis == start.time_basis
+    assert cloned.candidates == start.candidates
+    assert cloned.knowledge == start.knowledge
+    # 原起点不被原地修改
+    assert start.assumptions[0].text == "每天只有一小时重力减半"
+    assert cloned != start
+
+
+def test_apply_changed_assumptions_appends_new_kind_and_multiple_changes():
+    start = ProvisionalStart.model_validate(_provisional_payload())
+    cloned = apply_changed_assumptions(
+        start,
+        [
+            Assumption(kind="state", text="城镇粮仓只够两周"),
+            Assumption(kind="world_rule", text="重力变化时段从早晨改到傍晚"),
+        ],
+    )
+    # 基线只有一条 world_rule：第一条 changed 追加，第二条替换既有 world_rule
+    assert [item.kind for item in cloned.assumptions] == ["world_rule", "state"]
+    assert cloned.assumptions[0].text == "重力变化时段从早晨改到傍晚"
+    assert cloned.assumptions[1].text == "城镇粮仓只够两周"
+
+
+def test_counterfactual_budget_identity_includes_baseline_and_changed():
+    start = ProvisionalStart.model_validate(_provisional_payload())
+    baseline_a, baseline_b = str(uuid.uuid4()), str(uuid.uuid4())
+    changed_a = [Assumption(kind="world_rule", text="重力变化时段从早晨改到傍晚")]
+    changed_b = [Assumption(kind="world_rule", text="重力变化时段改到深夜")]
+
+    plain = exploration_preview_identity(
+        novel_id=NOVEL_ID, scale="sandbox", start=start
+    )
+    assert "counterfactual_of_result_id" not in plain
+
+    cf_a = exploration_preview_identity(
+        novel_id=NOVEL_ID,
+        scale="sandbox",
+        start=start,
+        counterfactual_of_result_id=baseline_a,
+        changed_assumptions=changed_a,
+    )
+    cf_a_again = exploration_preview_identity(
+        novel_id=NOVEL_ID,
+        scale="sandbox",
+        start=start,
+        counterfactual_of_result_id=baseline_a,
+        changed_assumptions=changed_a,
+    )
+    assert cf_a == cf_a_again
+    assert cf_a["counterfactual_of_result_id"] == baseline_a
+    assert cf_a["changed_assumptions"] == [
+        item.model_dump(mode="json") for item in changed_a
+    ]
+    # 基线不同或变更条件不同 → 身份与 preview_hash 都不同
+    changed_b_dump = [item.model_dump(mode="json") for item in changed_b]
+    for variant in (
+        dict(cf_a, counterfactual_of_result_id=baseline_b),
+        dict(cf_a, changed_assumptions=changed_b_dump),
+    ):
+        assert variant != cf_a
+    budget_cf = preview_exploration_budget(
+        novel_id=NOVEL_ID,
+        scale="sandbox",
+        start=start,
+        counterfactual_of_result_id=baseline_a,
+        changed_assumptions=changed_a,
+    )
+    budget_plain = preview_exploration_budget(
+        novel_id=NOVEL_ID, scale="sandbox", start=start
+    )
+    assert budget_cf.preview_hash != budget_plain.preview_hash
+    assert budget_cf.requests_max == budget_plain.requests_max == 1
+    assert budget_cf.preview_hash == preview_exploration_budget(
+        novel_id=NOVEL_ID,
+        scale="sandbox",
+        start=start,
+        counterfactual_of_result_id=baseline_a,
+        changed_assumptions=changed_a,
+    ).preview_hash
+
+
+def test_compare_request_defaults_to_same_start_and_accepts_counterfactual():
+    request = ExplorationCompareRequest.model_validate(
+        {
+            "novel_id": NOVEL_ID,
+            "first_result_id": str(uuid.uuid4()),
+            "second_result_id": str(uuid.uuid4()),
+        }
+    )
+    assert request.mode == "same_start"
+    counterfactual = ExplorationCompareRequest.model_validate(
+        {
+            "novel_id": NOVEL_ID,
+            "first_result_id": str(uuid.uuid4()),
+            "second_result_id": str(uuid.uuid4()),
+            "mode": "counterfactual",
+        }
+    )
+    assert counterfactual.mode == "counterfactual"
+    with pytest.raises(ValidationError):
+        ExplorationCompareRequest.model_validate(
+            {
+                "novel_id": NOVEL_ID,
+                "first_result_id": str(uuid.uuid4()),
+                "second_result_id": str(uuid.uuid4()),
+                "mode": "timeline",
+            }
+        )

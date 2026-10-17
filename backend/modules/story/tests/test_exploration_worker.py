@@ -33,6 +33,8 @@ from modules.story.exploration_schemas import (
     ExplorationOutputEnvelope,
     SandboxOutputV1,
     SceneLineOutputV1,
+    apply_changed_assumptions,
+    exploration_start_fingerprint,
 )
 from modules.story.exploration_service import (
     create_exploration_root,
@@ -230,7 +232,9 @@ async def exploration_flow(exploration_engine, monkeypatch):
             envelope,
         )
 
-    async def enqueue_for(spec, envelope, *, action, mode="start", **extra):
+    async def enqueue_for(
+        spec, envelope, *, action, mode="start", preview_hash=None, **extra
+    ):
         budget = preview_exploration_budget(
             novel_id=str(spec.novel_id),
             scale=spec.scale,
@@ -257,7 +261,7 @@ async def exploration_flow(exploration_engine, monkeypatch):
             "exploration_scale": spec.scale,
             "exploration_authorized_requests": 1,
             "exploration_authorized_tokens": budget.tokens_max,
-            "budget_preview_hash": budget.preview_hash,
+            "budget_preview_hash": preview_hash or budget.preview_hash,
             "exploration_deadline_seconds": 3600,
             "exploration_acknowledged_unknown_requests": 0,
             "exploration_baseline_requests_started": 0,
@@ -686,3 +690,88 @@ async def test_canonical_scene_line_guard_fails_closed_without_persist(explorati
         branch = await db.get(StorySceneDirectorBranch, spec.branch_id)
         assert branch.status == "failed"
     assert flow.provider.calls == 1
+
+
+# ---------------------------------------------------------------------------
+# 反事实条件对照（M2 沙盘）：预算身份带基线 + 结果行记录基线与变更条件
+# ---------------------------------------------------------------------------
+
+
+async def _freeze_counterfactual_root(flow, spec, baseline_id: str):
+    changed = [Assumption(kind="world_rule", text="重力变化时段从早晨改到傍晚")]
+    async with flow.sessions.begin() as db:
+        root = await db.get(StoryWorldProgressionRoot, spec.root_id)
+        root.request_json = {
+            **(root.request_json or {}),
+            "counterfactual_of": baseline_id,
+            "changed_assumptions": [
+                item.model_dump(mode="json") for item in changed
+            ],
+        }
+    return changed
+
+
+async def test_counterfactual_start_records_baseline_and_changed_texts(exploration_flow):
+    flow = exploration_flow
+    changed = [Assumption(kind="world_rule", text="重力变化时段从早晨改到傍晚")]
+    cloned = apply_changed_assumptions(_provisional_start(), changed)
+    spec, envelope = await flow.setup(chain="progression", scale="sandbox", start=cloned)
+    baseline_id = str(uuid.uuid4())
+    frozen = await _freeze_counterfactual_root(flow, spec, baseline_id)
+    assert frozen == changed
+    cf_budget = preview_exploration_budget(
+        novel_id=str(spec.novel_id),
+        scale="sandbox",
+        start=cloned,
+        focus=spec.focus,
+        counterfactual_of_result_id=baseline_id,
+        changed_assumptions=changed,
+    )
+    task_id = await flow.enqueue(
+        spec,
+        envelope,
+        action="story.exploration.sandbox.generate",
+        preview_hash=cf_budget.preview_hash,
+    )
+    task = await flow.run(task_id)
+    assert task.status == "done", task.error_message
+    async with flow.sessions() as db:
+        step = await db.scalar(
+            select(StoryWorldProgressionStep).where(
+                StoryWorldProgressionStep.root_id == spec.root_id
+            )
+        )
+        assert step.input_json["mode"] == "start"
+        assert step.input_json["counterfactual_of"] == baseline_id
+        assert step.input_json["changed_assumption_texts"] == [
+            "重力变化时段从早晨改到傍晚"
+        ]
+        assert step.input_json["start_summary"]["fingerprint"] == (
+            exploration_start_fingerprint(cloned, "sandbox")
+        )
+    assert flow.provider.calls == 1
+
+
+async def test_counterfactual_start_rejects_plain_budget_hash(exploration_flow):
+    """反事实根用普通身份的 preview hash 重放 → worker 失败关闭，不落库。"""
+    flow = exploration_flow
+    changed = [Assumption(kind="world_rule", text="重力变化时段从早晨改到傍晚")]
+    cloned = apply_changed_assumptions(_provisional_start(), changed)
+    spec, envelope = await flow.setup(chain="progression", scale="sandbox", start=cloned)
+    baseline_id = str(uuid.uuid4())
+    await _freeze_counterfactual_root(flow, spec, baseline_id)
+    task_id = await flow.enqueue(
+        spec, envelope, action="story.exploration.sandbox.generate"
+    )
+    task = await flow.run(task_id)
+    assert task.status == "failed"
+    async with flow.sessions() as db:
+        steps = (
+            await db.scalars(
+                select(StoryWorldProgressionStep).where(
+                    StoryWorldProgressionStep.root_id == spec.root_id
+                )
+            )
+        ).all()
+        assert steps == []
+    assert flow.provider.calls == 0
