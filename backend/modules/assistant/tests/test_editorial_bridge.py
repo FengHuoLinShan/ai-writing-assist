@@ -6,7 +6,9 @@
 
 from __future__ import annotations
 
+import json
 import uuid
+from contextlib import asynccontextmanager
 from dataclasses import replace
 
 import pytest
@@ -16,6 +18,7 @@ from core.config import get_settings
 from infrastructure.tasks.models import AsyncTask
 from modules.account.settings_constants import LOCAL_OWNER_ID
 from modules.assistant import editorial, editorial_bridge
+from modules.assistant.editorial_contracts import RecheckOutput
 from modules.assistant.editorial_models import EditorialIssue, EditorialReview
 from modules.writing.models import WritingComment
 from modules.writing.schemas import WritingDraftCreate, WritingDraftUpdate
@@ -29,13 +32,15 @@ def _enable_editorial(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(editorial, "get_settings", lambda: settings)
 
 
-async def _create_draft(db_session, novel_id: str, content: str):
+async def _create_draft(
+    db_session, novel_id: str, content: str, *, chapter_index: int = 1
+):
     return await WritingDraftService().create_draft_contract(
         db_session,
         WritingDraftCreate(
             novel_id=novel_id,
-            chapter_index=1,
-            title="第1章",
+            chapter_index=chapter_index,
+            title=f"第{chapter_index}章",
             content=content,
         ),
     )
@@ -91,10 +96,10 @@ async def _seed_issue(
     return row
 
 
-def _evidence(draft, text: str, quote: str) -> dict:
+def _evidence(draft, text: str, quote: str, *, chapter_index: int = 1) -> dict:
     start = text.find(quote)
     return {
-        "chapter_index": 1,
+        "chapter_index": chapter_index,
         "draft_id": draft.id,
         "version_number": draft.version_number,
         "content_hash": draft.content_hash,
@@ -102,6 +107,72 @@ def _evidence(draft, text: str, quote: str) -> dict:
         "start": start,
         "end": start + len(quote),
     }
+
+
+async def test_cross_chapter_issue_recheck_reads_and_validates_prior_chapter_evidence(
+    async_client, db_session, account_llm_connection, monkeypatch
+):
+    _enable_editorial(monkeypatch)
+    novel_id = (
+        await async_client.post("/api/projects", json={"title": "跨章复核合成作品"})
+    ).json()["id"]
+    first_text = "第一章的航海日志写着六月三日出港。"
+    third_text = "第三章的岸上记录写着六月四日抵港。"
+    first = await _create_draft(db_session, novel_id, first_text, chapter_index=1)
+    third = await _create_draft(db_session, novel_id, third_text, chapter_index=3)
+    review = await _seed_review(db_session, novel_id)
+    review.scope_json = {"scope": "range", "start_chapter": 1, "end_chapter": 3}
+    issue = await _seed_issue(
+        db_session,
+        review,
+        evidence=[
+            _evidence(first, first_text, "六月三日出港", chapter_index=1),
+            _evidence(third, third_text, "六月四日抵港", chapter_index=3),
+        ],
+    )
+    changed = await async_client.put(
+        f"/api/writing/drafts/{third.id}?novel_id={novel_id}",
+        json={"content": "第三章的岸上记录写着六月四日抵港；旁注说明船曾改期。"},
+    )
+    assert changed.status_code == 200, changed.text
+
+    requested = await async_client.post(
+        f"/api/assistant/editorial/issues/{issue.id}/recheck",
+        json={
+            "novel_id": novel_id,
+            "operation_id": str(uuid.uuid4()),
+            "expected_version": issue.row_version,
+        },
+    )
+    assert requested.status_code == 200, requested.text
+    entry = issue.recheck_json[-1]
+    assert [source["chapter_index"] for source in entry["sources"]] == [1, 3]
+
+    @asynccontextmanager
+    async def client(*_args, **_kwargs):
+        yield type("Client", (), {"model_name": "offline-editorial"})()
+
+    async def recheck_model(_client, request, schema, **_kwargs):
+        assert schema is RecheckOutput
+        payload = json.loads(request.messages[1].content)
+        assert [item["chapter_index"] for item in payload["new_snippets"]] == [1, 3]
+        return RecheckOutput(
+            verdict="possibly_improved",
+            reason="第三章补充了改期说明，但仍需作者确认前文安排",
+            new_evidence=[
+                {"chapter_index": 3, "quote": "旁注说明船曾改期"}
+            ],
+        )
+
+    monkeypatch.setattr(editorial, "open_project_snapshot_llm_client", client)
+    monkeypatch.setattr(editorial, "run_managed_structured", recheck_model)
+    db_session.task_checkpoint_enabled = True
+    task = await db_session.get(AsyncTask, uuid.UUID(requested.json()["task_id"]))
+    await editorial.execute_recheck(db_session, task)
+
+    updated = await db_session.get(EditorialIssue, issue.id, populate_existing=True)
+    assert updated.recheck_json[-1]["verdict"] == "possibly_improved"
+    assert updated.recheck_json[-1]["new_evidence"][0]["chapter_index"] == 3
 
 
 async def test_bridge_requires_explicit_evidence_and_overlap_confirmation(

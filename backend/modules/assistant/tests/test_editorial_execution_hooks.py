@@ -179,6 +179,221 @@ async def test_worker_hooks_keep_prompt_and_budget_through_each_pass(
         ]
 
 
+async def test_cross_chapter_evidence_survives_resume_without_extra_requests(
+    review_case, db_session, monkeypatch
+):
+    task, row = await review_case.submit("range", ["reader", "copy"], end_chapter=3)
+    requests = []
+    first_quote = review_case.drafts[0]["content"]
+
+    async def model(_client, request, schema, **_kwargs):
+        payload = json.loads(request.messages[1].content)
+        requests.append(payload)
+        workflow = current_workflow_budget()
+        await workflow.before_request()
+        await workflow.completed(
+            LLMUsage(prompt_tokens=10, completion_tokens=5, total_tokens=15)
+        )
+        if "nodes" in payload:
+            return ReviewPass(summary="已汇总各章的意见。")
+        if "dimensions" not in payload:
+            return ReviewPass(summary="顺序阅读完成。", reader_state="记得前文。")
+        chapter = payload["chapter_index"]
+        findings = []
+        if chapter == 3:
+            findings = [
+                {
+                    "category": "copy",
+                    "judgment": "第三章的地址与前章记录需要核对",
+                    "reader_impact": "读者会同时记得前文地点和本章信息",
+                    "severity": "high",
+                    "why_now": "当前章节重新使用了前文地址",
+                    "evidence": [
+                        {"chapter_index": 1, "quote": first_quote},
+                        {"chapter_index": 3, "quote": payload["text"]},
+                    ],
+                    "directions": [
+                        {
+                            "approach": "先核对地点变化是否需要在正文说明",
+                            "affected_chapters": [1, 3],
+                            "tradeoff": "可能增加一处解释",
+                        }
+                    ],
+                }
+            ]
+        carried = (
+            [{"chapter_index": 1, "quote": first_quote}] if chapter == 1 else []
+        )
+        return ReviewPass(
+            summary=f"第{chapter}章已读。", findings=findings, carry_forward=carried
+        )
+
+    monkeypatch.setattr(editorial, "run_managed_structured", model)
+    assert await editorial.execute(db_session, task) == {
+        "review_id": str(row.id),
+        "status": "partial",
+    }
+    stored = await db_session.get(EditorialReview, row.id, populate_existing=True)
+    assert stored.progress_json["prior_evidence"][0]["quote"] == first_quote
+    assert len(requests) == 4
+
+    resumed = await editorial.resume(db_session, review_case.novel_id, row.id)
+    resumed_task = await db_session.get(AsyncTask, UUID(resumed["task_id"]))
+    assert await editorial.execute(db_session, resumed_task) == {
+        "review_id": str(row.id),
+        "status": "completed",
+    }
+    assert len(requests) == 7
+    third_chapter_request = next(
+        payload
+        for payload in requests
+        if payload.get("chapter_index") == 3 and "dimensions" in payload
+    )
+    assert third_chapter_request["prior_evidence"] == [
+        {"chapter_index": 1, "quote": first_quote}
+    ]
+    assert third_chapter_request["prior_evidence_omitted_count"] == 0
+    report = (await editorial.view(db_session, review_case.novel_id, row.id))["report"]
+    cross_chapter_finding = report["all_findings"][0]
+    assert [item["chapter_index"] for item in cross_chapter_finding["evidence"]] == [
+        1,
+        3,
+    ]
+
+
+async def test_disabled_ab_ledger_ignores_carry_forward_without_extra_request(
+    review_case, db_session, monkeypatch
+):
+    task, row = await review_case.submit("chapter", ["copy"], end_chapter=1)
+    requests = []
+
+    async def model(_client, request, schema, **_kwargs):
+        assert schema is ReviewPass
+        payload = json.loads(request.messages[1].content)
+        requests.append(payload)
+        workflow = current_workflow_budget()
+        await workflow.before_request()
+        await workflow.completed(
+            LLMUsage(prompt_tokens=10, completion_tokens=5, total_tokens=15)
+        )
+        return ReviewPass(
+            summary="当前章节已读。",
+            carry_forward=[
+                {"chapter_index": 1, "quote": review_case.drafts[0]["content"]}
+            ],
+        )
+
+    monkeypatch.setattr(editorial, "run_managed_structured", model)
+    db_session.info["editorial_prompt_ab_options"] = {
+        "_carry_forward_enabled": False,
+    }
+    assert await handle_assistant_editorial_review(db_session, task) == {
+        "review_id": str(row.id),
+        "status": "completed",
+    }
+    stored = await db_session.get(EditorialReview, row.id, populate_existing=True)
+    assert len(requests) == 1
+    assert "prior_evidence" not in requests[0]
+    assert "prior_evidence" not in stored.progress_json
+
+
+async def test_prior_citations_require_ledger_membership_and_review_scope(
+    review_case, db_session
+):
+    _, row = await review_case.submit("range", ["copy"], end_chapter=2)
+    first = review_case.drafts[0]["content"]
+    second = review_case.drafts[1]["content"]
+    carry = ReviewPass(
+        summary="前文有一条可回看的原文。",
+        carry_forward=[{"chapter_index": 1, "quote": "第1章："}],
+    )
+    validated = await editorial._validated_carry_forward(
+        db_session, row, carry, chapter=1, segment=first
+    )
+    progress = dict(row.progress_json)
+    editorial._append_prior_evidence(progress, validated)
+    row.progress_json = progress
+
+    def finding(old_chapter, old_quote):
+        return {
+            "category": "copy",
+            "judgment": "两处记录需要核对",
+            "reader_impact": "读者会把两段文字一起记住",
+            "severity": "high",
+            "why_now": "本章提供了新的对照依据",
+            "evidence": [
+                {"chapter_index": old_chapter, "quote": old_quote},
+                {"chapter_index": 2, "quote": second},
+            ],
+            "directions": [
+                {
+                    "approach": "核对两章是否缺少原因交代",
+                    "affected_chapters": [old_chapter, 2],
+                    "tradeoff": "可能需要补一处说明",
+                }
+            ],
+        }
+
+    forged = ReviewPass(
+        summary="本章与前文有差异。",
+        findings=[finding(1, "地址指向旧港")],
+    )
+    out_of_scope = ReviewPass(
+        summary="本章与第三章有差异。",
+        findings=[finding(3, review_case.drafts[2]["content"])],
+    )
+    for output in (forged, out_of_scope):
+        assert (
+            await editorial._validated_findings(
+                db_session,
+                row,
+                output,
+                chapter=2,
+                segment=second,
+                allow_prior_evidence=True,
+                require_current_evidence=True,
+            )
+            == []
+        )
+
+
+def test_prior_evidence_ledger_caps_entries_and_characters_with_omission_count():
+    short_progress = {}
+    editorial._append_prior_evidence(
+        short_progress,
+        [
+            {"chapter_index": index, "quote": f"摘录{index:02}"}
+            for index in range(1, 36)
+        ],
+    )
+    assert len(short_progress["prior_evidence"]) == 32
+    assert short_progress["prior_evidence"][0]["chapter_index"] == 4
+    assert short_progress["prior_evidence_omitted_count"] == 3
+
+    progress = {}
+    editorial._append_prior_evidence(
+        progress,
+        [
+            {"chapter_index": index, "quote": f"{index:02}" + "x" * 198}
+            for index in range(1, 35)
+        ],
+    )
+    assert len(progress["prior_evidence"]) == 30
+    assert sum(len(item["quote"]) for item in progress["prior_evidence"]) == 6000
+    assert progress["prior_evidence"][0]["chapter_index"] == 5
+    assert progress["prior_evidence_omitted_count"] == 4
+
+    editorial._append_prior_evidence(
+        progress,
+        [
+            {"chapter_index": index, "quote": f"短引文{index}"}
+            for index in range(35, 40)
+        ],
+    )
+    assert len(progress["prior_evidence"]) <= editorial._PRIOR_EVIDENCE_MAX_ITEMS
+    assert progress["prior_evidence_omitted_count"] == 7
+
+
 @pytest.mark.parametrize("failure_at", ["before", "model", "unknown_usage", "after"])
 async def test_request_failure_keeps_receipt_and_never_retries(
     review_case, db_session, monkeypatch, failure_at

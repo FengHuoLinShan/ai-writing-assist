@@ -969,13 +969,20 @@ async def test_long_chapter_reports_partial_then_resumes_unread_tail(
 
     async def model(_client, request, _schema, **_kwargs):
         payload = json.loads(request.messages[1].content)
-        calls.append(payload["offset"])
+        calls.append(payload)
         budget = current_workflow_budget().budget
         budget.reserve(requests=1)
         budget.add_usage(
             LLMUsage(prompt_tokens=10, completion_tokens=10, total_tokens=20)
         )
-        return ReviewPass(summary="本片段已检查")
+        return ReviewPass(
+            summary="本片段已检查",
+            carry_forward=(
+                [{"chapter_index": 1, "quote": "锚点开头"}]
+                if payload["offset"] == 0
+                else []
+            ),
+        )
 
     monkeypatch.setattr(editorial, "build_project_llm_execution_snapshot", snapshot)
     monkeypatch.setattr(editorial, "open_project_snapshot_llm_client", client)
@@ -984,7 +991,7 @@ async def test_long_chapter_reports_partial_then_resumes_unread_tail(
         await async_client.post("/api/projects", json={"title": "长章续读"})
     ).json()
     novel_id = project["id"]
-    text = "长" * (editorial._CHUNK * 4 + 10)
+    text = "锚点开头" + "长" * (editorial._CHUNK * 4 + 10)
     draft = (
         await async_client.post(
             "/api/writing/drafts/autosave",
@@ -1011,7 +1018,10 @@ async def test_long_chapter_reports_partial_then_resumes_unread_tail(
     assert partial["status"] == "partial"
     assert partial["unchecked_chapters"] == [1]
     assert not partial["report"]["coverage_complete"]
-    assert calls == [0, 12000, 24000, 36000]
+    assert [call["offset"] for call in calls] == [0, 12000, 24000, 36000]
+    assert calls[1]["prior_evidence"] == [
+        {"chapter_index": 1, "quote": "锚点开头"}
+    ]
 
     review = await db_session.get(EditorialReview, UUID(submitted["id"]))
     review.progress_json = {**review.progress_json, "usage_unknown": True}
@@ -1027,7 +1037,10 @@ async def test_long_chapter_reports_partial_then_resumes_unread_tail(
     assert completed["status"] == "completed"
     assert completed["checked_chapters"] == [1]
     assert completed["report"]["coverage_complete"]
-    assert calls == [0, 12000, 24000, 36000, 48000]
+    assert [call["offset"] for call in calls] == [0, 12000, 24000, 36000, 48000]
+    assert calls[4]["prior_evidence"] == [
+        {"chapter_index": 1, "quote": "锚点开头"}
+    ]
     assert (await db_session.get(WritingDraft, UUID(draft["id"]))).content == text
 
 
