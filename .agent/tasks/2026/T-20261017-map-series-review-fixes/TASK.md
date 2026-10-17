@@ -3,7 +3,7 @@ id: T-20261017-map-series-review-fixes
 title: 地图系列 Claude review 并行修复与主会话验收
 status: completed
 created: 2026-10-17T13:50:25+08:00
-updated: 2026-10-17T15:52:56+08:00
+updated: 2026-10-17T16:21:16+08:00
 ---
 
 # 地图系列 review 修复
@@ -121,3 +121,11 @@ updated: 2026-10-17T15:52:56+08:00
 - 定向复验又发现 Codex 余额不可用分支漏填必需 `queried_at`，修正响应，并新增实际 HTTP 回归断言不请求远端余额；账户连接文件 15 passed。
 - 最终 5 条原失败浏览器流程全部通过；SceneWorkbenchView/ThemePicker/ProjectSettingsView 共 82 passed；前端 lint/build、后端 lint、docs 与 diff 门禁通过。日志 `/tmp/map-series-delivery-browser-recheck.log`、`-browser-unit.log`、`-account-regression.log`、`-browser-lint.log`、`-browser-build.log`、`-final-lint.log`、`-browser-docs.log`。
 - 最新补修提交后等待完整远端必需检查；最终合并状态与证据持续记录在 PR #249。没有运行真实模型或部署。
+
+## 隔离前瞻套件断言迁移
+
+- `db60ed0d5` 远端 Backend quality 为 9162 passed / 2 skipped（覆盖率达标），PostgreSQL critical 为 108 passed；完整 Chromium 功能回归、WebKit 与助手组通过。前瞻组 5 passed / 4 failed，后续审稿组未执行；没有合并。
+- 四处失败均为旧测试流程：有限预算追加 12 次低于当前主理解预留需求，改为作者明确选择 20 次（仍保留首次 1 次触发预算暂停）；旧采用确认文案迁移至“确认采用这组修改”；两处检查试改显式操作新增的独立预算确认，未绕过检查或采用门禁。
+- 全新专用库 `test_map_series_delivery_agent_e2e` 与 synthetic provider harness 的完整前瞻/试改 9 passed（1.5m），随后完整审稿/引导组 9 passed（20.7s）；相关 ReadingFlow/CreativeExperiments Vue 单测 34 passed。没有真实模型或外部 provider 请求。
+- 日志 `/tmp/map-series-delivery-creative-recheck.log`、`-editorial-recheck.log`、`-creative-unit.log`、`-creative-lint.log`；原远端失败日志 `/tmp/map-series-delivery-creative-failure.log` 与诊断产物保留。
+- 新库数据与任务专用 PG cluster 保留，测试服务完成后停止；补丁只涉及两份 E2E 测试与本记录。提交后继续等待 PR #249 最新提交的全部必需门禁，最终交付状态以 PR 为准。
