@@ -244,6 +244,30 @@ class ExplorationSaveEditApiRequest(_ApiModel):
         return self
 
 
+class ExplorationHandoffApiRequest(_ApiModel):
+    """跨尺度移交（M4-A 切片 1）：从源结果派生目标尺度临时起点（零模型调用）。
+
+    REST 直调默认 ``selector="author"``；助手经操作目录选择时带
+    ``selector="assistant"`` 并必须给 ``reason``（缺理由 422）。
+    ``item_path`` 空=整结果移交；响应含 ``derived_start``、
+    ``source_fingerprint``、``requires_confirmation`` 与 ``preview_hint``，
+    后续走既有 confirmation preview/confirm/start。
+    """
+
+    novel_id: str
+    operation_id: UUID
+    target_scale: ExplorationScale
+    item_path: str = Field(default="", max_length=120)
+    selector: Literal["author", "assistant"] = "author"
+    reason: str = Field(default="", max_length=500)
+
+    @model_validator(mode="after")
+    def validate_assistant_reason(self):
+        if self.selector == "assistant" and not self.reason.strip():
+            raise ValueError("助手移交必须记录选择理由")
+        return self
+
+
 class ExplorationStartApiRequest(ExplorationStartTaskRequest):
     """start 端点在 P1 契约之上允许可选指定一句对白的目标角色。"""
 
@@ -1307,6 +1331,42 @@ async def save_exploration_edit(
     }
 
 
+async def handoff_exploration_result(
+    db, *, result_id: str, data: ExplorationHandoffApiRequest
+) -> dict:
+    """明确选择后的跨尺度移交（M4-A）：派生目标尺度临时起点，零模型调用。
+
+    源必须是本 owner/作品、独立探索运行下的 AI 结果（作者编辑/锁定记录
+    拒绝）；未选分支/主体不进入派生起点，``derived_from`` 只记直接父。
+    响应的 ``derived_start`` 即后续 confirmation/start 请求的 ``start``。
+    """
+    require_story_exploration_enabled()
+    await require_active_project(db, data.novel_id)
+    owner_id = await _project_owner_id(db, data.novel_id)
+    # 能力门：源行必须属于独立探索运行（旧导演/推进结果在这里已被拒）。
+    await _locate_exploration_result(db, novel_id=data.novel_id, result_id=result_id)
+    derived, source_fingerprint = await exploration_service.build_handoff_start(
+        db,
+        data.novel_id,
+        owner_id,
+        result_id,
+        data.target_scale,
+        data.item_path,
+        data.selector,
+        data.reason,
+    )
+    return {
+        "derived_start": derived.model_dump(mode="json"),
+        "source_fingerprint": source_fingerprint,
+        "requires_confirmation": True,
+        "preview_hint": (
+            "请先对目标尺度调用 confirmation/preview 与 confirmation"
+            "（把 derived_start 作为请求的 start），再经 /start 发起任务；"
+            "新任务按派生起点的 start_fingerprint 独立比较与审计。"
+        ),
+    }
+
+
 async def compare_exploration(db, data: ExplorationCompareRequest) -> dict:
     await require_active_project(db, data.novel_id)
     result = await exploration_service.compare_exploration_results(
@@ -1466,6 +1526,14 @@ async def api_save_edit(
 ):
     try:
         return await save_exploration_edit(db, result_id=result_id, data=data)
+    except Exception as error:
+        raise _raise_http(error) from error
+
+
+@router.post("/results/{result_id}/handoff")
+async def api_handoff(result_id: str, data: ExplorationHandoffApiRequest, db: DbSession):
+    try:
+        return await handoff_exploration_result(db, result_id=result_id, data=data)
     except Exception as error:
         raise _raise_http(error) from error
 
