@@ -3,7 +3,7 @@ id: T-20261016-editorial-diagnosis-v1
 title: 编辑审读诊断 A/B 试跑与盲评交接
 status: active
 created: 2026-10-16T18:02:35+08:00
-updated: 2026-10-17T01:53:00+08:00
+updated: 2026-10-17T08:50:00+08:00
 ---
 
 # 编辑审读诊断 A/B 试跑与盲评交接
@@ -21,6 +21,7 @@ updated: 2026-10-17T01:53:00+08:00
 - 新持久私有目录 manifest hash `d2a86df68d7f09ca9ce50362a360ccfabef66e7657980e3fa6595ef5e7c5fe48`，29例、上限406。S01 冒烟启动后在 assistant submit 前置路径遇到 `AttributeError`；没有评测 provider 请求（request_count=0、observations=0），case 已标 `stopped`，不重放。仅生成一份 baseline `started` 元数据；blind/mapping 为空。旧 `/private/tmp` 目录请求数仍为0，弃用且不删除。
 - 当前进度：原运行目录、attempt-2 和 attempt-3 的 S01 均停止且评测请求数为0，不重放。attempt-1/2 的确切根因是 JSON state 的 `state_path` 字符串直接传给 `Path` 写入函数；attempt-3 修复路径写入并通过提交/快照后，task 记录显示 Assistant worker 因普通 session 未声明 lease checkpoint 而拒绝执行。runner 已在 `run_task_inline()` 执行期间临时设置并恢复既有 `task_checkpoint_enabled` 内部标记，新增 fake-client 回归断言该标记与恢复行为。
 - attempt-4 已完成 S01 冒烟及 29 例全量对照：共 304/406 次请求，58/58 臂完成，全部 usage 已知；盲包与 HANDOFF 已生成。当前下一步是等待作者另开 Claude Sonnet 5.5 会话返回盲评分，不在本轮评分或解盲。
+- 2026-10-17 开评前补规则：58 份输出中 23 份无意见，原量表无“不适用”，空报告会在依赖意见的五项上虚高。`review.py` 改为五项在无意见时必须 `null`、有意见时必须打分，`post_revision_judgment` 可 `null`（本批无修订稿复核）；汇总口径已在揭盲前写入 eval README。盲评改在隔离工作区进行，见“试跑产物路径”。
 
 ## 范围与边界
 
@@ -62,6 +63,7 @@ updated: 2026-10-17T01:53:00+08:00
 - [x] 盲包完整性：58 份随机盲号输出，对应 29 个样本各两份；预期标签分布按输出副本计为 report=22、no_report=34、unchecked=2；58 项 coverage_complete=true；58 条映射，两个条件各 29 条。发现辅助上下文有 4 处 `candidate` 一词指作品候选文本，已只在盲评副本中改写为“valid POV confirmation applies to the passage”；原始输入、报告、映射未改，复扫未发现条件名、SHA 或分支名泄漏。
 - [x] 原始结果、状态和盲号映射仍在私有持久目录，目录权限 0700、文件权限 0600；没有复制到仓库。
 - [x] 已生成 `HANDOFF-blind-review.md`，定义 15 项评分、逐意见命中/误报与 case 级漏报格式，并限定评阅者读取范围；本轮未评分、未解盲。
+- [x] 开评前补规则（2026-10-17）：`review.py` 支持不适用项 `null` 并加契约测试；eval README 写入揭盲前固定的汇总口径与已知局限（方向条数暴露分组、S02 客观记录正例待查、S09 复仇正例混入出题说明、样本极短、unchecked 仅 1 例）；HANDOFF 改为相对路径、逐份追加、中断续评与自检流程；隔离工作区已建。
 - [x] 全量结束摘要：两组各 152 次请求；candidate 1,919,061 input / 218,154 output tokens，baseline 1,846,123 input / 301,400 output tokens。摘要只记录已知 usage，不推算费用。
 - [x] 交付门禁：`make docs-check` 通过；`make docs-check BASE_REF=origin/main` 仍报告既有 module-tasks 三份文档清单，附无当前架构影响理由重跑 `scripts/check_architecture_docs.py` 后通过；HANDOFF 的 JSON 示例可解析且包含 15 个精确评分 key，未包含映射文件路径；收尾 `git diff --check` 通过。
 
@@ -86,9 +88,12 @@ updated: 2026-10-17T01:53:00+08:00
 - attempt-4 盲评包：/Users/tywww/novelcraft-private/editorial-diagnosis-v1-run-20261016-attempt-4/blind/
 - attempt-4 盲号映射：/Users/tywww/novelcraft-private/editorial-diagnosis-v1-run-20261016-attempt-4/mapping/blind-map.json（仅供开发 Agent 解盲；不得交给评阅者）
 - 评分回收文件：/Users/tywww/novelcraft-private/editorial-diagnosis-v1-run-20261016-attempt-4/reviewer-return/sonnet-review.completed.jsonl
-- 盲评交接：本目录的 HANDOFF-blind-review.md；此文件不得包含映射路径。
-- 新私有根目录及 raw/blind/mapping 子目录权限均为 0700；manifest/state 为0600，request_count=0、无 observation。raw 只有 `S01_hard_contradiction.baseline.json` 的 started 元数据，没有审读输出；blind/mapping 为空。旧 /private/tmp 运行目录 manifest/state 保留但弃用，请求数为0。
+- 盲评交接：本目录的 HANDOFF-blind-review.md，使用相对路径；此文件不得包含映射路径。
+- 隔离盲评工作区：/Users/tywww/novelcraft-private/editorial-blind-review/（0700）。只含 HANDOFF 副本、attempt-4 blind/ 副本（58 份）、空的 reviewer-return/ 与格式自检脚本 check_review.py；不含 raw、mapping、仓库文件。Sonnet 会话从该目录启动。
+- check_review.py 是仓库外一次性辅助脚本，只用标准库，镜像 `EditorialBlindReviewRecord` 规则，并额外核对 expected_result、finding_count 与 58 份全覆盖。已用 58 份 blind 构造 522 条有效/无效记录与 `review.py` 交叉核对，结论一致。以 `review.py` 导入为准。
+- 评分回收：作者交回后，开发 Agent 把 `editorial-blind-review/reviewer-return/*.jsonl` 复制到 attempt-4 的 `reviewer-return/`，用 `load_editorial_blind_reviews()` 导入，再按 eval README 的固定口径解盲汇总。
+- attempt-1 目录只有停止的 S01 started 元数据，请求数 0；旧 /private/tmp 运行目录 manifest/state 保留但弃用，请求数 0。
 
 ## 最终交付状态与下一步
 
-Codex 连接 profile 已验证；三个旧 S01 账本保留停止态且评测请求数为 0，不重放。runner 路径、task-handler 注册及 task checkpoint 标记修复已本地提交并通过 78 项相关离线回归。attempt-4 S01 冒烟及 29 例全量运行成功，最终 304 次请求、58 份盲包和 58 项映射均已核验。HANDOFF 已生成，本轮未评分、未解盲、未推送。下一步：等待 Sonnet 盲评结果后由开发 Agent 校验、解盲汇总。
+Codex 连接 profile 已验证；三个旧 S01 账本保留停止态且评测请求数为 0，不重放。runner 路径、task-handler 注册及 task checkpoint 标记修复已本地提交并通过 78 项相关离线回归。attempt-4 S01 冒烟及 29 例全量运行成功，最终 304 次请求、58 份盲包和 58 项映射均已核验。HANDOFF 已生成，开评前已补“不适用”规则、固定汇总口径并建隔离工作区；本轮未评分、未解盲、未推送。下一步：作者在隔离工作区启动 Sonnet 5.5 会话完成盲评；结果交回后由开发 Agent 复制、导入校验、解盲并按 eval README 口径汇总。

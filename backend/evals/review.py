@@ -10,7 +10,7 @@ import math
 from collections import Counter, defaultdict
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import Literal
+from typing import Annotated, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
@@ -55,15 +55,34 @@ EDITORIAL_RUBRIC_KEYS = frozenset(
         "external_fact_restraint",
     }
 )
+# These items judge the findings themselves, so an empty report has nothing to score.
+EDITORIAL_FINDING_DEPENDENT_KEYS = frozenset(
+    {
+        "direction_actionability",
+        "author_voice_respect",
+        "minimal_revision_and_level",
+        "voice_overediting",
+        "issue_aggregation_and_burden",
+    }
+)
+# Revision judgment applies only to an output that re-reviews revised text.
+EDITORIAL_NULLABLE_KEYS = EDITORIAL_FINDING_DEPENDENT_KEYS | {"post_revision_judgment"}
 EDITORIAL_BLIND_REVIEWER = "AI 盲评（Claude Sonnet 5.5，单评阅者）"
 
 
 class EditorialRubricScore(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
-    score: int = Field(ge=0, le=2)
+    # None marks the item not applicable; it is excluded from distributions and means.
+    score: Annotated[int, Field(ge=0, le=2)] | None
     reason: str = Field(min_length=1, max_length=2000)
-    quote: str = Field(min_length=1, max_length=2000)
+    quote: str = Field(max_length=2000)
+
+    @model_validator(mode="after")
+    def require_quote_for_score(self):
+        if self.score is not None and not self.quote:
+            raise ValueError("a scored rubric item must quote the report")
+        return self
 
 
 class EditorialFindingAssessment(BaseModel):
@@ -95,6 +114,15 @@ class EditorialBlindReviewRecord(BaseModel):
     def validate_rubric_and_findings(self):
         if set(self.scores) != EDITORIAL_RUBRIC_KEYS:
             raise ValueError("all 15 editorial rubric scores are required")
+        not_applicable = {key for key, item in self.scores.items() if item.score is None}
+        if not_applicable - EDITORIAL_NULLABLE_KEYS:
+            raise ValueError("only finding-dependent or revision items may be null")
+        if (not_applicable & EDITORIAL_FINDING_DEPENDENT_KEYS) != (
+            set() if self.finding_count else EDITORIAL_FINDING_DEPENDENT_KEYS
+        ):
+            raise ValueError(
+                "finding-dependent items are null exactly when there are no findings"
+            )
         indices = [item.finding_index for item in self.finding_assessments]
         if len(indices) != len(set(indices)) or set(indices) != set(
             range(self.finding_count)

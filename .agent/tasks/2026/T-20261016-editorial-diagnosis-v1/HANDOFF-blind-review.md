@@ -1,16 +1,59 @@
 # 编辑审读盲评任务
 
-## 角色与边界
+本文件供一个新的 Claude Sonnet 5.5 会话在隔离的盲评工作区根目录中使用。下文路径均相对于该目录。
 
-你是单人盲评者。只读取本文件和以下目录中的 JSON 文件：
+## 任务与边界
 
-`/Users/tywww/novelcraft-private/editorial-diagnosis-v1-run-20261016-attempt-4/blind/`
+你是单人盲评者，为 58 份 AI 编辑审读输出逐份评分。只评分，不改写输出，不给总排名。
 
-不要读取任务笔记、仓库 diff、评测数据集、`backend/modules/assistant/editorial.py` 或其他实现/系统提示词，也不要查看盲号映射或猜测分组。只评分，不改仓库，不调用其他模型。每个盲评 JSON 都包含 brief、作品正文、评测重点、预期结果和一份审读报告；总计 58 份，逐份独立评分。
+工作区包含：
 
-## 评分方法
+- `HANDOFF-blind-review.md`：本文件；
+- `blind/`：58 份待评 JSON；
+- `reviewer-return/`：评分写入目录；
+- `check_review.py`：评分文件的格式自检脚本。
 
-每个评分项取 0、1 或 2 分。每项都写简短理由，并引用该份输出中的原文。没有 finding 时，可引用输出里的空 `findings` 数组或 summary 原文。不要合成总分；后续会按各项报告分布与均值。
+只读本文件和 `blind/` 下的 JSON，只写 `reviewer-return/` 下的评分文件。不要读取或搜索工作区之外的任何文件和目录，包括上级目录；不要查找生成这些输出的提示词、代码或分组信息；不调用其他模型或子代理，不联网。
+
+每份 JSON 包含：
+
+- `blind_id`、`expected_result`；
+- `scope`、`brief`（作者约定），以及可能为空的 `case_context`、`scope_note`；
+- `chapters`（作品正文）、`evaluation_focus`（评测重点）；
+- `report`：被评的审读输出，含 `summary`、`findings`、`checked_chapters`、`missing`、`coverage_complete`。
+
+同一篇正文会出现两次，各配一份不同的审读输出。逐份按量表独立评分，不在两份之间比较，也不推断它们来自哪种设置。方向条数等形态差异只按量表中的对应条目判断，例如“最小修订与层级”。
+
+## 工作流程
+
+1. 列出 `blind/` 下的文件并按文件名排序。有的文件名以 `-` 开头，用 shell 读取时写成 `./blind/<文件名>`。
+2. 若评分文件已存在，先读出其中的 `case_id`，跳过已评文件，从下一份继续。
+3. 每份依次读 brief、正文、`evaluation_focus`、`expected_result`，再读 `report`；逐条判断 finding，给 15 项打分，然后立即把这一份的记录追加为评分文件的一行。不要攒到最后一起写。
+4. 全部评完后运行 `python3 check_review.py`。若有报错，只改出错的行，再次运行，直到输出以 `OK` 开头。
+5. 结束时只回复已评份数和 `check_review.py` 的最终输出，不报告对组别的猜测。
+
+默认评分文件为 `reviewer-return/sonnet-review.completed.jsonl`。若作者在开场消息中指定了其他文件名，写入 `reviewer-return/<该文件名>`，自检时运行 `python3 check_review.py <该文件名>`。
+
+## 意见命中、误报与漏报
+
+按 JSON 的 `expected_result` 判断：
+
+- `report`：指出 `evaluation_focus` 所述预期失配的意见标为 `hit`，其他意见标为 `false_positive`。至少一条命中时 `case_outcome` 为 `hit`；一条也没有时为 `miss`，并在 `missed_expected_issues` 写明漏掉的重点。
+- `no_report`：有意见时每条都标 `false_positive`，`case_outcome` 为 `false_positive`；没有意见时 `case_outcome` 为 `no_report`。
+- `unchecked`：只有把相关判断正确留作外部查证、未核来源或待作者补充范围的意见才算 `hit`；把未核事实当成已知、或据此报确定缺陷的意见标 `false_positive`。有命中时 `case_outcome` 为 `unchecked`；没有命中时为 `unchecked_missed`，并写明应保留待核对的重点。
+
+每条 finding 都必须有且仅有一条 assessment，`finding_index` 从 0 开始，覆盖 `report.findings` 的每一项。`miss` 和 `unchecked_missed` 是 case 级漏报结果，不是某条意见的分类。finding 里的 `unchecked` 字段是审读输出自己写的未核对说明，不等同于 `expected_result` 的 `unchecked`。
+
+## 15 项评分
+
+每项取 0、1、2 分或 `null`，写简短理由 `reason`，并在 `quote` 中逐字引用该份输出的原文。引文可取自 finding、`summary` 或 `missing`；空报告可引用 `summary`。不要合成总分，后续按各项分布汇总。
+
+`null` 表示该项不适用，只允许以下两种情况：
+
+- **依赖意见的五项**：`direction_actionability`、`author_voice_respect`、`minimal_revision_and_level`、`voice_overediting`、`issue_aggregation_and_burden`。`findings` 为空时这五项必须全部填 `null`；有意见时必须全部打分。
+- **`post_revision_judgment`**：本批输出都不是对修订稿的复核，一律填 `null`。
+
+填 `null` 时 `reason` 写“无意见，不适用”或“本批不含修订稿复核”，`quote` 写空字符串。其余九项在空报告上照常评分，例如应报样本返回空报告时 `major_issue_miss` 记 0，不应报样本返回空报告时 `strong_false_positive` 记 2。
 
 | 项目（JSON key） | 0 分 | 1 分 | 2 分 |
 |---|---|---|---|
@@ -30,25 +73,15 @@
 | 伦理呈现边界 `ethics_presentation_boundary` | 未请求即指控、泛化或宣称 clearance | 有具体依据但口吻仍裁断 | 当前产品不提供该入口；不生成未经请求的伦理观察 |
 | 外部事实克制 `external_fact_restraint` | 无资料也断言史实 | 表示疑问但仍推理作答 | 标为待外部查证，不纳入小说内严重度 |
 
-## 意见命中、误报与漏报
+表中“入口”指产品功能：审读输出不应主动给出风格偏好或伦理方面的意见，出现时按对应行扣分。
 
-按 JSON 的 `expected_result` 判断：
+## 评分文件格式
 
-- `report`：对应作品目标指出预期失配的意见标为 `hit`；其他意见标为 `false_positive`。至少一条命中时 `case_outcome` 为 `hit`，一条也没有时为 `miss`，并在 `missed_expected_issues` 写明漏掉的重点（可依据该例的评测重点）。
-- `no_report`：有意见时每条都标为 `false_positive`，`case_outcome` 为 `false_positive`；没有意见时 `case_outcome` 为 `no_report`。
-- `unchecked`：只有把相关判断正确留作外部查证、未核来源或待作者补充范围时才算 `hit`；把未核事实当成已知、或据此报确定缺陷的意见标 `false_positive`。有命中时 `case_outcome` 为 `unchecked`；没有命中时为 `unchecked_missed`，并写明应保留待核对的重点。
+每份盲评 JSON 对应一行 JSON，`case_id` 填输入文件的 `blind_id`，`expected_result` 原样照录，`reviewer_version` 固定为 `AI 盲评（Claude Sonnet 5.5，单评阅者）`。`finding_count` 等于 `report.findings` 的长度。只允许下列字段，不要追加汇总或解释行。
 
-每条 finding 都必须有且仅有一条 assessment。`miss` 和 `unchecked_missed` 是 case 级漏报结果，不是某条现存意见的分类。finding 索引从 0 开始，必须覆盖 `report.findings` 的每一项。
+允许的 `case_outcome`：`hit`、`false_positive`、`miss`、`no_report`、`unchecked`、`unchecked_missed`。允许的 finding `classification`：`hit`、`false_positive`。除 `null` 项的 `quote` 外，所有文本字段不得为空。
 
-## 评分文件
-
-写入：
-
-`/Users/tywww/novelcraft-private/editorial-diagnosis-v1-run-20261016-attempt-4/reviewer-return/sonnet-review.completed.jsonl`
-
-每个盲评 JSON 对应一条 JSONL 记录；`case_id` 使用输入文件的 `blind_id`，`expected_result` 原样照录。固定写入 `reviewer_version`：`AI 盲评（Claude Sonnet 5.5，单评阅者）`。文件必须包含全部 15 个评分 key；每项有 0–2 的 `score`、理由 `reason` 和输出原文 `quote`。所有文本字段不得为空。不要追加其他汇总或解释行。
-
-每条记录结构如下；示例中的值都应按实际输出替换：
+有意见的记录示例（值均按实际替换；实际文件每条占一行）：
 
 ```json
 {
@@ -57,21 +90,21 @@
   "expected_result": "report",
   "case_outcome": "hit",
   "scores": {
-    "source_misread": {"score": 0, "reason": "填写理由", "quote": "引用输出原文"},
-    "strong_false_positive": {"score": 0, "reason": "填写理由", "quote": "引用输出原文"},
-    "major_issue_miss": {"score": 0, "reason": "填写理由", "quote": "引用输出原文"},
-    "direction_actionability": {"score": 0, "reason": "填写理由", "quote": "引用输出原文"},
-    "author_voice_respect": {"score": 0, "reason": "填写理由", "quote": "引用输出原文"},
-    "post_revision_judgment": {"score": 0, "reason": "填写理由", "quote": "引用输出原文"},
-    "intentional_form_misjudgment": {"score": 0, "reason": "填写理由", "quote": "引用输出原文"},
-    "taste_as_error": {"score": 0, "reason": "填写理由", "quote": "引用输出原文"},
-    "understanding_vs_dislike": {"score": 0, "reason": "填写理由", "quote": "引用输出原文"},
-    "lookback_and_alternatives": {"score": 0, "reason": "填写理由", "quote": "引用输出原文"},
-    "minimal_revision_and_level": {"score": 0, "reason": "填写理由", "quote": "引用输出原文"},
-    "voice_overediting": {"score": 0, "reason": "填写理由", "quote": "引用输出原文"},
-    "issue_aggregation_and_burden": {"score": 0, "reason": "填写理由", "quote": "引用输出原文"},
-    "ethics_presentation_boundary": {"score": 0, "reason": "填写理由", "quote": "引用输出原文"},
-    "external_fact_restraint": {"score": 0, "reason": "填写理由", "quote": "引用输出原文"}
+    "source_misread": {"score": 2, "reason": "填写理由", "quote": "引用输出原文"},
+    "strong_false_positive": {"score": 2, "reason": "填写理由", "quote": "引用输出原文"},
+    "major_issue_miss": {"score": 2, "reason": "填写理由", "quote": "引用输出原文"},
+    "direction_actionability": {"score": 1, "reason": "填写理由", "quote": "引用输出原文"},
+    "author_voice_respect": {"score": 2, "reason": "填写理由", "quote": "引用输出原文"},
+    "post_revision_judgment": {"score": null, "reason": "本批不含修订稿复核", "quote": ""},
+    "intentional_form_misjudgment": {"score": 2, "reason": "填写理由", "quote": "引用输出原文"},
+    "taste_as_error": {"score": 2, "reason": "填写理由", "quote": "引用输出原文"},
+    "understanding_vs_dislike": {"score": 2, "reason": "填写理由", "quote": "引用输出原文"},
+    "lookback_and_alternatives": {"score": 1, "reason": "填写理由", "quote": "引用输出原文"},
+    "minimal_revision_and_level": {"score": 2, "reason": "填写理由", "quote": "引用输出原文"},
+    "voice_overediting": {"score": 2, "reason": "填写理由", "quote": "引用输出原文"},
+    "issue_aggregation_and_burden": {"score": 2, "reason": "填写理由", "quote": "引用输出原文"},
+    "ethics_presentation_boundary": {"score": 2, "reason": "填写理由", "quote": "引用输出原文"},
+    "external_fact_restraint": {"score": 2, "reason": "填写理由", "quote": "引用输出原文"}
   },
   "finding_count": 1,
   "finding_assessments": [
@@ -81,10 +114,14 @@
 }
 ```
 
-实际文件须是 JSONL：每个完整 JSON 对象占单独一行。`finding_count` 等于 `report.findings` 长度；空 finding 时写 `0` 和 `[]`。允许的 `case_outcome` 只有 `hit`、`false_positive`、`miss`、`no_report`、`unchecked`、`unchecked_missed`；允许的 finding `classification` 只有 `hit`、`false_positive`。
+空报告的记录与上例相同，只是 `finding_count` 为 `0`、`finding_assessments` 为 `[]`，依赖意见的五项和 `post_revision_judgment` 填 `null`，例如：
+
+```json
+{"direction_actionability": {"score": null, "reason": "无意见，不适用", "quote": ""}}
+```
 
 ## 局限与后续
 
-单方向意见卡等输出形态可能暴露分组；不要据此推断。单评阅者的模型评分仅作探索性证据，不得登记为独立人工精确率。
+单评阅者的模型评分只作探索性证据，不得登记为独立人工精确率。
 
-完成后把评分 JSONL 交回作者。开发 Agent 将校验导入格式，再解盲，按正例和对照例分别比较两组，并与零意见平凡基线对照。本任务不要求你解释组别或给出总排名。
+完成后告诉作者评分文件已写好。开发 Agent 会校验导入格式、解盲，按正例和对照例分别比较，并与零意见基线对照。本任务不要求你解释组别或给出总排名。

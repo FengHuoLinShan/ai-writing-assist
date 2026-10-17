@@ -13,6 +13,7 @@ from evals.report import (
 )
 from evals.review import (
     EDITORIAL_BLIND_REVIEWER,
+    EDITORIAL_NULLABLE_KEYS,
     EDITORIAL_RUBRIC_KEYS,
     EditorialBlindReviewRecord,
     ReviewRecord,
@@ -303,6 +304,58 @@ def test_editorial_blind_review_import_requires_all_rubric_and_finding_labels(
         }
     )
     assert miss.case_outcome == "miss"
+
+
+def test_editorial_blind_review_null_scores_only_mark_inapplicable_items() -> None:
+    def scores(null_keys):
+        return {
+            key: {"score": None, "reason": "无意见，不适用。", "quote": ""}
+            if key in null_keys
+            else {"score": 2, "reason": "理由。", "quote": "输出原文。"}
+            for key in EDITORIAL_RUBRIC_KEYS
+        }
+
+    empty = {
+        "case_id": "blind-empty",
+        "reviewer_version": EDITORIAL_BLIND_REVIEWER,
+        "expected_result": "no_report",
+        "case_outcome": "no_report",
+        "scores": scores(EDITORIAL_NULLABLE_KEYS),
+        "finding_count": 0,
+        "finding_assessments": [],
+    }
+    record = EditorialBlindReviewRecord.model_validate(empty)
+    assert record.scores["direction_actionability"].score is None
+
+    with pytest.raises(ValueError, match="exactly when there are no findings"):
+        EditorialBlindReviewRecord.model_validate(
+            {**empty, "scores": scores({"post_revision_judgment"})}
+        )
+    with pytest.raises(ValueError, match="exactly when there are no findings"):
+        EditorialBlindReviewRecord.model_validate(
+            {
+                **empty,
+                "expected_result": "report",
+                "case_outcome": "hit",
+                "finding_count": 1,
+                "finding_assessments": [
+                    {
+                        "finding_index": 0,
+                        "classification": "hit",
+                        "reason": "对应预期问题。",
+                        "quote": "这条意见。",
+                    }
+                ],
+            }
+        )
+    with pytest.raises(ValueError, match="may be null"):
+        EditorialBlindReviewRecord.model_validate(
+            {**empty, "scores": scores(EDITORIAL_NULLABLE_KEYS | {"source_misread"})}
+        )
+    with pytest.raises(ValueError, match="must quote"):
+        bad = scores(EDITORIAL_NULLABLE_KEYS)
+        bad["source_misread"]["quote"] = ""
+        EditorialBlindReviewRecord.model_validate({**empty, "scores": bad})
 
 
 def test_independent_review_disagreement_requires_adjudication() -> None:
