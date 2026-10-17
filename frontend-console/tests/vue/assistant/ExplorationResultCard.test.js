@@ -908,3 +908,125 @@ it("keeps the compare view unchanged when no affected items are returned", async
   expect(compare.text()).not.toContain("后代修订对照")
   expect(compare.text()).not.toContain("受影响项")
 })
+
+// --- M3-B 完整排演结果渲染 ---
+
+const rehearsalPayload = {
+  targets: ["c_baker", "c_friend"],
+  rounds: [
+    {
+      round_number: 1,
+      performances: [
+        { target_ref: "c_baker", line_or_beat: "你是不是又没睡好？我带了热汤。", rationale: "B 只观察到疲惫，不知失业", basis_refs: ["B 的观察：A 连续两天很疲惫"] },
+        { target_ref: "c_friend", line_or_beat: "缺钱就说一声，别硬撑。", rationale: "察觉对方窘迫", basis_refs: [] },
+      ],
+      materials: [
+        { kind: "environment", text: "渡口茶摊临近收摊，炉火将熄", perceiver_refs: ["c_baker"] },
+        { kind: "mood", text: "傍晚集市散场后的安静", perceiver_refs: [] },
+      ],
+      observations: [{ target_ref: "c_baker", observed: "朋友的袖口磨出了毛边" }],
+    },
+    {
+      round_number: 2,
+      performances: [
+        { target_ref: "c_baker", line_or_beat: "汤要凉了，先喝一口再说。", rationale: "把话题从钱上引开", basis_refs: ["第一轮朋友欲言又止"] },
+      ],
+      materials: [],
+      observations: [],
+    },
+  ],
+  state_notes: ["朋友尚未察觉 A 已失业", "两人关系较上一轮更近"],
+  unknowns: ["朋友的真实财务状况未知"],
+  warnings: [],
+}
+
+function rehearsalSource(payload = rehearsalPayload) {
+  return {
+    ...sandboxSource,
+    scale: "scene_line",
+    output_kind: "story.exploration.full_rehearsal",
+    payload,
+  }
+}
+
+it("renders full rehearsal rounds in order with round titles and tail notes", () => {
+  const wrapper = mountCard(rehearsalSource(), {})
+  const text = wrapper.text()
+  expect(text).toContain("完整排演")
+  const rounds = wrapper.findAll(".exploration-result-card__round")
+  expect(rounds).toHaveLength(2)
+  expect(rounds[0].text()).toContain("第 1 轮")
+  expect(rounds[0].text()).toContain("你是不是又没睡好？我带了热汤。")
+  expect(rounds[1].text()).toContain("第 2 轮")
+  expect(rounds[1].text()).toContain("汤要凉了，先喝一口再说。")
+  expect(rounds[1].text()).not.toContain("你是不是又没睡好？")
+  // 尾部状态要点与未知沿既有样式
+  expect(text).toContain("状态要点：朋友尚未察觉 A 已失业；两人关系较上一轮更近")
+  expect(text).toContain("未知：朋友的真实财务状况未知")
+})
+
+it("renders each performance card with target, line, rationale and basis refs", () => {
+  const wrapper = mountCard(rehearsalSource(), {})
+  const cards = wrapper.findAll(".exploration-result-card__variant")
+  expect(cards).toHaveLength(3)
+  expect(cards[0].text()).toContain("目标：c_baker")
+  expect(cards[0].get("blockquote.exploration-result-card__line").text()).toBe("你是不是又没睡好？我带了热汤。")
+  expect(cards[0].text()).toContain("依据：B 只观察到疲惫，不知失业")
+  expect(cards[0].text()).toContain("知识来源：B 的观察：A 连续两天很疲惫")
+  // 空 basis_refs 不渲染知识来源行
+  expect(cards[1].text()).toContain("目标：c_friend")
+  expect(cards[1].text()).not.toContain("知识来源")
+})
+
+it("renders round materials with kind labels and observations per target", () => {
+  const wrapper = mountCard(rehearsalSource(), {})
+  const rounds = wrapper.findAll(".exploration-result-card__round")
+  expect(rounds[0].text()).toContain("素材：")
+  expect(rounds[0].text()).toContain("环境：渡口茶摊临近收摊，炉火将熄")
+  expect(rounds[0].text()).toContain("感知：c_baker")
+  // 无感知者的素材不渲染感知行
+  expect(rounds[0].text()).toContain("氛围：傍晚集市散场后的安静")
+  expect(rounds[0].text()).toContain("观察回执：")
+  expect(rounds[0].text()).toContain("c_baker 注意到：朋友的袖口磨出了毛边")
+  // 第 2 轮没有素材与观察区块
+  expect(rounds[1].text()).not.toContain("素材：")
+  expect(rounds[1].text()).not.toContain("观察回执：")
+})
+
+it("hides incremental entries and shows the new-task hint for full rehearsal", () => {
+  const wrapper = mountCard(rehearsalSource(), {})
+  const text = wrapper.text()
+  expect(text).toContain("完整排演结果不支持增量修订；需要调整请以同起点新建任务")
+  const buttons = wrapper.findAll("button").map(button => button.text())
+  expect(buttons).not.toContain("说详细点")
+  const summaries = wrapper.findAll("summary").map(summary => summary.text())
+  expect(summaries).not.toContain("局部修订")
+  expect(summaries).not.toContain("保存编辑")
+  // 该结果不提供条目锁定入口
+  expect(wrapper.findAll(".exploration-result-card__lock")).toHaveLength(0)
+})
+
+it("summarizes a full rehearsal follow-up with the first round's first performance card", async () => {
+  const explorationDetail = vi.fn(async () => ({ task_id: "task-detail-rehearsal" }))
+  const wrapper = mountCard(sandboxSource, { explorationDetail })
+  await wrapper.findAll("button").find(button => button.text() === "说详细点").trigger("click")
+  await flushPromises()
+  pollConfig().onDone({ done: true }, {
+    task_id: "task-detail-rehearsal",
+    status: "done",
+    result: { result_id: "result-rehearsal", output_kind: "story.exploration.full_rehearsal", payload: rehearsalPayload },
+  })
+  await flushPromises()
+  const followUpText = wrapper.get(".exploration-result-card__followup").text()
+  // 对齐后端历史摘要：只取首轮第一张表演卡
+  expect(followUpText).toContain("你是不是又没睡好？我带了热汤。")
+  expect(followUpText).not.toContain("缺钱就说一声")
+  expect(followUpText).not.toContain("汤要凉了")
+})
+
+it("shows an empty state when a full rehearsal result has no rounds", () => {
+  const wrapper = mountCard(rehearsalSource({ targets: ["c_baker"], rounds: [], state_notes: [], unknowns: [], warnings: [] }), {})
+  const text = wrapper.text()
+  expect(text).toContain("这次排演没有产出轮次内容。")
+  expect(wrapper.find(".exploration-result-card__round").exists()).toBe(false)
+})
