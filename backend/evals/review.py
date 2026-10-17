@@ -68,6 +68,10 @@ EDITORIAL_FINDING_DEPENDENT_KEYS = frozenset(
 # Revision judgment applies only to an output that re-reviews revised text.
 EDITORIAL_NULLABLE_KEYS = EDITORIAL_FINDING_DEPENDENT_KEYS | {"post_revision_judgment"}
 EDITORIAL_BLIND_REVIEWER = "AI 盲评（Claude Sonnet 5.5，单评阅者）"
+EDITORIAL_BLIND_REVIEWERS = (
+    EDITORIAL_BLIND_REVIEWER,
+    "AI 盲评（Kimi Code k3，单评阅者）",
+)
 
 
 class EditorialRubricScore(BaseModel):
@@ -89,7 +93,7 @@ class EditorialFindingAssessment(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     finding_index: int = Field(ge=0)
-    classification: Literal["hit", "false_positive"]
+    classification: Literal["hit", "related", "false_positive"]
     reason: str = Field(min_length=1, max_length=2000)
     quote: str = Field(min_length=1, max_length=2000)
 
@@ -100,7 +104,10 @@ class EditorialBlindReviewRecord(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     case_id: str = Field(min_length=1)
-    reviewer_version: Literal["AI 盲评（Claude Sonnet 5.5，单评阅者）"]
+    reviewer_version: Literal[
+        "AI 盲评（Claude Sonnet 5.5，单评阅者）",
+        "AI 盲评（Kimi Code k3，单评阅者）",
+    ]
     expected_result: Literal["report", "no_report", "unchecked"]
     case_outcome: Literal[
         "hit", "false_positive", "miss", "no_report", "unchecked", "unchecked_missed"
@@ -156,7 +163,7 @@ class EditorialBlindReviewRecord(BaseModel):
 
 
 def load_editorial_blind_reviews(path: Path) -> list[EditorialBlindReviewRecord]:
-    """Read Sonnet's blinded JSONL without turning scores into a quality total."""
+    """Read an authorized reviewer's blinded JSONL without summing scores."""
     records = [
         EditorialBlindReviewRecord.model_validate_json(line)
         for line in path.read_text(encoding="utf-8").splitlines()

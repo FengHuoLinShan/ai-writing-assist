@@ -13,6 +13,7 @@ from evals.report import (
 )
 from evals.review import (
     EDITORIAL_BLIND_REVIEWER,
+    EDITORIAL_BLIND_REVIEWERS,
     EDITORIAL_NULLABLE_KEYS,
     EDITORIAL_RUBRIC_KEYS,
     EditorialBlindReviewRecord,
@@ -304,6 +305,56 @@ def test_editorial_blind_review_import_requires_all_rubric_and_finding_labels(
         }
     )
     assert miss.case_outcome == "miss"
+
+
+def test_editorial_related_and_fixed_reviewer_labels() -> None:
+    scores = {
+        key: {"score": 2, "reason": "理由。", "quote": "输出原文。"}
+        for key in EDITORIAL_RUBRIC_KEYS
+    }
+    related = {
+        "finding_index": 0,
+        "classification": "related",
+        "reason": "落在同一问题区域，但没有点明目标失配。",
+        "quote": "这条意见。",
+    }
+    record = EditorialBlindReviewRecord(
+        case_id="blind-related",
+        reviewer_version=EDITORIAL_BLIND_REVIEWERS[1],
+        expected_result="report",
+        case_outcome="miss",
+        scores=scores,
+        finding_count=1,
+        finding_assessments=[related],
+        missed_expected_issues=["目标失配本身未被指出。"],
+    )
+    assert record.finding_assessments[0].classification == "related"
+
+    unchecked = EditorialBlindReviewRecord.model_validate(
+        {
+            **record.model_dump(mode="json"),
+            "expected_result": "unchecked",
+            "case_outcome": "unchecked_missed",
+        }
+    )
+    assert unchecked.case_outcome == "unchecked_missed"
+
+    with pytest.raises(ValueError, match="all be false positives"):
+        EditorialBlindReviewRecord.model_validate(
+            {
+                **record.model_dump(mode="json"),
+                "expected_result": "no_report",
+                "case_outcome": "false_positive",
+            }
+        )
+
+    with pytest.raises(ValueError, match="Input should be"):
+        EditorialBlindReviewRecord.model_validate(
+            {
+                **record.model_dump(mode="json"),
+                "reviewer_version": "AI 盲评（其他模型，单评阅者）",
+            }
+        )
 
 
 def test_editorial_blind_review_null_scores_only_mark_inapplicable_items() -> None:

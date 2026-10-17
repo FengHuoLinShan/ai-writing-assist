@@ -1,10 +1,10 @@
 # 编辑审读盲评任务
 
-本文件供一个新的 Claude Sonnet 5.5 会话在隔离的盲评工作区根目录中使用。下文路径均相对于该目录。
+本文件供一个新的 Claude Sonnet 5.5 或 Kimi Code k3 会话在隔离的盲评工作区根目录中使用。下文路径均相对于该目录。
 
 ## 任务与边界
 
-你是单人盲评者，为 70 份 AI 编辑审读输出逐份评分。只评分，不改写输出，不给总排名。
+你是单人盲评者，为 70 份 AI 编辑审读输出逐份评分。只评分，不改写输出，不给总排名。作者可以在开场消息中指定评阅者标签：`AI 盲评（Claude Sonnet 5.5，单评阅者）` 或 `AI 盲评（Kimi Code k3，单评阅者）`。若作者没有指定，默认使用 Sonnet 标签；整份评分文件只用一个标签。
 
 工作区包含：
 
@@ -29,10 +29,10 @@
 1. 列出 `blind/` 下的文件并按文件名排序。有的文件名以 `-` 开头，用 shell 读取时写成 `./blind/<文件名>`。
 2. 若评分文件已存在，先读出其中的 `case_id`，跳过已评文件，从下一份继续。
 3. 每份依次读 brief、全部章节正文、`evaluation_focus`、`expected_result`，再读 `report`；逐条判断 finding，读完该份输出后逐项独立决定 15 项分数和理由，然后立即把这一份的记录追加为评分文件的一行。不要攒到最后一起写。
-4. 不要使用脚本给没有逐项判断的条目填默认分或默认理由。脚本仅用于检查格式，不用于评分或补齐内容。全部评完后运行 `python3 check_review.py`；若有报错，只改出错的行，再次运行，直到输出以 `OK` 开头。
+4. 不要使用脚本给没有逐项判断的条目填默认分或默认理由。脚本仅用于检查格式，不用于评分或补齐内容。全部评完后运行 `python3 check_review.py --reviewer-version "<所选标签>" [文件名]`；若有报错，只改出错的行，再次运行，直到输出以 `OK` 开头。
 5. 结束时只回复已评份数和 `check_review.py` 的最终输出，不报告对组别的猜测。
 
-默认评分文件为 `reviewer-return/sonnet-review.completed.jsonl`。若作者在开场消息中指定了其他文件名，写入 `reviewer-return/<该文件名>`，自检时运行 `python3 check_review.py <该文件名>`。
+默认评分文件为 `reviewer-return/sonnet-review.completed.jsonl`（Sonnet 标签）或 `reviewer-return/kimi-review.completed.jsonl`（Kimi 标签）。若作者在开场消息中指定了其他文件名，写入 `reviewer-return/<该文件名>`，自检时将其作为 checker 的位置参数传入。
 
 作者可能对同一盲评包复评一次。复评时从头逐份重读全部 70 个 blind 文件，使用不同的输出文件名，不读取或对照第一轮评分；两轮结果由开发 Agent 在揭盲时按固定口径比较。
 
@@ -40,9 +40,10 @@
 
 按 JSON 的 `expected_result` 判断：
 
-- `report`：指出 `evaluation_focus` 所述预期失配的意见标为 `hit`，其他意见标为 `false_positive`。至少一条命中时 `case_outcome` 为 `hit`；一条也没有时为 `miss`，并在 `missed_expected_issues` 写明漏掉的重点。
+- `report`：只有点明 `evaluation_focus` 所指目标失配本身的意见才标 `hit`。矛盾类须指出冲突两端；承诺类须指出承诺与未兑现。同一问题区域、有文本依据但未点明目标失配的意见标 `related`；无据、误读或与正文相悖的意见标 `false_positive`。只有 `hit` 决定 case 结果：至少一条 `hit` 时 `case_outcome` 为 `hit`；没有 `hit` 时为 `miss`，并在 `missed_expected_issues` 写明漏掉的重点。
+- 例如，评测重点是“前后两个时间状态互斥”，某意见有据地指出时间线读起来跳跃，却没有说清两个状态互不相容，这条意见属于 `related`，不算命中，也不算误报。
 - `no_report`：有意见时每条都标 `false_positive`，`case_outcome` 为 `false_positive`；没有意见时 `case_outcome` 为 `no_report`。
-- `unchecked`：只有把相关判断正确留作外部查证、未核来源或待作者补充范围的意见才算 `hit`；把未核事实当成已知、或据此报确定缺陷的意见标 `false_positive`。有命中时 `case_outcome` 为 `unchecked`；没有命中时为 `unchecked_missed`，并写明应保留待核对的重点。
+- `unchecked`：明确点名该外部事实待查证、且不据此定严重度的意见标 `hit`。主判断是其他问题、只在自己的 `unchecked` 字段顺带提及待核事实的意见标 `related`。把未核事实当成已知、或据此报确定缺陷的意见标 `false_positive`。只有 `hit` 决定 case 结果：有命中时 `case_outcome` 为 `unchecked`；没有命中时为 `unchecked_missed`，并写明应保留待核对的重点。
 
 每条 finding 都必须有且仅有一条 assessment，`finding_index` 从 0 开始，覆盖 `report.findings` 的每一项。`miss` 和 `unchecked_missed` 是 case 级漏报结果，不是某条意见的分类。finding 里的 `unchecked` 字段是审读输出自己写的未核对说明，不等同于 `expected_result` 的 `unchecked`。
 
@@ -79,9 +80,9 @@
 
 ## 评分文件格式
 
-每份盲评 JSON 对应一行 JSON，`case_id` 填输入文件的 `blind_id`，`expected_result` 原样照录，`reviewer_version` 固定为 `AI 盲评（Claude Sonnet 5.5，单评阅者）`。`finding_count` 等于 `report.findings` 的长度。只允许下列字段，不要追加汇总或解释行。
+每份盲评 JSON 对应一行 JSON，`case_id` 填输入文件的 `blind_id`，`expected_result` 原样照录，`reviewer_version` 填作者指定的固定标签；未指定时填 `AI 盲评（Claude Sonnet 5.5，单评阅者）`。有效标签只有 `AI 盲评（Claude Sonnet 5.5，单评阅者）` 和 `AI 盲评（Kimi Code k3，单评阅者）`。`finding_count` 等于 `report.findings` 的长度。只允许下列字段，不要追加汇总或解释行。
 
-允许的 `case_outcome`：`hit`、`false_positive`、`miss`、`no_report`、`unchecked`、`unchecked_missed`。允许的 finding `classification`：`hit`、`false_positive`。除 `null` 项的 `quote` 外，所有文本字段不得为空。
+允许的 `case_outcome`：`hit`、`false_positive`、`miss`、`no_report`、`unchecked`、`unchecked_missed`。允许的 finding `classification`：`hit`、`related`、`false_positive`。`report` 和 `unchecked` 的 case 结果只看是否有 `hit`；`no_report` 的 case 结果只看输出意见数，有意见就必须全标为 `false_positive`。除 `null` 项的 `quote` 外，所有文本字段不得为空。
 
 有意见的记录示例（值均按实际替换；实际文件每条占一行）：
 
@@ -124,6 +125,6 @@
 
 ## 局限与后续
 
-单评阅者的模型评分只作探索性证据，不得登记为独立人工精确率。
+多名评阅者或多轮评分必须保留为独立文件和独立标签，不得合并后再计算采纳门槛。揭盲后只在 `report` 与 `unchecked` 样本上比较评阅者/轮次的一致性；`no_report` 的结果由输出意见数决定，不计算主观评阅一致性。单评阅者的模型评分只作探索性证据，不得登记为独立人工精确率。
 
-完成后告诉作者评分文件已写好。开发 Agent 会校验导入格式、解盲，按正例和对照例分别比较，并与零意见基线对照。本任务不要求你解释组别或给出总排名。
+完成后告诉作者评分文件已写好。开发 Agent 会按评阅者分别校验导入格式、解盲并报告结果；所有已完成评阅者均满足固定采纳门槛时才采纳，否则报告“评阅者间不一致”，逐例列出差异并交作者裁定。本任务不要求你解释组别或给出总排名。
