@@ -1,0 +1,93 @@
+"""Author-visible request/token ranges for one multi-scale exploration task.
+
+P0 §5：sandbox/event/scene_line 初始恰好 1 次模型请求；“说详细点”/补桥/局部
+修订每次 +1 且须重新 preview + 追加授权（reason 见
+``AIRunAuthorizationReason.author_detail_expand`` / ``author_revise``）。
+token 区间按输入包字符长度估算，风格对齐 ``director_budget.py``。
+"""
+
+from __future__ import annotations
+
+import json
+
+from infrastructure.llm.collaboration import content_hash
+from modules.evidence.contracts import ExplorationStart, ProvisionalStart
+from modules.story.exploration_schemas import (
+    ExplorationBudgetPreview,
+    ExplorationTokenEstimate,
+)
+
+# 每尺度一个有界生成步骤的输出字符估算区间：
+# B1 影响链与条件、B2 缺口/补桥路径、B3 一句对白。
+_OUTPUT_LOW_CHARS_BY_SCALE = {"sandbox": 900, "event": 900, "scene_line": 300}
+_OUTPUT_HIGH_CHARS_BY_SCALE = {"sandbox": 2600, "event": 2600, "scene_line": 900}
+
+
+def _start_input_chars(start: ExplorationStart) -> int:
+    if isinstance(start, ProvisionalStart):
+        # 临时起点输入包 = 问题 + 假设 + 候选与知识声明 + 作者私享 + 已读网页快照。
+        packed = {
+            "question": start.question,
+            "assumptions": [item.model_dump(mode="json") for item in start.assumptions],
+            "candidates": [item.model_dump(mode="json") for item in start.candidates],
+            "canonical_refs": list(start.canonical_refs),
+            "knowledge": [item.model_dump(mode="json") for item in start.knowledge],
+            "scene_stimuli": [
+                item.model_dump(mode="json") for item in start.scene_stimuli
+            ],
+            "author_private": list(start.author_private),
+            "time_basis": start.time_basis,
+            "web_refs": [item.model_dump(mode="json") for item in start.web_refs],
+        }
+    else:
+        packed = start.model_dump(mode="json")
+    return len(json.dumps(packed, ensure_ascii=False))
+
+
+def exploration_preview_identity(
+    *, novel_id: str, scale: str, start: ExplorationStart, focus: str = ""
+) -> dict:
+    """预算预览身份：起点、尺度与焦点任一变化都会改变 preview_hash。"""
+
+    return {
+        "novel_id": str(novel_id),
+        "scale": scale,
+        "focus_chars": len(focus),
+        "input_chars": _start_input_chars(start),
+        "start": start.model_dump(mode="json"),
+    }
+
+
+def preview_exploration_budget(
+    *,
+    novel_id: str,
+    scale: str,
+    start: ExplorationStart,
+    focus: str = "",
+) -> ExplorationBudgetPreview:
+    if scale not in _OUTPUT_LOW_CHARS_BY_SCALE:
+        raise ValueError(f"不支持的探索尺度：{scale}")
+    chars = _start_input_chars(start) + len(focus)
+    input_low = max(1, int(chars / 4.0))
+    input_high = max(input_low, int(chars / 2.5))
+    output_low = _OUTPUT_LOW_CHARS_BY_SCALE[scale] // 3
+    output_high = _OUTPUT_HIGH_CHARS_BY_SCALE[scale] // 3
+    tokens_min = input_low + output_low
+    tokens_max = input_high + output_high
+    return ExplorationBudgetPreview(
+        requests_min=1,
+        requests_max=1,
+        follow_up_max_requests=1,
+        tokens_min=tokens_min,
+        tokens_max=tokens_max,
+        token_estimate=ExplorationTokenEstimate(
+            minimum=tokens_min,
+            maximum=tokens_max,
+            method="按输入包字符长度估算，实际用量以运行账本为准",
+        ),
+        preview_hash=content_hash(
+            exploration_preview_identity(
+                novel_id=novel_id, scale=scale, start=start, focus=focus
+            )
+        ),
+    )

@@ -1,0 +1,557 @@
+"""Story-owned persistence for director multi-scale exploration (P1 骨架).
+
+职责（P0 §11 Wave P1-S）：探索根/分支创建（起点判别强制）、探索历史读取、
+作者编辑保存（零模型调用）、同起点比较门与结果行探索载荷读写。
+任务执行（worker）、operations 目录与 API 路由由后续批次接入。
+
+存储承载（P0 §3.1）：沙盘/事件 → ``story_world_progression_*``；场景对白 →
+``story_scene_director_*``。结果行 payload 经 ``ExplorationOutputEnvelope``
+包装（含 ``output_kind``）；旧载荷不含该键，读取方据此 fail-closed 区分。
+"""
+
+from __future__ import annotations
+
+import uuid
+from typing import Any
+
+from sqlalchemy import func, or_, select
+
+from core.errors import ConflictError, DomainError, NotFoundError
+from infrastructure.llm.collaboration import content_hash
+from modules.evidence.contracts import (
+    ExplorationStart,
+    ProvisionalStart,
+    SceneAnchorStart,
+)
+from modules.project import facade as project_facade
+from modules.story.exploration_schemas import (
+    AUTHOR_EDIT_OUTPUT_KIND,
+    PAYLOAD_MODELS_BY_BASE_KIND,
+    AuthorEditPayloadV1,
+    ExplorationOutputEnvelope,
+    exploration_start_fingerprint,
+)
+from modules.story.models import (
+    StorySceneDirectorBranch,
+    StorySceneDirectorRoot,
+    StorySceneDirectorRound,
+)
+from modules.story.world_progression_models import (
+    StoryWorldProgressionBranch,
+    StoryWorldProgressionRoot,
+    StoryWorldProgressionStep,
+)
+
+EXPLORATION_CHAIN_BY_SCALE: dict[str, str] = {
+    "sandbox": "progression",
+    "event": "progression",
+    "scene_line": "scene",
+}
+
+SCENE_SOURCE_KIND = "scene"
+PROVISIONAL_SOURCE_KIND = "provisional"
+
+# 历史合并分页前每条链的读取上限；单作品根数量远小于该值，防止无界查询。
+_HISTORY_SCAN_CAP = 500
+
+_SAVE_EDIT_MODE = "save_edit"
+
+
+def _uuid(value: str | uuid.UUID) -> uuid.UUID:
+    return value if isinstance(value, uuid.UUID) else uuid.UUID(str(value))
+
+
+async def _require_project(
+    db, novel_id: str, owner_id: str, *, for_update: bool = False
+) -> None:
+    """owner+novel 归属校验：项目缺失或不属于该作者一律 404，不泄露存在性。"""
+    context = await project_facade.get_any_project_context(
+        db,
+        novel_id,
+        **({"for_update": True} if for_update else {}),
+    )
+    if context is None or context.owner_id is None:
+        raise NotFoundError("项目不存在")
+    if str(context.owner_id) != str(_uuid(owner_id)):
+        raise NotFoundError("项目不存在")
+
+
+# ---------------------------------------------------------------------------
+# 结果行 payload 读写助手
+# ---------------------------------------------------------------------------
+
+
+def pack_exploration_output(envelope: ExplorationOutputEnvelope) -> dict:
+    """把探索输出信封序列化为结果行 JSON 载荷。"""
+
+    return envelope.model_dump(mode="json")
+
+
+def unpack_exploration_output(row: Any) -> ExplorationOutputEnvelope | None:
+    """从结果行读回探索输出信封；无 ``output_kind`` 的旧载荷返回 None。"""
+
+    data = getattr(row, "output_json", None)
+    if not isinstance(data, dict) or "output_kind" not in data:
+        data = getattr(row, "result_json", None)
+    if not isinstance(data, dict) or "output_kind" not in data:
+        return None
+    return ExplorationOutputEnvelope.model_validate(data)
+
+
+def _base_payload_kind(envelope: ExplorationOutputEnvelope) -> str:
+    """作者编辑可叠加在既有编辑版本上：回溯到最近一个 AI 输出尺度。"""
+
+    payload = envelope.payload
+    if envelope.output_kind == AUTHOR_EDIT_OUTPUT_KIND:
+        return payload.base_output_kind
+    return envelope.output_kind
+
+
+# ---------------------------------------------------------------------------
+# 根/分支创建（P0 §3.3：显式校验，不靠 ORM 默认值侥幸）
+# ---------------------------------------------------------------------------
+
+
+async def create_exploration_root(
+    db,
+    *,
+    novel_id: str,
+    owner_id: str,
+    scale: str,
+    start: ExplorationStart,
+    scene_id: str | None = None,
+    context_confirmation_id: str | None = None,
+    run_envelope_json: dict | None = None,
+    source_snapshot_json: dict | None = None,
+    llm_execution_snapshot_json: dict | None = None,
+    status: str = "queued",
+    branch_request_json: dict | None = None,
+) -> tuple[Any, Any]:
+    """为一次探索创建根与初始分支；返回 ``(root, branch)``。
+
+    沙盘/事件写推进链，场景对白写导演链。``provisional`` 起点强制无场景，
+    ``scene_anchor`` 起点强制携带场景；推进链一律要求非空确认（临时起点为
+    空资料集确认）。
+    """
+    chain = EXPLORATION_CHAIN_BY_SCALE.get(scale)
+    if chain is None:
+        raise DomainError(f"不支持的探索尺度：{scale}")
+    await _require_project(db, novel_id, owner_id, for_update=True)
+
+    if isinstance(start, ProvisionalStart):
+        source_kind = PROVISIONAL_SOURCE_KIND
+        if scene_id is not None:
+            raise DomainError("临时起点探索不允许绑定场景")
+        resolved_scene_id = None
+    elif isinstance(start, SceneAnchorStart):
+        source_kind = SCENE_SOURCE_KIND
+        if scene_id is not None and str(scene_id) != str(start.scene_id):
+            raise ConflictError("请求场景与起点锚点场景不一致")
+        resolved_scene_id = _uuid(start.scene_id)
+    else:  # pragma: no cover - 判别联合已穷尽，防御保留
+        raise DomainError("不支持的探索起点类型")
+
+    fingerprint = exploration_start_fingerprint(start, scale)
+    request_json = {
+        "exploration_scale": scale,
+        "exploration_source_kind": source_kind,
+        "exploration_start_fingerprint": fingerprint,
+        "exploration_start": start.model_dump(mode="json"),
+    }
+    root_id, branch_id = uuid.uuid4(), uuid.uuid4()
+    branch_request = {
+        "mode": "start",
+        "exploration_scale": scale,
+        **(branch_request_json or {}),
+    }
+    if chain == "progression":
+        if not context_confirmation_id:
+            raise DomainError("探索推进链必须携带上下文确认（空资料集为空资料确认）")
+        root = StoryWorldProgressionRoot(
+            id=root_id,
+            novel_id=_uuid(novel_id),
+            source_kind=source_kind,
+            scene_id=resolved_scene_id,
+            source_hash=fingerprint,
+            request_json=request_json,
+            source_snapshot_json=source_snapshot_json or {},
+            llm_execution_snapshot_json=llm_execution_snapshot_json or {},
+            run_envelope_json=run_envelope_json or {},
+            context_confirmation_id=str(context_confirmation_id),
+            status=status,
+        )
+        branch = StoryWorldProgressionBranch(
+            id=branch_id,
+            novel_id=root.novel_id,
+            root_id=root_id,
+            branch_kind="start",
+            source_hash=fingerprint,
+            request_json=branch_request,
+            source_snapshot_json=source_snapshot_json or {},
+            pending_step_json={},
+            status=status,
+        )
+    else:
+        root = StorySceneDirectorRoot(
+            id=root_id,
+            novel_id=_uuid(novel_id),
+            source_kind=source_kind,
+            scene_id=resolved_scene_id,
+            source_hash=fingerprint,
+            request_json=request_json,
+            llm_execution_snapshot_json=llm_execution_snapshot_json or {},
+            run_envelope_json=run_envelope_json or {},
+            status=status,
+        )
+        branch = StorySceneDirectorBranch(
+            id=branch_id,
+            novel_id=root.novel_id,
+            root_id=root_id,
+            branch_kind="start",
+            source_hash=fingerprint,
+            request_json=branch_request,
+            pending_round_json={},
+            status=status,
+        )
+    db.add_all([root, branch])
+    await db.flush()
+    return root, branch
+
+
+# ---------------------------------------------------------------------------
+# 结果行定位与比较
+# ---------------------------------------------------------------------------
+
+
+async def _locate_result_row(
+    db, novel_id: str, result_id: str, *, lock: bool = False
+) -> tuple[Any, str]:
+    """按 ID 在两条链上定位探索结果行；跨链同 ID 冲突失败关闭。"""
+
+    rid = _uuid(result_id)
+    round_query = select(StorySceneDirectorRound).where(
+        StorySceneDirectorRound.novel_id == _uuid(novel_id),
+        StorySceneDirectorRound.id == rid,
+    )
+    step_query = select(StoryWorldProgressionStep).where(
+        StoryWorldProgressionStep.novel_id == _uuid(novel_id),
+        StoryWorldProgressionStep.id == rid,
+    )
+    if lock:
+        round_query = round_query.with_for_update()
+        step_query = step_query.with_for_update()
+    round_row = await db.scalar(round_query)
+    step_row = await db.scalar(step_query)
+    if round_row is not None and step_row is not None:
+        raise ConflictError("结果标识冲突，无法定位唯一探索结果")
+    if round_row is not None:
+        return round_row, "scene"
+    if step_row is not None:
+        return step_row, "progression"
+    raise NotFoundError("探索结果不存在")
+
+
+async def _root_for_chain(db, novel_id: str, root_id: Any, chain: str):
+    if chain == "scene":
+        from modules.story.director_service import get_director_root
+
+        return await get_director_root(db, novel_id, str(root_id))
+    from modules.story.world_progression_service import get_progression_root
+
+    return await get_progression_root(db, novel_id, str(root_id))
+
+
+async def _result_start_fingerprint(
+    db, novel_id: str, row: Any, chain: str
+) -> str | None:
+    root = await _root_for_chain(db, novel_id, row.root_id, chain)
+    fingerprint = (root.request_json or {}).get("exploration_start_fingerprint")
+    if not fingerprint:
+        return None
+    return str(fingerprint)
+
+
+async def compare_exploration_results(
+    db, *, novel_id: str, owner_id: str, result_id_a: str, result_id_b: str
+) -> dict:
+    """同起点两结果比较：起点指纹不同或缺失时失败关闭（409）。"""
+
+    await _require_project(db, novel_id, owner_id)
+    located: list[tuple[Any, str]] = []
+    for result_id in (result_id_a, result_id_b):
+        row, chain = await _locate_result_row(db, novel_id, result_id)
+        located.append((row, chain))
+    envelopes = [unpack_exploration_output(row) for row, _chain in located]
+    if any(envelope is None for envelope in envelopes):
+        raise ConflictError("所选结果不是探索结果，无法比较")
+    fingerprints = [
+        await _result_start_fingerprint(db, novel_id, row, chain)
+        for row, chain in located
+    ]
+    if not fingerprints[0] or not fingerprints[1] or fingerprints[0] != fingerprints[1]:
+        raise ConflictError("两个结果的起点不同，不能直接比较")
+    sides = []
+    for (row, chain), envelope in zip(located, envelopes):
+        sides.append(
+            {
+                "result_id": str(row.id),
+                "chain": chain,
+                "root_id": str(row.root_id),
+                "branch_id": str(row.branch_id),
+                "envelope": envelope,
+            }
+        )
+    return {
+        "start_fingerprint": fingerprints[0],
+        "left": sides[0],
+        "right": sides[1],
+    }
+
+
+# ---------------------------------------------------------------------------
+# 作者编辑保存（零模型调用；P0 §3.1/§5）
+# ---------------------------------------------------------------------------
+
+
+async def save_exploration_author_edit(
+    db,
+    *,
+    novel_id: str,
+    owner_id: str,
+    base_result_id: str,
+    edited_payload: Any,
+    edit_note: str | None = None,
+) -> tuple[Any, ExplorationOutputEnvelope]:
+    """把作者编辑保存为新结果行；不可变行不修改，重复保存幂等返回同一行。"""
+
+    await _require_project(db, novel_id, owner_id, for_update=True)
+    base_row, chain = await _locate_result_row(db, novel_id, base_result_id, lock=True)
+    base_envelope = unpack_exploration_output(base_row)
+    if base_envelope is None:
+        raise ConflictError("所选结果不是探索结果，无法保存编辑")
+
+    base_kind = _base_payload_kind(base_envelope)
+    expected_model = PAYLOAD_MODELS_BY_BASE_KIND.get(base_kind)
+    if expected_model is None or not isinstance(edited_payload, expected_model):
+        raise ConflictError("edited_payload 与基础结果结构不一致，无法保存编辑")
+    new_envelope = ExplorationOutputEnvelope(
+        output_kind=AUTHOR_EDIT_OUTPUT_KIND,
+        payload=AuthorEditPayloadV1(
+            base_output_kind=base_kind,  # type: ignore[arg-type]
+            base_result_id=str(base_row.id),
+            edited_payload=edited_payload,
+            edit_note=edit_note,
+        ),
+    )
+    edit_content_hash = content_hash(
+        {
+            "base_result_id": str(base_row.id),
+            "edited_payload": edited_payload.model_dump(mode="json"),
+            "edit_note": edit_note,
+        }
+    )
+    input_json = {
+        "mode": _SAVE_EDIT_MODE,
+        "save_edit": {
+            "base_result_id": str(base_row.id),
+            "edit_content_hash": edit_content_hash,
+        },
+    }
+
+    if chain == "scene":
+        from modules.story.director_service import get_director_branch
+
+        branch = await get_director_branch(
+            db, novel_id, str(base_row.branch_id), lock=True
+        )
+        next_number = (
+            await db.scalar(
+                select(func.max(StorySceneDirectorRound.round_number)).where(
+                    StorySceneDirectorRound.novel_id == _uuid(novel_id),
+                    StorySceneDirectorRound.branch_id == branch.id,
+                )
+            )
+            or 0
+        ) + 1
+        existing = await db.scalar(
+            select(StorySceneDirectorRound).where(
+                StorySceneDirectorRound.novel_id == _uuid(novel_id),
+                StorySceneDirectorRound.branch_id == branch.id,
+                StorySceneDirectorRound.parent_round_id == base_row.id,
+                StorySceneDirectorRound.input_hash == edit_content_hash,
+            )
+        )
+        if existing is not None:
+            return existing, unpack_exploration_output(existing)  # type: ignore[return-value]
+        row = StorySceneDirectorRound(
+            id=uuid.uuid4(),
+            novel_id=base_row.novel_id,
+            root_id=base_row.root_id,
+            branch_id=base_row.branch_id,
+            round_number=next_number,
+            parent_round_id=base_row.id,
+            source_hash=branch.source_hash,
+            input_hash=edit_content_hash,
+            output_hash=content_hash(pack_exploration_output(new_envelope)),
+            input_json=input_json,
+            output_json=pack_exploration_output(new_envelope),
+            state_json={},
+            run_envelope_json={},
+        )
+    else:
+        from modules.story.world_progression_service import get_progression_branch
+
+        branch = await get_progression_branch(
+            db, novel_id, str(base_row.branch_id), lock=True
+        )
+        next_number = (
+            await db.scalar(
+                select(func.max(StoryWorldProgressionStep.step_number)).where(
+                    StoryWorldProgressionStep.novel_id == _uuid(novel_id),
+                    StoryWorldProgressionStep.branch_id == branch.id,
+                )
+            )
+            or 0
+        ) + 1
+        existing = await db.scalar(
+            select(StoryWorldProgressionStep).where(
+                StoryWorldProgressionStep.novel_id == _uuid(novel_id),
+                StoryWorldProgressionStep.branch_id == branch.id,
+                StoryWorldProgressionStep.parent_step_id == base_row.id,
+                StoryWorldProgressionStep.input_hash == edit_content_hash,
+            )
+        )
+        if existing is not None:
+            return existing, unpack_exploration_output(existing)  # type: ignore[return-value]
+        row = StoryWorldProgressionStep(
+            id=uuid.uuid4(),
+            novel_id=base_row.novel_id,
+            root_id=base_row.root_id,
+            branch_id=base_row.branch_id,
+            parent_step_id=base_row.id,
+            step_number=next_number,
+            source_hash=branch.source_hash,
+            input_hash=edit_content_hash,
+            output_hash=content_hash(pack_exploration_output(new_envelope)),
+            input_json=input_json,
+            result_json=pack_exploration_output(new_envelope),
+            state_json={},
+            metrics_json={},
+            basis_changed=False,
+        )
+    db.add(row)
+    await db.flush()
+    return row, new_envelope
+
+
+# ---------------------------------------------------------------------------
+# 探索历史（P0 §7.6：provisional 与带探索输出的 Scene 根，不与旧 Scene 历史混排）
+# ---------------------------------------------------------------------------
+
+
+def _root_summary(root: Any, chain: str) -> dict:
+    request_json = root.request_json or {}
+    return {
+        "root_id": str(root.id),
+        "chain": chain,
+        "source_kind": getattr(root, "source_kind", SCENE_SOURCE_KIND),
+        "scale": request_json.get("exploration_scale"),
+        "scene_id": str(root.scene_id) if root.scene_id is not None else None,
+        "start_fingerprint": request_json.get("exploration_start_fingerprint"),
+        "status": root.status,
+        "created_at": root.created_at.isoformat() if root.created_at else None,
+    }
+
+
+def _has_output_kind(payload: Any) -> bool:
+    return isinstance(payload, dict) and "output_kind" in payload
+
+
+async def _exploration_root_ids(
+    db,
+    novel_id: uuid.UUID,
+    *,
+    chain: str,
+) -> set[uuid.UUID]:
+    """带探索输出的根 ID 集合：output_kind 键在 Python 侧判断。
+
+    JSON 键存在性没有跨 SQLite/PG 的可移植谓词（SQLite 下标语法语义不符），
+    且两表每作品行数有界，这里做有界扫描后在 Python 判别。
+    """
+    if chain == "progression":
+        rows = await db.execute(
+            select(
+                StoryWorldProgressionStep.root_id,
+                StoryWorldProgressionStep.result_json,
+            )
+            .where(StoryWorldProgressionStep.novel_id == novel_id)
+            .limit(_HISTORY_SCAN_CAP * 8)
+        )
+    else:
+        rows = await db.execute(
+            select(StorySceneDirectorRound.root_id, StorySceneDirectorRound.output_json)
+            .where(StorySceneDirectorRound.novel_id == novel_id)
+            .limit(_HISTORY_SCAN_CAP * 8)
+        )
+    return {root_id for root_id, payload in rows if _has_output_kind(payload)}
+
+
+async def read_exploration_history(
+    db,
+    *,
+    novel_id: str,
+    owner_id: str,
+    scale: str | None = None,
+    limit: int = 20,
+    offset: int = 0,
+) -> dict:
+    """列出临时起点根与带探索输出的 Scene 根；owner+novel 过滤，稳定排序。"""
+
+    if scale is not None and scale not in EXPLORATION_CHAIN_BY_SCALE:
+        raise DomainError(f"不支持的探索尺度：{scale}")
+    await _require_project(db, novel_id, owner_id)
+    chains = (
+        [EXPLORATION_CHAIN_BY_SCALE[scale]]
+        if scale is not None
+        else ["progression", "scene"]
+    )
+    nid = _uuid(novel_id)
+    summaries: list[tuple[Any, str]] = []
+    for chain in chains:
+        exploration_root_ids = await _exploration_root_ids(db, nid, chain=chain)
+        if chain == "progression":
+            query = select(StoryWorldProgressionRoot).where(
+                StoryWorldProgressionRoot.novel_id == nid,
+                or_(
+                    StoryWorldProgressionRoot.source_kind == PROVISIONAL_SOURCE_KIND,
+                    StoryWorldProgressionRoot.id.in_(exploration_root_ids),
+                ),
+            )
+        else:
+            query = select(StorySceneDirectorRoot).where(
+                StorySceneDirectorRoot.novel_id == nid,
+                or_(
+                    StorySceneDirectorRoot.source_kind == PROVISIONAL_SOURCE_KIND,
+                    StorySceneDirectorRoot.id.in_(exploration_root_ids),
+                ),
+            )
+        rows = (await db.scalars(query.limit(_HISTORY_SCAN_CAP))).all()
+        summaries.extend((row, chain) for row in rows)
+    if scale is not None:
+        summaries = [
+            item
+            for item in summaries
+            if (item[0].request_json or {}).get("exploration_scale") == scale
+        ]
+    def _sort_key(item: tuple[Any, str]):
+        created = item[0].created_at
+        # created_at 理论上可为空：先按“有值 > 无值”分组，组内按时间与 ID 稳定排序。
+        return ((created is not None, created), str(item[0].id))
+
+    summaries.sort(key=_sort_key, reverse=True)
+    total = len(summaries)
+    page = summaries[offset : offset + limit]
+    return {
+        "items": [_root_summary(root, chain) for root, chain in page],
+        "total": total,
+    }
