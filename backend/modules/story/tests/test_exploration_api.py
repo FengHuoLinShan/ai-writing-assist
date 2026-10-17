@@ -891,3 +891,158 @@ async def test_compare_counterfactual_requires_link_and_returns_changed_conditio
         "重力变化时段从早晨改到傍晚",
         "城镇粮仓只够两周",
     ]
+
+
+# ---------------------------------------------------------------------------
+# 事件信息差/导向（M2）：event_mode_hint 的尺度守卫、预算身份与根冻结
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_preview_rejects_event_mode_hint_outside_event_scale(
+    async_client, test_project_id, monkeypatch
+):
+    _enable_exploration(monkeypatch)
+    cross_scale = await async_client.post(
+        "/api/story/exploration/preview",
+        json={
+            "novel_id": test_project_id,
+            "scale": "sandbox",
+            "event_mode_hint": "goal",
+        },
+    )
+    assert cross_scale.status_code == 422
+    assert "event_mode_hint" in str(cross_scale.json()["detail"])
+
+    implicit_scale = await async_client.post(
+        "/api/story/exploration/preview",
+        json={"novel_id": test_project_id, "event_mode_hint": "info_gap"},
+    )
+    assert implicit_scale.status_code == 422
+
+    ok = await async_client.post(
+        "/api/story/exploration/preview",
+        json={
+            "novel_id": test_project_id,
+            "scale": "event",
+            "event_mode_hint": "goal",
+        },
+    )
+    assert ok.status_code == 200, ok.json()
+    assert ok.json()["recommended_scale"] == "event"
+
+
+def _event_start_body(
+    novel_id: str,
+    start: ProvisionalStart,
+    *,
+    operation_id,
+    event_mode_hint,
+    hash_override=None,
+):
+    budget = preview_exploration_budget(
+        novel_id=novel_id,
+        scale="event",
+        start=start,
+        event_mode_hint=event_mode_hint,
+    )
+    body = {
+        "novel_id": novel_id,
+        "scale": "event",
+        "focus": "",
+        "start": start.model_dump(mode="json"),
+        "action": (
+            "story.exploration.event.diagnose"
+            if event_mode_hint == "info_gap"
+            else "story.exploration.event.bridge"
+        ),
+        "context_confirmation_id": str(uuid.uuid4()),
+        "budget_preview_hash": hash_override or budget.preview_hash,
+        "operation_id": str(operation_id),
+    }
+    if event_mode_hint is not None:
+        body["event_mode_hint"] = event_mode_hint
+    return body
+
+
+@pytest.mark.asyncio
+async def test_start_with_goal_hint_freezes_hint_and_binds_budget_hash(
+    async_client, db_session, test_project_id, monkeypatch
+):
+    _enable_exploration(monkeypatch)
+    start = _provisional_start(question="信使怎么在不靠巧合的情况下当天送到？")
+    _stub_confirmation(monkeypatch, start, scale="event")
+    operation_id = uuid.uuid4()
+    body = _event_start_body(
+        test_project_id, start, operation_id=operation_id, event_mode_hint="goal"
+    )
+    response = await async_client.post("/api/story/exploration/start", json=body)
+    assert response.status_code == 202, response.json()
+    payload = response.json()
+    root_row = await db_session.get(
+        StoryWorldProgressionRoot, uuid.UUID(payload["root_id"])
+    )
+    assert root_row.request_json["event_mode_hint"] == "goal"
+
+    # 不含 hint 的普通预算 hash 重放 → 409（预算身份含 hint）
+    plain_hash = preview_exploration_budget(
+        novel_id=test_project_id, scale="event", start=start
+    ).preview_hash
+    plain_replay = await async_client.post(
+        "/api/story/exploration/start",
+        json=_event_start_body(
+            test_project_id,
+            start,
+            operation_id=uuid.uuid4(),
+            event_mode_hint="goal",
+            hash_override=plain_hash,
+        ),
+    )
+    assert plain_replay.status_code == 409
+    assert "重新预览预算" in plain_replay.json()["detail"]
+
+    # 相同操作体重放幂等
+    again = await async_client.post("/api/story/exploration/start", json=body)
+    assert again.status_code == 202
+    assert again.json()["task_id"] == payload["task_id"]
+
+
+@pytest.mark.asyncio
+async def test_start_rejects_hint_action_mismatch_before_enqueue(
+    async_client, test_project_id, monkeypatch
+):
+    _enable_exploration(monkeypatch)
+    start = _provisional_start()
+    _stub_confirmation(monkeypatch, start, scale="event")
+    mismatched = await async_client.post(
+        "/api/story/exploration/start",
+        json={
+            **_event_start_body(
+                test_project_id,
+                start,
+                operation_id=uuid.uuid4(),
+                event_mode_hint="goal",
+            ),
+            "action": "story.exploration.event.diagnose",
+        },
+    )
+    assert mismatched.status_code == 422
+    assert "event_mode_hint" in str(mismatched.json()["detail"])
+
+
+def test_generation_action_keeps_goal_and_info_gap_on_event_actions():
+    """goal 模式沿用 bridge 动作（复用 B2 链路），diagnose 保持 diagnose。"""
+    from modules.story import exploration_api
+
+    assert (
+        exploration_api._generation_action(EVENT_OUTPUT_KIND, {"mode": "goal"})
+        == exploration_api.EVENT_BRIDGE_ACTION
+    )
+    assert (
+        exploration_api._generation_action(EVENT_OUTPUT_KIND, {"mode": "diagnose"})
+        == exploration_api.EVENT_DIAGNOSE_ACTION
+    )
+    assert (
+        exploration_api._generation_action(EVENT_OUTPUT_KIND, {"mode": "bridge"})
+        == exploration_api.EVENT_BRIDGE_ACTION
+    )

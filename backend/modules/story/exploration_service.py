@@ -27,6 +27,7 @@ from modules.evidence.contracts import (
 from modules.project import facade as project_facade
 from modules.story.exploration_schemas import (
     AUTHOR_EDIT_OUTPUT_KIND,
+    EVENT_MODE_HINTS,
     EVENT_OUTPUT_KIND,
     PAYLOAD_MODELS_BY_BASE_KIND,
     SANDBOX_OUTPUT_KIND,
@@ -132,6 +133,7 @@ async def create_exploration_root(
     branch_request_json: dict | None = None,
     counterfactual_of: str | None = None,
     changed_assumptions: list[Assumption] | None = None,
+    event_mode_hint: str | None = None,
 ) -> tuple[Any, Any]:
     """为一次探索创建根与初始分支；返回 ``(root, branch)``。
 
@@ -139,10 +141,17 @@ async def create_exploration_root(
     ``scene_anchor`` 起点强制携带场景；推进链一律要求非空确认（临时起点为
     空资料集确认）。反事实对照（M2）时把基线结果 id 与 changed_assumptions
     一并冻结进根 request_json，worker 读取同一承载记录到结果 input_json。
+    事件模式提示（M2）同样冻结进根 request_json：worker 据此注入信息差/
+    导向 prompt 变体，仅事件尺度接受。
     """
     chain = EXPLORATION_CHAIN_BY_SCALE.get(scale)
     if chain is None:
         raise DomainError(f"不支持的探索尺度：{scale}")
+    if event_mode_hint is not None:
+        if scale != "event":
+            raise DomainError("event_mode_hint 仅支持事件尺度")
+        if event_mode_hint not in EVENT_MODE_HINTS:
+            raise DomainError("未知的事件模式提示")
     await _require_project(db, novel_id, owner_id, for_update=True)
 
     if isinstance(start, ProvisionalStart):
@@ -170,6 +179,8 @@ async def create_exploration_root(
         request_json["changed_assumptions"] = [
             item.model_dump(mode="json") for item in (changed_assumptions or [])
         ]
+    if event_mode_hint is not None:
+        request_json["event_mode_hint"] = str(event_mode_hint)
     root_id, branch_id = uuid.uuid4(), uuid.uuid4()
     branch_request = {
         "mode": "start",

@@ -29,7 +29,9 @@ from modules.story.exploration_schemas import (
     ExplorationSaveEditRequest,
     ExplorationStartTaskRequest,
     GapFinding,
+    GoalPath,
     InfluenceLink,
+    InfoGap,
     SandboxOutputV1,
     SceneLineOutputV1,
     apply_changed_assumptions,
@@ -417,6 +419,259 @@ def test_event_bridge_with_candidates():
     )
     assert len(payload.bridge_candidates) == 1
     assert payload.bridge_candidates[0].holds is True
+
+
+# ---------------------------------------------------------------------------
+# 事件信息差与导向路径（M2）：info_boundary / goal_path / 三模式互斥
+# ---------------------------------------------------------------------------
+
+
+def _info_gap_payload(**overrides):
+    payload = {
+        "mode": "diagnose",
+        "original_excerpt": "证人没看到交接，却准确说出接头暗号",
+        "gaps": [
+            {
+                "description": "证人与交接现场之间缺少接触路径",
+                "why_needed": "没有接触就无法得知暗号",
+            }
+        ],
+        "info_boundary": [
+            {
+                "subject_ref": "c_witness",
+                "knows": ["接头暗号的内容"],
+                "not_known": ["交接发生的地点与时间"],
+                "missing_contact_path": True,
+            }
+        ],
+        "unknowns": [],
+        "warnings": [],
+    }
+    payload.update(overrides)
+    return payload
+
+
+def _goal_path_payload(**overrides):
+    payload = {
+        "goal": "信使当天把信送到本人手里",
+        "steps": [
+            {
+                "action": "信使向守门人出示驿站登记摘录",
+                "condition": "登记摘录写明收信人当日进城",
+                "response": "守门人指认唯一的同姓进城者",
+                "consequence": "信使当场完成投递",
+                "cost_or_risk": "信使暴露了自己的任务",
+            }
+        ],
+        "rule_constraints": ["禁止巧合", "角色性格不得突变"],
+        "unsolvable": None,
+    }
+    payload.update(overrides)
+    return payload
+
+
+def test_event_info_boundary_requires_subject_and_bounds_lists():
+    payload = EventOutputV1.model_validate(_info_gap_payload())
+    assert payload.info_boundary[0].missing_contact_path is True
+    assert payload.info_boundary[0].subject_ref == "c_witness"
+    # subject_ref 与描述都不给 → 拒绝
+    with pytest.raises(ValidationError):
+        InfoGap(knows=[], not_known=[], missing_contact_path=False)
+    # 描述可以替代 ref
+    described = EventOutputV1.model_validate(
+        _info_gap_payload(
+            info_boundary=[
+                {
+                    "subject_description": "守门人",
+                    "knows": ["登记簿上有收信人"],
+                    "not_known": [],
+                    "missing_contact_path": False,
+                }
+            ]
+        )
+    )
+    assert described.info_boundary[0].subject_description == "守门人"
+    # 清单条目超长（>500 字）与清单超量（>12 条）→ 拒绝
+    with pytest.raises(ValidationError):
+        EventOutputV1.model_validate(
+            _info_gap_payload(
+                info_boundary=[
+                    {
+                        "subject_ref": "c_witness",
+                        "knows": ["x" * 501],
+                        "not_known": [],
+                        "missing_contact_path": False,
+                    }
+                ]
+            )
+        )
+    with pytest.raises(ValidationError):
+        EventOutputV1.model_validate(
+            _info_gap_payload(
+                info_boundary=[
+                    {
+                        "subject_description": "守门人",
+                        "knows": [f"线索{i}" for i in range(13)],
+                        "not_known": [],
+                        "missing_contact_path": False,
+                    }
+                ]
+            )
+        )
+    # info_boundary 上限 12 条
+    with pytest.raises(ValidationError):
+        EventOutputV1.model_validate(
+            _info_gap_payload(
+                info_boundary=[
+                    {
+                        "subject_ref": f"c_{i}",
+                        "knows": [],
+                        "not_known": [],
+                        "missing_contact_path": False,
+                    }
+                    for i in range(13)
+                ]
+            )
+        )
+
+
+def test_event_three_modes_are_mutually_exclusive():
+    GoalPath.model_validate(_goal_path_payload())
+    # goal 模式必须给 goal_path
+    with pytest.raises(ValidationError):
+        EventOutputV1.model_validate(
+            _event_payload(mode="goal", goal_path=None)
+        )
+    # goal 模式禁 bridge_candidates
+    with pytest.raises(ValidationError):
+        EventOutputV1.model_validate(
+            {
+                **_event_payload(mode="goal"),
+                "goal_path": _goal_path_payload(),
+                "bridge_candidates": [
+                    BridgePath(
+                        steps=["x"], required_conditions=[], cost_or_risk="y",
+                        holds=True,
+                    )
+                ],
+            }
+        )
+    # diagnose 模式禁 goal_path
+    with pytest.raises(ValidationError):
+        EventOutputV1.model_validate(
+            _event_payload(goal_path=_goal_path_payload())
+        )
+    # bridge 模式禁 goal_path
+    bridge_base = _event_payload(
+        mode="bridge",
+        bridge_candidates=[
+            {
+                "steps": ["x"],
+                "required_conditions": [],
+                "cost_or_risk": "y",
+                "holds": True,
+            }
+        ],
+    )
+    with pytest.raises(ValidationError):
+        EventOutputV1.model_validate({**bridge_base, "goal_path": _goal_path_payload()})
+    # 未知模式名 → 拒绝
+    with pytest.raises(ValidationError):
+        EventOutputV1.model_validate(_event_payload(mode="timeline"))
+
+
+def test_event_goal_path_bounds_and_unsolvable_is_legal():
+    # 无解是合法结论：goal_path 存在但 unsolvable 列出缺项，不编造巧合
+    unsolvable = EventOutputV1.model_validate(
+        {
+            **_event_payload(mode="goal"),
+            "goal_path": _goal_path_payload(
+                unsolvable={
+                    "reason": "守门人没有配合动机，无法在不靠巧合的前提下成立",
+                    "missing": ["守门人的合作动机"],
+                }
+            ),
+        }
+    )
+    assert unsolvable.goal_path is not None
+    assert unsolvable.goal_path.unsolvable.missing == ["守门人的合作动机"]
+    # steps 上限 8；rule_constraints 上限 10
+    with pytest.raises(ValidationError):
+        EventOutputV1.model_validate(
+            {
+                **_event_payload(mode="goal"),
+                "goal_path": _goal_path_payload(
+                    steps=[_goal_path_payload()["steps"][0] for _ in range(9)]
+                ),
+            }
+        )
+    with pytest.raises(ValidationError):
+        EventOutputV1.model_validate(
+            {
+                **_event_payload(mode="goal"),
+                "goal_path": _goal_path_payload(
+                    rule_constraints=[f"约束{i}" for i in range(11)]
+                ),
+            }
+        )
+    # 环节缺字段（无代价）→ 拒绝
+    step = _goal_path_payload()["steps"][0]
+    incomplete = {k: v for k, v in step.items() if k != "cost_or_risk"}
+    with pytest.raises(ValidationError):
+        GoalPath.model_validate({**_goal_path_payload(), "steps": [incomplete]})
+
+
+def test_start_task_request_event_mode_hint_scale_value_and_action_guard():
+    base = {
+        "novel_id": NOVEL_ID,
+        "scale": "event",
+        "action": "story.exploration.event.diagnose",
+        "start": _provisional_payload(),
+        "operation_id": str(uuid.uuid4()),
+        "context_confirmation_id": "ctx-hint",
+        "budget_preview_hash": "d" * 64,
+    }
+    ok = ExplorationStartTaskRequest.model_validate(
+        {**base, "event_mode_hint": "info_gap"}
+    )
+    assert ok.event_mode_hint == "info_gap"
+    # 非法值 → 拒绝
+    with pytest.raises(ValidationError):
+        ExplorationStartTaskRequest.model_validate(
+            {**base, "event_mode_hint": "timeline"}
+        )
+    # 跨尺度 → 拒绝（沙盘不接受事件模式提示）
+    with pytest.raises(ValidationError):
+        ExplorationStartTaskRequest.model_validate(
+            {
+                **base,
+                "scale": "sandbox",
+                "action": "story.exploration.sandbox.generate",
+                "event_mode_hint": "goal",
+            }
+        )
+    # info_hint 配 diagnose；goal 必须配 bridge 动作
+    with pytest.raises(ValidationError):
+        ExplorationStartTaskRequest.model_validate(
+            {
+                **base,
+                "action": "story.exploration.event.bridge",
+                "event_mode_hint": "info_gap",
+            }
+        )
+    goal_ok = ExplorationStartTaskRequest.model_validate(
+        {
+            **base,
+            "action": "story.exploration.event.bridge",
+            "event_mode_hint": "goal",
+        }
+    )
+    assert goal_ok.event_mode_hint == "goal"
+    # goal 提示配 diagnose 动作 → 拒绝
+    with pytest.raises(ValidationError):
+        ExplorationStartTaskRequest.model_validate(
+            {**base, "event_mode_hint": "goal"}
+        )
 
 
 def test_scene_line_output_bounds_and_fields():

@@ -44,6 +44,7 @@ from modules.story.director_budget import budget_stop_reason
 from modules.story.exploration_budget import preview_exploration_budget
 from modules.story.exploration_feature import require_story_exploration_enabled
 from modules.story.exploration_schemas import (
+    EVENT_HINT_REQUIRED_ACTION,
     EVENT_OUTPUT_KIND,
     EXPLORATION_OUTPUT_SCHEMA_VERSION,
     SANDBOX_OUTPUT_KIND,
@@ -126,6 +127,50 @@ _SYSTEM_PROMPTS = {
         "角色知道但此刻不说出的内容。不生成其他角色、多角度或整场正文。"
     ),
 }
+
+# 事件模式提示（M2）的 system prompt 变体：按根冻结的 event_mode_hint 注入，
+# 与动作严格配对（info_gap↔diagnose，goal↔bridge），其余动作不受影响。
+EVENT_INFO_GAP_PROMPT = (
+    "你是小说作者的事件信息差分析器。只对输入的原始片段逐个主体划分知识边界："
+    "区分作者知道、人物知道与人物误信；每个主体写 knows/not_known，并标注缺失"
+    "接触路径（missing_contact_path）；缺接触路径就如实列出缺失，不替角色补全"
+    "未发生的信息，不得给补桥路径，不得改写原案。"
+)
+EVENT_GOAL_PROMPT = (
+    "你是小说作者的事件导向路径规划器。针对作者指定结果给出最小行动—响应—后果"
+    "链：每步写行动、成立条件、对方响应、后果与代价或风险；遵守作者给定的规则"
+    "约束（如禁止巧合、禁止性格突变）；缺条件就返回 unsolvable 并列出缺项，"
+    "不编造巧合或让角色突然改性格。不自动创建事件、Scene 或正文。"
+)
+
+_EVENT_HINT_PROMPT_BY_HINT = {
+    "info_gap": EVENT_INFO_GAP_PROMPT,
+    "goal": EVENT_GOAL_PROMPT,
+}
+
+
+def _event_mode_hint_for(root_request: dict, action: str) -> str | None:
+    """读取根冻结的事件模式提示并校验与动作配对；未设置返回 None。
+
+    值不在已知集合或与动作不配对即失败关闭，不静默降级为基础 prompt。
+    """
+
+    value = root_request.get("event_mode_hint")
+    if not value:
+        return None
+    hint = str(value)
+    expected = EVENT_HINT_REQUIRED_ACTION.get(hint)
+    if expected is None:
+        raise ValueError("未知的事件模式提示，失败关闭")
+    if action != expected:
+        raise ValueError("事件模式提示与本次动作不匹配，失败关闭")
+    return hint
+
+
+def _event_system_prompt(action: str, event_mode_hint: str | None) -> str:
+    if event_mode_hint is not None:
+        return _EVENT_HINT_PROMPT_BY_HINT[event_mode_hint]
+    return _SYSTEM_PROMPTS[action]
 
 
 class ExplorationPauseError(Exception):
@@ -304,6 +349,7 @@ def _require_preview_hash(
     expected: str,
     counterfactual_of_result_id: str | None = None,
     changed_assumptions: list | None = None,
+    event_mode_hint: str | None = None,
 ) -> None:
     current = preview_exploration_budget(
         novel_id=novel_id,
@@ -312,6 +358,7 @@ def _require_preview_hash(
         focus=focus,
         counterfactual_of_result_id=counterfactual_of_result_id,
         changed_assumptions=changed_assumptions,
+        event_mode_hint=event_mode_hint,
     )
     if current.preview_hash != expected:
         raise ValueError("起点或焦点已变化，预算预览不一致，失败关闭")
@@ -651,13 +698,18 @@ async def _load_parent_result(db, *, model, novel_id: str, branch, parent_id: st
     return parent_row, base_envelope.payload.model_dump(mode="json")
 
 
-async def _generate_exploration_payload(*, client, action: str, user_data: dict):
+async def _generate_exploration_payload(
+    *, client, action: str, user_data: dict, system_prompt: str | None = None
+):
     return await run_managed_structured(
         client,
         LLMCallRequest(
             model=client.model_name,
             messages=[
-                LLMMessage(role="system", content=_SYSTEM_PROMPTS[action]),
+                LLMMessage(
+                    role="system",
+                    content=_event_system_prompt(action, system_prompt),
+                ),
                 LLMMessage(
                     role="user", content=json.dumps(user_data, ensure_ascii=False)
                 ),
@@ -769,6 +821,7 @@ async def handle_story_exploration_progression(db, task):
     counterfactual_of, changed_assumptions = _counterfactual_request_params(
         root_request
     )
+    event_mode_hint = _event_mode_hint_for(root_request, action)
     if mode == "start":
         _require_preview_hash(
             novel_id=novel_id,
@@ -778,6 +831,7 @@ async def handle_story_exploration_progression(db, task):
             expected=str(meta.get("budget_preview_hash") or ""),
             counterfactual_of_result_id=counterfactual_of,
             changed_assumptions=changed_assumptions,
+            event_mode_hint=event_mode_hint,
         )
 
     confirmed = await prepare_confirmed_ai_action(
@@ -864,7 +918,10 @@ async def handle_story_exploration_progression(db, task):
                 db, root, branch, error_message="探索 provider 请求需要先提交检查点"
             )
             output = await _generate_exploration_payload(
-                client=client, action=action, user_data=user_data
+                client=client,
+                action=action,
+                user_data=user_data,
+                system_prompt=event_mode_hint,
             )
         envelope_out = ExplorationOutputEnvelope(
             output_kind=OUTPUT_KIND_BY_ACTION[action],

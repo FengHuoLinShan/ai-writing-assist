@@ -44,6 +44,7 @@ from modules.story.exploration_service import (
 from modules.story.models import StorySceneDirectorBranch, StorySceneDirectorRound
 from modules.story.tests.exploration_test_support import (
     ExplorationOfflineProvider,
+    event_payload,
     sandbox_payload,
     scene_line_payload,
 )
@@ -174,6 +175,7 @@ async def exploration_flow(exploration_engine, monkeypatch):
         start=None,
         focus: str = "",
         request_limit=5,
+        event_mode_hint=None,
     ):
         start = start or _provisional_start()
         flow.start = start
@@ -182,6 +184,11 @@ async def exploration_flow(exploration_engine, monkeypatch):
         novel_id = uuid.uuid4()
         flow.novel_id = novel_id
         confirmation_id = "ctx-" + str(uuid.uuid4())
+        branch_confirmation_action = {
+            "sandbox": "story.exploration.sandbox.generate",
+            "event": "story.exploration.event.diagnose",
+            "scene_line": "story.exploration.scene_line.generate",
+        }[scale]
         async with sessions.begin() as db:
             from modules.project.models import Project
 
@@ -199,12 +206,9 @@ async def exploration_flow(exploration_engine, monkeypatch):
                 status="queued",
                 branch_request_json={
                     "context_confirmation_id": confirmation_id,
-                    "confirmation_action": (
-                        "story.exploration.sandbox.generate"
-                        if scale == "sandbox"
-                        else "story.exploration.scene_line.generate"
-                    ),
+                    "confirmation_action": branch_confirmation_action,
                 },
+                event_mode_hint=event_mode_hint,
             )
             started_at = datetime.now(UTC)
             envelope = new_ai_run_envelope(
@@ -233,13 +237,21 @@ async def exploration_flow(exploration_engine, monkeypatch):
         )
 
     async def enqueue_for(
-        spec, envelope, *, action, mode="start", preview_hash=None, **extra
+        spec,
+        envelope,
+        *,
+        action,
+        mode="start",
+        preview_hash=None,
+        event_mode_hint=None,
+        **extra,
     ):
         budget = preview_exploration_budget(
             novel_id=str(spec.novel_id),
             scale=spec.scale,
             start=spec.start,
             focus=spec.focus,
+            event_mode_hint=event_mode_hint,
         )
         meta = {
             "meta_version": 1,
@@ -250,11 +262,11 @@ async def exploration_flow(exploration_engine, monkeypatch):
                 "focus": spec.focus,
             },
             "action": action,
-            "confirmation_action": (
-                "story.exploration.sandbox.generate"
-                if spec.scale == "sandbox"
-                else "story.exploration.scene_line.generate"
-            ),
+            "confirmation_action": {
+                "sandbox": "story.exploration.sandbox.generate",
+                "event": action,
+                "scene_line": "story.exploration.scene_line.generate",
+            }[spec.scale],
             "context_confirmation_id": spec.confirmation_id,
             "exploration_root_id": str(spec.root_id),
             "exploration_branch_id": str(spec.branch_id),
@@ -762,6 +774,156 @@ async def test_counterfactual_start_rejects_plain_budget_hash(exploration_flow):
     await _freeze_counterfactual_root(flow, spec, baseline_id)
     task_id = await flow.enqueue(
         spec, envelope, action="story.exploration.sandbox.generate"
+    )
+    task = await flow.run(task_id)
+    assert task.status == "failed"
+    async with flow.sessions() as db:
+        steps = (
+            await db.scalars(
+                select(StoryWorldProgressionStep).where(
+                    StoryWorldProgressionStep.root_id == spec.root_id
+                )
+            )
+        ).all()
+        assert steps == []
+    assert flow.provider.calls == 0
+
+
+# ---------------------------------------------------------------------------
+# 事件信息差与导向路径（M2）：hint 冻结 → prompt 变体注入 + 结果落库
+# ---------------------------------------------------------------------------
+
+
+def _event_provisional_start() -> ProvisionalStart:
+    return ProvisionalStart(
+        kind="provisional",
+        question="证人没看到交接，却准确说出接头暗号，哪里缺依据？",
+        assumptions=[Assumption(kind="state", text="证人与交接人事先互不相识")],
+        candidates=[
+            CandidateRef(ref_id="c_witness", label="证人", role="character"),
+            CandidateRef(ref_id="c_courier", label="信使", role="character"),
+        ],
+        knowledge=[
+            {
+                "subject_ref": "c_witness",
+                "knows": ["接头暗号的内容"],
+                "observed": [],
+                "misbelieves": [],
+            }
+        ],
+        time_basis="assumed_now",
+    )
+
+
+async def _load_event_step(flow, spec):
+    async with flow.sessions() as db:
+        step = await db.scalar(
+            select(StoryWorldProgressionStep).where(
+                StoryWorldProgressionStep.root_id == spec.root_id
+            )
+        )
+        root = await db.get(StoryWorldProgressionRoot, spec.root_id)
+        return step, unpack_exploration_output(step), root
+
+
+async def test_info_gap_hint_injects_prompt_and_persists_boundary(exploration_flow):
+    flow = exploration_flow
+    spec, envelope = await flow.setup(
+        chain="progression",
+        scale="event",
+        start=_event_provisional_start(),
+        event_mode_hint="info_gap",
+    )
+    task_id = await flow.enqueue(
+        spec,
+        envelope,
+        action=exploration_tasks.EVENT_DIAGNOSE_ACTION,
+        event_mode_hint="info_gap",
+    )
+    task = await flow.run(task_id)
+    assert task.status == "done", task.error_message
+    system = flow.provider.requests[0].messages[0].content
+    assert "信息差" in system
+    assert "误信" in system
+    assert "不替角色补全" in system
+    assert "事件诊断器" not in system  # 基础诊断 prompt 被变体替换
+    _step, envelope_row, root = await _load_event_step(flow, spec)
+    assert envelope_row.payload.mode == "diagnose"
+    boundary = envelope_row.payload.info_boundary[0]
+    assert boundary.subject_ref == "c_witness"
+    assert boundary.missing_contact_path is True
+    assert envelope_row.schema_version == 1  # v1 内扩展，不升版本
+    ledger = read_ai_run_envelope(root.run_envelope_json)
+    assert ledger.requests_started == 1
+
+
+async def test_goal_hint_injects_goal_prompt_and_persists_goal_path(exploration_flow):
+    flow = exploration_flow
+    spec, envelope = await flow.setup(
+        chain="progression",
+        scale="event",
+        start=_event_provisional_start(),
+        event_mode_hint="goal",
+    )
+    task_id = await flow.enqueue(
+        spec,
+        envelope,
+        action=exploration_tasks.EVENT_BRIDGE_ACTION,
+        event_mode_hint="goal",
+    )
+    task = await flow.run(task_id)
+    assert task.status == "done", task.error_message
+    system = flow.provider.requests[0].messages[0].content
+    assert "导向路径" in system
+    assert "行动—响应—后果" in system
+    assert "不编造巧合" in system
+    assert "事件补桥器" not in system  # 基础补桥 prompt 被变体替换
+    _step, envelope_row, _root = await _load_event_step(flow, spec)
+    assert envelope_row.payload.mode == "goal"
+    goal_path = envelope_row.payload.goal_path
+    assert goal_path is not None
+    assert goal_path.steps[0].cost_or_risk == "信使暴露了自己的任务"
+    assert goal_path.rule_constraints == ["禁止巧合", "角色性格不得突变"]
+
+
+async def test_goal_hint_unsolvable_result_is_legal(exploration_flow):
+    """导向任务缺条件时返回 unsolvable 是合法结论，不编造巧合。"""
+    flow = exploration_flow
+    spec, envelope = await flow.setup(
+        chain="progression",
+        scale="event",
+        start=_event_provisional_start(),
+        event_mode_hint="goal",
+    )
+    flow.provider.override = event_payload("goal_unsolvable")
+    task_id = await flow.enqueue(
+        spec,
+        envelope,
+        action=exploration_tasks.EVENT_BRIDGE_ACTION,
+        event_mode_hint="goal",
+    )
+    task = await flow.run(task_id)
+    assert task.status == "done", task.error_message
+    _step, envelope_row, _root = await _load_event_step(flow, spec)
+    assert envelope_row.payload.mode == "goal"
+    assert envelope_row.payload.goal_path.unsolvable is not None
+    assert envelope_row.payload.goal_path.unsolvable.missing == ["守门人的合作动机"]
+
+
+async def test_event_hint_action_mismatch_fails_closed(exploration_flow):
+    """hint 与动作不配对 → worker 失败关闭，不发起模型请求。"""
+    flow = exploration_flow
+    spec, envelope = await flow.setup(
+        chain="progression",
+        scale="event",
+        start=_event_provisional_start(),
+        event_mode_hint="goal",
+    )
+    task_id = await flow.enqueue(
+        spec,
+        envelope,
+        action=exploration_tasks.EVENT_DIAGNOSE_ACTION,  # goal 只配 bridge
+        event_mode_hint="goal",
     )
     task = await flow.run(task_id)
     assert task.status == "failed"

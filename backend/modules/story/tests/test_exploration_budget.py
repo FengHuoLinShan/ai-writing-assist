@@ -2,13 +2,17 @@
 
 from __future__ import annotations
 
+import json
 import uuid
 
 import pytest
 from pydantic import ValidationError
 
 from modules.evidence.contracts import ProvisionalStart
-from modules.story.exploration_budget import preview_exploration_budget
+from modules.story.exploration_budget import (
+    exploration_preview_identity,
+    preview_exploration_budget,
+)
 from modules.story.exploration_schemas import ExplorationBudgetPreview
 
 
@@ -78,6 +82,54 @@ def test_longer_input_package_raises_token_floor():
 def test_invalid_scale_is_rejected():
     with pytest.raises(ValueError):
         preview_exploration_budget(novel_id="n", scale="novel", start=_start())
+
+
+def test_budget_identity_includes_event_mode_hint():
+    """事件模式提示纳入预算身份：不同 hint → 不同 hash；缺省不含该键（M2）。"""
+    novel_id, start = str(uuid.uuid4()), _start()
+    plain = exploration_preview_identity(novel_id=novel_id, scale="event", start=start)
+    assert "event_mode_hint" not in plain
+    info_gap = exploration_preview_identity(
+        novel_id=novel_id, scale="event", start=start, event_mode_hint="info_gap"
+    )
+    goal = exploration_preview_identity(
+        novel_id=novel_id, scale="event", start=start, event_mode_hint="goal"
+    )
+    assert info_gap["event_mode_hint"] == "info_gap"
+    identities = {
+        json.dumps(plain, sort_keys=True, ensure_ascii=False),
+        json.dumps(info_gap, sort_keys=True, ensure_ascii=False),
+        json.dumps(goal, sort_keys=True, ensure_ascii=False),
+    }
+    assert len(identities) == 3
+
+    plain_budget = preview_exploration_budget(
+        novel_id=novel_id, scale="event", start=start
+    )
+    info_budget = preview_exploration_budget(
+        novel_id=novel_id, scale="event", start=start, event_mode_hint="info_gap"
+    )
+    goal_budget = preview_exploration_budget(
+        novel_id=novel_id, scale="event", start=start, event_mode_hint="goal"
+    )
+    assert (
+        len(
+            {
+                plain_budget.preview_hash,
+                info_budget.preview_hash,
+                goal_budget.preview_hash,
+            }
+        )
+        == 3
+    )
+    # 同一 hint 确定性；请求数不变（预算不变，仍 1 请求）
+    assert (
+        info_budget.preview_hash
+        == preview_exploration_budget(
+            novel_id=novel_id, scale="event", start=start, event_mode_hint="info_gap"
+        ).preview_hash
+    )
+    assert info_budget.requests_max == goal_budget.requests_max == 1
 
 
 def test_budget_model_rejects_inconsistent_ranges():
