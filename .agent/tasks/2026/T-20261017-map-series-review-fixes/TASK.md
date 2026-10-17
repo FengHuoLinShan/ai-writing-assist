@@ -1,9 +1,9 @@
 ---
 id: T-20261017-map-series-review-fixes
 title: 地图系列 Claude review 并行修复与主会话验收
-status: in_progress
+status: completed
 created: 2026-10-17T13:50:25+08:00
-updated: 2026-10-17T15:23:12+08:00
+updated: 2026-10-17T15:32:56+08:00
 ---
 
 # 地图系列 review 修复
@@ -13,7 +13,7 @@ updated: 2026-10-17T15:23:12+08:00
 - 实际完成：原 31 项修复已工程验收；本次按后续复审修复 R1–R12，定向回归及最终 lint、文档和 diff 门禁通过。
 - 后续核对更正：2026-10-17 15:16 的独立核对报告发现 V1/V2 两项 P2；本次按用户后续要求修复并补回归，详见 [核对报告](../T-20261017-map-series-sol-review/VERIFICATION.md)。
 - 当前里程碑：原 31 项、R1–R12 及 V1/V2 均已完成本地工程修复与定向验收。
-- 下一步：按用户新增授权提交修复、创建 PR，等待适用远端门禁通过后合入 main。部署与真实模型/作者验收不在本次范围。
+- 下一步：代码与工程验收已完成，交付状态以 [PR #249](https://github.com/FengHuoLinShan/ai-writing-assist/pull/249) 为准；主会话待适用必需门禁通过后合并。部署与真实模型/作者验收不在本次范围。
 - 阻塞：无。2026-10-17 用户已明确授权提交、开 PR 和合并；尚未授权部署。
 - 工作区：`.worktrees/map-series-review-fixes`；基线 `3b2ac9441c0dc08533a3e62269cd054ff35c5302`，业务审查基线 `a479e006bc336c0009e5207f7659609ab483e901`。
 - 专用 PostgreSQL 与 MinIO 已停止，测试数据/日志保留；未操作既有业务、诡秘验收和评测库。
@@ -105,5 +105,8 @@ updated: 2026-10-17T15:23:12+08:00
 
 - 用户新增授权：提交，开 PR 合并。
 - 已 fetch origin，当前 main 是修复分支祖先（0 behind / 388 ahead），未改写已有历史。PR 包含尚未合入的地图系列及 review 历史。
-- 最新修复已由独立核对验收；提交前重新执行完整 `make test-ci TEST_WORKERS=2`，日志 `/tmp/map-series-delivery-ci.log`；结果待记录。
+- 最新修复已由独立核对验收；提交前重新执行完整 `make test-ci TEST_WORKERS=2`，日志 `/tmp/map-series-delivery-ci.log`；结果通过：后端 9161 passed / 2 skipped，覆盖率超过 85% 门槛；前端 258 文件 / 3250 passed；deploy 324 passed；依赖审计、secret hygiene、Ruff 与文档检查通过。
 - 远端 PR 的 PostgreSQL、浏览器、镜像及其他适用检查通过后再合并，不跳过或削弱门禁。保留其他 worktree 与 WIP；不部署。
+
+- 交付提交：`de34006e40c52106232e177c7bd7271ee350824b` 已推送，创建 [PR #249](https://github.com/FengHuoLinShan/ai-writing-assist/pull/249)。合并结果及远端最终检查在该 PR 持续记录，不将等待状态写成已合并。
+- GitGuardian 四处告警已逐项核对：历史 CSV 中的两个 40 位 commit SHA，`git cat-file -t` 均返回 commit；误报证据已写入 PR。没有实际凭据、没有弱化扫描或改写历史。
