@@ -1,9 +1,9 @@
 ---
 id: T-20261017-completed-branch-delivery
 title: 全部分支与工作树完成度对账及已完成成果合入
-status: active
+status: completed
 created: 2026-10-17T17:03:45+08:00
-updated: 2026-10-17T17:27:31+08:00
+updated: 2026-10-17T17:43:04+08:00
 ---
 
 # 已完成成果交付
@@ -13,10 +13,10 @@ updated: 2026-10-17T17:27:31+08:00
 - 用户授权：整理所有分支和工作树，判断是否完成；选择已完成成果提交、开 PR、合并。
 - 基线：`origin/main@a1b1053662d7e0969fdca1f68a1a0c330814e456`，刚合入地图 PR #249。
 - 已盘点：126 个本地分支、26 个远端跟踪缓存（origin 21、upstream 5）、63 个工作树；逐树记录 HEAD、状态、未提交文件哈希，逐引用计算祖先关系和 `git cherry`，读取全部历史 PR 元数据。
-- 当前里程碑：审读工程已通过 PR #250 合入 main；`codex/completed-records-delivery` 已更新该基线，完成研究/草案、关闭记录和本轮清单待创建文档 PR。
-- 下一步：提交并创建文档 PR，核对固定 head 的六项必需检查和 CodeQL 后普通 merge。
+- 当前里程碑：审读 PR #250、文档 PR #251 均已按固定 head 普通 merge，完成用户要求的选择、提交、PR 与合入。当前 main 为 `744090d6d33dd8fcfcaca1e750ca434ca7573035`。
+- 下一步：本任务无必需实现或待合入成果；仅同步本次真实关闭凭证。以后恢复冻结验收、实施 Proposed ADR 或部署须对应授权。
 - 阻塞：无。旧任务状态只是证据，必须同时核对实际代码、补丁、PR 与验收。
-- 工作区：本文件为唯一主记录；编辑范围限两个新建 worktree。所有原工作树、分支、stash、忽略数据及私有原始证据保留，不清理或恢复运行。
+- 工作区：本文件为唯一主记录；成果仅在两个新建 worktree 编辑，关闭分支 `codex/completed-branch-closeout` 复用文档 worktree。所有原工作树、分支、stash、忽略数据及私有原始证据保留，不清理或恢复运行。
 - 原始保护快照：`/private/tmp/ai-writing-branch-delivery-20261017/inventory.json`；完整 SHA/文件哈希留在本机，入库清单只用可定位的短提交号。
 
 ## 目标与验收
@@ -41,9 +41,9 @@ updated: 2026-10-17T17:27:31+08:00
 
 ## 交付结果
 
-- 已交付：本机初始保护快照。
-- 未交付：两个主题 PR 与最终主干核对。
-- 交付边界：仅本地准备；未部署、未进行新模型调用或真实数据操作。
+- 已交付：初始/最终保护快照、完成度报告与全量清单，审读 PR #250、完成资料 PR #251。
+- 未交付：本轮无必需成果遗漏；冻结终验、Proposed ADR 实施与 S15 等保留项不计本次完成。
+- 交付边界：两项成果已推送并合入 main；本次小文档 PR 仅发布真实关闭凭证。未部署、未进行新模型调用或真实数据操作。
 
 ## 文档交付复核
 
@@ -69,3 +69,14 @@ updated: 2026-10-17T17:27:31+08:00
 - 审读 PR #250 已普通 merge 到 main `2cf4bbd5f01792b5fb06f7d5b7f380e6447fb004`（2026-10-17T09:26:28Z），六项必需 CI/CodeQL/敏感信息及仓库门全部成功。未管理员绕过。
 - 文档分支已 fetch 并集成该新 main，仅开放索引出现预期冲突：保留本分支新任务导航和经核实的原关闭状态；审读已完成，不重新加入开放索引。两个审读任务的交付记录更新为真实合并结果，冻结评测数字与原始证据不变。
 - 下一步：提交文档集成与关闭说明、创建文档 PR，等待该固定 head 必需门禁通过后普通 merge。
+
+## 最终验收与关闭
+
+- 用户要求已完成：覆盖原 126 个本地分支、26 个远端缓存与全部 63 个工作树，形成判断与逐项清单；已完成工程/资料按范围交付，未完成或归档项保留。
+- [PR #250](https://github.com/FengHuoLinShan/ai-writing-assist/pull/250)：2026-10-17T09:26:28Z 合并，merge `2cf4bbd5f01792b5fb06f7d5b7f380e6447fb004`，head `64e547d70e6595688b2b10347693e9a253dac27f`。六项必需检查、CodeQL、GitGuardian 与仓库门全部通过。
+- [PR #251](https://github.com/FengHuoLinShan/ai-writing-assist/pull/251)：2026-10-17T09:42:28Z 合并，merge `744090d6d33dd8fcfcaca1e750ca434ca7573035`，head `8bb3c6ba11a1f47c04d31083aa3df428da556db0`。六项必需检查、CodeQL 与仓库门通过。GitGuardian 的两项失败已逐行核为历史 CSV `head_sha` 字段中的真实 commit 对象，证据留在 PR；未弱化扫描或管理员绕过。
+- 最终资料复核：243 个本地链接全部存在；branches.csv 152 行、worktrees.csv 63 行；文档 PR 的 backend/frontend-console/deploy tree hash 与已验证 main 一致。
+- 保护复核：原 63 个工作树 HEAD/状态、126 个本地分支引用、210 个原有 WIP 文件哈希均零变化；机器凭证 `/private/tmp/ai-writing-branch-delivery-20261017/protection-final.json`。未删除、prune、覆盖旧树、stash、ignored 数据或冻结证据。
+- 未完成项：第三批 A2/G7b/P4-E 冻结终验、ADR-0042 全部业务实现、审读 S15 unchecked 遗留；不因本次 Git 交付宣布它们完成。四个历史 archive 不恢复或回灌。
+- 交付边界：两项成果已提交、推送且合入远端 main；未部署、未触碰业务数据库、未重放模型。main push 自动 CI 与 PR CI 是不同运行，不将 PR 通过描述为后续 push 终态。
+- 本节与开放索引移除属于合并后的关闭凭证，不增加业务工作；其发布 PR 的实时状态为准，不制造递归的“记录最后一次记录”提交。
