@@ -129,3 +129,10 @@ updated: 2026-10-17T16:21:16+08:00
 - 全新专用库 `test_map_series_delivery_agent_e2e` 与 synthetic provider harness 的完整前瞻/试改 9 passed（1.5m），随后完整审稿/引导组 9 passed（20.7s）；相关 ReadingFlow/CreativeExperiments Vue 单测 34 passed。没有真实模型或外部 provider 请求。
 - 日志 `/tmp/map-series-delivery-creative-recheck.log`、`-editorial-recheck.log`、`-creative-unit.log`、`-creative-lint.log`；原远端失败日志 `/tmp/map-series-delivery-creative-failure.log` 与诊断产物保留。
 - 新库数据与任务专用 PG cluster 保留，测试服务完成后停止；补丁只涉及两份 E2E 测试与本记录。提交后继续等待 PR #249 最新提交的全部必需门禁，最终交付状态以 PR 为准。
+
+## CI 前端异步断言稳定性
+
+- `cfb545e89` 前端 3249 passed / 1 failed，唯一失败在 `Forecast.test.js` 选区来源绑定用例：`setTimeout(0)` 结束时真实 `crypto.subtle.digest` 尚未完成，feed 调用还未发生，提前读取最后一次调用导致 TypeError。
+- 删除固定零时延等待，改为分别等待首次 feed 与保存后第二次 feed 实际发生；保留原选区失效、draft ID 和来源哈希断言，未改生产逻辑。
+- 本地完整前端 258 文件 / 3250 passed，lint/docs/diff 通过。日志 `/tmp/map-series-delivery-final-frontend-unit.log`、`-final-frontend-lint.log`、`-final-docs.log`；远端失败日志 `/tmp/map-series-delivery-frontend-final-failure.log`。
+- 修正提交后继续等待 PR #249 最新提交的全部必需门禁；最终合并状态以 PR 为准。
