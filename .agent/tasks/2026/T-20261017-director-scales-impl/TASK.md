@@ -10,20 +10,19 @@ updated: 2026-10-17T19:30:00+08:00
 
 ## 恢复快照
 
-- 实际完成：**第一批全部门禁通过并合入 impl**（P0 契约 + P1×3 + P2 后端执行路径 + 前端闭环 +
-  docs 同步 2097f5ccd + P0 §8.1 增量）。验证：后端受影响 1243 passed、前端全量 vitest+eslint、
-  全仓 ruff、PG critical 108 passed（专用库 asyncpg URL）、探索 e2e 21/22（1 例为基线已有失败：
-  test_simulation_v3_references_postgres patch 的 `modules.story.api.require_fresh_confirmation`
-  在 origin/main 就不存在）、docs-check BASE_REF=origin/main（no-change-reason 通道）+ git diff --check。
-- 第二批进行中：M2-a 沙盘反事实对照后端已合入（8e1e1309c）；M2-d 就地入口+教程已合入
-  （1024a1931）；M2-b 事件信息差/导向、M2-e 对照前端展示并行实施中。
-- M3 研究覆盖账本已交付（M3-COVERAGE-LEDGER.md，702bab1c2：21 分支=8 工程支持/6 实施中/1 待验证/6 试验）。
-- M5 离线准备已交付（M5-EVAL-PREP.md）。真实模型/作者验证未启动（未授权）。
-- 下一步：合入 M2-b/e → M2-c 场景人物差异+空间诊断 → M2 回归收尾 → M3-A/M3-B → M4-A/B/C
-  （均小颗粒切片串行链；子代理已钉 GLM-5.3-FlashX）。
+- 实际完成：**第一批全部门禁通过**（82ca717e6 一系）；**第二批 M2 全部完成**（7 个小切片：
+  M2-a 反事实对照 8e1e1309c、M2-d 就地入口+教程 1024a1931、M2-e 对照 UI 6155fa7bb、
+  M2-b 事件信息差/导向 5ee812d44、M2-f 事件渲染 551200671、M2-c 场景多目标+空间诊断 c9169bd2b、
+  M2-g 场景渲染 9b0ce1fa4，全部合入 impl 至 fecbede89）。M2 收尾门禁：后端 1288、前端全量 3294、
+  docs-check（no-change-reason）+ git diff --check 通过。
+- M3 已交付：研究覆盖账本（702bab1c2）；M3-A1 锁定机制 + M3-A3 锁定展示并行实施中。
+- M5 离线准备已交付。真实模型/作者验证未启动（未授权）。
+- 下一步：合入 M3-A1/A3 → M3-A2 影响标记（compare counterfactual 增 affected_items）→
+  M3-B 临时完整排演（拆 2-3 切片）→ M4-A/B/C。
 - 阻塞：无。合并 main/推送/ADR 采纳/生产/真实验证均待用户授权。
-- 已知遗留：M2-a 反事实字段未暴露进助手操作目录 schema（REST-only，后续切片补）；
-  scene_anchor 基线反事实 409 失败关闭（设计如此）；docs-check 剩余 no-change 清单见 2097f5ccd 报告。
+- 已知遗留（沿批记录）：M2 反事实/event hint 字段部分未暴露进助手操作目录（REST-only）；
+  goal 条目与多目标/诊断结果不支持 revise（失败关闭，M3-B 范围再评估）；scene_anchor 反事实 409；
+  exploration_tasks 一处死代码分支（scale==EVENT_OUTPUT_KIND）待单独清理提交。
 
 ## 目标与授权
 
