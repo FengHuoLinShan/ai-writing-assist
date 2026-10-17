@@ -1,16 +1,16 @@
 # 地图增强系列 review 汇总
 
 审查对象：`codex/map-enhancement-plan` @ `a479e006b`（merge-base `00d861283` = origin/main），374 个提交、
-805 个文件、约 17.6 万行。分 9 批审完计划里程碑 M0–M4、地图前端、对象档案、Story、Assistant、评测驱动，
-另抽查了其余前端。各批报告见 [BATCH-1](BATCH-1.md) 至 [BATCH-9](BATCH-9.md)。
+805 个文件、约 17.6 万行。分 10 批审完计划里程碑 M0–M4、地图前端、对象档案、Story、Assistant、评测驱动、前瞻，
+以及其余前端。各批报告见 [BATCH-1](BATCH-1.md) 至 [BATCH-10](BATCH-10.md)。
 
 ## 结论
 
 没有发现 P0/P1：没有跨 `novel_id` 泄漏、owner 校验绕过、真实数据丢失或越权写入；空间计算、作者确认、
-预算账本、资料确认与回执核对这些核心不变量大多成立。共确认 30 个问题，P2 与 P3 各 15 个，集中在
+预算账本、资料确认、回执核对和人物表演卡的知识边界这些核心不变量大多成立。共确认 32 个问题，P2 15 个、P3 17 个，集中在
 三类地方：前端或模型能发起、后端却必然拒绝的路径；进入后出不来的状态；同一事实的两种表示没有同步。
 27 个有回归测试（后端 24 条 strict xfail、前端 6 条 `it.fails`，有的发现对应多条），修好后测试会意外通过
-并提醒移除标记。3 个未写测试，原因见下。
+并提醒移除标记。5 个未写测试，原因见下。
 
 ## P2（15 个）
 
@@ -30,7 +30,7 @@
 - B6-F3：较早 Scene 的人物倾向读取绕过作者后来的拒绝或更正。（World 档案）
 - B7-F1：按预览最大值授权时，导演在最后一回合中途暂停，暂停后没有续演入口。（Story）
 
-## P3（15 个）
+## P3（17 个）
 
 - F2：助手词表去重与服务端口径不一致，预览通过、确认时冲突。
 - B2-F2：密度预检的单字词表几乎总命中，零命中跳过形同虚设。
@@ -50,6 +50,10 @@
 - B8-F1：目标规划器看到两个必然失败的地图操作；地图作者决定的排除按 `world.map.` 前缀判断，实际操作
   是 `map.*`，从未生效。
 - B9-F1：目标运行面板把所有 409 换成同一句“目标状态已更新”，作者看不到真实原因。
+- B10-F1（未写测试）：创作试验的采用确认显示原始回执 UUID、“R3/读集”和内部枚举，预算区显示指纹、
+  tokens 和内部角色名。组件没有测试文件，断言形式要等修复方向定下。
+- B10-F2（未写测试）：Scene 页前瞻（人物表演卡 v2 和转场卡）在界面上没有入口：`scene` 路由被统一改写成
+  大纲，写作页 Dock 固定 `writing`，前端从不点名能力。测试放在哪一层取决于入口加在哪里。
 
 ## 共性问题
 
@@ -61,6 +65,8 @@
 - 同一事实的多种表示。实体字段与档案条目（B6-F1/F2）、词表类型合并（F1）、采用节点与规划节点（B3-F2）、
   关系时效与地点时效（B3-F4）。写入一处时要同步或明确只认一处。
 - 失败原因被吞掉。B8-F1 的准备失败只提示“步骤基线或项目授权已变化”，B9-F1 的 409 一律显示“状态已更新”。
+- 测试绕过真实入口。B10-F2 的 Dock 用例直接以 `page: "scene"` 挂载，没有覆盖作者实际能走到的路径；
+  B8-F1 的目录测试也没有覆盖“可见即可通过计划校验”。
 
 ## 建议修复顺序
 
@@ -73,18 +79,18 @@
 - B7-F4：修复会和现有测试断言冲突，先确认重排后事实的预期状态。
 - B7-F3：对象档案是否必须受资料确认约束，或作为独立背景展示给作者。
 - B4-F3：问世界的地图引用要不要携带排除项字段。
+- B10-F2：前瞻表演卡的入口放在 Scene 工作台、大纲的 Scene 子视图，还是写作页 Dock（带 Scene 时）。
 - 第 8 批观察 1：除结构编辑外的地图写入是否应进入目标运行。
 - 第 9 批观察 1：地图评测的教师校准与裁判固定用 Codex `gpt-6.1-sol/xhigh`，与 2026-10-16 定下的
   “被测只用 Luna、盲评由用户手动开 Sonnet 5.5”的分工冲突；live 运行前需要决定。
 
 ## 未审范围
 
-- 前端：`InteractionAuthorPanel.vue`、`ObjectDossierPanel.vue`、`OperationTraceReport.vue`、
-  `StoryFactTimelinePanel.vue`、`SceneDirectorPanel.vue` 大部分、`CreativeExperiments.vue`、`ForecastDock.vue`、
-  `GoalPlanField.vue`/`GoalPlanStep.vue`、`WorldDossierManifestImport.vue`、`WorldRelationsTab.vue` 与
-  `worldRelationsAliasesOps.js`、`ProjectSettingsView.vue`、Scene 工作台其余改动、`WorldProgressionPanel.vue`
+第 10 批补审了前 9 批列出的大部分剩余项，现在仍未审：
+- 前端：`GoalPlanField.vue`、`WorldRelationsTab.vue` 模板、Scene 工作台其余小改动、`WorldProgressionPanel.vue`
   的连续授权与分支管理。
-- 后端：`assistant/operation_trace_report.py` 与 `operation_trace_http_adapter.py` 的统计细节、`assistant/forecast/`。
+- 后端：`assistant/operation_trace_http_adapter.py`；`assistant/forecast/` 除人物表演卡和 Scene 双卡以外的
+  改动（`preparation.py`、`contracts.py`）只读了相关片段。
 - 未做：真实模型、真实稿件、作者验收、浏览器端到端；完整 CI 沿用前次 Codex 集成审查结果，本次只跑了
   回归文件与前端全量测试。
 

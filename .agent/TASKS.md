@@ -1,7 +1,5 @@
 # 开放任务
 
-- [T-20261016-map-series-claude-review](tasks/2026/T-20261016-map-series-claude-review/TASK.md) — 地图增强系列实现的独立 review（分批）
-
 - [T-20261015-character-world-progression](tasks/2026/T-20261015-character-world-progression/TASK.md) — 世界对象档案、场景导演、写作副驾驶与世界推进设计
 
 - [T-20261015-agent-operation-surface](tasks/2026/T-20261015-agent-operation-surface/TASK.md) — 全模块 AI 操作入口、目标运行与操作留痕设计

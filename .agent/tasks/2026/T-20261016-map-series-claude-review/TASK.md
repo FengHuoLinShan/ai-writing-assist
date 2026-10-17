@@ -1,9 +1,9 @@
 ---
 id: T-20261016-map-series-claude-review
 title: 地图增强系列实现的独立 review（分批）
-status: active
+status: completed
 created: 2026-10-16T21:30:00+08:00
-updated: 2026-10-17T08:50:00+08:00
+updated: 2026-10-17T08:56:00+08:00
 ---
 
 # 地图增强系列实现的独立 review（分批）
@@ -15,16 +15,17 @@ updated: 2026-10-17T08:50:00+08:00
   [BATCH-3.md](BATCH-3.md)；第 4 批（M3/M4 空间简报、提醒、声明与 Evidence 编译），报告见
   [BATCH-4.md](BATCH-4.md)；第 5 批（地图前端），报告见 [BATCH-5.md](BATCH-5.md)；第 6 批（对象档案），
   报告见 [BATCH-6.md](BATCH-6.md)；第 7 批（Story），报告见 [BATCH-7.md](BATCH-7.md)；第 8 批（Assistant），
-  报告见 [BATCH-8.md](BATCH-8.md)；第 9 批（评测驱动与前端抽查），报告见 [BATCH-9.md](BATCH-9.md)。
-  最终汇总见 [SUMMARY.md](SUMMARY.md)。能复现的问题都有回归测试：后端 strict xfail，前端 vitest `it.fails`。
-- 当前里程碑：第 10 批（补充）——SUMMARY.md“未审范围”里的前端与后端剩余项。
-- 下一步：按 SUMMARY.md“未审范围”的顺序，先审 `ObjectDossierPanel.vue` 与 `InteractionAuthorPanel.vue`
-  的确认、采用与防重复，再看 `SceneDirectorPanel.vue` 其余部分；有新发现时同步更新 SUMMARY.md 的计数与清单。
+  报告见 [BATCH-8.md](BATCH-8.md)；第 9 批（评测驱动与前端抽查），报告见 [BATCH-9.md](BATCH-9.md)；
+  第 10 批（补充：剩余前端与前瞻），报告见 [BATCH-10.md](BATCH-10.md)。最终汇总见 [SUMMARY.md](SUMMARY.md)。
+  能写测试的问题都有回归测试：后端 strict xfail，前端 vitest `it.fails`。
+- 当前里程碑：全部完成。
+- 下一步：如需继续，审 SUMMARY.md“未审范围”的剩余小项（`GoalPlanField.vue`、`WorldProgressionPanel.vue`
+  的连续授权与分支管理、`operation_trace_http_adapter.py`）；修复由用户另行安排。
 - 阻塞：无。
 - 工作区：`.worktrees/map-series-claude-review`，分支 `codex/map-series-claude-review`，基于
   `codex/map-enhancement-plan` @ `a479e006b`；只有本任务记录与回归测试的本地提交。前端依赖已在工作树内
   按 lock `npm ci`（node_modules 被 git 忽略），前端测试用 `npm --prefix ../frontend-console run test`。
-- 最后核实：2026-10-17T08:50:00+08:00。
+- 最后核实：2026-10-17T08:56:00+08:00。
 
 ## 目标与验收
 
@@ -69,7 +70,7 @@ updated: 2026-10-17T08:50:00+08:00
 - [x] 7. Story：director_*、world_progression_*、continuity、character_arcs、simulation。
 - [x] 8. Assistant：goal_runs、operation_trace*、notice_service、operations.py、guided_flow。
 - [x] 9. 评测驱动 `backend/evals`、`evolution/map_evaluation_read_service.py` 与其余前端（抽查）；最终汇总。
-- [ ] 10. 补充（用户要求继续到额度用尽）：SUMMARY.md“未审范围”的剩余前端与后端。
+- [x] 10. 补充（用户要求继续到额度用尽）：SUMMARY.md“未审范围”的剩余前端与后端、`assistant/forecast/`。
 
 ## 决策、发现与失败
 
@@ -106,6 +107,12 @@ updated: 2026-10-17T08:50:00+08:00
   明确拒绝后表单锁定）。评测守卫与三个评测只读服务无问题；地图评测裁判固定用 Sol，与 2026-10-16 的评测
   分工冲突，记为观察待用户决定。详见 BATCH-9.md。最终汇总：30 个发现（P2、P3 各 15），无 P0/P1，
   见 SUMMARY.md。
+- 2026-10-17：第 10 批（补充）发现：
+  - B10-F1（P3）：创作试验的采用确认显示原始回执 UUID、内部术语和内部枚举。
+  - B10-F2（P3）：Scene 页前瞻的人物表演卡 v2 与转场卡没有界面入口，原因是 `scene` 路由被统一改写成大纲。
+  - 两条都未写测试：前者组件没有测试脚手架，后者修复层级未定。
+  - 人物表演卡 v2 的知识边界与服务端依据重验成立。
+  - 详见 BATCH-10.md。汇总更新为 32 个发现（P2 15、P3 17）。
 
 ## 验证证据
 
@@ -138,10 +145,16 @@ updated: 2026-10-17T08:50:00+08:00
 - 第 9 批后（2026-10-17，基线 `a479e006b`）：四个后端回归文件 `24 xfailed`；前端全量
   `npm --prefix ../frontend-console run test` 为 `3234 passed | 6 expected fail`，lint 通过；B9-F1 临时去掉
   `.fails` 后失败在“错误区不含‘模型连接不可用’”，已改回。
+- 第 10 批（2026-10-17，基线 `a479e006b`）：
+  - 只改了任务记录，没有改测试文件，所以没有重跑回归测试，结果仍是第 9 批的 `24 xfailed` 与
+    `3234 passed | 6 expected fail`。
+  - B10-F2 的不可达靠读代码确认：`router.js` 的 `_normalizeRoute` 第 355–361 行、`ShellApp.vue` 传入
+    `shellState.currentView`、`WritingView.vue` 第 287 行，前端没有 `requested_capabilities` 调用方。
+  - 结束时跑了 `make docs-check`（含 `BASE_REF=origin/main`）。
 
 ## 交付结果
 
-- 已交付：第 1–9 批报告与 SUMMARY.md；24 条后端 strict xfail 与 6 条前端 `it.fails` 回归测试。
-- 未交付：第 10 批补充（可选，覆盖 SUMMARY.md 的未审范围）。
+- 已交付：第 1–10 批报告与 SUMMARY.md；24 条后端 strict xfail 与 6 条前端 `it.fails` 回归测试。
+- 未交付：SUMMARY.md“未审范围”列出的少量剩余项；真实模型、真实稿件、作者验收与浏览器端到端不在本任务范围。
 - 交付边界：只有本地提交；未推送，无 PR、CI、部署。
 - 正式知识与后续任务：无。
