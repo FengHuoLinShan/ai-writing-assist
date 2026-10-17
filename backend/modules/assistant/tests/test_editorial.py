@@ -172,6 +172,7 @@ async def test_book_manifest_and_exact_quote_guard(async_client, db_session, mon
                     "judgment": "地址的揭示可能太早",
                     "reader_impact": "读者可能提前猜到港口位置",
                     "severity": "high",
+                    "why_now": "如果现在不标出地址来源，读者可能把推测当成确认事实。",
                     "evidence": [{"chapter_index": 1, "quote": "地址指向旧港"}],
                     "intent_relation": "作者要求先揭示地点",
                     "intent_quote": "先揭示地点",
@@ -192,6 +193,8 @@ async def test_book_manifest_and_exact_quote_guard(async_client, db_session, mon
     assert accepted[0]["evidence"][0]["start"] == text.index("地址指向旧港")
     assert accepted[0]["authority"] == "editorial_suggestion"
     assert accepted[0]["severity"] == "medium"
+    assert len(accepted[0]["directions"]) == 1
+    assert "调整方向尚不充分" not in accepted[0]["unchecked"]
     assert "未审章节：2" in accepted[0]["unchecked"]
     assert accepted[0]["intent_relation"] == ""
     assert "作者意图关联未能" in accepted[0]["unchecked"]
@@ -205,6 +208,28 @@ async def test_book_manifest_and_exact_quote_guard(async_client, db_session, mon
             db_session, review, valid, allowed_quotes=set()
         )
     ) == []
+    without_direction = valid.model_copy(
+        update={
+            "findings": [
+                valid.findings[0].model_copy(update={"directions": []})
+            ]
+        }
+    )
+    missing_direction = await editorial._validated_findings(
+        db_session, review, without_direction, chapter=1, segment=text
+    )
+    assert "尚未提供至少一条有据的调整方向" in missing_direction[0]["unchecked"]
+    without_why_now = valid.model_copy(
+        update={
+            "findings": [
+                valid.findings[0].model_copy(update={"why_now": ""})
+            ]
+        }
+    )
+    missing_why_now = await editorial._validated_findings(
+        db_session, review, without_why_now, chapter=1, segment=text
+    )
+    assert "处理优先级依据尚不充分" in missing_why_now[0]["unchecked"]
     await editorial._save_findings(db_session, review, accepted)
     issues = (
         await async_client.get(
@@ -944,13 +969,20 @@ async def test_long_chapter_reports_partial_then_resumes_unread_tail(
 
     async def model(_client, request, _schema, **_kwargs):
         payload = json.loads(request.messages[1].content)
-        calls.append(payload["offset"])
+        calls.append(payload)
         budget = current_workflow_budget().budget
         budget.reserve(requests=1)
         budget.add_usage(
             LLMUsage(prompt_tokens=10, completion_tokens=10, total_tokens=20)
         )
-        return ReviewPass(summary="本片段已检查")
+        return ReviewPass(
+            summary="本片段已检查",
+            carry_forward=(
+                [{"chapter_index": 1, "quote": "锚点开头"}]
+                if payload["offset"] == 0
+                else []
+            ),
+        )
 
     monkeypatch.setattr(editorial, "build_project_llm_execution_snapshot", snapshot)
     monkeypatch.setattr(editorial, "open_project_snapshot_llm_client", client)
@@ -959,7 +991,7 @@ async def test_long_chapter_reports_partial_then_resumes_unread_tail(
         await async_client.post("/api/projects", json={"title": "长章续读"})
     ).json()
     novel_id = project["id"]
-    text = "长" * (editorial._CHUNK * 4 + 10)
+    text = "锚点开头" + "长" * (editorial._CHUNK * 4 + 10)
     draft = (
         await async_client.post(
             "/api/writing/drafts/autosave",
@@ -986,7 +1018,10 @@ async def test_long_chapter_reports_partial_then_resumes_unread_tail(
     assert partial["status"] == "partial"
     assert partial["unchecked_chapters"] == [1]
     assert not partial["report"]["coverage_complete"]
-    assert calls == [0, 12000, 24000, 36000]
+    assert [call["offset"] for call in calls] == [0, 12000, 24000, 36000]
+    assert calls[1]["prior_evidence"] == [
+        {"chapter_index": 1, "quote": "锚点开头"}
+    ]
 
     review = await db_session.get(EditorialReview, UUID(submitted["id"]))
     review.progress_json = {**review.progress_json, "usage_unknown": True}
@@ -1002,7 +1037,10 @@ async def test_long_chapter_reports_partial_then_resumes_unread_tail(
     assert completed["status"] == "completed"
     assert completed["checked_chapters"] == [1]
     assert completed["report"]["coverage_complete"]
-    assert calls == [0, 12000, 24000, 36000, 48000]
+    assert [call["offset"] for call in calls] == [0, 12000, 24000, 36000, 48000]
+    assert calls[4]["prior_evidence"] == [
+        {"chapter_index": 1, "quote": "锚点开头"}
+    ]
     assert (await db_session.get(WritingDraft, UUID(draft["id"]))).content == text
 
 
@@ -1428,3 +1466,11 @@ async def test_save_findings_keeps_colliding_object_findings_and_keeps_dispositi
     assert back["节奏拖沓"].fingerprint == editorial._fingerprint(pacing)
     assert back["节奏拖沓"].disposition == "intentional"
     assert back["节奏拖沓"].finding_json["disposition_inherited"] is True
+
+
+def test_editorial_prompt_contract_covers_diagnosis_and_nonreport_rules():
+    prompt = editorial._SYSTEM
+    assert "尽量给出两到三条方向" not in prompt
+    assert "写入 unchecked" in prompt
+    assert "why_now" in prompt
+    assert "不主动输出再现或伦理观察" in prompt

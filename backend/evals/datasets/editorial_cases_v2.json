@@ -1,0 +1,654 @@
+{
+  "version": 2,
+  "provenance": "Version 2 adds original synthetic Chinese fiction only; the four version 1 cases are copied unchanged and no user or published manuscript text is used.",
+  "cases": [
+    {
+      "id": "unique_key_contradiction",
+      "scope": "book",
+      "stratum": "explicit_error",
+      "brief": {
+        "target_readers": "悬疑长篇读者",
+        "genre_promise": "物件去向遵守已展示的因果",
+        "voice": "克制、贴近林舟的视角"
+      },
+      "chapters": [
+        {
+          "index": 1,
+          "title": "铜钥匙",
+          "content": "守炉人说，全港只铸过这一把铜钥匙。林舟把它投入沸炉，看着齿纹消失，铜液流进模槽。她把空口袋翻给同伴看。",
+          "content_sha256": "74c69c1301baf983753ce3052f7f5bf2e7eafdb01cf7a98b628224e2f64bd333"
+        },
+        {
+          "index": 2,
+          "title": "换班",
+          "content": "夜里换班时，同伴问起铜钥匙。林舟说已经熔掉，守炉人也点头；他们决定改从侧门寻找入口。",
+          "content_sha256": "93bf012658f2da2f1eb5b777001ed458d1636161c9da16c75d1802aa5bd4bc4b"
+        },
+        {
+          "index": 3,
+          "title": "侧门",
+          "content": "侧门上仍是那道旧锁。林舟从空口袋里掏出那把齿纹完整的铜钥匙，直接打开了门。现场没有人提到重铸或替换。",
+          "content_sha256": "04791670d9589f6c33d22914d0a0218d68c5975ece909e7221ca0cde36aac3b5"
+        }
+      ],
+      "revised_chapters": [
+        {
+          "index": 3,
+          "content": "侧门上仍是那道旧锁。林舟摸出炉渣里捡回的断齿，发现它插不进锁孔，于是和同伴改找窗户。",
+          "content_sha256": "cce451fb7e2a5e01bf90db8221c34f250c3e269db985e1ea8339a4f11343ee81"
+        }
+      ],
+      "evaluation_focus": [
+        "指出第一章熔毁与第三章完好钥匙的两处原文依据",
+        "改后只给仍在、可能改善或无法判断，不自动关闭"
+      ]
+    },
+    {
+      "id": "bell_ambiguous",
+      "scope": "range",
+      "stratum": "multiple_explanations",
+      "brief": {
+        "target_readers": "悬疑读者",
+        "intentional_choices": [
+          "钟声来源暂时不解释"
+        ]
+      },
+      "chapters": [
+        {
+          "index": 1,
+          "title": "午夜",
+          "content": "午夜，林舟听见山上的钟响了一下。山路起雾，她没有看见钟楼，只记下了声音来的方向。",
+          "content_sha256": "f4b347566ba6b17b48be2f1ee48e0278e66811b5270cb50cf174dc2a52285eed"
+        },
+        {
+          "index": 2,
+          "title": "回声",
+          "content": "第二夜，同样的声音从河岸传来。林舟想，也许是山谷回声，也许有人带走了小钟；她没有证据。",
+          "content_sha256": "578e5fde5fb6323beff811784f166b9432038c3a9b8a843ef2543f401b7094ef"
+        }
+      ],
+      "evaluation_focus": [
+        "保留回声、小钟、误听等合理解释",
+        "不得把声音方向变化标为已核实矛盾"
+      ]
+    },
+    {
+      "id": "intentional_blank",
+      "scope": "book",
+      "stratum": "intentional_gap",
+      "brief": {
+        "target_readers": "连载读者",
+        "intentional_choices": [
+          "前两章不揭示纸条上的名字，第三章才让读者看见"
+        ]
+      },
+      "chapters": [
+        {
+          "index": 1,
+          "title": "纸条",
+          "content": "林舟展开湿纸条，只看见一个名字就把它折回袖口。同行的人问是谁，她摇头，先去找写字的人。",
+          "content_sha256": "84ce6748aac0b2c755999ece5ac3873b72d86b78b3252e0e20ec639b76b787df"
+        },
+        {
+          "index": 2,
+          "title": "寻找",
+          "content": "他们沿着纸条上的旧墨迹找到码头。林舟仍没说出那个名字，她担心说出口会惊动附近的人。",
+          "content_sha256": "34c3b564462edb4e5933a647399bf20b056b2653a2f8b18f2e5f8b5f29117e90"
+        },
+        {
+          "index": 3,
+          "title": "名字",
+          "content": "纸条完全干了，读者终于看清那个名字：守炉人周甲。林舟此前的沉默有了可以讨论的缘由。",
+          "content_sha256": "a4ec7e114e375752c6d4213311c6fa56b22934a6f0de2c9d7d82e1a94184381a"
+        }
+      ],
+      "evaluation_focus": [
+        "第一、二章盲读不接触第三章答案",
+        "不得把作者确认的延迟揭示强报为遗漏"
+      ]
+    },
+    {
+      "id": "quiet_clean",
+      "scope": "book",
+      "stratum": "no_major_issue",
+      "brief": {
+        "target_readers": "日常题材读者",
+        "voice": "平缓、节制"
+      },
+      "chapters": [
+        {
+          "index": 1,
+          "title": "雨停",
+          "content": "雨停后，阿禾收起门口的伞，给邻居留了一张便条：茶已经泡好。邻居下班晚，她把灯留到十点。",
+          "content_sha256": "b2c1930e5caffb6ba092fa9b80ee5867e18f8d7f68e7f34c601cbb93d38c2aee"
+        },
+        {
+          "index": 2,
+          "title": "来信",
+          "content": "十点前，邻居带着一封回信来敲门。他们坐在窗边喝茶，先谈今天的雨，再说信里提到的旧友。",
+          "content_sha256": "4efc9bba9f8ca0fa6739d07096fa93c332dfe3666244a099663de8ad8a3b0cb3"
+        }
+      ],
+      "evaluation_focus": [
+        "允许没有主要问题的报告",
+        "不得为凑三条建议捏造冲突"
+      ]
+    },
+    {
+      "id": "S01_hard_contradiction",
+      "scope": "book",
+      "stratum": "hard_contradiction_positive",
+      "brief": {
+        "genre_promise": "唯一铜钥匙熔化后不能复原。"
+      },
+      "chapters": [
+        {
+          "index": 1,
+          "title": "熔炉",
+          "content": "守炉人当着众人的面把铜钥匙投入炉中。林禾看见齿纹融成一线红光，最后只剩一勺铜液。",
+          "content_sha256": "802a11d1d74c810a6a06eaab05973b49b02c436436c89ef4de8cc9c25ffc36e7"
+        },
+        {
+          "index": 2,
+          "title": "空袋",
+          "content": "林禾翻遍工具袋，没有找到钥匙。她把袋口缝好，与同伴改去寻找侧门。",
+          "content_sha256": "3d45bd026443db4d48426cdc22f1ff7f7571efad73d4183bc5d85afd9c02d85b"
+        },
+        {
+          "index": 3,
+          "title": "旧锁",
+          "content": "林禾从空袋里取出齿纹完整的铜钥匙，插进旧锁，门应声打开。前后没有提到重铸、替换或第二把钥匙。",
+          "content_sha256": "735f3e5aa08a855aecc37dcbe4aae4c18b29e62cf3987c08b1340299958445c9"
+        }
+      ],
+      "evaluation_focus": [
+        "合并熔毁和完好钥匙两处证据；只在章节覆盖足够时判断矛盾。"
+      ]
+    },
+    {
+      "id": "S02_unreliable_narrator",
+      "scope": "book",
+      "stratum": "hard_contradiction_control",
+      "brief": {
+        "intentional_choices": [
+          "第一人称叙述者隐瞒钟楼仍在的事实；读者可从旧日志推断其不可靠。"
+        ]
+      },
+      "chapters": [
+        {
+          "index": 1,
+          "title": "无钟之城",
+          "content": "我告诉新来的测绘员，雾城从来没有钟。说完，我把袖口压在旧伤上，没有带他去北塔。",
+          "content_sha256": "be0249e849a0d182e00ef2e30e09fc6af638aafa22396287147e99aa72e805fc"
+        },
+        {
+          "index": 2,
+          "title": "值夜日志",
+          "content": "守塔人留下的日志写着：“今夜钟声三次。阿澈又问起拆钟的人，我仍未告诉他，那个人就是我。”",
+          "content_sha256": "2293d08fc03b4e9811ad6d89773d55d643d35e90d64ec701884220e23a4c69da"
+        }
+      ],
+      "evaluation_focus": [
+        "把叙述者陈述与日志来源分开；不报成客观连续性矛盾。"
+      ]
+    },
+    {
+      "id": "S03_causal_gap",
+      "scope": "book",
+      "stratum": "causal_gap_positive",
+      "brief": {
+        "world_rules": [
+          "盐印只能封住直接接触的木门；隔着石墙不起作用。"
+        ]
+      },
+      "chapters": [
+        {
+          "index": 1,
+          "title": "盐印",
+          "content": "师傅按住木门示范：盐印要贴在木纹上才会封门，隔着石墙不会生效。",
+          "content_sha256": "dbd3ca77083a4b3c2e6d72d8fc78f8597c91f4d4c49d47941e9f11f72744f4e9"
+        },
+        {
+          "index": 2,
+          "title": "墙后",
+          "content": "追兵在石墙另一侧撞门。阿棠站在墙后举起盐印，门外立刻安静下来；她没有靠近门，也没有触碰木头。",
+          "content_sha256": "db96390a2c4d08cb7b908b8ce5bb7c53861b7759c45e7c3081885550158a5212"
+        }
+      ],
+      "evaluation_focus": [
+        "指出规则条件到结果之间缺少触发过程；给最小补因果或改行动方向，不要求重写整段故事。"
+      ]
+    },
+    {
+      "id": "S04_causal_setup_control",
+      "scope": "book",
+      "stratum": "causal_gap_control",
+      "brief": {
+        "genre_promise": "解法可以回收前文展示的日常物件。"
+      },
+      "chapters": [
+        {
+          "index": 1,
+          "title": "袖线",
+          "content": "阿棠把一截细线藏进袖口。她从门缝放线出去，轻轻一拉，廊下的小铃就响了。",
+          "content_sha256": "097569541b6e91d11f8b3986970bee9a065e1ffcd50a29e2924fddc605f109b9"
+        },
+        {
+          "index": 2,
+          "title": "报信",
+          "content": "众人堵在屋内时，阿棠把同一截细线伸过门缝，拉响廊铃。外面的人听见后赶来开门。",
+          "content_sha256": "86e3d880a395df6478de0a7c8581183332a33be064b623830b71dcd13b0455ea"
+        }
+      ],
+      "evaluation_focus": [
+        "识别可回读的物件、能力与演示；不把结尾解法说成凭空出现。"
+      ]
+    },
+    {
+      "id": "S05_comprehension_friction",
+      "scope": "range",
+      "stratum": "comprehension_friction",
+      "brief": {
+        "target_readers": "限制视角悬疑读者。"
+      },
+      "chapters": [
+        {
+          "index": 1,
+          "title": "灯下",
+          "content": "阿岚把它递给她。她摇头。那人把灯放下，转身去关窗。屋里还有阿岚、姨母和邻居三位女性，前两句没有再次命名或动作提示。",
+          "content_sha256": "a8a98d4de6dd28bb914a246d1846727a3e7d27c71ab42d29cc9eaa552775c21a"
+        }
+      ],
+      "evaluation_focus": [
+        "指出指代可能有多种解读或行动者无法确定；不升级为客观矛盾，并标出需要盲读验证。"
+      ]
+    },
+    {
+      "id": "S06_understood_but_disliked",
+      "scope": "range",
+      "stratum": "taste_control",
+      "brief": {
+        "target_readers": "接受克制、仪式感重复的日常文学读者。",
+        "intentional_choices": [
+          "三次重复作为悼念节拍。"
+        ]
+      },
+      "chapters": [
+        {
+          "index": 1,
+          "title": "空椅",
+          "content": "雨落在空椅上。她没有收椅子。雨落在空椅上。她把父亲留下的茶杯放回柜顶。雨落在空椅上。天亮前，她一直坐在门边。",
+          "content_sha256": "647c7a06c2a045831dea5c718b8f0a3990ff7dd6a5d69cc924698bae51937a30"
+        }
+      ],
+      "evaluation_focus": [
+        "把语义理解与审美反应分开；重复若被理解，只因“节奏太慢”不报错。评阅者可记录不同口味反应，不当作模型事实。"
+      ]
+    },
+    {
+      "id": "S07_goal_mismatch",
+      "scope": "book",
+      "stratum": "goal_mismatch_positive",
+      "brief": {
+        "genre_promise": "封闭空间推理；揭晓前应给读者可回推的线索，凶手须在嫌疑名单内。"
+      },
+      "chapters": [
+        {
+          "index": 1,
+          "title": "封门",
+          "content": "画室反锁，窗户封死。画家、管家和学生都在屋里。地板上只有一串湿脚印，停在画架前。",
+          "content_sha256": "60baa93798cc080f0fee0f3e465b0b6ca8420f60079605cc913ebc3d9c80e400"
+        },
+        {
+          "index": 2,
+          "title": "线索",
+          "content": "管家承认擦过画框，学生说自己听见了钟响。调查者发现画架后的墙板有新漆，却没有查墙板。",
+          "content_sha256": "991934ea5f9d36ae29cf3c98fc2e690628e5da12ab2c27c6832f3cadcece1f5b"
+        },
+        {
+          "index": 3,
+          "title": "揭晓",
+          "content": "调查者宣布邮差是凶手。邮差从未在前文出现；他通过一扇此前未提过的暗门离开画室。没有补充暗门或凶手身份的线索。",
+          "content_sha256": "e0ecd28dc1d61aa4459f2b1b08857bde81b34e960d4327dd400d500474b9aa7d"
+        }
+      ],
+      "evaluation_focus": [
+        "以明确目标和正文效果作依据；区分目标失配与单纯不喜欢结尾。"
+      ]
+    },
+    {
+      "id": "S08_no_arc_open_ending",
+      "scope": "book",
+      "stratum": "commitment_control",
+      "brief": {
+        "genre_promise": "旅行见闻式单元小说，人物没有统一成长弧，结尾保持开放；每章可独立收束。"
+      },
+      "chapters": [
+        {
+          "index": 1,
+          "title": "渡口",
+          "content": "小禾在渡口替陌生人捡起被风吹走的车票。船到岸时，两人各自上路。",
+          "content_sha256": "bdbb5b324bd78a44e0fad60b12eec1378b7d7870ca24cadabc4a17576183dd30"
+        },
+        {
+          "index": 2,
+          "title": "山路",
+          "content": "小禾在山路边听老人讲一段旧地名，没有追问故事真假。傍晚她帮老人修好背篓，第二天继续赶路。",
+          "content_sha256": "c7768615973665d1b889aff21f909aa3e1691a5523147b0f291705a9bea09fe1"
+        },
+        {
+          "index": 3,
+          "title": "灯火",
+          "content": "离开山村前，小禾把一盏灯留给借宿的孩子。她不知道下一站会遇见谁，沿着河岸走进晨雾。",
+          "content_sha256": "df4445f6e04ea636ab2b7975c5593503d736e0f2079824cd44f982e47a08044b"
+        }
+      ],
+      "evaluation_focus": [
+        "不因无统一主线、成长弧或封闭解释而报错；尊重已经明示的作品承诺。"
+      ]
+    },
+    {
+      "id": "S09_taste_slow_town",
+      "scope": "book",
+      "stratum": "taste_control",
+      "brief": {
+        "genre_promise": "节制的日常文学；本段写夜班和值守，不承诺悬疑或强冲突。"
+      },
+      "chapters": [
+        {
+          "index": 1,
+          "title": "擦杯",
+          "content": "夜班的杜师傅擦完第六只玻璃杯，把它们排回柜台。雨点落在遮雨棚上，他数到末班车经过。",
+          "content_sha256": "84b8067f8a3d75f542d536b27ccd07b768e95b5121107ae449cc88bb9bede3f2"
+        },
+        {
+          "index": 2,
+          "title": "收灯",
+          "content": "末班车停了半分钟，没有乘客下来。杜师傅关掉门外一盏灯，留下柜台上方的黄灯，等清晨的送奶车。",
+          "content_sha256": "14392da856cdc1ddc7ee856dbc5ea33adc17c84f91daff6d23c910fdaaaf631d"
+        }
+      ],
+      "evaluation_focus": [
+        "默认不报“缺少钩子/冲突”或要求压缩安静描写。"
+      ]
+    },
+    {
+      "id": "S10_sparse_style_control",
+      "scope": "book",
+      "stratum": "taste_control",
+      "brief": {
+        "genre_promise": "平静的短篇，留白和重复均可作为节奏；无额外风格审读授权。"
+      },
+      "chapters": [
+        {
+          "index": 1,
+          "title": "窗边",
+          "content": "她把两只碗洗净。窗外的车声远了。她擦干手，又把两只碗放回原处。",
+          "content_sha256": "7947f1a33db17101bddcf7689bd9c526165123d5e9c0361289df788f6adb5300"
+        },
+        {
+          "index": 2,
+          "title": "早班",
+          "content": "天亮时，桌上仍有两只碗。她烧水，等楼上的脚步声停下，才打开门。",
+          "content_sha256": "aa82b99540d2eabf4f4054594b1a79bec13564ab5c31ef41310769a8ac3ad045"
+        }
+      ],
+      "evaluation_focus": [
+        "无主动风格入口；不把可选的简洁偏好伪装成问题或返修任务。"
+      ]
+    },
+    {
+      "id": "S11_unsolicited_ethics_control",
+      "scope": "book",
+      "stratum": "unsolicited_ethics_control",
+      "brief": {
+        "target_readers": "奇幻冒险读者。"
+      },
+      "chapters": [
+        {
+          "index": 1,
+          "title": "迁徙队",
+          "content": "雾港迁徙队在广场等船。领队阿岚替大家和船主谈价，孩子们留在行李旁；几位成年人各自忙着看船票、找水和照顾病人。",
+          "content_sha256": "7491b3e17fe4213ec682b1e122991cc1458351763e40cab0d77618ef23a02bea"
+        },
+        {
+          "index": 2,
+          "title": "决定",
+          "content": "阿岚说可以先让三位老人上船。年轻的修船工反对，担心工具丢在岸上；队里有人支持他，也有人不耐烦。最后大家投票决定分两批走。",
+          "content_sha256": "e148dbf578ea187ec04c53fa81575b828fabbc7e1f0b31ec105172204d345450"
+        }
+      ],
+      "evaluation_focus": [
+        "作者没有请求再现/伦理观察；不输出群体判词或作者动机推断。仍可报告有具体剧情后果的普通目标/因果问题。"
+      ]
+    },
+    {
+      "id": "S12_countervoice_control",
+      "scope": "book",
+      "stratum": "unsolicited_ethics_control",
+      "brief": {
+        "genre_promise": "人物观点可以受限，情节展示其局限；未请求伦理审读。"
+      },
+      "chapters": [
+        {
+          "index": 1,
+          "title": "守门人",
+          "content": "守门人说外乡人都不懂河规，所以不肯交出桥牌。同行的宁娘提醒他，上周救起落水孩子的正是外乡船工。",
+          "content_sha256": "82b631ad93232d4ea2fa85dea677c9d5c146d9f7475b5678422e2b867a57b918"
+        },
+        {
+          "index": 2,
+          "title": "涨潮",
+          "content": "涨潮时守门人没有听见桥索断裂。外乡船工先把孩子送上岸，再拉住绳索。守门人承认自己记错了救援次序，但没有改变对宁娘的称呼。",
+          "content_sha256": "6cf099647cd46eb9b42af1364430229055748c97672fafb44800eb63999c069c"
+        }
+      ],
+      "evaluation_focus": [
+        "不因人物说出偏见就推断作者认同或输出未请求的伦理警报；保持对话与情节证据。"
+      ]
+    },
+    {
+      "id": "S13_clue_early",
+      "scope": "book",
+      "stratum": "position_bias_pair",
+      "brief": {
+        "genre_promise": "悬疑故事的揭晓线索可以早埋，复读时仍应找到。"
+      },
+      "chapters": [
+        {
+          "index": 1,
+          "title": "磨损",
+          "content": "旧钟表的后盖边缘有一道新鲜的月牙形缺口。修表的苏禾看了一眼，把它记在本子上。",
+          "content_sha256": "81822713558e4d352aa3380cd650fa3ad7a5f0cb37292920ed0535a3c728aec6"
+        },
+        {
+          "index": 2,
+          "title": "借宿",
+          "content": "巡夜人说案发时自己一直在东街。苏禾没有追问，只把写着时间的纸收进外套。",
+          "content_sha256": "5f32ccc789b0bb49c477ea9067ca3bf09d678a50920fbef032b8e384f90312d3"
+        },
+        {
+          "index": 3,
+          "title": "对照",
+          "content": "苏禾把后盖缺口和巡夜人袖口的月牙形铜屑放在一起，认出他修过那只钟。她决定先问清钟停下的时间。",
+          "content_sha256": "f61f24edc07029aa48bbf0bba4fa9a4c00a96208dc4c33fbd8d2f5691a8cfc3b"
+        }
+      ],
+      "evaluation_focus": [
+        "引用早章可见线索并保留揭晓前状态；不要因线索位置早而漏检或让后文答案覆盖初读状态。"
+      ]
+    },
+    {
+      "id": "S13_clue_middle",
+      "scope": "book",
+      "stratum": "position_bias_pair",
+      "brief": {
+        "genre_promise": "悬疑故事的揭晓线索可以埋在长篇中段；缺失范围必须标未检查。"
+      },
+      "chapters": [
+        {
+          "index": 4,
+          "title": "换册",
+          "content": "档案员说旧钟停摆那晚，借走过一册蓝皮簿。交接表上没有归还签名。",
+          "content_sha256": "ac4f530e6f460f253b9c9840ece17f9a7958690cc6f54e1f91b99f843097b22b"
+        },
+        {
+          "index": 5,
+          "title": "柜底",
+          "content": "苏禾在柜底找到蓝皮簿。中段一页有被刮掉的时间，纸背仍留着“东街巡夜”的压痕。她还没确认笔迹。",
+          "content_sha256": "51372782195e61c3f5796568341fa17928ac81421ec0ddaf22099e9a2e35b237"
+        },
+        {
+          "index": 6,
+          "title": "约谈",
+          "content": "苏禾请巡夜人来认那道压痕。两人约定天亮后再见，暂时没有揭晓谁改过记录。",
+          "content_sha256": "25f953f3427348a8276d9753306b91c5d3e5b67f818bfba05e29443f1f30f81a"
+        }
+      ],
+      "evaluation_focus": [
+        "不把尚未揭晓或未核实的线索报成矛盾；若章节1–3不在本轮范围，明确写 unchecked，不声称回看过。"
+      ],
+      "scope_note": "本样本只提供第4–6章；第1–3章未纳入本轮审读。"
+    },
+    {
+      "id": "S14_knowledge_unconfirmed",
+      "scope": "book",
+      "stratum": "knowledge_boundary_positive",
+      "brief": {
+        "pov": "第三人称限知视角，跟随角色宁禾。"
+      },
+      "chapters": [
+        {
+          "index": 1,
+          "title": "密封信",
+          "content": "宁禾没有打开密封信，也没有听见门外两人的谈话。她只看见信封上盖着旧港印章。",
+          "content_sha256": "6b33fdf60e2a6cc0c845f5720a79d201bf3c506603aad0b5074c98f41f84964e"
+        },
+        {
+          "index": 2,
+          "title": "认名",
+          "content": "第二天宁禾对同伴说：“你的本名是顾青河。”同伴惊讶地问她从哪里知道，正文没有写出告知、查阅或推断过程。",
+          "content_sha256": "204d4db9e75b84b67226d9ce4dfc601eec2799c8f53115197a57e46b332ac903"
+        }
+      ],
+      "evaluation_focus": [
+        "只有存在有效角色视角确认且知识来源覆盖明确时才签知识边界；否则标明未检查，不宣称通过或违规。"
+      ],
+      "case_context": {
+        "confirmation_state": "valid POV confirmation binds this candidate",
+        "source_context": "No source in the confirmed chapter window establishes the name."
+      }
+    },
+    {
+      "id": "S14_knowledge_confirmed_control",
+      "scope": "book",
+      "stratum": "knowledge_boundary_control",
+      "brief": {
+        "pov": "第三人称限知视角，跟随角色宁禾。"
+      },
+      "chapters": [
+        {
+          "index": 1,
+          "title": "名册",
+          "content": "同伴当着宁禾的面签下“顾青河”三个字，又把名册推给她看。宁禾念了一遍，记住了这个名字。",
+          "content_sha256": "7c86e787ef398c4da71a49f1a3a257ac7e08d07197e91dd34bb8529036bbfe17"
+        },
+        {
+          "index": 2,
+          "title": "认名",
+          "content": "第二天宁禾对同伴说：“你的本名是顾青河。”同伴问她是否记得名册，宁禾点头。",
+          "content_sha256": "b5fbbb0f29c830a3dcdb883db1dce0090b06e4cefe624ab0f7aeebddaa8dad4d"
+        }
+      ],
+      "evaluation_focus": [
+        "发现明确铺垫并正确识别知识来源；不因角色未在当前选区重述信息而报边界问题。"
+      ],
+      "case_context": {
+        "confirmation_state": "valid POV confirmation binds this candidate",
+        "source_context": "Chapter 1 visibly establishes the name before Chapter 2."
+      }
+    },
+    {
+      "id": "S15_external_fact_pending",
+      "scope": "range",
+      "stratum": "external_fact_pending",
+      "brief": {
+        "worldbuilding": [
+          "架空的盐河城邦；本项目没有外部史料。"
+        ],
+        "author_question": "永乐年间是否确有这种商税？"
+      },
+      "chapters": [
+        {
+          "index": 1,
+          "title": "账册",
+          "content": "账册写着盐河商人每十袋盐交一枚青铜票。主人公怀疑账房多收，却找不到城邦旧例。",
+          "content_sha256": "1e5f1b91debbe46a34b7d46fcfe8cacae59d0070331ae2570ddd8d6e990dc27f"
+        },
+        {
+          "index": 2,
+          "title": "问讯",
+          "content": "主人公向书记员询问商税来历。书记员说自己也没见过旧章程，只听祖父提起过。",
+          "content_sha256": "4ca57d93656f9b5013abe78ee159b7e58033833c72050f1cb32b0cc80815738e"
+        }
+      ],
+      "evaluation_focus": [
+        "内审不回答外部史实；标为待外部查证，并说明其与剧情判断的关系，不断言史实错误。"
+      ]
+    },
+    {
+      "id": "S16_duplicate_domain_finding",
+      "scope": "book",
+      "stratum": "finding_aggregation_control",
+      "brief": {
+        "genre_promise": "本轮没有超出时间地点连续性的新增文学目标。"
+      },
+      "chapters": [
+        {
+          "index": 1,
+          "title": "北站",
+          "content": "周一清晨，阿遥在北站买票，墙钟指向六点。她登上开往南岸的列车。",
+          "content_sha256": "1eaba12816d14d6483a9afad2f2e38ca8ccfc7d5ae9b590b0edaa80ae6ca463c"
+        },
+        {
+          "index": 2,
+          "title": "南岸",
+          "content": "同一周一清晨，阿遥却在南岸和同伴吃早餐；叙述没有说明列车已到达或她曾乘夜车。",
+          "content_sha256": "6621ee5b3869e48be8a766f3e38b7ee5b41db3d002024955b24ca824fd144d60"
+        }
+      ],
+      "evaluation_focus": [
+        "已有领域回执覆盖相同时间地点证据时避免复制根因；可引用或导航既有依据，保留 editorial suggestion 与确定性领域回执的区别。"
+      ],
+      "case_context": {
+        "existing_domain_finding": {
+          "category": "continuity",
+          "evidence": [
+            "北站六点",
+            "同一周一清晨已在南岸"
+          ],
+          "coverage": "both supplied chapters"
+        }
+      }
+    },
+    {
+      "id": "S17_serialized_chapter_no_hook",
+      "scope": "range",
+      "stratum": "serialized_promise_control",
+      "brief": {
+        "genre_promise": "章回式奇幻连载；每回可以局部收束，长线靠物件与关系推进，不要求每回险处断章。"
+      },
+      "chapters": [
+        {
+          "index": 1,
+          "title": "纸鸢归岸",
+          "content": "赵三交完船票，接回妹妹。纸鸢还留在北岸；他决定明日再找失踪的船师。妹妹把热饼分给守船的老人，兄妹沿河回家。",
+          "content_sha256": "5767ba41d78407068a7596026676b536dbae81d3cdd297581f0bb30d83fcb771"
+        }
+      ],
+      "evaluation_focus": [
+        "不因单回没有 cliffhanger/钩子报错；允许局部收束与跨回未结线程并存。"
+      ]
+    }
+  ]
+}
