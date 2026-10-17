@@ -159,9 +159,29 @@
         </fieldset>
         <button type="button" class="btn btn-sm" :disabled="comparing || !compareTargetId" @click="requestCompare">{{ comparing ? "正在比较…" : "比较" }}</button>
         <div v-if="comparison" class="exploration-result-card__compare">
+          <div v-if="comparison.relation === 'parent_child' || comparison.affectedItems.length" class="exploration-result-card__compare-summary">
+            <span v-if="comparison.relation === 'parent_child'" class="exploration-result-card__relation-tag">后代修订对照</span>
+            <span v-if="comparison.affectedItems.length" class="exploration-result-card__impact-tag">受影响 {{ comparison.affectedItems.length }} 项</span>
+          </div>
           <div v-if="changedConditions.length" class="exploration-result-card__changed">
             <h4>变更条件</h4>
             <ul class="exploration-result-card__tags"><li v-for="cond in changedConditions" :key="cond">{{ cond }}</li></ul>
+          </div>
+          <div v-if="comparison.affectedItems.length || comparison.affectedGranularity === 'conservative'" class="exploration-result-card__affected">
+            <h4>受影响项</h4>
+            <p v-if="comparison.affectedGranularity === 'conservative'" class="exploration-result-card__basis">粒度不足，仅保守披露</p>
+            <ul v-else class="exploration-result-card__affected-list">
+              <li v-for="item in comparison.affectedItems" :key="item.item_path" class="exploration-result-card__affected-item">
+                <p class="exploration-result-card__affected-head">
+                  <span class="exploration-result-card__affected-status" :class="`exploration-result-card__affected-status--${item.status}`">{{ affectedStatusLabel(item.status) }}</span>
+                  <strong>{{ affectedPathLabel(item.item_path) }}</strong>
+                </p>
+                <div class="exploration-result-card__affected-excerpts">
+                  <p>基线：{{ item.base_excerpt || "（无）" }}</p>
+                  <p>对照：{{ item.derived_excerpt || "（无）" }}</p>
+                </div>
+              </li>
+            </ul>
           </div>
           <section><h4>当前结果<span v-if="comparison.currentLockedCount" class="exploration-result-card__lock-tag">已锁定 {{ comparison.currentLockedCount }} 项</span></h4><p>{{ comparison.current }}</p></section>
           <section><h4>对比结果<span v-if="comparison.otherLockedCount" class="exploration-result-card__lock-tag">已锁定 {{ comparison.otherLockedCount }} 项</span></h4><p>{{ comparison.other }}</p></section>
@@ -177,7 +197,8 @@
 <script setup>
 // 探索结果卡（第一批）：按 output_kind 三态渲染紧凑结果，并提供
 // 说详细点 / 局部修订（模型追加，走 202 任务轮询）与保存编辑（零模型调用）、
-// 结果对照（只读；沙盘支持同起点与反事实两种模式，反事实回传变更条件）。
+// 结果对照（只读；沙盘支持同起点与反事实两种模式，反事实回传变更条件与
+// 受影响项，同起点父子对照标记后代修订并列出受影响项，粒度不足时保守披露）。
 // M3-A3：可修订条目旁提供锁定开关；锁定条目禁止局部修订，修订/编辑冲突时
 // 原样展示服务端 409 中文原因。AI 结果不可变；编辑保存形成新版本。
 import { computed, onBeforeUnmount, ref, watch } from "vue"
@@ -266,6 +287,19 @@ const spatialAssessment = computed(() => (
 ))
 const spatialConstraints = computed(() => (Array.isArray(spatialAssessment.value?.constraints) ? spatialAssessment.value.constraints : []))
 const spatialUnknowns = computed(() => (Array.isArray(spatialAssessment.value?.unknowns) ? spatialAssessment.value.unknowns : []))
+
+// 受影响项（M3-A）：仅 counterfactual / parent_child 对照回传；路径语法与
+// 修订/锁定的 item_path 一致，逐项展示三态标签与 base/derived 摘录并排。
+const AFFECTED_STATUS_LABELS = { changed: "变更", added: "新增", removed: "移除" }
+function affectedStatusLabel(status) { return AFFECTED_STATUS_LABELS[status] || status }
+function affectedPathLabel(itemPath) {
+  const [family, index] = String(itemPath || "").split(":")
+  if (family === "chain" || family === "gap" || family === "bridge") {
+    const familyLabels = { chain: "影响链", gap: "缺口", bridge: "补桥" }
+    return `${familyLabels[family]} ${Number(index) + 1}`
+  }
+  return family === "line" ? "对白" : String(itemPath || "")
+}
 
 // 目标优先展示 label 类字段；payload 只有 ref 时直接显示 ref。
 function variantTargetLabel(variant) {
@@ -553,11 +587,17 @@ async function requestCompare() {
     })
     const first = receipt?.first?.payload ? receipt.first : { output_kind: kind.value, payload: display.value }
     const second = receipt?.second || null
+    // 受影响项仅随 counterfactual / parent_child 回传；其余对照不引入新状态，
+    // 渲染保持原样。保守披露时 affected_items 为空，仅显示粒度提示。
+    const impactMode = receipt?.mode === "counterfactual" || receipt?.relation === "parent_child"
     comparison.value = {
       current: compactText(first.payload, first.output_kind),
       other: second ? compactText(second.payload, second.output_kind) : "对比结果暂不可读。",
       mode: receipt?.mode || "same_start",
       changed_conditions: Array.isArray(receipt?.changed_conditions) ? receipt.changed_conditions : [],
+      relation: receipt?.relation || null,
+      affectedItems: impactMode && Array.isArray(receipt?.affected_items) ? receipt.affected_items : [],
+      affectedGranularity: impactMode ? receipt?.affected_items_granularity || null : null,
       // 比较响应带两侧 locked_items（item_path 数组）；列头展示锁定数标签。
       currentLockedCount: Array.isArray(first.locked_items) ? first.locked_items.length : 0,
       otherLockedCount: Array.isArray(second?.locked_items) ? second.locked_items.length : 0,
@@ -634,6 +674,21 @@ onBeforeUnmount(() => { poller?.stop?.(); poller = null })
 .exploration-result-card__compare{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px;margin-top:8px}
 .exploration-result-card__changed{grid-column:1/-1;min-width:0}
 .exploration-result-card__changed h4{margin:0 0 6px;font-size:13px}
+.exploration-result-card__compare-summary{grid-column:1/-1;display:flex;flex-wrap:wrap;align-items:center;gap:6px}
+.exploration-result-card__relation-tag,.exploration-result-card__impact-tag{padding:2px 8px;border-radius:999px;font-size:12px}
+.exploration-result-card__relation-tag{background:#e6efeb;color:#36594e;font-weight:600}
+.exploration-result-card__impact-tag{background:#f3e8d2;color:#8a6116}
+.exploration-result-card__affected{grid-column:1/-1;min-width:0}
+.exploration-result-card__affected h4{margin:0 0 6px;font-size:13px}
+.exploration-result-card__affected-list{display:grid;gap:8px;margin:0;padding:0;list-style:none}
+.exploration-result-card__affected-item{border:1px solid var(--border-color,var(--border));border-radius:8px;padding:8px;background:var(--bg-muted);min-width:0}
+.exploration-result-card__affected-head{margin:0 0 4px;display:flex;flex-wrap:wrap;align-items:center;gap:6px}
+.exploration-result-card__affected-status{padding:1px 8px;border-radius:999px;font-size:12px}
+.exploration-result-card__affected-status--changed{background:#f3e8d2;color:#8a6116}
+.exploration-result-card__affected-status--added{background:#e6efeb;color:#36594e}
+.exploration-result-card__affected-status--removed{background:#f7e4e2;color:#9c2d29}
+.exploration-result-card__affected-excerpts{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px}
+.exploration-result-card__affected-excerpts p{margin:0;white-space:pre-wrap;overflow-wrap:anywhere;font-size:13px}
 .exploration-result-card__tags{display:flex;flex-wrap:wrap;gap:6px;margin:0;padding:0;list-style:none}
 .exploration-result-card__tags li{padding:2px 8px;border-radius:999px;background:#e6efeb;color:#36594e;font-size:12px;overflow-wrap:anywhere}
 .exploration-result-card__goal{margin:8px 0;display:grid;gap:6px}
@@ -662,5 +717,5 @@ onBeforeUnmount(() => { poller?.stop?.(); poller = null })
 .exploration-result-card__compare p{white-space:pre-wrap;overflow-wrap:anywhere;margin:0;font-size:13px}
 .exploration-result-card__error{color:var(--danger);font-size:13px;margin:8px 0;overflow-wrap:anywhere}
 .exploration-result-card button:focus-visible,.exploration-result-card select:focus-visible,.exploration-result-card textarea:focus-visible,.exploration-result-card summary:focus-visible{outline:3px solid rgba(81,127,111,.35);outline-offset:2px}
-@media(max-width:700px){.exploration-result-card__actions{flex-direction:column}.exploration-result-card__op{flex-basis:auto}.exploration-result-card__compare{grid-template-columns:1fr}}
+@media(max-width:700px){.exploration-result-card__actions{flex-direction:column}.exploration-result-card__op{flex-basis:auto}.exploration-result-card__compare{grid-template-columns:1fr}.exploration-result-card__affected-excerpts{grid-template-columns:1fr}}
 </style>
