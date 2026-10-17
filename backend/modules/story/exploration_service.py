@@ -26,7 +26,9 @@ from modules.evidence.contracts import (
 from modules.project import facade as project_facade
 from modules.story.exploration_schemas import (
     AUTHOR_EDIT_OUTPUT_KIND,
+    EVENT_OUTPUT_KIND,
     PAYLOAD_MODELS_BY_BASE_KIND,
+    SANDBOX_OUTPUT_KIND,
     AuthorEditPayloadV1,
     ExplorationOutputEnvelope,
     exploration_start_fingerprint,
@@ -219,8 +221,67 @@ async def create_exploration_root(
 
 
 # ---------------------------------------------------------------------------
+# 旧路径 fail-closed（P0 §7）：带 output_kind 的行与临时起点根不得进入旧解释逻辑
+# ---------------------------------------------------------------------------
+
+_LEGACY_EXPLORATION_ROW_MESSAGE = "该分支包含紧凑探索结果，请在对应任务上继续"
+_PROVISIONAL_ROOT_MESSAGE = "临时起点探索根不能进入旧推进路径，请在对应任务上继续"
+
+
+def require_legacy_director_round(row) -> None:
+    """导演 continue/advance/resume：来源回合带探索输出即拒绝。"""
+    if unpack_exploration_output(row) is not None:
+        raise ConflictError(_LEGACY_EXPLORATION_ROW_MESSAGE)
+
+
+def require_legacy_progression_root(root, step=None) -> None:
+    """推进 advance/resume/hooks/continuous：临时起点根或探索步骤即拒绝。"""
+    if getattr(root, "source_kind", SCENE_SOURCE_KIND) == PROVISIONAL_SOURCE_KIND:
+        raise ConflictError(_PROVISIONAL_ROOT_MESSAGE)
+    if step is not None and unpack_exploration_output(step) is not None:
+        raise ConflictError(_LEGACY_EXPLORATION_ROW_MESSAGE)
+
+
+def require_legacy_reference_source(root, row) -> None:
+    """save_director_reference：临时起点根或探索输出回合不能存为参考剧本。"""
+    if getattr(root, "source_kind", SCENE_SOURCE_KIND) == PROVISIONAL_SOURCE_KIND:
+        raise ConflictError(
+            "临时起点探索没有场景依据，不能存为正式参考剧本"
+        )
+    if unpack_exploration_output(row) is not None:
+        raise ConflictError(
+            "探索结果不能存为参考剧本；请在对应任务上继续或先保存编辑版本"
+        )
+
+
+def require_legacy_transfer_source(row) -> None:
+    """transfer_world_candidate：探索输出回合不能转入 World 候选。"""
+    if unpack_exploration_output(row) is not None:
+        raise ConflictError(
+            "探索结果不能转入 World 待审核候选；请在对应任务上继续"
+        )
+
+
+# ---------------------------------------------------------------------------
 # 结果行定位与比较
 # ---------------------------------------------------------------------------
+
+
+async def locate_exploration_result(
+    db, novel_id: str, result_id: str, *, lock: bool = False
+) -> tuple[Any, str]:
+    """定位探索结果行的稳定入口：按 ID 在两条链上查找并返回 ``(row, chain)``。"""
+    return await _locate_result_row(db, novel_id, result_id, lock=lock)
+
+
+async def root_for_chain(db, novel_id: str, root_id: Any, chain: str):
+    """按链路读取探索根的稳定入口。"""
+    return await _root_for_chain(db, novel_id, root_id, chain)
+
+
+async def require_project_owner(db, novel_id: str, owner_id: str) -> None:
+    """owner+novel 归属校验的稳定入口（不锁定）。"""
+    await _require_project(db, novel_id, owner_id)
 
 
 async def _locate_result_row(
@@ -494,6 +555,121 @@ async def _exploration_root_ids(
             .limit(_HISTORY_SCAN_CAP * 8)
         )
     return {root_id for root_id, payload in rows if _has_output_kind(payload)}
+
+
+async def list_exploration_history_results(
+    db,
+    *,
+    novel_id: str,
+    owner_id: str,
+    root_id: str | None = None,
+    scale: str | None = None,
+    limit: int = 20,
+    offset: int = 0,
+) -> dict:
+    """历史端点的平铺结果行（P0 §8）：``items[]`` 每行一个探索结果。
+
+    只列探索输出行（带 ``output_kind``）或临时起点根下的输出行；owner+novel
+    过滤，按 ``created_at`` 倒序稳定分页。gate 关闭后仍可读。
+    """
+
+    if scale is not None and scale not in EXPLORATION_CHAIN_BY_SCALE:
+        raise DomainError(f"不支持的探索尺度：{scale}")
+    await _require_project(db, novel_id, owner_id)
+    nid = _uuid(novel_id)
+    wanted_root = _uuid(root_id) if root_id else None
+    chains = (
+        [EXPLORATION_CHAIN_BY_SCALE[scale]]
+        if scale is not None
+        else ["progression", "scene"]
+    )
+    items: list[dict] = []
+    for chain in chains:
+        exploration_root_ids = await _exploration_root_ids(db, nid, chain=chain)
+        if chain == "progression":
+            root_model = StoryWorldProgressionRoot
+            row_model = StoryWorldProgressionStep
+        else:
+            root_model = StorySceneDirectorRoot
+            row_model = StorySceneDirectorRound
+        root_query = select(root_model).where(
+            root_model.novel_id == nid,
+            or_(
+                root_model.source_kind == PROVISIONAL_SOURCE_KIND,
+                root_model.id.in_(exploration_root_ids),
+            ),
+        )
+        if wanted_root is not None:
+            root_query = root_query.where(root_model.id == wanted_root)
+        roots = (await db.scalars(root_query.limit(_HISTORY_SCAN_CAP))).all()
+        if not roots:
+            continue
+        rows = (
+            await db.scalars(
+                select(row_model)
+                .where(
+                    row_model.novel_id == nid,
+                    row_model.root_id.in_([root.id for root in roots]),
+                )
+                .limit(_HISTORY_SCAN_CAP * 8)
+            )
+        ).all()
+        roots_by_id = {root.id: root for root in roots}
+        for row in rows:
+            root = roots_by_id.get(row.root_id)
+            if root is None:
+                continue
+            envelope = unpack_exploration_output(row)
+            if envelope is None:
+                continue
+            items.append(
+                {
+                    "root_id": str(row.root_id),
+                    "branch_id": str(row.branch_id),
+                    "result_id": str(row.id),
+                    "chain": chain,
+                    "scale": (root.request_json or {}).get("exploration_scale"),
+                    "output_kind": envelope.output_kind,
+                    "label": _result_label(envelope),
+                    "start_fingerprint": (root.request_json or {}).get(
+                        "exploration_start_fingerprint"
+                    ),
+                    "created_at": row.created_at.isoformat()
+                    if row.created_at
+                    else None,
+                    "payload": envelope.payload.model_dump(mode="json"),
+                }
+            )
+    if scale is not None:
+        items = [item for item in items if item.get("scale") == scale]
+    items.sort(
+        key=lambda item: (
+            (item["created_at"] is not None, item["created_at"]),
+            item["result_id"],
+        ),
+        reverse=True,
+    )
+    total = len(items)
+    return {"items": items[offset : offset + limit], "total": total}
+
+
+def _result_label(envelope: ExplorationOutputEnvelope) -> str:
+    payload = envelope.payload
+    if envelope.output_kind == AUTHOR_EDIT_OUTPUT_KIND:
+        inner = payload.edited_payload.model_dump(mode="json")
+        base = payload.base_output_kind
+        return f"作者编辑版：{_result_label_of_kind(base, inner)}"
+    return _result_label_of_kind(
+        envelope.output_kind, payload.model_dump(mode="json")
+    )
+
+
+def _result_label_of_kind(output_kind: str, payload: dict) -> str:
+    if output_kind == SANDBOX_OUTPUT_KIND:
+        return str(payload.get("question") or "")[:120]
+    if output_kind == EVENT_OUTPUT_KIND:
+        return str(payload.get("original_excerpt") or "")[:120]
+    return str(payload.get("line") or "")[:120]
 
 
 async def read_exploration_history(
