@@ -555,3 +555,26 @@ it("shows not-applied only after a matching terminal receipt is verified", async
     { expected_revision: 3, decision: "not_applied" },
   )
 })
+
+// Map-series review regressions (T-20261016-map-series-claude-review). it.fails
+// mirrors a strict xfail: once fixed it passes and fails this run, so drop .fails.
+it.fails("B9-F1: 启动目标被 409 拒绝时，显示服务端给出的具体原因", async () => {
+  vi.stubGlobal("crypto", { randomUUID: () => "request-id-1" })
+  // start_goal raises ConflictError (409) when the owner's model connection is
+  // unavailable; _shared.js puts the server detail on message and detail.
+  const reason = "当前项目模型连接不可用，请先检查作者账户设置"
+  const api = setupApi({
+    startGoal: vi.fn().mockRejectedValue(
+      Object.assign(new Error(`请求冲突：${reason}`), { status: 409, detail: reason }),
+    ),
+  })
+  const wrapper = await mountedPanel(api)
+
+  await wrapper.get("#goal-run-prompt").setValue("更新当前项目的作者待办")
+  await wrapper.find(".goal-runs-consent input").setValue(true)
+  await wrapper.get("form.goal-runs-start").trigger("submit")
+  await flushPromises()
+
+  expect(api.startGoal).toHaveBeenCalledOnce()
+  expect(wrapper.get(".goal-runs-error").text()).toContain("模型连接不可用")
+})

@@ -1,0 +1,97 @@
+# 地图增强系列 review 汇总
+
+审查对象：`codex/map-enhancement-plan` @ `a479e006b`（merge-base `00d861283` = origin/main），374 个提交、
+805 个文件、约 17.6 万行。分 9 批审完计划里程碑 M0–M4、地图前端、对象档案、Story、Assistant、评测驱动，
+另抽查了其余前端。各批报告见 [BATCH-1](BATCH-1.md) 至 [BATCH-9](BATCH-9.md)。
+
+## 结论
+
+没有发现 P0/P1：没有跨 `novel_id` 泄漏、owner 校验绕过、真实数据丢失或越权写入；空间计算、作者确认、
+预算账本、资料确认与回执核对这些核心不变量大多成立。共确认 30 个问题，P2 与 P3 各 15 个，集中在
+三类地方：前端或模型能发起、后端却必然拒绝的路径；进入后出不来的状态；同一事实的两种表示没有同步。
+27 个有回归测试（后端 24 条 strict xfail、前端 6 条 `it.fails`，有的发现对应多条），修好后测试会意外通过
+并提醒移除标记。3 个未写测试，原因见下。
+
+## P2（15 个）
+
+- F1：作者合并词表类型后，引用旧类型的地图图元退出空间计算。（World）
+- B2-F1：主回执提交后作者编辑 Scene 卡片，可选阶段永久停在 running。（Evolution）
+- B2-F4：超出上下文的涌现中类型被再次提议时，整条线索被拒。（Evolution）
+- B2-F5：作者先在 World 采用地点再采用线索，线索被打回且无法恢复。（Evolution/World）
+- B2-F6：空间补扫不承认已完成的补扫，已检查的 Scene 被重新计划、计费。（Evolution）
+- B3-F1：隐式构建范围不过滤线索状态，被拒绝的线索回到托盘。（World）
+- B3-F2：同一地点同时有采用节点和规划节点时，草图挂到规划节点并改写其层级。（World）
+- B3-F4：带时效的关系线索把区间复制到两端地点，地点被移出布局。（World）
+- B3-F6：只有作者安排的行程进入读者预览。（World）
+- B4-F1：途经点只是文字标签时，提醒误报“通路网络未连通”。（World）
+- B5-F2：地图引导绕过“只对已结束运行开放新阅读”的门槛，运行未结束时准备从第 1 章重读。（前端）
+- B6-F1：实体接口修改概要、公开信息、隐藏真相后，档案仍保留旧值。（World 档案）
+- B6-F2：迁移回填的概要、公开信息、隐藏真相条目不能编辑、清除、恢复或导入。（World 档案）
+- B6-F3：较早 Scene 的人物倾向读取绕过作者后来的拒绝或更正。（World 档案）
+- B7-F1：按预览最大值授权时，导演在最后一回合中途暂停，暂停后没有续演入口。（Story）
+
+## P3（15 个）
+
+- F2：助手词表去重与服务端口径不一致，预览通过、确认时冲突。
+- B2-F2：密度预检的单字词表几乎总命中，零命中跳过形同虚设。
+- B2-F3：涌现中类型复核要求引用当前证据下标，复核上下文却没列出当前证据。
+- B3-F3：拒绝一条线索冻结整个批次，无关节点的候选也不能采用。
+- B3-F5：旧版 v1 地图上，助手无法新增空间、行程或带类型的关系。
+- B4-F2：被重算取代的旧阅读运行持续冒出“上次阅读已暂停”。
+- B4-F3（未写测试）：问世界打开地图引用时不带原排除项。修复需要新增引用字段，测试要等字段定下来。
+- B5-F1：空间补扫运行中仍可追加阅读。
+- B5-F3：未开空间发现的已完成阅读，引导默认选项必被拒绝。
+- B5-F4：非主空间的选中图元在重开地图后丢失。
+- B7-F2：意图校验接受收听者，结算却在没有位置资料时抛错，已计费回合确定性失败。
+- B7-F3（未写测试）：世界推进不按资料确认收窄对象档案。默认开关下不触发，开启档案维度后排除项会进入
+  角色包；修法（按确认收窄，或作为确认之外的独立背景向作者显示）未定。
+- B7-F4（未写测试）：章节重排后，受影响 Scene 的事实在时间线上永久显示“待重验”。与现有测试断言冲突，
+  需要先定口径。
+- B8-F1：目标规划器看到两个必然失败的地图操作；地图作者决定的排除按 `world.map.` 前缀判断，实际操作
+  是 `map.*`，从未生效。
+- B9-F1：目标运行面板把所有 409 换成同一句“目标状态已更新”，作者看不到真实原因。
+
+## 共性问题
+
+- 发起端与执行端不同源。前端或模型能选的动作，后端按另一套条件拒绝：B5-F1/F2/F3、B8-F1（规划目录与
+  `validate_plan`）、B7-F2（意图校验与结算）、F2（助手去重与服务端）。共同修法是让“可发起”直接复用执行端
+  的同一个判断，而不是各写一份。
+- 进入后出不来的状态。B2-F1 永久 running、B2-F5 不可恢复、B3-F3 整批冻结、B7-F1 暂停后无续演、B7-F4 永久
+  待重验、B4-F2 提醒不消失。修复时每个停点都要配一个作者能走的出口，并有测试覆盖。
+- 同一事实的多种表示。实体字段与档案条目（B6-F1/F2）、词表类型合并（F1）、采用节点与规划节点（B3-F2）、
+  关系时效与地点时效（B3-F4）。写入一处时要同步或明确只认一处。
+- 失败原因被吞掉。B8-F1 的准备失败只提示“步骤基线或项目授权已变化”，B9-F1 的 409 一律显示“状态已更新”。
+
+## 建议修复顺序
+
+1. 会让作者工作卡死或判断出错的 P2：B2-F1、B2-F5、B7-F1、B6-F3、B6-F1/F2。
+2. 影响地图结果正确性的 P2：F1、B3-F2、B3-F4、B3-F1、B4-F1、B2-F4、B2-F6、B3-F6、B5-F2。
+3. 其余 P3，可以按模块顺带修。修一个就去掉对应测试的 xfail 或 `.fails` 标记。
+
+## 待用户或 owner 定口径
+
+- B7-F4：修复会和现有测试断言冲突，先确认重排后事实的预期状态。
+- B7-F3：对象档案是否必须受资料确认约束，或作为独立背景展示给作者。
+- B4-F3：问世界的地图引用要不要携带排除项字段。
+- 第 8 批观察 1：除结构编辑外的地图写入是否应进入目标运行。
+- 第 9 批观察 1：地图评测的教师校准与裁判固定用 Codex `gpt-6.1-sol/xhigh`，与 2026-10-16 定下的
+  “被测只用 Luna、盲评由用户手动开 Sonnet 5.5”的分工冲突；live 运行前需要决定。
+
+## 未审范围
+
+- 前端：`InteractionAuthorPanel.vue`、`ObjectDossierPanel.vue`、`OperationTraceReport.vue`、
+  `StoryFactTimelinePanel.vue`、`SceneDirectorPanel.vue` 大部分、`CreativeExperiments.vue`、`ForecastDock.vue`、
+  `GoalPlanField.vue`/`GoalPlanStep.vue`、`WorldDossierManifestImport.vue`、`WorldRelationsTab.vue` 与
+  `worldRelationsAliasesOps.js`、`ProjectSettingsView.vue`、Scene 工作台其余改动、`WorldProgressionPanel.vue`
+  的连续授权与分支管理。
+- 后端：`assistant/operation_trace_report.py` 与 `operation_trace_http_adapter.py` 的统计细节、`assistant/forecast/`。
+- 未做：真实模型、真实稿件、作者验收、浏览器端到端；完整 CI 沿用前次 Codex 集成审查结果，本次只跑了
+  回归文件与前端全量测试。
+
+## 回归测试
+
+- 后端（在 `backend/` 下）：
+  `uv run --locked --extra ci -- pytest modules/evolution/tests/test_map_series_review_regressions.py modules/world/tests/test_map_series_review_regressions.py modules/story/tests/test_map_series_review_regressions.py modules/assistant/tests/test_map_series_review_regressions.py --timeout=120 -q -p no:cacheprovider`
+  ，2026-10-17 结果 `24 xfailed`。
+- 前端：`npm --prefix ../frontend-console run test`，2026-10-17 结果 `3234 passed | 6 expected fail`；
+  lint 通过。用例名以发现编号开头，写在对应组件的既有测试文件里。
