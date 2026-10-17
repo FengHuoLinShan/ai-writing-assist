@@ -21,9 +21,9 @@
       <p v-if="display.preconditions?.length" class="exploration-result-card__basis">前提条件：{{ display.preconditions.join("；") }}</p>
     </section>
 
-    <!-- 事件：诊断缺口；补桥显示候选路径；无解列出缺项 -->
+    <!-- 事件：诊断缺口；补桥显示候选路径；导向显示行动—响应—后果链；无解列出缺项 -->
     <section v-else-if="isEvent" class="exploration-result-card__body">
-      <p class="exploration-result-card__mode">{{ display.mode === "bridge" ? "补桥候选路径" : "诊断缺口" }}</p>
+      <p class="exploration-result-card__mode">{{ eventModeLabel }}</p>
       <ul v-if="eventGaps.length" class="exploration-result-card__list">
         <li v-for="(gap, index) in eventGaps" :key="`gap:${index}`">
           <p>{{ gap.description }}</p>
@@ -39,6 +39,37 @@
           <p v-if="path.holds != null" class="exploration-result-card__basis">{{ path.holds ? "在不靠巧合的条件下成立" : "尚不能保证成立" }}</p>
         </li>
       </ul>
+      <!-- 导向路径：目标 + 规则约束 + 行动—条件—响应—后果—代价，每步一个块 -->
+      <div v-if="goalPath" class="exploration-result-card__goal">
+        <p class="exploration-result-card__goal-target">目标：{{ goalPath.goal }}</p>
+        <ul v-if="goalConstraints.length" class="exploration-result-card__tags" aria-label="规则约束">
+          <li v-for="(constraint, index) in goalConstraints" :key="`rule:${index}`">{{ constraint }}</li>
+        </ul>
+        <ol class="exploration-result-card__steps">
+          <li v-for="(step, index) in goalPath.steps || []" :key="`step:${index}`" class="exploration-result-card__step">
+            <p><strong>行动：{{ step.action }}</strong></p>
+            <p v-if="step.condition" class="exploration-result-card__basis">成立条件：{{ step.condition }}</p>
+            <p v-if="step.response" class="exploration-result-card__basis">对方响应：{{ step.response }}</p>
+            <p v-if="step.consequence" class="exploration-result-card__basis">后果：{{ step.consequence }}</p>
+            <p v-if="step.cost_or_risk" class="exploration-result-card__basis">代价或风险：{{ step.cost_or_risk }}</p>
+          </li>
+        </ol>
+        <p v-if="goalUnsolvable" class="exploration-result-card__unknown">无法成立：{{ goalUnsolvable.reason }}<template v-if="goalMissing.length">；缺项：{{ goalMissing.join("；") }}</template></p>
+      </div>
+      <!-- 信息边界：逐主体列知道/不知道与缺失接触路径 -->
+      <div v-if="infoBoundary.length" class="exploration-result-card__boundary">
+        <h4>信息边界</h4>
+        <ul class="exploration-result-card__boundary-list">
+          <li v-for="(row, index) in infoBoundary" :key="`boundary:${index}`">
+            <p class="exploration-result-card__subject">
+              <strong>{{ row.subject_description || row.subject_ref || "未标注主体" }}</strong>
+              <span v-if="row.missing_contact_path" class="exploration-result-card__missing-tag">缺接触路径</span>
+            </p>
+            <p v-if="row.knows?.length" class="exploration-result-card__basis">知道：{{ row.knows.join("；") }}</p>
+            <p v-if="row.not_known?.length" class="exploration-result-card__basis">不知道：{{ row.not_known.join("；") }}</p>
+          </li>
+        </ul>
+      </div>
       <p v-if="display.unsolvable" class="exploration-result-card__unknown">无法成立：{{ display.unsolvable.reason }}<template v-if="missingItems.length">；缺项：{{ missingItems.join("；") }}</template></p>
       <p v-if="display.original_excerpt" class="exploration-result-card__basis">原案：{{ display.original_excerpt }}</p>
     </section>
@@ -184,8 +215,17 @@ const changedConditions = computed(() => (
     ? comparison.value.changed_conditions
     : []
 ))
-const eventGaps = computed(() => (isEvent.value && display.value.mode !== "bridge" ? display.value.gaps || [] : []))
+// 事件三态互斥：diagnose 缺口 / bridge 候选 / goal 导向路径，各自只消费自己的字段。
+const eventModeLabel = computed(() => (
+  display.value.mode === "bridge" ? "补桥候选路径" : display.value.mode === "goal" ? "导向路径" : "诊断缺口"
+))
+const eventGaps = computed(() => (isEvent.value && display.value.mode === "diagnose" ? display.value.gaps || [] : []))
 const bridgePaths = computed(() => (isEvent.value && display.value.mode === "bridge" ? display.value.bridge_candidates || [] : []))
+const goalPath = computed(() => (isEvent.value && display.value.mode === "goal" ? display.value.goal_path || null : null))
+const goalConstraints = computed(() => (Array.isArray(goalPath.value?.rule_constraints) ? goalPath.value.rule_constraints : []))
+const goalUnsolvable = computed(() => goalPath.value?.unsolvable || null)
+const goalMissing = computed(() => (Array.isArray(goalUnsolvable.value?.missing) ? goalUnsolvable.value.missing : []))
+const infoBoundary = computed(() => (isEvent.value && Array.isArray(display.value.info_boundary) ? display.value.info_boundary : []))
 const missingItems = computed(() => (Array.isArray(display.value.unsolvable?.missing) ? display.value.unsolvable.missing : []))
 
 // 修订定位约定：item_path 是 `chain:0`/`gap:1`/`bridge:2`/`line` 形式的条目路径，
@@ -438,7 +478,20 @@ function compactText(payload, kindValue = effectiveKind.value) {
     if (payload.preconditions?.length) text.push(`前提条件：${payload.preconditions.join("；")}`)
   } else if (kindValue === EVENT) {
     if (payload.mode === "bridge") for (const path of payload.bridge_candidates || []) text.push((path.steps || []).join(" → "))
-    else for (const gap of payload.gaps || []) text.push(gap.description || "")
+    else if (payload.mode === "goal") {
+      const goal = payload.goal_path
+      if (goal) {
+        text.push(`目标：${goal.goal || ""}`)
+        for (const step of goal.steps || []) text.push(`${step.action || ""}（条件：${step.condition || ""}）→ ${step.consequence || ""}`)
+        if (goal.unsolvable) text.push(`无法成立：${goal.unsolvable.reason || ""}`)
+      }
+    } else for (const gap of payload.gaps || []) text.push(gap.description || "")
+    for (const row of payload.info_boundary || []) {
+      const subject = row.subject_description || row.subject_ref || "未标注主体"
+      const knows = (row.knows || []).join("、") || "未声明"
+      const notKnown = (row.not_known || []).join("、") || "未声明"
+      text.push(`${subject}：知道 ${knows}；不知道 ${notKnown}${row.missing_contact_path ? "；缺接触路径" : ""}`)
+    }
     if (payload.unsolvable) text.push(`无法成立：${payload.unsolvable.reason || ""}`)
   } else if (kindValue === SCENE_LINE) {
     text.push(payload.line || "")
@@ -479,6 +532,17 @@ onBeforeUnmount(() => { poller?.stop?.(); poller = null })
 .exploration-result-card__changed h4{margin:0 0 6px;font-size:13px}
 .exploration-result-card__tags{display:flex;flex-wrap:wrap;gap:6px;margin:0;padding:0;list-style:none}
 .exploration-result-card__tags li{padding:2px 8px;border-radius:999px;background:#e6efeb;color:#36594e;font-size:12px;overflow-wrap:anywhere}
+.exploration-result-card__goal{margin:8px 0;display:grid;gap:6px}
+.exploration-result-card__goal-target{font-weight:600;margin:0;overflow-wrap:anywhere}
+.exploration-result-card__steps{list-style:none;counter-reset:goal-step;padding:0;margin:8px 0;display:grid;gap:8px}
+.exploration-result-card__step{counter-increment:goal-step;border:1px solid var(--border-color,var(--border));border-radius:8px;padding:8px;background:var(--bg-muted);min-width:0}
+.exploration-result-card__step>p:first-child{margin:0 0 4px}
+.exploration-result-card__step>p:first-child::before{content:counter(goal-step) ". ";color:var(--text-secondary)}
+.exploration-result-card__boundary{border:1px dashed var(--border-color,var(--border));border-radius:8px;padding:8px;margin:8px 0;min-width:0}
+.exploration-result-card__boundary h4{margin:0 0 6px;font-size:13px}
+.exploration-result-card__boundary-list{padding-left:20px;margin:0;display:grid;gap:8px}
+.exploration-result-card__subject{margin:0;display:flex;flex-wrap:wrap;align-items:center;gap:6px}
+.exploration-result-card__missing-tag{padding:1px 8px;border-radius:999px;background:#f3e8d2;color:#8a6116;font-size:12px}
 .exploration-result-card__compare section{padding:8px;border-radius:8px;background:var(--bg-muted);min-width:0}
 .exploration-result-card__compare h4{margin:0 0 6px;font-size:13px}
 .exploration-result-card__compare p{white-space:pre-wrap;overflow-wrap:anywhere;margin:0;font-size:13px}

@@ -111,6 +111,129 @@ it("shows an unsolvable bridge with its missing items", () => {
   expect(text).toContain("缺项：收件人与信使的任一共同熟人")
 })
 
+it("renders a goal-directed path with steps and rule constraints, without diagnose or bridge sections", () => {
+  const wrapper = mountCard({
+    ...sandboxSource,
+    scale: "event",
+    output_kind: "story.exploration.event",
+    payload: {
+      mode: "goal",
+      original_excerpt: "信使当天把信送到了本人手里",
+      goal_path: {
+        goal: "信使当天把信送到本人手里",
+        steps: [
+          { action: "信使向守门人出示驿站登记摘录", condition: "登记摘录写明收信人当日进城", response: "守门人指认唯一的同姓进城者", consequence: "信使当场完成投递", cost_or_risk: "信使暴露了自己的任务" },
+          { action: "凭指认当面交付", condition: "收信人确在城内", response: "收信人签收", consequence: "投递闭环", cost_or_risk: "可能投递给同名人" },
+        ],
+        rule_constraints: ["禁止巧合", "角色性格不得突变"],
+        unsolvable: null,
+      },
+      unknowns: [],
+      warnings: [],
+    },
+  }, {})
+  const text = wrapper.text()
+  expect(text).toContain("导向路径")
+  expect(text).toContain("目标：信使当天把信送到本人手里")
+  expect(text).toContain("禁止巧合")
+  expect(text).toContain("角色性格不得突变")
+  expect(text).toContain("行动：信使向守门人出示驿站登记摘录")
+  expect(text).toContain("成立条件：登记摘录写明收信人当日进城")
+  expect(text).toContain("对方响应：守门人指认唯一的同姓进城者")
+  expect(text).toContain("后果：信使当场完成投递")
+  expect(text).toContain("代价或风险：信使暴露了自己的任务")
+  // 三态互斥：goal 模式不出现缺口或补桥区块
+  expect(text).not.toContain("诊断缺口")
+  expect(text).not.toContain("补桥候选路径")
+  expect(text).not.toContain("为什么需要")
+})
+
+it("shows an unsolvable goal path with its missing items", () => {
+  const wrapper = mountCard({
+    ...sandboxSource,
+    scale: "event",
+    output_kind: "story.exploration.event",
+    payload: {
+      mode: "goal",
+      original_excerpt: "证人没看到交接，却准确说出接头暗号",
+      goal_path: {
+        goal: "让证人在无接触的情况下得知暗号",
+        steps: [{ action: "证人自行推断暗号", condition: "证人掌握推断依据", response: "证人给出暗号", consequence: "暗号泄露", cost_or_risk: "推断可能出错" }],
+        rule_constraints: ["禁止巧合"],
+        unsolvable: { reason: "证人没有接触路径，也没有推断依据", missing: ["证人与交接现场之间的任一接触路径"] },
+      },
+      unknowns: [],
+      warnings: [],
+    },
+  }, {})
+  const text = wrapper.text()
+  expect(text).toContain("无法成立：证人没有接触路径，也没有推断依据")
+  expect(text).toContain("缺项：证人与交接现场之间的任一接触路径")
+})
+
+it("renders per-subject info boundaries with knows, not_known and the missing-contact marker", () => {
+  const wrapper = mountCard({
+    ...sandboxSource,
+    scale: "event",
+    output_kind: "story.exploration.event",
+    payload: {
+      mode: "diagnose",
+      original_excerpt: "证人没看到交接，却准确说出接头暗号",
+      gaps: [{ description: "证人与交接现场之间缺少接触路径", why_needed: "没有接触就无法得知暗号" }],
+      info_boundary: [
+        { subject_ref: "c_witness", knows: ["接头暗号的内容"], not_known: ["交接发生的地点与时间"], missing_contact_path: true },
+        { subject_description: "守门人", knows: ["登记簿上有收信人"], not_known: [], missing_contact_path: false },
+      ],
+      unknowns: [],
+      warnings: [],
+    },
+  }, {})
+  const text = wrapper.text()
+  expect(text).toContain("信息边界")
+  expect(text).toContain("c_witness")
+  expect(text).toContain("知道：接头暗号的内容")
+  expect(text).toContain("不知道：交接发生的地点与时间")
+  expect(text).toContain("缺接触路径")
+  expect(text).toContain("守门人")
+  expect(text).toContain("知道：登记簿上有收信人")
+  // 主体描述可替代 ref；无缺失接触路径的主体不显示标记
+  expect(text).toContain("诊断缺口")
+  const missingTags = wrapper.findAll(".exploration-result-card__missing-tag")
+  expect(missingTags).toHaveLength(1)
+})
+
+it("summarizes goal follow-up results with the target and steps", async () => {
+  const explorationDetail = vi.fn(async () => ({ task_id: "task-detail-goal" }))
+  const wrapper = mountCard(sandboxSource, { explorationDetail })
+  await wrapper.findAll("button").find(button => button.text() === "说详细点").trigger("click")
+  await flushPromises()
+  pollConfig().onDone({ done: true }, {
+    task_id: "task-detail-goal",
+    status: "done",
+    result: {
+      result_id: "result-goal",
+      output_kind: "story.exploration.event",
+      payload: {
+        mode: "goal",
+        original_excerpt: "信使当天把信送到了本人手里",
+        goal_path: {
+          goal: "信使当天把信送到本人手里",
+          steps: [{ action: "出示登记摘录", condition: "摘录写明进城", response: "守门人指认", consequence: "完成投递", cost_or_risk: "暴露任务" }],
+          rule_constraints: ["禁止巧合"],
+          unsolvable: null,
+        },
+        unknowns: [],
+        warnings: [],
+      },
+    },
+  })
+  await flushPromises()
+  const followUpText = wrapper.get(".exploration-result-card__followup").text()
+  expect(followUpText).toContain("目标：信使当天把信送到本人手里")
+  expect(followUpText).toContain("出示登记摘录")
+  expect(followUpText).toContain("完成投递")
+})
+
 it("renders a scene line with rationale and withheld knowledge", () => {
   const wrapper = mountCard({
     ...sandboxSource,
