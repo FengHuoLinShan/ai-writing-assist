@@ -561,4 +561,56 @@ describe("WorldProgressionPanel", () => {
     expect(wrapper.text()).toContain("两人在渡口停下交涉。")
     expect(wrapper.findAll("button").some((button) => button.text().includes("从这一步继续"))).toBe(true)
   })
+
+  it("完整排演与锁定记录探索步骤按 kind 显示占位标签", async () => {
+    const api = makeApi({
+      charactersByProject: { "project-a": [actor("林澈", 1)] },
+    })
+    api.story.worldProgressionHistory = vi.fn(async () => ({
+      roots: [{
+        id: "root-1",
+        scene_id: "scene-1",
+        status: "complete",
+        request: { participants: [{ id: "character-1", kind: "character" }] },
+        branches: [{
+          id: "branch-1",
+          branch_kind: "start",
+          status: "complete",
+          steps: [
+            {
+              id: "step-rehearsal",
+              step_number: 1,
+              created_at: "2026-10-17T00:00:00Z",
+              output_kind: "story.exploration.full_rehearsal",
+              result: { output_kind: "story.exploration.full_rehearsal", schema_version: 1, payload: { rounds: [] } },
+              metrics: {},
+            },
+            {
+              id: "step-lock",
+              step_number: 2,
+              created_at: "2026-10-16T00:00:00Z",
+              output_kind: "story.exploration.lock_set",
+              result: { output_kind: "story.exploration.lock_set", schema_version: 1, payload: { locks: [] } },
+              metrics: {},
+            },
+          ],
+        }],
+      }],
+    }))
+    api.story.readWorldProgressionContinuousAuthorization = vi.fn(async () => ({
+      root_id: "root-1", branch_id: "branch-1", enabled: false, revision: 0,
+    }))
+    const wrapper = mountPanel(api)
+    await openPanel(wrapper)
+
+    const notes = wrapper.findAll(".world-progression__exploration-note")
+    expect(notes).toHaveLength(2)
+    expect(notes[0].text()).toContain("完整排演")
+    expect(notes[1].text()).toContain("锁定记录")
+    for (const note of notes) {
+      expect(note.text()).toContain("紧凑探索结果")
+      expect(note.text()).toContain("项目助手")
+      expect(note.element.closest("details").textContent).not.toContain("从这一步继续")
+    }
+  })
 })

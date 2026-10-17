@@ -346,7 +346,7 @@ describe("SceneDirectorPanel", () => {
     await flushPromises()
     const note = wrapper.get(".scene-director__exploration-note")
     expect(note.text()).toContain("紧凑探索结果")
-    expect(note.text()).toContain("场景对白")
+    expect(note.text()).toContain("场景一句对白")
     expect(note.text()).toContain("项目助手")
     // 探索回合内不渲染旧操作入口与表演卡区块；普通回合保持原样。
     const explorationArticle = note.element.closest("article")
@@ -354,6 +354,39 @@ describe("SceneDirectorPanel", () => {
     expect(explorationArticle.textContent).not.toContain("保存为参考剧本")
     expect(explorationArticle.querySelector(".scene-director__cards")).toBeNull()
     expect(wrapper.findAll("button").some((button) => button.text() === "从此回合继续")).toBe(true)
+  })
+
+  it("labels full rehearsal and sandbox exploration rounds with their kind names", async () => {
+    api.story.sceneDirectorHistory.mockResolvedValue({
+      ...history("scene-a"),
+      roots: [{ id: "root-a", character_ids: ["actor-a"] }],
+      branches: [{ id: "branch-a", root_id: "root-a", round_ids: ["round-rehearsal", "round-sandbox"] }],
+      rounds: [
+        {
+          id: "round-rehearsal", branch_id: "branch-a", round_number: 1, basis_status: "current",
+          output_kind: "story.exploration.full_rehearsal",
+          output_json: { output_kind: "story.exploration.full_rehearsal", schema_version: 1, payload: { rounds: [] } },
+          performances: [], materials: [],
+        },
+        {
+          id: "round-sandbox", branch_id: "branch-a", round_number: 2, basis_status: "current",
+          output_kind: "story.exploration.sandbox",
+          output_json: { output_kind: "story.exploration.sandbox", schema_version: 1, payload: { influence_chain: [] } },
+          performances: [], materials: [],
+        },
+      ],
+    })
+    const wrapper = mountPanel("scene-a")
+    await flushPromises()
+    const notes = wrapper.findAll(".scene-director__exploration-note")
+    expect(notes).toHaveLength(2)
+    expect(notes[0].text()).toContain("完整排演")
+    expect(notes[1].text()).toContain("沙盘推演")
+    for (const note of notes) {
+      expect(note.text()).toContain("紧凑探索结果")
+      expect(note.text()).toContain("项目助手")
+      expect(note.element.closest("article").querySelector(".scene-director__cards")).toBeNull()
+    }
   })
 
   it("drops a late candidate transfer response after switching Scene", async () => {

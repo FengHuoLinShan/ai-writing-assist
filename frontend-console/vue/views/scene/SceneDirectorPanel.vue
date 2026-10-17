@@ -427,9 +427,11 @@ const unstarredBranchCount = computed(() => (history.value?.branches || []).filt
 // 本页只渲染占位并指回助手；继续/重写等旧操作对这类行被后端 fail-closed 拒绝，直接隐藏入口。
 const EXPLORATION_KIND_LABELS = {
   "story.exploration.sandbox": "沙盘推演",
-  "story.exploration.event": "事件诊断",
-  "story.exploration.scene_line": "场景对白",
-  "story.exploration.author_edit": "作者编辑版",
+  "story.exploration.event": "事件推演",
+  "story.exploration.scene_line": "场景一句对白",
+  "story.exploration.full_rehearsal": "完整排演",
+  "story.exploration.author_edit": "作者编辑",
+  "story.exploration.lock_set": "锁定记录",
 }
 function explorationMarker(row) {
   return row?.output_kind || row?.output?.output_kind || row?.result?.output_kind || row?.result_json?.output_kind || null
