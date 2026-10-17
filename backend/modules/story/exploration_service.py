@@ -26,6 +26,8 @@ from modules.evidence.contracts import (
 )
 from modules.project import facade as project_facade
 from modules.story.exploration_schemas import (
+    AFFECTED_ITEM_EXCERPT_MAX_LENGTH,
+    AFFECTED_ITEMS_MAX,
     AUTHOR_EDIT_OUTPUT_KIND,
     EVENT_MODE_HINTS,
     EVENT_OUTPUT_KIND,
@@ -33,6 +35,8 @@ from modules.story.exploration_schemas import (
     LOCK_SET_OUTPUT_KIND,
     PAYLOAD_MODELS_BY_BASE_KIND,
     SANDBOX_OUTPUT_KIND,
+    SCENE_LINE_OUTPUT_KIND,
+    AffectedItem,
     AuthorEditPayloadV1,
     ExplorationOutputEnvelope,
     LockedItem,
@@ -439,6 +443,164 @@ def _changed_conditions(first_texts: list[str], second_texts: list[str]) -> list
     ]
 
 
+# ---------------------------------------------------------------------------
+# 影响与比较标记（M3-A 切片 2）：结构化受影响项 + 实际读集与父版本披露
+# ---------------------------------------------------------------------------
+
+_AFFECTED_GRANULARITY_EXACT = "exact"
+_AFFECTED_GRANULARITY_CONSERVATIVE = "conservative"
+
+# 结构化 diff 遍历的列表族：路径语法与修订/锁定一致；line 单独比较。
+_AFFECTED_LIST_FAMILIES: tuple[tuple[str, str], ...] = (
+    ("chain", "influence_chain"),
+    ("gap", "gaps"),
+    ("bridge", "bridge_candidates"),
+)
+
+
+def exploration_entry_display_text(item_path: str, item: Any) -> str:
+    """条目展示文本（与前端卡片渲染口径一致）：锁定标签、防漂移与摘录共用。"""
+
+    kind = str(item_path or "").partition(":")[0]
+    if kind == "line":
+        return str(item or "")
+    if kind == "chain":
+        return str((item or {}).get("effect") or "")
+    if kind == "gap":
+        return str((item or {}).get("description") or "")
+    return "\n".join(str(step) for step in (item or {}).get("steps") or [])
+
+
+def _diff_payload_dict(envelope: ExplorationOutputEnvelope) -> tuple[dict, str]:
+    """参与 diff 的载荷字典与基类 kind；作者编辑解析到被编辑的基础载荷。"""
+
+    payload = envelope.payload
+    if envelope.output_kind == AUTHOR_EDIT_OUTPUT_KIND:
+        payload = payload.edited_payload
+    return payload.model_dump(mode="json"), _base_payload_kind(envelope)
+
+
+def _affected_granularity(
+    base_dict: dict, derived_dict: dict, base_kind: str, derived_kind: str
+) -> str:
+    """粒度判定：两侧不同构、形态未知或路径语法不可表达 → 保守披露。
+
+    事件导向（goal_path）与多目标/空间诊断（variants/spatial_assessment）
+    不在冻结路径语法内，逐项对比会漏报，宁可置空也不伪称精确。
+    """
+
+    if base_kind != derived_kind or base_kind not in PAYLOAD_MODELS_BY_BASE_KIND:
+        return _AFFECTED_GRANULARITY_CONSERVATIVE
+    for payload in (base_dict, derived_dict):
+        if base_kind == EVENT_OUTPUT_KIND and payload.get("mode") == "goal":
+            return _AFFECTED_GRANULARITY_CONSERVATIVE
+        if base_kind == SCENE_LINE_OUTPUT_KIND and (
+            payload.get("variants") is not None
+            or payload.get("spatial_assessment") is not None
+        ):
+            return _AFFECTED_GRANULARITY_CONSERVATIVE
+    return _AFFECTED_GRANULARITY_EXACT
+
+
+def compute_affected_items(
+    base_envelope: ExplorationOutputEnvelope,
+    derived_envelope: ExplorationOutputEnvelope,
+) -> tuple[list[dict], str]:
+    """两行 payload 的同构结构化 diff：受影响项列表与粒度（M3-A）。
+
+    按冻结路径语法（chain:N/gap:N/bridge:N/line）按索引对比：内容哈希不同
+    即 changed，索引只在一侧为 added/removed；上限 ``AFFECTED_ITEMS_MAX``
+    条，超出一律截断。粒度保守时置空列表并返回 "conservative"。
+    """
+
+    base_dict, base_kind = _diff_payload_dict(base_envelope)
+    derived_dict, derived_kind = _diff_payload_dict(derived_envelope)
+    granularity = _affected_granularity(
+        base_dict, derived_dict, base_kind, derived_kind
+    )
+    if granularity == _AFFECTED_GRANULARITY_CONSERVATIVE:
+        return [], granularity
+    items: list[AffectedItem] = []
+    for family, key in _AFFECTED_LIST_FAMILIES:
+        base_items = base_dict.get(key)
+        derived_items = derived_dict.get(key)
+        base_items = base_items if isinstance(base_items, list) else []
+        derived_items = derived_items if isinstance(derived_items, list) else []
+        for index in range(max(len(base_items), len(derived_items))):
+            base_item = base_items[index] if index < len(base_items) else None
+            derived_item = (
+                derived_items[index] if index < len(derived_items) else None
+            )
+            if derived_item is None:
+                status = "removed"
+            elif base_item is None:
+                status = "added"
+            elif content_hash(base_item) != content_hash(derived_item):
+                status = "changed"
+            else:
+                continue
+            path = f"{family}:{index}"
+            items.append(
+                AffectedItem(
+                    item_path=path,
+                    status=status,
+                    base_excerpt=exploration_entry_display_text(path, base_item)[
+                        :AFFECTED_ITEM_EXCERPT_MAX_LENGTH
+                    ],
+                    derived_excerpt=exploration_entry_display_text(
+                        path, derived_item
+                    )[:AFFECTED_ITEM_EXCERPT_MAX_LENGTH],
+                )
+            )
+            if len(items) >= AFFECTED_ITEMS_MAX:
+                return [item.model_dump(mode="json") for item in items], granularity
+    base_line = str(base_dict.get("line") or "")
+    derived_line = str(derived_dict.get("line") or "")
+    if (base_line or derived_line) and base_line != derived_line:
+        if not base_line:
+            status = "added"
+        elif not derived_line:
+            status = "removed"
+        else:
+            status = "changed"
+        items.append(
+            AffectedItem(
+                item_path="line",
+                status=status,
+                base_excerpt=base_line[:AFFECTED_ITEM_EXCERPT_MAX_LENGTH],
+                derived_excerpt=derived_line[:AFFECTED_ITEM_EXCERPT_MAX_LENGTH],
+            )
+        )
+    return [item.model_dump(mode="json") for item in items], granularity
+
+
+def _counterfactual_base_side(first: Any, second: Any) -> int:
+    """基线侧索引：一行为另一行反事实衍生时指向基线；共享基线按请求顺序。
+
+    链路已由 ``_counterfactual_link_condition`` 校验；共享基线的两行互不
+    衍生，base/derived 只是“请求第一行/第二行”的稳定命名。
+    """
+
+    data = getattr(first, "input_json", None)
+    value = data.get("counterfactual_of") if isinstance(data, dict) else None
+    if value and str(value) == str(second.id):
+        return 1
+    return 0
+
+
+def _recorded_parent_output_hash(row: Any) -> str | None:
+    """结果行 input_json 记录的父版本哈希：反事实行为基线行输出版本。"""
+
+    data = getattr(row, "input_json", None)
+    value = data.get("parent_output_hash") if isinstance(data, dict) else None
+    return str(value) if value else None
+
+
+def _row_parent_id(row: Any, chain: str) -> str | None:
+    value = row.parent_step_id if chain == "progression" else row.parent_round_id
+    return str(value) if value is not None else None
+
+
 async def compare_exploration_results(
     db,
     *,
@@ -448,8 +610,10 @@ async def compare_exploration_results(
     second_result_id: str,
     mode: str = "same_start",
 ) -> dict:
-    """两结果比较：same_start 指纹不同或缺失即失败关闭（409）；
-    counterfactual 要求反事实衍生或共享基线，成功回传 changed_conditions。"""
+    """两结果比较：same_start 指纹不同或缺失即失败关闭（409），同根父子一跳
+    标记 relation=parent_child 并给出相对差异；counterfactual 要求反事实衍生
+    或共享基线，成功回传 changed_conditions 与 affected_items（粒度不足时
+    保守披露）。反事实侧同时回传行内记录的 parent_output_hash。"""
 
     if mode not in {"same_start", "counterfactual"}:
         raise DomainError(f"不支持的比较模式：{mode}")
@@ -464,9 +628,16 @@ async def compare_exploration_results(
     if any(envelope.output_kind == LOCK_SET_OUTPUT_KIND for envelope in envelopes):
         raise ConflictError("锁定记录不参与比较，请选择探索结果")
     changed_conditions: list[str] | None = None
+    relation: str | None = None
+    affected_items: list[dict] = []
+    affected_granularity: str | None = None
     if mode == "counterfactual":
         changed_conditions = _counterfactual_link_condition(located[0][0], located[1][0])
         start_fingerprint = None
+        base_index = _counterfactual_base_side(located[0][0], located[1][0])
+        affected_items, affected_granularity = compute_affected_items(
+            envelopes[base_index], envelopes[1 - base_index]
+        )
     else:
         fingerprints = [
             await _result_start_fingerprint(db, novel_id, row, chain)
@@ -479,6 +650,18 @@ async def compare_exploration_results(
         ):
             raise ConflictError("两个结果的起点不同，不能直接比较")
         start_fingerprint = fingerprints[0]
+        relation = "same_start"
+        ancestor_index: int | None = None
+        if located[0][0].root_id == located[1][0].root_id:
+            if _row_parent_id(located[0][0], located[0][1]) == str(located[1][0].id):
+                ancestor_index = 1
+            elif _row_parent_id(located[1][0], located[1][1]) == str(located[0][0].id):
+                ancestor_index = 0
+        if ancestor_index is not None:
+            relation = "parent_child"
+            affected_items, affected_granularity = compute_affected_items(
+                envelopes[ancestor_index], envelopes[1 - ancestor_index]
+            )
     sides = []
     for (row, chain), envelope in zip(located, envelopes):
         sides.append(
@@ -491,6 +674,7 @@ async def compare_exploration_results(
                     row.created_at.isoformat() if row.created_at else None
                 ),
                 "envelope": envelope,
+                "parent_output_hash": _recorded_parent_output_hash(row),
                 "locked_items": [
                     item.item_path
                     for item in await current_locked_items(
@@ -507,6 +691,13 @@ async def compare_exploration_results(
     if changed_conditions is not None:
         result["mode"] = "counterfactual"
         result["changed_conditions"] = changed_conditions
+        result["affected_items"] = affected_items
+        result["affected_items_granularity"] = affected_granularity
+    if relation is not None:
+        result["relation"] = relation
+        if relation == "parent_child":
+            result["affected_items"] = affected_items
+            result["affected_items_granularity"] = affected_granularity
     return result
 
 
