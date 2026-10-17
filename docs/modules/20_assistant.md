@@ -228,8 +228,10 @@ focused search 与 Project author tasks。focused search 仍沿原来源 manifes
 Assistant 的 `/editorial/*` 持有 `assistant_editorial_reviews`、`assistant_editorial_issues` 和
 站内提醒投影，不拥有正文或正史。提交以 `operation_id` 幂等、冻结编辑约定/工作稿 hash/
 排除范围/模型快照；逐章分片、再按所列组层级汇总，明确遗漏与部分完成。读者层只读前序
-正文；作者层可查 Evidence 世界资料及 Story 当章结构。唯一原文引文、来源版本和模型权限
-由服务端重验。所有意见标 `editorial_suggestion`；只有原领域真实 finding 才可称领域已核实。
+正文；作者层可查 Evidence 世界资料及 Story 当章结构。worker 将前文逐字引文以私有、有界
+账本续传到后续章节和分片；finding 必须有当前分片依据，前文依据只能来自该账本并按原稿
+重新核对位置与 hash，账本不进入公开响应或设置。唯一原文引文、来源版本和模型权限由服务端
+重验。所有意见标 `editorial_suggestion`；只有原领域真实 finding 才可称领域已核实。
 作者决定保留历史；改后检查不能自动关闭。主动授权以 `editorial_v1` 存 Watch，正常保存
 不触发，完成标记和未关闭问题相关结构变化才排队；设置写入核对 Watch generation。
 作者可停止审读并在来源、授权和用量均可确认时续跑未完成段。审读的每个出口都落到终态：

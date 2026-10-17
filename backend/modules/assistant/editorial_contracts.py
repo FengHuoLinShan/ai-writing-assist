@@ -179,6 +179,7 @@ class ReviewPass(BaseModel):
     summary: str = Field(min_length=1, max_length=700)
     reader_state: str = Field(default="", max_length=700)
     findings: list[ReviewFinding] = Field(default_factory=list, max_length=8)
+    carry_forward: list[ReviewEvidence] = Field(default_factory=list, max_length=4)
 
 
 class RecheckOutput(BaseModel):

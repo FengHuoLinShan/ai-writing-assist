@@ -153,3 +153,63 @@ test("审读台按意见发起批注修订并跟踪候选与改后复核", async
   await page.screenshot({ path: testInfo.outputPath("editorial-revision-bridge.png"), fullPage: true })
   expect(browserErrors).toEqual([])
 })
+
+test("意见卡保留同一问题在前后章节的逐字依据", async ({ page, projectFactory, openProjectWorkbench }) => {
+  const project = await projectFactory({ title: "跨章依据意见卡验收" })
+  const first = await createAutosavedDraft(project.id, 1, "出港", "第一章航海日志记着六月三日出港。")
+  const third = await createAutosavedDraft(project.id, 3, "抵港", "第三章岸上记录写着六月四日抵港。")
+  const issueId = crypto.randomUUID()
+  const finding = {
+    fingerprint: issueId,
+    category: "structure",
+    severity: "high",
+    judgment: "出港与抵港日期需要核对",
+    reader_impact: "读者会把两章日期放在一起比较",
+    why_now: "第三章补上了前文行程的到达时间",
+    counterevidence: "可能存在未写出的改期原因",
+    unchecked: "是否为有意伏笔留作者判断",
+    directions: [],
+    evidence: [
+      { chapter_index: 1, draft_id: first.id, content_hash: first.content_hash, quote: "六月三日出港", start: 9, end: 15 },
+      { chapter_index: 3, draft_id: third.id, content_hash: third.content_hash, quote: "六月四日抵港", start: 9, end: 15 },
+    ],
+    context_evidence: [],
+    authority: "editorial_suggestion",
+  }
+  await page.route("**/api/assistant/editorial/reviews**", route => route.fulfill({
+    json: [{
+      id: "rev-cross-chapter", status: "completed", task_id: "task-cross-chapter",
+      scope: { scope: "book" }, sources: [
+        { chapter_index: 1, draft_id: first.id, content_hash: first.content_hash, version_number: 1, title: "出港" },
+        { chapter_index: 3, draft_id: third.id, content_hash: third.content_hash, version_number: 1, title: "抵港" },
+      ], checked_chapters: [1, 3], unchecked_chapters: [], missing: [],
+      context_sources: [], context_omissions: [], brief_version: 0, brief_changed: false,
+      report: { summary: "已核對第一章與第三章。", coverage_complete: true, top_findings: [finding], all_findings: [finding] },
+      error: null,
+    }],
+  }))
+  await page.route("**/api/assistant/editorial/issues**", route => route.fulfill({
+    json: [{
+      id: issueId, review_id: "rev-cross-chapter", fingerprint: issueId, version: 0,
+      disposition: "open", finding, decisions: [], history: [], rechecks: [], source_may_be_stale: false,
+    }],
+  }))
+
+  await openProjectWorkbench(project, "writing")
+  await waitWritingReady(page, { chapter: 1 })
+  await page.getByRole("button", { name: /^打开第 1 章/ }).click()
+  await page.getByRole("button", { name: "本章写完，交给编辑看" }).click()
+  const desk = page.getByLabel("编辑台", { exact: true })
+  const card = desk.locator(".editorial-issue").filter({ hasText: finding.judgment })
+  await expect(card).toBeVisible()
+  await card.locator("summary").filter({ hasText: "依据、反证和处理方向" }).click()
+  await expect(card.getByText("第 1 章 · 原文")).toBeVisible()
+  await expect(card.getByText("第 3 章 · 原文")).toBeVisible()
+  await expect(card.getByText("六月三日出港")).toBeVisible()
+  await expect(card.getByText("六月四日抵港")).toBeVisible()
+
+  await card.getByRole("checkbox", { name: /加入批注修订/ }).check()
+  const revision = desk.locator(".editorial-desk__revision")
+  await expect(revision.getByRole("checkbox", { name: /第 1 章：六月三日出港/ })).toBeVisible()
+  await expect(revision.getByRole("checkbox", { name: /第 3 章：六月四日抵港/ })).toBeVisible()
+})
