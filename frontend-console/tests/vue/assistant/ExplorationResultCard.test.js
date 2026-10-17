@@ -760,3 +760,151 @@ it("shows the server 409 reason when saving an edit that targets a locked item",
   expect(wrapper.get('[role="alert"]').text()).toContain("该条目已被锁定，请先解锁后再编辑")
   expect(wrapper.find(".exploration-result-card__badge").exists()).toBe(false)
 })
+
+// --- M3-A 对照视图受影响项 / 关系展示 ---
+
+const sandboxSecondPayload = { influence_chain: [{ condition: "减半在深夜", effect: "几乎无人察觉" }], unknowns: [] }
+
+function compareSides(overrides = {}) {
+  return {
+    first: { output_kind: "story.exploration.sandbox", payload: sandboxSource.payload, locked_items: [], ...overrides.first },
+    second: { output_kind: "story.exploration.sandbox", payload: sandboxSecondPayload, locked_items: [], ...overrides.second },
+  }
+}
+
+async function runCompare(receipt, { counterfactual = false } = {}) {
+  const explorationHistory = vi.fn(async () => ({
+    items: [
+      { result_id: "result-1", label: "当前" },
+      { result_id: "result-9", label: "重来分支", scale: "sandbox" },
+    ],
+  }))
+  const explorationCompare = vi.fn(async () => receipt)
+  const wrapper = mountCard(sandboxSource, { explorationHistory, explorationCompare })
+  const compare = wrapper.get(".exploration-result-card__op:nth-of-type(3)")
+  compare.element.open = true
+  await compare.trigger("toggle")
+  await flushPromises()
+  if (counterfactual) await compare.get('input[value="counterfactual"]').setValue()
+  await compare.get("select").setValue("result-9")
+  await compare.findAll("button").find(button => button.text() === "比较").trigger("click")
+  await flushPromises()
+  return { wrapper, compare }
+}
+
+it("marks a parent-child same-start compare and lists its affected items", async () => {
+  const receipt = {
+    ...compareSides(),
+    relation: "parent_child",
+    affected_items_granularity: "exact",
+    affected_items: [
+      { item_path: "chain:0", status: "changed", base_excerpt: "面包需要重新计时", derived_excerpt: "面包几乎不需要烤" },
+    ],
+  }
+  const { wrapper } = await runCompare(receipt)
+  const compareText = wrapper.get(".exploration-result-card__compare").text()
+  expect(compareText).toContain("后代修订对照")
+  expect(compareText).toContain("受影响 1 项")
+  expect(compareText).toContain("影响链 1")
+  expect(compareText).toContain("面包几乎不需要烤")
+})
+
+it("renders the three affected-item statuses with excerpts side by side", async () => {
+  const receipt = {
+    ...compareSides(),
+    mode: "counterfactual",
+    changed_conditions: ["重力减半窗口从清晨改为深夜"],
+    affected_items_granularity: "exact",
+    affected_items: [
+      { item_path: "chain:0", status: "changed", base_excerpt: "面包需要重新计时", derived_excerpt: "几乎无人察觉" },
+      { item_path: "chain:1", status: "added", base_excerpt: "", derived_excerpt: "集市改到午后" },
+      { item_path: "chain:2", status: "removed", base_excerpt: "面匠提前收工", derived_excerpt: "" },
+    ],
+  }
+  const { wrapper } = await runCompare(receipt, { counterfactual: true })
+  const compare = wrapper.get(".exploration-result-card__compare")
+  expect(compare.findAll(".exploration-result-card__affected-status--changed")).toHaveLength(1)
+  expect(compare.findAll(".exploration-result-card__affected-status--added")).toHaveLength(1)
+  expect(compare.findAll(".exploration-result-card__affected-status--removed")).toHaveLength(1)
+  const items = compare.findAll(".exploration-result-card__affected-item")
+  expect(items).toHaveLength(3)
+  expect(items[0].text()).toContain("变更")
+  expect(items[0].text()).toContain("基线：面包需要重新计时")
+  expect(items[0].text()).toContain("对照：几乎无人察觉")
+  expect(items[1].text()).toContain("新增")
+  expect(items[1].text()).toContain("基线：（无）")
+  expect(items[1].text()).toContain("对照：集市改到午后")
+  expect(items[2].text()).toContain("移除")
+  expect(items[2].text()).toContain("基线：面匠提前收工")
+  expect(items[2].text()).toContain("对照：（无）")
+  // 计数摘要与既有变更条件标签并存
+  expect(compare.text()).toContain("受影响 3 项")
+  expect(compare.text()).toContain("重力减半窗口从清晨改为深夜")
+})
+
+it("shows the conservative disclosure hint instead of an affected list", async () => {
+  const receipt = {
+    ...compareSides(),
+    mode: "counterfactual",
+    changed_conditions: ["两侧行不同构，逐项差异无法表达"],
+    affected_items: [],
+    affected_items_granularity: "conservative",
+  }
+  const { wrapper } = await runCompare(receipt, { counterfactual: true })
+  const compare = wrapper.get(".exploration-result-card__compare")
+  expect(compare.text()).toContain("粒度不足，仅保守披露")
+  expect(compare.find(".exploration-result-card__affected-list").exists()).toBe(false)
+  expect(compare.find(".exploration-result-card__compare-summary").exists()).toBe(false)
+  expect(compare.text()).not.toContain("受影响 0 项")
+  // 既有变更条件标签不受影响
+  expect(compare.text()).toContain("变更条件")
+  expect(compare.text()).toContain("两侧行不同构，逐项差异无法表达")
+})
+
+it("shows the affected count summary for counterfactual comparisons", async () => {
+  const receipt = {
+    ...compareSides(),
+    mode: "counterfactual",
+    changed_conditions: [],
+    affected_items_granularity: "exact",
+    affected_items: [
+      { item_path: "chain:0", status: "changed", base_excerpt: "面包需要重新计时", derived_excerpt: "几乎无人察觉" },
+      { item_path: "chain:1", status: "added", base_excerpt: "", derived_excerpt: "集市改到午后" },
+    ],
+  }
+  const { wrapper } = await runCompare(receipt, { counterfactual: true })
+  const summary = wrapper.get(".exploration-result-card__compare-summary")
+  expect(summary.text()).toContain("受影响 2 项")
+  // 非父子对照不显示关系标签
+  expect(summary.text()).not.toContain("后代修订对照")
+})
+
+it.each([
+  ["chain:1", "影响链 2"],
+  ["gap:0", "缺口 1"],
+  ["bridge:2", "补桥 3"],
+  ["line", "对白"],
+])("labels affected item path %s as %s", async (itemPath, label) => {
+  const receipt = {
+    ...compareSides(),
+    mode: "counterfactual",
+    changed_conditions: [],
+    affected_items_granularity: "exact",
+    affected_items: [{ item_path: itemPath, status: "changed", base_excerpt: "基线摘录", derived_excerpt: "对照摘录" }],
+  }
+  const { wrapper } = await runCompare(receipt, { counterfactual: true })
+  expect(wrapper.get(".exploration-result-card__compare").text()).toContain(label)
+})
+
+it("keeps the compare view unchanged when no affected items are returned", async () => {
+  const receipt = { ...compareSides(), relation: "same_start" }
+  const { wrapper } = await runCompare(receipt)
+  const compare = wrapper.get(".exploration-result-card__compare")
+  // 原有渲染保持不变：两列正文可见，无摘要行与受影响区块
+  expect(compare.text()).toContain("面包需要重新计时")
+  expect(compare.text()).toContain("几乎无人察觉")
+  expect(compare.find(".exploration-result-card__compare-summary").exists()).toBe(false)
+  expect(compare.find(".exploration-result-card__affected").exists()).toBe(false)
+  expect(compare.text()).not.toContain("后代修订对照")
+  expect(compare.text()).not.toContain("受影响项")
+})
