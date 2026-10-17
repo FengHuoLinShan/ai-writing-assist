@@ -170,6 +170,53 @@ describe("SceneCockpit", () => {
     expect(wrapper.find('[role="dialog"]').exists()).toBe(false)
   })
 
+  it("在助手中探索按钮携带当前场景与编辑器选区打开助手", async () => {
+    const workspace = document.createElement("div")
+    workspace.id = "workspace-content"
+    const island = document.createElement("div")
+    island.className = "vue-island"
+    island.dataset.projectId = "p1"
+    const editor = document.createElement("textarea")
+    editor.id = "writing-editor"
+    editor.value = "她把钥匙放回原处，没有回头。"
+    editor.selectionStart = 2
+    editor.selectionEnd = 4
+    island.appendChild(editor)
+    workspace.appendChild(island)
+    document.body.appendChild(workspace)
+    const opener = vi.fn(async () => ({}))
+    setBridgeOverrides({ state: { currentProjectId: "p1", viewStates: { writing: { projectId: "p1" } } }, assistantOpener: opener })
+
+    try {
+      wrapper = mountCockpit()
+      await wrapper.findAll("button").find((button) => button.text() === "在助手中探索这句/这场").trigger("click")
+      await flushPromises()
+      expect(opener).toHaveBeenCalledTimes(1)
+      expect(opener.mock.calls[0][0]).toMatchObject({
+        projectId: "p1",
+        context: { page: "scene", scope: "current", task_hint: "design", scene_id: "s1", selection: "钥匙" },
+      })
+    } finally {
+      workspace.remove()
+    }
+  })
+
+  it("助手未就绪时提示错误并保留本页", async () => {
+    const toast = vi.fn()
+    setBridgeOverrides({
+      state: { currentProjectId: "p1" },
+      assistantOpener: vi.fn(async () => {
+        throw new Error("项目助手正在准备，请稍后从顶部打开。")
+      }),
+      toast,
+    })
+    wrapper = mountCockpit()
+    await wrapper.findAll("button").find((button) => button.text() === "在助手中探索这句/这场").trigger("click")
+    await flushPromises()
+    expect(toast).toHaveBeenCalledWith("项目助手正在准备，请稍后从顶部打开。", "error")
+    expect(wrapper.text()).toContain("找到线索")
+  })
+
   it("关联失败时保留当前行并可原位重试", async () => {
     const associateScene = vi.fn()
       .mockRejectedValueOnce(new Error("网络暂时不可用"))

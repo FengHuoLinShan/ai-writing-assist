@@ -1027,17 +1027,38 @@
   letter-spacing: 0.02em;
 }
 
-/* 选项卡：hairline 下划页签，active 用 accent 下划线，文字 ink/dim */
+/* 选项卡：hairline 下划页签，active 用 accent 下划线，文字 ink/dim。
+   页签行右侧保留“在助手中探索”次级入口；hairline 移到整行保持视觉连续。 */
+.scene-cockpit .scene-cockpit-tabs-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  border-bottom: 1px solid var(--nc-hairline);
+}
+
 .scene-cockpit .cockpit-tabs {
+  flex: 1 1 auto;
+  min-width: 0;
   flex-wrap: nowrap;
   overflow-x: auto;
   scrollbar-width: none;
   margin: 0;
   padding: 0 12px;
   border: 0;
-  border-bottom: 1px solid var(--nc-hairline);
   border-radius: 0;
   background: transparent;
+}
+
+.scene-cockpit .scene-cockpit-explore {
+  flex: 0 0 auto;
+  margin-right: 10px;
+  white-space: nowrap;
+}
+
+@media (max-width: 640px) {
+  .scene-cockpit .scene-cockpit-tabs-row { flex-wrap: wrap; }
+  .scene-cockpit .scene-cockpit-explore { flex: 1 1 100%; margin: 0 12px 8px; }
 }
 
 .scene-cockpit .cockpit-tabs::-webkit-scrollbar {
