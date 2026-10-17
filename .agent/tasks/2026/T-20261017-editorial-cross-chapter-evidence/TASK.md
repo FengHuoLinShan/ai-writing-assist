@@ -3,7 +3,7 @@ id: T-20261017-editorial-cross-chapter-evidence
 title: 编辑审读跨章证据、硬矛盾修正与第二轮盲评交接
 status: active
 created: 2026-10-17T09:15:19+08:00
-updated: 2026-10-17T09:34:52+08:00
+updated: 2026-10-17T14:14:09+08:00
 parent: T-20261016-editorial-diagnosis-v1
 ---
 
@@ -12,11 +12,11 @@ parent: T-20261016-editorial-diagnosis-v1
 ## 恢复快照
 
 - 实际完成：恢复上一轮盲评/揭盲结果；核对目标 worktree 干净，位于 `codex/editorial-diagnosis-v1`，HEAD `6338736cfe2f11a53dc0f7a918afd2a49dac4e85`，较 `origin/main` ahead 12；开放任务索引已切换到本任务，旧任务已关闭并指向本任务。
-- 当前里程碑：B 固定提交 `346ac97e6af8167a5f23f766dc25d4a927b93676`；有界并行 runner、第二轮评阅规则、README/HANDOFF、离线测试和盲评隔离工作区均已完成；并行全量对照 35/35 case 完成，未评分、未揭盲。
-- 下一步：等待作者指定的盲评者完成第二轮评分；由开发 agent 按评阅者分别校验并揭盲汇总，再按冻结门槛逐评阅者报告采纳或“评阅者间不一致”。
-- 阻塞：无；等待作者指定的 Sonnet 5.5/Kimi Code k3 评阅文件，开发 agent 后续按评阅者分别揭盲汇总。
+- 当前里程碑：第二轮盲评（Sonnet 5.5、Kimi Code k3 各一轮）已审计、揭盲并逐评阅者套用冻结门槛；两位评阅者下 B 均满足全部三条门槛，结论为采纳跨章证据账本。
+- 下一步：作者决定是否推送分支、开 PR 合入；推送/PR/合并须另行授权。`unchecked`（S15）两组均 0/1，为未解决的已知遗留。
+- 阻塞：无；仅等待作者对合入的决定。
 - 工作区：`/Users/tywww/项目/ai-writing-assist/.worktrees/editorial-diagnosis-v1`，分支 `codex/editorial-diagnosis-v1`；并行 runner 提交 `b53adddad42823ef78de4a0bb13706742e8c26e3`，评阅协议提交 `086f7a51c18061c5e231296409bc68104ac84839`；任务记录随后仅在本地提交，未推送。
-- 最后核实：2026-10-17T11:19:52+08:00。
+- 最后核实：2026-10-17T14:14:09+08:00。
 
 ## 目标与验收
 
@@ -40,6 +40,7 @@ parent: T-20261016-editorial-diagnosis-v1
 - [x] 文档初步同步：Assistant README、Prompt 体系、eval README、助手设计文档、module-tasks 必需文档逐项检查更新；等待完整终验门禁。
 - [x] Luna 运行：初版尝试的 20 次 reservation（19 成功、1 次用量未知）计入总上限；新目录并行重跑 388 次全成功，累计 408/490；35 case 全完成。
 - [x] 盲评交接：70 份盲包、仓库外映射、支持 Sonnet/Kimi 标签的新 HANDOFF、更新后的 checker、空 reviewer-return 和四项隔离工作区已交付；本任务不评分/揭盲。
+- [x] 第二轮盲评与揭盲：作者另开 Sonnet 5.5、Kimi Code k3 会话各评 70 份；开发 agent 审计会话日志、校验、揭盲，并逐评阅者套用冻结门槛，两位均满足，报告采纳。
 
 ## 决策、发现与失败
 
@@ -53,6 +54,16 @@ parent: T-20261016-editorial-diagnosis-v1
 - 2026-10-17：作者要求将真实运行改为并行并从头重跑。初版顺序全量在 S07 运行中停止：`unique_key_contradiction` 两组共 14 次成功请求；`S07_goal_mismatch` 的 baseline 有 5 次成功和 1 次已确认 provider attempt 但用量未知；合计 20 次 reservation。该用量未知请求保留在旧私有账本，新运行不复用旧输出，预算 offset 固定为 20。v4 有 81 章，均小于 12000 字；每章至多 reader/editorial 各一次，1–3 章样本 synthesis 至多一次，故新运行最多 388 次，合计上界 408/490。
 - 2026-10-17：并行采用单进程 asyncio、最多两个 arm 同时运行、每 arm 独立数据库会话、arm 内章节严格顺序。RequestLedger 在单事件循环中同步 reservation；全局暂停后禁止新 reservation；输出目录独占文件锁阻止同一目录多进程。后续运行沿用旧账本 offset；不重试旧 started request。
 - 2026-10-17：`evals/tests/test_editorial_dataset.py` 与 `test_editorial_prompt_ab.py`：12 passed；包括固定 A/B 提示词、only-B ledger toggle 和 smoke 前文证据门禁。
+
+- 2026-10-17T14:14:09+08:00：第二轮揭盲结果（逐评阅者，不合并评分；A=提示词 `4133ff93b` 无账本，B=`346ac97e6` 有账本）。
+  - AI 盲评（Claude Sonnet 5.5，单评阅者）：正例命中 A 8/14、B 14/14；对照误报 case A 2/20（2 条）、B 1/20（1 条）；`unchecked` A 0/1、B 0/1；正例 `false_positive` 意见 A 1、B 0，`related` A 12、B 9；新增三条跨章正例 A 0/3、B 3/3；五条跨章重点 A 1/5、B 5/5；三条已交代原因对照误报 A 0/3、B 0/3。
+  - AI 盲评（Kimi Code k3，单评阅者）：正例命中 A 9/14、B 14/14；对照误报 case A 2/20（2 条）、B 1/20（1 条）；`unchecked` A 0/1、B 0/1；正例 `false_positive` 意见 A 0、B 0，`related` A 10、B 9；新增三条 A 0/3、B 3/3；五条重点 A 1/5、B 5/5；已交代原因对照 A 0/3、B 0/3。
+  - 零意见基线：0/14 正例、0/20 对照误报、0/1 `unchecked`。非空输出 A 13/35（29 条意见）、B 15/35（32 条）。
+  - 门槛（逐评阅者）：B ≥ 12/14、B 对照误报 case ≤ A+1、已交代原因对照误报 ≤ 1，两位评阅者三条均满足，报告采纳账本。
+  - A 两位均漏 `S02_objective_record_conflict`、`S19_active_goal_passivity_mismatch` 与三条新增跨章正例；`S03_causal_gap` 仅 Sonnet 判为漏（finding 判 related）。B 无漏报。两组对照误报都含 `S12_countervoice_control`；`S16_duplicate_domain_finding` 仅 A 误报。`S15_external_fact_pending` 两组均为空报告，未改善。
+  - 评阅者间一致（仅 report/unchecked）：case 结果 29/30（唯一差异为 A 组 S03），finding 分类 54/58；差异为 Sonnet related→Kimi hit 3 条、Sonnet false_positive→Kimi related 1 条，B 组 31/31 一致。
+  - 15 项分数仅计非空输出：B 的 `major_issue_miss` 两位均为 2.0（A 均 1.692），`source_misread` 与 `lookback_and_alternatives` B 高于 A；`issue_aggregation_and_burden` 两组都在 1.0 以下，是两位评阅者共同的低分项。多条输出在 unchecked 中称“未见前文原文”，但盲包附有全部章节，评阅者据此扣 `source_misread`；不影响门槛，可作后续呈现问题。
+  - 局限：B 输出带前文引文，评阅者可能推测分组；两位均为 AI 评阅者，不等于独立人工判断；样本为微型合成文本，`unchecked` 仅 1 例。
 
 ## 验证证据
 
@@ -69,11 +80,13 @@ parent: T-20261016-editorial-diagnosis-v1
 - 2026-10-17T11:18:59+08:00：并行运行 manifest `757866921042b858b392c7de6ef48dcda4ccdcf22ddce1bff13880bd466cb81f`，runner SHA `c66759f8eff0fe04af0d7c6a26b82b0d622cbeea`；A 提示词 SHA `4133ff93b6e3c27e59e967831dbe4d4322f329a2`，B SHA `346ac97e6af8167a5f23f766dc25d4a927b93676`。新跑 388/388 成功；旧账本 20 条（19 succeeded、1 unknown usage）计入 offset；累计 408/490，连接验证 provider 请求 0、无新的未知用量、无暂停，35/35 case complete。
 - 逐例状态（均 complete）：`S01_hard_contradiction`、`S02_objective_record_conflict`、`S02_unreliable_narrator`、`S03_causal_gap`、`S04_causal_setup_control`、`S05_comprehension_friction`、`S06_understood_but_disliked`、`S07_goal_mismatch`、`S08_mystery_promise_unfulfilled`、`S08_no_arc_open_ending`、`S09_revenge_promise_unfulfilled`、`S09_taste_slow_town`、`S10_sparse_style_control`、`S11_unsolicited_ethics_control`、`S12_countervoice_control`、`S13_clue_early`、`S13_clue_middle`、`S14_knowledge_confirmed_control`、`S14_knowledge_unconfirmed`、`S15_external_fact_pending`、`S16_duplicate_domain_finding`、`S17_serialized_chapter_no_hook`、`S17_serialized_promise_abandoned`、`S18_intentional_passive_character_control`、`S19_active_goal_passivity_mismatch`、`X01_timeline_conflict`、`X01_timeline_rescheduled_control`、`X02_adoption_explained_control`、`X02_identity_relation_conflict`、`X03_object_repaired_control`、`X03_remote_object_state_conflict`、`bell_ambiguous`、`intentional_blank`、`quiet_clean`、`unique_key_contradiction`。
 - 私有运行目录：`/Users/tywww/novelcraft-private/editorial-cross-chapter-parallel-run-20261017/`；映射：`/Users/tywww/novelcraft-private/editorial-cross-chapter-parallel-run-20261017/mapping/blind-map.json`。输出中 70 个随机 blind ID 唯一、每 case 两份、每份均含该 case 全章节；内容哈希与生成源逐份相同。扫描未发现显式分组字段/组名、SHA 或分支名；四处单词 `candidate` 仅存在于同一 case 的 fixture `case_context` 原文，不是组别标记。目录为 0700、文件为 0600。
+- 2026-10-17T14:14:09+08:00：评分审计。Sonnet 会话（模型 `claude-sonnet-5-5`）分批读完 70 份盲包后逐例写评分，空报告用同一模板但逐例写来源与回看理由；分项均值只计非空输出，故不受模板影响。Kimi 会话（`kimi-code/k3-256k`，thinking max）逐份读取并以追加方式逐例写入，仅修正一处键名拼写。两边工具调用均未读取工作区外路径、映射或仓库。两份文件经工作区 checker 与 `evals.review.load_editorial_blind_reviews()` 校验通过，各 70 条；权限改为 0600。文件 SHA-256：Sonnet `ee5b3dd280b9…`、Kimi `aca8e10c6a85…`；揭盲汇总（私有，0600）`~/novelcraft-private/editorial-cross-chapter-parallel-run-20261017/unblind-summary.json`，SHA-256 `8bbe930b1c14…`。
 - 隔离工作区：`/Users/tywww/novelcraft-private/editorial-blind-review-2/`，顶层严格四项：HANDOFF 副本、`blind/` 70 文件副本、空 `reviewer-return/`、更新的 `check_review.py`。checker 接受两个固定标签；HANDOFF 标明不得脚本填默认评分/理由、related 口径及逐评阅者门槛。未查看 blind-map 内容、未评分、未揭盲。
 
 ## 交付结果
 
 - 已交付：本任务笔记；开放索引已登记本任务；旧任务记录已完成并链接本任务。
-- 未交付：作者/所选 AI 评阅者后续完成的盲评、逐评阅者揭盲和最终采纳裁定。
-- 交付边界：代码、v4 与 runner 均已本地提交；未推送、未开 PR、未合并或部署；尚未评分或揭盲。
+- 已交付（续）：第二轮两位评阅者的审计、揭盲与逐评阅者门槛判定；结论为采纳。
+- 未交付：推送、PR、合并与部署（未获授权）；`unchecked` 遗留未处理。
+- 交付边界：代码、v4、runner 与本记录均已本地提交；未推送、未开 PR、未合并或部署。
 - 正式知识与后续任务：按用户要求更新 Assistant README、Prompt 体系与 eval README；盲评之后由开发 agent 揭盲汇总。
