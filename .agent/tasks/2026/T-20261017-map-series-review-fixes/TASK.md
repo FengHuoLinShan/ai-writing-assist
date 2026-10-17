@@ -136,3 +136,13 @@ updated: 2026-10-17T16:21:16+08:00
 - 删除固定零时延等待，改为分别等待首次 feed 与保存后第二次 feed 实际发生；保留原选区失效、draft ID 和来源哈希断言，未改生产逻辑。
 - 本地完整前端 258 文件 / 3250 passed，lint/docs/diff 通过。日志 `/tmp/map-series-delivery-final-frontend-unit.log`、`-final-frontend-lint.log`、`-final-docs.log`；远端失败日志 `/tmp/map-series-delivery-frontend-final-failure.log`。
 - 修正提交后继续等待 PR #249 最新提交的全部必需门禁；最终合并状态以 PR 为准。
+
+## 助手配置加载与打开竞态
+
+- `87cac2f30` 已通过最新前端单测、后端、PG、CodeQL、完整 Chromium 和 WebKit；助手组 4 passed / 1 failed，后续前瞻/审稿未执行。
+- 真实竞态：项目加载时临时默认 RP；作者在 capabilities 完成前打开面板，旧 `!props.open` 条件阻止恢复讨论，已恢复的消息和草稿被隐藏。
+- 最小修复：只对尚未由作者选择的默认 RP 页签在能力加载完成后恢复讨论；显式 RP 选择保持。新增延迟 load 的两种 Vue 回归；原浏览器流程通过可控 promise 固定在能力加载前打开面板，避免依赖机器时序。
+- 本次完整前端 258 文件 / 3252 passed，完整助手 5 passed（1.2m）、前瞻 9 passed（1.6m）、审稿 9 passed（20.7s）；lint/build/docs/diff 通过。日志 `/tmp/map-series-delivery-assistant-unit-full.log`、`-assistant-recheck.log`、`-creative-final.log`、`-editorial-final.log`；提交后继续等待 PR #249 全部必需门禁。
+- 所有已有修复与提交保留，未合并或部署；当前唯一下一步为完成这组验证并交付受保护 PR。远端失败日志 `/tmp/map-series-delivery-assistant-failure.log`，诊断产物 `/tmp/map-series-delivery-assistant-diagnostics`。
+
+- 专用 PG 已在验证后停止，全部合成数据和失败证据保留；实际合并状态以 PR #249 为准，避免复制可直接从 Git/GitHub 恢复的状态。

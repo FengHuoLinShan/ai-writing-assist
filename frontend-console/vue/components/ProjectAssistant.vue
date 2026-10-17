@@ -90,6 +90,7 @@ const state = assistant.state
 const receiptMessageIds = computed(() => new Set(new Map(state.messages.filter(message => message.assistant_run_id).map(message => [message.assistant_run_id, message.id])).values()))
 const narrow = ref(false)
 const activeTab = ref("chat")
+let tabChosenByAuthor = false
 const goalAvailable = ref(false)
 const editorialFocusChapter = ref(null)
 const editorialFocusIssueId = ref(null)
@@ -99,7 +100,7 @@ const creativeRef = ref(null)
 // "只润色"等意图会实际进入模型输入并在前瞻侧收窄能力集。
 const taskHint = ref("unknown")
 function withIntent(context) { return { ...(context || {}), task_hint: taskHint.value } }
-function switchTab(tab) { if (activeTab.value === "creative" && creativeRef.value?.canLeave?.() === false) return; activeTab.value = tab }
+function switchTab(tab) { if (activeTab.value === "creative" && creativeRef.value?.canLeave?.() === false) return; tabChosenByAuthor = true; activeTab.value = tab }
 function openEditorialFromNotice(source) { editorialFocusIssueId.value = source?.id || null; activeTab.value = "editorial" }
 function openForecast() { if (activeTab.value === "creative" && creativeRef.value?.canLeave?.() === false) return; try { experimentContext.value = withIntent(capture(true)); activeTab.value = "forecast" } catch (error) { state.error = error.message } }
 function openCreative() { try { experimentContext.value = withIntent(capture(true)); activeTab.value = "creative" } catch (error) { state.error = error.message } }
@@ -168,10 +169,11 @@ const removeOpener = registerProjectAssistantOpener(async request => {
   emit("open")
 })
 watch(() => props.projectId, value => {
+  tabChosenByAuthor = false
   activeTab.value = state.enabled ? "chat" : "rp"
   goalAvailable.value = false
   loadPromise = Promise.resolve(assistant.load(value)).then(() => {
-    if (state.enabled && !props.open && activeTab.value === "rp") activeTab.value = "chat"
+    if (state.enabled && !tabChosenByAuthor && activeTab.value === "rp") activeTab.value = "chat"
   })
 }, { immediate: true })
 watch(() => [state.enabled, props.projectId], ([enabled, projectId]) => emit("availability", Boolean(enabled || projectId)), { immediate: true })
