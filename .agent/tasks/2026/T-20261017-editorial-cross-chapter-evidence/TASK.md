@@ -3,7 +3,7 @@ id: T-20261017-editorial-cross-chapter-evidence
 title: 编辑审读跨章证据、硬矛盾修正与第二轮盲评交接
 status: active
 created: 2026-10-17T09:15:19+08:00
-updated: 2026-10-17T09:32:45+08:00
+updated: 2026-10-17T09:34:52+08:00
 parent: T-20261016-editorial-diagnosis-v1
 ---
 
@@ -12,8 +12,8 @@ parent: T-20261016-editorial-diagnosis-v1
 ## 恢复快照
 
 - 实际完成：恢复上一轮盲评/揭盲结果；核对目标 worktree 干净，位于 `codex/editorial-diagnosis-v1`，HEAD `6338736cfe2f11a53dc0f7a918afd2a49dac4e85`，较 `origin/main` ahead 12；开放任务索引已切换到本任务，旧任务已关闭并指向本任务。
-- 当前里程碑：B 固定提交已建立；Assistant/eval 单测、E2E、lint、prompt contracts 和 docs-check 通过。v4、runner、README 与 HANDOFF 已完成，待提交并做真实模型运行前的连接/profile 专用库复核。
-- 下一步：提交当前已门禁的 v4/runner/文档变更并记录 runner commit；随后在 `codex_luna_runtime_test` 上复核当前 owner 连接与 facade profile，创建私有运行目录后跑 unique-key 两组冒烟（上限 14）。
+- 当前里程碑：B 固定提交 `346ac97e6af8167a5f23f766dc25d4a927b93676`；v4/runner/README/HANDOFF 已在 `ae3bfa4739b4334e2d0a00cab0bfb675edc07f11` 本地提交；全部离线测试与最终门禁通过。
+- 下一步：显式核对运行环境数据库名为 `codex_luna_runtime_test`，调用 runner 读取当前 owner 连接并通过 `open_project_llm_client()` 检查 profile，建立私有运行目录；先跑 unique-key 两组冒烟，满足三项检查后用同一状态目录跑全量。
 - 阻塞：无；真实模型连接和专用库需在离线门禁通过后重新实时核验，不合格即停止模型调用。
 - 工作区：`/Users/tywww/项目/ai-writing-assist/.worktrees/editorial-diagnosis-v1`，分支 `codex/editorial-diagnosis-v1`；初始工作树干净，HEAD 为 `6338736cfe2f11a53dc0f7a918afd2a49dac4e85`。
 - 最后核实：2026-10-17T09:15:19+08:00。
@@ -49,6 +49,7 @@ parent: T-20261016-editorial-diagnosis-v1
 - 2026-10-17：v4 runner 将 B 提示词固定到提交 SHA，manifest 差异测试须在该提交产生后运行；未提交前 HEAD 仍等于 A 的提示词，测试按预期拒绝相同提示词。
 - 2026-10-17：B 固定提交为 `346ac97e6af8167a5f23f766dc25d4a927b93676`；A 提示词固定提交为 `4133ff93b6e3c27e59e967831dbe4d4322f329a2`。B SHA 不得在本轮候选代码修改后继续沿用；runner 会拒绝候选提交之后的 Assistant worker 变更。
 - 2026-10-17：runner smoke 自测覆盖 A/B 各七个回执的上限、B 转发前文引文且 validator 报告命中该引文、缺失该验证时失败关闭并暂停。
+- 2026-10-17：`evals/tests/test_editorial_dataset.py` 与 `test_editorial_prompt_ab.py`：12 passed；包括固定 A/B 提示词、only-B ledger toggle 和 smoke 前文证据门禁。
 
 ## 验证证据
 
@@ -58,6 +59,7 @@ parent: T-20261016-editorial-diagnosis-v1
 - 2026-10-17：B 固定提交后 `UV_CACHE_DIR=/private/tmp/uv-editorial-cross-chapter uv run pytest evals/tests/test_editorial_dataset.py evals/tests/test_editorial_prompt_ab.py -q`：12 passed。
 - 2026-10-17：`npm run lint`（frontend-console）通过；`npm run test:e2e:editorial -- editorial-revision-bridge.spec.js` 在专用本机 `codex_luna_runtime_test` 上 2 passed，无真实模型调用。
 - 2026-10-17：`make lint`、`make prompt-contracts`（26 contracts）通过；`make docs-check BASE_REF=origin/main` 在补齐 `docs/modules/12_infrastructure.md` 以后通过；`git diff --check` 通过。
+- 2026-10-17：最终组合验证：Assistant 与相关 eval 共 181 passed；`make lint`、前端 `npm run lint`、`make prompt-contracts`、`make docs-check BASE_REF=origin/main`、`git diff --check` 均通过。前端编辑台/桥接 E2E 为 2/2 passed。
 
 ## 交付结果
 
