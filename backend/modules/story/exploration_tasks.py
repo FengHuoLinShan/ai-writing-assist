@@ -62,6 +62,7 @@ from modules.story.exploration_schemas import (
 )
 from modules.story.exploration_service import (
     current_locked_items,
+    exploration_entry_display_text,
     pack_exploration_output,
     unpack_exploration_output,
 )
@@ -720,15 +721,12 @@ def _revision_items(payload: dict, base_kind: str) -> list[dict]:
 
 
 def _revision_entry_text(key: str, item) -> str:
-    """条目当前展示文本；与前端卡片渲染口径一致，用于防漂移比对。"""
-    kind = str(key or "").partition(":")[0]
-    if kind == "line":
-        return str(item or "")
-    if kind == "chain":
-        return str((item or {}).get("effect") or "")
-    if kind == "gap":
-        return str((item or {}).get("description") or "")
-    return "\n".join(str(step) for step in (item or {}).get("steps") or [])
+    """条目当前展示文本；与前端卡片渲染口径一致，用于防漂移比对。
+
+    推导唯一实现在 ``exploration_service.exploration_entry_display_text``，
+    锁定标签与影响标记摘录共用同一口径，不各自漂移。
+    """
+    return exploration_entry_display_text(key, item)
 
 
 def check_revision_target(
@@ -1401,6 +1399,35 @@ async def _pause_progression(db, root, branch, envelope, guard, stop: str):
     )
 
 
+async def _counterfactual_baseline_provenance(
+    db, *, novel_id, baseline_result_id: str
+) -> dict:
+    """基线行 start 指纹与输出哈希：实际读集与父版本可核对（M3-A 影响标记）。
+
+    正常链路请求阶段已校验基线为同作品沙盘结果，行不可变；查询不到（异常
+    数据）时返回空值如实披露，不编造指纹。
+    """
+
+    row = await db.scalar(
+        select(StoryWorldProgressionStep).where(
+            StoryWorldProgressionStep.novel_id == novel_id,
+            StoryWorldProgressionStep.id == UUID(baseline_result_id),
+        )
+    )
+    if row is None:
+        return {"base_result_fingerprint": None, "parent_output_hash": None}
+    baseline_root = await db.get(StoryWorldProgressionRoot, row.root_id)
+    fingerprint = (
+        (baseline_root.request_json or {}).get("exploration_start_fingerprint")
+        if baseline_root is not None
+        else None
+    )
+    return {
+        "base_result_fingerprint": str(fingerprint) if fingerprint else None,
+        "parent_output_hash": str(row.output_hash) if row.output_hash else None,
+    }
+
+
 async def _write_progression_result(
     db,
     *,
@@ -1446,6 +1473,19 @@ async def _write_progression_result(
             for item in (root_request.get("changed_assumptions") or [])
             if isinstance(item, dict)
         ]
+        # 影响与比较标记（M3-A）：补记基线行读集指纹与基线行输出版本，使
+        # “实际读集与父版本”可核对；续算行已有 parent_output_hash（续算父），
+        # 不覆盖，仅反事实起始行记录基线版本。
+        provenance = await _counterfactual_baseline_provenance(
+            db,
+            novel_id=root.novel_id,
+            baseline_result_id=str(root_request["counterfactual_of"]),
+        )
+        input_payload["base_result_fingerprint"] = provenance[
+            "base_result_fingerprint"
+        ]
+        if not input_payload.get("parent_output_hash"):
+            input_payload["parent_output_hash"] = provenance["parent_output_hash"]
 
     if parent_id:
         parent = await db.get(StoryWorldProgressionStep, UUID(parent_id))

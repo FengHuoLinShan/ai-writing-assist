@@ -850,7 +850,41 @@ async def test_counterfactual_start_records_baseline_and_changed_texts(explorati
     changed = [Assumption(kind="world_rule", text="重力变化时段从早晨改到傍晚")]
     cloned = apply_changed_assumptions(_provisional_start(), changed)
     spec, envelope = await flow.setup(chain="progression", scale="sandbox", start=cloned)
-    baseline_id = str(uuid.uuid4())
+    # 真实基线行：影响标记（M3-A）要按它记录读集指纹与输出版本。
+    async with flow.sessions.begin() as db:
+        baseline_root, baseline_branch = await create_exploration_root(
+            db,
+            novel_id=str(spec.novel_id),
+            owner_id=OWNER_ID,
+            scale="sandbox",
+            start=_provisional_start(),
+            context_confirmation_id=str(uuid.uuid4()),
+        )
+        baseline_envelope = ExplorationOutputEnvelope(
+            output_kind=SANDBOX_OUTPUT_KIND,
+            schema_version=1,
+            payload=SandboxOutputV1.model_validate(sandbox_payload()),
+        )
+        baseline_step = StoryWorldProgressionStep(
+            novel_id=baseline_root.novel_id,
+            root_id=baseline_root.id,
+            branch_id=baseline_branch.id,
+            step_number=1,
+            source_hash=baseline_root.source_hash,
+            input_hash="a" * 64,
+            output_hash="b" * 64,
+            input_json={"mode": "start"},
+            result_json=pack_exploration_output(baseline_envelope),
+            state_json={},
+            metrics_json={"mode": "start", "exploration": True},
+            basis_changed=False,
+        )
+        db.add(baseline_step)
+        await db.flush()
+        baseline_id = str(baseline_step.id)
+        baseline_fingerprint = baseline_root.request_json[
+            "exploration_start_fingerprint"
+        ]
     frozen = await _freeze_counterfactual_root(flow, spec, baseline_id)
     assert frozen == changed
     cf_budget = preview_exploration_budget(
@@ -883,6 +917,9 @@ async def test_counterfactual_start_records_baseline_and_changed_texts(explorati
         assert step.input_json["start_summary"]["fingerprint"] == (
             exploration_start_fingerprint(cloned, "sandbox")
         )
+        # 影响与比较标记（M3-A）：实际读集与父版本可核对。
+        assert step.input_json["base_result_fingerprint"] == baseline_fingerprint
+        assert step.input_json["parent_output_hash"] == "b" * 64
     assert flow.provider.calls == 1
 
 

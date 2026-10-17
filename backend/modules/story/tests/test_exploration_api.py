@@ -843,19 +843,29 @@ async def test_compare_counterfactual_requires_link_and_returns_changed_conditio
     assert unrelated.status_code == 409
     assert "反事实衍生关系" in unrelated.json()["detail"]
 
-    # same_start 模式行为不变：同根同指纹仍可比，不校验反事实链
+    # same_start 模式行为不变：同根同指纹仍可比，不校验反事实链；
+    # 两行无父子关系 → relation=same_start，无受影响项与父版本哈希
     legacy = await _compare(baseline.id, variant.id)
     assert legacy.status_code == 200
     assert legacy.json()["start_fingerprint"]
     assert "changed_conditions" not in legacy.json()
+    assert legacy.json()["relation"] == "same_start"
+    assert "affected_items" not in legacy.json()
+    assert "parent_output_hash" not in legacy.json()["first"]
 
-    # 基线 ↔ 衍生：changed_conditions 为衍生行文本
+    # 基线 ↔ 衍生：changed_conditions 为衍生行文本；两侧 payload 同构相同
+    # → 无受影响项，粒度如实标注 exact；衍生行回传记录的父版本哈希缺省 null
     derived = await _compare(baseline.id, variant.id, mode="counterfactual")
     assert derived.status_code == 200, derived.json()
     body = derived.json()
     assert body["mode"] == "counterfactual"
     assert body["start_fingerprint"] is None
     assert body["changed_conditions"] == ["重力变化时段从早晨改到傍晚"]
+    assert body["affected_items"] == []
+    assert body["affected_items_granularity"] == "exact"
+    assert "relation" not in body
+    assert body["first"]["parent_output_hash"] is None
+    assert body["second"]["parent_output_hash"] is None
 
     # 共享基线：两条变体的对称差集（保持首现顺序）
     variant_a = await _add_progression_step(

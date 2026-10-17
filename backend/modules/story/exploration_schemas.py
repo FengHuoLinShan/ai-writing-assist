@@ -376,6 +376,31 @@ class LockedItem(ExplorationModel):
     label: str = Field(default="", max_length=200)
 
 
+# 影响与比较标记（M3-A 切片 2）：compare 的结构化受影响项上限与摘录截选。
+AFFECTED_ITEMS_MAX = 24
+AFFECTED_ITEM_EXCERPT_MAX_LENGTH = 120
+AffectedItemStatus = Literal["changed", "added", "removed"]
+AffectedItemsGranularity = Literal["exact", "conservative"]
+
+
+class AffectedItem(ExplorationModel):
+    """一条结构化受影响项：路径语法与修订/锁定一致（chain:N/gap:N/bridge:N/line）。
+
+    判定以两侧条目内容哈希为准；``base_excerpt``/``derived_excerpt`` 只是
+    两侧条目展示文本截选（0..120），供作者不看全文也能定位——摘录相同但
+    其他字段变化时状态仍为 changed。条目只在一侧出现时另一侧摘录为空。
+    """
+
+    item_path: str = Field(min_length=1, max_length=120)
+    status: AffectedItemStatus
+    base_excerpt: str = Field(
+        default="", max_length=AFFECTED_ITEM_EXCERPT_MAX_LENGTH
+    )
+    derived_excerpt: str = Field(
+        default="", max_length=AFFECTED_ITEM_EXCERPT_MAX_LENGTH
+    )
+
+
 class LockSetPayloadV1(ExplorationModel):
     """锁定集结果行（M3-A）：内容 = 该分支当前全部锁定项。
 
@@ -711,8 +736,10 @@ class ExplorationSaveEditRequest(ExplorationModel):
 
 
 class ExplorationCompareRequest(ExplorationModel):
-    """两结果比较（read）：same_start 要求起点指纹一致；counterfactual 要求
-    两行互为反事实衍生或共享同一基线，成功后回传 changed_conditions。"""
+    """两结果比较（read）：same_start 要求起点指纹一致，同根父子一跳时标记
+    relation=parent_child 并给出受影响项；counterfactual 要求两行互为反事实
+    衍生或共享同一基线，成功后回传 changed_conditions 与 affected_items
+    （来源粒度不足时保守披露，不伪称精确）。"""
 
     novel_id: str
     first_result_id: str
@@ -746,7 +773,12 @@ class ExplorationHistoryRequest(ExplorationModel):
 
 
 __all__ = [
+    "AFFECTED_ITEM_EXCERPT_MAX_LENGTH",
+    "AFFECTED_ITEMS_MAX",
     "AUTHOR_EDIT_OUTPUT_KIND",
+    "AffectedItem",
+    "AffectedItemStatus",
+    "AffectedItemsGranularity",
     "COUNTERFACTUAL_ASSUMPTION_KINDS",
     "COUNTERFACTUAL_MAX_ASSUMPTIONS",
     "EVENT_HINT_LITERAL",

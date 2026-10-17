@@ -1167,10 +1167,11 @@ async def compare_exploration(db, data: ExplorationCompareRequest) -> dict:
         second_result_id=data.second_result_id,
         mode=data.mode,
     )
+    is_counterfactual = result.get("mode") == "counterfactual"
 
     def _side(side: dict) -> dict:
         envelope = side["envelope"]
-        return {
+        entry = {
             "result_id": side["result_id"],
             "root_id": side["root_id"],
             "branch_id": side["branch_id"],
@@ -1179,15 +1180,27 @@ async def compare_exploration(db, data: ExplorationCompareRequest) -> dict:
             "created_at": side["created_at"],
             "locked_items": list(side["locked_items"]),
         }
+        if is_counterfactual:
+            # 反事实对照：回传行内记录的父版本哈希（基线行输出版本可核对）。
+            entry["parent_output_hash"] = side.get("parent_output_hash")
+        return entry
 
     response = {
         "start_fingerprint": result["start_fingerprint"],
         "first": _side(result["left"]),
         "second": _side(result["right"]),
     }
-    if result.get("mode") == "counterfactual":
+    if is_counterfactual:
         response["mode"] = "counterfactual"
         response["changed_conditions"] = result["changed_conditions"]
+        response["affected_items"] = result["affected_items"]
+        response["affected_items_granularity"] = result["affected_items_granularity"]
+    relation = result.get("relation")
+    if relation is not None:
+        response["relation"] = relation
+        if relation == "parent_child":
+            response["affected_items"] = result["affected_items"]
+            response["affected_items_granularity"] = result["affected_items_granularity"]
     return response
 
 
