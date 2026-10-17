@@ -24,6 +24,7 @@ from modules.story.exploration_service import (
     create_exploration_root,
     pack_exploration_output,
 )
+from modules.story.tests.exploration_test_support import full_rehearsal_card
 from modules.story.world_progression_models import (
     StoryWorldProgressionRoot,
     StoryWorldProgressionStep,
@@ -1183,6 +1184,211 @@ def test_scene_follow_up_blocked_for_variants_and_diagnostic_results():
             output_kind=SCENE_LINE_OUTPUT_KIND, schema_version=1, payload=single
         )
     )
+
+
+def test_full_rehearsal_result_blocked_for_follow_up_and_lock():
+    """完整排演结果（M3-B）不接受增量修订也不可锁定单条目：失败关闭。"""
+    from core.errors import ConflictError
+    from modules.story.exploration_api import require_scene_follow_up_supported
+    from modules.story.exploration_schemas import (
+        FULL_REHEARSAL_OUTPUT_KIND,
+        FullRehearsalOutputV1,
+    )
+
+    payload = FullRehearsalOutputV1.model_validate(
+        {
+            "targets": ["c_a", "c_b"],
+            "rounds": [
+                {
+                    "round_number": 1,
+                    "performances": [
+                        full_rehearsal_card("c_a"),
+                        full_rehearsal_card("c_b"),
+                    ],
+                }
+            ],
+        }
+    )
+    with pytest.raises(ConflictError, match="完整排演结果暂不支持增量修订"):
+        require_scene_follow_up_supported(
+            ExplorationOutputEnvelope(
+                output_kind=FULL_REHEARSAL_OUTPUT_KIND,
+                schema_version=1,
+                payload=payload,
+            )
+        )
+
+
+# ---------------------------------------------------------------------------
+# 临时起点完整排演（M3-B）：结果行的 detail/revise/save-edit/lock 全部 409
+# ---------------------------------------------------------------------------
+
+
+async def _seed_full_rehearsal_result(db_session, project_id):
+    """落一条完整排演结果行（scene 链）：根冻结排演意图 + 一轮表演卡。"""
+    from datetime import UTC, datetime, timedelta
+
+    from infrastructure.llm.workflow_budget import new_ai_run_envelope
+    from modules.story.exploration_schemas import (
+        FULL_REHEARSAL_OUTPUT_KIND,
+        FullRehearsalMaterial,
+        FullRehearsalObservation,
+        FullRehearsalOutputV1,
+        FullRehearsalPerformance,
+        FullRehearsalRequest,
+        FullRehearsalRound,
+    )
+    from modules.story.models import StorySceneDirectorRound
+
+    start = ProvisionalStart.model_validate(_rehearsal_start())
+    rehearsal = FullRehearsalRequest(
+        targets=["c_franks", "c_evasive"], rounds=1, author_goal="看立场差异"
+    )
+    root, branch = await create_exploration_root(
+        db_session,
+        novel_id=str(project_id),
+        owner_id=OWNER_ID,
+        scale="scene_line",
+        start=start,
+        full_rehearsal=rehearsal,
+    )
+    started_at = datetime.now(UTC)
+    envelope = new_ai_run_envelope(
+        operation_id=str(uuid.uuid4()),
+        run_id=str(root.id),
+        root_capability_id="story.exploration",
+        novel_id=str(project_id),
+        request_limit=2,
+        budget_mode="bounded",
+        token_limit=200_000,
+        started_at=started_at,
+        deadline_at=started_at + timedelta(hours=1),
+    )
+    root.run_envelope_json = envelope.snapshot().model_dump(mode="json")
+    output = ExplorationOutputEnvelope(
+        output_kind=FULL_REHEARSAL_OUTPUT_KIND,
+        schema_version=1,
+        payload=FullRehearsalOutputV1(
+            targets=["c_franks", "c_evasive"],
+            rounds=[
+                FullRehearsalRound(
+                    round_number=1,
+                    performances=[
+                        FullRehearsalPerformance.model_validate(
+                            full_rehearsal_card("c_franks")
+                        ),
+                        FullRehearsalPerformance.model_validate(
+                            full_rehearsal_card("c_evasive")
+                        ),
+                    ],
+                    materials=[
+                        FullRehearsalMaterial(
+                            kind="environment",
+                            text="雨夜站台灯光昏黄。",
+                            perceiver_refs=["c_franks", "c_evasive"],
+                        )
+                    ],
+                    observations=[
+                        FullRehearsalObservation(
+                            target_ref="c_franks", observed="对方握紧了伞柄。"
+                        )
+                    ],
+                )
+            ],
+            state_notes=["第1轮：双方立场未变。"],
+        ),
+    )
+    row = StorySceneDirectorRound(
+        novel_id=root.novel_id,
+        root_id=root.id,
+        branch_id=branch.id,
+        round_number=1,
+        parent_round_id=None,
+        source_hash=branch.source_hash,
+        input_hash="a" * 64,
+        output_hash="b" * 64,
+        input_json={
+            "mode": "full_rehearsal",
+            "targets": ["c_franks", "c_evasive"],
+            "rounds": 1,
+        },
+        output_json=pack_exploration_output(output),
+        state_json={},
+        run_envelope_json={},
+    )
+    db_session.add(row)
+    await db_session.flush()
+    return row
+
+
+@pytest.mark.asyncio
+async def test_full_rehearsal_result_detail_revise_lock_save_edit_rejected(
+    async_client, db_session, test_project_id, monkeypatch
+):
+    """完整排演结果的 detail/revise/lock 一律 409；save-edit 因 kind 并集拒绝。"""
+    _enable_exploration(monkeypatch)
+    row = await _seed_full_rehearsal_result(db_session, test_project_id)
+
+    detail = await async_client.post(
+        f"/api/story/exploration/results/{row.id}/detail",
+        json={
+            "novel_id": test_project_id,
+            "operation_id": str(uuid.uuid4()),
+            "focus": "第二轮更细",
+        },
+    )
+    assert detail.status_code == 409
+    assert "完整排演结果暂不支持增量修订" in detail.json()["detail"]
+
+    revise = await async_client.post(
+        f"/api/story/exploration/results/{row.id}/revise",
+        json={
+            "novel_id": test_project_id,
+            "operation_id": str(uuid.uuid4()),
+            "item_path": "rounds:0",
+            "instruction": "改第一轮的基调",
+        },
+    )
+    assert revise.status_code == 409
+    assert "完整排演结果暂不支持增量修订" in revise.json()["detail"]
+
+    lock = await async_client.post(
+        f"/api/story/exploration/results/{row.id}/lock",
+        json={
+            "novel_id": test_project_id,
+            "operation_id": str(uuid.uuid4()),
+            "lock": True,
+            "item_path": "rounds:0",
+        },
+    )
+    assert lock.status_code == 409
+    assert "完整排演结果暂不支持增量修订" in lock.json()["detail"]
+
+    save_edit = await async_client.post(
+        f"/api/story/exploration/results/{row.id}/save-edit",
+        json={
+            "novel_id": test_project_id,
+            "base_output_kind": "story.exploration.scene_line",
+            "edited_payload": {
+                "target_ref": "c_franks",
+                "line": "作者手改的一句",
+                "rationale": "作者编辑",
+            },
+        },
+    )
+    assert save_edit.status_code == 409
+    assert "base_output_kind" in save_edit.json()["detail"]
+
+    # base_output_kind 并集保持不含 full_rehearsal：直接声明排演 kind → 422
+    rehearsal_kind = await async_client.post(
+        f"/api/story/exploration/results/{row.id}/save-edit",
+        json={
+            "novel_id": test_project_id,
+            "base_output_kind": "story.exploration.full_rehearsal",
+            "edited_payload": {"targets": ["c_franks"], "rounds": []},
+        },
+    )
+    assert rehearsal_kind.status_code == 422
 
 
 # ---------------------------------------------------------------------------

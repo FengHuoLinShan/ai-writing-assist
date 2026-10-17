@@ -396,6 +396,28 @@ class FullRehearsalRound(ExplorationModel):
     )
 
 
+class FullRehearsalRoundOrchestration(ExplorationModel):
+    """一轮统筹的生成载荷（M3-B worker 内部）：素材、观察回执与状态要点。
+
+    只作为每轮统筹调用的结构化 schema，不单独落库：materials/observations
+    并入当轮 ``FullRehearsalRound``，state_notes 累积进
+    ``FullRehearsalOutputV1.state_notes``。每轮 state_notes 上限 4 条 ×
+    最多 3 轮，保证不超过输出信封的 12 条上限，不因末轮超限失败关闭。
+    """
+
+    materials: list[FullRehearsalMaterial] = Field(default_factory=list, max_length=8)
+    observations: list[FullRehearsalObservation] = Field(
+        default_factory=list, max_length=12
+    )
+    state_notes: list[str] = Field(default_factory=list, max_length=4)
+
+    @field_validator("state_notes")
+    @classmethod
+    def validate_state_notes(cls, values: list[str]) -> list[str]:
+        _check_text_list("orchestration.state_notes", values, max_length=500)
+        return values
+
+
 class FullRehearsalOutputV1(ExplorationModel):
     """临时起点完整排演输出（M3-B）：多轮表演卡/素材/观察回执与状态记录。
 
@@ -1022,6 +1044,7 @@ __all__ = [
     "FullRehearsalPreviewIntent",
     "FullRehearsalRequest",
     "FullRehearsalRound",
+    "FullRehearsalRoundOrchestration",
     "GapFinding",
     "GoalPath",
     "GoalPathStep",

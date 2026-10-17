@@ -519,14 +519,20 @@ API、助手操作与两个 worker 共享此门禁，history/compare 端点与 h
 `output_kind` 载荷（sandbox/event/scene_line/author_edit/lock_set/full_rehearsal，
 `schema_version=1`、`extra="forbid"`、`unknowns` 一等字段）；story 侧从
 `modules/evidence/contracts.py` 引用起点定义，不复刻。
-临时起点完整排演（M3-B 切片 1）：请求可选 `full_rehearsal`（targets 1..6、rounds 1..3、
+临时起点完整排演（M3-B 切片 1/2）：请求可选 `full_rehearsal`（targets 1..6、rounds 1..3、
 author_goal 0..2000），仅 provisional 起点 + 场景尺度接受，与 multi_targets/diagnostic
 互斥；预算按 (目标数+1)×轮次 分开计量并计入 preview_hash 身份；`/preview` 携带
 `preview_full_rehearsal` 时返回 `work_steps`（逐目标表演卡 ×N/轮、素材与观察统筹 ×1/轮，
 步骤数多于聚焦输出）。确认/启动前做资格校验：目标须落在起点内（409），正式角色经
 World 端口核验存在且属于本作品（404），候选无可知包且无身份假设 → 409 能力不足拒绝展开
 （聚焦紧凑路径保留）。action 沿用 `story.exploration.scene_line.generate`，模式由请求字段
-区分；携带排演意图的任务在现有 worker 处失败关闭，逐轮执行由后续切片接入。
+区分。worker 逐轮执行：每目标一次表演卡生成（候选渲染各自 KnowledgeEntry，正式角色给
+确认编译产物 + “场景本地假设”前缀 stimuli 并逐卡过 hidden guard），每轮末一次作者侧
+统筹调用（materials/observations/state_notes，author_goal 只进作者统筹包），观察回执
+进入对应目标下一轮角色包；每轮后提交式检查点（pending 记 round_number/completed_rounds），
+暂停后续跑不重跑已完成轮；结果整体落一行 full_rehearsal 信封（input_json 记
+mode/targets/rounds），detail/revise/lock 一律 409，save-edit 的 kind 并集不含
+full_rehearsal。
 `exploration_service.py` 负责根/分支创建（provisional 强制无 scene_id，scene 强制有）与历史/比较读；
 `exploration_budget.py` 提供初始单请求预算与追加授权预览；`exploration_recommend.py` 是纯确定性
 推荐函数；`exploration_operations.py` 导出六项操作目录（op_version "1"：preview/compare/history R0，
@@ -534,8 +540,10 @@ start/detail/revise R2 confirm），runtime 版本随目录扩为 "18"。
 
 `exploration_tasks.py` 的 `story_exploration_progression_task`（B1 沙盘、B2 事件诊断/补桥，
 结果写 `story_world_progression_steps` 零参与者紧凑步骤）与 `story_exploration_scene_task`
-（B3 场景一句对白，结果写 `story_scene_director_rounds`）注册根能力 `story.exploration`，
-`never_retry`、单次模型请求、provider 前后检查点；worker 重算 preview hash、校验信封身份与冻结起点，
+（B3 场景一句对白、多目标、空间诊断与 M3-B 完整排演，结果写
+`story_scene_director_rounds`）注册根能力 `story.exploration`，`never_retry`、
+聚焦路径单次/多目标逐人请求而完整排演按 (目标数+1)×轮次 计量、provider 前后检查点；
+worker 重算 preview hash（含排演身份）、校验信封身份与冻结起点/排演意图，
 canonical 目标生成后做 hidden guard 消费方校验。detail/revise 复用同一对 worker（meta.mode）。
 
 结果行带 `output_kind` 包装：旧导演/推进/参考/转入路径遇到探索结果或 provisional 根失败关闭

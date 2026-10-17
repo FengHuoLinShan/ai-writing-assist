@@ -1,7 +1,8 @@
 """Synthetic exploration responses shared by SQLite worker and API tests.
 
-按 system prompt 识别动作（sandbox/diagnose/bridge/scene_line），返回
-P0 §4 合法 payload 夹具；支持强制失败与隐藏短语注入（canonical guard）。
+按 system prompt 识别动作（sandbox/diagnose/bridge/scene_line/完整排演表演卡
+与统筹），返回 P0 §4 合法 payload 夹具；支持强制失败与隐藏短语注入
+（canonical guard）。
 """
 
 from __future__ import annotations
@@ -173,6 +174,37 @@ def scene_diagnostic_payload(*, has_material: bool) -> dict:
     return payload
 
 
+def full_rehearsal_card(target_ref: str, round_number: int = 1) -> dict:
+    """完整排演（M3-B）单目标表演卡：合法 FullRehearsalPerformance 夹具。"""
+    return {
+        "target_ref": target_ref,
+        "line_or_beat": "（把伞往对方那边偏了偏）你要是累了就先回去吧。",
+        "rationale": f"第{round_number}轮：目标只依据自己可知的信息行动。",
+        "basis_refs": ["observed:对方脚步发沉"],
+    }
+
+
+def full_rehearsal_orchestration(targets: list[str], round_number: int = 1) -> dict:
+    """完整排演（M3-B）一轮统筹：素材、逐目标观察回执与少量状态要点。"""
+    return {
+        "materials": [
+            {
+                "kind": "environment",
+                "text": "雨夜站台灯光昏黄，风从隧道口灌入。",
+                "perceiver_refs": list(targets),
+            }
+        ],
+        "observations": [
+            {
+                "target_ref": target_ref,
+                "observed": "对方把伞柄又握紧了一些。",
+            }
+            for target_ref in targets
+        ],
+        "state_notes": [f"第{round_number}轮：各目标维持原有立场。"],
+    }
+
+
 class ExplorationOfflineProvider:
     """按 system prompt 判别动作并返回合法夹具响应的离线 provider。"""
 
@@ -205,6 +237,18 @@ class ExplorationOfflineProvider:
                 payload = sandbox_payload(
                     (user.get("author_packet") or {}).get("question")
                     or "合成沙盘问题？"
+                )
+            elif "排演指导" in system:
+                # 完整排演表演卡（M3-B）：目标与轮次取自输入包。
+                payload = full_rehearsal_card(
+                    str((user.get("target") or {}).get("ref") or "c_b"),
+                    int(user.get("round") or 1),
+                )
+            elif "排演统筹器" in system:
+                # 完整排演统筹（M3-B）：观察回执逐目标生成，感知者限于目标集。
+                targets = [str(item) for item in user.get("targets") or []]
+                payload = full_rehearsal_orchestration(
+                    targets, int(user.get("round") or 1)
                 )
             elif "信息差分析器" in system:
                 payload = event_payload("info_gap")
