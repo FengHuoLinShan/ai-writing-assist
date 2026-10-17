@@ -13,7 +13,10 @@ from modules.story.exploration_budget import (
     exploration_preview_identity,
     preview_exploration_budget,
 )
-from modules.story.exploration_schemas import ExplorationBudgetPreview
+from modules.story.exploration_schemas import (
+    ExplorationBudgetPreview,
+    FullRehearsalRequest,
+)
 
 
 def _start(question: str = "这个城镇每天只有一小时重力减半，面包师的一天会怎样？"):
@@ -226,3 +229,125 @@ def test_diagnostic_question_changes_budget_identity():
         diagnostic_question="他能一步从大门跨到桌边吗？",
     )
     assert identity["diagnostic_question_chars"] == len("他能一步从大门跨到桌边吗？")
+
+
+# ---------------------------------------------------------------------------
+# 临时起点完整排演（M3-B）：预算 = (目标数 + 1) × 轮次，与聚焦输出分开计量
+# ---------------------------------------------------------------------------
+
+
+def _rehearsal(targets=("c_franks", "c_evasive"), rounds=2, author_goal="看分歧"):
+    return FullRehearsalRequest(
+        targets=list(targets), rounds=rounds, author_goal=author_goal
+    )
+
+
+def test_full_rehearsal_budget_is_targets_plus_one_per_round():
+    novel_id, start = str(uuid.uuid4()), _start()
+    two_by_two = preview_exploration_budget(
+        novel_id=novel_id,
+        scale="scene_line",
+        start=start,
+        full_rehearsal=_rehearsal(targets=("c_a", "c_b"), rounds=2),
+    )
+    assert two_by_two.requests_min == two_by_two.requests_max == (2 + 1) * 2
+    single = preview_exploration_budget(
+        novel_id=novel_id,
+        scale="scene_line",
+        start=start,
+        full_rehearsal=_rehearsal(targets=("c_a",), rounds=1),
+    )
+    assert single.requests_min == single.requests_max == 2
+    three_rounds = preview_exploration_budget(
+        novel_id=novel_id,
+        scale="scene_line",
+        start=start,
+        full_rehearsal=_rehearsal(targets=("c_a", "c_b", "c_c"), rounds=3),
+    )
+    assert three_rounds.requests_min == three_rounds.requests_max == (3 + 1) * 3
+    # 有界：min == max；token 区间随请求次数放大
+    assert two_by_two.tokens_min <= two_by_two.tokens_max
+    assert two_by_two.tokens_max > single.tokens_max
+    assert single.follow_up_max_requests == 1
+
+
+def test_full_rehearsal_identity_binds_targets_rounds_and_goal():
+    novel_id, start = str(uuid.uuid4()), _start()
+    first = preview_exploration_budget(
+        novel_id=novel_id,
+        scale="scene_line",
+        start=start,
+        full_rehearsal=_rehearsal(),
+    )
+    # 同输入确定性
+    assert (
+        first.preview_hash
+        == preview_exploration_budget(
+            novel_id=novel_id,
+            scale="scene_line",
+            start=start,
+            full_rehearsal=_rehearsal(),
+        ).preview_hash
+    )
+    # targets / rounds / author_goal 任一变化都改变身份
+    assert (
+        first.preview_hash
+        != preview_exploration_budget(
+            novel_id=novel_id,
+            scale="scene_line",
+            start=start,
+            full_rehearsal=_rehearsal(targets=("c_b", "c_a")),
+        ).preview_hash
+    )
+    assert (
+        first.preview_hash
+        != preview_exploration_budget(
+            novel_id=novel_id,
+            scale="scene_line",
+            start=start,
+            full_rehearsal=_rehearsal(rounds=3),
+        ).preview_hash
+    )
+    assert (
+        first.preview_hash
+        != preview_exploration_budget(
+            novel_id=novel_id,
+            scale="scene_line",
+            start=start,
+            full_rehearsal=_rehearsal(author_goal="另一个私密目的"),
+        ).preview_hash
+    )
+    identity = exploration_preview_identity(
+        novel_id=novel_id,
+        scale="scene_line",
+        start=start,
+        full_rehearsal=_rehearsal(),
+    )
+    assert identity["full_rehearsal"] == {
+        "targets": ["c_franks", "c_evasive"],
+        "rounds": 2,
+        "author_goal_chars": len("看分歧"),
+    }
+
+
+def test_full_rehearsal_hash_differs_from_plain_and_multi_targets():
+    novel_id, start = str(uuid.uuid4()), _start()
+    hashes = {
+        preview_exploration_budget(
+            novel_id=novel_id, scale="scene_line", start=start
+        ).preview_hash,
+        preview_exploration_budget(
+            novel_id=novel_id,
+            scale="scene_line",
+            start=start,
+            multi_targets=["c_franks", "c_evasive"],
+        ).preview_hash,
+        preview_exploration_budget(
+            novel_id=novel_id,
+            scale="scene_line",
+            start=start,
+            full_rehearsal=_rehearsal(targets=("c_franks", "c_evasive"), rounds=1),
+        ).preview_hash,
+    }
+    # 三种模式（聚焦单目标 / 多目标对白 / 完整排演）身份互不相同
+    assert len(hashes) == 3

@@ -1183,3 +1183,285 @@ def test_scene_follow_up_blocked_for_variants_and_diagnostic_results():
             output_kind=SCENE_LINE_OUTPUT_KIND, schema_version=1, payload=single
         )
     )
+
+
+# ---------------------------------------------------------------------------
+# 临时起点完整排演（M3-B）：预览披露、资格拒绝与启动冻结
+# ---------------------------------------------------------------------------
+
+
+def _rehearsal_start(**overrides):
+    """带可知包的临时起点：两个候选各有一条 knows，另含一条正式角色引用。"""
+    payload = {
+        "kind": "provisional",
+        "question": "雨夜站台，对方刚提完离职，各自会说什么？",
+        "assumptions": [{"kind": "state", "text": "雨夜站台，两人共撑一伞"}],
+        "candidates": [
+            {"ref_id": "c_franks", "label": "坦率者", "role": "character"},
+            {"ref_id": "c_evasive", "label": "回避者", "role": "character"},
+        ],
+        "knowledge": [
+            {"subject_ref": "c_franks", "knows": ["对方今天提了离职"]},
+            {"subject_ref": "c_evasive", "knows": ["站台风很大"]},
+        ],
+        "time_basis": "assumed_now",
+    }
+    payload.update(overrides)
+    return payload
+
+
+def _full_rehearsal_start_body(
+    test_project_id: str,
+    start,
+    *,
+    operation_id,
+    targets=("c_franks", "c_evasive"),
+    rounds=2,
+    author_goal="看两人对离职话题的不同反应",
+    hash_override=None,
+):
+    from modules.story.exploration_schemas import FullRehearsalRequest
+
+    rehearsal = FullRehearsalRequest(
+        targets=list(targets), rounds=rounds, author_goal=author_goal
+    )
+    budget = preview_exploration_budget(
+        novel_id=test_project_id,
+        scale="scene_line",
+        start=start,
+        focus="",
+        full_rehearsal=rehearsal,
+    )
+    return {
+        "novel_id": test_project_id,
+        "scale": "scene_line",
+        "focus": "",
+        "action": "story.exploration.scene_line.generate",
+        "start": start.model_dump(mode="json"),
+        "context_confirmation_id": str(uuid.uuid4()),
+        "budget_preview_hash": hash_override or budget.preview_hash,
+        "operation_id": str(operation_id),
+        "full_rehearsal": rehearsal.model_dump(mode="json"),
+    }
+
+
+@pytest.mark.asyncio
+async def test_preview_full_rehearsal_discloses_work_steps_and_budget(
+    async_client, test_project_id, monkeypatch
+):
+    """完整排演预览：披露与聚焦不同的工作步骤，预算按 (N+1)×轮次 分开计量。"""
+    _enable_exploration(monkeypatch)
+    response = await async_client.post(
+        "/api/story/exploration/preview",
+        json={
+            "novel_id": test_project_id,
+            "preview_full_rehearsal": {"targets": ["c_franks", "c_evasive"], "rounds": 2},
+        },
+    )
+    assert response.status_code == 200, response.json()
+    body = response.json()
+    assert body["recommended_scale"] == "scene_line"
+    assert body["budget"]["requests_min"] == body["budget"]["requests_max"] == 6
+    work_steps = "\n".join(body["work_steps"])
+    assert "逐目标表演卡 ×2/轮" in work_steps
+    assert "素材与观察统筹 ×1/轮" in work_steps
+    assert "多于聚焦输出" in work_steps
+    assert body["full_rehearsal"] == {
+        "targets": ["c_franks", "c_evasive"],
+        "rounds": 2,
+        "author_goal": "",
+    }
+    assert "6 次" in body["possible_charge"]
+    # 聚焦预览不带 work_steps
+    plain = await async_client.post(
+        "/api/story/exploration/preview", json={"novel_id": test_project_id}
+    )
+    assert plain.status_code == 200
+    assert "work_steps" not in plain.json()
+
+
+@pytest.mark.asyncio
+async def test_preview_full_rehearsal_rejects_conflicting_modes(
+    async_client, test_project_id, monkeypatch
+):
+    _enable_exploration(monkeypatch)
+    with_multi = await async_client.post(
+        "/api/story/exploration/preview",
+        json={
+            "novel_id": test_project_id,
+            "multi_targets": ["c_a", "c_b"],
+            "preview_full_rehearsal": {"targets": ["c_a"], "rounds": 1},
+        },
+    )
+    assert with_multi.status_code == 422
+    cross_scale = await async_client.post(
+        "/api/story/exploration/preview",
+        json={
+            "novel_id": test_project_id,
+            "scale": "sandbox",
+            "preview_full_rehearsal": {"targets": ["c_a"], "rounds": 1},
+        },
+    )
+    assert cross_scale.status_code == 422
+
+
+@pytest.mark.asyncio
+async def test_start_full_rehearsal_rejects_scene_anchor_start(
+    async_client, test_project_id, monkeypatch
+):
+    """完整排演仅临时起点：场景锚点起点显式展开 → 409。"""
+    _enable_exploration(monkeypatch)
+    from modules.evidence.contracts import SceneAnchorStart
+
+    start = SceneAnchorStart(kind="scene_anchor", scene_id=str(uuid.uuid4()))
+    body = _full_rehearsal_start_body(
+        test_project_id, start, operation_id=uuid.uuid4()
+    )
+    response = await async_client.post("/api/story/exploration/start", json=body)
+    assert response.status_code == 409
+    assert "临时假设起点" in response.json()["detail"]
+
+
+@pytest.mark.asyncio
+async def test_start_full_rehearsal_canonical_target_missing_is_404(
+    async_client, test_project_id, monkeypatch
+):
+    """目标正式角色不存在/非本作品：确认与启动前 404，不产生任何模型请求。"""
+    _enable_exploration(monkeypatch)
+    # 目标已声明进起点 canonical_refs（通过归属校验），但库里无此角色 → 404
+    ghost = str(uuid.uuid4())
+    start = _rehearsal_start(canonical_refs=[ghost])
+    body = _full_rehearsal_start_body(
+        test_project_id,
+        ProvisionalStart.model_validate(start),
+        operation_id=uuid.uuid4(),
+        targets=(ghost,),
+    )
+    response = await async_client.post("/api/story/exploration/start", json=body)
+    assert response.status_code == 404
+    assert "不存在" in response.json()["detail"]
+
+
+@pytest.mark.asyncio
+async def test_start_full_rehearsal_without_knowledge_or_assumption_is_409(
+    async_client, test_project_id, monkeypatch
+):
+    """候选没有可知包也没有身份假设：能力不足 409，紧凑聚焦路径不受影响。"""
+    _enable_exploration(monkeypatch)
+    start = _rehearsal_start(
+        assumptions=[{"kind": "world_rule", "text": "雨夜站台"}],
+        knowledge=[],
+    )
+    body = _full_rehearsal_start_body(
+        test_project_id,
+        ProvisionalStart.model_validate(start),
+        operation_id=uuid.uuid4(),
+    )
+    response = await async_client.post("/api/story/exploration/start", json=body)
+    assert response.status_code == 409
+    assert "能力不足" in response.json()["detail"]
+
+    # 有身份假设即可展开（无需可知包）：模型校验通过，资格校验不再拒绝
+    with_identity = _rehearsal_start(
+        knowledge=[],
+        assumptions=[{"kind": "identity", "text": "坦率者习惯当面把话说开"}],
+    )
+    _stub_confirmation(
+        monkeypatch,
+        ProvisionalStart.model_validate(with_identity),
+        scale="scene_line",
+    )
+    ok_body = _full_rehearsal_start_body(
+        test_project_id,
+        ProvisionalStart.model_validate(with_identity),
+        operation_id=uuid.uuid4(),
+        rounds=1,
+    )
+    ok = await async_client.post("/api/story/exploration/start", json=ok_body)
+    assert ok.status_code == 202, ok.json()
+
+
+@pytest.mark.asyncio
+async def test_start_full_rehearsal_membership_violation_is_409(
+    async_client, test_project_id, monkeypatch
+):
+    _enable_exploration(monkeypatch)
+    start = ProvisionalStart.model_validate(_rehearsal_start())
+    body = _full_rehearsal_start_body(
+        test_project_id,
+        start,
+        operation_id=uuid.uuid4(),
+        targets=("c_franks", "c_stranger"),
+    )
+    response = await async_client.post("/api/story/exploration/start", json=body)
+    assert response.status_code == 409
+    assert "不在本次探索" in response.json()["detail"]
+
+
+@pytest.mark.asyncio
+async def test_start_full_rehearsal_enqueues_with_frozen_rehearsal_and_budget(
+    async_client, db_session, test_project_id, monkeypatch
+):
+    """合法排演启动：根/任务冻结排演意图，预算信封按 (N+1)×轮次 授权。"""
+    _enable_exploration(monkeypatch)
+    from infrastructure.tasks.models import AsyncTask
+    from modules.story.models import StorySceneDirectorRoot
+
+    start = ProvisionalStart.model_validate(_rehearsal_start())
+    _stub_confirmation(monkeypatch, start, scale="scene_line")
+    body = _full_rehearsal_start_body(
+        test_project_id, start, operation_id=uuid.uuid4(), rounds=2
+    )
+
+    response = await async_client.post("/api/story/exploration/start", json=body)
+    assert response.status_code == 202, response.json()
+    payload = response.json()
+    root_row = await db_session.get(
+        StorySceneDirectorRoot, uuid.UUID(payload["root_id"])
+    )
+    assert root_row is not None
+    # 排演意图冻结进根 request_json，worker 执行切片读取同一载荷
+    assert root_row.request_json["full_rehearsal"] == {
+        "targets": ["c_franks", "c_evasive"],
+        "rounds": 2,
+        "author_goal": "看两人对离职话题的不同反应",
+    }
+    envelope = root_row.run_envelope_json
+    assert envelope["request_limit"] == (2 + 1) * 2
+    task = await db_session.get(AsyncTask, uuid.UUID(payload["task_id"]))
+    assert task.meta["request"]["full_rehearsal"]["rounds"] == 2
+    assert task.meta["exploration_authorized_requests"] == 6
+    assert task.meta["action"] == "story.exploration.scene_line.generate"
+
+    # 幂等：同 operation 重放返回同一任务
+    again = await async_client.post("/api/story/exploration/start", json=body)
+    assert again.status_code == 202
+    assert again.json()["task_id"] == payload["task_id"]
+
+
+@pytest.mark.asyncio
+async def test_start_full_rehearsal_rejects_target_ref_and_stale_hash(
+    async_client, test_project_id, monkeypatch
+):
+    _enable_exploration(monkeypatch)
+    start = ProvisionalStart.model_validate(_rehearsal_start())
+    _stub_confirmation(monkeypatch, start, scale="scene_line")
+    body = _full_rehearsal_start_body(
+        test_project_id, start, operation_id=uuid.uuid4()
+    )
+    body["target_ref"] = "c_franks"
+    conflict = await async_client.post("/api/story/exploration/start", json=body)
+    assert conflict.status_code == 400
+    assert "互斥" in conflict.json()["detail"]
+
+    stale = _full_rehearsal_start_body(
+        test_project_id,
+        start,
+        operation_id=uuid.uuid4(),
+        hash_override="0" * 64,
+    )
+    stale_response = await async_client.post(
+        "/api/story/exploration/start", json=stale
+    )
+    assert stale_response.status_code == 409
+    assert "重新预览预算" in stale_response.json()["detail"]

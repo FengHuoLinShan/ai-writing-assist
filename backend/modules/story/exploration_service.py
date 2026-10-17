@@ -39,6 +39,7 @@ from modules.story.exploration_schemas import (
     AffectedItem,
     AuthorEditPayloadV1,
     ExplorationOutputEnvelope,
+    FullRehearsalRequest,
     LockedItem,
     LockSetPayloadV1,
     apply_changed_assumptions,
@@ -142,6 +143,7 @@ async def create_exploration_root(
     counterfactual_of: str | None = None,
     changed_assumptions: list[Assumption] | None = None,
     event_mode_hint: str | None = None,
+    full_rehearsal: FullRehearsalRequest | None = None,
 ) -> tuple[Any, Any]:
     """为一次探索创建根与初始分支；返回 ``(root, branch)``。
 
@@ -151,6 +153,8 @@ async def create_exploration_root(
     一并冻结进根 request_json，worker 读取同一承载记录到结果 input_json。
     事件模式提示（M2）同样冻结进根 request_json：worker 据此注入信息差/
     导向 prompt 变体，仅事件尺度接受。
+    完整排演意图（M3-B）也冻结进根 request_json（仅临时起点 + 场景一句对白
+    尺度），worker 下一执行切片据此展开逐轮表演卡/素材/观察统筹。
     """
     chain = EXPLORATION_CHAIN_BY_SCALE.get(scale)
     if chain is None:
@@ -160,6 +164,11 @@ async def create_exploration_root(
             raise DomainError("event_mode_hint 仅支持事件尺度")
         if event_mode_hint not in EVENT_MODE_HINTS:
             raise DomainError("未知的事件模式提示")
+    if full_rehearsal is not None:
+        if scale != "scene_line":
+            raise DomainError("full_rehearsal 仅支持场景一句对白尺度")
+        if not isinstance(start, ProvisionalStart):
+            raise DomainError("full_rehearsal 仅支持临时假设起点")
     await _require_project(db, novel_id, owner_id, for_update=True)
 
     if isinstance(start, ProvisionalStart):
@@ -189,6 +198,8 @@ async def create_exploration_root(
         ]
     if event_mode_hint is not None:
         request_json["event_mode_hint"] = str(event_mode_hint)
+    if full_rehearsal is not None:
+        request_json["full_rehearsal"] = full_rehearsal.model_dump(mode="json")
     root_id, branch_id = uuid.uuid4(), uuid.uuid4()
     branch_request = {
         "mode": "start",

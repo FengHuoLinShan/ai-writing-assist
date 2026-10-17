@@ -18,8 +18,10 @@ from fastapi import status as http_status
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 from sqlalchemy import select
 
+from core.container import get
 from core.dependencies import DbSession
 from core.errors import ConflictError, NotFoundError
+from core.service_keys import WORLD_GET_CHARACTER_ID_BY_WORLD_ENTITY
 from infrastructure.llm.schemas import (
     AI_RUN_ENVELOPE_KEY,
     AIRunAuthorizationReason,
@@ -66,6 +68,8 @@ from modules.story.exploration_schemas import (
     ExplorationConfirmationRequest,
     ExplorationScale,
     ExplorationStartTaskRequest,
+    FullRehearsalPreviewIntent,
+    FullRehearsalRequest,
     SandboxOutputV1,
     SceneLineOutputV1,
     SceneSpatialDiagnosticRequest,
@@ -135,6 +139,8 @@ class ExplorationPreviewApiRequest(_ApiModel):
     时由服务端从基线结果克隆起点，响应带 ``derived_start`` 与含基线身份的预算。
     事件模式提示（M2）：``event_mode_hint`` 仅在显式指定事件尺度时接受。
     场景多目标/空间诊断（M2）：仅场景尺度接受，多目标预算 = 目标数。
+    完整排演意图（M3-B）：``preview_full_rehearsal`` 仅场景尺度接受，响应带
+    ``work_steps`` 与 (目标数 + 1) × 轮次 的分开计量预算。
     """
 
     novel_id: str
@@ -154,6 +160,7 @@ class ExplorationPreviewApiRequest(_ApiModel):
         max_length=MULTI_TARGETS_MAX,
     )
     diagnostic: SceneSpatialDiagnosticRequest | None = None
+    preview_full_rehearsal: FullRehearsalPreviewIntent | None = None
 
     @model_validator(mode="after")
     def validate_counterfactual(self):
@@ -165,7 +172,16 @@ class ExplorationPreviewApiRequest(_ApiModel):
         )
         if self.event_mode_hint is not None and self.scale != "event":
             raise ValueError("event_mode_hint 仅支持事件尺度，请显式指定 scale=event")
-        if self.multi_targets is not None or self.diagnostic is not None:
+        if self.preview_full_rehearsal is not None:
+            if self.scale not in (None, "scene_line"):
+                raise ValueError("preview_full_rehearsal 仅支持场景一句对白尺度")
+            if self.multi_targets is not None or self.diagnostic is not None:
+                raise ValueError(
+                    "preview_full_rehearsal 与 multi_targets/diagnostic 互斥"
+                )
+            if self.counterfactual_of_result_id is not None:
+                raise ValueError("反事实对照不支持 preview_full_rehearsal")
+        elif self.multi_targets is not None or self.diagnostic is not None:
             if self.counterfactual_of_result_id is not None:
                 raise ValueError("反事实对照不支持 multi_targets/diagnostic")
             if self.scale not in (None, "scene_line"):
@@ -393,6 +409,23 @@ def _exploration_meta(
 # ---------------------------------------------------------------------------
 
 
+def full_rehearsal_work_steps(*, targets_count: int, rounds: int) -> list[str]:
+    """完整排演的工作步骤披露（M3-B）：首次执行前列出与聚焦任务不同的步骤。
+
+    步骤计量与 ``preview_exploration_budget`` 的 (N+1)×轮次 一致：每目标
+    每轮一张表演卡（独立知识/误信包），每轮一次素材与观察统筹。
+    """
+
+    return [
+        f"逐目标表演卡 ×{targets_count}/轮 ×{rounds} 轮（每目标独立知识/误信包）",
+        f"素材与观察统筹 ×1/轮 ×{rounds} 轮（素材感知者与观察回执）",
+        (
+            f"共 {(targets_count + 1) * rounds} 次模型请求；"
+            "完整排演步骤数多于聚焦输出（聚焦单次任务仅 1 次请求）"
+        ),
+    ]
+
+
 async def build_exploration_preview(db, data: ExplorationPreviewApiRequest) -> dict:
     require_story_exploration_enabled()
     await require_active_project(db, data.novel_id)
@@ -411,9 +444,16 @@ async def build_exploration_preview(db, data: ExplorationPreviewApiRequest) -> d
                 changed_assumptions=list(data.changed_assumptions or []),
             )
         )
+    preview_rehearsal: FullRehearsalRequest | None = None
+    if data.preview_full_rehearsal is not None:
+        preview_rehearsal = FullRehearsalRequest(
+            targets=list(data.preview_full_rehearsal.targets),
+            rounds=data.preview_full_rehearsal.rounds,
+        )
     scale = data.scale or (
         "scene_line"
-        if (data.multi_targets or data.diagnostic) and derived_start is None
+        if (data.multi_targets or data.diagnostic or preview_rehearsal)
+        and derived_start is None
         else "sandbox" if derived_start is not None else None
     )
     reason = ""
@@ -456,6 +496,7 @@ async def build_exploration_preview(db, data: ExplorationPreviewApiRequest) -> d
             event_mode_hint=data.event_mode_hint,
             multi_targets=multi_targets,
             diagnostic_question=diagnostic_question,
+            full_rehearsal=preview_rehearsal,
         )
     else:
         budget = _advisory_budget(
@@ -464,6 +505,7 @@ async def build_exploration_preview(db, data: ExplorationPreviewApiRequest) -> d
             focus=data.focus,
             event_mode_hint=data.event_mode_hint,
             multi_targets=multi_targets,
+            full_rehearsal=preview_rehearsal,
         )
     response = {
         "recommended_scale": scale,
@@ -489,6 +531,17 @@ async def build_exploration_preview(db, data: ExplorationPreviewApiRequest) -> d
             "focus_hint": data.focus,
         },
     }
+    if preview_rehearsal is not None:
+        # 完整排演（M3-B）：首次执行前披露与聚焦任务不同的工作步骤与分开计量预算。
+        response["work_steps"] = full_rehearsal_work_steps(
+            targets_count=len(preview_rehearsal.targets),
+            rounds=preview_rehearsal.rounds,
+        )
+        response["full_rehearsal"] = preview_rehearsal.model_dump(mode="json")
+        response["possible_charge"] = (
+            f"完整排演预计 {budget.requests_max} 次模型请求"
+            "（逐目标表演卡 + 每轮素材/观察统筹）；后续追加每次再授权。"
+        )
     if derived_start is not None:
         response["derived_start"] = derived_start.model_dump(mode="json")
         response["counterfactual_of_result_id"] = counterfactual_of
@@ -502,15 +555,20 @@ def _advisory_budget(
     focus: str,
     event_mode_hint: str | None = None,
     multi_targets: list[str] | None = None,
+    full_rehearsal: FullRehearsalRequest | None = None,
 ) -> ExplorationBudgetPreview:
     """未提供起点时的名义预算：请求次数为硬约定，Token 按焦点长度粗估。
 
     场景多目标（M2）：预算 = 目标数（每人一次独立知识包请求）。
+    完整排演（M3-B）：预算 = (目标数 + 1) × 轮次，与聚焦输出分开计量。
     """
     from infrastructure.llm.collaboration import content_hash
 
     chars = len(focus)
-    request_count = len(multi_targets) if multi_targets else 1
+    if full_rehearsal is not None:
+        request_count = (len(full_rehearsal.targets) + 1) * full_rehearsal.rounds
+    else:
+        request_count = len(multi_targets) if multi_targets else 1
     tokens_min = max(1, chars // 4) + 100 * request_count
     tokens_max = max(tokens_min, chars // 2 + 400 * request_count)
     identity: dict = {
@@ -523,6 +581,11 @@ def _advisory_budget(
         identity["event_mode_hint"] = str(event_mode_hint)
     if multi_targets:
         identity["multi_targets"] = [str(item) for item in multi_targets]
+    if full_rehearsal is not None:
+        identity["full_rehearsal"] = {
+            "targets": [str(item) for item in full_rehearsal.targets],
+            "rounds": int(full_rehearsal.rounds),
+        }
     return ExplorationBudgetPreview(
         requests_min=request_count,
         requests_max=request_count,
@@ -576,12 +639,60 @@ async def _effective_request_start(
     return cloned
 
 
+async def _require_full_rehearsal_eligibility(
+    db, *, novel_id: str, start: ExplorationStart, rehearsal: FullRehearsalRequest
+) -> None:
+    """完整排演（M3-B）资格校验：确认/启动前失败关闭，保留紧凑结果路径。
+
+    - 仅临时假设起点：场景锚点起点没有候选清单与角色包承载，409 拒绝；
+    - 目标归属：候选 ref_id 或正式角色 entity_id 必须落在本次起点内（409）；
+    - 正式角色存在性：经已注册 World 端口核验存在且属于本作品（404）；
+    - 候选能力不足：目标没有可知包（KnowledgeEntry）也没有任何身份假设时
+      无法支撑表演卡，409 拒绝展开，作者可继续使用聚焦输出。
+    """
+
+    if start.kind != "provisional":
+        raise ConflictError(
+            "完整排演仅支持临时假设起点；场景锚点请继续使用聚焦输出"
+        )
+    try:
+        validate_scene_targets(start, rehearsal.targets)
+    except ValueError as error:
+        raise ConflictError(str(error)) from error
+    for target in rehearsal.targets:
+        if target.startswith("c_"):
+            has_knowledge = any(
+                entry.subject_ref == target for entry in start.knowledge
+            )
+            has_identity_assumption = any(
+                item.kind == "identity" for item in start.assumptions
+            )
+            if not has_knowledge and not has_identity_assumption:
+                raise ConflictError(
+                    f"目标 {target} 没有可知包也没有身份假设，能力不足，"
+                    "无法展开完整排演；请补充知识包或身份假设，"
+                    "或继续使用聚焦输出"
+                )
+            continue
+        resolved = await get(WORLD_GET_CHARACTER_ID_BY_WORLD_ENTITY)(
+            db, novel_id, target
+        )
+        if not resolved:
+            raise NotFoundError(
+                f"完整排演引用的正式角色不存在、非正史或不属于当前作品：{target}"
+            )
+
+
 async def preview_confirmation(
     db, data: ExplorationConfirmationPreviewRequest
 ) -> dict:
     require_story_exploration_enabled()
     await require_active_project(db, data.novel_id)
     start = await _effective_request_start(db, data)
+    if data.full_rehearsal is not None:
+        await _require_full_rehearsal_eligibility(
+            db, novel_id=data.novel_id, start=start, rehearsal=data.full_rehearsal
+        )
     material = await preview_exploration_context(db, _context_request(data, start))
     return {
         "context_fingerprint": material["context_fingerprint"],
@@ -598,6 +709,10 @@ async def confirm_exploration(db, data: ExplorationConfirmationRequest) -> dict:
     from modules.evidence.facade import confirm_exploration_context
 
     start = await _effective_request_start(db, data)
+    if data.full_rehearsal is not None:
+        await _require_full_rehearsal_eligibility(
+            db, novel_id=data.novel_id, start=start, rehearsal=data.full_rehearsal
+        )
     record = await confirm_exploration_context(db, _context_request(data, start))
     return {
         "confirmation_id": str(record.id),
@@ -616,10 +731,17 @@ async def confirm_exploration(db, data: ExplorationConfirmationRequest) -> dict:
 
 
 def _resolve_scene_target(data: ExplorationStartApiRequest) -> str | None:
-    """B3 目标角色解析：多目标/诊断模式不产单目标；显式指定优先，唯一候选自动锁定。"""
+    """B3 目标角色解析：多目标/诊断/排演不产单目标；显式指定优先，唯一候选自动锁定。"""
     if data.scale != "scene_line":
         if data.target_ref:
             raise ValueError("只有场景一句对白需要指定目标角色")
+        return None
+    if data.full_rehearsal is not None:
+        # 完整排演（M3-B）：目标由 full_rehearsal.targets 承载，无单目标。
+        if data.target_ref:
+            raise ValueError(
+                "full_rehearsal 与 target_ref 互斥；目标请用 full_rehearsal.targets"
+            )
         return None
     if data.diagnostic is not None:
         if data.target_ref:
@@ -667,6 +789,15 @@ async def start_exploration_task(
     task_type = TASK_TYPE_BY_CHAIN[chain]
     # 反事实对照：起点由基线结果克隆（服务端权威）；普通请求原样使用 start。
     effective_start = await _effective_request_start(db, data)
+    if data.full_rehearsal is not None:
+        # 完整排演（M3-B）：资格校验在入队前失败关闭（409/404），不影响
+        # 聚焦输出的紧凑结果路径；模式区分沿用 scene_line action（见下）。
+        await _require_full_rehearsal_eligibility(
+            db,
+            novel_id=data.novel_id,
+            start=effective_start,
+            rehearsal=data.full_rehearsal,
+        )
     counterfactual_of = data.counterfactual_of_result_id
     effective_start_dump = effective_start.model_dump(mode="json")
     request_payload = {
@@ -726,6 +857,7 @@ async def start_exploration_task(
         diagnostic_question=(
             data.diagnostic.question if data.diagnostic is not None else None
         ),
+        full_rehearsal=data.full_rehearsal,
     )
     if budget.preview_hash != data.budget_preview_hash:
         raise ConflictError("起点或焦点已变化，请重新预览预算")
@@ -757,6 +889,7 @@ async def start_exploration_task(
             list(data.changed_assumptions) if counterfactual_of else None
         ),
         event_mode_hint=data.event_mode_hint,
+        full_rehearsal=data.full_rehearsal,
     )
     started_at = datetime.now(UTC)
     envelope = new_ai_run_envelope(
@@ -786,6 +919,15 @@ async def start_exploration_task(
             "start": effective_start_dump,
             "focus": data.focus,
             "instruction": "",
+            # 完整排演（M3-B）：action 沿用 story.exploration.scene_line.generate
+            # （Evidence 能力按 action 注册，本切片不新增跨模块 action）；
+            # 模式区分靠请求字段 full_rehearsal，随根 request_json 与任务
+            # request 冻结，worker 执行切片据此分流并复核 (N+1)×轮次 预算。
+            **(
+                {"full_rehearsal": data.full_rehearsal.model_dump(mode="json")}
+                if data.full_rehearsal is not None
+                else {}
+            ),
             **({"target_ref": target_ref} if target_ref else {}),
         },
     )

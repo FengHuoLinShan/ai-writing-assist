@@ -21,6 +21,7 @@ from modules.story.exploration_schemas import (
     MULTI_TARGETS_MIN,
     ExplorationCompareRequest,
     ExplorationScale,
+    FullRehearsalRequest,
     SceneSpatialDiagnosticRequest,
 )
 
@@ -99,6 +100,8 @@ class ExplorationStartOperationRequest(BaseModel):
     ``event_mode_hint``（M2）仅事件尺度接受：info_gap → 信息差诊断，
     goal → 导向路径；与 action 的配对校验由 apply 侧契约模型完成。
     ``multi_targets`` / ``diagnostic``（M2）仅场景尺度接受，二者互斥。
+    ``full_rehearsal``（M3-B）仅临时起点 + 场景尺度接受，与前两者互斥；
+    资格校验（404/409）由 apply 侧 start 执行路径完成。
     """
 
     model_config = ConfigDict(extra="forbid")
@@ -120,6 +123,7 @@ class ExplorationStartOperationRequest(BaseModel):
         max_length=MULTI_TARGETS_MAX,
     )
     diagnostic: SceneSpatialDiagnosticRequest | None = None
+    full_rehearsal: FullRehearsalRequest | None = None
 
 
 class ExplorationDetailOperationRequest(BaseModel):
@@ -266,6 +270,7 @@ async def _prepare_start(db, novel_id, args, *, context=None):
         diagnostic_question=(
             args.diagnostic.question if args.diagnostic is not None else None
         ),
+        full_rehearsal=args.full_rehearsal,
     )
     return {
         "confirmed": consistent,
@@ -305,6 +310,8 @@ async def _apply_start(db, novel_id, args, preview, *, context=None):
         payload["multi_targets"] = args.multi_targets
     if args.diagnostic is not None:
         payload["diagnostic"] = args.diagnostic.model_dump(mode="json")
+    if args.full_rehearsal is not None:
+        payload["full_rehearsal"] = args.full_rehearsal.model_dump(mode="json")
     return await start_exploration_task(
         db, data=ExplorationStartApiRequest.model_validate(payload)
     )
@@ -445,7 +452,9 @@ OPERATIONS_SPEC = {
         **_metadata(
             description=(
                 "在已确认资料范围内发起一次有界探索任务：沙盘影响链、事件诊断/"
-                "补桥或一句场景对白；结果只进探索历史，不写正史。"
+                "补桥、一句场景对白，或对临时起点显式展开的完整排演"
+                "（full_rehearsal，按 (目标数+1)×轮次 分开计量）；结果只进探索"
+                "历史，不写正史。"
             ),
             risk="R2",
             fee="possible_model_charge",

@@ -42,11 +42,19 @@ EVENT_OUTPUT_KIND = "story.exploration.event"
 SCENE_LINE_OUTPUT_KIND = "story.exploration.scene_line"
 AUTHOR_EDIT_OUTPUT_KIND = "story.exploration.author_edit"
 LOCK_SET_OUTPUT_KIND = "story.exploration.lock_set"
+FULL_REHEARSAL_OUTPUT_KIND = "story.exploration.full_rehearsal"
 
 # 场景人物差异（M2）：同一情境对 2..4 个目标各生成一句；每人独立知识包。
 MULTI_TARGETS_MIN = 2
 MULTI_TARGETS_MAX = 4
 TARGET_REF_MAX_LENGTH = 64
+
+# 临时起点完整排演（M3-B）：显式展开的多轮排演，目标 1..6 个、轮次 1..3 轮。
+FULL_REHEARSAL_TARGETS_MIN = 1
+FULL_REHEARSAL_TARGETS_MAX = 6
+FULL_REHEARSAL_ROUNDS_MIN = 1
+FULL_REHEARSAL_ROUNDS_MAX = 3
+FULL_REHEARSAL_AUTHOR_GOAL_MAX_LENGTH = 2000
 
 ExplorationScale = Literal["sandbox", "event", "scene_line"]
 
@@ -332,6 +340,121 @@ class SceneLineOutputV1(ExplorationModel):
         return self
 
 
+class FullRehearsalPerformance(ExplorationModel):
+    """一张表演卡（M3-B）：某目标某一轮的对白或节拍 + 依据 + 来源引用。
+
+    语义对齐旧导演 ``DirectorPerformance`` 的“行动—台词—动机”骨架，但
+    不伪造 canonical 字段（无 character_id/正式档案指纹/感知核实状态）；
+    目标身份只以候选 ref_id 或正式 entity_id 出现。
+    """
+
+    target_ref: str = Field(min_length=1, max_length=TARGET_REF_MAX_LENGTH)
+    line_or_beat: str = Field(min_length=1, max_length=500)
+    rationale: str = Field(min_length=1, max_length=2000)
+    basis_refs: list[str] = Field(default_factory=list, max_length=12)
+
+    @field_validator("basis_refs")
+    @classmethod
+    def validate_basis_refs(cls, values: list[str]) -> list[str]:
+        _check_text_list("performance.basis_refs", values, max_length=200)
+        return values
+
+
+class FullRehearsalMaterial(ExplorationModel):
+    """一条排演素材（M3-B）：类别沿用旧导演素材六类；感知者只引用目标子集。"""
+
+    kind: Literal["environment", "object", "crowd", "mood", "pacing", "time"]
+    text: str = Field(min_length=1, max_length=2000)
+    perceiver_refs: list[str] = Field(default_factory=list, max_length=6)
+
+    @field_validator("perceiver_refs")
+    @classmethod
+    def validate_perceiver_refs(cls, values: list[str]) -> list[str]:
+        _check_text_list(
+            "material.perceiver_refs", values, max_length=TARGET_REF_MAX_LENGTH
+        )
+        return values
+
+
+class FullRehearsalObservation(ExplorationModel):
+    """一条观察回执（M3-B）：某目标上一轮实际注意到的事，进入其下一轮知识。"""
+
+    target_ref: str = Field(min_length=1, max_length=TARGET_REF_MAX_LENGTH)
+    observed: str = Field(min_length=1, max_length=500)
+
+
+class FullRehearsalRound(ExplorationModel):
+    """一轮排演：全部目标的表演卡 + 本轮素材与观察回执。"""
+
+    round_number: int = Field(ge=1)
+    performances: list[FullRehearsalPerformance] = Field(
+        min_length=FULL_REHEARSAL_TARGETS_MIN, max_length=FULL_REHEARSAL_TARGETS_MAX
+    )
+    materials: list[FullRehearsalMaterial] = Field(default_factory=list, max_length=8)
+    observations: list[FullRehearsalObservation] = Field(
+        default_factory=list, max_length=12
+    )
+
+
+class FullRehearsalOutputV1(ExplorationModel):
+    """临时起点完整排演输出（M3-B）：多轮表演卡/素材/观察回执与状态记录。
+
+    与聚焦输出分开计量、独立 output_kind；``targets`` 随载荷冻结，供校验
+    “每轮表演卡恰好覆盖全部目标”。不创建假正式角色或 Scene，也不伪造
+    canonical 感知字段；能力不足时不会产出本载荷（请求侧拒绝并保留紧凑
+    结果路径）。
+    """
+
+    targets: list[str] = Field(
+        min_length=FULL_REHEARSAL_TARGETS_MIN, max_length=FULL_REHEARSAL_TARGETS_MAX
+    )
+    rounds: list[FullRehearsalRound] = Field(
+        min_length=FULL_REHEARSAL_ROUNDS_MIN, max_length=FULL_REHEARSAL_ROUNDS_MAX
+    )
+    state_notes: list[str] = Field(default_factory=list, max_length=12)
+    unknowns: list[str] = Field(default_factory=list, max_length=12)
+    warnings: list[str] = Field(default_factory=list, max_length=12)
+
+    @field_validator("targets")
+    @classmethod
+    def validate_targets(cls, values: list[str]) -> list[str]:
+        for item in values:
+            if not item or len(item) > TARGET_REF_MAX_LENGTH:
+                raise ValueError(
+                    f"targets entries must be 1..{TARGET_REF_MAX_LENGTH} characters"
+                )
+        if len(set(values)) != len(values):
+            raise ValueError("targets 不能包含重复目标")
+        return values
+
+    @field_validator("state_notes", "unknowns", "warnings")
+    @classmethod
+    def validate_text_lists(cls, values: list[str]) -> list[str]:
+        _check_text_list("full_rehearsal text list", values, max_length=500)
+        return values
+
+    @model_validator(mode="after")
+    def validate_rounds_shape(self):
+        for index, round_item in enumerate(self.rounds):
+            if round_item.round_number != index + 1:
+                raise ValueError("rounds 编号必须从 1 起连续")
+            refs = [item.target_ref for item in round_item.performances]
+            if len(set(refs)) != len(refs) or set(refs) != set(self.targets):
+                raise ValueError("每轮表演卡必须恰好覆盖全部目标且不重复")
+            for observation in round_item.observations:
+                if observation.target_ref not in self.targets:
+                    raise ValueError("观察回执的 target_ref 必须在本次排演目标内")
+            for material in round_item.materials:
+                outside = [
+                    ref
+                    for ref in material.perceiver_refs
+                    if ref not in self.targets
+                ]
+                if outside:
+                    raise ValueError("素材感知者必须引用本次排演目标")
+        return self
+
+
 PAYLOAD_MODELS_BY_BASE_KIND: dict[str, type] = {
     SANDBOX_OUTPUT_KIND: SandboxOutputV1,
     EVENT_OUTPUT_KIND: EventOutputV1,
@@ -418,6 +541,7 @@ ExplorationOutputKind = Literal[
     "story.exploration.scene_line",
     "story.exploration.author_edit",
     "story.exploration.lock_set",
+    "story.exploration.full_rehearsal",
 ]
 
 
@@ -432,6 +556,7 @@ class ExplorationOutputEnvelope(ExplorationModel):
         | SceneLineOutputV1
         | AuthorEditPayloadV1
         | LockSetPayloadV1
+        | FullRehearsalOutputV1
     )
 
 
@@ -557,6 +682,67 @@ class SceneSpatialDiagnosticRequest(ExplorationModel):
     )
 
 
+class FullRehearsalRequest(ExplorationModel):
+    """临时起点完整排演意图（M3-B）：目标、轮次与作者私密目标。
+
+    ``targets`` 是候选 ref_id（``c_`` 前缀）或正式角色 entity_id，都必须落在
+    本次起点的候选/正式角色范围内；``author_goal`` 是作者侧排演目的，只进
+    作者输入包，不进入任何角色知识包。执行步骤与预算按
+    “(目标数 + 1) × 轮次”计量，与聚焦输出分开。
+    """
+
+    targets: list[str] = Field(
+        min_length=FULL_REHEARSAL_TARGETS_MIN, max_length=FULL_REHEARSAL_TARGETS_MAX
+    )
+    rounds: int = Field(
+        default=FULL_REHEARSAL_ROUNDS_MIN,
+        ge=FULL_REHEARSAL_ROUNDS_MIN,
+        le=FULL_REHEARSAL_ROUNDS_MAX,
+    )
+    author_goal: str = Field(
+        default="", max_length=FULL_REHEARSAL_AUTHOR_GOAL_MAX_LENGTH
+    )
+
+    @field_validator("targets")
+    @classmethod
+    def validate_targets(cls, values: list[str]) -> list[str]:
+        for item in values:
+            if not item or len(item) > TARGET_REF_MAX_LENGTH:
+                raise ValueError(
+                    f"full_rehearsal targets entries must be 1..{TARGET_REF_MAX_LENGTH}"
+                    " characters"
+                )
+        if len(set(values)) != len(values):
+            raise ValueError("full_rehearsal targets 不能包含重复目标")
+        return values
+
+
+class FullRehearsalPreviewIntent(ExplorationModel):
+    """/preview 预算与步骤披露用的排演意图：不含起点，作者目标未定时忽略。"""
+
+    targets: list[str] = Field(
+        min_length=FULL_REHEARSAL_TARGETS_MIN, max_length=FULL_REHEARSAL_TARGETS_MAX
+    )
+    rounds: int = Field(
+        default=FULL_REHEARSAL_ROUNDS_MIN,
+        ge=FULL_REHEARSAL_ROUNDS_MIN,
+        le=FULL_REHEARSAL_ROUNDS_MAX,
+    )
+
+    @field_validator("targets")
+    @classmethod
+    def validate_targets(cls, values: list[str]) -> list[str]:
+        for item in values:
+            if not item or len(item) > TARGET_REF_MAX_LENGTH:
+                raise ValueError(
+                    f"preview_full_rehearsal targets entries must be 1.."
+                    f"{TARGET_REF_MAX_LENGTH} characters"
+                )
+        if len(set(values)) != len(values):
+            raise ValueError("preview_full_rehearsal targets 不能包含重复目标")
+        return values
+
+
 class ExplorationRequestBase(ExplorationModel):
     novel_id: str
     scale: ExplorationScale
@@ -575,6 +761,7 @@ class ExplorationRequestBase(ExplorationModel):
         max_length=MULTI_TARGETS_MAX,
     )
     diagnostic: SceneSpatialDiagnosticRequest | None = None
+    full_rehearsal: FullRehearsalRequest | None = None
 
     @field_validator("novel_id")
     @classmethod
@@ -634,6 +821,16 @@ class ExplorationRequestBase(ExplorationModel):
             raise ValueError("multi_targets/diagnostic 仅支持场景一句对白尺度")
         if self.multi_targets is not None and self.diagnostic is not None:
             raise ValueError("multi_targets 与 diagnostic 互斥，请选择其一")
+        # 完整排演（M3-B）：仅临时起点的场景一句对白尺度接受；与聚焦变体互斥。
+        # “仅 provisional 起点”由 API 层以 409 拒绝（场景锚点起点是合法的
+        # 聚焦请求起点，只在显式展开完整排演时冲突）。
+        if self.full_rehearsal is not None:
+            if self.scale != "scene_line":
+                raise ValueError("full_rehearsal 仅支持场景一句对白尺度")
+            if self.multi_targets is not None or self.diagnostic is not None:
+                raise ValueError("full_rehearsal 与 multi_targets/diagnostic 互斥")
+            if self.counterfactual_of_result_id is not None:
+                raise ValueError("反事实对照不支持 full_rehearsal")
         return self
 
 
@@ -787,6 +984,12 @@ __all__ = [
     "EVENT_OUTPUT_KIND",
     "EXPLORATION_ACTIONS",
     "EXPLORATION_OUTPUT_SCHEMA_VERSION",
+    "FULL_REHEARSAL_AUTHOR_GOAL_MAX_LENGTH",
+    "FULL_REHEARSAL_OUTPUT_KIND",
+    "FULL_REHEARSAL_ROUNDS_MAX",
+    "FULL_REHEARSAL_ROUNDS_MIN",
+    "FULL_REHEARSAL_TARGETS_MAX",
+    "FULL_REHEARSAL_TARGETS_MIN",
     "LOCK_SET_OUTPUT_KIND",
     "MULTI_TARGETS_MAX",
     "MULTI_TARGETS_MIN",
@@ -812,6 +1015,13 @@ __all__ = [
     "ExplorationScale",
     "ExplorationStartTaskRequest",
     "ExplorationTokenEstimate",
+    "FullRehearsalMaterial",
+    "FullRehearsalObservation",
+    "FullRehearsalOutputV1",
+    "FullRehearsalPerformance",
+    "FullRehearsalPreviewIntent",
+    "FullRehearsalRequest",
+    "FullRehearsalRound",
     "GapFinding",
     "GoalPath",
     "GoalPathStep",
