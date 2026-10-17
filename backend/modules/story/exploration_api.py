@@ -32,6 +32,7 @@ from infrastructure.tasks.facade import (
 )
 from infrastructure.tasks.models import AsyncTask
 from modules.evidence.contracts import (
+    Assumption,
     ExplorationContextRequest,
     ExplorationStart,
 )
@@ -62,6 +63,7 @@ from modules.story.exploration_schemas import (
     ExplorationStartTaskRequest,
     SandboxOutputV1,
     SceneLineOutputV1,
+    validate_counterfactual_pair,
 )
 
 router = APIRouter(prefix="/api/story/exploration", tags=["story-exploration"])
@@ -117,7 +119,11 @@ class _ApiModel(BaseModel):
 
 
 class ExplorationPreviewApiRequest(_ApiModel):
-    """推荐 + 预算预览：确定性，无模型调用；start 缺省时只做推荐与名义预算。"""
+    """推荐 + 预算预览：确定性，无模型调用；start 缺省时只做推荐与名义预算。
+
+    反事实对照（M2）：提供 ``counterfactual_of_result_id`` + ``changed_assumptions``
+    时由服务端从基线结果克隆起点，响应带 ``derived_start`` 与含基线身份的预算。
+    """
 
     novel_id: str
     scale: ExplorationScale | None = None
@@ -125,6 +131,20 @@ class ExplorationPreviewApiRequest(_ApiModel):
     question: str | None = Field(default=None, max_length=4000)
     start: Annotated[ExplorationStart | None, Field(discriminator="kind")] = None
     task_hint: str | None = Field(default=None, max_length=120)
+    counterfactual_of_result_id: str | None = Field(default=None, max_length=64)
+    changed_assumptions: list[Assumption] | None = Field(
+        default=None, min_length=1, max_length=10
+    )
+
+    @model_validator(mode="after")
+    def validate_counterfactual(self):
+        validate_counterfactual_pair(
+            scale=self.scale or "sandbox",
+            start=self.start,
+            counterfactual_of_result_id=self.counterfactual_of_result_id,
+            changed_assumptions=self.changed_assumptions,
+        )
+        return self
 
 
 class ExplorationDetailApiRequest(_ApiModel):
@@ -318,7 +338,20 @@ async def build_exploration_preview(db, data: ExplorationPreviewApiRequest) -> d
     await require_active_project(db, data.novel_id)
     owner_id = await _project_owner_id(db, data.novel_id)
     await exploration_service.require_project_owner(db, data.novel_id, owner_id)
-    scale = data.scale
+    derived_start: ExplorationStart | None = None
+    counterfactual_of: str | None = None
+    if data.counterfactual_of_result_id is not None:
+        counterfactual_of = data.counterfactual_of_result_id
+        derived_start, counterfactual_of = (
+            await exploration_service.resolve_counterfactual_start(
+                db,
+                novel_id=data.novel_id,
+                result_id=counterfactual_of,
+                scale=data.scale or "sandbox",
+                changed_assumptions=list(data.changed_assumptions or []),
+            )
+        )
+    scale = data.scale or ("sandbox" if derived_start is not None else None)
     reason = ""
     if scale is None:
         from modules.story.outline_state.models import Scene
@@ -337,13 +370,22 @@ async def build_exploration_preview(db, data: ExplorationPreviewApiRequest) -> d
             has_selection=False,
             project_has_content=project_has_content,
         )
-    if data.start is not None:
+    if derived_start is not None:
+        budget = preview_exploration_budget(
+            novel_id=data.novel_id,
+            scale=scale,
+            start=derived_start,
+            focus=data.focus,
+            counterfactual_of_result_id=counterfactual_of,
+            changed_assumptions=data.changed_assumptions,
+        )
+    elif data.start is not None:
         budget = preview_exploration_budget(
             novel_id=data.novel_id, scale=scale, start=data.start, focus=data.focus
         )
     else:
         budget = _advisory_budget(novel_id=data.novel_id, scale=scale, focus=data.focus)
-    return {
+    response = {
         "recommended_scale": scale,
         "recommendation_reason": reason or "按你指定的尺度预览",
         "focus_hint": data.focus,
@@ -354,7 +396,8 @@ async def build_exploration_preview(db, data: ExplorationPreviewApiRequest) -> d
         ),
         "confirmation_scope": (
             "project（临时假设起点）"
-            if data.start is None or data.start.kind == "provisional"
+            if (derived_start or data.start) is None
+            or (derived_start or data.start).kind == "provisional"
             else "scene（场景锚点起点）"
         ),
         "possible_charge": "首次运行预计 1 次模型请求；“说详细点”等每次再授权 +1。",
@@ -366,6 +409,10 @@ async def build_exploration_preview(db, data: ExplorationPreviewApiRequest) -> d
             "focus_hint": data.focus,
         },
     }
+    if derived_start is not None:
+        response["derived_start"] = derived_start.model_dump(mode="json")
+        response["counterfactual_of_result_id"] = counterfactual_of
+    return response
 
 
 def _advisory_budget(
@@ -401,22 +448,40 @@ def _advisory_budget(
 
 def _context_request(
     data: ExplorationConfirmationPreviewRequest,
+    start: ExplorationStart,
 ) -> ExplorationContextRequest:
-    start_kind = data.start.kind
+    start_kind = start.kind
     return ExplorationContextRequest(
         novel_id=data.novel_id,
         action=data.action,
         task="导演多尺度独立探索",
         scope="scene" if start_kind == "scene_anchor" else "project",
-        scene_id=data.start.scene_id if start_kind == "scene_anchor" else None,
+        scene_id=start.scene_id if start_kind == "scene_anchor" else None,
         reveal_mode="author_safe",
         exploration_scale=data.scale,
         focus=data.focus,
-        start=data.start,
+        start=start,
         expected_context_fingerprint=getattr(
             data, "expected_context_fingerprint", None
         ),
     )
+
+
+async def _effective_request_start(
+    db, data: ExplorationConfirmationPreviewRequest
+) -> ExplorationStart:
+    """普通请求直接用 start；反事实请求从基线结果克隆起点（服务端权威）。"""
+    if data.counterfactual_of_result_id is None:
+        assert data.start is not None  # 请求模型已校验二选一
+        return data.start
+    cloned, _baseline_id = await exploration_service.resolve_counterfactual_start(
+        db,
+        novel_id=data.novel_id,
+        result_id=data.counterfactual_of_result_id,
+        scale=data.scale,
+        changed_assumptions=list(data.changed_assumptions or []),
+    )
+    return cloned
 
 
 async def preview_confirmation(
@@ -424,7 +489,8 @@ async def preview_confirmation(
 ) -> dict:
     require_story_exploration_enabled()
     await require_active_project(db, data.novel_id)
-    material = await preview_exploration_context(db, _context_request(data))
+    start = await _effective_request_start(db, data)
+    material = await preview_exploration_context(db, _context_request(data, start))
     return {
         "context_fingerprint": material["context_fingerprint"],
         "selected_asset_ids": material["selected_asset_ids"],
@@ -439,7 +505,8 @@ async def confirm_exploration(db, data: ExplorationConfirmationRequest) -> dict:
     await require_active_project(db, data.novel_id)
     from modules.evidence.facade import confirm_exploration_context
 
-    record = await confirm_exploration_context(db, _context_request(data))
+    start = await _effective_request_start(db, data)
+    record = await confirm_exploration_context(db, _context_request(data, start))
     return {
         "confirmation_id": str(record.id),
         "action": record.action,
@@ -489,7 +556,14 @@ async def start_exploration_task(
     owner_id = owner_id or await _project_owner_id(db, data.novel_id)
     chain = exploration_service.EXPLORATION_CHAIN_BY_SCALE[data.scale]
     task_type = TASK_TYPE_BY_CHAIN[chain]
-    request_payload = data.model_dump(mode="json", exclude={"operation_id"})
+    # 反事实对照：起点由基线结果克隆（服务端权威）；普通请求原样使用 start。
+    effective_start = await _effective_request_start(db, data)
+    counterfactual_of = data.counterfactual_of_result_id
+    effective_start_dump = effective_start.model_dump(mode="json")
+    request_payload = {
+        **data.model_dump(mode="json", exclude={"operation_id", "start"}),
+        "start": effective_start_dump,
+    }
     fingerprint_payload = {
         key: value
         for key, value in request_payload.items()
@@ -523,7 +597,7 @@ async def start_exploration_task(
         confirmation_id=data.context_confirmation_id,
     )
     options = dict(confirmation.compile_options or {})
-    if options.get("exploration_start") != data.start.model_dump(mode="json"):
+    if options.get("exploration_start") != effective_start_dump:
         raise ConflictError("资料确认的探索起点与本次请求不一致，请重新确认")
     if str(options.get("exploration_scale") or "") != data.scale:
         raise ConflictError("资料确认的探索尺度与本次请求不一致")
@@ -532,8 +606,12 @@ async def start_exploration_task(
     budget = preview_exploration_budget(
         novel_id=data.novel_id,
         scale=data.scale,
-        start=data.start,
+        start=effective_start,
         focus=data.focus,
+        counterfactual_of_result_id=counterfactual_of,
+        changed_assumptions=(
+            list(data.changed_assumptions) if counterfactual_of else None
+        ),
     )
     if budget.preview_hash != data.budget_preview_hash:
         raise ConflictError("起点或焦点已变化，请重新预览预算")
@@ -545,8 +623,12 @@ async def start_exploration_task(
         novel_id=data.novel_id,
         owner_id=owner_id,
         scale=data.scale,
-        start=data.start,
-        scene_id=data.start.scene_id if data.start.kind == "scene_anchor" else None,
+        start=effective_start,
+        scene_id=(
+            effective_start.scene_id
+            if effective_start.kind == "scene_anchor"
+            else None
+        ),
         context_confirmation_id=(
             data.context_confirmation_id if chain == "progression" else None
         ),
@@ -556,6 +638,10 @@ async def start_exploration_task(
             "context_confirmation_id": data.context_confirmation_id,
             "confirmation_action": data.action,
         },
+        counterfactual_of=counterfactual_of,
+        changed_assumptions=(
+            list(data.changed_assumptions) if counterfactual_of else None
+        ),
     )
     started_at = datetime.now(UTC)
     envelope = new_ai_run_envelope(
@@ -582,7 +668,7 @@ async def start_exploration_task(
         execution_snapshot=execution_snapshot,
         extra={
             "budget_preview_hash": data.budget_preview_hash,
-            "start": data.start.model_dump(mode="json"),
+            "start": effective_start_dump,
             "focus": data.focus,
             "instruction": "",
             **({"target_ref": target_ref} if target_ref else {}),
@@ -889,6 +975,7 @@ async def compare_exploration(db, data: ExplorationCompareRequest) -> dict:
         owner_id=await _project_owner_id(db, data.novel_id),
         first_result_id=data.first_result_id,
         second_result_id=data.second_result_id,
+        mode=data.mode,
     )
 
     def _side(side: dict) -> dict:
@@ -902,11 +989,15 @@ async def compare_exploration(db, data: ExplorationCompareRequest) -> dict:
             "created_at": side["created_at"],
         }
 
-    return {
+    response = {
         "start_fingerprint": result["start_fingerprint"],
         "first": _side(result["left"]),
         "second": _side(result["right"]),
     }
+    if result.get("mode") == "counterfactual":
+        response["mode"] = "counterfactual"
+        response["changed_conditions"] = result["changed_conditions"]
+    return response
 
 
 async def exploration_history(
