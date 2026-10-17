@@ -257,10 +257,13 @@
                   <div v-if="!branch.deleted_at && branch.steps?.length" class="world-progression__step-list">
                     <details v-for="step in branch.steps" :key="step.id" class="world-progression__history-step">
                       <summary>
-                        <span>第 {{ step.step_number }} 步 · {{ step.result?.story_time_text || "时间估计待核" }}</span>
+                        <span>第 {{ step.step_number }} 步 · {{ isExplorationStep(step) ? "紧凑探索结果" : (step.result?.story_time_text || "时间估计待核") }}</span>
                         <small>{{ step.source_current_status === "changed" || step.basis_changed ? "依据已变化" : step.source_current_status === "same" ? "当前依据一致" : "依据未核对" }} · {{ dateLabel(step.created_at) }}</small>
                       </summary>
-                      <div class="world-progression__step-content">
+                      <div v-if="isExplorationStep(step)" class="world-progression__exploration-note">
+                        <p>这一步是紧凑探索结果（{{ explorationKindLabel(explorationMarker(step)) }}），在本页只保留占位；请到项目助手中查看、编辑或继续追问。</p>
+                      </div>
+                      <div v-else class="world-progression__step-content">
                         <p class="world-progression__time-note">故事时间是模型估计，不代表产品日历已实现。</p>
                         <p class="world-progression__hashes">输入 {{ step.input_hash || "—" }} · 输出 {{ step.output_hash || "—" }} · 父输出 {{ step.parent_output_hash || "无（根步骤）" }}</p>
                         <p>{{ step.result?.narrative_summary }}</p>
@@ -1847,6 +1850,27 @@ function stepLengthLabel(value) {
   return ({ auto: "自动", day: "一天", week: "一周", month: "一个月", season: "一季", year: "一年", next_beat: "下一个关键节拍" })[value] || "自动"
 }
 
+// 紧凑探索结果步骤（导演多尺度探索第一批）：带 output_kind 的行不是完整推进结算，
+// 本页只渲染占位并指回助手；“从这一步继续”等旧操作对这类行被后端 fail-closed 拒绝。
+const EXPLORATION_KIND_LABELS = {
+  "story.exploration.sandbox": "沙盘推演",
+  "story.exploration.event": "事件诊断",
+  "story.exploration.scene_line": "场景对白",
+  "story.exploration.author_edit": "作者编辑版",
+}
+
+function explorationMarker(row) {
+  return row?.output_kind || row?.output?.output_kind || row?.result?.output_kind || row?.result_json?.output_kind || null
+}
+
+function isExplorationStep(step) {
+  return Boolean(explorationMarker(step))
+}
+
+function explorationKindLabel(marker) {
+  return EXPLORATION_KIND_LABELS[marker] || "探索任务"
+}
+
 function assetTypeLabel(value) {
   return ({ plot_thread: "剧情线", outline_arc: "篇章", scene: "计划场景", planned_scene: "计划场景" })[value] || "大纲"
 }
@@ -1950,6 +1974,8 @@ function formatNumber(value) {
 .world-progression__history-step > summary { display: flex; flex-wrap: wrap; justify-content: space-between; gap: 6px 14px; padding: 10px 12px; cursor: pointer; font-weight: 700; }
 .world-progression__history-step > summary small { color: var(--text-secondary); font-weight: 500; }
 .world-progression__step-content { padding: 2px 12px 14px; }
+.world-progression__exploration-note { margin: 6px 12px 12px; padding: 10px 12px; border: 1px dashed var(--border, #d9e0e4); border-radius: 10px; background: var(--bg-muted, #f6f8f7); color: var(--text-secondary, #64727b); font-size: 13px; }
+.world-progression__exploration-note p { margin: 0; overflow-wrap: anywhere; }
 .world-progression__time-note, .world-progression__step-content > p { color: var(--text-secondary); }
 .world-progression__time-note { font-size: 12px; }
 .world-progression__result-group { margin-top: 14px; padding-top: 11px; border-top: 1px solid var(--border); }

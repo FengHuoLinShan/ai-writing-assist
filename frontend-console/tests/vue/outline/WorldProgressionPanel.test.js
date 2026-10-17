@@ -479,4 +479,53 @@ describe("WorldProgressionPanel", () => {
       api.story.previewSceneDirectorBudget.mock.calls[0][1].instructions,
     )
   })
+
+  it("带 output_kind 的探索步骤只渲染占位并指回助手，不影响普通步骤", async () => {
+    const api = makeApi({
+      charactersByProject: { "project-a": [actor("林澈", 1)] },
+    })
+    api.story.worldProgressionHistory = vi.fn(async () => ({
+      roots: [{
+        id: "root-1",
+        scene_id: "scene-1",
+        status: "complete",
+        request: { participants: [{ id: "character-1", kind: "character" }] },
+        branches: [{
+          id: "branch-1",
+          branch_kind: "start",
+          status: "complete",
+          steps: [
+            {
+              id: "step-exp",
+              step_number: 1,
+              created_at: "2026-10-17T00:00:00Z",
+              output_kind: "story.exploration.sandbox",
+              result: { output_kind: "story.exploration.sandbox", schema_version: 1, payload: { influence_chain: [] } },
+              metrics: {},
+            },
+            {
+              id: "step-1",
+              step_number: 2,
+              created_at: "2026-10-16T00:00:00Z",
+              result: { narrative_summary: "两人在渡口停下交涉。", actor_intents: [], state_delta: [] },
+              metrics: {},
+            },
+          ],
+        }],
+      }],
+    }))
+    api.story.readWorldProgressionContinuousAuthorization = vi.fn(async () => ({
+      root_id: "root-1", branch_id: "branch-1", enabled: false, revision: 0,
+    }))
+    const wrapper = mountPanel(api)
+    await openPanel(wrapper)
+
+    const note = wrapper.get(".world-progression__exploration-note")
+    expect(note.text()).toContain("紧凑探索结果")
+    expect(note.text()).toContain("沙盘推演")
+    expect(note.text()).toContain("项目助手")
+    expect(note.element.closest("details").textContent).not.toContain("从这一步继续")
+    expect(wrapper.text()).toContain("两人在渡口停下交涉。")
+    expect(wrapper.findAll("button").some((button) => button.text().includes("从这一步继续"))).toBe(true)
+  })
 })

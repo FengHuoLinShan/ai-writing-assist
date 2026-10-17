@@ -105,6 +105,20 @@ export const story = {
     async previewWorldProgressionBudget(novelId, payload = {}) {
       return post("/story/world-progression/budget-preview", { novel_id: novelId, ...payload })
     },
+    // ============================================================
+    // 导演多尺度独立探索（第一批）——端点契约见任务 P0-CONTRACTS.md §8。
+    // POST body 直传（novel_id 由调用方放入 payload）；
+    // start/detail/revise 返回 202 {task_id,...}，调用方用 pollTaskProgress 轮询到终态。
+    // ============================================================
+    explorationPreview: (payload) => post("/story/exploration/preview", payload),
+    explorationConfirmationPreview: (payload) => post("/story/exploration/confirmation/preview", payload),
+    explorationConfirm: (payload) => post("/story/exploration/confirmation", payload),
+    explorationStart: (payload) => post("/story/exploration/start", payload),
+    explorationDetail: (resultId, payload) => post(`/story/exploration/results/${resultId}/detail`, payload),
+    explorationRevise: (resultId, payload) => post(`/story/exploration/results/${resultId}/revise`, payload),
+    explorationSaveEdit: (resultId, payload) => post(`/story/exploration/results/${resultId}/save-edit`, payload),
+    explorationCompare: (payload) => post("/story/exploration/compare", payload),
+    explorationHistory: (params = {}) => request(withQuery("/story/exploration/history", params), { cache: "no-store" }),
     async startWorldProgression(novelId, payload = {}) {
       return post("/story/world-progression/roots", { novel_id: novelId, ...payload })
     },
