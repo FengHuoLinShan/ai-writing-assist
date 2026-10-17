@@ -379,11 +379,14 @@ async def continue_director_root(
         if existing_root_id != root_id:
             raise ConflictError("相同操作 ID 对应另一个导演运行")
         return _response_for_task(existing.task_id, existing.status, root_id)
+    from modules.story.exploration_service import require_legacy_director_round
+
     previous_envelope = root.run_envelope_json
     previous_status = root.status
     parent_round, _ = await get_director_round(db, novel_id, str(data.parent_round_id))
     if str(parent_round.root_id) != root_id:
         raise ValueError("所选回合不属于这个导演运行")
+    require_legacy_director_round(parent_round)
     from modules.story.director_operations import _continuation_preview
 
     _root, _parent, current_preview = await _continuation_preview(db, novel_id, data)
@@ -569,6 +572,19 @@ async def resume_director_branch(
         raise ValueError("待恢复分支不属于这个导演运行")
     if branch.status not in {"paused_budget", "paused_unknown"}:
         raise ConflictError("只有预算或未知用量暂停的分支可以恢复")
+    from modules.story.exploration_service import require_legacy_director_round
+
+    exploration_source = await db.scalar(
+        select(StorySceneDirectorRound)
+        .where(
+            StorySceneDirectorRound.novel_id == UUID(novel_id),
+            StorySceneDirectorRound.branch_id == branch.id,
+        )
+        .order_by(StorySceneDirectorRound.round_number.desc())
+        .limit(1)
+    )
+    if exploration_source is not None:
+        require_legacy_director_round(exploration_source)
 
     raw = read_ai_run_envelope(root.run_envelope_json)
     if (

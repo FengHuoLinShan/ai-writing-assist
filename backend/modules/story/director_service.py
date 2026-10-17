@@ -813,6 +813,9 @@ async def save_director_reference(
     root = await get_director_root(db, novel_id, str(row.root_id))
     if str(root.id) != str(branch.root_id):
         raise ValueError("参考来源的导演运行身份不一致")
+    from modules.story.exploration_service import require_legacy_reference_source
+
+    require_legacy_reference_source(root, row)
     allowed_actors = set((root.request_json or {}).get("character_ids") or [])
     if (
         request.angle.viewpoint_character_id
