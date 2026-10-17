@@ -1,5 +1,7 @@
 """Offline guards for the private editorial prompt comparison runner."""
 
+import asyncio
+import hashlib
 import json
 from contextlib import asynccontextmanager
 from pathlib import Path
@@ -73,6 +75,21 @@ def test_ab_prompts_and_internal_ledger_switch_are_distinct() -> None:
     assert manifest["request_limit"] == 490
     assert _SYSTEM == manifest["candidate_prompt"]
 
+    restarted = runner._manifest(
+        dataset,
+        cases,
+        repo,
+        BASELINE_SHA,
+        candidate_sha,
+        prior_run={
+            "manifest_hash": "prior",
+            "state_sha256": "state",
+            "reserved_requests": 20,
+        },
+    )
+    assert restarted["request_budget_offset"] == 20
+    assert restarted["manifest_hash"] != manifest["manifest_hash"]
+
 
 def test_private_output_stays_outside_repo_and_restricts_permissions(
     tmp_path: Path,
@@ -111,6 +128,103 @@ def test_request_ledger_enforces_global_cap_and_case_stop() -> None:
     with pytest.raises(RuntimeError, match="already stopped"):
         ledger.begin_arm("case-a", "candidate", raw_path="/private/raw.json")
     _validate_request_ledger(state)
+
+
+def test_request_ledger_counts_prior_run_reservations_against_same_cap() -> None:
+    state = _state(limit=3)
+    state["request_budget_offset"] = 2
+    ledger = RequestLedger(state, lambda: None, request_limit=3)
+    ledger.begin_arm("case-a", "baseline", raw_path="/private/raw.json")
+    ledger.reserve("case-a", "baseline", metadata={})
+
+    with pytest.raises(RuntimeError, match="global request limit"):
+        ledger.reserve("case-a", "baseline", metadata={})
+    assert state["request_count"] == 1
+    _validate_request_ledger(state)
+
+
+def test_prior_run_budget_requires_matching_private_stopped_ledger(
+    tmp_path: Path,
+) -> None:
+    private = tmp_path / "private"
+    private.mkdir(mode=0o700)
+    private.chmod(0o700)
+    state_path = private / "state.json"
+    manifest_core = {
+        "dataset_hash": "dataset",
+        "baseline_sha": BASELINE_SHA,
+        "candidate_sha": "candidate",
+        "provider_id": EXPECTED_PROVIDER,
+        "model": EXPECTED_MODEL,
+        "reasoning_effort": EXPECTED_EFFORT,
+        "request_limit": 490,
+    }
+    prior_manifest_hash = runner._canonical_hash(manifest_core)
+    manifest = {**manifest_core, "manifest_hash": prior_manifest_hash}
+    prior_state = {
+        "manifest_hash": prior_manifest_hash,
+        "manifest": manifest,
+        "request_limit": 490,
+        "request_count": 1,
+        "dependency_failure_streak": 0,
+        "paused_reason": "unknown_usage",
+        "observations": [{"status": "unknown", "error_kind": "CancelledError"}],
+        "cases": {
+            "case-a": {
+                "status": "stopped",
+                "arms": {
+                    "baseline": {
+                        "requests": [
+                            {"status": "unknown", "confirmed_provider_attempt": True}
+                        ]
+                    }
+                },
+            }
+        },
+    }
+    runner._write_private_json(state_path, prior_state)
+
+    record = runner._prior_run_usage(
+        state_path,
+        manifest_core,
+        Path(__file__).resolve().parents[3],
+    )
+    assert record == {
+        "manifest_hash": prior_manifest_hash,
+        "state_sha256": hashlib.sha256(state_path.read_bytes()).hexdigest(),
+        "reserved_requests": 1,
+    }
+
+
+def test_parallel_runner_is_bounded_and_runs_each_arm_once() -> None:
+    async def scenario():
+        active = 0
+        peak = 0
+        seen = []
+
+        async def run_one(item):
+            nonlocal active, peak
+            active += 1
+            peak = max(peak, active)
+            await asyncio.sleep(0.005)
+            seen.append(item)
+            active -= 1
+
+        await runner._run_parallel(range(6), run_one)
+        assert peak == runner.PARALLEL_ARMS == 2
+        assert sorted(seen) == list(range(6))
+
+    asyncio.run(scenario())
+
+
+def test_run_lock_rejects_a_second_process_for_the_same_output(tmp_path: Path) -> None:
+    output = tmp_path / "editorial-run"
+    output.mkdir(mode=0o700)
+    with runner._run_lock(output):
+        with pytest.raises(RuntimeError, match="another runner process"):
+            with runner._run_lock(output):
+                pass
+    assert (output / ".runner.lock").stat().st_mode & 0o077 == 0
 
 
 def test_three_external_failures_pause_and_interrupted_cases_are_not_replayed() -> None:

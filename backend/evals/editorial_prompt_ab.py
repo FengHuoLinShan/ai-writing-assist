@@ -9,14 +9,17 @@ from __future__ import annotations
 import argparse
 import ast
 import asyncio
+import fcntl
 import hashlib
 import json
 import os
 import random
 import secrets
+import stat
 import subprocess
 import tempfile
 import time
+from contextlib import contextmanager
 from pathlib import Path
 from typing import Any
 from uuid import UUID, uuid4
@@ -54,6 +57,7 @@ EXPECTED_PROVIDER = "codex"
 EXPECTED_MODEL = "gpt-6-luna"
 EXPECTED_EFFORT = "max"
 REQUESTS_PER_ARM = 7
+PARALLEL_ARMS = 2
 DIMENSIONS = ["structure", "scene", "line", "copy", "reader"]
 
 
@@ -111,6 +115,91 @@ def _ensure_private_output(output: Path, repo: Path) -> tuple[Path, Path, Path]:
     if any(path.is_symlink() for path in resolved.rglob("*")):
         raise ValueError("Private evaluation output cannot contain symlinks")
     return raw, blind, mapping
+
+
+@contextmanager
+def _run_lock(output: Path):
+    fd = os.open(output / ".runner.lock", os.O_CREAT | os.O_RDWR, 0o600)
+    os.fchmod(fd, 0o600)
+    try:
+        try:
+            fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        except BlockingIOError as exc:
+            raise RunStoppedError("another runner process holds this output") from exc
+        yield
+    finally:
+        os.close(fd)
+
+
+def _prior_run_usage(path: Path | None, manifest: dict, repo: Path) -> dict | None:
+    if path is None:
+        return None
+    resolved = path.expanduser().resolve(strict=True)
+    if resolved.is_relative_to(repo) or path.is_symlink():
+        raise ValueError("Prior run state must be a private file outside the repository")
+    if (
+        stat.S_IMODE(resolved.stat().st_mode) != 0o600
+        or stat.S_IMODE(resolved.parent.stat().st_mode) != 0o700
+    ):
+        raise ValueError(
+            "Prior run state must use 0600 file and 0700 directory permissions"
+        )
+    state_bytes = resolved.read_bytes()
+    state = json.loads(state_bytes)
+    _validate_request_ledger(state)
+    prior_manifest = state.get("manifest") or {}
+    prior_core = {
+        key: value for key, value in prior_manifest.items() if key != "manifest_hash"
+    }
+    if (
+        prior_manifest.get("manifest_hash") != state.get("manifest_hash")
+        or _canonical_hash(prior_core) != state.get("manifest_hash")
+    ):
+        raise ValueError("Prior run state has an invalid fixed manifest hash")
+    if state.get("request_budget_offset", 0) != prior_manifest.get(
+        "request_budget_offset", 0
+    ):
+        raise ValueError("Prior run request budget offset differs from its manifest")
+    for key in (
+        "dataset_hash",
+        "baseline_sha",
+        "candidate_sha",
+        "provider_id",
+        "model",
+        "reasoning_effort",
+        "request_limit",
+    ):
+        if prior_manifest.get(key) != manifest.get(key):
+            raise ValueError("Prior run state does not match this frozen comparison")
+    if state.get("paused_reason") not in {
+        "unknown_usage",
+        "interrupted_request_unknown",
+    }:
+        raise ValueError("Only the explicitly interrupted prior run can seed the budget")
+    receipts = [
+        receipt
+        for case in state["cases"].values()
+        for arm in case.get("arms", {}).values()
+        for receipt in arm.get("requests", [])
+    ]
+    if any(receipt.get("status") == "started" for receipt in receipts):
+        raise ValueError("Prior run still has unresolved started requests")
+    return {
+        "manifest_hash": state["manifest_hash"],
+        "state_sha256": hashlib.sha256(state_bytes).hexdigest(),
+        "reserved_requests": state.get("request_budget_offset", 0)
+        + state["request_count"],
+    }
+
+
+async def _run_parallel(items, run_one) -> None:
+    semaphore = asyncio.Semaphore(PARALLEL_ARMS)
+
+    async def bounded(item):
+        async with semaphore:
+            await run_one(item)
+
+    await asyncio.gather(*(bounded(item) for item in items))
 
 
 def _git(repo: Path, *args: str) -> str:
@@ -195,7 +284,12 @@ class RequestLedger:
             raise RunStoppedError("arm is not active")
         if len(arm["requests"]) >= REQUESTS_PER_ARM:
             raise RunStoppedError("per-arm request limit reached")
-        if self.state["request_count"] >= self.request_limit:
+        if self.state.get("paused_reason"):
+            raise RunStoppedError(f"run is paused: {self.state['paused_reason']}")
+        total_reserved = self.state.get("request_budget_offset", 0) + self.state[
+            "request_count"
+        ]
+        if total_reserved >= self.request_limit:
             self.state["paused_reason"] = "global_request_limit"
             self.persist()
             raise RunStoppedError("global request limit reached")
@@ -291,7 +385,11 @@ def _validate_request_ledger(state: dict) -> None:
         for arm in case.get("arms", {}).values()
         for receipt in arm.get("requests", [])
     ]
-    if len(receipts) != state["request_count"] or len(receipts) > state["request_limit"]:
+    total_reserved = state.get("request_budget_offset", 0) + state["request_count"]
+    if (
+        len(receipts) != state["request_count"]
+        or total_reserved > state["request_limit"]
+    ):
         raise RunStoppedError("durable request ledger does not match the global cap")
     if any(
         len(arm.get("requests", [])) > REQUESTS_PER_ARM
@@ -429,7 +527,13 @@ def _mapping_with(path: Path, blind_id: str, value: dict) -> dict:
 
 
 def _manifest(
-    dataset: dict, cases: list[dict], repo: Path, baseline_sha: str, candidate_sha: str
+    dataset: dict,
+    cases: list[dict],
+    repo: Path,
+    baseline_sha: str,
+    candidate_sha: str,
+    *,
+    prior_run: dict | None = None,
 ) -> dict:
     baseline_prompt = extract_system_prompt(repo, baseline_sha)
     candidate_prompt = extract_system_prompt(repo, candidate_sha)
@@ -469,6 +573,8 @@ def _manifest(
         "model": EXPECTED_MODEL,
         "reasoning_effort": EXPECTED_EFFORT,
         "request_limit": len(cases) * 2 * REQUESTS_PER_ARM,
+        "request_budget_offset": (prior_run or {}).get("reserved_requests", 0),
+        "prior_run": prior_run,
         "connection_validation_provider_requests": 0,
         "dimensions": DIMENSIONS,
     }
@@ -909,9 +1015,33 @@ async def _run_arm(
             db.info.pop("editorial_prompt_ab_options", None)
 
 
-async def run(output: Path, *, phase: str, candidate_sha: str) -> dict:
+async def run(
+    output: Path,
+    *,
+    phase: str,
+    candidate_sha: str,
+    prior_state: Path | None = None,
+) -> dict:
     repo = Path(__file__).resolve().parents[2]
     output = output.expanduser().resolve()
+    _ensure_private_output(output, repo)
+    with _run_lock(output):
+        return await _run_locked(
+            output,
+            phase=phase,
+            candidate_sha=candidate_sha,
+            prior_state=prior_state,
+        )
+
+
+async def _run_locked(
+    output: Path,
+    *,
+    phase: str,
+    candidate_sha: str,
+    prior_state: Path | None,
+) -> dict:
+    repo = Path(__file__).resolve().parents[2]
     raw_dir, blind_dir, mapping_dir = _ensure_private_output(output, repo)
     url_value = os.environ.get("DATABASE_URL", "")
     if not url_value:
@@ -952,7 +1082,11 @@ async def run(output: Path, *, phase: str, candidate_sha: str) -> dict:
         )
     for path in evaluation_paths:
         _git(repo, "ls-files", "--error-unmatch", path)
-    manifest = _manifest(dataset, cases, repo, baseline_sha, candidate_sha)
+    manifest_base = _manifest(dataset, cases, repo, baseline_sha, candidate_sha)
+    prior_run = _prior_run_usage(prior_state, manifest_base, repo)
+    manifest = _manifest(
+        dataset, cases, repo, baseline_sha, candidate_sha, prior_run=prior_run
+    )
     manifest_path = output.resolve() / "manifest.json"
     state_path = output.resolve() / "state.json"
     if manifest_path.exists():
@@ -964,7 +1098,7 @@ async def run(output: Path, *, phase: str, candidate_sha: str) -> dict:
         existing = [
             item
             for item in output.resolve().iterdir()
-            if item.name not in {"raw", "blind", "mapping"}
+            if item.name not in {"raw", "blind", "mapping", ".runner.lock"}
         ]
         if (
             existing
@@ -978,6 +1112,10 @@ async def run(output: Path, *, phase: str, candidate_sha: str) -> dict:
         state = json.loads(state_path.read_text(encoding="utf-8"))
         if state.get("manifest_hash") != manifest["manifest_hash"]:
             raise ValueError("state does not match the fixed manifest")
+        if state.get("request_budget_offset", 0) != manifest["request_budget_offset"]:
+            raise ValueError(
+                "state request budget offset differs from the fixed manifest"
+            )
         _mark_interrupted_cases(state, lambda: _write_private_json(state_path, state))
     else:
         seed = secrets.randbits(64)
@@ -993,6 +1131,7 @@ async def run(output: Path, *, phase: str, candidate_sha: str) -> dict:
                 if not key.endswith("_prompt")
             },
             "state_path": str(state_path),
+            "request_budget_offset": manifest["request_budget_offset"],
             "order_seed": seed,
             "order": order,
             "request_limit": len(cases) * 2 * REQUESTS_PER_ARM,
@@ -1019,38 +1158,40 @@ async def run(output: Path, *, phase: str, candidate_sha: str) -> dict:
     settings = get_settings()
     if not (settings.assistant_enabled and settings.assistant_editorial_enabled):
         raise ValueError("Assistant editorial review must be enabled before the run")
+    if phase == "smoke":
+        smoke_cases = [
+            case for case in cases if case["id"] == "unique_key_contradiction"
+        ]
+        if not smoke_cases:
+            raise ValueError("Smoke sample unique_key_contradiction is missing")
+        run_order = [
+            item for item in state["order"] if item[0] == smoke_cases[0]["id"]
+        ]
+    else:
+        smoke_case = state.get("cases", {}).get("unique_key_contradiction", {})
+        if (
+            state.get("smoke_status") != "passed"
+            or smoke_case.get("status") != "complete"
+        ):
+            raise ValueError("Both smoke arms must complete before full evaluation")
+        run_order = state["order"]
     async with manager.session() as db:
         with system_execution_scope():
-            if phase == "smoke":
-                smoke_cases = [
-                    case for case in cases if case["id"] == "unique_key_contradiction"
-                ]
-                if not smoke_cases:
-                    raise ValueError("Smoke sample unique_key_contradiction is missing")
-                run_order = [
-                    item for item in state["order"] if item[0] == smoke_cases[0]["id"]
-                ]
-            else:
-                smoke_case = state.get("cases", {}).get("unique_key_contradiction", {})
-                if (
-                    state.get("smoke_status") != "passed"
-                    or smoke_case.get("status") != "complete"
-                ):
-                    raise ValueError(
-                        "Both smoke arms must complete before full evaluation"
-                    )
-                run_order = state["order"]
             state["owner_connection"] = await _verify_owner_connection(db)
-            _write_private_json(state_path, state)
-            for case_id, condition in run_order:
-                if state.get("paused_reason"):
-                    break
-                case_state = state["cases"].get(case_id, {})
-                if case_state.get("status") in {"complete", "stopped"}:
-                    continue
-                case = next(item for item in cases if item["id"] == case_id)
-                prompt = manifest[f"{condition}_prompt"]
-                try:
+    _write_private_json(state_path, state)
+
+    async def run_one(item):
+        case_id, condition = item
+        if state.get("paused_reason"):
+            return
+        case_state = state["cases"].get(case_id, {})
+        if case_state.get("status") in {"complete", "stopped"}:
+            return
+        case = next(value for value in cases if value["id"] == case_id)
+        prompt = manifest[f"{condition}_prompt"]
+        try:
+            async with manager.session() as db:
+                with system_execution_scope():
                     await _run_arm(
                         db=db,
                         case=case,
@@ -1063,37 +1204,25 @@ async def run(output: Path, *, phase: str, candidate_sha: str) -> dict:
                         blind_dir=blind_dir,
                         mapping_dir=mapping_dir,
                     )
-                except ProfileMismatchError:
-                    state["paused_reason"] = "profile_mismatch"
-                    _write_private_json(state_path, state)
-                    raise
-                except ProjectLLMConfigurationError:
-                    state["paused_reason"] = "profile_mismatch"
-                    _write_private_json(state_path, state)
-                    raise
-                except RunStoppedError:
-                    if state.get("paused_reason"):
-                        break
-                    continue
-                except Exception as exc:
-                    if state.get("cases", {}).get(case_id, {}).get("status") != "stopped":
-                        _mark_case_stopped(
-                            state,
-                            case_id,
-                            type(exc).__name__,
-                            lambda: _write_private_json(state_path, state),
-                        )
-                    if state.get("paused_reason"):
-                        break
-                    continue
-            _validate_request_ledger(state)
+        except (ProfileMismatchError, ProjectLLMConfigurationError):
+            state["paused_reason"] = "profile_mismatch"
             _write_private_json(state_path, state)
-            if phase == "smoke":
-                _check_smoke(
+        except RunStoppedError:
+            return
+        except Exception as exc:
+            if state.get("cases", {}).get(case_id, {}).get("status") != "stopped":
+                _mark_case_stopped(
                     state,
-                    raw_dir,
+                    case_id,
+                    type(exc).__name__,
                     lambda: _write_private_json(state_path, state),
                 )
+
+    await _run_parallel(run_order, run_one)
+    _validate_request_ledger(state)
+    _write_private_json(state_path, state)
+    if phase == "smoke":
+        _check_smoke(state, raw_dir, lambda: _write_private_json(state_path, state))
     await manager.close()
     observations = [
         RequestObservation.model_validate(item) for item in state["observations"]
@@ -1136,6 +1265,9 @@ async def run(output: Path, *, phase: str, candidate_sha: str) -> dict:
             "connection_validation_provider_requests"
         ],
         "reserved_requests": state["request_count"],
+        "prior_reserved_requests": state.get("request_budget_offset", 0),
+        "total_reserved_requests": state.get("request_budget_offset", 0)
+        + state["request_count"],
         "confirmed_provider_requests": sum(
             item.status in {"succeeded", "failed", "unknown"}
             and item.error_kind != "interrupted_or_unconfirmed"
@@ -1162,8 +1294,16 @@ def main() -> None:
     parser.add_argument("--output", type=Path, required=True)
     parser.add_argument("--phase", choices=("smoke", "full"), required=True)
     parser.add_argument("--candidate-sha", default="HEAD")
+    parser.add_argument("--prior-state", type=Path)
     args = parser.parse_args()
-    asyncio.run(run(args.output, phase=args.phase, candidate_sha=args.candidate_sha))
+    asyncio.run(
+        run(
+            args.output,
+            phase=args.phase,
+            candidate_sha=args.candidate_sha,
+            prior_state=args.prior_state,
+        )
+    )
 
 
 if __name__ == "__main__":
