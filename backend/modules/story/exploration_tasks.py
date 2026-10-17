@@ -1255,13 +1255,8 @@ async def handle_story_exploration_progression(db, task):
             )
             item_path = target["key"]
             item_content_hash = target["item_content_hash"]
-        elif mode == "detail" and scale == EVENT_OUTPUT_KIND:
-            # 详略保持原模式：诊断仍诊断，补桥仍补桥。
-            action = (
-                EVENT_BRIDGE_ACTION
-                if parent_payload.get("mode") == "bridge"
-                else EVENT_DIAGNOSE_ACTION
-            )
+        # detail/revise 的 action 已由 API 按父 payload 模式映射（_generation_action），
+        # worker 侧只需沿用 meta.action；误配会在确认校验处失败关闭。
         # 分支当前锁定集（纯值，检查点 expire 不受影响）；修订目标被锁定在
         # 提交前已拒绝，worker 内再权威校验一次（失败关闭，不产生模型调用）。
         locked_specs = [
