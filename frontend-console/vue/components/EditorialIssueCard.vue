@@ -17,7 +17,7 @@
       <p v-if="issue.finding.counterevidence"><strong>可能反证：</strong>{{ issue.finding.counterevidence }}</p>
       <p v-if="issue.finding.intent_relation"><strong>与作者意图：</strong>{{ issue.finding.intent_relation }}<span v-if="issue.finding.intent_quote"> · 约定原文：{{ issue.finding.intent_quote }}</span></p>
       <p v-if="issue.finding.unchecked"><strong>尚未核对：</strong>{{ issue.finding.unchecked }}</p>
-      <div v-if="issue.finding.directions?.length"><strong>可考虑的方向</strong><ol><li v-for="(direction, index) in issue.finding.directions" :key="index">{{ direction.approach }}<span v-if="direction.affected_chapters?.length"> · 涉及第 {{ direction.affected_chapters.join('、') }} 章</span> · 代价：{{ direction.tradeoff }}</li></ol></div>
+      <div v-if="issue.finding.directions?.length" class="editorial-issue__directions"><strong>{{ issue.finding.directions.length === 1 ? "建议方向" : "备选方向" }}</strong><ol><li v-for="(direction, index) in issue.finding.directions" :key="index">{{ direction.approach }}<span v-if="direction.affected_chapters?.length"> · 涉及第 {{ direction.affected_chapters.join('、') }} 章</span> · 代价：{{ direction.tradeoff }}</li></ol></div>
       <p>这是一条编辑建议；不等于领域已核实问题，也不会改变正文。</p>
     </details>
     <div class="editorial-issue__decision">

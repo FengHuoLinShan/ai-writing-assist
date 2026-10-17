@@ -3,7 +3,7 @@ id: T-20261017-completed-branch-delivery
 title: 全部分支与工作树完成度对账及已完成成果合入
 status: active
 created: 2026-10-17T17:03:45+08:00
-updated: 2026-10-17T17:13:14+08:00
+updated: 2026-10-17T17:27:31+08:00
 ---
 
 # 已完成成果交付
@@ -13,8 +13,8 @@ updated: 2026-10-17T17:13:14+08:00
 - 用户授权：整理所有分支和工作树，判断是否完成；选择已完成成果提交、开 PR、合并。
 - 基线：`origin/main@a1b1053662d7e0969fdca1f68a1a0c330814e456`，刚合入地图 PR #249。
 - 已盘点：126 个本地分支、26 个远端跟踪缓存（origin 21、upstream 5）、63 个工作树；逐树记录 HEAD、状态、未提交文件哈希，逐引用计算祖先关系和 `git cherry`，读取全部历史 PR 元数据。
-- 当前里程碑：筛选完成，两个独立交付分支正在准备：`codex/completed-editorial-delivery` 集成审读工程；`codex/completed-records-delivery` 保存已完成研究、设计草案、历史收尾与本轮清单。
-- 下一步：完成审读两轴 review、最新 main 上的工程门禁与文档整合；审读 PR #250 已创建，必需检查通过后普通 merge；再基于新 main 提交文档 PR。
+- 当前里程碑：审读工程已通过 PR #250 合入 main；`codex/completed-records-delivery` 已更新该基线，完成研究/草案、关闭记录和本轮清单待创建文档 PR。
+- 下一步：提交并创建文档 PR，核对固定 head 的六项必需检查和 CodeQL 后普通 merge。
 - 阻塞：无。旧任务状态只是证据，必须同时核对实际代码、补丁、PR 与验收。
 - 工作区：本文件为唯一主记录；编辑范围限两个新建 worktree。所有原工作树、分支、stash、忽略数据及私有原始证据保留，不清理或恢复运行。
 - 原始保护快照：`/private/tmp/ai-writing-branch-delivery-20261017/inventory.json`；完整 SHA/文件哈希留在本机，入库清单只用可定位的短提交号。
@@ -57,3 +57,15 @@ updated: 2026-10-17T17:13:14+08:00
 
 - 审读本地合并提交 `64e547d70` 保留源 22 个提交；PR [#250](https://github.com/FengHuoLinShan/ai-writing-assist/pull/250) 已创建。初轮工作树未提交时，冻结提示词测试读取旧 HEAD，且并发读到了新增用例的旧 fixture；该次 2 failed 不计验收。提交后定向执行钩子/A-B 共 34 passed，正在稳定 HEAD 全量复验。
 - 文档交付含 7 个已完成源提交的资料增量、研究 WIP、起草 WIP 与三份模型池关闭记录；不整体 merge 旧运行时/说明。后续 PR 的实时状态为最终交付事实源。
+
+## 稳定提交验收
+
+- 审读 `64e547d70` 单次完整 `make test-ci TEST_WORKERS=2` 已通过：后端 9204 passed / 2 skipped、覆盖率 85.27%，前端 259 文件 / 3253 passed，部署契约 324 passed；lint、依赖审计、secret hygiene、文档检查通过。日志 `/tmp/branch-delivery-editorial-ci-stable.log`。
+- 执行钩子及 A/B 定向 34 passed；26 Prompt contracts、前端 lint/build 通过。远端 PR #250 的前端单元、镜像和部分扫描已通过，其余必需检查仍等待。
+- 文档提交 `7164fc838` 的 repo-gates（0 binary change、0 production file、release evidence、module import）及暂存/工作树 secret hygiene 已通过；最新清单补入所有 4 个 detached HEAD，均为 main 祖先。
+
+## 审读合并与文档交付
+
+- 审读 PR #250 已普通 merge 到 main `2cf4bbd5f01792b5fb06f7d5b7f380e6447fb004`（2026-10-17T09:26:28Z），六项必需 CI/CodeQL/敏感信息及仓库门全部成功。未管理员绕过。
+- 文档分支已 fetch 并集成该新 main，仅开放索引出现预期冲突：保留本分支新任务导航和经核实的原关闭状态；审读已完成，不重新加入开放索引。两个审读任务的交付记录更新为真实合并结果，冻结评测数字与原始证据不变。
+- 下一步：提交文档集成与关闭说明、创建文档 PR，等待该固定 head 必需门禁通过后普通 merge。

@@ -12,6 +12,11 @@ from evals.report import (
     render_markdown_report,
 )
 from evals.review import (
+    EDITORIAL_BLIND_REVIEWER,
+    EDITORIAL_BLIND_REVIEWERS,
+    EDITORIAL_NULLABLE_KEYS,
+    EDITORIAL_RUBRIC_KEYS,
+    EditorialBlindReviewRecord,
     ReviewRecord,
     apply_review_records,
     export_review_csv,
@@ -20,6 +25,7 @@ from evals.review import (
     human_review_quality,
     inter_reviewer_agreement,
     judge_human_agreement,
+    load_editorial_blind_reviews,
     load_review_records,
     select_balanced_review_supplement,
     select_double_review_cases,
@@ -251,6 +257,156 @@ def test_edited_review_requires_corrected_reference() -> None:
             [ReviewRecord(case_id="rag-edit", status="edited")],
             reviewer_version="human-v1",
         )
+
+
+def test_editorial_blind_review_import_requires_all_rubric_and_finding_labels(
+    tmp_path: Path,
+) -> None:
+    record = EditorialBlindReviewRecord(
+        case_id="blind-random-id",
+        reviewer_version=EDITORIAL_BLIND_REVIEWER,
+        expected_result="report",
+        case_outcome="hit",
+        scores={
+            key: {"score": 2, "reason": "理由。", "quote": "输出原文。"}
+            for key in EDITORIAL_RUBRIC_KEYS
+        },
+        finding_count=1,
+        finding_assessments=[
+            {
+                "finding_index": 0,
+                "classification": "hit",
+                "reason": "对应预期问题。",
+                "quote": "这条意见。",
+            }
+        ],
+    )
+    path = tmp_path / "ratings.jsonl"
+    path.write_text(record.model_dump_json() + "\n", encoding="utf-8")
+
+    assert load_editorial_blind_reviews(path) == [record]
+
+    bad_record = record.model_dump(mode="json")
+    bad_record["scores"].pop(next(iter(EDITORIAL_RUBRIC_KEYS)))
+    with pytest.raises(ValueError, match="all 15"):
+        EditorialBlindReviewRecord.model_validate(bad_record)
+
+    miss = EditorialBlindReviewRecord.model_validate(
+        {
+            **record.model_dump(mode="json"),
+            "case_outcome": "miss",
+            "finding_assessments": [
+                {
+                    **record.finding_assessments[0].model_dump(),
+                    "classification": "false_positive",
+                }
+            ],
+            "missed_expected_issues": ["正文承诺的问题未被发现。"],
+        }
+    )
+    assert miss.case_outcome == "miss"
+
+
+def test_editorial_related_and_fixed_reviewer_labels() -> None:
+    scores = {
+        key: {"score": 2, "reason": "理由。", "quote": "输出原文。"}
+        for key in EDITORIAL_RUBRIC_KEYS
+    }
+    related = {
+        "finding_index": 0,
+        "classification": "related",
+        "reason": "落在同一问题区域，但没有点明目标失配。",
+        "quote": "这条意见。",
+    }
+    record = EditorialBlindReviewRecord(
+        case_id="blind-related",
+        reviewer_version=EDITORIAL_BLIND_REVIEWERS[1],
+        expected_result="report",
+        case_outcome="miss",
+        scores=scores,
+        finding_count=1,
+        finding_assessments=[related],
+        missed_expected_issues=["目标失配本身未被指出。"],
+    )
+    assert record.finding_assessments[0].classification == "related"
+
+    unchecked = EditorialBlindReviewRecord.model_validate(
+        {
+            **record.model_dump(mode="json"),
+            "expected_result": "unchecked",
+            "case_outcome": "unchecked_missed",
+        }
+    )
+    assert unchecked.case_outcome == "unchecked_missed"
+
+    with pytest.raises(ValueError, match="all be false positives"):
+        EditorialBlindReviewRecord.model_validate(
+            {
+                **record.model_dump(mode="json"),
+                "expected_result": "no_report",
+                "case_outcome": "false_positive",
+            }
+        )
+
+    with pytest.raises(ValueError, match="Input should be"):
+        EditorialBlindReviewRecord.model_validate(
+            {
+                **record.model_dump(mode="json"),
+                "reviewer_version": "AI 盲评（其他模型，单评阅者）",
+            }
+        )
+
+
+def test_editorial_blind_review_null_scores_only_mark_inapplicable_items() -> None:
+    def scores(null_keys):
+        return {
+            key: {"score": None, "reason": "无意见，不适用。", "quote": ""}
+            if key in null_keys
+            else {"score": 2, "reason": "理由。", "quote": "输出原文。"}
+            for key in EDITORIAL_RUBRIC_KEYS
+        }
+
+    empty = {
+        "case_id": "blind-empty",
+        "reviewer_version": EDITORIAL_BLIND_REVIEWER,
+        "expected_result": "no_report",
+        "case_outcome": "no_report",
+        "scores": scores(EDITORIAL_NULLABLE_KEYS),
+        "finding_count": 0,
+        "finding_assessments": [],
+    }
+    record = EditorialBlindReviewRecord.model_validate(empty)
+    assert record.scores["direction_actionability"].score is None
+
+    with pytest.raises(ValueError, match="exactly when there are no findings"):
+        EditorialBlindReviewRecord.model_validate(
+            {**empty, "scores": scores({"post_revision_judgment"})}
+        )
+    with pytest.raises(ValueError, match="exactly when there are no findings"):
+        EditorialBlindReviewRecord.model_validate(
+            {
+                **empty,
+                "expected_result": "report",
+                "case_outcome": "hit",
+                "finding_count": 1,
+                "finding_assessments": [
+                    {
+                        "finding_index": 0,
+                        "classification": "hit",
+                        "reason": "对应预期问题。",
+                        "quote": "这条意见。",
+                    }
+                ],
+            }
+        )
+    with pytest.raises(ValueError, match="may be null"):
+        EditorialBlindReviewRecord.model_validate(
+            {**empty, "scores": scores(EDITORIAL_NULLABLE_KEYS | {"source_misread"})}
+        )
+    with pytest.raises(ValueError, match="must quote"):
+        bad = scores(EDITORIAL_NULLABLE_KEYS)
+        bad["source_misread"]["quote"] = ""
+        EditorialBlindReviewRecord.model_validate({**empty, "scores": bad})
 
 
 def test_independent_review_disagreement_requires_adjudication() -> None:
