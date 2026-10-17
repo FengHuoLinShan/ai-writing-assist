@@ -51,6 +51,7 @@ from modules.story.exploration_feature import require_story_exploration_enabled
 from modules.story.exploration_recommend import recommend_exploration_scale
 from modules.story.exploration_schemas import (
     AUTHOR_EDIT_OUTPUT_KIND,
+    EVENT_HINT_LITERAL,
     EVENT_OUTPUT_KIND,
     PAYLOAD_MODELS_BY_BASE_KIND,
     SANDBOX_OUTPUT_KIND,
@@ -123,6 +124,7 @@ class ExplorationPreviewApiRequest(_ApiModel):
 
     反事实对照（M2）：提供 ``counterfactual_of_result_id`` + ``changed_assumptions``
     时由服务端从基线结果克隆起点，响应带 ``derived_start`` 与含基线身份的预算。
+    事件模式提示（M2）：``event_mode_hint`` 仅在显式指定事件尺度时接受。
     """
 
     novel_id: str
@@ -135,6 +137,7 @@ class ExplorationPreviewApiRequest(_ApiModel):
     changed_assumptions: list[Assumption] | None = Field(
         default=None, min_length=1, max_length=10
     )
+    event_mode_hint: EVENT_HINT_LITERAL | None = None
 
     @model_validator(mode="after")
     def validate_counterfactual(self):
@@ -144,6 +147,8 @@ class ExplorationPreviewApiRequest(_ApiModel):
             counterfactual_of_result_id=self.counterfactual_of_result_id,
             changed_assumptions=self.changed_assumptions,
         )
+        if self.event_mode_hint is not None and self.scale != "event":
+            raise ValueError("event_mode_hint 仅支持事件尺度，请显式指定 scale=event")
         return self
 
 
@@ -270,11 +275,11 @@ def _generation_action(base_kind: str, payload: dict) -> str:
     if base_kind == SANDBOX_OUTPUT_KIND:
         return SANDBOX_ACTION
     if base_kind == EVENT_OUTPUT_KIND:
-        return (
-            EVENT_BRIDGE_ACTION
-            if payload.get("mode") == "bridge"
-            else EVENT_DIAGNOSE_ACTION
-        )
+        # 诊断与导向走 diagnose/bridge 两动作；goal 与 bridge 共用补桥链路，
+        # 导向 prompt 由根冻结的 event_mode_hint 注入。
+        if payload.get("mode") == "diagnose":
+            return EVENT_DIAGNOSE_ACTION
+        return EVENT_BRIDGE_ACTION
     return SCENE_LINE_ACTION
 
 
@@ -381,10 +386,19 @@ async def build_exploration_preview(db, data: ExplorationPreviewApiRequest) -> d
         )
     elif data.start is not None:
         budget = preview_exploration_budget(
-            novel_id=data.novel_id, scale=scale, start=data.start, focus=data.focus
+            novel_id=data.novel_id,
+            scale=scale,
+            start=data.start,
+            focus=data.focus,
+            event_mode_hint=data.event_mode_hint,
         )
     else:
-        budget = _advisory_budget(novel_id=data.novel_id, scale=scale, focus=data.focus)
+        budget = _advisory_budget(
+            novel_id=data.novel_id,
+            scale=scale,
+            focus=data.focus,
+            event_mode_hint=data.event_mode_hint,
+        )
     response = {
         "recommended_scale": scale,
         "recommendation_reason": reason or "按你指定的尺度预览",
@@ -416,7 +430,7 @@ async def build_exploration_preview(db, data: ExplorationPreviewApiRequest) -> d
 
 
 def _advisory_budget(
-    *, novel_id: str, scale: str, focus: str
+    *, novel_id: str, scale: str, focus: str, event_mode_hint: str | None = None
 ) -> ExplorationBudgetPreview:
     """未提供起点时的名义预算：请求次数为硬约定，Token 按焦点长度粗估。"""
     from infrastructure.llm.collaboration import content_hash
@@ -424,20 +438,21 @@ def _advisory_budget(
     chars = len(focus)
     tokens_min = max(1, chars // 4) + 100
     tokens_max = max(tokens_min, chars // 2 + 400)
+    identity: dict = {
+        "novel_id": str(novel_id),
+        "scale": scale,
+        "focus_chars": chars,
+        "advisory": True,
+    }
+    if event_mode_hint is not None:
+        identity["event_mode_hint"] = str(event_mode_hint)
     return ExplorationBudgetPreview(
         requests_min=1,
         requests_max=1,
         follow_up_max_requests=1,
         tokens_min=tokens_min,
         tokens_max=tokens_max,
-        preview_hash=content_hash(
-            {
-                "novel_id": str(novel_id),
-                "scale": scale,
-                "focus_chars": chars,
-                "advisory": True,
-            }
-        ),
+        preview_hash=content_hash(identity),
     )
 
 
@@ -612,6 +627,7 @@ async def start_exploration_task(
         changed_assumptions=(
             list(data.changed_assumptions) if counterfactual_of else None
         ),
+        event_mode_hint=data.event_mode_hint,
     )
     if budget.preview_hash != data.budget_preview_hash:
         raise ConflictError("起点或焦点已变化，请重新预览预算")
@@ -642,6 +658,7 @@ async def start_exploration_task(
         changed_assumptions=(
             list(data.changed_assumptions) if counterfactual_of else None
         ),
+        event_mode_hint=data.event_mode_hint,
     )
     started_at = datetime.now(UTC)
     envelope = new_ai_run_envelope(

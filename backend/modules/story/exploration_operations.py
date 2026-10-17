@@ -16,6 +16,7 @@ from sqlalchemy import select
 from modules.project.facade import require_active_project
 from modules.story.exploration_recommend import recommend_exploration_scale
 from modules.story.exploration_schemas import (
+    EVENT_HINT_LITERAL,
     ExplorationCompareRequest,
     ExplorationScale,
 )
@@ -81,7 +82,11 @@ class ExplorationPreviewOperationRequest(BaseModel):
 
 
 class ExplorationStartOperationRequest(BaseModel):
-    """发起探索任务；与 REST /start 同一执行路径（幂等 operation_id）。"""
+    """发起探索任务；与 REST /start 同一执行路径（幂等 operation_id）。
+
+    ``event_mode_hint``（M2）仅事件尺度接受：info_gap → 信息差诊断，
+    goal → 导向路径；与 action 的配对校验由 apply 侧契约模型完成。
+    """
 
     model_config = ConfigDict(extra="forbid")
 
@@ -95,6 +100,7 @@ class ExplorationStartOperationRequest(BaseModel):
     operation_id: str = Field(min_length=1, max_length=64)
     time_budget_seconds: int = Field(default=3600, ge=1, le=6 * 3600)
     target_ref: str | None = Field(default=None, min_length=1, max_length=64)
+    event_mode_hint: EVENT_HINT_LITERAL | None = None
 
 
 class ExplorationDetailOperationRequest(BaseModel):
@@ -215,7 +221,11 @@ async def _prepare_start(db, novel_id, args, *, context=None):
         and str(options.get("exploration_focus") or "") == str(args.focus or "")
     )
     budget = preview_exploration_budget(
-        novel_id=novel_id, scale=args.scale, start=start, focus=args.focus
+        novel_id=novel_id,
+        scale=args.scale,
+        start=start,
+        focus=args.focus,
+        event_mode_hint=args.event_mode_hint,
     )
     return {
         "confirmed": consistent,
@@ -249,6 +259,8 @@ async def _apply_start(db, novel_id, args, preview, *, context=None):
     }
     if args.target_ref:
         payload["target_ref"] = args.target_ref
+    if args.event_mode_hint:
+        payload["event_mode_hint"] = args.event_mode_hint
     return await start_exploration_task(
         db, data=ExplorationStartApiRequest.model_validate(payload)
     )

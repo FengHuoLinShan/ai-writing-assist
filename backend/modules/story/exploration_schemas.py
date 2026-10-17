@@ -28,6 +28,15 @@ EXPLORATION_OUTPUT_SCHEMA_VERSION: Literal[1] = 1
 COUNTERFACTUAL_ASSUMPTION_KINDS: tuple[str, ...] = ("world_rule", "state")
 COUNTERFACTUAL_MAX_ASSUMPTIONS = 10
 
+# 事件任务模式提示（M2）：info_gap → 信息差诊断（配 diagnose 动作）；
+# goal → 导向路径（配 bridge 动作，复用 B2，不另造规划器）。
+EVENT_MODE_HINTS: tuple[str, ...] = ("info_gap", "goal")
+EVENT_HINT_LITERAL = Literal["info_gap", "goal"]
+EVENT_HINT_REQUIRED_ACTION: dict[str, str] = {
+    "info_gap": "story.exploration.event.diagnose",
+    "goal": "story.exploration.event.bridge",
+}
+
 SANDBOX_OUTPUT_KIND = "story.exploration.sandbox"
 EVENT_OUTPUT_KIND = "story.exploration.event"
 SCENE_LINE_OUTPUT_KIND = "story.exploration.scene_line"
@@ -148,13 +157,73 @@ class EventUnsolvable(ExplorationModel):
         return values
 
 
-class EventOutputV1(ExplorationModel):
-    """B2 事件输出：诊断缺口或补桥候选；诊断模式禁止 bridge_candidates。"""
+class InfoGap(ExplorationModel):
+    """事件信息差（M2）：单个主体的知识边界与缺失接触路径。
 
-    mode: Literal["diagnose", "bridge"]
+    主体用候选 ref 或描述之一标识；knows/not_known 逐条列出，未声明即未知，
+    不替角色补全未发生的信息。
+    """
+
+    subject_ref: str | None = Field(default=None, min_length=1, max_length=64)
+    subject_description: str | None = Field(
+        default=None, min_length=1, max_length=500
+    )
+    knows: list[str] = Field(default_factory=list, max_length=12)
+    not_known: list[str] = Field(default_factory=list, max_length=12)
+    missing_contact_path: bool
+
+    @field_validator("knows", "not_known")
+    @classmethod
+    def validate_knowledge_lists(cls, values: list[str]) -> list[str]:
+        _check_text_list("info_boundary text list", values, max_length=500)
+        return values
+
+    @model_validator(mode="after")
+    def validate_subject_identified(self):
+        if not self.subject_ref and not self.subject_description:
+            raise ValueError("info_boundary 条目必须提供 subject_ref 或主体描述之一")
+        return self
+
+
+class GoalPathStep(ExplorationModel):
+    """导向路径的最小环节：行动—条件—响应—后果—代价，缺一不可。"""
+
+    action: str = Field(min_length=1, max_length=500)
+    condition: str = Field(min_length=1, max_length=500)
+    response: str = Field(min_length=1, max_length=500)
+    consequence: str = Field(min_length=1, max_length=500)
+    cost_or_risk: str = Field(min_length=1, max_length=500)
+
+
+class GoalPath(ExplorationModel):
+    """事件导向路径（M2）：指定结果的最小行动链；缺条件走 unsolvable，
+    不编造巧合或性格突变。"""
+
+    goal: str = Field(min_length=1, max_length=1000)
+    steps: list[GoalPathStep] = Field(min_length=1, max_length=8)
+    rule_constraints: list[str] = Field(default_factory=list, max_length=10)
+    unsolvable: EventUnsolvable | None = None
+
+    @field_validator("rule_constraints")
+    @classmethod
+    def validate_rule_constraints(cls, values: list[str]) -> list[str]:
+        _check_text_list("goal_path.rule_constraints", values, max_length=500)
+        return values
+
+
+class EventOutputV1(ExplorationModel):
+    """B2 事件输出：诊断缺口、补桥候选或导向路径；三模式输出互斥。
+
+    v1 内扩展（M2）：新增可选 ``info_boundary``（信息差模式逐人列知识边界）
+    与 ``goal_path``（导向模式），旧载荷缺省字段即可读，不升 schema 版本。
+    """
+
+    mode: Literal["diagnose", "bridge", "goal"]
     original_excerpt: str = Field(min_length=1, max_length=4000)
     gaps: list[GapFinding] = Field(default_factory=list, max_length=12)
     bridge_candidates: list[BridgePath] = Field(default_factory=list, max_length=6)
+    goal_path: GoalPath | None = None
+    info_boundary: list[InfoGap] = Field(default_factory=list, max_length=12)
     unsolvable: EventUnsolvable | None = None
     unknowns: list[str] = Field(default_factory=list, max_length=12)
     warnings: list[str] = Field(default_factory=list, max_length=12)
@@ -172,8 +241,18 @@ class EventOutputV1(ExplorationModel):
                 raise ValueError("diagnose 模式至少给出一处缺口")
             if self.bridge_candidates:
                 raise ValueError("diagnose 模式不得给出补桥候选")
-        elif not self.bridge_candidates and self.unsolvable is None:
-            raise ValueError("bridge 模式无可信路径时必须给出 unsolvable 及缺项")
+            if self.goal_path is not None:
+                raise ValueError("diagnose 模式不得给出导向路径")
+        elif self.mode == "bridge":
+            if self.goal_path is not None:
+                raise ValueError("bridge 模式不得给出导向路径")
+            if not self.bridge_candidates and self.unsolvable is None:
+                raise ValueError("bridge 模式无可信路径时必须给出 unsolvable 及缺项")
+        else:
+            if self.goal_path is None:
+                raise ValueError("goal 模式必须给出 goal_path")
+            if self.bridge_candidates:
+                raise ValueError("goal 模式不得给出补桥候选")
         return self
 
 
@@ -366,6 +445,7 @@ class ExplorationRequestBase(ExplorationModel):
         min_length=1,
         max_length=COUNTERFACTUAL_MAX_ASSUMPTIONS,
     )
+    event_mode_hint: EVENT_HINT_LITERAL | None = None
 
     @field_validator("novel_id")
     @classmethod
@@ -401,6 +481,8 @@ class ExplorationRequestBase(ExplorationModel):
         )
         if self.counterfactual_of_result_id is None and self.start is None:
             raise ValueError("请提供探索起点 start，或反事实基线与变更条件")
+        if self.event_mode_hint is not None and self.scale != "event":
+            raise ValueError("event_mode_hint 仅支持事件尺度")
         return self
 
 
@@ -419,6 +501,10 @@ class ExplorationConfirmationPreviewRequest(ExplorationRequestBase):
     def validate_action_matches_scale(self):
         if self.action not in _SCALE_ACTION_BY_SCALE[self.scale]:
             raise ValueError("action 与探索尺度不匹配")
+        # 事件模式提示与动作配对：信息差走诊断，导向走补桥（复用 B2 链路）。
+        expected = EVENT_HINT_REQUIRED_ACTION.get(self.event_mode_hint or "")
+        if expected is not None and self.action != expected:
+            raise ValueError("event_mode_hint 与事件动作不匹配")
         return self
 
 
@@ -521,6 +607,9 @@ __all__ = [
     "AUTHOR_EDIT_OUTPUT_KIND",
     "COUNTERFACTUAL_ASSUMPTION_KINDS",
     "COUNTERFACTUAL_MAX_ASSUMPTIONS",
+    "EVENT_HINT_LITERAL",
+    "EVENT_HINT_REQUIRED_ACTION",
+    "EVENT_MODE_HINTS",
     "EVENT_OUTPUT_KIND",
     "EXPLORATION_ACTIONS",
     "EXPLORATION_OUTPUT_SCHEMA_VERSION",
@@ -546,7 +635,10 @@ __all__ = [
     "ExplorationStartTaskRequest",
     "ExplorationTokenEstimate",
     "GapFinding",
+    "GoalPath",
+    "GoalPathStep",
     "InfluenceLink",
+    "InfoGap",
     "ProvisionalStart",
     "PAYLOAD_MODELS_BY_BASE_KIND",
     "SandboxOutputV1",

@@ -52,11 +52,13 @@ def exploration_preview_identity(
     focus: str = "",
     counterfactual_of_result_id: str | None = None,
     changed_assumptions: list[Assumption] | None = None,
+    event_mode_hint: str | None = None,
 ) -> dict:
     """预算预览身份：起点、尺度与焦点任一变化都会改变 preview_hash。
 
     反事实对照（M2）额外把基线结果 id 与 changed_assumptions 纳入身份，
     保证“同一起点改不同条件”得到不同的预算指纹，worker 可重算复核。
+    事件模式提示（M2）同样纳入身份：信息差与导向路径是不同的任务变体。
     """
 
     identity: dict = {
@@ -66,6 +68,8 @@ def exploration_preview_identity(
         "input_chars": _start_input_chars(start),
         "start": start.model_dump(mode="json"),
     }
+    if event_mode_hint is not None:
+        identity["event_mode_hint"] = str(event_mode_hint)
     if counterfactual_of_result_id is not None:
         identity["counterfactual_of_result_id"] = str(counterfactual_of_result_id)
         identity["changed_assumptions"] = [
@@ -82,6 +86,7 @@ def preview_exploration_budget(
     focus: str = "",
     counterfactual_of_result_id: str | None = None,
     changed_assumptions: list[Assumption] | None = None,
+    event_mode_hint: str | None = None,
 ) -> ExplorationBudgetPreview:
     if scale not in _OUTPUT_LOW_CHARS_BY_SCALE:
         raise ValueError(f"不支持的探索尺度：{scale}")
@@ -111,6 +116,7 @@ def preview_exploration_budget(
                 focus=focus,
                 counterfactual_of_result_id=counterfactual_of_result_id,
                 changed_assumptions=changed_assumptions,
+                event_mode_hint=event_mode_hint,
             )
         ),
     )
