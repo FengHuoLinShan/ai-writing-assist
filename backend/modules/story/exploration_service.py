@@ -32,6 +32,7 @@ from modules.story.exploration_schemas import (
     EVENT_MODE_HINTS,
     EVENT_OUTPUT_KIND,
     EXPLORATION_OUTPUT_SCHEMA_VERSION,
+    FULL_REHEARSAL_OUTPUT_KIND,
     LOCK_SET_OUTPUT_KIND,
     PAYLOAD_MODELS_BY_BASE_KIND,
     SANDBOX_OUTPUT_KIND,
@@ -1300,6 +1301,11 @@ def _result_label_of_kind(output_kind: str, payload: dict) -> str:
         return str(payload.get("question") or "")[:120]
     if output_kind == EVENT_OUTPUT_KIND:
         return str(payload.get("original_excerpt") or "")[:120]
+    if output_kind == FULL_REHEARSAL_OUTPUT_KIND:
+        # 完整排演（M3-B）：以首轮第一张表演卡为摘要，空则给稳定占位文本。
+        rounds = payload.get("rounds") or []
+        first_card = ((rounds or [{}])[0].get("performances") or [{}])[0]
+        return (str(first_card.get("line_or_beat") or "") or "（完整排演）")[:120]
     line = str(payload.get("line") or "")
     if not line:
         variants = payload.get("variants") or []

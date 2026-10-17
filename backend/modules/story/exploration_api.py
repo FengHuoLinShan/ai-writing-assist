@@ -55,6 +55,7 @@ from modules.story.exploration_schemas import (
     AUTHOR_EDIT_OUTPUT_KIND,
     EVENT_HINT_LITERAL,
     EVENT_OUTPUT_KIND,
+    FULL_REHEARSAL_OUTPUT_KIND,
     LOCK_SET_OUTPUT_KIND,
     MULTI_TARGETS_MAX,
     MULTI_TARGETS_MIN,
@@ -325,8 +326,15 @@ def _effective_output_kind(envelope) -> str:
 
 
 def require_scene_follow_up_supported(envelope) -> None:
-    """多目标对白与空间诊断结果（M2）暂不支持“说详细点”/局部修订：尽早失败关闭。"""
+    """多目标对白/空间诊断（M2）与完整排演（M3-B）结果暂不支持“说详细点”/
+    局部修订，也不可锁定单条目：尽早失败关闭。
+
+    完整排演整体落一行、按 (目标数 + 1) × 轮次 分开计量，增量修订的
+    item_path 语法不适用；作者需要调整时请新建任务。
+    """
     payload = envelope.payload
+    if envelope.output_kind == FULL_REHEARSAL_OUTPUT_KIND:
+        raise ConflictError("完整排演结果暂不支持增量修订，请新建任务")
     if envelope.output_kind == AUTHOR_EDIT_OUTPUT_KIND:
         if payload.base_output_kind != SCENE_LINE_OUTPUT_KIND:
             return

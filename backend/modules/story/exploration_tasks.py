@@ -3,9 +3,14 @@
 两个 task_handler 承担三档探索任务：
 - ``story_exploration_progression_task``：B1 沙盘与 B2 事件（诊断/补桥），
   结果写 ``story_world_progression_steps``（零参与者紧凑步骤）。
-- ``story_exploration_scene_task``：B3 场景一句对白，结果写
-  ``story_scene_director_rounds``；canonical 目标生成后做 hidden guard
-  消费方校验，违规即失败不落库。
+- ``story_exploration_scene_task``：B3 场景一句对白（含多目标/空间诊断/
+  M3-B 完整排演），结果写 ``story_scene_director_rounds``；canonical 目标
+  生成后做 hidden guard 消费方校验，违规即失败不落库。
+
+完整排演（M3-B）：worker 读取根与任务冻结的 ``full_rehearsal`` 意图，逐轮
+对每个目标一次表演卡生成（各自知识/误信包），每轮末一次作者侧统筹调用
+（素材/观察/状态），每轮后提交式检查点支持暂停续跑；候选目标不创建正式
+角色或 Scene，作者私密目的只进作者统筹包。
 
 骨架对齐 ``director_tasks`` / ``world_progression_tasks``：never_retry、
 信封身份校验、冻结起点与任务 meta/根 request 比对、preview hash 重算、
@@ -50,6 +55,8 @@ from modules.story.exploration_schemas import (
     EVENT_HINT_REQUIRED_ACTION,
     EVENT_OUTPUT_KIND,
     EXPLORATION_OUTPUT_SCHEMA_VERSION,
+    FULL_REHEARSAL_OUTPUT_KIND,
+    FULL_REHEARSAL_ROUNDS_MIN,
     LOCK_SET_OUTPUT_KIND,
     MULTI_TARGETS_MAX,
     MULTI_TARGETS_MIN,
@@ -57,6 +64,11 @@ from modules.story.exploration_schemas import (
     SCENE_LINE_OUTPUT_KIND,
     EventOutputV1,
     ExplorationOutputEnvelope,
+    FullRehearsalOutputV1,
+    FullRehearsalPerformance,
+    FullRehearsalRequest,
+    FullRehearsalRound,
+    FullRehearsalRoundOrchestration,
     SandboxOutputV1,
     SceneLineOutputV1,
 )
@@ -174,6 +186,34 @@ SPATIAL_UNKNOWN_DISCLOSURE = "缺尺寸/路线资料，无法核验"
 
 _SPATIAL_ENTITY_TYPES = frozenset({"location", "item"})
 _SPATIAL_MATERIAL_CHAR_CAP = 6000
+
+# ---------------------------------------------------------------------------
+# 完整排演（M3-B）：检查点模式、系统 prompt 与步骤名
+# ---------------------------------------------------------------------------
+
+# pending_round_json.mode 取值：完整排演有自己的检查点模式，避免“普通 start
+# 任务误续跑排演分支”或反向混跑（_require_pending_mode 失败关闭）。
+FULL_REHEARSAL_PENDING_MODE = "full_rehearsal"
+
+# 表演卡沿用已注册动作 story.exploration.scene_line.generate（Evidence 能力
+# 与确认校验不变）；统筹调用是不同的生成步骤，step 名仅供运行轨迹区分。
+FULL_REHEARSAL_ORCHESTRATION_STEP = "story.exploration.full_rehearsal.orchestration"
+
+FULL_REHEARSAL_CARD_PROMPT = (
+    "你是小说作者的排演指导。为指定目标生成本轮的一张表演卡：line_or_beat 写"
+    "该目标的一句台词或一个动作节拍，rationale 写动机与依据，basis_refs 逐条"
+    "引用输入包里列出的可知信息。该角色只知道输入包明确列出的可知信息，未声明"
+    "的信息一律未知；作者私享信息与作者的排演目的绝不可出现在台词、动机或依据"
+    "里。只输出这一张表演卡，不生成其他目标、素材或整场正文。"
+)
+
+FULL_REHEARSAL_ORCHESTRATION_PROMPT = (
+    "你是小说作者的排演统筹器。只依据本轮全部表演卡与已确认资料输出三类内容："
+    "materials 场景素材（environment/object/crowd/mood/pacing/time 六类之一，"
+    "标注感知者，感知者只能是本次排演目标）；observations 逐个目标写它本轮实际"
+    "注意到的事（没有就留空，不替角色补充未观察的信息）；state_notes 用少量"
+    "要点记录各目标的状态变化。不写台词，不创建角色或 Scene，不输出正文。"
+)
 
 
 def _event_mode_hint_for(root_request: dict, action: str) -> str | None:
@@ -379,6 +419,7 @@ def _require_preview_hash(
     event_mode_hint: str | None = None,
     multi_targets: list[str] | None = None,
     diagnostic_question: str | None = None,
+    full_rehearsal: FullRehearsalRequest | None = None,
 ) -> None:
     current = preview_exploration_budget(
         novel_id=novel_id,
@@ -390,6 +431,7 @@ def _require_preview_hash(
         event_mode_hint=event_mode_hint,
         multi_targets=multi_targets,
         diagnostic_question=diagnostic_question,
+        full_rehearsal=full_rehearsal,
     )
     if current.preview_hash != expected:
         raise ValueError("起点或焦点已变化，预算预览不一致，失败关闭")
@@ -666,17 +708,218 @@ def _scene_multi_targets(request: dict, *, mode: str) -> list[str] | None:
     return targets
 
 
-def _scene_full_rehearsal(request: dict, *, mode: str) -> dict | None:
+def _scene_full_rehearsal(
+    request: dict, *, mode: str, root_request: dict | None = None
+) -> FullRehearsalRequest | None:
     """读取根冻结请求里的完整排演意图（M3-B）。
 
-    本切片只交付契约与预览层：请求一旦携带 full_rehearsal 即失败关闭，
-    不落旧表演卡链路；逐轮表演卡/素材/观察统筹由下一个 worker 执行切片
-    读取同一冻结载荷实现（预算已按 (N+1)×轮次 冻结在任务 meta）。
+    只在 start 模式接受；载荷畸形或与根 request_json 冻结的排演意图不一致
+    即失败关闭（不退化为聚焦表演卡链路）。返回解析后的排演意图，无排演
+    返回 None。预算已按 (目标数 + 1) × 轮次 冻结在任务 meta 与根信封。
     """
     raw = request.get("full_rehearsal")
     if raw is None:
         return None
-    raise ValueError("完整排演执行器尚未接入，任务失败关闭；请等待完整排演执行上线")
+    if mode != "start":
+        raise ValueError("完整排演只在 start 模式支持，失败关闭")
+    if not isinstance(raw, dict):
+        raise ValueError("完整排演请求载荷畸形，失败关闭")
+    rehearsal = FullRehearsalRequest.model_validate(raw)
+    if root_request is not None and (
+        (root_request or {}).get("full_rehearsal")
+        != rehearsal.model_dump(mode="json")
+    ):
+        raise ValueError("任务排演意图与探索根冻结意图不一致，失败关闭")
+    return rehearsal
+
+
+# ---------------------------------------------------------------------------
+# 完整排演（M3-B）：输入包构造与执行循环
+# ---------------------------------------------------------------------------
+
+
+def _rehearsal_scene_context(start) -> dict:
+    """表演卡与统筹包共用的场景背景：问题、假设、时点。
+
+    注意（M3-B 隐私边界）：这里刻意不含 ``author_private`` 与
+    ``author_goal``——两者只允许出现在作者统筹包里，绝不进入任何目标角色包；
+    由 ``test_full_rehearsal_author_goal_only_in_author_packets`` 断言。
+    """
+    return {
+        "question": start.question,
+        "assumptions": [
+            {"kind": item.kind, "text": item.text} for item in start.assumptions
+        ],
+        "time_basis": start.time_basis,
+    }
+
+
+def _rehearsal_performance_packet(
+    *,
+    start,
+    focus: str,
+    target_ref: str,
+    confirmed,
+    round_number: int,
+    previous_round: FullRehearsalRound | None,
+) -> dict:
+    """单目标角色包：各自知识/误信 + 上一轮观察回执，不含作者私密内容。
+
+    候选目标只渲染其 KnowledgeEntry（未声明一律未知）；正式角色给已确认
+    编译产物 + 带“场景本地假设”前缀的 scene_stimuli，隐藏真相不在资料里。
+    """
+    is_candidate = target_ref.startswith("c_")
+    data: dict = {
+        "mode": "full_rehearsal_performance",
+        "round": round_number,
+        "focus": focus,
+        "target": {
+            "ref": target_ref,
+            "kind": "candidate" if is_candidate else "canonical_character",
+        },
+        "scene": _rehearsal_scene_context(start),
+        "output_rule": (
+            "只输出这张表演卡：target_ref 填你的目标 ref；line_or_beat 一句台词"
+            "或一个动作节拍；rationale 写动机与依据；basis_refs 只引用输入包里"
+            "列出的可知信息。"
+        ),
+    }
+    if isinstance(start, ProvisionalStart):
+        if is_candidate:
+            entry = next(
+                (item for item in start.knowledge if item.subject_ref == target_ref),
+                None,
+            )
+            data["target_knowledge"] = {
+                "knows": list(entry.knows) if entry else [],
+                "observed": list(entry.observed) if entry else [],
+                "misbelieves": list(entry.misbelieves) if entry else [],
+                "rule": "未声明的信息一律未知；不得推断补充。",
+            }
+        else:
+            stimuli = _canonical_stimuli(start, target_ref)
+            if stimuli:
+                data["target_scene_stimuli"] = stimuli
+            data["target_dossier_note"] = (
+                "正式角色资料只以作者确认的编译产物为准；隐藏真相不在你收到的资料里。"
+            )
+    data["confirmed_material"] = confirmed.rendered_markdown or ""
+    if previous_round is not None:
+        previous_card = next(
+            (
+                card
+                for card in previous_round.performances
+                if card.target_ref == target_ref
+            ),
+            None,
+        )
+        own_observations = [
+            observation.observed
+            for observation in previous_round.observations
+            if observation.target_ref == target_ref
+        ]
+        data["previous_round"] = {
+            "round_number": previous_round.round_number,
+            **(
+                {"own_performance": previous_card.model_dump(mode="json")}
+                if previous_card is not None
+                else {}
+            ),
+            "own_observations": own_observations,
+        }
+    return data
+
+
+def _rehearsal_orchestration_packet(
+    *,
+    start,
+    focus: str,
+    confirmed,
+    rehearsal: FullRehearsalRequest,
+    round_number: int,
+    round_cards: list[FullRehearsalPerformance],
+    prior_rounds: list[FullRehearsalRound],
+    prior_state_notes: list[str],
+) -> dict:
+    """作者统筹包：可含 author_goal 与作者私享；产出只回作者侧字段。
+
+    ``author_goal``（作者私密目的）只允许出现在本包——统筹调用的输入里可含，
+    绝不进任何目标角色包（见 ``_rehearsal_performance_packet`` 注释）。
+    """
+    author_goal = str(rehearsal.author_goal or "")
+    data: dict = {
+        "mode": "full_rehearsal_orchestration",
+        "round": round_number,
+        "targets": list(rehearsal.targets),
+        "author_packet": {
+            **_rehearsal_scene_context(start),
+            "focus": focus,
+            **({"author_goal": author_goal} if author_goal else {}),
+            "author_private": list(getattr(start, "author_private", []) or []),
+        },
+        "round_performances": [
+            card.model_dump(mode="json") for card in round_cards
+        ],
+        "output_rule": (
+            "materials 每条标 kind 与感知者（感知者只能在本次排演目标里选）；"
+            "observations 逐个目标写它本轮实际注意到的事，没有就留空；"
+            "state_notes 记录各目标状态要点（每轮最多 4 条）。"
+        ),
+    }
+    if isinstance(start, ProvisionalStart):
+        data["author_packet"]["web_refs"] = [
+            {"url": item.url, "title": item.title, "excerpt": item.excerpt[:400]}
+            for item in start.web_refs
+        ]
+    if prior_rounds or prior_state_notes:
+        data["prior_rounds"] = [
+            {
+                "round_number": round_item.round_number,
+                "materials": [
+                    item.model_dump(mode="json") for item in round_item.materials
+                ],
+                "observations": [
+                    item.model_dump(mode="json") for item in round_item.observations
+                ],
+            }
+            for round_item in prior_rounds
+        ]
+        if prior_state_notes:
+            data["prior_state_notes"] = list(prior_state_notes)
+    data["confirmed_material"] = confirmed.rendered_markdown or ""
+    return data
+
+
+def _assert_rehearsal_character_inputs_clean(
+    orchestration: FullRehearsalRoundOrchestration,
+    *,
+    author_goal: str,
+    author_private: list[str],
+) -> None:
+    """信任边界校验：素材/观察回执会进入下一轮角色包，作者私密内容混入即失败关闭。
+
+    author_goal 与 author_private 只允许存在于作者统筹输入与作者侧 state_notes
+    汇总；materials/observations 是下一轮角色包的直接来源，服务端逐字比对。
+    """
+    secrets = [item for item in [author_goal, *author_private] if item]
+    if not secrets:
+        return
+    text = json.dumps(
+        {
+            "materials": [
+                item.model_dump(mode="json") for item in orchestration.materials
+            ],
+            "observations": [
+                item.model_dump(mode="json") for item in orchestration.observations
+            ],
+        },
+        ensure_ascii=False,
+    )
+    for secret in secrets:
+        if str(secret) in text:
+            raise ValueError(
+                "排演素材或观察回执混入了作者私密内容；本次结果不落库，请重试"
+            )
 
 
 def _scene_diagnostic_request(
@@ -941,6 +1184,9 @@ async def _load_parent_result(db, *, model, novel_id: str, branch, parent_id: st
         raise ValueError("作者编辑版本不能继续详略或修订；请回到原始 AI 结果")
     if base_envelope.output_kind == LOCK_SET_OUTPUT_KIND:
         raise ValueError("锁定记录不是可修订的探索结果；请回到 AI 结果")
+    if base_envelope.output_kind == FULL_REHEARSAL_OUTPUT_KIND:
+        # 完整排演（M3-B）整体落一行：不做增量修订，绕过 API 直接入队也失败关闭。
+        raise ValueError("完整排演结果暂不支持增量修订，请新建任务")
     return parent_row, base_envelope.payload.model_dump(mode="json")
 
 
@@ -979,16 +1225,25 @@ async def _hidden_guard_terms(db, confirmed) -> list:
     return await build_hidden_guard_context(db, confirmed_context=confirmed)
 
 
-def _assert_scene_output_within_guard(output: SceneLineOutputV1, terms: list) -> None:
-    """hidden truth 短语出现在输出即失败不落库。"""
+def _assert_content_within_guard(data: dict, terms: list, *, message: str) -> None:
+    """hidden truth 短语出现在载荷 JSON 里即失败关闭（消息按消费方定制）。"""
     from modules.evidence.compilation.knowledge import redact_hidden_phrases
 
-    text = json.dumps(output.model_dump(mode="json"), ensure_ascii=False)
+    text = json.dumps(data, ensure_ascii=False)
     if redact_hidden_phrases(text, [term.phrase for term in terms]) != text:
-        raise ValueError(
+        raise ValueError(message)
+
+
+def _assert_scene_output_within_guard(output: SceneLineOutputV1, terms: list) -> None:
+    """hidden truth 短语出现在输出即失败不落库。"""
+    _assert_content_within_guard(
+        output.model_dump(mode="json"),
+        terms,
+        message=(
             "生成的一句对白触碰了该角色的隐藏信息边界；本次结果不落库，"
             "请调整目标角色或资料范围后重试"
-        )
+        ),
+    )
 
 
 async def _validate_canonical_scene_line(
@@ -1128,6 +1383,229 @@ async def _run_scene_generation(
         if mode == "revise"
         else output
     )
+
+
+# ---------------------------------------------------------------------------
+# Worker 2 变体：临时起点完整排演（M3-B）
+# ---------------------------------------------------------------------------
+
+
+async def _generate_rehearsal_performance(
+    client, *, user_data: dict
+) -> FullRehearsalPerformance:
+    """完整排演表演卡：一次有界结构化生成（沿用已注册动作的 step 名）。"""
+    return await run_managed_structured(
+        client,
+        LLMCallRequest(
+            model=client.model_name,
+            messages=[
+                LLMMessage(role="system", content=FULL_REHEARSAL_CARD_PROMPT),
+                LLMMessage(
+                    role="user", content=json.dumps(user_data, ensure_ascii=False)
+                ),
+            ],
+        ),
+        FullRehearsalPerformance,
+        step_name=SCENE_LINE_ACTION,
+        capability_id=EXPLORATION_CAPABILITY,
+        max_fix_attempts=0,
+        transport_retries=False,
+    )
+
+
+async def _generate_rehearsal_orchestration(
+    client, *, user_data: dict
+) -> FullRehearsalRoundOrchestration:
+    """完整排演统筹：每轮一次，素材/观察/状态（作者侧输入包）。"""
+    return await run_managed_structured(
+        client,
+        LLMCallRequest(
+            model=client.model_name,
+            messages=[
+                LLMMessage(role="system", content=FULL_REHEARSAL_ORCHESTRATION_PROMPT),
+                LLMMessage(
+                    role="user", content=json.dumps(user_data, ensure_ascii=False)
+                ),
+            ],
+        ),
+        FullRehearsalRoundOrchestration,
+        step_name=FULL_REHEARSAL_ORCHESTRATION_STEP,
+        capability_id=EXPLORATION_CAPABILITY,
+        max_fix_attempts=0,
+        transport_retries=False,
+    )
+
+
+def _rehearsal_pending_state(
+    pending: dict, rehearsal: FullRehearsalRequest
+) -> tuple[int, list[FullRehearsalRound], list[str]]:
+    """读取检查点里的续跑状态：畸形或与冻结意图不一致即失败关闭。
+
+    返回 ``(起始轮, 已完成轮, 已累积状态要点)``；已完成轮在恢复时不重跑，
+    中断轮（尚未进入 completed_rounds）整轮重来，与 provider 前检查点语义一致。
+    """
+    frozen = pending.get("full_rehearsal")
+    if frozen != rehearsal.model_dump(mode="json"):
+        raise ValueError("未完成排演检查点与本次排演意图不一致，失败关闭")
+    start_round = pending.get("round_number")
+    completed_raw = pending.get("completed_rounds")
+    state_notes = pending.get("state_notes")
+    if (
+        not isinstance(start_round, int)
+        or not (FULL_REHEARSAL_ROUNDS_MIN <= start_round <= rehearsal.rounds)
+        or not isinstance(completed_raw, list)
+        or len(completed_raw) != start_round - 1
+        or not isinstance(state_notes, list)
+        or not all(isinstance(item, str) for item in state_notes)
+    ):
+        raise ValueError("排演检查点状态畸形，失败关闭；请新建任务")
+    return (
+        start_round,
+        [FullRehearsalRound.model_validate(item) for item in completed_raw],
+        [str(item) for item in state_notes],
+    )
+
+
+async def _run_full_rehearsal(
+    db,
+    *,
+    task,
+    novel_id: str,
+    root,
+    branch,
+    envelope,
+    guard: dict,
+    run_snapshot: dict,
+    start,
+    focus: str,
+    confirmed,
+    rehearsal: FullRehearsalRequest,
+    pending: dict,
+) -> FullRehearsalOutputV1:
+    """逐轮执行完整排演（M3-B）：表演卡 → 每轮统筹 → 每轮后提交式检查点。
+
+    预算按实际调用计量 ((目标数 + 1) × 轮次)；每次 provider 请求前先提交
+    检查点，请求间预算到达即暂停（沿用 paused_* 语义）。轮内中断整轮重来，
+    已完成轮由 ``completed_rounds`` 承载，恢复续跑不重跑。暂停用硬阈值检查
+    （对齐旧导演逐请求检查）：软 80% 提示不中断有界排演的正常完成。
+    """
+    targets = list(rehearsal.targets)
+    _start_round, completed_rounds, state_notes = _rehearsal_pending_state(
+        pending, rehearsal
+    )
+    guard_terms: list | None = None
+
+    def _commit_pending() -> None:
+        # round_number 恒等于 1 + 已完成轮数：恢复续跑时同一不变量可复核
+        # （_rehearsal_pending_state 要求 len(completed_rounds) == round_number - 1）。
+        pending["round_number"] = 1 + len(completed_rounds)
+        pending["completed_rounds"] = [
+            item.model_dump(mode="json") for item in completed_rounds
+        ]
+        pending["state_notes"] = list(state_notes)
+        # 每次赋新 dict：JSON 列重复赋同一对象不触发变更追踪。
+        branch.pending_round_json = dict(pending)
+
+    async with open_project_snapshot_llm_client(db, novel_id, run_snapshot) as client:
+        while 1 + len(completed_rounds) <= rehearsal.rounds:
+            round_number = 1 + len(completed_rounds)
+            previous_round = completed_rounds[-1] if completed_rounds else None
+            cards: list[FullRehearsalPerformance] = []
+            for target_ref in targets:
+                stop = budget_stop_reason(
+                    envelope, check_soft_thresholds=False, **guard
+                )
+                if stop:
+                    raise ExplorationPauseError(stop)
+                _commit_pending()
+                await _checkpoint(
+                    db,
+                    root,
+                    branch,
+                    error_message="探索 provider 请求需要先提交检查点",
+                )
+                card = await _generate_rehearsal_performance(
+                    client=client,
+                    user_data=_rehearsal_performance_packet(
+                        start=start,
+                        focus=focus,
+                        target_ref=target_ref,
+                        confirmed=confirmed,
+                        round_number=round_number,
+                        previous_round=previous_round,
+                    ),
+                )
+                if str(card.target_ref) != target_ref:
+                    raise ValueError("排演表演卡目标与请求目标不一致")
+                if not target_ref.startswith("c_"):
+                    # canonical 目标：生成后 hidden guard 消费方校验（对齐
+                    # writing 消费方方式），违规即失败不落库。
+                    if guard_terms is None:
+                        guard_terms = await _hidden_guard_terms(db, confirmed)
+                    _assert_content_within_guard(
+                        card.model_dump(mode="json"),
+                        guard_terms,
+                        message=(
+                            "生成的排演表演卡触碰了该角色的隐藏信息边界；"
+                            "本次结果不落库，请调整目标角色或资料范围后重试"
+                        ),
+                    )
+                cards.append(card)
+            stop = budget_stop_reason(envelope, check_soft_thresholds=False, **guard)
+            if stop:
+                raise ExplorationPauseError(stop)
+            _commit_pending()
+            await _checkpoint(
+                db, root, branch, error_message="探索 provider 请求需要先提交检查点"
+            )
+            orchestration = await _generate_rehearsal_orchestration(
+                client=client,
+                user_data=_rehearsal_orchestration_packet(
+                    start=start,
+                    focus=focus,
+                    confirmed=confirmed,
+                    rehearsal=rehearsal,
+                    round_number=round_number,
+                    round_cards=cards,
+                    prior_rounds=list(completed_rounds),
+                    prior_state_notes=list(state_notes),
+                ),
+            )
+            # 信任边界：素材/观察回执进入下一轮角色包，作者私密内容混入即失败。
+            _assert_rehearsal_character_inputs_clean(
+                orchestration,
+                author_goal=str(rehearsal.author_goal or ""),
+                author_private=list(getattr(start, "author_private", []) or []),
+            )
+            completed_rounds.append(
+                FullRehearsalRound(
+                    round_number=round_number,
+                    performances=cards,
+                    materials=orchestration.materials,
+                    observations=orchestration.observations,
+                )
+            )
+            state_notes = list(
+                dict.fromkeys([*state_notes, *orchestration.state_notes])
+            )
+            _commit_pending()
+            await _checkpoint(
+                db, root, branch, error_message="排演轮次检查点未保存"
+            )
+            task.update_progress(
+                min(0.95, len(completed_rounds) / max(1, rehearsal.rounds) * 0.95)
+            )
+
+    output = FullRehearsalOutputV1(
+        targets=targets,
+        rounds=list(completed_rounds),
+        state_notes=list(state_notes),
+    )
+    if len(output.rounds) != rehearsal.rounds:
+        # 循环不变量：恰好完成全部轮次；FullRehearsalOutputV1 还会复核编号
+        # 连续与每轮表演卡恰好覆盖全部目标。
+        raise ValueError("完整排演轮次不完整，失败关闭")
+    return output
 
 
 def _request_context(meta: dict, root_request: dict) -> tuple[str, str, dict, str]:
@@ -1630,7 +2108,11 @@ async def handle_story_exploration_scene(db, task):
     )
     if multi_targets and diagnostic_question:
         raise ValueError("multi_targets 与 diagnostic 互斥，失败关闭")
-    _scene_full_rehearsal(scene_request, mode=mode)
+    rehearsal = _scene_full_rehearsal(
+        scene_request, mode=mode, root_request=root_request
+    )
+    if rehearsal is not None and (multi_targets or diagnostic_question):
+        raise ValueError("完整排演与 multi_targets/diagnostic 互斥，失败关闭")
     if mode == "start":
         _require_preview_hash(
             novel_id=novel_id,
@@ -1640,6 +2122,7 @@ async def handle_story_exploration_scene(db, task):
             expected=str(meta.get("budget_preview_hash") or ""),
             multi_targets=multi_targets,
             diagnostic_question=diagnostic_question,
+            full_rehearsal=rehearsal,
         )
 
     confirmed = await prepare_confirmed_ai_action(
@@ -1698,7 +2181,10 @@ async def handle_story_exploration_scene(db, task):
                     "请先解锁或重新锁定"
                 )
 
-    if mode == "start":
+    if rehearsal is not None:
+        # 完整排演（M3-B）：目标由 full_rehearsal.targets 承载，无单目标。
+        target_ref = ""
+    elif mode == "start":
         if multi_targets or diagnostic_question:
             # 多目标由 variants 承载、空间诊断由 spatial_assessment 承载，无单目标。
             target_ref = ""
@@ -1714,80 +2200,130 @@ async def handle_story_exploration_scene(db, task):
             raise ValueError("场景一句对白必须指定目标角色")
 
     pending = dict(branch.pending_round_json or {})
-    _require_pending_mode(pending, mode)
+    _require_pending_mode(
+        pending, FULL_REHEARSAL_PENDING_MODE if rehearsal is not None else mode
+    )
     root.status = "running"
     branch.status = "running"
     if not pending:
-        pending = {
-            "mode": mode,
-            "parent_result_id": parent_id,
-            "start": start_dump,
-            "scale": scale,
-            "focus": focus,
-            "target_ref": target_ref,
-            **({"multi_targets": multi_targets} if multi_targets else {}),
-            **(
-                {"diagnostic_question": diagnostic_question}
-                if diagnostic_question
-                else {}
-            ),
-        }
+        if rehearsal is not None:
+            pending = {
+                "mode": FULL_REHEARSAL_PENDING_MODE,
+                "parent_result_id": None,
+                "start": start_dump,
+                "scale": scale,
+                "focus": focus,
+                "full_rehearsal": rehearsal.model_dump(mode="json"),
+                "round_number": 1,
+                "completed_rounds": [],
+                "state_notes": [],
+            }
+        else:
+            pending = {
+                "mode": mode,
+                "parent_result_id": parent_id,
+                "start": start_dump,
+                "scale": scale,
+                "focus": focus,
+                "target_ref": target_ref,
+                **({"multi_targets": multi_targets} if multi_targets else {}),
+                **(
+                    {"diagnostic_question": diagnostic_question}
+                    if diagnostic_question
+                    else {}
+                ),
+            }
         branch.pending_round_json = pending
     await _checkpoint(db, root, branch, error_message="探索检查点未保存，未开始模型请求")
 
     run_snapshot = _require_run_snapshot(meta, root, novel_id)
 
     try:
-        payload = await _run_scene_generation(
-            db,
-            novel_id=novel_id,
-            root=root,
-            branch=branch,
-            envelope=envelope,
-            guard=guard,
-            run_snapshot=run_snapshot,
-            action=action,
-            mode=mode,
-            start=start,
-            focus=focus,
-            confirmed=confirmed,
-            instruction=str(meta.get("instruction") or ""),
-            target_ref=target_ref,
-            parent_payload=parent_payload,
-            item_path=item_path,
-            multi_targets=multi_targets,
-            diagnostic_question=diagnostic_question,
-            diagnostic_subject=diagnostic_subject,
-        )
-        honored_locks: list[str] = []
-        if mode in {"detail", "revise"} and locked_specs:
-            # 服务端强制回填：锁定台词以父 payload 为准逐字恢复，不靠模型自觉。
-            payload_dict, honored_locks = _enforce_locked_items(
-                parent_payload,
-                payload.model_dump(mode="json"),
-                locked_specs,
-                SCENE_LINE_OUTPUT_KIND,
+        if rehearsal is not None:
+            # 完整排演（M3-B）：逐轮表演卡 + 每轮统筹，结果整体落一行。
+            payload = await _run_full_rehearsal(
+                db,
+                task=task,
+                novel_id=novel_id,
+                root=root,
+                branch=branch,
+                envelope=envelope,
+                guard=guard,
+                run_snapshot=run_snapshot,
+                start=start,
+                focus=focus,
+                confirmed=confirmed,
+                rehearsal=rehearsal,
+                pending=pending,
             )
-            payload = SceneLineOutputV1.model_validate(payload_dict)
-        envelope_out = ExplorationOutputEnvelope(
-            output_kind=SCENE_LINE_OUTPUT_KIND,
-            schema_version=EXPLORATION_OUTPUT_SCHEMA_VERSION,
-            payload=payload,
-        )
-        row = await _write_scene_result(
-            db,
-            root=root,
-            branch=branch,
-            parent_id=parent_id,
-            envelope=envelope_out,
-            mode=mode,
-            envelope_run=envelope,
-            item_path=item_path or None,
-            item_content_hash=item_content_hash,
-            honored_locks=honored_locks,
-            multi_targets=multi_targets,
-            diagnostic_question=diagnostic_question,
-        )
+            envelope_out = ExplorationOutputEnvelope(
+                output_kind=FULL_REHEARSAL_OUTPUT_KIND,
+                schema_version=EXPLORATION_OUTPUT_SCHEMA_VERSION,
+                payload=payload,
+            )
+            row = await _write_scene_result(
+                db,
+                root=root,
+                branch=branch,
+                parent_id=None,
+                envelope=envelope_out,
+                mode=FULL_REHEARSAL_PENDING_MODE,
+                envelope_run=envelope,
+                item_path=None,
+                item_content_hash=None,
+                full_rehearsal=rehearsal,
+            )
+        else:
+            payload = await _run_scene_generation(
+                db,
+                novel_id=novel_id,
+                root=root,
+                branch=branch,
+                envelope=envelope,
+                guard=guard,
+                run_snapshot=run_snapshot,
+                action=action,
+                mode=mode,
+                start=start,
+                focus=focus,
+                confirmed=confirmed,
+                instruction=str(meta.get("instruction") or ""),
+                target_ref=target_ref,
+                parent_payload=parent_payload,
+                item_path=item_path,
+                multi_targets=multi_targets,
+                diagnostic_question=diagnostic_question,
+                diagnostic_subject=diagnostic_subject,
+            )
+            honored_locks: list[str] = []
+            if mode in {"detail", "revise"} and locked_specs:
+                # 服务端强制回填：锁定台词以父 payload 为准逐字恢复，不靠模型自觉。
+                payload_dict, honored_locks = _enforce_locked_items(
+                    parent_payload,
+                    payload.model_dump(mode="json"),
+                    locked_specs,
+                    SCENE_LINE_OUTPUT_KIND,
+                )
+                payload = SceneLineOutputV1.model_validate(payload_dict)
+            envelope_out = ExplorationOutputEnvelope(
+                output_kind=SCENE_LINE_OUTPUT_KIND,
+                schema_version=EXPLORATION_OUTPUT_SCHEMA_VERSION,
+                payload=payload,
+            )
+            row = await _write_scene_result(
+                db,
+                root=root,
+                branch=branch,
+                parent_id=parent_id,
+                envelope=envelope_out,
+                mode=mode,
+                envelope_run=envelope,
+                item_path=item_path or None,
+                item_content_hash=item_content_hash,
+                honored_locks=honored_locks,
+                multi_targets=multi_targets,
+                diagnostic_question=diagnostic_question,
+            )
     except ExplorationPauseError as pause:
         return await _pause_scene(db, root, branch, envelope, pause.reason)
     except Exception as error:
@@ -1843,6 +2379,7 @@ async def _write_scene_result(
     honored_locks: list[str] | None = None,
     multi_targets: list[str] | None = None,
     diagnostic_question: str | None = None,
+    full_rehearsal: FullRehearsalRequest | None = None,
 ):
     next_number = (
         await db.scalar(
@@ -1870,6 +2407,10 @@ async def _write_scene_result(
         input_json["multi_targets"] = [str(item) for item in multi_targets]
     if diagnostic_question:
         input_json["diagnostic_question"] = str(diagnostic_question)
+    if full_rehearsal is not None:
+        # 完整排演（M3-B）：结果行记录排演身份（目标与轮次），与聚焦输出区分。
+        input_json["targets"] = [str(item) for item in full_rehearsal.targets]
+        input_json["rounds"] = int(full_rehearsal.rounds)
     row = StorySceneDirectorRound(
         novel_id=root.novel_id,
         root_id=root.id,
