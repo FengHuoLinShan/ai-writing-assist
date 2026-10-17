@@ -31,6 +31,7 @@ from modules.evidence.compilation.contracts import (
 from modules.evidence.compilation.markdown_renderer import (
     render_compiled_context as _render_compiled_context,
 )
+from modules.evidence.compilation.schemas import ExplorationContextRequest
 from modules.evidence.compilation.services import (
     ContextCompiler,
     ContextConfirmationService,
@@ -714,6 +715,22 @@ async def confirm_context(
 ) -> ContextConfirmationContract:
     """确认一次手动 AI 操作的参考资料摘要；请求字段见 ContextConfirmationRequest。"""
     return await _confirmation_service.confirm_context(db, request)
+
+
+async def preview_exploration_context(
+    db: AsyncSession,
+    request: ExplorationContextRequest,
+) -> dict:
+    """导演多尺度独立探索的确认预览；校验与冻结字段见 P0 冻结契约 §2。"""
+    return await _confirmation_service.preview_exploration(db, request)
+
+
+async def confirm_exploration_context(
+    db: AsyncSession,
+    request: ExplorationContextRequest,
+) -> ContextConfirmationContract:
+    """落一次探索确认；起点/尺度/焦点随 compile_options 冻结。"""
+    return await _confirmation_service.confirm_exploration(db, request)
 
 
 async def propose_context_selection(

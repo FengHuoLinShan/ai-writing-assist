@@ -41,6 +41,9 @@ from modules.evidence.compilation.focused_contracts import (  # noqa: F401
 from modules.evidence.compilation.knowledge.llm_schemas import (
     AuditVerdictOutput as AuditVerdictOutput,
 )
+from modules.evidence.compilation.schemas import (
+    ExplorationContextRequest as ExplorationContextRequest,
+)
 from modules.evidence.indexing.contracts import *  # noqa: F403
 from modules.evidence.source_ref_contracts import (  # noqa: F401
     ManuscriptScanCursor as ManuscriptScanCursor,
