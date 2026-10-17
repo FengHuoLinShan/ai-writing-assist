@@ -12,9 +12,12 @@ from __future__ import annotations
 import uuid
 from typing import Literal
 
-from pydantic import BaseModel, ConfigDict, Field, model_validator
+from pydantic import BaseModel, ConfigDict, Field, model_serializer, model_validator
 
 _CANDIDATE_REF_PATTERN = r"^c_[a-z0-9_]{1,63}$"
+
+EXPLORATION_SCALE_LITERAL = Literal["sandbox", "event", "scene_line"]
+HANDOFF_SELECTOR_LITERAL = Literal["author", "assistant"]
 
 
 class ExplorationContractModel(BaseModel):
@@ -95,8 +98,38 @@ class WebRef(ExplorationContractModel):
         return self
 
 
+class HandoffRef(ExplorationContractModel):
+    """跨尺度移交溯源（M4-A 切片 1）：只记直接父结果（一跳），不追全链。
+
+    ``item_path`` 用冻结路径语法（chain:N/gap:N/bridge:N/line）定位被选条目，
+    空串表示整结果移交（目标输入按方向语义全量继承）；
+    ``selector`` 记录选择者（作者直选或助手经操作目录选择），
+    ``reason`` 在助手选择时必填（0..500，记录选择理由供审计）。
+    """
+
+    source_result_id: str = Field(..., description="直接父探索结果行 ID（UUID）")
+    source_scale: EXPLORATION_SCALE_LITERAL
+    item_path: str = Field(default="", max_length=120)
+    selector: HANDOFF_SELECTOR_LITERAL
+    reason: str = Field(default="", max_length=500)
+
+    @model_validator(mode="after")
+    def validate_handoff_ref(self):
+        try:
+            uuid.UUID(self.source_result_id)
+        except (ValueError, AttributeError, TypeError) as error:
+            raise ValueError("handoff.source_result_id must be a UUID") from error
+        if self.selector == "assistant" and not self.reason:
+            raise ValueError("handoff.reason 在助手选择时必填")
+        return self
+
+
 class ProvisionalStart(ExplorationContractModel):
-    """临时假设起点：无 Scene、无正式角色也可开局；空项目资料集同样要有确认。"""
+    """临时假设起点：无 Scene、无正式角色也可开局；空项目资料集同样要有确认。
+
+    ``derived_from``（M4-A）只在跨尺度移交派生的起点上出现；普通起点为
+    None 且序列化时省略该键，旧载荷反序列化与指纹逐字节不变。
+    """
 
     kind: Literal["provisional"]
     question: str = Field(..., min_length=1, max_length=4000)
@@ -110,6 +143,15 @@ class ProvisionalStart(ExplorationContractModel):
     author_private: list[str] = Field(default_factory=list, max_length=20)
     time_basis: str = Field(..., description="“assumed_now” 或 1..500 字符的时点锚点描述")
     web_refs: list[WebRef] = Field(default_factory=list, max_length=10)
+    derived_from: HandoffRef | None = None
+
+    @model_serializer(mode="wrap")
+    def _compatible_shape(self, handler):
+        """旧载荷兼容：无移交时省略 derived_from 键，历史指纹/round-trip 不变。"""
+        data = handler(self)
+        if data.get("derived_from") is None:
+            data.pop("derived_from", None)
+        return data
 
     @model_validator(mode="after")
     def validate_provisional(self):

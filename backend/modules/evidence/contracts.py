@@ -17,6 +17,9 @@ from modules.evidence.compilation.exploration_start import (
     ExplorationStart as ExplorationStart,
 )
 from modules.evidence.compilation.exploration_start import (
+    HandoffRef as HandoffRef,
+)
+from modules.evidence.compilation.exploration_start import (
     KnowledgeEntry as KnowledgeEntry,
 )
 from modules.evidence.compilation.exploration_start import (

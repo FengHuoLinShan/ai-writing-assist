@@ -20,7 +20,9 @@ from core.errors import ConflictError, DomainError, NotFoundError
 from infrastructure.llm.collaboration import content_hash
 from modules.evidence.contracts import (
     Assumption,
+    CandidateRef,
     ExplorationStart,
+    HandoffRef,
     ProvisionalStart,
     SceneAnchorStart,
 )
@@ -1132,6 +1134,441 @@ async def set_exploration_item_lock(
     db.add(row)
     await db.flush()
     return row, new_envelope
+
+
+# ---------------------------------------------------------------------------
+# 明确选择后的跨尺度移交（M4-A 切片 1）：派生临时起点（零模型调用）
+# ---------------------------------------------------------------------------
+
+# 源摘录在问题与假设文本中的截选上限（问题模板自带说明，合计远小于 4000）。
+HANDOFF_SOURCE_EXCERPT_MAX = 400
+
+HANDOFF_SCALES: tuple[str, ...] = ("sandbox", "event", "scene_line")
+
+_SCALE_BY_BASE_OUTPUT_KIND: dict[str, str] = {
+    SANDBOX_OUTPUT_KIND: "sandbox",
+    EVENT_OUTPUT_KIND: "event",
+    SCENE_LINE_OUTPUT_KIND: "scene_line",
+}
+
+_SOURCE_SCALE_LABEL = {
+    "sandbox": "沙盘",
+    "event": "事件",
+    "scene_line": "场景",
+}
+
+# 目标尺度的移交问题模板：携带源摘录（≤400）与来源语境，作者可改。
+_HANDOFF_QUESTION_TEMPLATES = {
+    "sandbox": (
+        "沙盘追因：在既定前提下，「{excerpt}」背后的成因、成立条件与"
+        "更广影响是什么？（本起点由{source}探索移交生成，可修改）"
+    ),
+    "event": (
+        "事件展开：以「{excerpt}」为既定情节，给出把它落到具体事件的最小"
+        "行动—条件—后果链与缺口。（本起点由{source}探索移交生成，可修改）"
+    ),
+    "scene_line": (
+        "场景聚焦：在「{excerpt}」的情境下，写人物的一句真实回应。"
+        "（本起点由{source}探索移交生成，可修改）"
+    ),
+}
+
+
+def _uuid_text(value: str) -> bool:
+    try:
+        uuid.UUID(str(value))
+    except (ValueError, AttributeError, TypeError):
+        return False
+    return True
+
+
+def _handoff_excerpt(text: str) -> str:
+    return " ".join(str(text or "").split())[:HANDOFF_SOURCE_EXCERPT_MAX]
+
+
+def _sandbox_link_excerpt(link: dict) -> str:
+    return _handoff_excerpt(
+        f"{link.get('effect') or ''}（机制：{link.get('mechanism') or ''}）"
+    )
+
+
+def _sandbox_item_excerpt(payload: dict, item_path: str) -> tuple[str, dict]:
+    """沙盘源的锚定条目：chain:N 或整结果时的首要影响（chain:0，可预期）。"""
+    chain = list(payload.get("influence_chain") or [])
+    index = int(item_path.partition(":")[2]) if item_path else 0
+    link = chain[index]
+    return _sandbox_link_excerpt(link), link
+
+
+def _event_item_excerpt(payload: dict, item_path: str) -> tuple[str, dict | None]:
+    """事件源的锚定摘录：gap:N / bridge:N；整结果给事件摘录或导向摘要。"""
+    mode = str(payload.get("mode") or "")
+    if not item_path:
+        if mode == "goal":
+            goal = payload.get("goal_path") or {}
+            steps = " → ".join(
+                str(step.get("action") or "") for step in goal.get("steps") or []
+            )
+            return _handoff_excerpt(
+                f"{payload.get('original_excerpt') or ''}"
+                f"（导向目标：{goal.get('goal') or ''}；路径：{steps}）"
+            ), goal
+        return _handoff_excerpt(payload.get("original_excerpt") or ""), None
+    kind, _, raw_index = item_path.partition(":")
+    index = int(raw_index)
+    if kind == "gap":
+        gap = (payload.get("gaps") or [])[index]
+        why = gap.get("why_needed") or ""
+        text = f"{gap.get('description') or ''}（需要解释：{why}）"
+        if gap.get("possible_fix_hint"):
+            text += f"（候选解释：{gap['possible_fix_hint']}，待验证）"
+        return _handoff_excerpt(text), gap
+    bridge = (payload.get("bridge_candidates") or [])[index]
+    steps = " → ".join(str(step) for step in bridge.get("steps") or [])
+    conditions = "；".join(str(item) for item in bridge.get("required_conditions") or [])
+    text = f"补桥路径：{steps}"
+    if conditions:
+        text += f"（前提：{conditions}）"
+    return _handoff_excerpt(text), bridge
+
+
+def _scene_line_excerpt(payload: dict, labels: dict[str, str]) -> str:
+    target = str(payload.get("target_ref") or "")
+    speaker = labels.get(target, target or "人物")
+    text = f"{speaker}说：「{payload.get('line') or ''}」"
+    if payload.get("action"):
+        text += f"（动作：{payload['action']}）"
+    return _handoff_excerpt(text)
+
+
+def _candidate_labels(source_start: ProvisionalStart | None) -> dict[str, str]:
+    if source_start is None:
+        return {}
+    return {item.ref_id: item.label for item in source_start.candidates}
+
+
+def _migrate_subjects(
+    source_start: ProvisionalStart | None,
+    refs: list[str],
+) -> tuple[list[CandidateRef], list[str], list]:
+    """只迁移被选条目涉及的主体（候选身份与可知包），顺序保持、去重。
+
+    源起点未声明且不是 UUID 的引用保守跳过，不伪造身份；正文/知识逐字复制。
+    """
+    wanted = list(dict.fromkeys(str(ref) for ref in refs if ref))
+    candidates: list[CandidateRef] = []
+    canonical: list[str] = []
+    for ref in wanted:
+        match = (
+            next(
+                (item for item in source_start.candidates if item.ref_id == ref),
+                None,
+            )
+            if source_start is not None
+            else None
+        )
+        if match is not None:
+            candidates.append(match.model_copy(deep=True))
+        elif _uuid_text(ref):
+            canonical.append(ref)
+        # 其余引用（如自由文本）无法安全映射为身份，保守省略。
+    knowledge = [
+        entry.model_copy(deep=True)
+        for entry in (source_start.knowledge if source_start is not None else [])
+        if entry.subject_ref in set(wanted)
+    ]
+    return candidates, canonical, knowledge
+
+
+def _sandbox_affected_refs(payload: dict, item_path: str) -> list[str]:
+    chain = list(payload.get("influence_chain") or [])
+    if item_path:
+        index = int(item_path.partition(":")[2])
+        links = [chain[index]]
+    else:
+        links = chain
+    refs: list[str] = []
+    for link in links:
+        refs.extend(str(ref) for ref in link.get("affected_refs") or [])
+    return refs
+
+
+async def build_handoff_start(
+    db,
+    novel_id: str,
+    owner_id: str,
+    source_result_id: str,
+    target_scale: str,
+    item_path: str,
+    selector: str,
+    reason: str,
+) -> tuple[ProvisionalStart, str]:
+    """把一次明确选择的 AI 探索结果派生为目标尺度的临时起点（M4-A 切片 1）。
+
+    只迁移被选条目涉及的假设与主体（``item_path`` 过滤；空=整结果才全量），
+    未选分支不进入派生起点；``derived_from`` 只记直接父（一跳）。
+    返回 ``(派生起点, 源起点指纹)``；随后作者走既有 confirmation
+    preview/confirm/start，``derived_from`` 随起点冻结进确认 compile_options。
+    """
+
+    if target_scale not in HANDOFF_SCALES:
+        raise DomainError(f"不支持的移交目标尺度：{target_scale}")
+    if selector not in ("author", "assistant"):
+        raise DomainError(f"未知的选择者：{selector}")
+    if selector == "assistant" and not str(reason or "").strip():
+        raise DomainError("助手移交必须记录选择理由", status_code=422)
+    await _require_project(db, novel_id, owner_id)
+    row, chain = await _locate_result_row(db, novel_id, source_result_id)
+    envelope = unpack_exploration_output(row)
+    if envelope is None:
+        raise ConflictError("所选结果不是探索结果，无法移交")
+    if envelope.output_kind in (AUTHOR_EDIT_OUTPUT_KIND, LOCK_SET_OUTPUT_KIND):
+        raise ConflictError("只有 AI 探索结果可以移交；作者编辑与锁定记录不能作为移交源")
+    if envelope.output_kind == FULL_REHEARSAL_OUTPUT_KIND:
+        raise ConflictError("完整排演结果暂不支持跨尺度移交；请回到聚焦结果")
+    source_scale = _SCALE_BY_BASE_OUTPUT_KIND.get(envelope.output_kind)
+    if source_scale is None:
+        raise ConflictError("所选结果不是可移交的探索结果")
+    if source_scale == target_scale:
+        raise ConflictError(
+            "源尺度与目标尺度相同；同层请继续使用“说详细点”/局部修订/同起点重来"
+        )
+
+    payload = envelope.payload.model_dump(mode="json")
+    if source_scale == "scene_line" and (
+        payload.get("variants") is not None
+        or payload.get("spatial_assessment") is not None
+    ):
+        raise ConflictError(
+            "多目标对白与空间诊断结果没有单一移交条目，暂不支持跨尺度移交"
+        )
+
+    item_path = str(item_path or "").strip()
+    if item_path:
+        from modules.story.exploration_tasks import check_revision_target
+
+        try:
+            check_revision_target(payload, item_path, None, envelope.output_kind)
+        except ValueError as error:
+            raise ConflictError(str(error)) from error
+
+    root = await _root_for_chain(db, novel_id, row.root_id, chain)
+    root_request = dict(root.request_json or {})
+    source_fingerprint = str(root_request.get("exploration_start_fingerprint") or "")
+    start_dump = dict(root_request.get("exploration_start") or {})
+    source_start: ProvisionalStart | None = None
+    if start_dump.get("kind") == "provisional":
+        source_start = ProvisionalStart.model_validate(start_dump)
+
+    labels = _candidate_labels(source_start)
+    assumptions, candidates, canonical_refs, knowledge = _handoff_derived_inputs(
+        source_scale,
+        target_scale,
+        payload,
+        item_path,
+        source_start,
+        labels,
+    )
+    excerpt = _handoff_source_excerpt(source_scale, payload, item_path, labels)
+    question = _HANDOFF_QUESTION_TEMPLATES[target_scale].format(
+        excerpt=excerpt,
+        source=_SOURCE_SCALE_LABEL[source_scale],
+    )
+    if source_start is not None:
+        time_basis = source_start.time_basis
+    else:
+        time_basis = (
+            f"沿用源场景探索的 Scene 锚点时点（scene_id={start_dump.get('scene_id')}）"
+        )
+    derived = ProvisionalStart(
+        kind="provisional",
+        question=question,
+        assumptions=assumptions,
+        candidates=candidates,
+        canonical_refs=canonical_refs,
+        knowledge=knowledge,
+        time_basis=time_basis,
+        derived_from=HandoffRef(
+            source_result_id=str(row.id),
+            source_scale=source_scale,  # type: ignore[arg-type]
+            item_path=item_path,
+            selector=selector,  # type: ignore[arg-type]
+            reason=str(reason or "").strip(),
+        ),
+    )
+    return derived, source_fingerprint
+
+
+def _handoff_source_excerpt(
+    source_scale: str,
+    payload: dict,
+    item_path: str,
+    labels: dict[str, str],
+) -> str:
+    if source_scale == "sandbox":
+        text, _link = _sandbox_item_excerpt(payload, item_path)
+        return text
+    if source_scale == "event":
+        text, _item = _event_item_excerpt(payload, item_path)
+        return text
+    return _scene_line_excerpt(payload, labels)
+
+
+def _handoff_derived_inputs(
+    source_scale: str,
+    target_scale: str,
+    payload: dict,
+    item_path: str,
+    source_start: ProvisionalStart | None,
+    labels: dict[str, str],
+) -> tuple[list[Assumption], list[CandidateRef], list[str], list]:
+    """按六方向语义派生假设与主体（计划 §5 M4-A：条件/身份/时间/知识完整）。"""
+
+    inherited = list(source_start.assumptions) if source_start is not None else []
+
+    if source_scale == "sandbox":
+        text, _link = _sandbox_item_excerpt(payload, item_path)
+        # 被选影响链条目的 effect/mechanism 并为一条 state 假设置顶；
+        # 源起点假设（前提集）全量继承，未选链条条目不进入。
+        assumptions = [_state(f"源沙盘探索的既定影响：{text}")]
+        assumptions.extend(inherited)
+        refs = _sandbox_affected_refs(payload, item_path)
+        candidates, canonical, knowledge = _migrate_subjects(source_start, refs)
+        return assumptions, candidates, canonical, knowledge
+
+    if source_scale == "event":
+        if target_scale == "scene_line":
+            text, item = _event_item_excerpt(payload, item_path)
+            # 源事件摘录（或被选条目）为 state 假设；主体迁移按被选条目过滤。
+            assumptions = [_state(f"源事件探索的既定情节：{text}")]
+            refs = _event_item_refs(payload, item_path, item)
+        else:
+            # 追因：被选缺口/路径的前提转 world_rule/state 假设。
+            assumptions = _event_premise_assumptions(payload, item_path)
+            refs = []
+        return assumptions, *_migrate_subjects(source_start, refs)
+
+    # scene_line 源：对白/动作与其依据转 state 假设；目标主体迁移。
+    text = _scene_line_excerpt(payload, labels)
+    target = str(payload.get("target_ref") or "")
+    speaker = labels.get(target, target or "人物")
+    basis = str(payload.get("rationale") or "")
+    knowledge_basis = [str(item) for item in payload.get("knowledge_basis") or []]
+    if knowledge_basis:
+        basis = "；".join([basis, *knowledge_basis])
+    moment = f"源场景探索的已发生时刻：{text}（依据：{basis}）"
+    if target_scale == "event":
+        # 追因：对白/动作与其依据转 state 假设 + identity 假设（动机待探）。
+        assumptions = [
+            _state(moment),
+            _identity(
+                f"{speaker} 在该情境下的动机尚待探明"
+                "（以上对白/动作只作已发生记录，不预设动机）"
+            ),
+        ]
+    else:
+        # 看影响：情境假设继承 + 已发生时刻置顶。
+        assumptions = [_state(f"{moment}；观察它的后续影响"), *inherited]
+    candidates, canonical, knowledge = _migrate_subjects(
+        source_start, [target] if target else []
+    )
+    return assumptions, candidates, canonical, knowledge
+
+
+def _event_item_refs(payload: dict, item_path: str, item: dict | None) -> list[str]:
+    """事件条目涉及的主体：整结果取全部主体；单条目按文本包含保守匹配。
+
+    事件载荷的结构化主体只在 ``info_boundary.subject_ref`` 上；单条目
+    （gap/bridge）没有结构化主体引用，用主体 ID 是否出现在条目展示文本
+    中做保守匹配——匹配不到就不迁移，不伪造涉及关系。
+    """
+
+    refs = _payload_candidate_refs(payload)
+    if not item_path:
+        return refs
+    if item is None:
+        return []
+    text = exploration_entry_display_text(item_path, item)
+    return [ref for ref in refs if ref in text]
+
+
+def _payload_candidate_refs(payload: dict) -> list[str]:
+    refs = [
+        str(entry.get("subject_ref") or "")
+        for entry in payload.get("info_boundary") or []
+    ]
+    return [ref for ref in refs if ref]
+
+
+def _event_premise_assumptions(payload: dict, item_path: str) -> list[Assumption]:
+    """事件→沙盘追因：被选条目的前提转假设；未选缺口/路径不进入。
+
+    事件 rule_constraints 是规则 → world_rule；缺口与事实前提 → state。
+    """
+    mode = str(payload.get("mode") or "")
+    if not item_path:
+        if mode == "goal":
+            return _goal_premise_assumptions(payload)
+        rows = (
+            list(payload.get("gaps") or [])
+            if mode == "diagnose"
+            else list(payload.get("bridge_candidates") or [])
+        )
+        prefix = "gap" if mode == "diagnose" else "bridge"
+        assumptions: list[Assumption] = []
+        for index in range(len(rows)):
+            assumptions.extend(_event_premise_assumptions(payload, f"{prefix}:{index}"))
+        return assumptions
+    kind, _, raw_index = item_path.partition(":")
+    index = int(raw_index)
+    if kind == "gap":
+        gap = (payload.get("gaps") or [])[index]
+        text = f"源事件缺口「{gap.get('description') or ''}」待追因；"
+        text += f"它要成立需要：{gap.get('why_needed') or ''}"
+        if gap.get("possible_fix_hint"):
+            text += f"（候选解释：{gap['possible_fix_hint']}，待沙盘验证）"
+        return [_state(text)]
+    bridge = (payload.get("bridge_candidates") or [])[index]
+    steps = " → ".join(str(step) for step in bridge.get("steps") or [])
+    result: list[Assumption] = [_state(f"源事件探索选定的补桥路径：{steps}")]
+    for condition in bridge.get("required_conditions") or []:
+        result.append(_state(f"源补桥路径的待核实前提：{condition}"))
+    return result
+
+
+def _goal_premise_assumptions(payload: dict) -> list[Assumption]:
+    goal = payload.get("goal_path") or {}
+    assumptions = [
+        _rule(f"源事件导向的既定约束：{constraint}")
+        for constraint in goal.get("rule_constraints") or []
+    ]
+    unsolvable = goal.get("unsolvable")
+    if unsolvable:
+        missing = "；".join(str(item) for item in unsolvable.get("missing") or [])
+        assumptions.append(
+            _state(
+                f"目标「{goal.get('goal') or ''}」在源探索中无法达成；"
+                f"缺项：{missing or unsolvable.get('reason') or ''}"
+            )
+        )
+        return assumptions
+    steps = " → ".join(str(step.get("action") or "") for step in goal.get("steps") or [])
+    assumptions.append(
+        _state(f"源事件探索选定的导向路径：{goal.get('goal') or ''}（{steps}）")
+    )
+    return assumptions
+
+
+def _state(text: str) -> Assumption:
+    return Assumption(kind="state", text=text[:2000])
+
+
+def _rule(text: str) -> Assumption:
+    return Assumption(kind="world_rule", text=text[:2000])
+
+
+def _identity(text: str) -> Assumption:
+    return Assumption(kind="identity", text=text[:2000])
 
 
 # ---------------------------------------------------------------------------
