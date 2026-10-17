@@ -13,6 +13,7 @@ from modules.story.exploration_budget import preview_exploration_budget
 from modules.story.exploration_schemas import (
     EVENT_OUTPUT_KIND,
     SANDBOX_OUTPUT_KIND,
+    SCENE_LINE_OUTPUT_KIND,
     EventOutputV1,
     ExplorationOutputEnvelope,
     SandboxOutputV1,
@@ -1045,4 +1046,130 @@ def test_generation_action_keeps_goal_and_info_gap_on_event_actions():
     assert (
         exploration_api._generation_action(EVENT_OUTPUT_KIND, {"mode": "bridge"})
         == exploration_api.EVENT_BRIDGE_ACTION
+    )
+
+
+# ---------------------------------------------------------------------------
+# 场景多目标与空间诊断（M2）：目标解析互斥、续算失败关闭
+# ---------------------------------------------------------------------------
+
+
+def _scene_start_data(**overrides):
+    from modules.story.exploration_api import ExplorationStartApiRequest
+
+    payload = {
+        "novel_id": str(uuid.uuid4()),
+        "scale": "scene_line",
+        "action": "story.exploration.scene_line.generate",
+        "start": {
+            "kind": "provisional",
+            "question": "雨夜站台，对方刚提完离职，各自会说什么？",
+            "assumptions": [{"kind": "state", "text": "雨夜站台，两人共撑一伞"}],
+            "candidates": [
+                {"ref_id": "c_franks", "label": "坦率者", "role": "character"},
+                {"ref_id": "c_evasive", "label": "回避者", "role": "character"},
+            ],
+            "time_basis": "assumed_now",
+        },
+        "context_confirmation_id": "ctx-m2",
+        "budget_preview_hash": "f" * 64,
+        "operation_id": str(uuid.uuid4()),
+    }
+    payload.update(overrides)
+    return ExplorationStartApiRequest.model_validate(payload)
+
+
+def test_resolve_scene_target_rejects_multi_with_target_ref():
+    """multi_targets 与 target_ref 互斥；目标必须落在候选/正式角色内。"""
+    from modules.story.exploration_api import _resolve_scene_target
+
+    data = _scene_start_data(
+        target_ref="c_franks", multi_targets=["c_franks", "c_evasive"]
+    )
+    with pytest.raises(ValueError, match="互斥"):
+        _resolve_scene_target(data)
+    # 多目标成员越界拒绝
+    outside = _scene_start_data(multi_targets=["c_franks", "c_stranger"])
+    with pytest.raises(ValueError, match="不在本次探索"):
+        _resolve_scene_target(outside)
+    # 合法多目标：无单目标锁定
+    ok = _scene_start_data(multi_targets=["c_franks", "c_evasive"])
+    assert _resolve_scene_target(ok) is None
+
+
+def test_resolve_scene_target_rejects_diagnostic_with_target_ref():
+    from modules.story.exploration_api import _resolve_scene_target
+
+    data = _scene_start_data(
+        target_ref="c_franks",
+        diagnostic={"question": "醉汉能一步从大门跨到桌边吗？"},
+    )
+    with pytest.raises(ValueError, match="空间诊断"):
+        _resolve_scene_target(data)
+    ok = _scene_start_data(
+        diagnostic={
+            "question": "醉汉能一步从大门跨到桌边吗？",
+            "subject_ref": "c_franks",
+        }
+    )
+    assert _resolve_scene_target(ok) is None
+    outside = _scene_start_data(
+        diagnostic={
+            "question": "醉汉能一步从大门跨到桌边吗？",
+            "subject_ref": "c_stranger",
+        }
+    )
+    with pytest.raises(ValueError, match="不在本次探索"):
+        _resolve_scene_target(outside)
+
+
+def test_scene_follow_up_blocked_for_variants_and_diagnostic_results():
+    """多目标/空间诊断结果不接受“说详细点”或局部修订：尽早失败关闭。"""
+    from core.errors import ConflictError
+    from modules.story.exploration_api import require_scene_follow_up_supported
+    from modules.story.exploration_schemas import (
+        ExplorationOutputEnvelope,
+        SceneLineOutputV1,
+        SpatialAssessment,
+    )
+
+    variants_payload = SceneLineOutputV1.model_validate(
+        {
+            "rationale": "分别生成。",
+            "variants": [
+                {"target_ref": "c_a", "line": "好", "rationale": "r"},
+                {"target_ref": "c_b", "line": "嗯", "rationale": "r"},
+            ],
+        }
+    )
+    with pytest.raises(ConflictError):
+        require_scene_follow_up_supported(
+            ExplorationOutputEnvelope(
+                output_kind=SCENE_LINE_OUTPUT_KIND,
+                schema_version=1,
+                payload=variants_payload,
+            )
+        )
+    diagnostic_payload = SceneLineOutputV1.model_validate(
+        {
+            "rationale": "空间诊断。",
+            "spatial_assessment": SpatialAssessment(supported=None),
+        }
+    )
+    with pytest.raises(ConflictError):
+        require_scene_follow_up_supported(
+            ExplorationOutputEnvelope(
+                output_kind=SCENE_LINE_OUTPUT_KIND,
+                schema_version=1,
+                payload=diagnostic_payload,
+            )
+        )
+    # 普通单目标结果不受影响
+    single = SceneLineOutputV1.model_validate(
+        {"target_ref": "c_a", "line": "好", "rationale": "r"}
+    )
+    require_scene_follow_up_supported(
+        ExplorationOutputEnvelope(
+            output_kind=SCENE_LINE_OUTPUT_KIND, schema_version=1, payload=single
+        )
     )

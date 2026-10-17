@@ -42,6 +42,11 @@ EVENT_OUTPUT_KIND = "story.exploration.event"
 SCENE_LINE_OUTPUT_KIND = "story.exploration.scene_line"
 AUTHOR_EDIT_OUTPUT_KIND = "story.exploration.author_edit"
 
+# 场景人物差异（M2）：同一情境对 2..4 个目标各生成一句；每人独立知识包。
+MULTI_TARGETS_MIN = 2
+MULTI_TARGETS_MAX = 4
+TARGET_REF_MAX_LENGTH = 64
+
 ExplorationScale = Literal["sandbox", "event", "scene_line"]
 
 EXPLORATION_ACTIONS: tuple[str, ...] = (
@@ -256,17 +261,44 @@ class EventOutputV1(ExplorationModel):
         return self
 
 
-class SceneLineOutputV1(ExplorationModel):
-    """B3 场景一句对白：一句台词 + 依据 + withheld（知道但不说出）。"""
+class SpatialAssessment(ExplorationModel):
+    """场景空间诊断结论（M2）：constraints 只引用已确认资料，缺失项列 unknowns。"""
 
-    target_ref: str = Field(min_length=1, max_length=64)
-    line: str = Field(min_length=1, max_length=500)
+    supported: bool | None = None
+    constraints: list[str] = Field(default_factory=list, max_length=10)
+    unknowns: list[str] = Field(default_factory=list, max_length=10)
+
+    @field_validator("constraints", "unknowns")
+    @classmethod
+    def validate_text_lists(cls, values: list[str]) -> list[str]:
+        _check_text_list("spatial_assessment text list", values, max_length=500)
+        return values
+
+
+class SceneLineOutputV1(ExplorationModel):
+    """B3 场景一句对白：一句台词 + 依据 + withheld（知道但不说出）。
+
+    v1 内扩展（M2），三种形态互斥、由模型校验兜底：
+    - 单目标（默认）：target_ref/line 必填；
+    - 多目标（人物差异）：顶层 target_ref/line 置空，由 ``variants`` 承载
+      每目标一行（不嵌套、target_ref 互不相同）；
+    - 空间诊断：``spatial_assessment`` 承载结论，line/target_ref 可为空。
+    """
+
+    target_ref: str = Field(default="", max_length=TARGET_REF_MAX_LENGTH)
+    line: str = Field(default="", max_length=500)
     rationale: str = Field(min_length=1, max_length=2000)
     action: str | None = Field(default=None, max_length=300)
     knowledge_basis: list[str] = Field(default_factory=list, max_length=12)
     withheld: list[str] = Field(default_factory=list, max_length=12)
     unknowns: list[str] = Field(default_factory=list, max_length=12)
     warnings: list[str] = Field(default_factory=list, max_length=12)
+    variants: list[SceneLineOutputV1] | None = Field(
+        default=None,
+        min_length=MULTI_TARGETS_MIN,
+        max_length=MULTI_TARGETS_MAX,
+    )
+    spatial_assessment: SpatialAssessment | None = None
 
     @field_validator(
         "knowledge_basis", "withheld", "unknowns", "warnings"
@@ -275,6 +307,28 @@ class SceneLineOutputV1(ExplorationModel):
     def validate_text_lists(cls, values: list[str]) -> list[str]:
         _check_text_list("scene_line text list", values, max_length=1000)
         return values
+
+    @model_validator(mode="after")
+    def validate_scene_line_shape(self):
+        if self.variants is not None and self.spatial_assessment is not None:
+            raise ValueError("variants 与 spatial_assessment 不得同时出现")
+        if self.variants is not None:
+            if self.target_ref or self.line:
+                raise ValueError(
+                    "多目标输出的顶层 target_ref/line 必须为空，由 variants 承载"
+                )
+            refs = [variant.target_ref for variant in self.variants]
+            if len(set(refs)) != len(refs):
+                raise ValueError("variants 的 target_ref 必须互不相同")
+            for variant in self.variants:
+                if variant.variants is not None or variant.spatial_assessment is not None:
+                    raise ValueError("variants 每项必须是单目标台词行，不得再嵌套")
+                if not variant.target_ref or not variant.line:
+                    raise ValueError("variants 每项必须有 target_ref 与台词")
+        elif self.spatial_assessment is None:
+            if not self.target_ref or not self.line:
+                raise ValueError("单目标对白必须给出 target_ref 与台词")
+        return self
 
 
 PAYLOAD_MODELS_BY_BASE_KIND: dict[str, type] = {
@@ -434,6 +488,19 @@ def validate_counterfactual_pair(
         raise ValueError("反事实条件对照仅支持沙盘尺度")
 
 
+class SceneSpatialDiagnosticRequest(ExplorationModel):
+    """场景空间诊断请求（M2）：询问某动作是否有空间/道具支持。
+
+    ``subject_ref`` 可选（做动作的主体）；空间资料只来自本次已确认的
+    Evidence 编译产物，缺尺寸/路线时输出必须列 unknowns，不把想象当证明。
+    """
+
+    question: str = Field(min_length=1, max_length=2000)
+    subject_ref: str | None = Field(
+        default=None, min_length=1, max_length=TARGET_REF_MAX_LENGTH
+    )
+
+
 class ExplorationRequestBase(ExplorationModel):
     novel_id: str
     scale: ExplorationScale
@@ -446,6 +513,12 @@ class ExplorationRequestBase(ExplorationModel):
         max_length=COUNTERFACTUAL_MAX_ASSUMPTIONS,
     )
     event_mode_hint: EVENT_HINT_LITERAL | None = None
+    multi_targets: list[str] | None = Field(
+        default=None,
+        min_length=MULTI_TARGETS_MIN,
+        max_length=MULTI_TARGETS_MAX,
+    )
+    diagnostic: SceneSpatialDiagnosticRequest | None = None
 
     @field_validator("novel_id")
     @classmethod
@@ -471,6 +544,22 @@ class ExplorationRequestBase(ExplorationModel):
                 )
         return values
 
+    @field_validator("multi_targets")
+    @classmethod
+    def validate_multi_targets(
+        cls, values: list[str] | None
+    ) -> list[str] | None:
+        if values is None:
+            return None
+        for item in values:
+            if not item or len(item) > TARGET_REF_MAX_LENGTH:
+                raise ValueError(
+                    f"multi_targets entries must be 1..{TARGET_REF_MAX_LENGTH} characters"
+                )
+        if len(set(values)) != len(values):
+            raise ValueError("multi_targets 不能包含重复目标")
+        return values
+
     @model_validator(mode="after")
     def validate_counterfactual_request(self):
         validate_counterfactual_pair(
@@ -483,6 +572,12 @@ class ExplorationRequestBase(ExplorationModel):
             raise ValueError("请提供探索起点 start，或反事实基线与变更条件")
         if self.event_mode_hint is not None and self.scale != "event":
             raise ValueError("event_mode_hint 仅支持事件尺度")
+        if (
+            self.multi_targets is not None or self.diagnostic is not None
+        ) and self.scale != "scene_line":
+            raise ValueError("multi_targets/diagnostic 仅支持场景一句对白尺度")
+        if self.multi_targets is not None and self.diagnostic is not None:
+            raise ValueError("multi_targets 与 diagnostic 互斥，请选择其一")
         return self
 
 
@@ -521,6 +616,22 @@ class ExplorationStartTaskRequest(ExplorationConfirmationPreviewRequest):
     budget_preview_hash: str = Field(pattern="^[a-f0-9]{64}$")
     operation_id: uuid.UUID
     time_budget_seconds: int = Field(default=3600, ge=1, le=6 * 3600)
+
+
+def validate_scene_targets(
+    start: ExplorationStart, targets: list[str]
+) -> None:
+    """多目标/诊断主体归属校验：必须落在本次起点的候选或正式角色内。
+
+    临时起点逐个核对；场景锚点起点没有候选清单，交给确认与 hidden guard 把关。
+    """
+
+    if getattr(start, "kind", "") != "provisional":
+        return
+    allowed = {item.ref_id for item in start.candidates} | set(start.canonical_refs)
+    for target in targets:
+        if target not in allowed:
+            raise ValueError("目标角色不在本次探索的候选或正式角色范围内")
 
 
 class ExplorationDetailRequest(ExplorationModel):
@@ -613,8 +724,11 @@ __all__ = [
     "EVENT_OUTPUT_KIND",
     "EXPLORATION_ACTIONS",
     "EXPLORATION_OUTPUT_SCHEMA_VERSION",
+    "MULTI_TARGETS_MAX",
+    "MULTI_TARGETS_MIN",
     "SANDBOX_OUTPUT_KIND",
     "SCENE_LINE_OUTPUT_KIND",
+    "TARGET_REF_MAX_LENGTH",
     "AuthorEditPayloadV1",
     "BridgePath",
     "EventOutputV1",
@@ -644,7 +758,10 @@ __all__ = [
     "SandboxOutputV1",
     "SceneAnchorStart",
     "SceneLineOutputV1",
+    "SceneSpatialDiagnosticRequest",
+    "SpatialAssessment",
     "apply_changed_assumptions",
     "exploration_start_fingerprint",
     "validate_counterfactual_pair",
+    "validate_scene_targets",
 ]

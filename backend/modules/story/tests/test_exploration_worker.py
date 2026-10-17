@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import uuid
 from contextlib import asynccontextmanager
 from dataclasses import replace
@@ -23,7 +24,11 @@ from infrastructure.tasks.enqueuer import enqueue_task
 from infrastructure.tasks.models import AsyncTask
 from infrastructure.tasks.worker import TaskWorker
 from modules.account.settings_constants import LOCAL_OWNER_ID
-from modules.evidence.compilation.services.compiled_context import CompiledContext
+from modules.evidence.compilation.services.compiled_context import (
+    CompiledContext,
+    ContextSection,
+    Tier,
+)
 from modules.evidence.contracts import Assumption, CandidateRef, ProvisionalStart
 from modules.story import exploration_tasks
 from modules.story.exploration_budget import preview_exploration_budget
@@ -41,11 +46,17 @@ from modules.story.exploration_service import (
     pack_exploration_output,
     unpack_exploration_output,
 )
-from modules.story.models import StorySceneDirectorBranch, StorySceneDirectorRound
+from modules.story.exploration_tasks import SPATIAL_UNKNOWN_DISCLOSURE
+from modules.story.models import (
+    StorySceneDirectorBranch,
+    StorySceneDirectorRoot,
+    StorySceneDirectorRound,
+)
 from modules.story.tests.exploration_test_support import (
     ExplorationOfflineProvider,
     event_payload,
     sandbox_payload,
+    scene_diagnostic_payload,
     scene_line_payload,
 )
 from modules.story.world_progression_models import (
@@ -126,7 +137,7 @@ async def exploration_flow(exploration_engine, monkeypatch):
     async def confirmed(_db, *, novel_id, action, confirmation_id, **_kwargs):
         start = flow.start
         compiled = CompiledContext(
-            sections=[],
+            sections=list(flow.sections),
             selection_trace={
                 "exploration": {
                     "start_kind": start.kind,
@@ -162,6 +173,7 @@ async def exploration_flow(exploration_engine, monkeypatch):
         focus="",
         start=None,
         guard_terms=[],
+        sections=[],
         novel_id=None,
         setup=None,
         enqueue=None,
@@ -244,6 +256,8 @@ async def exploration_flow(exploration_engine, monkeypatch):
         mode="start",
         preview_hash=None,
         event_mode_hint=None,
+        multi_targets=None,
+        diagnostic_question=None,
         **extra,
     ):
         budget = preview_exploration_budget(
@@ -252,6 +266,8 @@ async def exploration_flow(exploration_engine, monkeypatch):
             start=spec.start,
             focus=spec.focus,
             event_mode_hint=event_mode_hint,
+            multi_targets=multi_targets,
+            diagnostic_question=diagnostic_question,
         )
         meta = {
             "meta_version": 1,
@@ -260,6 +276,12 @@ async def exploration_flow(exploration_engine, monkeypatch):
                 "start": spec.start.model_dump(mode="json"),
                 "scale": spec.scale,
                 "focus": spec.focus,
+                **({"multi_targets": multi_targets} if multi_targets else {}),
+                **(
+                    {"diagnostic": {"question": diagnostic_question}}
+                    if diagnostic_question
+                    else {}
+                ),
             },
             "action": action,
             "confirmation_action": {
@@ -271,7 +293,7 @@ async def exploration_flow(exploration_engine, monkeypatch):
             "exploration_root_id": str(spec.root_id),
             "exploration_branch_id": str(spec.branch_id),
             "exploration_scale": spec.scale,
-            "exploration_authorized_requests": 1,
+            "exploration_authorized_requests": budget.requests_max,
             "exploration_authorized_tokens": budget.tokens_max,
             "budget_preview_hash": preview_hash or budget.preview_hash,
             "exploration_deadline_seconds": 3600,
@@ -937,3 +959,281 @@ async def test_event_hint_action_mismatch_fails_closed(exploration_flow):
         ).all()
         assert steps == []
     assert flow.provider.calls == 0
+
+
+# ---------------------------------------------------------------------------
+# 场景人物差异（M2）：同一情境、逐目标独立知识包、variants 承载输出
+# ---------------------------------------------------------------------------
+
+
+def _scene_pair_start() -> ProvisionalStart:
+    """同一情境下的两个候选人物：知识包刻意不同（坦率者知情、回避者误信）。"""
+    return ProvisionalStart(
+        kind="provisional",
+        question="雨夜站台，两人同伞，对方刚提完离职，各自会说什么？",
+        assumptions=[Assumption(kind="state", text="雨夜站台，两人共撑一伞")],
+        candidates=[
+            CandidateRef(ref_id="c_franks", label="坦率者", role="character"),
+            CandidateRef(ref_id="c_evasive", label="回避者", role="character"),
+        ],
+        knowledge=[
+            {
+                "subject_ref": "c_franks",
+                "knows": ["对方已提交辞呈"],
+                "observed": [],
+                "misbelieves": [],
+            },
+            {
+                "subject_ref": "c_evasive",
+                "knows": [],
+                "observed": [],
+                "misbelieves": ["对方只是想调岗"],
+            },
+        ],
+        time_basis="assumed_now",
+    )
+
+
+async def _load_scene_round(flow, spec):
+    async with flow.sessions() as db:
+        row = await db.scalar(
+            select(StorySceneDirectorRound).where(
+                StorySceneDirectorRound.root_id == spec.root_id
+            )
+        )
+        root = await db.get(StorySceneDirectorRoot, spec.root_id)
+        return row, unpack_exploration_output(row), root
+
+
+def _request_user_data(provider, index: int) -> dict:
+    return json.loads(provider.requests[index].messages[1].content)
+
+
+async def test_scene_multi_target_builds_independent_knowledge_packets(
+    exploration_flow,
+):
+    flow = exploration_flow
+    start = _scene_pair_start()
+    targets = ["c_franks", "c_evasive"]
+    spec, envelope = await flow.setup(
+        chain="scene", scale="scene_line", start=start
+    )
+    task_id = await flow.enqueue(
+        spec,
+        envelope,
+        action="story.exploration.scene_line.generate",
+        multi_targets=targets,
+    )
+    task = await flow.run(task_id)
+    assert task.status == "done", task.error_message
+    assert flow.provider.calls == len(targets)
+    # 每个目标只收到自己的知识包：请求 i 的 knows/误信与目标一一对应。
+    first = _request_user_data(flow.provider, 0)
+    second = _request_user_data(flow.provider, 1)
+    assert first["target"]["ref"] == "c_franks"
+    assert first["target_knowledge"]["knows"] == ["对方已提交辞呈"]
+    assert first["target_knowledge"]["misbelieves"] == []
+    assert "对方只是想调岗" not in json.dumps(first, ensure_ascii=False)
+    assert second["target"]["ref"] == "c_evasive"
+    assert second["target_knowledge"]["misbelieves"] == ["对方只是想调岗"]
+    assert "对方已提交辞呈" not in json.dumps(second, ensure_ascii=False)
+    row, envelope_row, root = await _load_scene_round(flow, spec)
+    payload = envelope_row.payload
+    assert payload.target_ref == ""  # 顶层由 variants 承载
+    assert payload.line == ""
+    assert [variant.target_ref for variant in payload.variants] == targets
+    assert len(payload.variants) == 2
+    assert all(variant.line for variant in payload.variants)
+    assert row.input_json["multi_targets"] == targets
+    ledger = read_ai_run_envelope(root.run_envelope_json)
+    assert ledger.requests_started == 2  # 预算 = 目标数
+
+
+async def test_scene_multi_target_rejects_single_target_budget_hash(exploration_flow):
+    """多目标请求用单目标身份的 preview hash 重放 → worker 失败关闭。"""
+    flow = exploration_flow
+    start = _scene_pair_start()
+    spec, envelope = await flow.setup(
+        chain="scene", scale="scene_line", start=start
+    )
+    single_hash = preview_exploration_budget(
+        novel_id=str(spec.novel_id),
+        scale="scene_line",
+        start=start,
+        focus=spec.focus,
+    ).preview_hash
+    task_id = await flow.enqueue(
+        spec,
+        envelope,
+        action="story.exploration.scene_line.generate",
+        multi_targets=["c_franks", "c_evasive"],
+        preview_hash=single_hash,
+    )
+    task = await flow.run(task_id)
+    assert task.status == "failed"
+    async with flow.sessions() as db:
+        rows = (
+            await db.scalars(
+                select(StorySceneDirectorRound).where(
+                    StorySceneDirectorRound.root_id == spec.root_id
+                )
+            )
+        ).all()
+        assert rows == []
+    assert flow.provider.calls == 0
+
+
+async def test_scene_multi_target_canonical_guard_fails_closed(exploration_flow):
+    """多目标中任一 canonical 变体触碰隐藏边界 → 整个任务失败不落库。"""
+    flow = exploration_flow
+    start = _scene_pair_start().model_copy(
+        update={
+            "candidates": [],
+            "knowledge": [],
+            "canonical_refs": [str(uuid.uuid4()), str(uuid.uuid4())],
+        }
+    )
+    spec, envelope = await flow.setup(chain="scene", scale="scene_line", start=start)
+    flow.guard_terms = [
+        SimpleNamespace(
+            phrase="累了就先回去",
+            rule="hidden_truth",
+            severity="blocking",
+            source_type="world_entity",
+            source_id="x",
+            source_label="隐藏设定",
+        )
+    ]
+    targets = start.canonical_refs
+    task_id = await flow.enqueue(
+        spec,
+        envelope,
+        action="story.exploration.scene_line.generate",
+        multi_targets=list(targets),
+    )
+    task = await flow.run(task_id)
+    assert task.status == "failed"
+    async with flow.sessions() as db:
+        rows = (
+            await db.scalars(
+                select(StorySceneDirectorRound).where(
+                    StorySceneDirectorRound.root_id == spec.root_id
+                )
+            )
+        ).all()
+        assert rows == []
+    assert flow.provider.calls == 1  # 第一个变体即触发，快速失败
+
+
+# ---------------------------------------------------------------------------
+# 场景空间诊断（M2）：资料只来自已确认编译产物，缺失即强制列未知
+# ---------------------------------------------------------------------------
+
+
+def _world_entities_section(entries: list[dict]) -> ContextSection:
+    content = "\n".join(str(entry) for entry in entries)
+    return ContextSection(
+        key="world_entities",
+        tier=Tier.P2,
+        content=content,
+        title="相关世界对象",
+    )
+
+
+async def test_scene_diagnostic_without_material_lists_unknowns(exploration_flow):
+    """无空间资料：constraints 必须为空，unknowns 由服务端补明缺资料。"""
+    flow = exploration_flow
+    spec, envelope = await flow.setup(chain="scene", scale="scene_line")
+    task_id = await flow.enqueue(
+        spec,
+        envelope,
+        action="story.exploration.scene_line.generate",
+        diagnostic_question="醉汉能一步从大门跨到桌边吗？",
+    )
+    task = await flow.run(task_id)
+    assert task.status == "done", task.error_message
+    system = flow.provider.requests[0].messages[0].content
+    assert "空间诊断器" in system
+    assert "不得把想象当物理证明" in system
+    user = _request_user_data(flow.provider, 0)
+    assert user["spatial_material"] == []
+    _row, envelope_row, root = await _load_scene_round(flow, spec)
+    payload = envelope_row.payload
+    assert payload.variants is None
+    assert payload.line == ""
+    assessment = payload.spatial_assessment
+    assert assessment.supported is None
+    assert assessment.constraints == []
+    assert SPATIAL_UNKNOWN_DISCLOSURE in assessment.unknowns
+    ledger = read_ai_run_envelope(root.run_envelope_json)
+    assert ledger.requests_started == 1  # 诊断预算不变
+
+
+async def test_scene_diagnostic_cites_confirmed_spatial_material(exploration_flow):
+    """有资料：constraints 引用本次确认编译产物中的 location/item 条目。"""
+    flow = exploration_flow
+    spec, envelope = await flow.setup(chain="scene", scale="scene_line")
+    flow.sections = [
+        _world_entities_section(
+            [
+                {
+                    "entity_type": "location",
+                    "name": "酒馆大门",
+                    "summary": "门宽仅容一人通过，距桌四步",
+                },
+                {
+                    "entity_type": "item",
+                    "name": "长桌",
+                    "summary": "桌面钉死，桌边通道只容侧身",
+                },
+                {
+                    "entity_type": "character",
+                    "name": "酒保",
+                    "summary": "人物档案不是空间资料",
+                },
+            ]
+        )
+    ]
+    task_id = await flow.enqueue(
+        spec,
+        envelope,
+        action="story.exploration.scene_line.generate",
+        diagnostic_question="醉汉能一步从大门跨到桌边吗？",
+    )
+    task = await flow.run(task_id)
+    assert task.status == "done", task.error_message
+    user = _request_user_data(flow.provider, 0)
+    material = user["spatial_material"]
+    assert [item["key"] for item in material] == ["world_entities.location_item"]
+    assert "酒馆大门" in material[0]["content"]
+    assert "长桌" in material[0]["content"]
+    assert "酒保" not in material[0]["content"]  # 角色档案不充当空间资料
+    _row, envelope_row, _root = await _load_scene_round(flow, spec)
+    assessment = envelope_row.payload.spatial_assessment
+    assert assessment.supported is True
+    assert assessment.constraints == ["桌边通道只容一人侧身（来自已确认资料）"]
+
+
+async def test_scene_diagnostic_fabricated_constraints_fail_closed(exploration_flow):
+    """无资料却给出约束（想象当物理证明）→ 任务失败不落库。"""
+    flow = exploration_flow
+    spec, envelope = await flow.setup(chain="scene", scale="scene_line")
+    flow.provider.override = scene_diagnostic_payload(has_material=True)
+    task_id = await flow.enqueue(
+        spec,
+        envelope,
+        action="story.exploration.scene_line.generate",
+        diagnostic_question="醉汉能一步从大门跨到桌边吗？",
+    )
+    task = await flow.run(task_id)
+    assert task.status == "failed"
+    async with flow.sessions() as db:
+        rows = (
+            await db.scalars(
+                select(StorySceneDirectorRound).where(
+                    StorySceneDirectorRound.root_id == spec.root_id
+                )
+            )
+        ).all()
+        assert rows == []
+    assert flow.provider.calls == 1

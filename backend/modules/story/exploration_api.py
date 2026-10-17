@@ -53,8 +53,11 @@ from modules.story.exploration_schemas import (
     AUTHOR_EDIT_OUTPUT_KIND,
     EVENT_HINT_LITERAL,
     EVENT_OUTPUT_KIND,
+    MULTI_TARGETS_MAX,
+    MULTI_TARGETS_MIN,
     PAYLOAD_MODELS_BY_BASE_KIND,
     SANDBOX_OUTPUT_KIND,
+    SCENE_LINE_OUTPUT_KIND,
     EventOutputV1,
     ExplorationBudgetPreview,
     ExplorationCompareRequest,
@@ -64,7 +67,9 @@ from modules.story.exploration_schemas import (
     ExplorationStartTaskRequest,
     SandboxOutputV1,
     SceneLineOutputV1,
+    SceneSpatialDiagnosticRequest,
     validate_counterfactual_pair,
+    validate_scene_targets,
 )
 
 router = APIRouter(prefix="/api/story/exploration", tags=["story-exploration"])
@@ -125,6 +130,7 @@ class ExplorationPreviewApiRequest(_ApiModel):
     反事实对照（M2）：提供 ``counterfactual_of_result_id`` + ``changed_assumptions``
     时由服务端从基线结果克隆起点，响应带 ``derived_start`` 与含基线身份的预算。
     事件模式提示（M2）：``event_mode_hint`` 仅在显式指定事件尺度时接受。
+    场景多目标/空间诊断（M2）：仅场景尺度接受，多目标预算 = 目标数。
     """
 
     novel_id: str
@@ -138,6 +144,12 @@ class ExplorationPreviewApiRequest(_ApiModel):
         default=None, min_length=1, max_length=10
     )
     event_mode_hint: EVENT_HINT_LITERAL | None = None
+    multi_targets: list[str] | None = Field(
+        default=None,
+        min_length=MULTI_TARGETS_MIN,
+        max_length=MULTI_TARGETS_MAX,
+    )
+    diagnostic: SceneSpatialDiagnosticRequest | None = None
 
     @model_validator(mode="after")
     def validate_counterfactual(self):
@@ -149,6 +161,11 @@ class ExplorationPreviewApiRequest(_ApiModel):
         )
         if self.event_mode_hint is not None and self.scale != "event":
             raise ValueError("event_mode_hint 仅支持事件尺度，请显式指定 scale=event")
+        if self.multi_targets is not None or self.diagnostic is not None:
+            if self.counterfactual_of_result_id is not None:
+                raise ValueError("反事实对照不支持 multi_targets/diagnostic")
+            if self.scale not in (None, "scene_line"):
+                raise ValueError("multi_targets/diagnostic 仅支持场景一句对白尺度")
         return self
 
 
@@ -271,6 +288,24 @@ def _effective_output_kind(envelope) -> str:
     return envelope.output_kind
 
 
+def require_scene_follow_up_supported(envelope) -> None:
+    """多目标对白与空间诊断结果（M2）暂不支持“说详细点”/局部修订：尽早失败关闭。"""
+    payload = envelope.payload
+    if envelope.output_kind == AUTHOR_EDIT_OUTPUT_KIND:
+        if payload.base_output_kind != SCENE_LINE_OUTPUT_KIND:
+            return
+        payload = payload.edited_payload
+    elif envelope.output_kind != SCENE_LINE_OUTPUT_KIND:
+        return
+    if getattr(payload, "variants", None) or getattr(
+        payload, "spatial_assessment", None
+    ):
+        raise ConflictError(
+            "多目标对白与空间诊断结果暂不支持“说详细点”或局部修订；"
+            "请回到单目标一句对白结果"
+        )
+
+
 def _generation_action(base_kind: str, payload: dict) -> str:
     if base_kind == SANDBOX_OUTPUT_KIND:
         return SANDBOX_ACTION
@@ -356,7 +391,11 @@ async def build_exploration_preview(db, data: ExplorationPreviewApiRequest) -> d
                 changed_assumptions=list(data.changed_assumptions or []),
             )
         )
-    scale = data.scale or ("sandbox" if derived_start is not None else None)
+    scale = data.scale or (
+        "scene_line"
+        if (data.multi_targets or data.diagnostic) and derived_start is None
+        else "sandbox" if derived_start is not None else None
+    )
     reason = ""
     if scale is None:
         from modules.story.outline_state.models import Scene
@@ -375,6 +414,10 @@ async def build_exploration_preview(db, data: ExplorationPreviewApiRequest) -> d
             has_selection=False,
             project_has_content=project_has_content,
         )
+    multi_targets = data.multi_targets
+    diagnostic_question = (
+        data.diagnostic.question if data.diagnostic is not None else None
+    )
     if derived_start is not None:
         budget = preview_exploration_budget(
             novel_id=data.novel_id,
@@ -391,6 +434,8 @@ async def build_exploration_preview(db, data: ExplorationPreviewApiRequest) -> d
             start=data.start,
             focus=data.focus,
             event_mode_hint=data.event_mode_hint,
+            multi_targets=multi_targets,
+            diagnostic_question=diagnostic_question,
         )
     else:
         budget = _advisory_budget(
@@ -398,6 +443,7 @@ async def build_exploration_preview(db, data: ExplorationPreviewApiRequest) -> d
             scale=scale,
             focus=data.focus,
             event_mode_hint=data.event_mode_hint,
+            multi_targets=multi_targets,
         )
     response = {
         "recommended_scale": scale,
@@ -430,14 +476,23 @@ async def build_exploration_preview(db, data: ExplorationPreviewApiRequest) -> d
 
 
 def _advisory_budget(
-    *, novel_id: str, scale: str, focus: str, event_mode_hint: str | None = None
+    *,
+    novel_id: str,
+    scale: str,
+    focus: str,
+    event_mode_hint: str | None = None,
+    multi_targets: list[str] | None = None,
 ) -> ExplorationBudgetPreview:
-    """未提供起点时的名义预算：请求次数为硬约定，Token 按焦点长度粗估。"""
+    """未提供起点时的名义预算：请求次数为硬约定，Token 按焦点长度粗估。
+
+    场景多目标（M2）：预算 = 目标数（每人一次独立知识包请求）。
+    """
     from infrastructure.llm.collaboration import content_hash
 
     chars = len(focus)
-    tokens_min = max(1, chars // 4) + 100
-    tokens_max = max(tokens_min, chars // 2 + 400)
+    request_count = len(multi_targets) if multi_targets else 1
+    tokens_min = max(1, chars // 4) + 100 * request_count
+    tokens_max = max(tokens_min, chars // 2 + 400 * request_count)
     identity: dict = {
         "novel_id": str(novel_id),
         "scale": scale,
@@ -446,9 +501,11 @@ def _advisory_budget(
     }
     if event_mode_hint is not None:
         identity["event_mode_hint"] = str(event_mode_hint)
+    if multi_targets:
+        identity["multi_targets"] = [str(item) for item in multi_targets]
     return ExplorationBudgetPreview(
-        requests_min=1,
-        requests_max=1,
+        requests_min=request_count,
+        requests_max=request_count,
         follow_up_max_requests=1,
         tokens_min=tokens_min,
         tokens_max=tokens_max,
@@ -539,10 +596,27 @@ async def confirm_exploration(db, data: ExplorationConfirmationRequest) -> dict:
 
 
 def _resolve_scene_target(data: ExplorationStartApiRequest) -> str | None:
-    """B3 目标角色解析：显式指定优先；唯一候选/唯一正式角色自动锁定。"""
+    """B3 目标角色解析：多目标/诊断模式不产单目标；显式指定优先，唯一候选自动锁定。"""
     if data.scale != "scene_line":
         if data.target_ref:
             raise ValueError("只有场景一句对白需要指定目标角色")
+        return None
+    if data.diagnostic is not None:
+        if data.target_ref:
+            raise ValueError(
+                "空间诊断不需要指定单目标角色；主体请用 diagnostic.subject_ref"
+            )
+        subject = data.diagnostic.subject_ref
+        if subject and data.start is not None and data.start.kind == "provisional":
+            validate_scene_targets(data.start, [subject])
+        return None
+    if data.multi_targets:
+        if data.target_ref:
+            raise ValueError(
+                "multi_targets 与 target_ref 互斥；多目标请只传 multi_targets"
+            )
+        if data.start is not None:
+            validate_scene_targets(data.start, data.multi_targets)
         return None
     start = data.start
     if start.kind != "provisional":
@@ -628,6 +702,10 @@ async def start_exploration_task(
             list(data.changed_assumptions) if counterfactual_of else None
         ),
         event_mode_hint=data.event_mode_hint,
+        multi_targets=data.multi_targets,
+        diagnostic_question=(
+            data.diagnostic.question if data.diagnostic is not None else None
+        ),
     )
     if budget.preview_hash != data.budget_preview_hash:
         raise ConflictError("起点或焦点已变化，请重新预览预算")
@@ -790,6 +868,7 @@ async def submit_exploration_follow_up(
     if envelope.output_kind == AUTHOR_EDIT_OUTPUT_KIND:
         raise ConflictError("作者编辑版本不能继续详略或修订；请回到原始 AI 结果")
     base_kind = _effective_output_kind(envelope)
+    require_scene_follow_up_supported(envelope)
     if mode == "revise":
         # 入队前先按 item_path 定位并做防漂移比对，失败立即 409（worker 内再权威校验）。
         from modules.story.exploration_tasks import check_revision_target

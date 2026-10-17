@@ -15,6 +15,7 @@ paused_* 语义。detail/revise 由同一对 worker 承担（meta.mode）。
 
 from __future__ import annotations
 
+import ast
 import json
 from copy import deepcopy
 from uuid import UUID
@@ -47,6 +48,8 @@ from modules.story.exploration_schemas import (
     EVENT_HINT_REQUIRED_ACTION,
     EVENT_OUTPUT_KIND,
     EXPLORATION_OUTPUT_SCHEMA_VERSION,
+    MULTI_TARGETS_MAX,
+    MULTI_TARGETS_MIN,
     SANDBOX_OUTPUT_KIND,
     SCENE_LINE_OUTPUT_KIND,
     EventOutputV1,
@@ -147,6 +150,23 @@ _EVENT_HINT_PROMPT_BY_HINT = {
     "info_gap": EVENT_INFO_GAP_PROMPT,
     "goal": EVENT_GOAL_PROMPT,
 }
+
+# 场景空间诊断（M2）的 system prompt 变体：约束只允许引用已确认资料，
+# 缺尺寸/路线列 unknowns；不把模型想象当物理证明。
+SCENE_SPATIAL_DIAGNOSTIC_PROMPT = (
+    "你是小说作者的场景空间诊断器。针对作者的动作问题，只依据输入包里已确认的"
+    "空间/道具资料判断该动作是否有支持：spatial_assessment.supported 给出是/否/"
+    "无法判断（无法判断置空）；constraints 逐条引用资料里可见的空间或道具约束"
+    "（门、桌、距离、通道等）；缺尺寸、缺路线或资料未覆盖的部分一律写入 "
+    "unknowns。没有空间资料时 constraints 必须为空，并在 unknowns 说明"
+    "“缺尺寸/路线资料，无法核验”。不得把想象当物理证明，不得生成对白或正文。"
+)
+
+# 空间资料缺失时服务端补明的未知项（确定性事实，不依赖模型自觉）。
+SPATIAL_UNKNOWN_DISCLOSURE = "缺尺寸/路线资料，无法核验"
+
+_SPATIAL_ENTITY_TYPES = frozenset({"location", "item"})
+_SPATIAL_MATERIAL_CHAR_CAP = 6000
 
 
 def _event_mode_hint_for(root_request: dict, action: str) -> str | None:
@@ -350,6 +370,8 @@ def _require_preview_hash(
     counterfactual_of_result_id: str | None = None,
     changed_assumptions: list | None = None,
     event_mode_hint: str | None = None,
+    multi_targets: list[str] | None = None,
+    diagnostic_question: str | None = None,
 ) -> None:
     current = preview_exploration_budget(
         novel_id=novel_id,
@@ -359,6 +381,8 @@ def _require_preview_hash(
         counterfactual_of_result_id=counterfactual_of_result_id,
         changed_assumptions=changed_assumptions,
         event_mode_hint=event_mode_hint,
+        multi_targets=multi_targets,
+        diagnostic_question=diagnostic_question,
     )
     if current.preview_hash != expected:
         raise ValueError("起点或焦点已变化，预算预览不一致，失败关闭")
@@ -505,6 +529,152 @@ def _scene_line_user_data(
     if instruction:
         data["instruction"] = instruction
     return data
+
+
+def _scene_diagnostic_user_data(
+    *,
+    start,
+    focus: str,
+    confirmed,
+    question: str,
+    subject_ref: str | None,
+    material: list[dict],
+) -> dict:
+    """空间诊断输入包：问题 + 可选主体 + 已确认空间资料；不含角色知识包与作者私享。"""
+    data = {
+        "mode": "diagnostic",
+        "focus": focus,
+        "question": question,
+        "subject_ref": subject_ref,
+        "spatial_material": material,
+        "output_rule": (
+            "spatial_assessment.constraints 只允许引用 spatial_material 或已确认资料中"
+            "可见的空间/道具约束；资料缺失或尺寸/路线不明时写入 unknowns；supported "
+            "无法判断时置空。不得把想象当物理证明。"
+        ),
+    }
+    if isinstance(start, ProvisionalStart):
+        data["author_context"] = {
+            "assumptions": [
+                {"kind": item.kind, "text": item.text} for item in start.assumptions
+            ],
+            "time_basis": start.time_basis,
+        }
+    data["confirmed_material"] = confirmed.rendered_markdown or ""
+    return data
+
+
+def _spatial_entity_entries(content: str) -> str:
+    """从世界对象 section 行中过滤 location/item 条目。
+
+    section 行是编译器自行序列化的对象字典，逐行安全解析后按 entity_type
+    过滤；解析失败的行保守丢弃（宁可列未知，不猜内容）。
+    """
+    kept: list[str] = []
+    for line in content.splitlines():
+        line = line.strip()
+        if not line:
+            continue
+        try:
+            entry = ast.literal_eval(line)
+        except (ValueError, SyntaxError):
+            continue
+        if not isinstance(entry, dict):
+            continue
+        if str(entry.get("entity_type") or "") not in _SPATIAL_ENTITY_TYPES:
+            continue
+        name = str(entry.get("name") or "").strip()
+        summary = str(entry.get("summary") or "").strip()
+        if not name and not summary:
+            continue
+        kept.append(f"- {name}：{summary}" if summary else f"- {name}")
+    return "\n".join(kept)
+
+
+def _spatial_material_sections(confirmed) -> list[dict]:
+    """提取本次确认编译产物中的空间/道具资料（M2 空间诊断资料来源）。
+
+    只读已确认编译产物里已有的 section（map_spatial 空间简报、世界对象的
+    location/item 条目），不新开 World 查询、不直读地图实现；起点既无
+    canonical 资料也无场景锚点时返回空列表，由调用方强制列 unknowns。
+    """
+    compiled = getattr(confirmed, "compiled", None)
+    material: list[dict] = []
+    for section in getattr(compiled, "sections", None) or []:
+        key = str(getattr(section, "key", "") or "")
+        content = str(getattr(section, "content", "") or "")
+        if key == "map_spatial":
+            if content.strip():
+                material.append(
+                    {
+                        "key": "map_spatial",
+                        "content": content[:_SPATIAL_MATERIAL_CHAR_CAP],
+                    }
+                )
+        elif key == "world_entities":
+            entries = _spatial_entity_entries(content)
+            if entries:
+                material.append(
+                    {
+                        "key": "world_entities.location_item",
+                        "content": entries[:_SPATIAL_MATERIAL_CHAR_CAP],
+                    }
+                )
+    return material
+
+
+def _finalize_spatial_assessment(
+    output: SceneLineOutputV1, material: list[dict], *, subject_ref: str | None
+) -> SceneLineOutputV1:
+    """空间诊断落库前校验：无资料禁止虚构约束；unknowns 缺失由服务端补明。"""
+    assessment = output.spatial_assessment
+    if assessment is None:
+        raise ValueError("空间诊断输出缺少 spatial_assessment，失败关闭")
+    if not material and assessment.constraints:
+        raise ValueError(
+            "本次确认资料中没有空间/道具资料，不得给出空间约束（不把想象当物理证明）"
+        )
+    if not material and not assessment.unknowns:
+        assessment = assessment.model_copy(
+            update={"unknowns": [SPATIAL_UNKNOWN_DISCLOSURE]}
+        )
+    return output.model_copy(
+        update={"spatial_assessment": assessment, "target_ref": subject_ref or ""}
+    )
+
+
+def _scene_multi_targets(request: dict, *, mode: str) -> list[str] | None:
+    """读取根冻结请求里的多目标列表；只在 start 模式接受，畸形即失败关闭。"""
+    raw = request.get("multi_targets")
+    if raw is None:
+        return None
+    if mode != "start":
+        raise ValueError("多目标对白只在 start 模式支持，失败关闭")
+    targets = [str(item) for item in raw]
+    if (
+        not (MULTI_TARGETS_MIN <= len(targets) <= MULTI_TARGETS_MAX)
+        or len(set(targets)) != len(targets)
+    ):
+        raise ValueError("multi_targets 必须是 2..4 个互不相同的目标，失败关闭")
+    return targets
+
+
+def _scene_diagnostic_request(
+    request: dict, *, mode: str
+) -> tuple[str | None, str | None]:
+    """读取根冻结请求里的空间诊断问题与可选主体；只在 start 模式接受。"""
+    raw = request.get("diagnostic")
+    if raw is None:
+        return None, None
+    if mode != "start":
+        raise ValueError("空间诊断只在 start 模式支持，失败关闭")
+    if not isinstance(raw, dict):
+        raise ValueError("空间诊断请求载荷畸形，失败关闭")
+    question = str(raw.get("question") or "").strip()
+    if not question:
+        raise ValueError("空间诊断缺少问题，失败关闭")
+    subject = str(raw.get("subject_ref") or "").strip() or None
+    return question, subject
 
 
 # ---------------------------------------------------------------------------
@@ -699,8 +869,13 @@ async def _load_parent_result(db, *, model, novel_id: str, branch, parent_id: st
 
 
 async def _generate_exploration_payload(
-    *, client, action: str, user_data: dict, system_prompt: str | None = None
+    *,
+    client,
+    action: str,
+    user_data: dict,
+    system_content: str | None = None,
 ):
+    """按动作调用一次有界结构化生成；system_content 缺省用该动作基础 prompt。"""
     return await run_managed_structured(
         client,
         LLMCallRequest(
@@ -708,7 +883,7 @@ async def _generate_exploration_payload(
             messages=[
                 LLMMessage(
                     role="system",
-                    content=_event_system_prompt(action, system_prompt),
+                    content=system_content or _SYSTEM_PROMPTS[action],
                 ),
                 LLMMessage(
                     role="user", content=json.dumps(user_data, ensure_ascii=False)
@@ -723,19 +898,160 @@ async def _generate_exploration_payload(
     )
 
 
-async def _validate_canonical_scene_line(
-    db, confirmed, output: SceneLineOutputV1
-) -> None:
-    """canonical 目标的生成后守卫：hidden truth 短语出现在输出即失败不落库。"""
+async def _hidden_guard_terms(db, confirmed) -> list:
+    """canonical 目标生成后守卫的隐藏短语集合（每次任务最多构建一次）。"""
+    return await build_hidden_guard_context(db, confirmed_context=confirmed)
+
+
+def _assert_scene_output_within_guard(output: SceneLineOutputV1, terms: list) -> None:
+    """hidden truth 短语出现在输出即失败不落库。"""
     from modules.evidence.compilation.knowledge import redact_hidden_phrases
 
-    terms = await build_hidden_guard_context(db, confirmed_context=confirmed)
     text = json.dumps(output.model_dump(mode="json"), ensure_ascii=False)
     if redact_hidden_phrases(text, [term.phrase for term in terms]) != text:
         raise ValueError(
             "生成的一句对白触碰了该角色的隐藏信息边界；本次结果不落库，"
             "请调整目标角色或资料范围后重试"
         )
+
+
+async def _validate_canonical_scene_line(
+    db, confirmed, output: SceneLineOutputV1
+) -> None:
+    """canonical 目标的生成后守卫：逐次构建短语集合并校验（单目标路径复用）。"""
+    terms = await _hidden_guard_terms(db, confirmed)
+    _assert_scene_output_within_guard(output, terms)
+
+
+async def _run_scene_generation(
+    db,
+    *,
+    novel_id: str,
+    root,
+    branch,
+    envelope,
+    guard: dict,
+    run_snapshot: dict,
+    action: str,
+    mode: str,
+    start,
+    focus: str,
+    confirmed,
+    instruction: str,
+    target_ref: str,
+    parent_payload: dict | None,
+    item_path: str,
+    multi_targets: list[str] | None,
+    diagnostic_question: str | None,
+    diagnostic_subject: str | None,
+) -> SceneLineOutputV1:
+    """场景一次任务的三种形态（共用预算停止检查与逐请求检查点）：
+
+    - 多目标（M2 人物差异）：逐目标独立知识包各一次请求，variants 承载；
+    - 空间诊断（M2）：一次请求，spatial_assessment 承载，资料只来自
+      本次已确认编译产物，缺失即强制列 unknowns；
+    - 单目标：原路径（含 detail/revise 的父载荷合并与 canonical 守卫）。
+    """
+    async with open_project_snapshot_llm_client(db, novel_id, run_snapshot) as client:
+        if multi_targets:
+            variants: list[SceneLineOutputV1] = []
+            guard_terms: list | None = None
+            for target in multi_targets:
+                stop = budget_stop_reason(envelope, **guard)
+                if stop:
+                    raise ExplorationPauseError(stop)
+                await _checkpoint(
+                    db,
+                    root,
+                    branch,
+                    error_message="探索 provider 请求需要先提交检查点",
+                )
+                output = await _generate_exploration_payload(
+                    client=client,
+                    action=action,
+                    user_data=_scene_line_user_data(
+                        start=start,
+                        focus=focus,
+                        target_ref=target,
+                        confirmed=confirmed,
+                        mode="start",
+                        parent_payload=None,
+                        instruction=instruction,
+                    ),
+                )
+                if str(output.target_ref) != target:
+                    raise ValueError("对白目标与请求目标不一致")
+                if not target.startswith("c_"):
+                    # canonical 目标：生成后 hidden guard 消费方校验，违规即失败不落库。
+                    if guard_terms is None:
+                        guard_terms = await _hidden_guard_terms(db, confirmed)
+                    _assert_scene_output_within_guard(output, guard_terms)
+                variants.append(output)
+            return SceneLineOutputV1(
+                target_ref="",
+                line="",
+                rationale=(
+                    "同一情境按各目标独立知识包分别生成；差异来自各自目标、"
+                    "性格与知情范围。"
+                ),
+                variants=variants,
+            )
+        if diagnostic_question:
+            stop = budget_stop_reason(envelope, **guard)
+            if stop:
+                raise ExplorationPauseError(stop)
+            await _checkpoint(
+                db, root, branch, error_message="探索 provider 请求需要先提交检查点"
+            )
+            material = _spatial_material_sections(confirmed)
+            output = await _generate_exploration_payload(
+                client=client,
+                action=action,
+                user_data=_scene_diagnostic_user_data(
+                    start=start,
+                    focus=focus,
+                    confirmed=confirmed,
+                    question=diagnostic_question,
+                    subject_ref=diagnostic_subject,
+                    material=material,
+                ),
+                system_content=SCENE_SPATIAL_DIAGNOSTIC_PROMPT,
+            )
+            payload = _finalize_spatial_assessment(
+                output, material, subject_ref=diagnostic_subject
+            )
+            if diagnostic_subject and not diagnostic_subject.startswith("c_"):
+                await _validate_canonical_scene_line(db, confirmed, payload)
+            return payload
+        stop = budget_stop_reason(envelope, **guard)
+        if stop:
+            raise ExplorationPauseError(stop)
+        await _checkpoint(
+            db, root, branch, error_message="探索 provider 请求需要先提交检查点"
+        )
+        output: SceneLineOutputV1 = await _generate_exploration_payload(
+            client=client,
+            action=action,
+            user_data=_scene_line_user_data(
+                start=start,
+                focus=focus,
+                target_ref=target_ref,
+                confirmed=confirmed,
+                mode=mode,
+                parent_payload=parent_payload,
+                instruction=instruction,
+            ),
+        )
+    if str(output.target_ref) != target_ref:
+        raise ValueError("对白目标与请求目标不一致")
+    if not target_ref.startswith("c_"):
+        # canonical 目标：生成后 hidden guard 消费方校验，违规即失败不落库。
+        await _validate_canonical_scene_line(db, confirmed, output)
+    return (
+        _merge_revision(parent_payload, output, SCENE_LINE_OUTPUT_KIND, item_path)
+        if mode == "revise"
+        else output
+    )
 
 
 def _request_context(meta: dict, root_request: dict) -> tuple[str, str, dict, str]:
@@ -796,6 +1112,10 @@ async def handle_story_exploration_progression(db, task):
     mode, action, start_dump, focus = _request_context(meta, None)
     if action == SCENE_LINE_ACTION:
         raise ValueError("场景一句对白任务应由场景执行器处理")
+    if isinstance(meta.get("request"), dict) and (
+        meta["request"].get("multi_targets") or meta["request"].get("diagnostic")
+    ):
+        raise ValueError("multi_targets/diagnostic 仅支持场景一句对白，失败关闭")
 
     root = await get_progression_root(db, novel_id, root_id, lock=True)
     branch = await get_progression_branch(db, novel_id, branch_id, lock=True)
@@ -921,7 +1241,7 @@ async def handle_story_exploration_progression(db, task):
                 client=client,
                 action=action,
                 user_data=user_data,
-                system_prompt=event_mode_hint,
+                system_content=_event_system_prompt(action, event_mode_hint),
             )
         envelope_out = ExplorationOutputEnvelope(
             output_kind=OUTPUT_KIND_BY_ACTION[action],
@@ -1092,6 +1412,13 @@ async def handle_story_exploration_scene(db, task):
     _check_envelope_identity(envelope, root_id=root_id, novel_id=novel_id)
     guard = _budget_guard(meta)
     start = _validate_start_dump(start_dump)
+    scene_request = dict(meta.get("request") or {})
+    multi_targets = _scene_multi_targets(scene_request, mode=mode)
+    diagnostic_question, diagnostic_subject = _scene_diagnostic_request(
+        scene_request, mode=mode
+    )
+    if multi_targets and diagnostic_question:
+        raise ValueError("multi_targets 与 diagnostic 互斥，失败关闭")
     if mode == "start":
         _require_preview_hash(
             novel_id=novel_id,
@@ -1099,6 +1426,8 @@ async def handle_story_exploration_scene(db, task):
             start=start,
             focus=focus,
             expected=str(meta.get("budget_preview_hash") or ""),
+            multi_targets=multi_targets,
+            diagnostic_question=diagnostic_question,
         )
 
     confirmed = await prepare_confirmed_ai_action(
@@ -1137,11 +1466,20 @@ async def handle_story_exploration_scene(db, task):
             item_path = target["key"]
             item_content_hash = target["item_content_hash"]
 
-    target_ref = str(
-        meta.get("target_ref") or (parent_payload or {}).get("target_ref") or ""
-    )
-    if not target_ref:
-        raise ValueError("场景一句对白必须指定目标角色")
+    if mode == "start":
+        if multi_targets or diagnostic_question:
+            # 多目标由 variants 承载、空间诊断由 spatial_assessment 承载，无单目标。
+            target_ref = ""
+        else:
+            target_ref = str(meta.get("target_ref") or "")
+            if not target_ref:
+                raise ValueError("场景一句对白必须指定目标角色")
+    else:
+        target_ref = str(
+            meta.get("target_ref") or (parent_payload or {}).get("target_ref") or ""
+        )
+        if not target_ref:
+            raise ValueError("场景一句对白必须指定目标角色")
 
     pending = dict(branch.pending_round_json or {})
     _require_pending_mode(pending, mode)
@@ -1155,41 +1493,39 @@ async def handle_story_exploration_scene(db, task):
             "scale": scale,
             "focus": focus,
             "target_ref": target_ref,
+            **({"multi_targets": multi_targets} if multi_targets else {}),
+            **(
+                {"diagnostic_question": diagnostic_question}
+                if diagnostic_question
+                else {}
+            ),
         }
         branch.pending_round_json = pending
     await _checkpoint(db, root, branch, error_message="探索检查点未保存，未开始模型请求")
 
     run_snapshot = _require_run_snapshot(meta, root, novel_id)
-    user_data = _scene_line_user_data(
-        start=start,
-        focus=focus,
-        target_ref=target_ref,
-        confirmed=confirmed,
-        mode=mode,
-        parent_payload=parent_payload,
-        instruction=str(meta.get("instruction") or ""),
-    )
 
     try:
-        async with open_project_snapshot_llm_client(db, novel_id, run_snapshot) as client:
-            stop = budget_stop_reason(envelope, **guard)
-            if stop:
-                raise ExplorationPauseError(stop)
-            await _checkpoint(
-                db, root, branch, error_message="探索 provider 请求需要先提交检查点"
-            )
-            output: SceneLineOutputV1 = await _generate_exploration_payload(
-                client=client, action=action, user_data=user_data
-            )
-        if str(output.target_ref) != target_ref:
-            raise ValueError("对白目标与请求目标不一致")
-        if not target_ref.startswith("c_"):
-            # canonical 目标：生成后 hidden guard 消费方校验，违规即失败不落库。
-            await _validate_canonical_scene_line(db, confirmed, output)
-        payload = (
-            _merge_revision(parent_payload, output, SCENE_LINE_OUTPUT_KIND, item_path)
-            if mode == "revise"
-            else output
+        payload = await _run_scene_generation(
+            db,
+            novel_id=novel_id,
+            root=root,
+            branch=branch,
+            envelope=envelope,
+            guard=guard,
+            run_snapshot=run_snapshot,
+            action=action,
+            mode=mode,
+            start=start,
+            focus=focus,
+            confirmed=confirmed,
+            instruction=str(meta.get("instruction") or ""),
+            target_ref=target_ref,
+            parent_payload=parent_payload,
+            item_path=item_path,
+            multi_targets=multi_targets,
+            diagnostic_question=diagnostic_question,
+            diagnostic_subject=diagnostic_subject,
         )
         envelope_out = ExplorationOutputEnvelope(
             output_kind=SCENE_LINE_OUTPUT_KIND,
@@ -1206,6 +1542,8 @@ async def handle_story_exploration_scene(db, task):
             envelope_run=envelope,
             item_path=item_path or None,
             item_content_hash=item_content_hash,
+            multi_targets=multi_targets,
+            diagnostic_question=diagnostic_question,
         )
     except ExplorationPauseError as pause:
         return await _pause_scene(db, root, branch, envelope, pause.reason)
@@ -1259,6 +1597,8 @@ async def _write_scene_result(
     envelope_run,
     item_path: str | None,
     item_content_hash: str | None,
+    multi_targets: list[str] | None = None,
+    diagnostic_question: str | None = None,
 ):
     next_number = (
         await db.scalar(
@@ -1280,6 +1620,10 @@ async def _write_scene_result(
         "item_path": item_path,
         "item_content_hash": item_content_hash,
     }
+    if multi_targets:
+        input_json["multi_targets"] = [str(item) for item in multi_targets]
+    if diagnostic_question:
+        input_json["diagnostic_question"] = str(diagnostic_question)
     row = StorySceneDirectorRound(
         novel_id=root.novel_id,
         root_id=root.id,

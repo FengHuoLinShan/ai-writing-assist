@@ -36,6 +36,7 @@ from modules.story.exploration_schemas import (
     SceneLineOutputV1,
     apply_changed_assumptions,
     exploration_start_fingerprint,
+    validate_scene_targets,
 )
 
 NOVEL_ID = str(uuid.uuid4())
@@ -1004,3 +1005,248 @@ def test_compare_request_defaults_to_same_start_and_accepts_counterfactual():
                 "mode": "timeline",
             }
         )
+
+
+# ---------------------------------------------------------------------------
+# 场景人物差异与空间诊断（M2）：请求字段与三种输出形态
+# ---------------------------------------------------------------------------
+
+
+def _scene_start_task_base(**overrides):
+    payload = {
+        "novel_id": NOVEL_ID,
+        "scale": "scene_line",
+        "action": "story.exploration.scene_line.generate",
+        "start": _provisional_payload(
+            candidates=[
+                {"ref_id": "c_franks", "label": "坦率者", "role": "character"},
+                {"ref_id": "c_evasive", "label": "回避者", "role": "character"},
+            ]
+        ),
+        "operation_id": str(uuid.uuid4()),
+        "context_confirmation_id": "ctx-multi",
+        "budget_preview_hash": "e" * 64,
+    }
+    payload.update(overrides)
+    return payload
+
+
+def test_multi_targets_requires_scene_scale():
+    ok = ExplorationStartTaskRequest.model_validate(
+        {**_scene_start_task_base(), "multi_targets": ["c_franks", "c_evasive"]}
+    )
+    assert ok.multi_targets == ["c_franks", "c_evasive"]
+    # 跨尺度拒绝：沙盘不接受多目标
+    with pytest.raises(ValidationError):
+        ExplorationStartTaskRequest.model_validate(
+            {
+                **_scene_start_task_base(),
+                "scale": "sandbox",
+                "action": "story.exploration.sandbox.generate",
+                "multi_targets": ["c_franks", "c_evasive"],
+            }
+        )
+    # 事件尺度同样拒绝
+    with pytest.raises(ValidationError):
+        ExplorationStartTaskRequest.model_validate(
+            {
+                **_scene_start_task_base(),
+                "scale": "event",
+                "action": "story.exploration.event.diagnose",
+                "multi_targets": ["c_franks", "c_evasive"],
+            }
+        )
+
+
+def test_multi_targets_bounds_and_uniqueness():
+    base = _scene_start_task_base()
+    # 1 个目标低于下限；5 个超过上限；重复目标拒绝
+    with pytest.raises(ValidationError):
+        ExplorationStartTaskRequest.model_validate(
+            {**base, "multi_targets": ["c_franks"]}
+        )
+    with pytest.raises(ValidationError):
+        ExplorationStartTaskRequest.model_validate(
+            {
+                **base,
+                "multi_targets": ["c_a", "c_b", "c_c", "c_d", "c_e"],
+            }
+        )
+    with pytest.raises(ValidationError):
+        ExplorationStartTaskRequest.model_validate(
+            {**base, "multi_targets": ["c_franks", "c_franks"]}
+        )
+    # 4 个目标为合法上限
+    four_candidates_base = _scene_start_task_base()
+    four_candidates_base["start"] = _provisional_payload(
+        candidates=[
+            {"ref_id": f"c_p{i}", "label": f"人物{i}", "role": "character"}
+            for i in range(4)
+        ]
+    )
+    ok = ExplorationStartTaskRequest.model_validate(
+        {**four_candidates_base, "multi_targets": ["c_p0", "c_p1", "c_p2", "c_p3"]}
+    )
+    assert len(ok.multi_targets) == 4
+
+
+def test_multi_targets_and_diagnostic_are_mutually_exclusive():
+    base = _scene_start_task_base()
+    with pytest.raises(ValidationError):
+        ExplorationStartTaskRequest.model_validate(
+            {
+                **base,
+                "multi_targets": ["c_franks", "c_evasive"],
+                "diagnostic": {"question": "他能一步跨到桌边吗？"},
+            }
+        )
+    ok = ExplorationStartTaskRequest.model_validate(
+        {**base, "diagnostic": {"question": "他能一步跨到桌边吗？"}}
+    )
+    assert ok.diagnostic.question == "他能一步跨到桌边吗？"
+    assert ok.diagnostic.subject_ref is None
+    assert ok.multi_targets is None
+
+
+def test_diagnostic_requires_scene_scale():
+    with pytest.raises(ValidationError):
+        ExplorationStartTaskRequest.model_validate(
+            {
+                **_scene_start_task_base(),
+                "scale": "sandbox",
+                "action": "story.exploration.sandbox.generate",
+                "diagnostic": {"question": "他能一步跨到桌边吗？"},
+            }
+        )
+    with pytest.raises(ValidationError):
+        ExplorationStartTaskRequest.model_validate(
+            {
+                **_scene_start_task_base(),
+                "diagnostic": {"question": ""},
+            }
+        )
+    with pytest.raises(ValidationError):
+        ExplorationStartTaskRequest.model_validate(
+            {
+                **_scene_start_task_base(),
+                "diagnostic": {"question": "问" * 2001},
+            }
+        )
+
+
+def test_scene_line_single_shape_requires_target_and_line():
+    with pytest.raises(ValidationError):
+        SceneLineOutputV1.model_validate(_scene_line_payload(target_ref=""))
+    with pytest.raises(ValidationError):
+        SceneLineOutputV1.model_validate(_scene_line_payload(line=""))
+
+
+def test_scene_line_variants_payload_shape():
+    def _variant(ref):
+        return {
+            "target_ref": ref,
+            "line": "你先回去吧。",
+            "rationale": "各自知识包内的回应。",
+        }
+
+    ok = SceneLineOutputV1.model_validate(
+        {
+            "rationale": "同一情境按各目标独立知识包分别生成。",
+            "variants": [_variant("c_franks"), _variant("c_evasive")],
+        }
+    )
+    assert [variant.target_ref for variant in ok.variants] == ["c_franks", "c_evasive"]
+    # 顶层 target_ref/line 必须为空，由 variants 承载
+    with pytest.raises(ValidationError):
+        SceneLineOutputV1.model_validate(
+            {
+                "target_ref": "c_franks",
+                "rationale": "顶层不能带单目标。",
+                "variants": [_variant("c_franks"), _variant("c_evasive")],
+            }
+        )
+    # target_ref 重复拒绝
+    with pytest.raises(ValidationError):
+        SceneLineOutputV1.model_validate(
+            {
+                "rationale": "重复目标。",
+                "variants": [_variant("c_franks"), _variant("c_franks")],
+            }
+        )
+    # 嵌套 variants 拒绝
+    with pytest.raises(ValidationError):
+        SceneLineOutputV1.model_validate(
+            {
+                "rationale": "不得嵌套。",
+                "variants": [
+                    _variant("c_franks"),
+                    {
+                        "rationale": "嵌套。",
+                        "variants": [_variant("c_a"), _variant("c_b")],
+                    },
+                ],
+            }
+        )
+    # 变体缺少台词拒绝
+    with pytest.raises(ValidationError):
+        SceneLineOutputV1.model_validate(
+            {
+                "rationale": "缺台词。",
+                "variants": [
+                    _variant("c_franks"),
+                    {"target_ref": "c_evasive", "rationale": "没有 line"},
+                ],
+            }
+        )
+
+
+def test_scene_line_spatial_assessment_payload():
+    ok = SceneLineOutputV1.model_validate(
+        {
+            "rationale": "只依据已确认空间资料判断。",
+            "spatial_assessment": {
+                "supported": True,
+                "constraints": ["桌边通道只容侧身"],
+                "unknowns": ["大门到桌子的精确距离"],
+            },
+        }
+    )
+    assert ok.spatial_assessment.supported is True
+    assert ok.target_ref == "" and ok.line == ""
+    # diagnostic 形态也允许附带台词，但 constraints/unknowns 有界
+    with pytest.raises(ValidationError):
+        SceneLineOutputV1.model_validate(
+            {
+                "rationale": "越界。",
+                "spatial_assessment": {
+                    "constraints": [f"约束{i}" for i in range(11)],
+                },
+            }
+        )
+    # variants 与 spatial_assessment 互斥
+    with pytest.raises(ValidationError):
+        SceneLineOutputV1.model_validate(
+            {
+                "rationale": "不得同时承载。",
+                "variants": [
+                    {"target_ref": "c_a", "line": "好", "rationale": "r"},
+                    {"target_ref": "c_b", "line": "嗯", "rationale": "r"},
+                ],
+                "spatial_assessment": {"supported": False},
+            }
+        )
+
+
+def test_validate_scene_targets_membership():
+    start = ProvisionalStart.model_validate(
+        _provisional_payload(
+            candidates=[
+                {"ref_id": "c_franks", "label": "坦率者", "role": "character"},
+                {"ref_id": "c_evasive", "label": "回避者", "role": "character"},
+            ],
+            canonical_refs=[str(uuid.uuid4())],
+        )
+    )
+    validate_scene_targets(start, ["c_franks", "c_evasive", start.canonical_refs[0]])
+    with pytest.raises(ValueError):
+        validate_scene_targets(start, ["c_stranger"])

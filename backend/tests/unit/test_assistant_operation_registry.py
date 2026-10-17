@@ -576,7 +576,7 @@ C6_EXPLORATION_SNAPSHOT = {
         "预览独立探索推荐与预算",
         "read",
         "1",
-        "af933aca9a20d12d601b429ce5870de7e7034135d30e233453f3bbee40232a6c",
+        "fba49c18b3fc8c8502669e6a4248d8e22cd52e107a1d093a00ac7896adebfb07",
     ),
     "story.exploration.revise": (
         "局部修订探索结果",
@@ -588,7 +588,7 @@ C6_EXPLORATION_SNAPSHOT = {
         "发起独立探索任务",
         "confirm",
         "1",
-        "e0cbeeff2004dae5d45042e26e8f2a7064df61a92a716e197d2517c7162921c9",
+        "2a471b7c1d8bc31986cabfff56671e6fffc5bc7299bd83f75b7395b6fe2a05fc",
     ),
 }
 C0_DOSSIER_INTERCHANGE_OPERATIONS = {
