@@ -260,9 +260,7 @@ class ExplorationBudgetPreview(ExplorationModel):
     follow_up_max_requests: int = Field(default=1, ge=1)
     tokens_min: int = Field(ge=0)
     tokens_max: int = Field(ge=0)
-    token_estimate: ExplorationTokenEstimate = Field(
-        default_factory=ExplorationTokenEstimate
-    )
+    token_estimate: ExplorationTokenEstimate | None = None
     preview_hash: str = Field(pattern="^[a-f0-9]{64}$")
 
     @model_validator(mode="after")
