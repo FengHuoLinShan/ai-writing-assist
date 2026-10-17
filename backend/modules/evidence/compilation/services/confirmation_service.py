@@ -12,7 +12,9 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from core.container import get
 from core.errors import ConflictError, ValidationError
 from core.service_keys import (
+    STORY_GET_SCENE_CONTRACT,
     STORY_SCENE_SOURCE,
+    WORLD_GET_CHARACTER_ID_BY_WORLD_ENTITY,
 )
 from infrastructure.stable_hash import stable_hash
 from modules.evidence.compilation.contracts import (
@@ -21,6 +23,7 @@ from modules.evidence.compilation.contracts import (
     ContextConfirmationRequest,
 )
 from modules.evidence.compilation.repositories import ContextConfirmationRepository
+from modules.evidence.compilation.schemas import ExplorationContextRequest
 from modules.evidence.compilation.services.compiled_context import (
     CompiledContext,
     compiled_context_fingerprint,
@@ -56,6 +59,129 @@ _MAP_CONFIRMATION_METADATA = frozenset(
     {"map_spatial_baseline", "compiled_context_core_fingerprint"}
 )
 _ADVISORY_REFERENCE_SECTION_KEYS = frozenset({"map_spatial", "director_reference"})
+
+EXPLORATION_ACTION_PREFIX = "story.exploration."
+"""导演多尺度独立探索动作前缀；detail/revise 编辑类不新开确认，复用根确认。"""
+
+_EXPLORATION_ACTION_SCALES = {
+    "story.exploration.sandbox.generate": "sandbox",
+    "story.exploration.event.diagnose": "event",
+    "story.exploration.event.bridge": "event",
+    "story.exploration.scene_line.generate": "scene_line",
+}
+
+_EXPLORATION_FROZEN_OPTION_KEYS = (
+    "start_kind",
+    "exploration_start",
+    "exploration_scale",
+    "exploration_focus",
+)
+
+
+def _pop_exploration_frozen_options(compile_options: dict[str, Any]) -> dict[str, Any]:
+    """摘出探索冻结键；CompileOptions 不承载这些字段，回放后经 selection_trace 回传。"""
+    return {
+        key: compile_options.pop(key)
+        for key in _EXPLORATION_FROZEN_OPTION_KEYS
+        if key in compile_options
+    }
+
+
+def _validate_exploration_reveal_mode(request: ExplorationContextRequest) -> None:
+    """探索确认的揭示模式：作者包默认 author_safe；canonical 角色 POV 需视角与截止点。"""
+    if request.reveal_mode == "reader":
+        raise ValidationError("探索确认不支持 reader 揭示模式")
+    if request.reveal_mode == "character":
+        if not request.viewpoint_character_id:
+            raise ValidationError("character 视角探索必须提供 viewpoint_character_id")
+        if request.visible_until_chapter is None and not request.visible_until_scene_id:
+            raise ValidationError("character 视角探索必须提供可见截止点")
+
+
+async def _validate_exploration_scene_anchor(
+    db: AsyncSession,
+    request: ExplorationContextRequest,
+) -> None:
+    """Scene 锚点起点：存在性 + 可见截止对齐（对齐 _validate_confirmed_scene_scope）。"""
+    start = request.start
+    scene_contract = await get(STORY_GET_SCENE_CONTRACT)(
+        db,
+        request.novel_id,
+        start.scene_id,
+    )
+    if scene_contract is None:
+        raise ValidationError("探索锚点 Scene 不存在或不属于当前项目，请重新选择")
+    if (
+        request.visible_until_scene_id
+        and request.visible_until_scene_id != start.scene_id
+    ):
+        raise ValidationError("探索确认的可见截止必须与锚点 Scene 一致")
+
+
+async def _validate_exploration_provisional_start(
+    db: AsyncSession,
+    request: ExplorationContextRequest,
+) -> None:
+    """临时假设起点：不绑 Scene；正式角色引用失败关闭；web_refs 只能服务端冻结。"""
+    start = request.start
+    if request.visible_until_scene_id:
+        raise ValidationError("临时假设起点不能绑定 Scene 可见截止点")
+    if start.web_refs:
+        raise ValidationError(
+            "web_refs 只能由服务端从助手当轮网页快照冻结填充；"
+            "请通过助手当轮确认联网来源，不能在请求中直传"
+        )
+    candidate_ids = {candidate.ref_id for candidate in start.candidates}
+    entity_ids: set[str] = set(start.canonical_refs)
+    entity_ids.update(item.subject_entity_id for item in start.scene_stimuli)
+    for entry in start.knowledge:
+        if entry.subject_ref in candidate_ids:
+            continue
+        try:
+            uuid.UUID(entry.subject_ref)
+        except (ValueError, AttributeError, TypeError) as error:
+            raise ValidationError(
+                "knowledge.subject_ref 必须是候选 ref_id 或正式角色 entity_id: "
+                f"{entry.subject_ref}"
+            ) from error
+        entity_ids.add(entry.subject_ref)
+    for entity_id in sorted(entity_ids):
+        resolved = await get(WORLD_GET_CHARACTER_ID_BY_WORLD_ENTITY)(
+            db,
+            request.novel_id,
+            entity_id,
+        )
+        if not resolved:
+            raise ValidationError(
+                "探索引用的正式角色不存在、非正史或不属于当前项目: "
+                f"{entity_id}"
+            )
+
+
+async def validate_exploration_request(
+    db: AsyncSession,
+    request: ExplorationContextRequest,
+) -> None:
+    """story.exploration.* 预览/确认共用的失败关闭校验（P0 冻结契约 §2.3）。"""
+    expected_scale = _EXPLORATION_ACTION_SCALES.get(request.action)
+    if expected_scale is None:
+        raise ValidationError(
+            f"不支持的探索操作: {request.action}，"
+            f"必须是 {', '.join(sorted(_EXPLORATION_ACTION_SCALES))} 之一"
+        )
+    if request.exploration_scale != expected_scale:
+        raise ValidationError(
+            f"exploration_scale 与操作不匹配：{request.action} 要求 {expected_scale}"
+        )
+    if request.start.kind == "provisional":
+        if request.scope != "project":
+            raise ValidationError("临时假设起点的确认范围必须是 project")
+        await _validate_exploration_provisional_start(db, request)
+    else:
+        if request.scope != "scene":
+            raise ValidationError("Scene 锚点起点的确认范围必须是 scene")
+        await _validate_exploration_scene_anchor(db, request)
+    _validate_exploration_reveal_mode(request)
 
 
 def execution_compile_options(options: Mapping[str, Any]) -> dict[str, Any]:
@@ -130,6 +256,94 @@ def _omit_changed_map_reference(
     }
 
 
+def _exploration_compile_options(request: ExplorationContextRequest) -> CompileOptions:
+    """探索预览用 CompileOptions；字段映射与 confirm_context 保持一致。"""
+    return CompileOptions(
+        novel_id=request.novel_id,
+        task=request.task,
+        scope=request.scope,
+        consumer_action=request.action,
+        retrieval_purpose=resolve_retrieval_purpose(
+            request.action,
+            request.retrieval_purpose,
+            reveal_mode=request.reveal_mode,
+        ),
+        chapter_index=request.chapter_index,
+        requested_chapter_index=request.chapter_index,
+        visible_until_chapter=request.visible_until_chapter,
+        visible_until_scene_id=request.visible_until_scene_id,
+        visible_until_offset=request.visible_until_offset,
+        scene_id=request.scene_id,
+        arc_id=request.arc_id,
+        entity_ids=request.entity_ids,
+        character_ids=request.character_ids,
+        thread_ids=request.thread_ids,
+        location_ids=request.location_ids,
+        reveal_mode=request.reveal_mode,
+        enable_geo_filter=request.enable_geo_filter,
+        viewpoint_character_id=request.viewpoint_character_id,
+        budget_tokens=request.budget_tokens,
+        context_mode=request.context_mode,
+        content_mode=request.content_mode,
+        include_pending_objects=request.include_pending_objects,
+        excluded_asset_ids=request.excluded_asset_ids or {},
+        pinned_refs=[item.model_dump(mode="json") for item in request.pinned_refs],
+        excluded_refs=[item.model_dump(mode="json") for item in request.excluded_refs],
+        user_note=request.user_note,
+        include_world_synopsis=request.include_world_synopsis,
+        selected_world_bible_draft_ids=request.selected_world_bible_draft_ids or [],
+        director_reference_ids=request.director_reference_ids or [],
+        activation_profile_id=request.activation_profile_id,
+        activation_profile_version=request.activation_profile_version,
+        scene_memory_contract_version=(
+            _scene_memory_port().scene_memory_current_version()
+        ),
+    )
+
+
+def _exploration_confirmation_request(
+    request: ExplorationContextRequest,
+) -> ContextConfirmationRequest:
+    """把探索请求映射为通用确认请求；起点以判别联合 dump 随确认冻结。"""
+    return ContextConfirmationRequest(
+        novel_id=request.novel_id,
+        action=request.action,
+        task=request.task,
+        scope=request.scope,
+        retrieval_purpose=request.retrieval_purpose,
+        chapter_index=request.chapter_index,
+        visible_until_chapter=request.visible_until_chapter,
+        visible_until_scene_id=request.visible_until_scene_id,
+        visible_until_offset=request.visible_until_offset,
+        scene_id=request.scene_id,
+        arc_id=request.arc_id,
+        entity_ids=request.entity_ids,
+        character_ids=request.character_ids,
+        thread_ids=request.thread_ids,
+        location_ids=request.location_ids,
+        reveal_mode=request.reveal_mode,
+        enable_geo_filter=request.enable_geo_filter,
+        viewpoint_character_id=request.viewpoint_character_id,
+        budget_tokens=request.budget_tokens,
+        context_mode=request.context_mode,
+        content_mode=request.content_mode,
+        include_pending_objects=request.include_pending_objects,
+        excluded_asset_ids=request.excluded_asset_ids or {},
+        pinned_refs=[item.model_dump(mode="json") for item in request.pinned_refs],
+        excluded_refs=[item.model_dump(mode="json") for item in request.excluded_refs],
+        user_note=request.user_note,
+        include_world_synopsis=request.include_world_synopsis,
+        selected_world_bible_draft_ids=request.selected_world_bible_draft_ids or [],
+        director_reference_ids=request.director_reference_ids or [],
+        activation_profile_id=request.activation_profile_id,
+        activation_profile_version=request.activation_profile_version,
+        expected_context_fingerprint=request.expected_context_fingerprint,
+        exploration_start=request.start.model_dump(mode="json"),
+        exploration_scale=request.exploration_scale,
+        exploration_focus=request.focus,
+    )
+
+
 class ContextConfirmationService:
     async def preview_confirmation(self, db, options: CompileOptions) -> dict:
         from dataclasses import replace
@@ -159,6 +373,30 @@ class ContextConfirmationService:
             "blockers": list(compiled.blockers),
         }
 
+    async def preview_exploration(
+        self,
+        db: AsyncSession,
+        request: ExplorationContextRequest,
+    ) -> dict:
+        """探索确认预览：同一套失败关闭校验，不落确认记录。"""
+        await validate_exploration_request(db, request)
+        return await self.preview_confirmation(
+            db,
+            _exploration_compile_options(request),
+        )
+
+    async def confirm_exploration(
+        self,
+        db: AsyncSession,
+        request: ExplorationContextRequest,
+    ) -> ContextConfirmationContract:
+        """探索确认：校验后复用通用确认流；起点/尺度/焦点随 compile_options 冻结。"""
+        await validate_exploration_request(db, request)
+        return await self.confirm_context(
+            db,
+            _exploration_confirmation_request(request),
+        )
+
     """Owns AI reference confirmation semantics."""
 
     def __init__(
@@ -175,6 +413,9 @@ class ContextConfirmationService:
         request: ContextConfirmationRequest,
     ) -> ContextConfirmationContract:
         action = request.action
+        exploration = action.startswith(EXPLORATION_ACTION_PREFIX)
+        if exploration and request.exploration_start is None:
+            raise ValidationError("探索确认必须携带 exploration_start 起点")
         retrieval_purpose = resolve_retrieval_purpose(
             action,
             request.retrieval_purpose,
@@ -248,6 +489,17 @@ class ContextConfirmationService:
                 "compiled_context_core_fingerprint": _core_context_fingerprint(compiled),
             }
         )
+        if exploration:
+            # P0 冻结契约 §2.4：起点/尺度/焦点随确认冻结；指纹覆盖由
+            # compiled_context_core_fingerprint 承担，不新增 DB 列。
+            compile_options_json.update(
+                {
+                    "start_kind": str(request.exploration_start.get("kind") or ""),
+                    "exploration_start": request.exploration_start,
+                    "exploration_scale": request.exploration_scale or "",
+                    "exploration_focus": request.exploration_focus or "",
+                }
+            )
         record = await self._repo.create(
             db,
             novel_id=parse_uuid(request.novel_id, "novel_id"),
@@ -380,6 +632,10 @@ class ContextConfirmationService:
             confirmation_id=confirmation_id,
         )
         compile_options = dict(confirmation.compile_options)
+        # 探索冻结键先摘出：CompileOptions 不承载这些字段；回放完成后经
+        # selection_trace 回传给调用方（worker 校验与请求一致，不一致失败关闭）。
+        start_kind = compile_options.get("start_kind")
+        frozen_exploration = _pop_exploration_frozen_options(compile_options)
         expected_map_baseline = compile_options.pop("map_spatial_baseline", None)
         expected_core_fingerprint = compile_options.pop(
             "compiled_context_core_fingerprint", None
@@ -400,23 +656,28 @@ class ContextConfirmationService:
             self._require_character_profile(compiled)
         if action == "outline.analyze":
             self._require_outline_analysis_range(compiled, options)
-        if (
-            not options.compiled_context_fingerprint
-            and options.outline_analysis_fingerprint
-        ):
-            current_fingerprint = self._outline_analysis_fingerprint(compiled)
-            if current_fingerprint != options.outline_analysis_fingerprint:
-                raise ValueError(
-                    "outline analysis context changed; "
-                    "review and confirm the latest context"
-                )
-        if options.scene_state_fingerprint and not options.compiled_context_fingerprint:
-            current_fingerprint = self._scene_state_fingerprint(compiled)
-            if current_fingerprint != options.scene_state_fingerprint:
-                raise ConflictError(
-                    "Scene time state changed; review and confirm the latest context",
-                    code="scene_state_changed",
-                )
+        # 临时起点没有 Scene/大纲分析：跳过 outline 与 scene_state 指纹门；
+        # Scene 锚点起点与非探索确认一样走现有全部门禁。
+        if start_kind != "provisional":
+            if (
+                not options.compiled_context_fingerprint
+                and options.outline_analysis_fingerprint
+            ):
+                current_fingerprint = self._outline_analysis_fingerprint(compiled)
+                if current_fingerprint != options.outline_analysis_fingerprint:
+                    raise ValueError(
+                        "outline analysis context changed; "
+                        "review and confirm the latest context"
+                    )
+            if options.scene_state_fingerprint and (
+                not options.compiled_context_fingerprint
+            ):
+                current_fingerprint = self._scene_state_fingerprint(compiled)
+                if current_fingerprint != options.scene_state_fingerprint:
+                    raise ConflictError(
+                        "Scene time state changed; review and confirm the latest context",
+                        code="scene_state_changed",
+                    )
         if expected_core_fingerprint is not None:
             current_core_fingerprint = _core_context_fingerprint(compiled)
             if current_core_fingerprint != expected_core_fingerprint:
@@ -442,6 +703,13 @@ class ContextConfirmationService:
                     "AI 参考资料已变化，请重新审查后再开始任务",
                     code="context_changed",
                 )
+        if frozen_exploration:
+            compiled.selection_trace["exploration"] = {
+                "start_kind": frozen_exploration.get("start_kind"),
+                "exploration_start": frozen_exploration.get("exploration_start"),
+                "exploration_scale": frozen_exploration.get("exploration_scale"),
+                "exploration_focus": frozen_exploration.get("exploration_focus"),
+            }
         return compiled
 
     async def attach_result_ref(

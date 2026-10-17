@@ -660,6 +660,51 @@ CAPABILITY_REGISTRY: dict[str, CapabilityKnowledgePolicy] = {
             notes="逐角色知识包与导演层分离；根预算与来源冻结，候选不自动写入正史。",
         ),
         _policy(
+            "story.exploration.sandbox",
+            DOMAIN_STORY,
+            "沙盘独立探索",
+            subjects=("author",),
+            dimensions=("character_knowledge", "world_entities"),
+            advisory_dimensions=_OBJECT_REFERENCE_ADVISORY,
+            confirmation=CONFIRMATION_REQUIRED,
+            outputs=(OUTPUT_PROPOSAL,),
+            gate=ADOPTION_DISPLAY_ONLY,
+            notes=(
+                "feature gate STORY_EXPLORATION_ENABLED；临时起点可为空资料集确认，"
+                "候选主体不进 hidden guard 目标集，结果不写正文或正史。"
+            ),
+        ),
+        _policy(
+            "story.exploration.event",
+            DOMAIN_STORY,
+            "事件诊断与补桥",
+            subjects=("author",),
+            dimensions=("character_knowledge", "world_entities"),
+            advisory_dimensions=_OBJECT_REFERENCE_ADVISORY,
+            confirmation=CONFIRMATION_REQUIRED,
+            outputs=(OUTPUT_PROPOSAL,),
+            gate=ADOPTION_DISPLAY_ONLY,
+            notes=(
+                "feature gate STORY_EXPLORATION_ENABLED；诊断与补桥同一能力，"
+                "缺条件返回 unsolvable，不编造完成、不自动建事件或 Scene。"
+            ),
+        ),
+        _policy(
+            "story.exploration.scene_line",
+            DOMAIN_STORY,
+            "场景一句对白探索",
+            subjects=("author", "character"),
+            dimensions=("character_knowledge", "world_entities", "scene_state"),
+            advisory_dimensions=_OBJECT_REFERENCE_ADVISORY,
+            confirmation=CONFIRMATION_REQUIRED,
+            outputs=(OUTPUT_PROPOSAL,),
+            gate=ADOPTION_DISPLAY_ONLY,
+            notes=(
+                "feature gate STORY_EXPLORATION_ENABLED；角色只收到自己的可知包，"
+                "场景本地刺激以非正史前缀并入，不生成整场正文。"
+            ),
+        ),
+        _policy(
             "story.scene_fusion",
             DOMAIN_STORY,
             "Scene 融合草稿",
