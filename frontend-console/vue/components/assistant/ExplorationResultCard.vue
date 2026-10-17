@@ -111,6 +111,41 @@
       </div>
     </section>
 
+    <!-- 完整排演：逐轮区块（轮号标题）→ 每目标表演卡 → 素材 → 观察回执；
+         整体结果不支持增量修订，不提供任何修订/编辑/锁定入口 -->
+    <section v-else-if="isFullRehearsal" class="exploration-result-card__body">
+      <template v-if="rehearsalRounds.length">
+        <section v-for="round in rehearsalRounds" :key="`round:${round.round_number}`" class="exploration-result-card__round">
+          <h4>第 {{ round.round_number }} 轮</h4>
+          <div v-for="(performance, index) in round.performances || []" :key="`perf:${round.round_number}:${index}`" class="exploration-result-card__variant">
+            <p class="exploration-result-card__variant-target">目标：{{ performance.target_ref }}</p>
+            <blockquote class="exploration-result-card__line">{{ performance.line_or_beat }}</blockquote>
+            <p v-if="performance.rationale" class="exploration-result-card__basis">依据：{{ performance.rationale }}</p>
+            <p v-if="performance.basis_refs?.length" class="exploration-result-card__basis">知识来源：{{ performance.basis_refs.join("；") }}</p>
+          </div>
+          <template v-if="round.materials?.length">
+            <p class="exploration-result-card__basis">素材：</p>
+            <ul class="exploration-result-card__list" aria-label="素材">
+              <li v-for="(material, index) in round.materials" :key="`material:${round.round_number}:${index}`">
+                <p>{{ rehearsalMaterialLabel(material) }}：{{ material.text }}</p>
+                <p v-if="material.perceiver_refs?.length" class="exploration-result-card__basis">感知：{{ material.perceiver_refs.join("、") }}</p>
+              </li>
+            </ul>
+          </template>
+          <template v-if="round.observations?.length">
+            <p class="exploration-result-card__basis">观察回执：</p>
+            <ul class="exploration-result-card__list" aria-label="观察回执">
+              <li v-for="(observation, index) in round.observations" :key="`obs:${round.round_number}:${index}`">
+                <p>{{ observation.target_ref }} 注意到：{{ observation.observed }}</p>
+              </li>
+            </ul>
+          </template>
+        </section>
+      </template>
+      <p v-else class="exploration-result-card__empty">这次排演没有产出轮次内容。</p>
+      <p v-if="rehearsalStateNotes.length" class="exploration-result-card__basis">状态要点：{{ rehearsalStateNotes.join("；") }}</p>
+    </section>
+
     <p v-else class="exploration-result-card__empty">暂不支持在卡片中展示这类结果，请在项目助手中查看。</p>
 
     <p v-if="display.unknowns?.length" class="exploration-result-card__unknown">未知：{{ display.unknowns.join("；") }}</p>
@@ -121,6 +156,8 @@
       <p><strong>补充后的新结果</strong></p>
       <p class="exploration-result-card__line">{{ compactText(followUp.payload, followUp.output_kind) }}</p>
     </section>
+
+    <p v-if="isFullRehearsal" class="exploration-result-card__hint">完整排演结果不支持增量修订；需要调整请以同起点新建任务。</p>
 
     <div class="exploration-result-card__actions">
       <button v-if="modelFollowUpAvailable" type="button" class="btn btn-sm" :disabled="busy" @click="requestDetail">说详细点</button>
@@ -135,7 +172,7 @@
         <p v-if="selectedItemLocked" class="exploration-result-card__hint">已锁定，先解锁</p>
         <button type="button" class="btn btn-sm" :disabled="busy || selectedItemLocked || !revisionItemKey || !revisionInstruction.trim()" @click="requestRevise">{{ busy ? "正在修订…" : "开始修订" }}</button>
       </details>
-      <details class="exploration-result-card__op">
+      <details v-if="!isFullRehearsal" class="exploration-result-card__op">
         <summary>保存编辑</summary>
         <p class="exploration-result-card__hint">编辑会保存为新版本，AI 原结果保持不变；本地草稿暂存，保存成功才提示已保存。</p>
         <label><span>编辑{{ revisionItemKey ? `：${selectedItem?.label || "选中条目"}` : "文本" }}</span><textarea v-model="editDraft" rows="3" maxlength="4000"></textarea></label>
@@ -201,6 +238,8 @@
 // 受影响项，同起点父子对照标记后代修订并列出受影响项，粒度不足时保守披露）。
 // M3-A3：可修订条目旁提供锁定开关；锁定条目禁止局部修订，修订/编辑冲突时
 // 原样展示服务端 409 中文原因。AI 结果不可变；编辑保存形成新版本。
+// M3-B：完整排演结果整体落一行（服务端对 detail/revise/save-edit/lock 一律 409），
+// 只读渲染逐轮表演卡/素材/观察回执，并提示以同起点新建任务调整。
 import { computed, onBeforeUnmount, ref, watch } from "vue"
 import { getApi } from "../../bridge/index.js"
 import { createOperationId, pollTaskProgress } from "../../../shared/workflowProgress.js"
@@ -215,7 +254,10 @@ const SANDBOX = "story.exploration.sandbox"
 const EVENT = "story.exploration.event"
 const SCENE_LINE = "story.exploration.scene_line"
 const AUTHOR_EDIT = "story.exploration.author_edit"
-const KIND_LABELS = { [SANDBOX]: "沙盘推演", [EVENT]: "事件诊断", [SCENE_LINE]: "场景对白", [AUTHOR_EDIT]: "作者编辑版" }
+const FULL_REHEARSAL = "story.exploration.full_rehearsal"
+const KIND_LABELS = { [SANDBOX]: "沙盘推演", [EVENT]: "事件诊断", [SCENE_LINE]: "场景对白", [AUTHOR_EDIT]: "作者编辑版", [FULL_REHEARSAL]: "完整排演" }
+// 素材类别沿用后端六类；展示时译为作者语言，未知类别回退原值。
+const REHEARSAL_MATERIAL_LABELS = { environment: "环境", object: "物件", crowd: "人群", mood: "氛围", pacing: "节奏", time: "时间" }
 const SCALE_LABELS = { sandbox: "沙盘", event: "事件", scene_line: "场景对白" }
 const DRAFT_PREFIX = "novel_exploration_edit_v1"
 
@@ -248,13 +290,14 @@ const effectiveKind = computed(() => (kind.value === AUTHOR_EDIT ? current.value
 const isSandbox = computed(() => effectiveKind.value === SANDBOX)
 const isEvent = computed(() => effectiveKind.value === EVENT)
 const isSceneLine = computed(() => effectiveKind.value === SCENE_LINE)
+const isFullRehearsal = computed(() => effectiveKind.value === FULL_REHEARSAL)
 const savedEdit = computed(() => kind.value === AUTHOR_EDIT || savedLocally.value)
 const editNote = computed(() => (kind.value === AUTHOR_EDIT ? current.value.payload?.edit_note || "" : ""))
 const title = computed(() => KIND_LABELS[kind.value] || "探索结果")
 const scaleLabel = computed(() => SCALE_LABELS[props.source?.scale] || props.source?.scale || "探索")
 const scaleClass = computed(() => props.source?.scale || "unknown")
 const question = computed(() => props.source?.label || display.value.question || "")
-const modelFollowUpAvailable = computed(() => kind.value !== AUTHOR_EDIT && Boolean(current.value.resultId))
+const modelFollowUpAvailable = computed(() => kind.value !== AUTHOR_EDIT && kind.value !== FULL_REHEARSAL && Boolean(current.value.resultId))
 
 const sandboxLinks = computed(() => (isSandbox.value ? display.value.influence_chain || [] : []))
 
@@ -287,6 +330,11 @@ const spatialAssessment = computed(() => (
 ))
 const spatialConstraints = computed(() => (Array.isArray(spatialAssessment.value?.constraints) ? spatialAssessment.value.constraints : []))
 const spatialUnknowns = computed(() => (Array.isArray(spatialAssessment.value?.unknowns) ? spatialAssessment.value.unknowns : []))
+// 完整排演（M3-B）：逐轮消费 performances/materials/observations；整体落一行，
+// 不支持增量修订与锁定，仅展示。
+const rehearsalRounds = computed(() => (isFullRehearsal.value && Array.isArray(display.value.rounds) ? display.value.rounds : []))
+const rehearsalStateNotes = computed(() => (isFullRehearsal.value && Array.isArray(display.value.state_notes) ? display.value.state_notes : []))
+function rehearsalMaterialLabel(material) { return REHEARSAL_MATERIAL_LABELS[material?.kind] || material?.kind || "素材" }
 
 // 受影响项（M3-A）：仅 counterfactual / parent_child 对照回传；路径语法与
 // 修订/锁定的 item_path 一致，逐项展示三态标签与 base/derived 摘录并排。
@@ -633,6 +681,10 @@ function compactText(payload, kindValue = effectiveKind.value) {
       text.push(`${subject}：知道 ${knows}；不知道 ${notKnown}${row.missing_contact_path ? "；缺接触路径" : ""}`)
     }
     if (payload.unsolvable) text.push(`无法成立：${payload.unsolvable.reason || ""}`)
+  } else if (kindValue === FULL_REHEARSAL) {
+    // 与后端历史摘要一致：取首轮第一张表演卡的台词/节拍作摘要。
+    const firstCard = (payload.rounds || [])[0]?.performances?.[0]
+    text.push(firstCard?.line_or_beat || "（完整排演）")
   } else if (kindValue === SCENE_LINE) {
     if (Array.isArray(payload.variants) && payload.variants.length) text.push(payload.variants[0]?.line || "")
     else if (payload.spatial_assessment && typeof payload.spatial_assessment === "object") {
@@ -712,6 +764,10 @@ onBeforeUnmount(() => { poller?.stop?.(); poller = null })
 .exploration-result-card__spatial{border:1px dashed var(--border-color,var(--border));border-radius:8px;padding:8px;margin:8px 0;min-width:0}
 .exploration-result-card__spatial h4{margin:0 0 6px;font-size:13px}
 .exploration-result-card__spatial .exploration-result-card__list{margin:4px 0}
+.exploration-result-card__round{border:1px solid var(--border-color,var(--border));border-radius:8px;padding:8px;margin:8px 0;min-width:0}
+.exploration-result-card__round h4{margin:0 0 6px;font-size:13px}
+.exploration-result-card__round .exploration-result-card__variant{margin:6px 0}
+.exploration-result-card__round .exploration-result-card__list{margin:4px 0}
 .exploration-result-card__compare section{padding:8px;border-radius:8px;background:var(--bg-muted);min-width:0}
 .exploration-result-card__compare h4{margin:0 0 6px;font-size:13px}
 .exploration-result-card__compare p{white-space:pre-wrap;overflow-wrap:anywhere;margin:0;font-size:13px}
