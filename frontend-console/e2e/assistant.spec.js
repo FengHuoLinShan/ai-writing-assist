@@ -17,9 +17,16 @@ test("项目助手确认、跨页恢复与390px键盘路径", async ({ page, pro
   await panel.locator("#assistant-input").fill("这是未提交的后续问题")
   await page.evaluate(() => window.router.navigate("world", "bible"))
   await expect(panel.locator("#assistant-input")).toHaveValue("这是未提交的后续问题")
+  let releaseCapabilities
+  const capabilitiesReady = new Promise(resolve => { releaseCapabilities = resolve })
+  const capabilitiesRoute = async route => { await capabilitiesReady; await route.continue() }
+  await page.route("**/api/assistant/capabilities?*", capabilitiesRoute)
   await page.reload()
   await page.getByRole("button", { name: "项目助手", exact: true }).click()
+  await expect(panel).toBeVisible()
+  releaseCapabilities()
   await expect(panel.locator("#assistant-input")).toHaveValue("这是未提交的后续问题")
+  await page.unroute("**/api/assistant/capabilities?*", capabilitiesRoute)
   await expect(panel.getByText("已确认：记录年龄核对事项。", { exact: true })).toBeVisible()
   await page.evaluate(() => window.router.navigate("generate"))
   await page.getByRole("button", { name: "打开这次讨论", exact: true }).click()

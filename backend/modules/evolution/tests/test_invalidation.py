@@ -158,7 +158,10 @@ async def test_t08_same_length_edit_invalidates_index_and_projections(
         db, nid, chapter_index=1, change=change, content_mode="working"
     )
 
-    assert "map_atlas" not in receipt.invalidated_consumers  # working 不触发地图核对
+    map_check = receipt.invalidated_consumers["map_atlas"]
+    assert map_check["maps"] == []  # 工作稿只核对自动草图，正式地图保持 canonical 语义。
+    assert map_check["auto_drafts"] == []
+    assert map_check["checked"] is True
 
     # 索引换源：请求 hash 不再是旧内容，旧结果不能冒充有效。
     state = await _index_state(db, nid, 1)

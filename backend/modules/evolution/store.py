@@ -463,6 +463,18 @@ class PostgresAttemptStore:
                 "frozen_missing",
                 "receipt requires its frozen attempt to exist first",
             )
+        queue_check = None
+        if receipt.execution_status == "succeeded":
+            run = await self.load_run(receipt.run_id)
+            if run is not None and run.execution_mode == "live":
+                from core.container import get as container_get
+                from core.service_keys import STORY_QUEUE_WORLD_PROGRESSION_READ_CHECK
+
+                try:
+                    queue_check = container_get(STORY_QUEUE_WORLD_PROGRESSION_READ_CHECK)
+                except KeyError:
+                    await self._db.rollback()
+                    raise
         record = EvolutionReceiptRecord(
             # 显式生成主键：head_attempt_id 指针在 INSERT 前就要引用它
             # （返修 P2：默认值到 INSERT 才生效，指针会落成 NULL）。
@@ -525,6 +537,10 @@ class PostgresAttemptStore:
             .values(status="applied")
         )
         await self._db.flush()
+
+        if queue_check is not None:
+            # The outbox row shares the fenced receipt transaction and rolls back with it.
+            await queue_check(self._db, novel_id=str(self._novel_id))
 
     async def load_receipt(self, run_id: str, attempt_id: str) -> EvolutionReceipt | None:
         row = (

@@ -9,6 +9,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from core.errors import ConflictError, ValidationError
 from infrastructure.tasks.facade import (
     get_latest_coalesced_task,
+    list_task_lifecycle_contracts,
 )
 from modules.account.facade import is_anonymous_rp_principal
 from modules.interaction.models import (
@@ -78,12 +79,22 @@ class JourneyOverviewMixin:
                 anchor_index = ids.index(head.anchor_node_id)
                 if path_hash(path[: anchor_index + 1]) != head.path_hash:
                     head = None
-        latest_task = await get_latest_coalesced_task(
-            db,
-            task_type="interaction_summary_refresh",
-            novel_id=str(journey.novel_id),
-            scope=("interaction_summary", str(journey.id)),
-        )
+        latest_task = None
+        if journey.summary_refresh_task_id is not None:
+            lifecycle = await list_task_lifecycle_contracts(
+                db,
+                task_ids=[str(journey.summary_refresh_task_id)],
+                novel_id=str(journey.novel_id),
+                max_heartbeat_gap=0,
+            )
+            latest_task = lifecycle.get(str(journey.summary_refresh_task_id))
+        if latest_task is None:
+            latest_task = await get_latest_coalesced_task(
+                db,
+                task_type="interaction_summary_refresh",
+                novel_id=str(journey.novel_id),
+                scope=("interaction_summary", str(journey.id)),
+            )
         refreshing = latest_task is not None and latest_task.status in {
             "pending",
             "running",

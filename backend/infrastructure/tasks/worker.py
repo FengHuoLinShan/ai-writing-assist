@@ -50,6 +50,7 @@ from infrastructure.llm.retry import (
 from infrastructure.llm.schemas import (
     AI_RUN_ENVELOPE_KEY,
     AIRunEnvelopeV1,
+    AIRunEnvelopeV4,
     AIRunStatus,
     AITaskIdentityV1,
     read_ai_run_envelope,
@@ -423,12 +424,51 @@ class TaskRunEnvelopeKeeper:
                     "registered task capability",
                     run_id=payload.root_capability_id,
                 )
+            if isinstance(payload, AIRunEnvelopeV4) or (
+                declared == "assistant.turn"
+                and "_assistant_catalog_budget_v1" in (self._task.meta or {})
+            ):
+                policy = (
+                    self._registry.resolve_run_budget_policy(
+                        self._task.task_type, self._task
+                    )
+                    if self._registry is not None
+                    else None
+                )
+                if (
+                    not isinstance(payload, AIRunEnvelopeV4)
+                    or policy is None
+                    or policy.get("budget_mode") != "assistant_catalog"
+                    or policy.get("scope_fingerprint") != payload.scope_fingerprint
+                    or policy.get("authorized_step_capabilities")
+                    != payload.authorized_step_capabilities
+                ):
+                    raise AIRunIdentityError(
+                        "assistant catalog child scope drifted during recovery",
+                        run_id=payload.run_id,
+                    )
             # 自动 requeue / stale 恢复 / manual resume 继续累计同一 run：只把
             # 执行载体换成当前 attempt 并重新打开，不重置计数、额度或 deadline。
             payload = payload.model_copy(
                 update={"task": self._identity(), "status": AIRunStatus.running}
             )
-        self._ledger = AIRunEnvelope(payload, on_change=self._checkpoint)
+        self._ledger = AIRunEnvelope(
+            payload,
+            on_change=self._checkpoint,
+            stop_on_unknown_charge=bool(
+                self._registry
+                and self._registry.resolve_unknown_charge_policy(
+                    self._task.task_type, self._task
+                )
+                == "stop_before_replay"
+            ),
+            stop_at_eighty_percent=bool(
+                self._registry
+                and self._registry.resolve_run_eighty_percent_stop(
+                    self._task.task_type, self._task
+                )
+            ),
+        )
         self._store(self._ledger.snapshot())
         return self._ledger
 
@@ -1046,11 +1086,31 @@ class TaskWorker:
 
             except Exception as e:
                 error_code = _task_failure_error_code(e)
+                author_envelope = (
+                    keeper.ledger.snapshot()
+                    if keeper is not None
+                    and keeper.ledger is not None
+                    and definition is not None
+                    and self._registry.resolve_unknown_charge_policy(
+                        task.task_type, task
+                    )
+                    == "stop_before_replay"
+                    else None
+                )
+                uncertain_author_charge = bool(
+                    author_envelope is not None
+                    and (
+                        author_envelope.requests_unknown
+                        or author_envelope.requests_started
+                        > author_envelope.requests_settled
+                    )
+                )
                 transient_requeue = bool(
                     definition is not None
                     and definition.retry_transient_llm_errors
                     and is_retryable_llm_error(e)
                     and int(task.attempt or 0) < int(task.max_attempts or 1)
+                    and not uncertain_author_charge
                 )
                 # retry_transient_llm_errors 的任务拥有自己的 LLM 重试决策：
                 # 非 transient 的 LLM 错误不得再被通用 handler-error 分支重排；
@@ -1059,6 +1119,7 @@ class TaskWorker:
                 # 语义保持不变。
                 requeue = terminal_recovery_policy is None and (
                     not isinstance(e, AIRunEnvelopeError)
+                    and not uncertain_author_charge
                     and not _llm_error_uses_task_policy(definition, e)
                     and _should_auto_requeue_handler_failure(task)
                 )

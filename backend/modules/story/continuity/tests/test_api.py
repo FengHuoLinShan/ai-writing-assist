@@ -5,9 +5,13 @@ from datetime import UTC, datetime
 
 import pytest
 from httpx import AsyncClient
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from modules.project.models import Project
+from modules.story.continuity.models import MemoryEvent
+from modules.story.continuity.scene_state_view import SceneStateViewService
+from modules.story.continuity.tests.test_scene_state_view import _custody_scene
 
 
 @pytest.mark.asyncio
@@ -43,6 +47,78 @@ async def test_memory_api_hides_recycled_project(
     )
 
     assert response.status_code == 404
+
+
+@pytest.mark.asyncio
+async def test_scene_state_trial_http_preserves_existing_finite_result_and_zero_writes(
+    async_client: AsyncClient,
+    db_session: AsyncSession,
+    test_project_id: str,
+) -> None:
+    scene, ids = await _custody_scene(db_session, test_project_id)
+    from modules.story.continuity.scene_projection import SceneMemoryProjectionService
+    from modules.story.continuity.services import MemoryService
+
+    await MemoryService().record_scene_events(
+        db_session,
+        test_project_id,
+        scene_id=str(scene.id),
+        scene_index=0,
+        chapter_index=1,
+        events=[
+            {
+                "dimension": "locations",
+                "event_type": "entity_moved",
+                "entity_id": ids["jia"],
+                "snapshot_after": {"node": "雾渡港灯塔", "name": "甲"},
+            }
+        ],
+        producer_family="scene_state_trial_http_test",
+    )
+    await SceneMemoryProjectionService().ensure_scene(
+        db_session, test_project_id, str(scene.id)
+    )
+    view = await SceneStateViewService().get_view(
+        db_session,
+        novel_id=test_project_id,
+        scene_id=str(scene.id),
+        viewpoint={"kind": "author"},
+    )
+    event_count = await db_session.scalar(select(func.count()).select_from(MemoryEvent))
+
+    response = await async_client.post(
+        f"/api/novels/{test_project_id}/memories/scene-state-trial",
+        json={
+            "scene_id": str(scene.id),
+            "state_fingerprint": view.state_fingerprint,
+            "actor_id": ids["yi"],
+            "action": "transfer_key",
+            "key_id": ids["key"],
+            "recipient_id": ids["jia"],
+        },
+    )
+
+    assert response.status_code == 200, response.text
+    body = response.json()
+    assert body["baseline"]["outcome"] == "succeeded"
+    assert [item["status"] for item in body["baseline"]["conditions"]] == [
+        "met",
+        "met",
+        "met",
+    ]
+    assert body["baseline"]["resolution"]["protocol"] == "simulation_v3"
+    assert body["baseline"]["resolution"]["rule_revision"] == (
+        "c12dae97d3cfd40e8095e9fbafa1592ece96acb412f595f0c6a470ac73cea5b3"
+    )
+    assert body["baseline"]["candidate_state"]["resource_holders"][ids["key"]] == ids[
+        "jia"
+    ]
+    assert body["baseline"]["candidate_state"]["owners"][ids["key"]] == ids[
+        "jia"
+    ]
+    assert (
+        await db_session.scalar(select(func.count()).select_from(MemoryEvent))
+    ) == event_count
 
 
 # ============================================================

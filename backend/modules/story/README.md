@@ -4,6 +4,12 @@
 部分更新和删除；地点尚未解析时 `location_id` 可空，原文字位置继续供全景、Evidence
 和地图读取。类型检查不代替来源的语义证明。
 
+ADR-0039 的对象时点字段登记在 `continuity.field_provenance.STATE_FIELD_REGISTRY`
+中，按对象类型和 Scene-memory 维度匹配；字段来源仍沿用 `FieldProvenance` 的
+exact / unverified / conflict 判定。关系事件可携带 Story facade 导出的
+`RelationAttitude`，其来源对象、目标对象与分级态度共同构成有向关系态度。自由字段
+继续透传，但不会获得字段来源链或进入确定性字段检查。
+
 Story 的异步 AI handler 在 worker 领取时冻结 root capability 与 L0 请求额度，auto-requeue 和
 manual resume 累计同一 run；各 step/attempt 保留既有 timeout，串行长链补保守总墙钟护栏
 （reaction 3600s、one_click 7200s，只切病态挂起）。信封只作为任务私有审计元数据，不改变
@@ -20,6 +26,8 @@ through its stable facade and never writes World, Memory, or Writing records.
 跨章 Scene 的工作稿来源锚点按章节生成，可能只有部分 `part_no`。边界验证按部分身份
 优先使用工作稿锚点，仅从原 canonical 映射补充尚未生成的部分；已有工作稿映射的漂移、
 缺失来源范围或原稿版本不符仍拒绝，不写入补出的映射或改变已确认范围。
+`validate_scene_source_ranges(..., content_mode=...)` 可显式限定 canonical 或 working 映射，
+用于验证消费者实际读取的模式；省略此参数时继续保留上述按部分覆盖的行为。
 
 ## Stable seams
 
@@ -41,12 +49,24 @@ through its stable facade and never writes World, Memory, or Writing records.
   (see `continuity/scene_state_view.py` and the M2 contract in docs/plans). Complete source-consumption
   registrations let Evolution supersede only affected Scene dimensions; incomplete coverage still
   falls back to the conservative suffix.
+- `read_object_dossier_state` 经 `evidence.read_story_object_state` 只读 DI 键提供同一 Scene 的
+  POV 状态；仅作者请求会附带 checkpoint set，角色视角不会从此口读取作者 checkpoint。
 - `schemas.py`: strict Pydantic request, preview and response payloads.
 - `tasks.py`: four deterministic async handlers registered through the shared
   task registry: `story_character_card_generate`, `story_reaction_propose`,
   `story_scene_script_generate`, and `story_one_click`.
 - `api.py`: author routes under `/api/story`; Scene-centric aliases are under
-  `/api/story/scenes/{scene_id}`.
+  `/api/story/scenes/{scene_id}`. The character arc author router is mounted at
+  `/api/story/character-arcs`.
+
+## Writing scene-structure notices
+
+`notice_sources.py` exports the read-only `story.structure` spec for the unified author-notice registry.
+It derives goal, core conflict, emotional beat, POV, review/organize flags, and chapter linkage from the
+authorized Scene workbench. Trusted imported/fused semantics preserve `semantic_field_statuses`:
+`not_applicable` is not reported missing, while `uncertain` is reported as awaiting review. Chapter
+linkage follows the existing many-to-many Scene mapping. The provider writes nothing; the writing client
+does not calculate structural gaps from Scene fields.
 
 ## Persistence
 
@@ -68,6 +88,21 @@ is: `story_outline_heads`, `story_outline_revisions`, `plot_threads`,
 `modules.story.facade`. The old `modules.outline` and `modules.memory` import
 aliases were removed after the canonical-preparation SHA completed production release.
 
+Author arc plans add `story_character_arc_plan_heads` and
+`story_character_arc_plan_revisions` in migration
+`20261016_story_character_arc_plan` (parent `20261016_wp_read_count`). The plan
+is author-confirmed, director-only, versioned with CAS, and separate from
+continuity events. Comparison uses current source fingerprints and only
+verified, confirmed continuity/prose evidence through the selected Scene.
+Missing or stale evidence remains unknown; the service never marks an arc
+complete. Three R0 directory reads expose Scene characters, plan history and
+cutoff comparison; four R3 operations require preview and explicit confirmation.
+Assistant reads of the whole plan require a project-wide trusted work scope and
+recheck excluded/confirmed assets. The original migration remains immutable;
+`20261016_story_arc_guard` permits immutable-history deletion only after the real
+Project has been deleted, rejecting nested triggers and TEMP table shadowing.
+First writes and later CAS/restore operations serialize per work and character.
+
 Continuity checkpoints are versioned: V1 confirmations replay the original four dimensions;
 V2 adds timeline and causality without backfilling missing history as empty facts. Writing may
 append one author-confirmed continuity event through the stable facade after revalidating the
@@ -75,7 +110,10 @@ draft, check item, source checkpoint and Evidence confirmation. The append is Sc
 idempotent and invalidates only the affected downstream dimension.
 
 The existing public prefixes remain `/api/outline` and
-`/api/novels/{novel_id}/memories`, alongside `/api/story`.
+`/api/novels/{novel_id}/memories`, alongside `/api/story` and the isolated,
+default-off `/api/story/world-progression` router.
+The character arc endpoint is `/api/story/character-arcs` once mounted by the
+composition root.
 
 Every repository query is novel-scoped. Heads and revisions also have
 composite `(id, novel_id)` constraints so a cross-project pointer cannot be
@@ -91,6 +129,29 @@ when `submit_authorized` is explicit; it never persists reactions, scripts,
 World, Memory, or Writing changes. One-click card freshness is based on a
 source hash of the outline projection, stable compiled-context sections/text,
 and character ID, excluding the card itself.
+
+Generated CharacterCards use `character_card.v2`: the server fixes a deterministic fact basis with
+World entry/revision, Story checkpoint/source and stable character-profile references; the model may
+only add interpretations citing IDs from that basis. The task rematerializes the confirmed per-character
+scope before returning the preview and rejects stale or unknown source IDs. Optional reviewed Evolution
+patterns remain a separate interpretation basis, never facts. Legacy `character_card.v1` payloads remain readable.
+New reaction output is explicitly versioned as `story.reaction.v2`: each character has 2–4 complete
+`performances`, each with a distinct motivation, source IDs, action, facial expression, body language,
+voice/dialogue, inner response, attention, and change. The schema rejects repeated motivations or
+behavior signatures; generation and task output both revalidate each source against that character's
+independently compiled POV scope. Legacy v1 reaction payloads remain readable for history. Character
+`current_goal`, `current_state`, and `current_emotion` remain author notes and are not substituted for
+Story's Scene-time state. The R1 Assistant operations keep card generation at operation version 1 and
+version the new reaction wire at operation version 2; both prepare without creating a task, then recheck
+the preview scope before confirming and enqueueing one preview-only task under the current run's model
+snapshot and usage envelope. Confirmation binds each Story action to its retrieval purpose and same-Scene
+cutoff; card also requires its target as the in-project POV. Enqueue rejects stale snapshots with a wider
+chapter/offset or token budget before creating a task.
+The generator still returns 2–4 V2 performances; script and one-click requests accept one
+`story.reaction.choice.v1` performance per character with its own source IDs. They reject an
+entire V2 proposal as an accepted choice, while old v1 accepted reactions remain readable.
+Generated V2 cards retain their fact basis and source-bound interpretations through save/read-back;
+the existing Assistant `story.save_card` operation keeps its frozen v1 content schema.
 
 Scene asset reads batch-load card and script revisions with two bounded `IN`
 queries. The common Story baseline is hashed once, then per-script exclusion
@@ -118,6 +179,18 @@ and continue writing” while keeping previews editable, sourced, versioned and
 reversible. It is not an RP-user entry point and does not expose raw task or
 database concepts as a product requirement. Adoption/undo/conflict behavior
 must remain visible to the author in the workbench.
+
+## Unified structural notices (ADR-0040 §13)
+
+`notice_sources.py` exports a pure `NOTICE_SOURCE_SPEC` for Assistant's composition-root registry;
+Story returns raw source-owned dictionaries and imports no Assistant contract. Its reader uses
+`SceneWorkbenchService.get_workbench()` health/details, preserves the trusted semantic-field status
+rules (`deep_import`, `manual_fusion`, and the approved semantic origins), does not report
+`not_applicable`, reports `uncertain` as pending confirmation, and includes missing POV, review,
+organization, and chapter-mapping issues. Chapter lookup preserves the Scene–chapter many-to-many
+mapping and uses the unbounded workbench mode to avoid silent truncation. Scope ownership is checked
+at the Assistant API boundary before this provider runs. This provider only projects existing
+structure and health; it does not create a second Story issue record.
 
 ## Project assistant integration (ADR-0023)
 
@@ -207,19 +280,91 @@ P20、人物卡/反应/剧本预览、总纲与 Scene fusion 在输出后复核�
 
 ## 有限排演（ADR-0027）
 
-`simulation_protocol=rehearsal_v1` 仍使用原 one-click task 与 confirmation，最多三人、每次一至三轮。
-人物分别读取自己的 Evidence 包和上一轮观察；环境只裁决动作结果，服务器投影公开/私下/耳语事件。
-`story_simulation_runs`、`story_simulation_steps` 保存来源、完成回合与分叉，回放不重新生成。
-回合不可变；分叉校验原回合 hash 与当前来源，不修改父排演。叙述只消费已裁决事件，仍是待审预览。
-旧 one-click 默认不消费本轮候选；新客户端显式使用 `simulation_candidates`，不冒充 `accepted_reactions`。
-启用见 development-guide；工程验证与模型自然性验收分别记录。
+Story 新建的排演使用 `simulation_v3`。通用 `/tasks/one-click` 默认仍是 `legacy`，
+以保留现有操作目录的请求与幂等键；新排演需显式走 Scene rehearsal 入口和 v3。
+该入口拒绝新建旧协议，旧排演只读。当前一次提交一回合；连续推进待共享根预算与再次授权接线。
+协议在 Story 共用 `SimulationReference`、
+`SimulationIntent`、有限结算、`StateDelta`、`ResolutionBatch` 与 `replay_batch`；
+现有对象和地图节点用各自 ID，候选和文字标签保持独立命名空间。协议模型不限制参与者、
+位置、目的地、受众或回合数量。每轮仍是待审候选；意图不等于成功。
+公开入口和 worker 在模型调用前按当前作品重验现有对象与已采用地图节点，候选/文字标签
+只进入独立命名空间；模型轮次后的再验阻止来源变化落为新回合。公开事件只有发言者本人
+及已知同地的观察者可见；位置未知不推定同地。未声明的现有对象不能被结算为资源接收者。
+人物意图的发言者和收听者都必须仍在本轮场内；已离场人物即使保留历史位置，也会在裁决请求前被拒绝。
+
+`story_simulation_runs` / `story_simulation_steps` 保存协议、来源、完成回合与分支；回放只重放已存差量，
+不重新调用模型。Story 不再新建或续跑 `rehearsal_v1` / `observation_v2`，旧记录按原协议只读，
+不跨协议重解释或分叉。Interaction 的 `team_v1` 与 `observation_v2` 入口继续使用原适配，
+其 `max_actors` 继续由 Interaction 入口策略控制。v1–v7 冻结目录后续如接新排演，必须显式版本化协议和路由，
+不能按新默认重解释旧运行。启用见 development-guide；工程验证与模型自然性验收分别记录。
+
+### 场景导演（C4b）
+
+`STORY_SCENE_DIRECTOR_ENABLED` 默认关闭，评测验收后显式开启；API、助手操作及后台执行共享此门禁。
+关闭时界面保留输入并显示未开启状态，可刷新重试。
+
+`director_api.py`、`director_tasks.py`、`director_context.py` 与 `director_service.py` 定义了独立的
+Story 导演根、分支、不可变回合、预算续算、作者历史操作与内容副本。入口使用显式 N 轮和独立请求、Token、
+时限上限；每个回合沿用 `simulation_v3` 的 `SimulationIntentDraft`、有限结算与状态回放。分支续算复用同一个
+`AIRunEnvelope` 根并保留原 `started_at` / deadline。未知请求的作者确认只覆盖确认时的累计范围；后续新增未知、
+未确认计量或 attempt 摘要溢出仍会暂停。
+
+角色意图各自读取 Evidence `character` POV 简报，并在运行时按角色实际收到且未因上下文容量省略的来源 ID 与
+当前来源指纹核验表演依据。对象和地点先经 Story/World canonical/current 校验，再叠加角色可知对象集；全知
+作者资料、未来约束、Story 人物卡自由文本只留在作者侧，不作为角色知识。内心素材只属于本人视角；其他素材
+的感知者由角色简报来源或模拟事件观察回执推导，模型声明本身不作权限证明。新对象用
+`kind=candidate` 的结构化引用，新事件用 `candidate_events`，均不自动进入 World、正史或正文。
+导演与角色简报还须与同一 confirmation 的最终条目取交集，作者排除、预算逐出或截断的条目不能由档案重读带回。
+作者侧仅消费确认后渲染的上下文，原始示例、人物卡和有效期提醒不旁路注入；角色继续受独立 POV 限制。
+回合快照保存资料范围指纹；续跑、冻结依据和单人物重写在追加预算或模型请求前重验，范围变化或旧快照缺少证明时须新建运行。
+历史把同一回合素材与事件中的候选引用按精确 ID 去重，单独列出事件。作者为对象引用选定类别并
+逐项确认后，`director_candidate_transfer.py` 才以冻结标签（不是整句事件文案）和来源指纹经
+World facade 创建 `status=candidate` 对象；事件只能转为事件。分支锁和独立转入回执按
+`(novel_id, round_id, candidate_ref)` 保证重复点击与并发不重复写；改选类型或来源冲突返回 409。
+转入不采用正史，也不写入 Scene、continuity、剧本或正文；删除导演历史后回执与已转入的
+World 待审对象仍保持独立。`20261016_story_director_candidate_transfer.py` 串在
+`20261016_operation_trace_archive_days.py` 后。
+
+`director_notice_sources.py` 的 `story.scene_director` 只读来源、`director_operations.py`
+的九项纯操作声明与 `director_api.router` 已经在应用组合根注册：
+`story.scene_director.preview`、`story.scene_director.continue_preview`、`story.scene_director.start`、
+`story.scene_director.continue`、`story.scene_director.history`、
+`story.scene_director.advance`、`story.scene_director.check_consistency` 和
+`story.scene_director.save_reference`、R3 `story.scene_director.transfer_world_candidate`。
+作者直接点击转入也经相同领域服务并在启用操作留痕时记录 UI 调用；新助手运行冻结 v13 目录，
+旧目录保持精确原范围。独立 `story_scene_director` Task 在任务 manifest 中注册，
+使用 `never_retry` 和持久化根账本。`20261016_story_scene_director.py`
+后串接 C0c 的关系有效期和档案字段迁移。Story 提供
+`read_scene_director_references_for_writing` typed facade，按作品与当前 Scene 读取作者保存的内容副本；Evidence
+`director_reference` loader/section/policy 与 Writing generate、targeted-revision 请求已实现，环境白名单
+`NOVELCRAFT_DIRECTOR_REFERENCE_ENABLED_CAPABILITIES` 默认关闭。组合根已将
+`EVIDENCE_READ_STORY_DIRECTOR_REFERENCES` 已绑定 Story facade。
+该参考不是 SceneScriptFile、采用资格或正文约束。导演通过 World 只读端口按当前 Scene
+读取对象档案、关系及地图的作者有效期提醒，精确确认来源可报告作者优先或剧情覆盖；
+缺锚、旧来源及超过读取上限仍报告 unknown。未有结构化证明的生死、外观与其他语义推断
+仍保持 unknown/partial，不代表已完成事实审查。
+
+场景工作台与写作副驾驶 Director 标签共用 `SceneDirectorPanel.vue`；旧 rehearsal 面板只读且不能续跑。
+真实模型质量与作者验收仍须在最终固定代码上单独完成。
 
 ## 创作试验的结构与观察边界
 
 Story 为 Collaboration 提供 Scene、伏笔/揭示安排的冻结可编辑字段与原领域操作 port。
-试改独立保存，采用仍验证当前结构版本。`observations.py` 区分输入刺激、私有意图、
-可观察事件和可重放的 ResolutionBatch；说法不是事实，未知资源或唯一资源冲突不宣告成功。
-`observation_v2` 不重新解释旧 rehearsal_v1。读者推测与作者安排分开，派生前瞻不是新信息计划。
+Assistant v8 首批 `story.scene.reorder/merge/split` 复用 Scene Workbench：完整 Scene 集合、
+来源和内容基线在准备与执行时重验；合并/拆分为 R3 作者确认。窄拆分 HTTP 入口只接受
+章节/正文偏移与新 Scene 标题/状态，不接受旧宽体 `draft_scenes`。已有
+`story.edit_information_plan` 仅编辑伏笔/揭示的计划章节字段，不等于任意事实时间线。
+`continuity.fact_timeline` 则只投影已记录的 `MemoryEvent`：按作者 Scene 顺序、
+对象、来源和状态分页读取；物理章节位置通过按发生时间排列的重排及恢复回执投影，
+不改写历史事件。Assistant 当前 Scene 读取强制以可信工作 Scene 为截止，未知时点事件、
+后续 Scene 选项和整书待重验计划不会进入该范围；项目范围要求无排除、无旧确认限制。
+重排后的事实待核按事件级章序基准判断：早于最新未恢复重排回执的记录仍为 stale，回执后的新记录或重提取记录按当前章序读取；`source_stale` 机器事实仍独立待核。
+它查询 continuity 自有的 `MemoryEvent`，沿用既有事件事实源；旧 `MemoryService.list_events`
+和 `get_entity_timeline` 仅按物理章节或单一对象读取，不能表达 Scene 截止、状态、来源及
+筛选选项，因此这里增加只读投影，不另存事件或修改已有写入链。
+试改独立保存，采用仍验证当前结构版本。`observations.py` 保留 RP `observation_v2` 的输入刺激、私有意图和可观察事件语义；
+`simulation_v3.py` 承载共享意图、有限结算、差量和回放算法。说法不是事实，未知资源、路线或唯一资源冲突
+不宣告成功。旧 `rehearsal_v1` / `observation_v2` 记录按原协议只读，不迁移。
 
 ### DS Flash 档位调优（2026-09-21）
 
@@ -233,6 +378,8 @@ continuity 归约统一为单一 `reducer.py::StoryStateReducer`（章节重放�
 （E05 失效传播：软 supersede，不删历史）与 `project_scene_presence`
 （G2 在场投影：未知路线标 unknown，不造移动细节）。Scene 事件替换按
 producer family 分区 + 稳定 `meta.event_key`（作者确认永不参与机器替换）。
+匹配旧键或旧槽位的重提取写入当前章号时同步刷新章序投影时间基准，保持行身份及槽位，
+避免旧重排回执再次作用于新章号；列表、计数、时间线与回放共用这一基准。
 
 ## 演化来源失效与地图消费
 
@@ -268,7 +415,14 @@ _cleanable 边界）。
 
 ## 只读条件比较与历史来源
 
-`facade.compare_scene_state_trial` 复用同 Scene 状态与角色知识，通过 `ResolutionBatch/replay_batch` 在内存比较保管转交和三条件锁。原状态/有限假设逐条件返回当前值、所需值、来源及未知；不把自然语言或缺证据行动视作成功，不授予口令知识、不改 owner，不写事件或正文。Grant 必须携比较 digest，执行与采用重验；接口和范围见 [M5 契约](../../../docs/plans/2026-10-07-m5-trial-change-comparison-contract.md)。
+`facade.compare_scene_state_trial` 通过 `simulation_v3` 的 state-trial mode 与共享 `ResolutionBatch/replay_batch`
+在内存比较保管转交和三条件锁。HTTP 接口、三值裁决、来源归因、owner 与零事件写入保持；
+`resolution.protocol` 与比较 digest 随意图/batch schema 迁至 `simulation_v3`，方法指纹从
+`scene-key-lock-v1` 升为 `scene-key-lock-v2:simulation_v3`（
+`e324598864c4b73c79a6abd5794a3f7ac183d0480f6ecf05fd5a3ad9ecdc764e` →
+`c12dae97d3cfd40e8095e9fbafa1592ece96acb412f595f0c6a470ac73cea5b3`），旧 digest 不可复用。原状态/有限假设逐条件返回
+当前值、所需值、来源及未知；不把自然语言或缺证据行动视作成功，不授予口令知识、不改 owner，不写事件或正文。
+Grant 必须携比较 digest，执行与采用重验；接口和范围见 [M5 契约](../../../docs/plans/2026-10-07-m5-trial-change-comparison-contract.md)。
 
 历史来源经同项目 `scene-checkpoints/{id}` 与 `events/by-id` 显式回读，不能替代 current 投影。POV 知识来自本场 Story character 视图；受限事实需 knowledge 值匹配，不能用当前 World 状态、误信或关系提及补齐。
 
@@ -294,3 +448,56 @@ records remain silent. Manual revisions inherit the base revision’s page basel
 restoring a historical revision preserves its original baselines. Extra pages inside Evidence confirmations and other World
 consumers remain explicitly outside this first slice; Scene checkpoint unsupported
 dependencies are unchanged. See `docs/modules/07_outline.md` for the covered boundary.
+
+### 生效锚点只读端口
+
+`read_temporal_anchor_scenes()` 通过 Story facade 与既有 `story.scene_source` port 导出当前
+Scene 顺序、状态、章节引用和 `replaced_by_scene_ids`。查询按 `novel_id` 隔离，保留退役身份
+供消费方解析替换链；锚点解析不把历史顺序冻结为世界事实。
+
+## 世界推进候选（ADR-0041 / C5）
+
+`world_progression_api.router` 声明默认关闭的预算预览、独立根启动、同根 R1 一步推进、不可变历史/比较、
+作者分支元数据与 30 天软删除恢复、钩子 R3 采用及持续授权读写；开关
+`STORY_WORLD_PROGRESSION_ENABLED` 默认关闭。Task 类型 `story_world_progression` 使用
+`simulation_v3`、逐参与者可知资料、候选状态与滚动摘要；每次 provider 请求前 durable checkpoint，
+预算沿同一根开始时间、deadline 与累计账本。所有步骤带 input/output/parent hash，历史只读回放，
+不进入 Writing 检索、Evolution 阅读或 RP。
+
+`world_progression_operations.OPERATIONS_SPEC` 是纯目录数据：history/compare/budget preview 为 R0，
+沿已确认根推进一步为 R1，独立根预算启动与半步恢复为 R4，钩子采用为 R3。AI 没有历史删除或持续授权写操作；
+Assistant R1 必须证明普通作者回合、同一 Scene、参与者与资料确认。
+对象档案仅在先确认本次范围后读取，并将作者简报和各参与者 POV 简报分别与该 confirmation 的最终编译条目取交集；缺少或无法重验 confirmation 时失败关闭。冻结来源在后续确认下会再次收窄，同时重算角色可知对象、来源 ID 与模拟状态，不能借历史快照带回被排除档案；快照复核同时校验作品与根 Scene 身份，缺失或不匹配时给出可恢复错误。HTTP 预算预览先解析截止 Scene，再确认资料并返回可启动的预算指纹。
+持续提醒保留根运行的原资料确认和预算；新正文只计入触发门槛。最新已写 Scene 若已越过确认截止点，系统持久化停止原因并在持续授权读取响应的 `stop_reason` 字段返回，再关闭自动续跑；不会把原确认扩展到新 Scene。作者需从最新 Scene 新建并确认推进，再开启持续提醒。未绑定授权时，工作台在最新已完成分支提供首次或重新授权入口；截止点变化后，旧根继续展示停止原因，新根提供重新授权入口；重新确认使用作品当前授权版本并绑定到新根，不重置旧根账本。
+纯目录操作在 prepare 与 apply 均核 Assistant work 的 Scene、参与者、目标与原 Evidence 选择；
+整作品历史和跨窗口钩子预览需完整项目范围，作者 HTTP 工作台仍按项目所有权验权。钩子先调用
+`story.plan_structure` 的 rolling-window prepare 只读预览，再按来源重验与 CAS 创建可编辑剧情线、
+篇章或计划 Scene。持续提醒的 `NOTICE_SOURCE_SPEC` 仅由合并器读取，不会从 GET 启动任务；
+Evolution 成功 Scene 回执同事务投递免费检查，提交后只把全部 Scene 成功覆盖当前 canonical 版本的章节计入 N；
+部分读取、失败、序号跳跃和同章改版重读不新增章数。仅原根剩余额度与作者 standing grant 可启动轻量步骤，
+GET、Writing 发布与失败回执均不会触发计费。章节重排撤销原序号授权，作者须重新确认。
+
+作者时点快照消费 C0c 的 `WORLD_READ_OBJECT_VALIDITY_NOTICES`：对象/关系字段按相同 typed 身份与
+字段核对；地图路线只读当前 adopted/saved revision、原始 FeatureKey、有效期与 Story 精确覆盖，
+身份和来源指纹进入快照。生命状态缺少唯一 exact typed fact 时明确标为 unknown。
+参与者身份由 World 当前 canonical typed 对象证明，档案条目仅提供带时点的事实；没有档案字段的
+已采用人物仍可引用自己的 `world:entity:<UUID>` 身份依据提出原地意图，不据此推断其他事实。
+预算预览返回实际截止 Scene 的 ID、零基索引和标题，低于完整步骤所需额度时显示不足提醒。
+移动证据必须是
+角色可见且意图引用的当前路线、可信截止时间与 typed 行程资料；路线存在本身不代表移动成功，
+资料缺失时 `simulation_v3` 结算为 uncertain，不用坐标或地名推断。
+
+Story 域路由、TaskRegistry/root capability、9 项 Assistant 操作目录和 NoticeSource 均由应用组合根登记；
+Evolution 成功回执经稳定 DI 端口投递免费检查，Story 只通过 Evolution 只读投影核验整章完成。
+
+导演在最后一个已选回合完整落盘后，即使该回合使请求、Token 或时长达到 80% 预算线，
+仍返回完成并提醒下一次续演需要追加授权；账本与后续续演门禁保留实际用量。
+尚有已选回合未完成时继续暂停，未知请求或不完整用量仍须作者处理。
+预算或未知用量暂停的分支可在确认资料未变化、预览当前检查点并明确追加预算后原地恢复；
+已保存的意图、裁决和表演卡会复用。结果未知的请求只有在作者明确确认可能重复计费后才可重试。
+
+导演只追加 Token 时走正常续算并保留请求上限；两项均为 0 且单轮才走原预算推进入口。
+没有足够请求额度、未确认的未知计费与原期限仍各自阻断后续调用，不自动增加请求。
+
+导演区分人物卡 active 状态与当前修订 accepted 状态；正常手工确认的有效修订可被识别为作者参考。
+卡片可用性不证明逐字段角色知识，未证明的自由文本仍只留在 director_only，不进入角色输入。

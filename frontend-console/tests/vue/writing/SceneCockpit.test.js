@@ -1,5 +1,6 @@
-import { mount } from "@vue/test-utils"
-import { beforeEach, describe, expect, it, vi } from "vitest"
+import { flushPromises, mount } from "@vue/test-utils"
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
+import { resetBridgeOverrides, setBridgeOverrides } from "../../../vue/bridge/index.js"
 import SceneCockpit from "../../../vue/views/writing/components/SceneCockpit.vue"
 
 const scene = {
@@ -24,48 +25,58 @@ function mountCockpit(overrides = {}) {
       scene,
       scenes: [scene],
       allScenes: [scene],
-      alerts: [{ code: "a1", severity: "high", source: "现场", message: "高风险 <img>" }],
-      people: [{ id: "c1", name: "阿青 <script>", role: "POV" }],
-      location: { id: "l1", name: "黑塔", description: "顶层" },
-      conflict: { latest: { id: "check-1" } },
       ...overrides,
     },
   })
 }
 
 describe("SceneCockpit", () => {
-  beforeEach(() => localStorage.clear())
+  let wrapper
+  const api = {
+    world: { listEntities: vi.fn(async () => ({ items: [], total: 0 })) },
+    story: {
+      sceneDirectorHistory: vi.fn(async () => ({
+        roots: [], branches: [], rounds: [],
+        references: [{ id: "director-reference-1", name: "灯下停顿", annotation: "", content_copy: { materials: [] } }],
+        recoverable_branches: [], recoverable_references: [],
+      })),
+    },
+  }
 
-  it("在 Vue tabs 中渲染人物、地点、设定和警报操作", async () => {
-    const wrapper = mountCockpit()
-    expect(wrapper.find("script").exists()).toBe(false)
-    expect(wrapper.text()).toContain("Scene <script>")
-
-    await wrapper.findAll('[role="tab"]').find((tab) => tab.text() === "人物").trigger("click")
-    expect(wrapper.text()).toContain("阿青 <script>")
-    await wrapper.findAll("button").find((button) => button.text() === "插入").trigger("click")
-    expect(wrapper.emitted("insert-text")[0]).toEqual(["阿青 <script>"])
-
-    await wrapper.findAll('[role="tab"]').find((tab) => tab.text() === "警报").trigger("click")
-    await wrapper.findAll("button").find((button) => button.text() === "运行规则检查").trigger("click")
-    await wrapper.findAll("button").find((button) => button.text() === "查看最近校验").trigger("click")
-    expect(wrapper.emitted("run-conflict")).toHaveLength(1)
-    expect(wrapper.emitted("open-conflict")).toHaveLength(1)
+  beforeEach(() => {
+    localStorage.clear()
+    vi.clearAllMocks()
+    setBridgeOverrides({ api })
   })
 
-  it("结构警报直达场景，没有检查记录时可开始规则检查", async () => {
-    const wrapper = mountCockpit({ conflict: {}, alerts: [{ id: "structure-pov", severity: "low", message: "缺少视角人物" }] })
-    await wrapper.findAll('[role="tab"]').find(tab => tab.text() === "警报").trigger("click")
-    await wrapper.get(".scene-alert-card__action").trigger("click")
-    expect(wrapper.emitted("organize")).toHaveLength(1)
-    expect(wrapper.emitted("open-conflict")).toBeUndefined()
-    await wrapper.setProps({ alerts: [{ id: "check-missing", severity: "info", message: "尚无检查" }] })
-    await wrapper.get(".scene-alert-card__action").trigger("click")
-    expect(wrapper.emitted("run-conflict")).toHaveLength(1)
+  afterEach(() => {
+    wrapper?.unmount()
+    wrapper = null
+    resetBridgeOverrides()
+  })
+
+  it("显示本场、对象、提醒、导演四个标签，并在当前 Scene 读写导演参考选择", async () => {
+    wrapper = mountCockpit()
+    expect(wrapper.find("script").exists()).toBe(false)
+    expect(wrapper.text()).toContain("Scene <script>")
+    expect(wrapper.findAll('[role="tab"]').map((tab) => tab.text())).toEqual(["本场", "对象", "提醒", "导演"])
+
+    await wrapper.findAll('[role="tab"]').find((tab) => tab.text() === "对象").trigger("click")
+    expect(wrapper.text()).toContain("没有明确的 POV 或对象关联")
+    expect(wrapper.text()).not.toContain("阿青")
+    expect(wrapper.findAll("button").some((button) => button.text() === "打开查证资料")).toBe(true)
+
+    await wrapper.findAll('[role="tab"]').find((tab) => tab.text() === "导演").trigger("click")
+    await flushPromises()
+    expect(wrapper.get('[data-panel="director"] .scene-director').attributes("data-director-scene")).toBe("s1")
+    expect(api.story.sceneDirectorHistory).toHaveBeenCalledWith("p1", "s1")
+    expect(wrapper.text()).toContain("保存的参考剧本")
+    await wrapper.get('[data-panel="director"] .scene-director__reference-use input').setValue(true)
+    expect(wrapper.emitted("update:director-reference-ids")).toEqual([[ ["director-reference-1"] ]])
   })
 
   it("默认显示白名单本场摘要，扩展资料需显式点击", async () => {
-    const wrapper = mountCockpit({
+    wrapper = mountCockpit({
       scene: {
         ...scene,
         structure_meta: { outcome: "拿到钥匙", private_prompt: "不应展示" },
@@ -78,18 +89,8 @@ describe("SceneCockpit", () => {
     expect(wrapper.emitted("load-lens")).toHaveLength(1)
   })
 
-  it("地图定位只发送明确地点引用，不按名称猜测绑定", async () => {
-    const wrapper = mountCockpit()
-    await wrapper.findAll('[role="tab"]').find((tab) => tab.text() === "地点").trigger("click")
-    await wrapper.findAll("button").find((button) => button.text() === "在地图中查看").trigger("click")
-    expect(wrapper.emitted("open-map")).toEqual([["l1"]])
-    await wrapper.setProps({ location: "黑塔" })
-    expect(wrapper.findAll("button").some((button) => button.text() === "在地图中查看")).toBe(false)
-    wrapper.unmount()
-  })
-
   it("扩展资料失败时保留静态摘要并可重试", async () => {
-    const wrapper = mountCockpit({
+    wrapper = mountCockpit({
       lens: { loading: false, data: null, error: "网络暂时不可用" },
     })
     expect(wrapper.get(".scene-lens").text()).toContain("找到线索")
@@ -99,7 +100,7 @@ describe("SceneCockpit", () => {
   })
 
   it("只消费作者语言的 Scene Lens 三字段条目", () => {
-    const wrapper = mountCockpit({
+    wrapper = mountCockpit({
       lens: {
         loading: false,
         error: null,
@@ -117,14 +118,14 @@ describe("SceneCockpit", () => {
   })
 
   it("本场摘要只渲染一份，不再重复旧设定模块", () => {
-    const wrapper = mountCockpit()
+    wrapper = mountCockpit()
     expect(wrapper.findAll(".scene-lens")).toHaveLength(1)
     expect(wrapper.get(".scene-lens").text()).toContain("找到线索")
     expect(wrapper.find("[data-cockpit-module]").exists()).toBe(false)
   })
 
   it("由本章资料内层标题发出 rail 折叠请求", async () => {
-    const wrapper = mountCockpit()
+    wrapper = mountCockpit()
     await wrapper.get('[aria-label="收起本章资料"]').trigger("click")
     expect(wrapper.emitted("toggle-collapse")).toHaveLength(1)
 
@@ -136,7 +137,7 @@ describe("SceneCockpit", () => {
 
   it("在顶部手选本章 Scene，跨章只作标记", async () => {
     const crossChapter = { ...scene, id: "s2", title: "跨章会面", chapter_ids: ["1", "2"] }
-    const wrapper = mountCockpit({ scenes: [scene, crossChapter], allScenes: [scene, crossChapter] })
+    wrapper = mountCockpit({ scenes: [scene, crossChapter], allScenes: [scene, crossChapter] })
 
     expect(wrapper.findAll(".scene-cockpit-switcher__item")).toHaveLength(2)
     expect(wrapper.findAll(".scene-cockpit-switcher__item")[1].text()).toContain("跨章")
@@ -148,7 +149,7 @@ describe("SceneCockpit", () => {
     const associateScene = vi.fn(async () => ({ id: "s2" }))
     const createScene = vi.fn(async () => ({ id: "s3" }))
     const unlinked = { id: "s2", title: "旅店暗号", scene_index: 3, status: "draft", chapter_ids: [] }
-    const wrapper = mountCockpit({ allScenes: [scene, unlinked], associateScene, createScene })
+    wrapper = mountCockpit({ allScenes: [scene, unlinked], associateScene, createScene })
 
     await wrapper.findAll("button").find((button) => button.text().includes("关联场景")).trigger("click")
     expect(wrapper.get('[role="dialog"]').exists()).toBe(true)

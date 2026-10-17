@@ -84,6 +84,7 @@ async def _revise(db, novel_id, args, preview, *, context=None):
         "id": result["task_id"],
         "task_id": result["task_id"],
         "task_type": "writing_targeted_revision",
+        "operation_id": str(context.operation_id),
         "label": "定向返修候选",
     }
 

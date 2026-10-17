@@ -250,7 +250,7 @@ async def test_task_review_discards_check_item_and_context_drift(
         after_context.compiled.sections[0].content = "context after"
 
     repo = _repo((before_check, before_items), (after_check, after_items))
-    _patch_facades(monkeypatch, before_context, after_context)
+    prepared, _, _ = _patch_facades(monkeypatch, before_context, after_context)
     result, items = await ConflictCheckAiReviewService(
         repo,
         llm_client=_Client(db),
@@ -267,6 +267,10 @@ async def test_task_review_discards_check_item_and_context_drift(
     assert "discarded stale result" in result.ai_review_error
     assert items == after_items
     repo.append_items.assert_not_awaited()
+    assert all(
+        call.kwargs["action"] == "writing.conflict_check.ai_review"
+        for call in prepared.await_args_list
+    )
     assert db.commit_count == 1
     assert db.expire_all_count == 1
 

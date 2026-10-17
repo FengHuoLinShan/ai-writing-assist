@@ -14,7 +14,8 @@ from dataclasses import dataclass, replace
 
 from infrastructure.llm.schemas import LLMCallRequest
 from modules.evidence.compilation.knowledge.contracts import (
-    KnowledgeDimensionCoverage,
+    KNOWLEDGE_POLICY_VERSION,
+    KnowledgeAdvisoryOmission,
     KnowledgeDirectorDisposition,
     KnowledgeDirectorPlan,
     KnowledgeScopeReceipt,
@@ -30,6 +31,7 @@ from modules.evidence.compilation.knowledge.scope import KnowledgeScopeBuild
 from modules.evidence.compilation.knowledge.workflow import (
     GovernedWorkflowHooks,
     _audit_messages,
+    _build_audit_coverage,
     _build_audit_receipt,
     run_knowledge_audit,
 )
@@ -89,24 +91,12 @@ def materialize_group_audit(*, capability, novel_id, group_key, sources, output,
         output=output,
         verdict_output=verdict,
     )
-    dimensions = [item.dimension for item in verdict.dimensions]
-    checked = {item.dimension for item in verdict.dimensions if item.checked}
-    complete = (
-        len(dimensions) == len(set(dimensions))
-        and set(policy.required_dimensions) <= checked
+    coverage, complete = _build_audit_coverage(
+        policy=policy,
+        scope_build=scope,
+        verdict_output=verdict,
+        require_required_sources=True,
     )
-    coverage = tuple(
-        KnowledgeDimensionCoverage(
-            dimension=dimension,
-            covered_by=tuple(
-                source.source_key for source in sources if dimension in source.dimensions
-            ),
-            omitted=dimension not in checked,
-            omission_reason="未独立检查" if dimension not in checked else None,
-        )
-        for dimension in policy.required_dimensions
-    )
-    complete = complete and all(item.covered_by for item in coverage)
     audit = replace(
         audit, coverage=coverage, verdict=audit.verdict if complete else "unverifiable"
     )
@@ -144,18 +134,31 @@ def build_group_scope(
             ensure_ascii=False,
         ).encode("utf-8")
     ).hexdigest()
+    source_dimensions = {
+        dimension for source in entries for dimension in source.dimensions
+    }
+    advisory_omitted = tuple(
+        KnowledgeAdvisoryOmission(
+            dimension=dimension,
+            reason="组范围内无该参考维度来源",
+        )
+        for dimension in policy.advisory_dimensions
+        if dimension not in source_dimensions
+    )
+    policy_version = KNOWLEDGE_POLICY_VERSION if policy.advisory_dimensions else 1
     receipt = KnowledgeScopeReceipt(
-        policy_version=1,
+        policy_version=policy_version,
         capability=policy.capability_id,
         novel_id=str(novel_id),
         subject=KnowledgeSubject(subject_type=subject_type),
         included=entries,
+        advisory_omitted=advisory_omitted,
         scope_complete=True,
         authority_fingerprint=fingerprint,
         generator_fingerprint=fingerprint,
     )
     plan = KnowledgeDirectorPlan(
-        policy_version=1,
+        policy_version=policy_version,
         capability=policy.capability_id,
         receipt_fingerprint=receipt.receipt_fingerprint(),
         dispositions=tuple(

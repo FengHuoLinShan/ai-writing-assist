@@ -109,6 +109,7 @@ async def inspect(db, novel_id, focus, excluded):
                 .where(
                     MapAtlasNode.novel_id == UUID(novel_id),
                     MapAtlasNode.id == target.resource_id,
+                    MapAtlasNode.merged_into_node_id.is_(None),
                 )
             )
         ).first()

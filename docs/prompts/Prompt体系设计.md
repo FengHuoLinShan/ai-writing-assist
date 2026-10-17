@@ -765,8 +765,23 @@ Evolution `SceneSample` 可用 `subject_surface`，禁止猜测实体 ID；主�
 窄观察关闭思考并给 16,384 输出上限；身份、World 与独立复核使用 high 和分步输出预算，
 模型能力不足时保留待处理，不把格式通过当作文学质量证明。
 
+三项新增生产能力的 Prompt/Schema 入口：
+
+|能力|所属入口与输出约束|
+|---|---|
+|`story.scene_director`|`modules/story/director_tasks.py` 的逐角色意图、有限结算与素材生成；共用 `simulation_v3` 与 Director 强类型输出。每个角色只读自己的 Evidence 视角，依据须匹配实际收到的当前来源；作者秘密与未来事实不得进入角色知识。输出保留为候选回合/表演素材，不写正文或正史。总开关默认关闭。|
+|`story.world_progression`|`modules/story/world_progression_tasks.py` 的角色意图、推进步与剧情钩子生成；结构化引用、确定性交汇及独立一致性校验，沿同一授权根结算用量。作者导向属于候选约束，不是已发生事实；采用只产生可编辑大纲候选或导演起点。总开关默认关闭。|
+|`assistant.goal.plan`|`modules/assistant/goal_runs/service.py` 的两阶段目录选择/步骤规划；`GoalOperationSelection` 与目标计划 schema 只接受冻结目录内能力和已授权范围。关闭格式自动重试；未知请求、预算停点与 R3/R4 作者确认沿目标运行状态机处理。计划自身不执行领域写入。|
+
+这些能力经 Project 执行快照创建业务 LLM 客户端，使用 managed step 和同一根预算；
+静态 Prompt 登记、工程测试和真实文学质量验收分别记录。
+
 Evolution 细节发现 `evolution.discovery.v2` 和独立复核 `evolution.discovery.review.v1`
 使用 `discovery.py` 的来源绑定生成/复核 Prompt，以及 DiscoveryOutput/DiscoveryReview。
+可选阅读登记分别为 `evolution.details_discover/details_review`；保留原 method ID、journal 和旧运行
+指纹。空间发现与独立复核另登记 `evolution.spatial_discover/spatial_review`，只处理当前 Scene
+和更早已提交资料，不由模型输出坐标；作者阅读授权冻结步骤及其根预算内额度。
+静态能力登记不代表步骤已执行或质量已验收，运行必须保留真实生成与独立复核的两份 journal。
 v2 按确切来源区间和观察/完整主题上下文分批，历史候选先按已有主题、解析后的 World 对象 ID、
 字面表面名排序且每场最多 64 条；逐类别输出条件行为、线索、承诺、语言习惯、外在特征的
 `category_coverage`。缺失类别状态由宿主解释为未检查，不会伪装成已检查未检出。

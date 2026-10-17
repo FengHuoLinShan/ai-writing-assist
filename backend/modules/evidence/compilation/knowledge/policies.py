@@ -98,8 +98,11 @@ KNOWLEDGE_DIMENSIONS: dict[str, str] = {
     "source_canon": "RP 绑定的同 owner 冻结版本",
     "imported_assets": "导入资产",
     "map_spatial": "空间结构与地理",
+    "object_dossier": "有来源的稳定对象档案与 Scene 截止事实",
+    "character_pattern": "Evolution 人物倾向解释（非事实）",
+    "director_reference": "作者显式选择的场景导演参考副本",
 }
-"""知识维度词表；能力声明的必查维度必须取自此处。"""
+"""知识维度词表；必查与参考维度都必须取自此处。"""
 
 
 @dataclass(frozen=True)
@@ -116,6 +119,7 @@ class CapabilityKnowledgePolicy:
     snapshot_policy: str
     output_permissions: tuple[str, ...]
     adoption_gate: str
+    advisory_dimensions: tuple[str, ...] = ()
     infrastructure: bool = False
     notes: str = ""
     cost_tier: str = "standard"
@@ -130,6 +134,7 @@ def _policy(
     *,
     subjects: tuple[str, ...] = ("author",),
     dimensions: tuple[str, ...] = (),
+    advisory_dimensions: tuple[str, ...] = (),
     confirmation: str = CONFIRMATION_OPTIONAL,
     snapshot: str = SNAPSHOT_REQUIRED,
     outputs: tuple[str, ...] = (OUTPUT_PROPOSAL,),
@@ -144,6 +149,7 @@ def _policy(
         title=title,
         subject_types=subjects,
         required_dimensions=dimensions,
+        advisory_dimensions=advisory_dimensions,
         confirmation_policy=confirmation,
         snapshot_policy=snapshot,
         output_permissions=outputs,
@@ -165,6 +171,13 @@ _WRITING_DIMENSIONS = (
     "plot_threads",
     "memory",
 )
+_MAP_SPATIAL_ADVISORY = ("map_spatial",)
+_OBJECT_REFERENCE_ADVISORY = ("object_dossier", "character_pattern")
+_WRITING_REFERENCE_ADVISORY = (
+    *_MAP_SPATIAL_ADVISORY,
+    *_OBJECT_REFERENCE_ADVISORY,
+    "director_reference",
+)
 
 CAPABILITY_REGISTRY: dict[str, CapabilityKnowledgePolicy] = {
     entry.capability_id: entry
@@ -176,6 +189,7 @@ CAPABILITY_REGISTRY: dict[str, CapabilityKnowledgePolicy] = {
             "正文生成与续写（AI 稿候选）",
             subjects=("author", "character"),
             dimensions=_WRITING_DIMENSIONS,
+            advisory_dimensions=_WRITING_REFERENCE_ADVISORY,
             confirmation=CONFIRMATION_REQUIRED,
             snapshot=SNAPSHOT_REQUIRED,
             outputs=(OUTPUT_PROSE,),
@@ -191,6 +205,7 @@ CAPABILITY_REGISTRY: dict[str, CapabilityKnowledgePolicy] = {
             "正文独立语义审查（检查类）",
             subjects=("author",),
             dimensions=_WRITING_DIMENSIONS,
+            advisory_dimensions=(*_MAP_SPATIAL_ADVISORY, *_OBJECT_REFERENCE_ADVISORY),
             confirmation=CONFIRMATION_REQUIRED,
             snapshot=SNAPSHOT_REQUIRED,
             outputs=(OUTPUT_FINDING,),
@@ -205,6 +220,7 @@ CAPABILITY_REGISTRY: dict[str, CapabilityKnowledgePolicy] = {
             "定向返修（最多一次语义返修）",
             subjects=("author", "character"),
             dimensions=_WRITING_DIMENSIONS,
+            advisory_dimensions=_WRITING_REFERENCE_ADVISORY,
             confirmation=CONFIRMATION_REQUIRED,
             snapshot=SNAPSHOT_REQUIRED,
             outputs=(OUTPUT_PROSE,),
@@ -233,6 +249,7 @@ CAPABILITY_REGISTRY: dict[str, CapabilityKnowledgePolicy] = {
                 "timeline",
                 "plot_threads",
             ),
+            advisory_dimensions=(*_MAP_SPATIAL_ADVISORY, *_OBJECT_REFERENCE_ADVISORY),
             confirmation=CONFIRMATION_REQUIRED,
             snapshot=SNAPSHOT_OPTIONAL,
             outputs=(OUTPUT_FINDING,),
@@ -381,6 +398,7 @@ CAPABILITY_REGISTRY: dict[str, CapabilityKnowledgePolicy] = {
             "Ask World 世界问答",
             subjects=("author", "character", "reader"),
             dimensions=("world_entities", "world_rules", "world_bible"),
+            advisory_dimensions=_MAP_SPATIAL_ADVISORY,
             confirmation=CONFIRMATION_NONE,
             outputs=(OUTPUT_ANSWER,),
             gate=ADOPTION_DISPLAY_ONLY,
@@ -559,6 +577,7 @@ CAPABILITY_REGISTRY: dict[str, CapabilityKnowledgePolicy] = {
                 "timeline",
                 "memory",
             ),
+            advisory_dimensions=_OBJECT_REFERENCE_ADVISORY,
             outputs=(OUTPUT_PROPOSAL,),
         ),
         _policy(
@@ -572,6 +591,7 @@ CAPABILITY_REGISTRY: dict[str, CapabilityKnowledgePolicy] = {
                 "prior_prose",
                 "scene_state",
             ),
+            advisory_dimensions=_OBJECT_REFERENCE_ADVISORY,
             outputs=(OUTPUT_PROPOSAL,),
             gate=ADOPTION_DISPLAY_ONLY,
             notes="preview_only；持久化走 character_card 门禁。",
@@ -582,6 +602,7 @@ CAPABILITY_REGISTRY: dict[str, CapabilityKnowledgePolicy] = {
             "剧本生成",
             subjects=("author",),
             dimensions=("outline", "scene_state", "prior_prose", "character_knowledge"),
+            advisory_dimensions=_MAP_SPATIAL_ADVISORY,
             outputs=(OUTPUT_PROPOSAL,),
             notes="采用剧本经 basis_hash 追踪；漂移需重新确认。",
         ),
@@ -600,8 +621,43 @@ CAPABILITY_REGISTRY: dict[str, CapabilityKnowledgePolicy] = {
                 "outline",
                 "scene_state",
             ),
+            advisory_dimensions=(*_MAP_SPATIAL_ADVISORY, *_OBJECT_REFERENCE_ADVISORY),
             outputs=(OUTPUT_PROPOSAL,),
             notes="完成持久化前重验 context_hash 与 character_card_source_hashes。",
+        ),
+        _policy(
+            "story.scene_director",
+            DOMAIN_STORY,
+            "场景导演候选排演",
+            subjects=("author", "character"),
+            dimensions=(
+                "character_knowledge",
+                "world_entities",
+                "outline",
+                "scene_state",
+            ),
+            advisory_dimensions=_OBJECT_REFERENCE_ADVISORY,
+            confirmation=CONFIRMATION_REQUIRED,
+            outputs=(OUTPUT_PROPOSAL,),
+            gate=ADOPTION_DISPLAY_ONLY,
+            notes="逐人物可知资料与导演层分离；输出仅为冻结候选历史，不写正文或正史。",
+        ),
+        _policy(
+            "story.world_progression",
+            DOMAIN_STORY,
+            "世界推进候选模拟",
+            subjects=("author", "character"),
+            dimensions=(
+                "character_knowledge",
+                "world_entities",
+                "outline",
+                "scene_state",
+            ),
+            advisory_dimensions=(*_MAP_SPATIAL_ADVISORY, *_OBJECT_REFERENCE_ADVISORY),
+            confirmation=CONFIRMATION_REQUIRED,
+            outputs=(OUTPUT_PROPOSAL,),
+            gate=ADOPTION_DISPLAY_ONLY,
+            notes="逐角色知识包与导演层分离；根预算与来源冻结，候选不自动写入正史。",
         ),
         _policy(
             "story.scene_fusion",
@@ -759,6 +815,48 @@ CAPABILITY_REGISTRY: dict[str, CapabilityKnowledgePolicy] = {
             gate=ADOPTION_REQUIRES_PASS,
             notes="独立调用逐项复核；冻结来源、前序回执、候选和根预算，漏项或矛盾不得取得状态效果。",
         ),
+        _policy(
+            "evolution.details_discover",
+            DOMAIN_EVOLUTION,
+            "可选阅读：持续发现细节",
+            subjects=("author", "scene"),
+            dimensions=("prior_prose", "world_entities"),
+            confirmation=CONFIRMATION_REQUIRED,
+            outputs=(OUTPUT_PROPOSAL,),
+            notes="复用原 discovery 方法、journal 与根预算；登记不改变旧运行行为。",
+        ),
+        _policy(
+            "evolution.details_review",
+            DOMAIN_EVOLUTION,
+            "可选阅读：独立核验细节提议",
+            subjects=("author", "scene"),
+            dimensions=("prior_prose", "world_entities"),
+            confirmation=CONFIRMATION_REQUIRED,
+            outputs=(OUTPUT_FINDING,),
+            notes="绑定原发现批次的精确来源和完整提议，结果未知不重复发送。",
+        ),
+        _policy(
+            "evolution.spatial_discover",
+            DOMAIN_EVOLUTION,
+            "可选阅读：空间线索与项目类型提议",
+            subjects=("author", "scene"),
+            dimensions=("prior_prose", "world_entities", "map_spatial"),
+            confirmation=CONFIRMATION_REQUIRED,
+            outputs=(OUTPUT_PROPOSAL,),
+            gate=ADOPTION_REQUIRES_PASS_AND_REVIEW,
+            notes="仅本 Scene 与更早已提交输入；模型不产坐标，线索和草图只作候选。",
+        ),
+        _policy(
+            "evolution.spatial_review",
+            DOMAIN_EVOLUTION,
+            "可选阅读：独立核验空间线索与类型特性",
+            subjects=("author", "scene"),
+            dimensions=("prior_prose", "world_entities", "map_spatial"),
+            confirmation=CONFIRMATION_REQUIRED,
+            outputs=(OUTPUT_FINDING,),
+            gate=ADOPTION_REQUIRES_PASS_AND_REVIEW,
+            notes="独立冻结调用绑定生成、来源和词义；两 Scene 证据不替代语义复核。",
+        ),
         # --- Interaction / RP ---
         _policy(
             "interaction.story_generate",
@@ -828,6 +926,21 @@ CAPABILITY_REGISTRY: dict[str, CapabilityKnowledgePolicy] = {
             notes="只使用作者构想提出方向候选；选定前不作为资产或进入其他生成上下文。",
         ),
         _policy(
+            "assistant.goal.plan",
+            DOMAIN_ASSISTANT,
+            "作者目标的目录选择与计划候选",
+            subjects=("author",),
+            dimensions=("author_intent",),
+            confirmation=CONFIRMATION_REQUIRED,
+            snapshot=SNAPSHOT_REQUIRED,
+            outputs=(OUTPUT_PROPOSAL,),
+            gate=ADOPTION_DISPLAY_ONLY,
+            notes=(
+                "只提出目录内计划；已完成领域读取回执沿原操作权限引用，"
+                "作者确认前不执行修改或授予领域任务根能力。"
+            ),
+        ),
+        _policy(
             "assistant.turn",
             DOMAIN_ASSISTANT,
             "项目助手回答",
@@ -841,6 +954,7 @@ CAPABILITY_REGISTRY: dict[str, CapabilityKnowledgePolicy] = {
                 "plot_threads",
                 "memory",
             ),
+            advisory_dimensions=_MAP_SPATIAL_ADVISORY,
             confirmation=CONFIRMATION_OPTIONAL,
             snapshot=SNAPSHOT_OPTIONAL,
             outputs=(OUTPUT_ANSWER, OUTPUT_PROPOSAL),
@@ -1052,6 +1166,17 @@ def validate_registry() -> list[str]:
                 problems.append(
                     f"{policy.capability_id}: unknown dimension {dimension!r}"
                 )
+        for dimension in policy.advisory_dimensions:
+            if dimension not in KNOWLEDGE_DIMENSIONS:
+                problems.append(
+                    f"{policy.capability_id}: unknown advisory dimension {dimension!r}"
+                )
+        overlap = set(policy.required_dimensions) & set(policy.advisory_dimensions)
+        if overlap:
+            problems.append(
+                f"{policy.capability_id}: dimensions cannot be both required and "
+                "advisory: " + ", ".join(sorted(overlap))
+            )
         if policy.infrastructure:
             if policy.adoption_gate != ADOPTION_NONE:
                 problems.append(
@@ -1061,7 +1186,7 @@ def validate_registry() -> list[str]:
                 problems.append(
                     f"{policy.capability_id}: infrastructure outputs must be internal"
                 )
-            if policy.required_dimensions:
+            if policy.required_dimensions or policy.advisory_dimensions:
                 problems.append(
                     f"{policy.capability_id}: "
                     "infrastructure exemption declares dimensions"

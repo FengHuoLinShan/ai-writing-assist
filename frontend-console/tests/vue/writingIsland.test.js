@@ -1,4 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
+import "../../apiContracts.js"
 import { resetBridgeOverrides, setBridgeOverrides } from "../../vue/bridge/index.js"
 import { createWritingIsland } from "../../vue/writingIsland.js"
 import { clearWritingSession } from "../../vue/views/writing/writingSession.js"

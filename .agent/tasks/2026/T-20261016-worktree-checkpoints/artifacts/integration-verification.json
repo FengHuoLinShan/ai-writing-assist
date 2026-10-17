@@ -1,0 +1,20 @@
+{
+  "merge_commit": "8834efccd6aa05339dff141b5114f568ecf24cdd",
+  "pre_merge_commit": "9e5726aaa5534ceca30a02b993ec60f4abe468b2",
+  "pre_merge_tree": "80b467f7b506f45f4ae19f2601fc7d7c042d21eb",
+  "post_merge_tree": "80b467f7b506f45f4ae19f2601fc7d7c042d21eb",
+  "tree_unchanged": true,
+  "reviewed_old_heads_reachable": 9,
+  "all_worktrees": 60,
+  "map_worktrees": 39,
+  "map_worktrees_clean": 39,
+  "other_worktree_heads_unchanged": 59,
+  "original_unrelated_files_checked": 126,
+  "original_unrelated_files_unchanged": 125,
+  "outside_scope_changes_not_touched": [
+    "/Users/tywww/项目/ai-writing-assist/.worktrees/editorial-diagnosis-v1/.agent/tasks/2026/T-20261016-editorial-diagnosis-v1/TEST-COVERAGE.md"
+  ],
+  "note": "The primary HEAD will advance for documentation-only closure; old branches/worktrees remain. The editorial coverage note was externally removed and its task note changed; no restoration or commit here.",
+  "stash_unchanged": true,
+  "other_refs_unchanged": 122
+}

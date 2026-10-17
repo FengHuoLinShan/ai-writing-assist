@@ -151,6 +151,11 @@ export function getAppState() {
   return _overrides.state ?? globalThis.appState
 }
 
+/** 作者公开演示工作台只读；RP 演示使用独立入口。 */
+export function getPublicDemoReadOnly() {
+  return _overrides.publicDemoReadOnly ?? Boolean(globalThis.publicDemoMode && !globalThis.publicDemoRpMode)
+}
+
 /**
  * 当前路由 query 的独立副本；router 或 query 未就绪时返回空 query。
  * 是全仓库唯一允许的 query 读取防御点，调用方不得再自行兜底解析

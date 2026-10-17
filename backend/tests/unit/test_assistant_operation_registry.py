@@ -24,6 +24,12 @@ def teardown_function():
 
 # name → (label, permission, revision, schema_json_schema 指纹)
 OPERATION_SNAPSHOT = {
+    "map.prepare_tray_placement": (
+        "准备托盘地点放置入口（由作者选点）",
+        "read",
+        "1",
+        "eb2c87e328aa537139a57b79240dc17319a67e067aad0d254705964d9ebecd48",
+    ),
     "world.add_alias": (
         "附加对象别名",
         "confirm",
@@ -286,7 +292,7 @@ OPERATION_SNAPSHOT = {
         "创建空白地图",
         "confirm",
         "1",
-        "061686f1c3f683f833a391f1515de6fea596a0403a38f357390d53b5bc54e5e7",
+        "657072d928d4057f92652ede400155475a7f913444bb6aebcc71b2f6a334b051",
     ),
     "map.review_revision": (
         "处理已有地图版本",
@@ -306,7 +312,328 @@ OPERATION_SNAPSHOT = {
         "1",
         "253869e5f597bb89fda0767550471e2fcb4514e914096bf071d8461151f0a44b",
     ),
+    "world.vocabulary.create": (
+        "新增项目词条",
+        "confirm",
+        "1",
+        "3ece646f70048936a149deee43067404dfe09b6951564b5a5dd77f417b6b3276",
+    ),
+    "world.vocabulary.edit": (
+        "编辑或改名项目词条",
+        "confirm",
+        "1",
+        "b0576f8867a8917fdedf7ba3c34a332749ce8cbdfdeed29370fe8441251c6115",
+    ),
+    "world.vocabulary.archive": (
+        "归档项目词条",
+        "confirm",
+        "1",
+        "f87f822a0f1d1c120f3fc9ab1c4eb16f5040926b5a76a8cca0984f18be1b9739",
+    ),
+    "world.vocabulary.restore": (
+        "恢复项目词条",
+        "confirm",
+        "1",
+        "f87f822a0f1d1c120f3fc9ab1c4eb16f5040926b5a76a8cca0984f18be1b9739",
+    ),
+    "world.vocabulary.merge": (
+        "合并项目词条",
+        "confirm",
+        "1",
+        "07f482189b4c1c401005405951f7aa26932d436b9fc3be341ff59c9df1cf50e4",
+    ),
+    "world.vocabulary.split": (
+        "拆分项目词条",
+        "confirm",
+        "1",
+        "92ee8d18bf4defcbbecd11ab70fab05f4285d3a76b602103bc89b9e251904cb6",
+    ),
+    "world.vocabulary.apply_presets": (
+        "复制题材预设词条",
+        "confirm",
+        "1",
+        "8067271a5b2798ef8bc6cab105941b58ac267ea3410c1cb1d5f86f67cb0e434e",
+    ),
 }
+
+
+# Map enhancement v6 adds new names; historical entries retain their fingerprints.
+OPERATION_SNAPSHOT.update(
+    {
+        "assistant.silence_spatial_advisory": (
+            "静默这一条空间提醒",
+            "confirm",
+            "1",
+            "f2bf04ee2fe269255a6f123b00a2c1d0803def47d99587b28a8db06678b11d1e",
+        ),
+        "evolution.prepare_spatial_reading": (
+            "准备空间发现阅读授权预览",
+            "confirm",
+            "1",
+            "1c7251ee14a9925fb78b65f353b806398960259014c199cb5b272fcde2e0d781",
+        ),
+        "evolution.prepare_spatial_rescan": (
+            "准备空间补扫授权预览",
+            "confirm",
+            "1",
+            "678c25ac32e9651b29916458fca9d0e83ed70036aa72af3f26ac55b3eb196675",
+        ),
+        "map.edit_spatial_structure": (
+            "编辑空间、关系或行程",
+            "confirm",
+            "1",
+            "90aa2b611611e07cc436ad1d5a736996b911fc1088e306d2685059535fa0cf95",
+        ),
+        "map.merge_nodes": (
+            "合并两个已保存的地图节点",
+            "confirm",
+            "2",
+            "2c04c4b212a0dda6e4c71a0dd64688599bd566b9c9e3cdad9d8922c088cecce9",
+        ),
+        "map.preview_node_merge": (
+            "准备地图节点合并候选",
+            "confirm",
+            "1",
+            "2c04c4b212a0dda6e4c71a0dd64688599bd566b9c9e3cdad9d8922c088cecce9",
+        ),
+        "map.review_auto_draft_group": (
+            "按空间或层级审核自动草图",
+            "confirm",
+            "1",
+            "3ac0b9c84c66e0856b332827c6ac0ab31493f75ff9492ce5d3f5f381d68abc7b",
+        ),
+        "map.review_spatial_clues": (
+            "审核空间线索",
+            "confirm",
+            "1",
+            "be91cdd4ab7db2bf1d9ef67bd6dfb5daad875e6f55c220b4a1816bc87acea337",
+        ),
+        "map.update_node": (
+            "移动或改名地图节点",
+            "confirm",
+            "1",
+            "de83bb98ac25d3e8b0e352d13b6849c340dede8e467045f35bebff0e3317591c",
+        ),
+        "assistant.notice.mute_category": (
+            "静默这一类提醒",
+            "confirm",
+            "1",
+            "21330dd4d44f49119544c5e900fa099574ba6f6bc89ff1b984bbce500ec3bd2b",
+        ),
+        "assistant.notice.set_disposition": (
+            "处理提醒",
+            "confirm",
+            "1",
+            "2800f7f6c80fb20ac0ab98c0e8080d6ab0bd92a584368fa89bdd44137db00a9a",
+        ),
+        "assistant.notice.unmute_category": (
+            "恢复这一类提醒",
+            "confirm",
+            "1",
+            "21330dd4d44f49119544c5e900fa099574ba6f6bc89ff1b984bbce500ec3bd2b",
+        ),
+        "world.dossier.entry.create": (
+            "新增对象档案条目",
+            "confirm",
+            "1",
+            "1621cab68c2573e27dda545a5bd3cfe356c145d05c7c7cb79ee8c7177b3d8746",
+        ),
+        "world.dossier.entry.edit": (
+            "修订对象档案条目",
+            "confirm",
+            "1",
+            "0bae31d9664252c31020b2bd7b5db6aee09f5d9f5d11530300bf06f4db745d56",
+        ),
+        "world.dossier.entry.restore": (
+            "恢复对象档案历史版本",
+            "confirm",
+            "1",
+            "b4169b8499b5f94b51fef9ed0dad43b05adc3ec62d4414d1bbf06875dc60cb65",
+        ),
+        "world.dossier.history.read": (
+            "读取对象档案历史",
+            "read",
+            "1",
+            "5556705289373ce29fc0458583b2da5b775b0083bd867e34f10af9223e4d1368",
+        ),
+        "world.dossier.read": (
+            "读取对象档案",
+            "read",
+            "1",
+            "c6fa145e02df9d5ee1a91df7998c6db46d6f3dc7caa7072f63eacf44159e7f59",
+        ),
+        "world.dossier.template.edit": (
+            "修订对象档案模板",
+            "confirm",
+            "2",
+            "c4ff8a3587de5a80460cbd51b7eb16cf63886b87133b467763b923ed56371d43",
+        ),
+        "world.dossier.template.read": (
+            "读取对象档案模板",
+            "read",
+            "1",
+            "f701fcd49fdb3a4ac35e21066d7905bc8c271b89d84289a46bf61428f5e749e8",
+        ),
+    }
+)
+
+
+A1_FIRST_WAVE_OPERATIONS = {
+    "world.entity.transition_type",
+    "world.entity.fuse",
+    "world.history.set_note",
+    "world.entity.restore_revision",
+    "story.scene.reorder",
+    "story.scene.merge",
+    "story.scene.split",
+    "writing.chapter.rename",
+    "writing.chapter.mark_editorial_ready",
+    "writing.comment.set_status",
+    "writing.conflict_check.create",
+    "evidence.project.search",
+    "evidence.source.read",
+    "evidence.knowledge.preview_scope",
+    "evolution.prepare_reading",
+}
+
+C2_OBJECT_CONSUMER_OPERATIONS = {
+    "evidence.object_dossier_brief.read",
+    "story.character_card.generate",
+    "story.reaction.generate",
+}
+C4_SCENE_DIRECTOR_OPERATIONS = {
+    "story.scene_director.preview",
+    "story.scene_director.start",
+    "story.scene_director.continue_preview",
+    "story.scene_director.continue",
+    "story.scene_director.history",
+    "story.scene_director.check_consistency",
+    "story.scene_director.advance",
+    "story.scene_director.save_reference",
+}
+C0C_VALIDITY_OPERATIONS = {
+    "project.object_validity_settings.read",
+    "project.object_validity_settings.edit",
+    "story.custom_text_state.confirm",
+    "story.map_declaration_state.confirm",
+    "world.relations.read",
+}
+A3_AUTHOR_OPERATIONS = {
+    "interaction.author.journeys.list",
+    "interaction.author.journey.settings",
+    "interaction.author.journey.rename",
+    "interaction.author.journey.archive",
+    "interaction.author.journey.restore",
+    "interaction.summary.refresh",
+    "collaboration.workspace.create",
+    "collaboration.workspace.edit",
+    "collaboration.workspace.inspect",
+    "collaboration.workspace.seal",
+    "collaboration.workspace.check",
+    "collaboration.workspace.atomic_adopt",
+}
+C4_TRANSFER_OPERATIONS = {"story.scene_director.transfer_world_candidate"}
+C5_WORLD_PROGRESSION_OPERATIONS = {
+    "story.world_progression.history",
+    "story.world_progression.compare",
+    "story.world_progression.preview",
+    "story.world_progression.start",
+    "story.world_progression.advance",
+    "story.world_progression.resume",
+    "story.world_progression.preview_hook",
+    "story.world_progression.adopt_hook",
+    "story.world_progression.read_continuous_authorization",
+}
+C0_DOSSIER_INTERCHANGE_OPERATIONS = {
+    "world.dossier.template.borrowed.read",
+    "world.dossier.template.borrowed.edit",
+    "world.dossier.manifest.preview",
+    "world.dossier.manifest.apply",
+}
+C3_CHARACTER_ARC_OPERATIONS = {
+    "story.character_arc_plan.scene_characters",
+    "story.character_arc_plan.history",
+    "story.character_arc_plan.compare",
+    "story.character_arc_plan.save",
+    "story.character_arc_plan.restore",
+    "story.character_arc_plan.archive",
+    "story.character_arc_plan.unarchive",
+}
+A1_CHAPTER_TIMELINE_OPERATIONS = {
+    "writing.chapter.reorder",
+    "writing.chapter.reorder.restore",
+    "writing.chapter.order.history.read",
+    "story.fact_timeline.read",
+}
+# Preserve the pre-C0c snapshot above. These seven contracts were deliberately
+# versioned after the response or nested request shape changed.
+C0C_REVISED_SNAPSHOT = {
+    "world.dossier.read": (
+        "读取对象档案",
+        "read",
+        "2",
+        "c6fa145e02df9d5ee1a91df7998c6db46d6f3dc7caa7072f63eacf44159e7f59",
+    ),
+    "world.dossier.history.read": (
+        "读取对象档案历史",
+        "read",
+        "2",
+        "5556705289373ce29fc0458583b2da5b775b0083bd867e34f10af9223e4d1368",
+    ),
+    "world.dossier.template.read": (
+        "读取对象档案模板",
+        "read",
+        "2",
+        "f701fcd49fdb3a4ac35e21066d7905bc8c271b89d84289a46bf61428f5e749e8",
+    ),
+    "world.dossier.entry.create": (
+        "新增对象档案条目",
+        "confirm",
+        "3",
+        "35df7a8a5f74e833dc91e2396a6c24c4e2509b84a51bf81535fdb01db7a78bc1",
+    ),
+    "world.dossier.entry.edit": (
+        "修订对象档案条目",
+        "confirm",
+        "3",
+        "9ca29741b052996c7072e4fde26339883af72f0176064dddda768c9ab150faca",
+    ),
+    "world.dossier.entry.restore": (
+        "恢复对象档案历史版本",
+        "confirm",
+        "2",
+        "b4169b8499b5f94b51fef9ed0dad43b05adc3ec62d4414d1bbf06875dc60cb65",
+    ),
+    "world.dossier.template.edit": (
+        "修订对象档案模板",
+        "confirm",
+        "3",
+        "ddd8aecd41124a23a4b56a6fba78f0b566defe95ee6dcfbe911a3dfd2d4c13ca",
+    ),
+}
+
+
+def _pre_c0c_manifest():
+    from modules.assistant.operations import operation_manifest
+
+    excluded = (
+        C0C_VALIDITY_OPERATIONS
+        | A3_AUTHOR_OPERATIONS
+        | C4_TRANSFER_OPERATIONS
+        | C5_WORLD_PROGRESSION_OPERATIONS
+        | C0_DOSSIER_INTERCHANGE_OPERATIONS
+        | C3_CHARACTER_ARC_OPERATIONS
+        | A1_CHAPTER_TIMELINE_OPERATIONS
+    )
+    frozen = {
+        name: value
+        for name, value in operation_manifest().items()
+        if name not in excluded
+    }
+    for name in C0C_REVISED_SNAPSHOT:
+        old = OPERATION_SNAPSHOT[name]
+        frozen[name] = {**frozen[name], "schema_hash": old[3], "revision": old[2]}
+    return frozen
 
 
 def test_bootstrap_operation_catalog_matches_snapshot():
@@ -315,7 +642,19 @@ def test_bootstrap_operation_catalog_matches_snapshot():
 
     register_container_services()
     catalog = get("assistant.operations")
-    assert set(catalog) == set(OPERATION_SNAPSHOT)
+    assert set(catalog) == (
+        set(OPERATION_SNAPSHOT)
+        | A1_FIRST_WAVE_OPERATIONS
+        | C2_OBJECT_CONSUMER_OPERATIONS
+        | C4_SCENE_DIRECTOR_OPERATIONS
+        | C0C_VALIDITY_OPERATIONS
+        | A3_AUTHOR_OPERATIONS
+        | C4_TRANSFER_OPERATIONS
+        | C5_WORLD_PROGRESSION_OPERATIONS
+        | C0_DOSSIER_INTERCHANGE_OPERATIONS
+        | C3_CHARACTER_ARC_OPERATIONS
+        | A1_CHAPTER_TIMELINE_OPERATIONS
+    )
     mismatches = {
         name: {
             "actual": (
@@ -324,16 +663,17 @@ def test_bootstrap_operation_catalog_matches_snapshot():
                 operation.revision,
                 fingerprint(operation.schema.model_json_schema()),
             ),
-            "expected": OPERATION_SNAPSHOT[name],
+            "expected": C0C_REVISED_SNAPSHOT.get(name, OPERATION_SNAPSHOT[name]),
         }
         for name, operation in catalog.items()
+        if name in OPERATION_SNAPSHOT
         if (
             operation.label,
             operation.permission,
             operation.revision,
             fingerprint(operation.schema.model_json_schema()),
         )
-        != OPERATION_SNAPSHOT[name]
+        != C0C_REVISED_SNAPSHOT.get(name, OPERATION_SNAPSHOT[name])
     }
     assert not mismatches, mismatches
 
@@ -358,6 +698,266 @@ def test_registry_materializes_spec_fields_and_rejects_unknown_fields():
 
     with pytest.raises(ValueError, match="未知字段"):
         _materialize({"x.bad": {"label": "坏声明", "nope": 1}})
+
+
+def test_catalog_v2_metadata_and_trace_inventory_match_runtime_schemas():
+    from app.bootstrap import register_container_services
+    from core.container import get
+    from modules.assistant.operations import operation_manifest
+
+    register_container_services()
+    operations = get("assistant.operations")
+    manifest = operation_manifest()
+    assert (
+        len(operations)
+        == len(manifest)
+        == len(OPERATION_SNAPSHOT)
+        + len(A1_FIRST_WAVE_OPERATIONS)
+        + len(C2_OBJECT_CONSUMER_OPERATIONS)
+        + len(C4_SCENE_DIRECTOR_OPERATIONS)
+        + len(C0C_VALIDITY_OPERATIONS)
+        + len(A3_AUTHOR_OPERATIONS)
+        + len(C4_TRANSFER_OPERATIONS)
+        + len(C5_WORLD_PROGRESSION_OPERATIONS)
+        + len(C0_DOSSIER_INTERCHANGE_OPERATIONS)
+        + len(C3_CHARACTER_ARC_OPERATIONS)
+        + len(A1_CHAPTER_TIMELINE_OPERATIONS)
+    )
+    assert set(operations) == set(manifest)
+    for op_id, operation in operations.items():
+        frozen = manifest[op_id]
+        assert frozen["metadata"]["op_id"] == op_id
+        assert frozen["metadata_hash"] == fingerprint(frozen["metadata"])
+        assert operation.trace_rule.parameter_fields == tuple(
+            operation.schema.model_fields
+        )
+        assert set(frozen) == {
+            "schema_hash",
+            "revision",
+            "op_version",
+            "metadata_hash",
+            "metadata",
+            "schema",
+        }
+
+
+def test_v8_additions_do_not_appear_in_a_frozen_v7_directory():
+    from app.bootstrap import register_container_services
+    from modules.assistant.operations import resolve_operations
+
+    register_container_services()
+    frozen_v7 = {
+        name: value
+        for name, value in _pre_c0c_manifest().items()
+        if name
+        not in A1_FIRST_WAVE_OPERATIONS
+        | C2_OBJECT_CONSUMER_OPERATIONS
+        | C4_SCENE_DIRECTOR_OPERATIONS
+    }
+    resolved = resolve_operations(frozen_v7, allow_stale=True)
+    assert set(resolved) == set(OPERATION_SNAPSHOT) - set(C0C_REVISED_SNAPSHOT)
+    assert not (set(resolved) & A1_FIRST_WAVE_OPERATIONS)
+
+
+def test_v9_additions_do_not_appear_in_a_frozen_v8_directory():
+    from app.bootstrap import register_container_services
+    from modules.assistant.operations import resolve_operations
+
+    register_container_services()
+    frozen_v8 = {
+        name: value
+        for name, value in _pre_c0c_manifest().items()
+        if name not in C2_OBJECT_CONSUMER_OPERATIONS | C4_SCENE_DIRECTOR_OPERATIONS
+    }
+    resolved = resolve_operations(frozen_v8, allow_stale=True)
+    assert (
+        set(resolved)
+        == (set(OPERATION_SNAPSHOT) - set(C0C_REVISED_SNAPSHOT))
+        | A1_FIRST_WAVE_OPERATIONS
+    )
+
+
+def test_v10_additions_do_not_appear_in_a_frozen_v9_directory():
+    from app.bootstrap import register_container_services
+    from modules.assistant.operations import resolve_operations
+
+    register_container_services()
+    frozen_v9 = {
+        name: value
+        for name, value in _pre_c0c_manifest().items()
+        if name not in C4_SCENE_DIRECTOR_OPERATIONS
+    }
+    resolved = resolve_operations(frozen_v9, allow_stale=True)
+    assert set(resolved) == (
+        (set(OPERATION_SNAPSHOT) - set(C0C_REVISED_SNAPSHOT))
+        | A1_FIRST_WAVE_OPERATIONS
+        | C2_OBJECT_CONSUMER_OPERATIONS
+    )
+
+
+def test_c0c_revised_operations_fail_closed_for_old_frozen_manifests():
+    import pytest
+
+    from app.bootstrap import register_container_services
+    from core.errors import ConflictError
+    from modules.assistant.operations import resolve_operations
+
+    register_container_services()
+    frozen_v10 = _pre_c0c_manifest()
+    assert not set(resolve_operations(frozen_v10, allow_stale=True)) & set(
+        C0C_REVISED_SNAPSHOT
+    )
+    with pytest.raises(ConflictError, match="工具版本不可用"):
+        resolve_operations(frozen_v10)
+
+
+def test_v12_author_operations_do_not_enter_a_frozen_v11_directory():
+    from app.bootstrap import register_container_services
+    from modules.assistant.operations import operation_manifest, resolve_operations
+
+    register_container_services()
+    frozen_v11 = {
+        name: value
+        for name, value in operation_manifest().items()
+        if name
+        not in (
+            A3_AUTHOR_OPERATIONS
+            | C4_TRANSFER_OPERATIONS
+            | C5_WORLD_PROGRESSION_OPERATIONS
+            | C0_DOSSIER_INTERCHANGE_OPERATIONS
+            | C3_CHARACTER_ARC_OPERATIONS
+            | A1_CHAPTER_TIMELINE_OPERATIONS
+        )
+    }
+    assert not (set(resolve_operations(frozen_v11)) & A3_AUTHOR_OPERATIONS)
+    assert set(operation_manifest()) - set(frozen_v11) == (
+        A3_AUTHOR_OPERATIONS
+        | C4_TRANSFER_OPERATIONS
+        | C5_WORLD_PROGRESSION_OPERATIONS
+        | C0_DOSSIER_INTERCHANGE_OPERATIONS
+        | C3_CHARACTER_ARC_OPERATIONS
+        | A1_CHAPTER_TIMELINE_OPERATIONS
+    )
+
+
+def test_v13_transfer_is_r3_and_absent_from_a_frozen_v12_directory():
+    from app.bootstrap import register_container_services
+    from core.container import get
+    from modules.assistant.operations import operation_manifest, resolve_operations
+
+    register_container_services()
+    manifest = operation_manifest()
+    frozen_v12 = {
+        name: value
+        for name, value in manifest.items()
+        if name
+        not in (
+            C4_TRANSFER_OPERATIONS
+            | C5_WORLD_PROGRESSION_OPERATIONS
+            | C0_DOSSIER_INTERCHANGE_OPERATIONS
+            | C3_CHARACTER_ARC_OPERATIONS
+            | A1_CHAPTER_TIMELINE_OPERATIONS
+        )
+    }
+    assert set(manifest) - set(frozen_v12) == (
+        C4_TRANSFER_OPERATIONS
+        | C5_WORLD_PROGRESSION_OPERATIONS
+        | C0_DOSSIER_INTERCHANGE_OPERATIONS
+        | C3_CHARACTER_ARC_OPERATIONS
+        | A1_CHAPTER_TIMELINE_OPERATIONS
+    )
+    assert not (set(resolve_operations(frozen_v12)) & C4_TRANSFER_OPERATIONS)
+    operation = get("assistant.operations")[
+        "story.scene_director.transfer_world_candidate"
+    ]
+    assert operation.permission == "confirm"
+    assert operation.risk_level == "R3"
+    assert operation.fee_category == "free"
+
+
+def test_v16_character_arc_actions_and_reads_are_absent_from_frozen_v15():
+    from app.bootstrap import register_container_services
+    from core.container import get
+    from modules.assistant.operations import operation_manifest, resolve_operations
+
+    register_container_services()
+    manifest = operation_manifest()
+    frozen_v16 = {
+        name: value
+        for name, value in manifest.items()
+        if name not in A1_CHAPTER_TIMELINE_OPERATIONS
+    }
+    frozen_v15 = {
+        name: value
+        for name, value in frozen_v16.items()
+        if name not in C3_CHARACTER_ARC_OPERATIONS
+    }
+    assert set(frozen_v16) - set(frozen_v15) == C3_CHARACTER_ARC_OPERATIONS
+    assert not (set(resolve_operations(frozen_v15)) & C3_CHARACTER_ARC_OPERATIONS)
+    assert set(resolve_operations(frozen_v16)) == set(frozen_v16)
+    for op_id in C3_CHARACTER_ARC_OPERATIONS:
+        operation = get("assistant.operations")[op_id]
+        is_read = op_id.rsplit(".", 1)[-1] in {"scene_characters", "history", "compare"}
+        assert operation.permission == ("read" if is_read else "confirm")
+        assert operation.risk_level == ("R0" if is_read else "R3")
+        assert operation.ai_available is True
+        assert operation.trace_rule.parameter_fields == tuple(
+            operation.schema.model_fields
+        )
+
+
+def test_v17_chapter_timeline_operations_leave_v16_directory_unchanged():
+    from app.bootstrap import register_container_services
+    from modules.assistant.operations import operation_manifest, resolve_operations
+
+    register_container_services()
+    manifest = operation_manifest()
+    frozen_v16 = {
+        name: value
+        for name, value in manifest.items()
+        if name not in A1_CHAPTER_TIMELINE_OPERATIONS
+    }
+    assert set(manifest) - set(frozen_v16) == A1_CHAPTER_TIMELINE_OPERATIONS
+    assert set(resolve_operations(frozen_v16)) == set(frozen_v16)
+    assert set(resolve_operations(manifest)) == set(manifest)
+
+
+def test_inline_operation_metadata_requires_an_explicit_schema_trace_policy():
+    import pytest
+
+    from app.assistant_operation_registry import _materialize
+
+    class Args:
+        model_fields = {"value": object()}
+
+    async def prepare(*_args, **_kwargs):
+        return {}
+
+    async def apply(*_args, **_kwargs):
+        return {}
+
+    with pytest.raises(ValueError, match="留痕字段"):
+        _materialize(
+            {
+                "sample.write": {
+                    "label": "写入",
+                    "schema": Args,
+                    "prepare": prepare,
+                    "apply": apply,
+                    "op_version": "1",
+                    "description": "写入示例",
+                    "risk_level": "R2",
+                    "fee_category": "free",
+                    "reversibility": "restore",
+                    "preconditions": (),
+                    "produces": ("sample",),
+                    "target_type": "sample",
+                    "ai_available": True,
+                    "transaction_mode": "single_transaction",
+                    "trace_rule": {"parameter_fields": (), "mode": "per_call"},
+                }
+            }
+        )
 
 
 def test_assistant_facade_di_keys_resolve():

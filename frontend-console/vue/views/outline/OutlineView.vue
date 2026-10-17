@@ -95,6 +95,12 @@
     :filters="structureFilters"
     :focused-asset="focusedAsset"
   />
+  <WorldProgressionPanel
+    v-if="subView === 'story-outline' && !editorMode && !outlineGenerateReview"
+    :project-id="projectId"
+    :characters="characters"
+    :entities="entities"
+  />
   </template>
 </template>
 
@@ -127,6 +133,7 @@ const OutlineScenePreviewPage = lazyView(() => import("./ai/OutlineScenePreviewP
 const OutlineThreadPreviewPage = lazyView(() => import("./ai/OutlineThreadPreviewPage.vue"))
 const OutlineThreadsTab = lazyView(() => import("./components/OutlineThreadsTab.vue"))
 const OutlineArcsTab = lazyView(() => import("./components/OutlineArcsTab.vue"))
+const WorldProgressionPanel = lazyView(() => import("./components/WorldProgressionPanel.vue"))
 const SceneWorkbenchView = lazyView(() => import("../scene/SceneWorkbenchView.vue"))
 
 defineProps({

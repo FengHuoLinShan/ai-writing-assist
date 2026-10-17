@@ -66,6 +66,7 @@ from modules.world.map_atlas_storage import (
     require_owned_page_object_key,
 )
 from modules.world.map_structure_schemas import STRUCTURE_LEVELS
+from modules.world.services.common import assert_edit_baseline
 from shared.utils import parse_uuid
 
 MAP_ATLAS_TASK_TYPE = "map_atlas_generate"
@@ -334,9 +335,7 @@ class MapAtlasService:
             .scalars()
             .all()
         )
-        duplicate_charge_confirmed = bool(
-            in_flight and confirm_possible_duplicate_charge
-        )
+        duplicate_charge_confirmed = bool(in_flight and confirm_possible_duplicate_charge)
         if in_flight and not confirm_possible_duplicate_charge:
             for page in in_flight:
                 page.generation_status = "retry_requires_confirmation"
@@ -424,6 +423,7 @@ class MapAtlasService:
                         select(MapAtlasNode.id).where(
                             MapAtlasNode.novel_id == nid,
                             MapAtlasNode.current_revision_id.is_not(None),
+                            MapAtlasNode.merged_into_node_id.is_(None),
                         )
                     )
                 ).all()
@@ -437,6 +437,7 @@ class MapAtlasService:
                         select(MapAtlasNode).where(
                             MapAtlasNode.novel_id == nid,
                             MapAtlasNode.id.in_(frontier),
+                            MapAtlasNode.merged_into_node_id.is_(None),
                         )
                     )
                 )
@@ -470,9 +471,13 @@ class MapAtlasService:
         adopted_targets = set(
             (
                 await db.execute(
-                    select(MapAtlasPage.node_id).where(
+                    select(MapAtlasPage.node_id)
+                    .join(MapAtlasNode, MapAtlasNode.id == MapAtlasPage.node_id)
+                    .where(
                         MapAtlasPage.novel_id == nid,
                         MapAtlasPage.review_status == "adopted",
+                        MapAtlasNode.novel_id == nid,
+                        MapAtlasNode.merged_into_node_id.is_(None),
                     )
                 )
             ).scalars()
@@ -484,6 +489,7 @@ class MapAtlasService:
                     select(MapAtlasNode.id).where(
                         MapAtlasNode.novel_id == nid,
                         MapAtlasNode.current_revision_id.is_not(None),
+                        MapAtlasNode.merged_into_node_id.is_(None),
                     )
                 )
             ).all()
@@ -497,7 +503,11 @@ class MapAtlasService:
                         MapAtlasNode,
                         MapAtlasNode.current_revision_id == MapAtlasRevision.id,
                     )
-                    .where(MapAtlasRevision.novel_id == nid, MapAtlasNode.novel_id == nid)
+                    .where(
+                        MapAtlasRevision.novel_id == nid,
+                        MapAtlasNode.novel_id == nid,
+                        MapAtlasNode.merged_into_node_id.is_(None),
+                    )
                 )
             ).all()
         }
@@ -579,6 +589,26 @@ class MapAtlasService:
             parent = node.parent_id if node.parent_id in nodes_by_id else None
             children.setdefault(parent, []).append(node)
 
+        level_types = await self._node_level_types(
+            db, novel_id, list(nodes_by_id.values())
+        )
+
+        merged_sources: dict[uuid.UUID, list[dict[str, str]]] = {}
+        if nodes_by_id:
+            for source in (
+                await db.scalars(
+                    select(MapAtlasNode)
+                    .where(
+                        MapAtlasNode.novel_id == nid,
+                        MapAtlasNode.merged_into_node_id.in_(nodes_by_id),
+                    )
+                    .order_by(MapAtlasNode.title, MapAtlasNode.id)
+                )
+            ).all():
+                merged_sources.setdefault(source.merged_into_node_id, []).append(
+                    {"id": str(source.id), "title": source.title}
+                )
+
         def project(node: MapAtlasNode) -> dict[str, Any]:
             return self._node_dict(
                 node,
@@ -590,7 +620,8 @@ class MapAtlasService:
                         key=lambda item: (item.sort_order, item.title),
                     )
                 ],
-            )
+                level_type=level_types.get(node.id),
+            ) | {"merged_sources": merged_sources.get(node.id, [])}
 
         roots = [
             project(node)
@@ -767,6 +798,7 @@ class MapAtlasService:
                     MapAtlasNode.id == target_id,
                     MapAtlasNode.novel_id == nid,
                     MapAtlasNode.current_revision_id.is_not(None),
+                    MapAtlasNode.merged_into_node_id.is_(None),
                 )
             )
             if not adopted and not spatial_target:
@@ -1009,6 +1041,7 @@ class MapAtlasService:
                     .where(MapAtlasNode.novel_id == nid)
                     .order_by(MapAtlasNode.id)
                     .with_for_update()
+                    .execution_options(populate_existing=True)
                 )
             ).scalars()
         )
@@ -1016,8 +1049,21 @@ class MapAtlasService:
         node = by_id.get(parse_uuid(node_id, "node_id"))
         if node is None:
             raise NotFoundError("地图节点不存在")
-        if node.updated_at != data.expected_updated_at:
-            raise ConflictError("地图层级已在别处更新，请刷新后重试")
+        if node.merged_into_node_id is not None:
+            from modules.world.map_structure_service import MapStructureService
+
+            await MapStructureService().node(db, novel_id, node_id)
+        assert_edit_baseline(data.expected_updated_at, node.updated_at, label="地图层级")
+        if "level_type_ref" in data.model_fields_set and data.level_type_ref is not None:
+            from modules.world.map_structure_service import (
+                resolve_spatial_vocabulary_references,
+            )
+
+            await resolve_spatial_vocabulary_references(
+                db,
+                novel_id,
+                {(data.level_type_ref, data.level_type_revision_id): "level"},
+            )
         if node.status == "provisional":
             if node.created_by_run_id is None:
                 raise ConflictError("该候选节点不能手动调整")
@@ -1037,7 +1083,11 @@ class MapAtlasService:
         if new_parent_id == node.id:
             raise ValidationError("地图节点不能成为自己的上级")
         parent = by_id.get(new_parent_id) if new_parent_id else None
-        if new_parent_id and (parent is None or parent.status != "adopted"):
+        if new_parent_id and (
+            parent is None
+            or parent.status != "adopted"
+            or parent.merged_into_node_id is not None
+        ):
             raise ValidationError("上级地图必须是已加入的地点")
         if new_level in {"cover", "world"} and parent is not None:
             raise ValidationError("封面与世界图不能有上级地图")
@@ -1062,14 +1112,19 @@ class MapAtlasService:
             before.id == node.id
             or before.parent_id != new_parent_id
             or before.status != "adopted"
+            or before.merged_into_node_id is not None
         ):
             raise ValidationError("插入位置必须是同一上级下的已加入地点")
         old_parent_id = node.parent_id
         old_semantic = node.semantic_key
         node.parent_id = new_parent_id
         node.level = new_level
+        if "level_type_ref" in data.model_fields_set:
+            node.level_type_ref = data.level_type_ref
+            node.level_type_revision_id = data.level_type_revision_id
         if data.title is not None:
             node.title = data.title.strip()
+        rewritten_ids: set[uuid.UUID] = set()
         if old_semantic.startswith("path:") and (
             new_parent_id != old_parent_id or data.title is not None
         ):
@@ -1090,12 +1145,14 @@ class MapAtlasService:
             for item in nodes:
                 if item.id in rewrites:
                     item.semantic_key = rewrites[item.id]
+            rewritten_ids = set(rewrites)
         target_adopted = [
             item
             for item in nodes
             if item.id != node.id
             and item.parent_id == new_parent_id
             and item.status == "adopted"
+            and item.merged_into_node_id is None
         ]
         target_adopted.sort(key=lambda item: (item.sort_order, item.id))
         if before_supplied:
@@ -1119,6 +1176,7 @@ class MapAtlasService:
                     if item.id != node.id
                     and item.parent_id == old_parent_id
                     and item.status == "adopted"
+                    and item.merged_into_node_id is None
                 ]
                 old_siblings.sort(key=lambda item: (item.sort_order, item.id))
                 for index, item in enumerate(old_siblings):
@@ -1147,7 +1205,25 @@ class MapAtlasService:
                     base_node_updated_at=node.updated_at,
                 ).model_dump(mode="json")
         await db.flush()
-        return self._node_dict(node, [], [])
+        if rewritten_ids:
+            # A path rename updates descendant rows in the same flush. The
+            # timestamp generated for each UPDATE can differ from the value
+            # held by an already-loaded descendant, so refresh the exact rows
+            # before a subsequent edit uses their optimistic-lock baseline.
+            list(
+                (
+                    await db.scalars(
+                        select(MapAtlasNode)
+                        .where(
+                            MapAtlasNode.novel_id == nid,
+                            MapAtlasNode.id.in_(rewritten_ids),
+                        )
+                        .execution_options(populate_existing=True)
+                    )
+                ).all()
+            )
+        level_types = await self._node_level_types(db, novel_id, [node])
+        return self._node_dict(node, [], [], level_type=level_types.get(node.id))
 
     async def read_page_image(
         self,
@@ -1458,6 +1534,8 @@ class MapAtlasService:
             ).scalar_one_or_none()
             if node is None:
                 raise ConflictError("地图层级已变化，请刷新后重试")
+            if node.merged_into_node_id is not None:
+                raise ConflictError("地图已合并，请打开目标地图")
             node.status = "adopted"
             node_id = node.parent_id
 
@@ -1521,6 +1599,8 @@ class MapAtlasService:
             node = nodes_by_id.get(node_id)
             if node is None:
                 raise ConflictError("地图层级已变化，请刷新后重试")
+            if node.merged_into_node_id is not None:
+                raise ConflictError("地图已合并，请重新检查层级候选")
             proposal = (
                 selected_proposal if node_id == page.node_id else proposals.get(node_id)
             )
@@ -1568,6 +1648,7 @@ class MapAtlasService:
                     if item.id != node.id
                     and item.parent_id == proposal.parent_id
                     and item.status == "adopted"
+                    and item.merged_into_node_id is None
                 ]
                 siblings.sort(key=lambda item: (item.sort_order, item.id))
                 siblings.insert(min(proposal.sort_order, len(siblings)), node)
@@ -1580,6 +1661,7 @@ class MapAtlasService:
                         if item.id != node.id
                         and item.parent_id == old_parent_id
                         and item.status == "adopted"
+                        and item.merged_into_node_id is None
                     ]
                     old_siblings.sort(key=lambda item: (item.sort_order, item.id))
                     for index, sibling in enumerate(old_siblings):
@@ -1711,14 +1793,18 @@ class MapAtlasService:
         envelope = read_ai_run_envelope(context_snapshot.get(AI_RUN_ENVELOPE_KEY))
         task_envelope = None
         if envelope is None:
-            task_envelope = new_ai_run_envelope(
-                operation_id=str(run.id),
-                run_id=str(run.id),
-                root_capability_id="world.map_atlas.generate",
-                novel_id=str(run.novel_id),
-                request_limit=segment_limit,
-                legacy_untracked=run.task_id is not None,
-            ).snapshot().model_dump(mode="json")
+            task_envelope = (
+                new_ai_run_envelope(
+                    operation_id=str(run.id),
+                    run_id=str(run.id),
+                    root_capability_id="world.map_atlas.generate",
+                    novel_id=str(run.novel_id),
+                    request_limit=segment_limit,
+                    legacy_untracked=run.task_id is not None,
+                )
+                .snapshot()
+                .model_dump(mode="json")
+            )
             context_snapshot[AI_RUN_ENVELOPE_KEY] = task_envelope
             run.context_snapshot = context_snapshot
         else:
@@ -1804,6 +1890,7 @@ class MapAtlasService:
                 MapAtlasNode.novel_id == novel_id,
                 MapAtlasNode.id == parse_uuid(node_id, "node_id"),
                 MapAtlasNode.status == "adopted",
+                MapAtlasNode.merged_into_node_id.is_(None),
             )
         )
         if node is None:
@@ -1926,19 +2013,50 @@ class MapAtlasService:
         }
 
     @staticmethod
+    async def _node_level_types(db, novel_id, nodes):
+        from modules.world.project_vocabulary_service import (
+            resolve_vocabulary_type_revisions,
+        )
+
+        refs = {
+            (node.level_type_ref, node.level_type_revision_id)
+            for node in nodes
+            if node.level_type_ref is not None
+        }
+        if not refs:
+            return {}
+        resolved = await resolve_vocabulary_type_revisions(db, novel_id, refs)
+        if any(value["kind"] != "level" for value in resolved.values()):
+            raise ValidationError("地图层级必须引用层级类型")
+        return {
+            node.id: {
+                key: resolved[(node.level_type_ref, node.level_type_revision_id)][key]
+                for key in ("name", "description", "status")
+            }
+            for node in nodes
+            if node.level_type_ref is not None
+        }
+
+    @staticmethod
     def _node_dict(
         node: MapAtlasNode,
         pages: list[dict[str, Any]],
         children: list[dict[str, Any]],
+        *,
+        level_type: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
         return {
             "id": str(node.id),
             "novel_id": str(node.novel_id),
             "parent_id": _uuid(node.parent_id),
+            "merged_into_node_id": _uuid(node.merged_into_node_id),
             "location_entity_id": _uuid(node.location_entity_id),
             "current_revision_id": _uuid(node.current_revision_id),
             "title": node.title,
             "level": node.level,
+            "level_type_ref": _uuid(node.level_type_ref),
+            "level_type_revision_id": _uuid(node.level_type_revision_id),
+            "level_type": level_type,
             "status": node.status,
             "summary": node.summary,
             "sort_order": node.sort_order,

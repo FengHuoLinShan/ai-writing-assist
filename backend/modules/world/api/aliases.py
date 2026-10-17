@@ -142,6 +142,7 @@ async def create_alias(
         source="manual",
         source_chapter_index=data.source_chapter_index,
         confidence=data.confidence,
+        validity=data.validity,
     )
 
 
@@ -182,6 +183,8 @@ async def edit_alias(
         alias=data.alias,
         alias_type=data.alias_type,
         alias_kind=data.alias_kind,
+        validity=data.validity,
+        update_validity="validity" in data.model_fields_set,
         confirm_review=data.confirm_review,
     )
 

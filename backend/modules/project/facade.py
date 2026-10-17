@@ -55,6 +55,9 @@ from modules.project.editorial_brief import (
 from modules.project.editorial_brief import (
     set_editorial_brief_for_writing as set_editorial_brief_for_writing,
 )
+from modules.project.object_dossier_settings import (
+    read_object_dossier_settings as read_object_dossier_settings,
+)
 from modules.project.repositories import ProjectRepository
 from modules.project.schemas import ProjectContext, ProjectCreate
 from modules.project.services import ProjectService
@@ -149,6 +152,21 @@ async def get_any_project_context(
     if context is not None:
         bind_validated_novel_id(novel_id)
     return context
+
+
+async def get_archived_interaction_project_ref(
+    db: AsyncSession, novel_id: str, *, owner_id: str
+) -> InteractionProjectContract | None:
+    """Owner-scoped identity for an archived RP journey, without restoring it.
+
+    The caller must first validate its current active author project and owner.
+    """
+    project = await _repo.get_deleted(
+        db, uuid.UUID(novel_id), uuid.UUID(owner_id), project_kind="interaction"
+    )
+    if project is None:
+        return None
+    return InteractionProjectContract(novel_id=str(project.id), owner_id=project.owner_id)
 
 
 async def validate_configured_public_demo_project(

@@ -52,9 +52,15 @@ class CharacterContextItem(BaseModel):
     fear: str | None = None
     secret: str | None = None
     weakness: str | None = None
-    current_goal: str | None = None
-    current_state: str | None = None
-    current_emotion: str | None = None
+    current_goal: str | None = Field(
+        default=None, description="作者备注的最新目标；不是按章状态"
+    )
+    current_state: str | None = Field(
+        default=None, description="作者备注的最新状态；不是按章状态"
+    )
+    current_emotion: str | None = Field(
+        default=None, description="作者备注的最新情绪；不是按章状态"
+    )
     stance: str | None = None
     voice_style: str | None = None
     behavior_rules: list[dict] = []

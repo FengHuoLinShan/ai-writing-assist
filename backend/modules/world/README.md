@@ -51,6 +51,87 @@ world 模块管理小说世界中的核心对象及其关系，是结构化创�
 - 对象分级：core / important / normal / temporary
 - 版本回滚基于 `TextArchive` 归档与 `EntityRevision` 兜底（活跃回滚路由优先查询 `TextArchive`，无归档时回退到最近 `EntityRevision` 快照）
 
+### 世界对象档案 C0（ADR-0039）
+
+`WorldObjectDossierEntry` 保存对象稳定设定的不可变修订；Scene 时点状态仍归 Story，派生理解仍归
+Evolution。内核面向按对象类型固定，项目面向复用 `ProjectVocabularyTerm(kind='dossier_facing')`，
+类型模板复用 `EntityProfileTemplate` 与 `EntityProfileTemplateRevision`。正式写入只接受本项目已采用的对象、
+有效面向和可解析 Scene/章节锚点；读口仅报告 World 层、返回对象当前 `entity_status`，
+并将 Story 与 Evolution 标为尚未聚合。Evidence 简报只接纳 canonical 对象和 profile；
+World 管理读口仍可展示工作稿以供作者处理。
+Evidence 的只读 port 可按 `visibility_filter=public` 在分页、计数和指纹计算前筛选公开条目；
+角色读取用 `visible_fields` 同时限定已获事实证明的字段与文本，按明确 Story/legacy/Generic 字段键匹配；`visible_contents` 仅保留旧只读调用兼容，不作为角色字段证明。旧 profile 无逐字段公开标记，
+这两种安全投影均不返回它。原作者管理读口不传筛选参数，仍显示完整档案。
+
+`GenericEntityProfile.data_json` 旧 PUT 经 Dossier 领域服务按字段追加修订；明确模板映射的字段保留面向，
+未知字段进入 `legacy_unmapped` 秘密区。旧 GET/list 与 `WorldBackground` 只读投影当前修订，纯 GET 不物化或写入。
+兼容旧 PUT 可省略 `expected_dossier_revision`；提供时以当前 Dossier 投影基线 CAS，过期返回 409；省略时行锁
+串行化写入但整份 JSON 仍是最后写者胜出。PATCH 省略 `data_json` 保持不变，显式 `null` 清除当前值并留修订历史。
+六类强类型档案仅按迁移冻结的稳定字段清单双向兼容：旧 Profile PUT 保留旧接口 omitted/null 语义并在同一事务追加
+带表前缀 `legacy_field_key` 的 Dossier 修订；Dossier 编辑/恢复同步对应旧投影，清除追加 `cleared` 修订。
+类型切换恢复只同步该清单中的字段，保留档案快照元数据；草稿值写为 `needs_review`，不因恢复而采用。
+JSON 数组修订同时保留原类型值；修改数组须提交 `legacy_value` 并与展示文本一致，不能由 prose 反解析。
+作者编辑器以结构化条目编辑数组并同时提交原类型值；后端在预览和写入前复用旧列类型及长度校验。
+强档案标量显式传空字符串会在同一事务清空旧字段并追加 cleared 修订；`null` 与省略仍保持旧接口语义。
+地图控制关系、持有人及揭示状态等动态字段不桥接。Profile 与 Dossier GET 均为只读，不在读取时物化或写回。
+档案条目可选绑定 `story_field_key`；只有同一对象、同一登记字段、可信确认来源且早于 cutoff Scene 的 Story
+观察才可用于有效期核对。项目设置“允许剧情覆盖作者有效期”默认关闭；默认始终按作者区间读取，只有显式开启
+才允许精确 Story 状态改变读取结果。历史 `legacy_import` 内容没有字段绑定，不从同值或文字相似推断，按来源缺口披露。
+关系与地图也复用同一开关；`world.object_validity` 只读 NoticeSource 汇总冲突和证据缺口，不物化 Scene
+continuity、也不写档案。
+空间提醒与地图简报使用同一精确地图声明有效期策略，作者侧开启覆盖后同步影响地点、通路和行程判断；
+人物与读者侧不因作者确认的剧情事件取得额外知识。
+关系有效期只允许最终状态为 `canonical` 的关系声明；创建、合并、更新和待确认关系复核都按最终状态
+校验区间及同项目 Scene 锚点。将带有效期的正式关系降为候选时，必须在同一请求显式传 `validity: null`
+清除区间；只改状态而保留旧区间会失败。
+
+- `GET /api/world/entities/{id}/dossier` 读取当前设定或指定 Scene 截止点；`GET .../dossier/history`
+  提供条目修订历史。
+- `POST /api/world/entities/{id}/dossier/entries` 新增条目；`PATCH .../dossier/entries/{revision_id}`
+  以 `expected_revision_id` 做 CAS；`POST .../dossier/groups/{entry_group_id}/restore` 将历史内容追加为新修订。
+- `GET/PUT /api/world/dossier-templates/{profile_type}` 保持既有 AI 模板读写契约；PUT 带
+  `expected_version_number`，相同内容不新增版本。旧模板编辑输入没有借用声明字段，服务端继承当前借用列表，
+  不会静默清空作者选择。
+- 作者通过 `GET/PUT /api/world/dossier-templates/{profile_type}/author` 管理扩展模板字段。
+  自定义对象可显式选择内置来源类型与面向键；持久 key 编码为
+  `borrowed:<entity_type>:<core_key>`，因此 `spirit_beast` 可区分 `character.appearance` 与
+  `species.appearance`。当前模板修订控制新增、编辑和恢复；仍有活动条目使用的借用面向不能移除，
+  必须先清除或改写条目。借用只扩展档案字段，不创建人物、不改变对象类型、确定性字段或角色知识。
+  新目录项 `world.dossier.template.borrowed.read`（R0）与 `.edit`（R3）绑定作者扩展路由；
+  旧 `world.dossier.template.read/edit` 的输入和旧冻结保持不变。条目创建、修订、恢复与模板移除
+  对同一模板行串行化，避免并发中留下未声明的活动借用条目。
+- 题材词表保持原有 v1 空间条目不变，每包另以 v2 copy-on-apply 添加 8 个按内置对象类型限定的
+  `dossier_facing` 词条。版本、作者修改、重复应用、合并和墓碑继续由统一词表维护；项目词条被选入
+  对象模板后才可成为该对象的面向字段。
+- `GET /api/world/entities/{id}/dossier/manifest` 导出有界的作者 JSON 清单。对应 `POST .../manifest/preview`
+  与 `POST .../manifest/apply` 注册为 R0 预览和 R3 确认目录项；作者文件下载独立豁免 AI 外部导出。
+  新清单使用 v2，可选兼容信封只承载 allowlist 强 Profile 字段或 Generic 旧字段的键与原类型 JSON 值；
+  Generic 未映射值继续保存在秘密兼容区，不提升为公开作者事实。旧 v1 清单仍可导入。
+  Generic 导入按目标字段键检查既有修订（含已清空修订）；同名字段属于其他条目组时报告冲突，
+  显式跳过后才能继续，不新建竞争的当前值。结构化数组编辑只提交原类型值，存储文本由服务端派生；
+  编辑器保留字符串/对象元素类型，清空后新增仍沿用原类型，界面标签继续面向作者展示。
+  对象档案界面可选择文件、逐项映射和确认；跨项目词条、模板、Story 状态字段和
+  时间锚点必须显式映射或停止。采用绑定模板版本、目标条目修订指纹和预览 hash；重复导入幂等，
+  与导入来源对应的条目若被作者改动则进入冲突，只有显式跳过后才能继续。借用内核 key 自带来源类型；
+  目标模板必须显式声明同一来源和 key，跨类型导入不会替作者新增借用声明。同项目来源修订与
+  证据快照逐项回查，采用时按对象 ID 顺序锁定来源与目标并重验；跨项目来源只作未验证元数据，
+  原证据不进入目标条目，正式来源为作者采用。
+- 一个面向或显式 `legacy_field_key` 可以有多个当前条目；每个条目组只允许一个当前修订。旧
+  Character PUT 值不变时不新增条目；变更时收拢该旧字段下当前条目并保留完整历史，显式 `null`
+  追加清除修订。`desire` 与 `fear` 共用内核面向但保留不同旧字段键；未标记旧键的新条目不会被猜测
+  拼入任一字段。
+- `CoreEntity.summary/public_info/hidden_truth` 只聚合各自同名 `legacy_field_key` 的当前无锚条目，
+  经 `_legacy_value` 生成兼容列投影；其他相同 public/secret 可见性的档案不拼入。编辑 CoreEntity 列时
+  收拢该键的无锚当前条目为一条作者修订并保留历史；时点档案不被旧列覆盖。清除单组只移除该组贡献，列仅在没有剩余当前条目时为 `null`；迁移撤销恢复旧列时也追加同步修订，避免已撤销内容继续进入档案读取。
+- Character 的 `current_goal`、`current_state`、`current_emotion` 保留为作者最新状态备注并标注
+  “不是按章状态”；按 Scene 的状态读取仍由 Story 提供。
+
+逐字段旧值映射和 22 个后端、6 个前端调用方处置见
+[C0 mapping](../../../docs/plans/2026-10-15-world-object-dossier-c0-mapping.md)。C0c 增加默认关闭的作者有效期覆盖策略、
+精确 Story 字段绑定、关系与别名 Scene 区间、自定义类型 Story 状态字段；历史恢复、批量复核与编辑保留有效期。
+导演已通过 World typed 只读端口按 Scene 汇入可信作者有效期提醒和来源指纹；未覆盖的
+语义、模型质量与作者验收仍待后续阶段，单条提醒不代表全量对象一致性已证明。
+
 ### 对象图片
 
 CoreEntity 的 `image_version` 和 `image_updated_at` 只记录可选图片的版本；通用 API 响应派生
@@ -271,6 +352,11 @@ PNG 后才进入地图册私有 S3。此例外不改变 imports 的文稿上传�
 - 独立知识图谱数据库
 
 ## 作者主动模型任务的 Context 门禁
+
+Assistant v8 A1 首批复用对象类型迁移、作者确认的融合、修订备注及指定修订恢复服务。
+类型迁移的窄 HTTP 入口只收对象 ID/新类型，并以作者确认的预览指纹做 CAS；原
+`PUT /entities/{id}` 可编辑其他字段，不被标为窄类型操作。融合仍需作者 R3 确认，
+已采用对象的领域二次确认条件不因目录注册放宽。历史备注不改修订，恢复重验最新对象基线。
 
 生成中心聊天/收束/探索/建议、问世界、世界书语义检修、简介人工刷新、语义验证、对象融合与
 地图册启动均要求 action 精确匹配的 `context_confirmation_id`。浏览器先通过 Evidence
@@ -540,7 +626,7 @@ can/cannot/cost/failure/maintenance 约束写法）、主要地点 3-5、势力/
 | `entity_revisions` | 实体改动历史（改动前快照 + 写作进度 + 改动字段摘要；Scene 回滚兜底仍优先 `TextArchive`）；`restored_from_revision_id` 记录恢复来源 |
 | `world_revision_notes` | 实体/页面/地图修订的事后补写备注（`(novel_id, target_kind, revision_id)` 唯一，无跨表外键，服务层校验归属；不进入快照/摘要/Canon receipt） |
 | `map_atlas_runs` | AI 地图册计划、上下文快照、任务进度与停止状态 |
-| `map_atlas_nodes` | 封面到街道/室内的层级节点与采用状态 |
+| `map_atlas_nodes` | 封面到街道/室内的层级节点与采用状态；`merged_into_node_id` 保存同项目的合并重定向，历史节点不删除 |
 | `map_atlas_pages` | 独立候选/已采用/拒绝/移出图片与派生链 |
 | `map_atlas_annotations` | 未绑定图片标注及其空间图元绑定入口 |
 | `map_atlas_revisions` | 节点拥有的不可变空间结构、来源、约束与图片展示配置 |
@@ -682,8 +768,23 @@ upsert；调用方不应再实现“先查再插”的并发控制。关系复�
 已采用页面，不修改 World 事实。图片字节存私有 S3，完整契约见 `docs/modules/15_map.md`。
 纯空间节点的目录调整不依赖生图任务；未绑定世界地点的地图可修改标题，绑定地点名称仍由世界对象拥有。
 读取当前地图与候选时重新核对来源，过期提示只更新响应，不改不可变版本或历史；保存与采用仍严格校验。
+自动草图仅通过独立候选列表审核：列表分页返回真实 provisional 节点资料，不混入正式目录。
+其 `base_revision_id` 记录真实增量版本链，`review_base_revision_id` 单独固定正式地图比较基线；
+来源、地点身份或层级漂移时停止续跑。采用净化只生成新的 saved 版本，不把未经采用的原候选
+留为可恢复历史；引文、生效区间、作者图元名称、位置与锁定均按地图合同保留。
 规划前可从正式 World Bible 和已回读正文提取空间线索；它们只补充持久化 page prompt，
 不生成坐标、比例、方向或 annotation 几何字段。
+
+作者也可在 `POST /nodes/merge-preview` 预览并在 `POST /nodes/merge` 确认两个无地点绑定的已保存兄弟节点合并。
+服务拒绝带子节点、图片页、标注跳转、未决草图/托盘或在途地图任务的节点，冻结两端文档与层级指纹；执行
+在单事务内追加目标 saved revision，并把来源节点保留为 `merged_into_node_id` 墓碑。图元 ID 和来源空间 ID
+确定性重映射，坐标与固定类型/来源原样保留。正式地图、brief、assistant 与 reader 投影均排除来源墓碑；旧节点
+读写返回带目标路径的 409。撤回需预览且确认，CAS 检查来源 head 与目标合并 head 未变后才恢复来源并追加目标
+旧文档 revision；历史行不覆盖。已接收其他合并的来源不再向下合并，目标墓碑不能被旧撤回改写。
+工作台“整理重复地图”提供双目标预览、来源处置确认与撤回，旧链接仅在作者明确操作后打开目标。
+`map_merge_lineage.py` 从同项目不可变合并历史保留来源节点/确切修订的 Context 排除；brief、advisory 和
+通知保守省略受影响的目标及后续合并目标，提示重新核对参考范围，撤回或恢复历史版本不清除该边界。
+具体拒绝条件、范围与路由见 `docs/modules/15_map.md`。
 
 ## 对外契约（contracts.py）
 
@@ -1196,6 +1297,8 @@ E2E_DATABASE_URL='<dedicated-postgresql-url>' make generate-e2e
 | PUT | `/api/world/knowledge/{knowledge_id}` | 更新人物知识 |
 | DELETE | `/api/world/knowledge/{knowledge_id}` | 删除人物知识 |
 | POST | `/api/world/map-atlas/{novel_id}/runs` | 创建地图册计划与生成任务 |
+| POST | `/api/world/map-atlas/{novel_id}/nodes/merge-preview`、`/merge` | 预览并确认安全范围内的节点合并 |
+| POST | `/api/world/map-atlas/{novel_id}/nodes/merge-undo-preview`、`/merge-undo` | 预览并确认未发生后续改动的撤回 |
 | GET | `/api/world/map-atlas/{novel_id}/runs/latest` | 查询最新 run 与恢复状态 |
 | GET | `/api/world/map-atlas/{novel_id}/runs/{run_id}/results` | 查询本次生成候选层级 |
 | GET | `/api/world/map-atlas/{novel_id}/atlas` | 查询已采用地图册与画廊 |
@@ -1236,6 +1339,8 @@ World Bible、生成模板，以及 AI 地图册的计划、候选、画廊和�
 它是事实模块，不拥有正文、Scene、context confirmation 或 RAG 候选；AI 输出默认进入
 待处理建议，只有用户明确授权的流水线才可按领域门禁写入可回滚资产。
 
+主 Scene 回执后的空间 context 可接收本场已物化 World 候选端点；World 重验原理解回执与最新来源前缀，并要求实体来源元数据的 run、Scene、index 和 attempt 全部一致。未物化提案、其他运行或未来 Scene 的候选不因冻结 UUID 提名进入输入；这不会采用实体、线索或地图。
+
 空间地图仍属于 World 的可编辑派生资产，不进入 Canon 或 Scene memory。纯空间节点可显示和跳转；
 图片移出不影响空间版本。完整 API、数据上限、校准和阅读条件见 `docs/modules/15_map.md`。
 
@@ -1270,6 +1375,14 @@ checkpoint 语义，并持有世界事实、采用包和复核结论。助手通
 Writing 连续性检查只通过 `facade.list_adopted_map_continuity_facts` 读取当前 adopted node 的 saved revision；仅返回两端都绑定目标地点、constraint 保留来源且来源 hash/引文仍可重验的空间关系。该 seam 不返回坐标或图片、不把地图复制进 Scene memory，也不把缺少路线声明解释为确定的地理事实。
 
 Writing 冲突检查的旧版地图核对（G8b）另经 `facade.read_map_node_heads`（组合根注册 DI 键 `world.read_map_node_heads`）按 node_ids 一次批量读取各节点当前 head 的采用状态、head revision id 与来源 hash 集合；节点删除即缺行。该出口只读、不重验来源有效性、不返回坐标或图片，也不保存任何核对结论——比较在 Writing 响应中完成。
+
+Evidence 的 M3 `read_map_spatial_brief` 只读当前已采用节点的 saved revision，经 World facade 加载；Scene 当前地点只由结构元数据中的显式身份决定，没有位置时不猜。图元、来源和读者/角色可见性逐项重验，`author_full` 不放宽揭示边界；移动位置只取当前 Scene 出场对象中有精确来源与明确时点的最新记录。此简报供创作参考，不写回 World；revision/hash 的后续核对复用 G8b head 读取。
+
+M4 `read_map_spatial_advisories(db, MapSpatialAdvisoryRequest)` 是写作与助手可复用的只读提醒出口。它只读当前 adopted node 的 saved revision，按 Scene 锚点解析有效期，要求 `event_observed`、当前有效来源和固定 revision 的 active 空间类型特性；图元、World Bible 页与原文来源沿用读者揭示边界。有效期范围可解析但未覆盖当前 Scene 的地点，仅在状态声明指向该地点时提醒；写作侧只把 ready 且系统生成或作者确认的位置 checkpoint 交作当前 Scene 行程输入。它在双向矛盾方位、同模式/旅行者/通行条件下耗时区间互不相交、已知通路网络断开或过期，或可移动对象跨空间且没有已声明连接时返回提醒，并带 node/revision/source hash、两种修订路径和可逐条静默标志。缺少地图证据不判断无路，缺少故事内时间明确返回 unknown，不从坐标推算距离或耗时。入口各自通过 `MAP_SPATIAL_ENABLED_CAPABILITIES` 的能力项开启，默认空集合。
+该出口注册为 typed DI port `world.read_map_spatial_advisories`，使用真实 Scene 契约及 canonical 可见投影；受检但无提醒的版本也返回 `map_revisions`，供 G8b 记录基线。空间简报缺少明确 Scene/截止章时返回空参考及范围提示，不默认选章；Ask 沿现有参考确认的章节输入取得冻结范围，引用仍需回读重验。
+Ask 的地图引用保留原资料确认 ID，回开和保存重验重新物化同一确认，沿用原选择、排除与预算裁剪；
+确认失效则来源不可用，不改用全量地图。通路连通检查保留未绑定对象的文字途经图元，按图元身份接续路径，
+不因途经点仅有标签而把已声明通路判为断开。
 
 
 ### 助手页面维护
@@ -1422,3 +1535,33 @@ version_number 对应的 revision_id/revision_digest；页面和 revision 联接
 在 Story，总纲读取只比较响应，不回写任何 World/Story 状态。World background 的页面输入
 在同一查询附带 revision 元数据，避免消费后再查最新版本导致登记错误。该元数据不进入原 source_hash。
 现有公开 API owner 门禁、append-only 修订和 CAS 机制不变；内部批量出口不新增公开路由。
+
+
+### 统一项目词表（地图增强 M0）
+
+`project_vocabulary_service.py` 管理 `project_vocabulary_terms` 与不可变修订，覆盖空间类型、
+层级、图元、关系、交通与通行，以及共用的档案面向和势力类型。作者创建和变更比较期望修订，
+合并保留重定向，归档保留墓碑；预设按版本复制，可混搭且重复应用幂等。地图固定类型修订，
+不读取当前修订覆盖旧特性。模型涌现经两个Scene证据和独立复核绑定，调用方仍须先验证原文。
+
+`project_vocabulary_api.router` 挂载 `/api/world/project-vocabulary`；跨模块仅经 contracts/facade
+导出的有界读取、固定修订解析、复核提案持久化与证据失效窄口。详见
+[项目词表实现](project_vocabulary.md) 与 [World模块](../../../docs/modules/02_world.md)。
+地图差异展示通过该路由的可选 `revision_id` 查询读取精确固定修订名称，不以当前词条名称覆盖历史版本。
+
+
+### 地图节点层级名称
+
+地图树与节点调整回执以现有固定词表修订解析 `level_type` 的名称、说明及当前生命周期；
+作者改名、合并或归档词条不替换节点原修订的文本。项目层级类型只改变作者显示语义，
+系统粗 `level`、父链规则和 `expected_updated_at` 并发校验保持不变。详见
+[地图模块](../../../docs/modules/15_map.md#空间类型词表基础m0)。
+
+
+地图评测读取按运行及 Scene 限定不可变回执；指定 revision 的草图读取直接回读其所属批次，
+不预载项目最近批次。图元身份先按作品批量回读，再按需跟随融合链，不跨作品解析。
+词条在 SQL 内先选取 evidence 涉及请求 Scene 的身份，再读取该身份的历史（保留作者后续清除
+证据的修订）；最多读取 2000 条词条修订，超限明确标记 truncated/missing，不作为完整评测来源。
+自动草图隐式全运行线索与显式线索选择都最多处理 20000 条，超限要求缩小范围，不静默丢弃。
+一次线索校验内按 Scene/索引/完整来源绑定共享当前正文回读，按绑定/模式/引文共享精确区间；
+每条仍校验独立复核哈希、引文、端点和截止点，不跨校验调用或事务保存缓存。

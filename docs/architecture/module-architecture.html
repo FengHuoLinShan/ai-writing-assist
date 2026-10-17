@@ -289,8 +289,8 @@
       <rect x="395" y="225" width="300" height="125" rx="6" fill="#0f172a" stroke="none"/>
       <rect x="395" y="225" width="300" height="125" rx="6" fill="rgba(76, 29, 149, 0.3)" stroke="#a78bfa" stroke-width="1.5"/>
       <text x="545" y="250" fill="white" font-size="12" font-weight="600" text-anchor="middle">world 世界事实与 AI 地图册</text>
-      <text x="545" y="272" fill="#94a3b8" font-size="8" text-anchor="middle">CoreEntity · 世界书 · atlas run/node/page</text>
-      <text x="545" y="290" fill="#94a3b8" font-size="9" text-anchor="middle">候选审查 · 私有 S3 图片</text>
+      <text x="545" y="272" fill="#94a3b8" font-size="8" text-anchor="middle">CoreEntity · 修订档案 · 世界书 · 地图册</text>
+      <text x="545" y="290" fill="#94a3b8" font-size="9" text-anchor="middle">条目 / 模板 CAS · 候选审查 · 私有图片</text>
       <text x="545" y="314" fill="#a78bfa" font-size="8" text-anchor="middle">事实持久化 · 受控采用</text>
 
       <!-- story/continuity box -->
@@ -508,6 +508,7 @@
         <li>• 公开请求同时受 account owner、project novel_id 与 author / interaction kind 门禁</li>
         <li>• 跨项目默认例外是同 owner、显式版本化的 author source → interaction 只读资料流；ADR-0024 仅允许配置固定且复验的 public source 进入匿名 RP</li>
         <li>• AI 地图册是 world 子系统；图片候选不会自动成为世界事实</li>
+        <li>• 对象稳定设定与修订归 World，按 Scene 的状态归 Story，演化理解归 Evolution；统一读取由 Evidence 聚合</li>
         <li>• 箭头表示主要调用或资料流，不是生产代码 import 图</li>
         <li>• 引导流程复用 AssistantRun、领域任务与队列；默认关闭，按项目授权开放</li>
         <li>• Evolution 的类别补扫与选择性重做已有离线工程验证；真实模型、长篇质量与费用尚未验收</li>
@@ -516,7 +517,7 @@
     </div>
   </div>
 
-  <p class="footer">AI 长篇小说结构化创作引擎 · 当前模块架构兼容预览 · FastAPI + SQLAlchemy + PostgreSQL · 2026-10-14</p>
+  <p class="footer">AI 长篇小说结构化创作引擎 · 当前模块架构兼容预览 · FastAPI + SQLAlchemy + PostgreSQL · 2026-10-15</p>
 </div>
 
 <script>

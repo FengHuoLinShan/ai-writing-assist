@@ -201,3 +201,66 @@ async def test_auto_materialized_profile_does_not_block_entity_type_correction(
         f"/api/world/characters?novel_id={novel_id}",
     )
     assert listed.json()["total"] == 0
+
+
+@pytest.mark.asyncio
+async def test_auto_materialized_secret_clear_survives_entity_refresh(
+    async_client: AsyncClient,
+    test_project: dict,
+) -> None:
+    novel_id = test_project["id"]
+    entity = await async_client.post(
+        f"/api/world/entities?novel_id={novel_id}",
+        json={
+            "entity_type": "character",
+            "name": "秘密不会复活",
+            "hidden_truth": "最初的作者秘密",
+            "status": "canonical",
+        },
+    )
+    assert entity.status_code == 201, entity.text
+    entity_id = entity.json()["id"]
+    character = await async_client.get(
+        f"/api/world/characters/{entity_id}", params={"novel_id": novel_id}
+    )
+    assert character.status_code == 200, character.text
+
+    cleared = await async_client.put(
+        f"/api/world/characters/{entity_id}",
+        params={"novel_id": novel_id},
+        json={
+            "expected_updated_at": character.json()["updated_at"],
+            "secret": None,
+        },
+    )
+    assert cleared.status_code == 200, cleared.text
+    assert cleared.json()["secret"] is None
+
+    refreshed_entity = await async_client.put(
+        f"/api/world/entities/{entity_id}",
+        params={"novel_id": novel_id},
+        json={
+            "expected_updated_at": entity.json()["updated_at"],
+            "name": "名称更新",
+        },
+    )
+    assert refreshed_entity.status_code == 200, refreshed_entity.text
+
+    reread = await async_client.get(
+        f"/api/world/characters/{entity_id}", params={"novel_id": novel_id}
+    )
+    assert reread.status_code == 200, reread.text
+    assert reread.json()["secret"] is None
+    dossier = await async_client.get(
+        f"/api/world/entities/{entity_id}/dossier", params={"novel_id": novel_id}
+    )
+    assert dossier.status_code == 200, dossier.text
+    history = await async_client.get(
+        f"/api/world/entities/{entity_id}/dossier/history",
+        params={"novel_id": novel_id},
+    )
+    assert history.status_code == 200, history.text
+    assert any(
+        item["legacy_field_key"] == "secret" and item["status"] == "cleared"
+        for item in history.json()["entries"]
+    )

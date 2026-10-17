@@ -1,5 +1,11 @@
 """Stable discussion service used by the World compatibility entry."""
 
+from modules.assistant.map_author_decision_service import (
+    read_map_author_decision as read_map_author_decision,
+)
+from modules.assistant.map_evaluation_read_service import (
+    read_map_spatial_evaluation_turn as read_map_spatial_evaluation_turn,
+)
 from modules.assistant.operation_scope import (
     require_operation_targets as require_operation_targets,
 )
@@ -124,6 +130,13 @@ async def run_discussion_scope(db, novel_id, run_id, owner_id, *, lock=False):
     return await AssistantService().discussion_scope(
         db, novel_id, run_id, owner_id, lock=lock
     )
+
+
+async def is_author_turn_run(db, *, novel_id: str, run_id: str, owner_id: str) -> bool:
+    """Only an ordinary author Assistant turn may bridge into Director budget."""
+    from modules.assistant.director_bridge import is_author_turn_run as inspect_run
+
+    return await inspect_run(db, novel_id=novel_id, run_id=run_id, owner_id=owner_id)
 
 
 async def forecast_feed(db, novel_id, data, *, persona="author"):

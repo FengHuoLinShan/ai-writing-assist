@@ -74,6 +74,12 @@ def _make_snapshot(novel_id: str, **overrides: object) -> SimpleNamespace:
 def _stub_memory_active_project_guard(monkeypatch: pytest.MonkeyPatch) -> None:
     from modules.story.continuity import api as memory_api
 
+    monkeypatch.setattr(
+        memory_api._service,
+        "_load_order_transitions",
+        AsyncMock(return_value=()),
+    )
+
     async def require_active_project(_db, _novel_id):
         return None
 
@@ -168,7 +174,11 @@ class TestListEvents:
         assert count_args[1:] == (db, uuid.UUID(hex=novel_id), 1, 999999)
         page_args = mock_page.await_args.args
         assert page_args[1:] == (db, uuid.UUID(hex=novel_id), 1, 999999)
-        assert mock_page.await_args.kwargs == {"after": None, "limit": 1}
+        assert mock_page.await_args.kwargs == {
+            "after": None,
+            "limit": 1,
+            "order_transitions": (),
+        }
 
     @pytest.mark.parametrize(
         "events,expected_total",
@@ -301,11 +311,16 @@ class TestListEvents:
         ]
         first_call, tail_call = mock_page.await_args_list
         assert first_call.args[1:] == (db, uuid.UUID(hex=novel_id), 2, 3)
-        assert first_call.kwargs == {"after": None, "limit": 2}
+        assert first_call.kwargs == {
+            "after": None,
+            "limit": 2,
+            "order_transitions": (),
+        }
         assert tail_call.args[1:] == (db, uuid.UUID(hex=novel_id), 2, 3)
         assert tail_call.kwargs == {
             "after": (second.chapter_index, second.sequence, second.id),
             "limit": 1,
+            "order_transitions": (),
         }
 
 

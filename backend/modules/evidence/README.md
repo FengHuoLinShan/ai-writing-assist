@@ -1,5 +1,8 @@
 # Evidence 模块
 
+`restrict_object_dossier_brief` 将重读的 POV 简报与 confirmation 最终编译条目按条目身份、完整内容及来源取交集，
+不从未裁剪的检索元数据恢复已排除或逐出的条目；返回仅保留调用方需要的已确认字段，不透传原始提醒及备注。
+
 编译产物的 Markdown 渲染（`render_compiled_context`）按资料性质标注事实等级并在有预算
 裁剪时追加裁剪记录（详见 `compilation/README.md` 与 `docs/modules/08_evidence.md`）；
 剧情线 loader 只取未终结线索、超期保留并标注，编辑约定 loader 仅在作者显式开启
@@ -22,6 +25,18 @@
   trace、Activation Profile 和 hidden guard。
 
 两条流水线只共享本模块的 ORM、contracts 和 facade，不建立第二套服务、表或双写。
+Assistant v8 的 `evidence.project.search`、`evidence.source.read`、
+`evidence.knowledge.preview_scope` 是 R0 只读插件：按当前作者/作品、确认选定范围及 Scene
+截止回读；精确来源不扩前后窗口。独立 HTTP 窄入口不接受调用方指定 owner、visibility 或原文。
+原 confirmation 只选了对象/草稿某个片段时，`preview_scope` 拒绝展开整目标；仍可用
+`evidence.source.read` 精确回读 selected 且未排除/省略的来源。
+Assistant v9 增加 `evidence.object_dossier_brief.read` R0：窄入口只接受当前 Scene、
+目标对象、作者安全或角色视角及可选倾向开关；原确认/排除范围不能据此扩成整对象简报。
+对象简报与人物倾向分别由 `OBJECT_DOSSIER_ENABLED_CAPABILITIES`、
+`CHARACTER_PATTERN_ENABLED_CAPABILITIES` 按消费能力显式开启，缺省关闭。
+对象简报由 compilation 子域按 Scene 截止点汇总 World 档案、Story 时点投影和可选的
+Evolution 台账参考；三个跨域读取均经组合根只读端口，角色视角只投影 Story 可见事实。
+接口与未知/省略语义见 [compilation README](compilation/README.md)。
 跨模块生产调用只允许使用 `modules.evidence.contracts` 与 `modules.evidence.facade`；调用方
 不得直接读取 `rag_chunks`。内部细节见 `indexing/README.md` 与 `compilation/README.md`。
 
@@ -147,6 +162,19 @@ World 使用确认后保留的 compiled items 作为实际语义输入，Focused
 缺失、被重复报告或审查者自报 `checked=false` 时，无论审查者给出什么 verdict，服务端一律降为
 `unverifiable`（与组路径同一标准）；覆盖回执逐维标明遗漏原因；重复维度标记为「重复报告，独立复核未完成」，漏报的必查维度以「未独立检查」补录。
 `unverifiable`/`not_checked` 不触发返修、候选不得采用，让「未查」在任何入口都不显示为通过。
+
+知识策略 v2 增加 `advisory_dimensions` 与独立的 `advisory_omitted` 回执字段：
+参考资料缺失、被排除、因预算省略或审查未检查均只留提示，不进必查 `omitted`，
+也不改变范围完整性或服务端 verdict；纯参考一致性 finding 的 blocker/major 会降为 minor，
+提前揭示与越权知识仍按原知识可见性门禁阻断。参考提示不能覆盖必查来源的无法核验裁决。
+审查回执和作者 review payload 会公开参考省略原因（预算省略提示“参考信息因预算未全部使用”，
+隐藏来源 key、coverage 来源与原因文字按可见范围脱敏）；参考维度漏报、重复或未检查时，
+audit 单独追加 `advisory_omitted`，裁决完整性仍只看必查维度。
+v1 receipt 的字段和指纹保持不变。`map_spatial` 通过 World 只读地图 facade 进入写作、剧本、
+世界问答及助手读取路径；八个消费能力分别由 `MAP_SPATIAL_ENABLED_CAPABILITIES` 选择，默认
+全部关闭。空间版本与正文来源在加载时重验，省略沿参考维度单独披露，不增加必查范围。
+复用生成确认的语义审查和定向返修保留原核心资料，仅以服务端消费者身份选择各自的空间参考开关；
+空间参考只使用剩余预算，不驱逐核心来源。
 
 输出权限区分创作新增与既有事实断言：获准的候选设定、正文局部行动和对话不因尚未写过而
 单独判无来源；抽取、问答、既有事实、角色知识及隐藏真相仍须有据。未知与明确待定保持开放，

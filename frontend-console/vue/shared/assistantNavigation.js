@@ -1,4 +1,5 @@
 import { getRouter, getToast, openSmartDedupTask } from "../bridge/index.js"
+import { parseMapTrayNavigation } from './mapTrayNavigation.js'
 
 export function openAssistantDestination(destination, context = {}) {
   const routes = {
@@ -19,12 +20,21 @@ export function openAssistantDestination(destination, context = {}) {
 }
 
 export function locateAssistantSource(source) {
+  if (source.type === "map_changes") return openAssistantDestination("map")
   const location = source.location || source.source_ref || source
   const target = source.target || source.target_ref || (source.source_ref ? { type: "writing_draft", id: source.source_ref.draft_id } : source)
   const type = target.type || target.target_type
   const id = target.id || target.target_id
   const query = new URLSearchParams()
   let page, subview = null
+  if (type === 'map_tray_placement') {
+    let navigation
+    try { navigation = parseMapTrayNavigation(JSON.stringify(source)) } catch { return false }
+    query.set('node_id', navigation.node_id)
+    query.set('revision_id', navigation.revision_id)
+    query.set('tray_placement', JSON.stringify(navigation))
+    return getRouter().navigate('map', null, true, query)
+  }
   if (source.type === "writing_review") {
     if (!source.task_id) return false
     query.set("semantic_review_task_id", source.task_id)

@@ -80,6 +80,23 @@ def _scope_build():
     return policy, build
 
 
+def _advisory_scope_build():
+    policy = require_capability_policy("assistant.turn")
+    compiled = CompiledContext(
+        sections=[
+            _section(
+                "world_entities",
+                [{"type": "world_entity", "id": "a", "label": "作者组织"}],
+            )
+        ]
+    )
+    build = build_scope_receipt(
+        compiled, policy, KnowledgeSubject(subject_type="author"), novel_id="novel-1"
+    )
+    require_scope_complete(build)
+    return policy, build
+
+
 class FakeGovernedClient:
     """按 schema 类型分发的合成 provider：导演处置与审查裁决均可脚本化。"""
 
@@ -438,6 +455,154 @@ async def test_all_dimensions_checked_keeps_server_verdict() -> None:
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize("verdict", ["blocked", "unverifiable", "not_checked"])
+async def test_advisory_finding_cannot_block_or_lower_verdict(verdict: str) -> None:
+    policy, build = _advisory_scope_build()
+    audit = AuditVerdictOutput(
+        findings=[
+            AuditFindingOutput(
+                kind="missing_required",
+                severity="blocker",
+                dimension="map_spatial",
+                message="本场没有地图参考",
+            )
+        ],
+        dimensions=[
+            *[
+                AuditDimensionCheck(dimension=dimension, checked=True)
+                for dimension in policy.required_dimensions
+            ],
+            AuditDimensionCheck(
+                dimension="map_spatial", checked=False, note="没有地图来源"
+            ),
+        ],
+        verdict=verdict,
+    )
+    client = FakeGovernedClient(audit_outputs=[audit])
+
+    outcome = await run_governed_generation(
+        client,
+        policy=policy,
+        scope_build=build,
+        hooks=_hooks("生成正文"),
+    )
+
+    assert outcome.passed
+    assert outcome.audit.verdict == "pass"
+    assert outcome.audit.findings[0].severity == "minor"
+    assert [item.dimension for item in outcome.audit.advisory_omitted] == ["map_spatial"]
+    review = knowledge_review_payload(audit=outcome.audit)
+    assert review["advisory_omitted"][0]["message"] == "参考信息未纳入本次范围，仅作提醒"
+    map_coverage = next(
+        item for item in outcome.audit.coverage if item.dimension == "map_spatial"
+    )
+    assert map_coverage.omitted is True
+
+
+@pytest.mark.asyncio
+async def test_required_source_finding_stays_blocking_when_mislabeled_advisory() -> None:
+    policy, build = _advisory_scope_build()
+    audit = AuditVerdictOutput(
+        findings=[
+            AuditFindingOutput(
+                kind="conflict",
+                severity="blocker",
+                dimension="map_spatial",
+                source_key="world_entity:a",
+                message="世界对象事实冲突",
+            )
+        ],
+        dimensions=[
+            AuditDimensionCheck(dimension=dimension, checked=True)
+            for dimension in policy.required_dimensions
+        ],
+        verdict="pass",
+    )
+    client = FakeGovernedClient(audit_outputs=[audit, audit])
+
+    outcome = await run_governed_generation(
+        client,
+        policy=policy,
+        scope_build=build,
+        hooks=_hooks("存在冲突的正文"),
+    )
+
+    assert outcome.status == "blocked"
+    assert outcome.audit.verdict == "blocked"
+    assert outcome.audit.findings[0].severity == "blocker"
+
+
+@pytest.mark.asyncio
+async def test_advisory_omission_does_not_mask_unchecked_required_dimension() -> None:
+    policy, build = _advisory_scope_build()
+    required_dimensions = list(policy.required_dimensions)
+    audit = AuditVerdictOutput(
+        findings=[
+            AuditFindingOutput(
+                kind="missing_required",
+                severity="blocker",
+                dimension="map_spatial",
+                message="缺少地图参考",
+            )
+        ],
+        dimensions=[
+            *[
+                AuditDimensionCheck(dimension=dimension, checked=True)
+                for dimension in required_dimensions[:-1]
+            ],
+            AuditDimensionCheck(dimension="map_spatial", checked=False),
+        ],
+        verdict="blocked",
+    )
+    client = FakeGovernedClient(audit_outputs=[audit])
+
+    outcome = await run_governed_generation(
+        client,
+        policy=policy,
+        scope_build=build,
+        hooks=_hooks("生成正文"),
+    )
+
+    assert outcome.audit.verdict == "unverifiable"
+    assert outcome.status == "blocked"
+
+
+def test_review_projection_discloses_budget_omission_without_hidden_source_key() -> None:
+    from modules.evidence.compilation.knowledge.contracts import (
+        KnowledgeAdvisoryOmission,
+        KnowledgeAuditReceipt,
+    )
+
+    receipt = KnowledgeAuditReceipt(
+        policy_version=2,
+        capability="writing.generate",
+        receipt_fingerprint="scope-fp",
+        plan_fingerprint="plan-fp",
+        output_hash="output-hash",
+        verdict="pass",
+        advisory_omitted=(
+            KnowledgeAdvisoryOmission(
+                dimension="map_spatial",
+                source_key="map_source:hidden",
+                reason="参考资料因预算逐出",
+            ),
+        ),
+    )
+
+    review = knowledge_review_payload(audit=receipt, visible_keys=())
+
+    assert review["advisory_omitted"] == [
+        {
+            "dimension": "map_spatial",
+            "dimension_label": "空间结构与地理",
+            "reason": "参考资料因预算逐出",
+            "message": "参考信息因预算未全部使用",
+            "source_key": None,
+        }
+    ]
+
+
+@pytest.mark.asyncio
 async def test_server_overrides_lenient_llm_verdict() -> None:
     policy, build = _scope_build()
     audit_lie = _audit(
@@ -675,3 +840,192 @@ def test_audit_prompt_omits_empty_requirements_and_renders_factual_policy() -> N
     assert "不因资料中没有依据而单独构成 unsupported_fact" not in prompt
     assert "事实性断言必须有资料依据" in prompt
     assert "【作者要求（冻结投影）】" not in prompt
+
+
+@pytest.mark.parametrize("kind", ["premature_reveal", "out_of_scope_knowledge"])
+@pytest.mark.parametrize("source_key", [None, "map_source:hidden"])
+def test_advisory_dimension_cannot_bypass_visibility_guard(kind, source_key):
+    from dataclasses import replace
+
+    from modules.evidence.compilation.knowledge.contracts import KnowledgeSourceEntry
+    from modules.evidence.compilation.knowledge.workflow import _build_audit_receipt
+
+    policy, build = _advisory_scope_build()
+    build = replace(
+        build,
+        receipt=replace(
+            build.receipt,
+            included=(
+                *build.receipt.included,
+                KnowledgeSourceEntry(
+                    source_key="map_source:hidden",
+                    source_type="map_source",
+                    source_id="hidden",
+                    content_hash="hidden-hash",
+                    dimensions=("map_spatial",),
+                ),
+            ),
+        ),
+    )
+    audit = _build_audit_receipt(
+        policy=policy,
+        scope_build=build,
+        plan=KnowledgeDirectorPlan(
+            policy_version=2,
+            capability=policy.capability_id,
+            receipt_fingerprint=build.receipt.receipt_fingerprint(),
+        ),
+        output="提前揭示隐藏地点",
+        verdict_output=AuditVerdictOutput(
+            findings=[
+                AuditFindingOutput(
+                    kind=kind,
+                    severity="blocker",
+                    dimension="map_spatial",
+                    source_key=source_key,
+                    message="泄漏不可见空间资料",
+                )
+            ],
+            dimensions=[
+                AuditDimensionCheck(dimension=d, checked=True)
+                for d in policy.required_dimensions
+            ],
+            verdict="pass",
+        ),
+    )
+    assert audit.verdict == "blocked"
+    assert audit.findings[0].severity == "blocker"
+
+
+@pytest.mark.parametrize("verdict", ["unverifiable", "not_checked", "blocked"])
+def test_advisory_signal_does_not_override_required_finding_verdict(verdict):
+    from modules.evidence.compilation.knowledge.workflow import _build_audit_receipt
+
+    policy, build = _advisory_scope_build()
+    audit = _build_audit_receipt(
+        policy=policy,
+        scope_build=build,
+        plan=KnowledgeDirectorPlan(
+            policy_version=2,
+            capability=policy.capability_id,
+            receipt_fingerprint=build.receipt.receipt_fingerprint(),
+        ),
+        output="正文",
+        verdict_output=AuditVerdictOutput(
+            findings=[
+                AuditFindingOutput(
+                    kind="unchecked",
+                    severity="minor",
+                    dimension="world_entities",
+                    source_key="world_entity:a",
+                    message="对象来源原始版本无法复核",
+                )
+            ],
+            dimensions=[
+                *[
+                    AuditDimensionCheck(dimension=d, checked=True)
+                    for d in policy.required_dimensions
+                ],
+                AuditDimensionCheck(dimension="map_spatial", checked=False),
+            ],
+            verdict=verdict,
+        ),
+    )
+    assert audit.verdict == verdict
+
+
+@pytest.mark.parametrize("report", ["unchecked", "missing", "duplicate"])
+def test_unchecked_advisory_source_is_recorded_in_audit_omissions(report):
+    from modules.evidence.compilation.knowledge.group import (
+        GroupSource,
+        build_group_scope,
+    )
+    from modules.evidence.compilation.knowledge.workflow import _build_audit_receipt
+
+    policy = require_capability_policy("assistant.turn")
+    build, plan = build_group_scope(
+        capability=policy.capability_id,
+        novel_id="n1",
+        group_key="g1",
+        sources=[
+            GroupSource(
+                source_key="map_source:m1",
+                source_type="map_source",
+                dimensions=("map_spatial",),
+            ),
+        ],
+    )
+    assert not build.receipt.advisory_omitted
+    advisory_reports = {
+        "unchecked": [AuditDimensionCheck(dimension="map_spatial", checked=False)],
+        "missing": [],
+        "duplicate": [AuditDimensionCheck(dimension="map_spatial", checked=True)] * 2,
+    }[report]
+    audit = _build_audit_receipt(
+        policy=policy,
+        scope_build=build,
+        plan=plan,
+        output="正文",
+        verdict_output=AuditVerdictOutput(
+            findings=[],
+            verdict="pass",
+            dimensions=[
+                *[
+                    AuditDimensionCheck(dimension=d, checked=True)
+                    for d in policy.required_dimensions
+                ],
+                *advisory_reports,
+            ],
+        ),
+    )
+    assert audit.verdict == "pass"
+    assert [
+        (item.dimension, item.source_key, item.reason) for item in audit.advisory_omitted
+    ] == [
+        ("map_spatial", "map_source:m1", "参考维度未检查"),
+    ]
+
+
+def test_review_projection_redacts_hidden_coverage_and_omission_reason():
+    import json
+
+    from modules.evidence.compilation.knowledge.contracts import (
+        KnowledgeAdvisoryOmission,
+        KnowledgeAuditReceipt,
+        KnowledgeDimensionCoverage,
+    )
+
+    hidden_key = "map_source:hidden"
+    hidden_phrase = "隐秘王陵的入口在井底"
+    receipt = KnowledgeAuditReceipt(
+        policy_version=2,
+        capability="writing.generate",
+        receipt_fingerprint="s",
+        plan_fingerprint="p",
+        output_hash="o",
+        verdict="pass",
+        coverage=(
+            KnowledgeDimensionCoverage(
+                dimension="map_spatial",
+                covered_by=(hidden_key, "map_source:visible"),
+                omission_reason=hidden_phrase,
+            ),
+        ),
+        advisory_omitted=(
+            KnowledgeAdvisoryOmission(
+                dimension="map_spatial",
+                source_key=hidden_key,
+                reason=f"预算省略 {hidden_key}：{hidden_phrase}",
+            ),
+        ),
+    )
+    payload = knowledge_review_payload(
+        audit=receipt,
+        visible_keys=("map_source:visible",),
+        hidden_phrases=(hidden_phrase,),
+    )
+    serialized = json.dumps(payload, ensure_ascii=False)
+    assert hidden_key not in serialized
+    assert hidden_phrase not in serialized
+    assert payload["coverage"][0]["covered_by"] == ["map_source:visible"]
+    assert payload["advisory_omitted"][0]["message"] == "参考信息因预算未全部使用"

@@ -28,6 +28,8 @@ export const projects = {
     llmCostSaving: (id) => request(`/projects/${encodeURIComponent(id)}/llm-cost-saving`, { cache: "no-store" }),
     setLLMCostSaving: (id, enabled) => request(`/projects/${encodeURIComponent(id)}/llm-cost-saving`, { method: "PUT", body: JSON.stringify({ enabled }) }),
     setAuthorExamplesForWriting: (id, enabled) => request(`/projects/${encodeURIComponent(id)}/author-examples/for-writing`, { method: "PUT", body: JSON.stringify({ enabled }) }),
+    getObjectDossierSettings: (id) => request(`/projects/${encodeURIComponent(id)}/object-dossier-settings`, { cache: "no-store" }),
+    setObjectDossierSettings: (id, payload) => request(`/projects/${encodeURIComponent(id)}/object-dossier-settings`, { method: "PUT", body: JSON.stringify(payload) }),
     demoCopy: () => post("/projects/demo-copy", undefined, { cache: "no-store" }),
     async smartDedupReviewState(id, taskId) { return request(`/projects/${encodeURIComponent(id)}/smart-dedup/scans/${encodeURIComponent(taskId)}/review-state`) },
     async recentSmartDedupScans(id) { return request(`/projects/${encodeURIComponent(id)}/smart-dedup/scans`) },

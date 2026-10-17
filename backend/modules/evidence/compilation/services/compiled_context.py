@@ -26,6 +26,7 @@ LINE_ITEM_SOURCE_KEYS = frozenset(
         "outline_analysis_reveals",
         "retrieval_evidence_packs",
         "pov_knowledge",
+        "director_reference",
     }
 )
 

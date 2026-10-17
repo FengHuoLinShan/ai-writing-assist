@@ -7,7 +7,7 @@ from __future__ import annotations
 
 from typing import Literal
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from modules.imports.spreadsheet_migration.constants import ColumnTarget, SheetKind
 
@@ -16,18 +16,51 @@ class _RequestBase(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
 
+class DossierColumnFacingPayload(_RequestBase):
+    kind: Literal["core", "project"]
+    key: str | None = Field(default=None, min_length=1, max_length=96)
+    source_entity_type: str | None = Field(default=None, min_length=1, max_length=64)
+    term_id: str | None = Field(default=None, min_length=1, max_length=64)
+    visibility: Literal["public", "secret"] = "public"
+
+    @model_validator(mode="after")
+    def validate_reference(self):
+        if self.kind == "core" and (self.key is None or self.term_id is not None):
+            raise ValueError("core 面向需要来源类型与 key")
+        if self.kind == "project" and (
+            self.term_id is None
+            or self.key is not None
+            or self.source_entity_type is not None
+        ):
+            raise ValueError("项目面向需要本项目词条 ID")
+        return self
+
+
 class MappingSheetPayload(_RequestBase):
     sheet_key: str = Field(min_length=1, max_length=32)
     kind: SheetKind
     header_row: int = Field(ge=0, le=32)
     default_entity_type: str | None = Field(None, max_length=64)
     columns: dict[str, ColumnTarget] = Field(default_factory=dict)
+    dossier_profile_type: str | None = Field(None, min_length=1, max_length=64)
+    facing_mappings: dict[str, DossierColumnFacingPayload] = Field(default_factory=dict)
+
+    @model_validator(mode="after")
+    def validate_dossier_mapping(self):
+        dossier_columns = {
+            column_key
+            for column_key, target in self.columns.items()
+            if target == "dossier_facing"
+        }
+        if dossier_columns != set(self.facing_mappings):
+            raise ValueError("每个档案面向列都必须选择来源面向，且不能保留无效映射")
+        if dossier_columns and not self.dossier_profile_type:
+            raise ValueError("请明确选择这些档案列对应的对象类型")
+        return self
 
 
 class MappingOptionsPayload(_RequestBase):
-    written_chapter_policy: Literal["reference_only", "link_scene"] = (
-        "reference_only"
-    )
+    written_chapter_policy: Literal["reference_only", "link_scene"] = "reference_only"
     outline_head_policy: Literal["create_if_missing", "replace", "skip"] = (
         "create_if_missing"
     )
@@ -113,6 +146,8 @@ class SheetResponse(BaseModel):
     kind_suggested: bool
     header_row: int
     default_entity_type: str | None = None
+    dossier_profile_type: str | None = None
+    facing_mappings: dict[str, DossierColumnFacingPayload] = Field(default_factory=dict)
     row_count: int
     columns: list[SheetColumnResponse]
     sample_rows: list[list[str]]

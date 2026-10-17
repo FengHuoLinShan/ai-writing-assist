@@ -11,8 +11,37 @@ Writing 模块是章节正文的事实源，同时负责在 fresh context confir
 可审查的 AI 正文 candidate。它管理人工正文、版本、发布事实、稳定范围引用和候选采用，
 但不会自动采用、覆盖或发布 AI 生成结果。
 
+Assistant v8 A1 首批复用当前工作稿服务，提供标题改名、编辑准备标记、当前锚点批注处置
+及确定性冲突检查。章节改名从最新版本载入原正文并强制保存标题版；窄检查只接收当前
+draft ID/hash 与可选 Scene，不接受任意正文。作者预览指纹过期返回冲突。
+
+后续章节重排由 `WritingChapterOrderService` 管理完整目录：预览持久化来源指纹，R3 确认
+按现有章节位置置换所有版本、批注及绑定的冲突检查，Story 绑定经公开端口同事务迁移；
+正文 UUID、版本号与内容 hash 保留。旧检查保留检查时的章号来源，当前位置不一致时提示
+重新检查，发布快照不使用旧结果。每个变动章节的 working/canonical 索引及引用该草稿的
+Context 确认同事务失效，索引仅排队、不在请求中运行。恢复先重验重排后的 Writing/Story
+来源，随后再次传播来源变化；新增编辑或冲突返回 409，失败回滚不留下索引任务或失效确认。
+Assistant 目录只接受无排除、无原 Evidence 确认的项目范围，Scene 范围不能读取整书历史
+或确认完整目录；作者 HTTP 工作台仍按 owner 和 `novel_id` 验权。
+
 世界对象、人物档案、剧情线和 Scene 等结构化资产仍由各自领域模块拥有；writing
 只消费其稳定 context/contract，不复制结构正史。
+
+## Unified author notices (ADR-0040 §13)
+
+`notice_sources.py` exports pure source specs for Assistant's composition root. The conflict
+provider projects the current saved draft check, open rule/AI items, degraded/failed/running/partial
+AI state, stale saved-body checks, and G8b map-baseline drift. Scene-only focus resolves the matching
+check without requiring a chapter parameter. The source-invalidation provider adapts the existing
+`WritingRecomputeService.list_pending_notices()` author-language view; it does not create another
+invalidation ledger. Existing item decisions continue through `WritingConflictCheckService`; read
+state uses the separate unified presentation disposition. Neither provider includes an unsaved editor
+buffer in the server's saved-body basis; the editor retains its local dirty/stale indicator.
+
+The writing cockpit reads these sources through Assistant's unified-notice API, groups by source/category,
+and routes rule checks to the existing detail dialog and invalidation notices to the existing
+`RecomputePanel`. Its unsaved-buffer message is local status only. Scene structure is calculated by the
+Story provider; the client no longer derives structural missing-field notices from the current Scene card.
 
 ## 职责
 
@@ -339,7 +368,9 @@ deprecated 仅可在历史视图预览，不允许普通编辑或恢复；candid
 `POST /api/writing/conflict-checks` 默认只做规则层检查。请求体的 `include_candidates` 默认为 `false`；写作页会在检查前弹出确认，只有用户勾选“包含待确认对象”时才传 `true`。
 
 - 通过注入的 Scene contract loader 读取当前 Scene 的必须发生、禁止发生和 `scene_chunks`；默认 loader lazy 调用 `modules.story.facade.get_scene_contract`。字面预警只扫描当前章中有效且仍绑定本次正文 hash 的 Scene 精确范围；范围缺失、越界或 `source_content_hash` 已失效时记录 `degraded_sources` / `omissions`，绝不回退整章。没有 hash 的旧范围继续使用边界校验兼容。
-- 通过 `modules.story.facade.ensure_scene_checkpoints` 读取版本化 Scene 时点状态，确定性检查空间同点互斥、时间顺序循环/锚冲突、事实互斥、明确前提缺失与逾期承诺；结果复用 `writing_conflict_items` 的 `space_continuity_risk / time_continuity_risk / logic_continuity_risk`，细分规则写入 `location_json.rule_code`。地图只经 World facade 读取当前已采用、来源 hash 仍有效的空间关系；来源缺失或过期只进入 `summary_json.continuity_coverage` 与 `degraded_sources`，不得当作矛盾。
+- 通过 `modules.story.facade.ensure_scene_checkpoints` 读取版本化 Scene 时点状态，确定性检查空间同点互斥（包含同一对象在同一时点的多个地点声明）、时间顺序循环/锚冲突、事实互斥、明确前提缺失与逾期承诺；结果复用 `writing_conflict_items` 的 `space_continuity_risk / time_continuity_risk / logic_continuity_risk`，细分规则写入 `location_json.rule_code`。地图行程提醒只采用 ready 且系统生成或作者确认的当前 Scene 位置 checkpoint。地图只经 World facade 读取当前已采用、来源 hash 仍有效的空间关系；来源缺失或过期只进入 `summary_json.continuity_coverage` 与 `degraded_sources`，不得当作矛盾。
+- 可选的 `writing.conflict_check.spatial_advisory` 默认关闭，开启后通过 World `read_map_spatial_advisories` 读取带 Scene 时点的确定性提醒。方位、有效期、已知通路、行程区间和跨空间连接结果都保持低严重度；每条记录地图版本与来源 hash、正文/地图两种修订路径及逐条静默标志，可复用既有 `ignored / later` 状态，不改正文、不阻止保存或后续工作。提醒查询失败只记录 `map_spatial_advisory.status=not_checked`，不降低检查状态；检查基线仍纳入使用过的地图版本。
+  可选读取使用 Savepoint 隔离数据库失败；`map_revisions` 中实际核对而未触发提醒的版本同样进入基线，无地点或无截止章的覆盖提示随摘要返回。
 - 改图后旧检查可核对（G8b）：创建检查时把**全部载入**的地图事实基线（`space_route_not_declared` 靠缺边判定，未触发规则的事实也是依据）按 `(node_id, revision_id)` 去重后写入 `summary_json.map_baseline`（节点上限 200、每节点来源 hash 上限 32，随发布快照透传）。读检查时经 `world.read_map_node_heads` DI 键一次批量取当前 head，以 `revision_id` 为主比较（`revision_hash` 即 geometry_hash，排除 sources 与生成任务，相同不代表同版本），`source_hashes` 仅在 revision 缺失时辅助；节点取消采用或删除也算已变。结果只写进响应的 `map_staleness` 字段，**不写回 summary_json**——`summary_json` 参与发布快照与 AI 复核语义指纹，比较结果入库会让指纹漂移。无基线（历史检查、`not_applicable`、无事实的 `not_checked`）或 head 读取失败时不提示。前端提示“检查结果基于旧版地图，建议重新检查”（completed 与 degraded 都显示），与 G8a 保存回执“章节改了、哪些地图引用旧正文”是两回事。
 - 每条问题的 `location_json` 保存轻量证据：`source` 描述来源模块/类型/标签/字段/摘录，`open_target` 描述前端可打开目标（`text_range` / `outline_scene` / `memory_chapter`），`needs_review_reason` 描述候选证据复核原因。
 - 问题状态为 `open / resolved / ignored / later`；发布章节时会把最近一次检查快照写入 `writing_drafts.conflict_check_snapshot_json`，快照保留 `source` / `open_target`，不保留正文 `text_range`，之后问题状态变化不会改写该发布快照。
@@ -437,7 +468,7 @@ confirmation、正文、finding、Scene bundle 校验。恢复历史版本创建
 
 ### 审阅与导航体验约定
 
-检查弹窗按稿件ID、版本、内容hash及是否包含候选复用当前检查，作者可显式重跑规则检查。AI复核任务提交成功后立即显示运行状态，完成零问题与尚未复核分别呈现；结构警报直接指向场景编辑，不能依赖检查记录存在。
+检查弹窗按稿件ID、版本、内容hash及是否包含候选复用当前检查，作者可显式重跑规则检查。AI复核任务提交成功后立即显示运行状态，完成零问题与尚未复核分别呈现。Story 结构提醒直接打开对应场景字段，不依赖检查记录存在。
 
 ## 知识治理与采用
 

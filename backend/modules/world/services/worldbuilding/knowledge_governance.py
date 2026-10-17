@@ -17,8 +17,10 @@ from collections.abc import Awaitable, Callable, Sequence
 
 from infrastructure.llm.schemas import LLMCallRequest, LLMMessage
 from modules.evidence.contracts import (
+    KNOWLEDGE_POLICY_VERSION,
     REPAIR_INSTRUCTION_TEMPLATE,
     GovernedWorkflowHooks,
+    KnowledgeAdvisoryOmission,
     KnowledgeDirectorDisposition,
     KnowledgeDirectorPlan,
     KnowledgeScopeBuild,
@@ -44,6 +46,8 @@ def _ref_dimensions(source_type: str) -> tuple[str, ...]:
         return ("world_bible",)
     if source_type == "writing_chapter":
         return ("prior_prose",)
+    if source_type == "map_spatial":
+        return ("map_spatial",)
     return ("world_entities",)
 
 
@@ -140,18 +144,31 @@ async def govern_world_output(
         )
     entries = world_scope_entries(source_refs, rendered_context)
     fingerprint = "|".join(entry.content_hash for entry in entries)
+    available_dimensions = {
+        dimension for entry in entries for dimension in entry.dimensions
+    }
+    advisory_omitted = tuple(
+        KnowledgeAdvisoryOmission(
+            dimension=dimension,
+            reason="本次范围未提供该参考维度来源",
+        )
+        for dimension in policy.advisory_dimensions
+        if dimension not in available_dimensions
+    )
+    policy_version = KNOWLEDGE_POLICY_VERSION if policy.advisory_dimensions else 1
     receipt = KnowledgeScopeReceipt(
-        policy_version=1,
+        policy_version=policy_version,
         capability=policy.capability_id,
         novel_id=novel_id,
         subject=KnowledgeSubject(subject_type="author"),
         included=entries,
+        advisory_omitted=advisory_omitted,
         scope_complete=True,
         authority_fingerprint=fingerprint,
         generator_fingerprint=fingerprint,
     )
     plan = KnowledgeDirectorPlan(
-        policy_version=1,
+        policy_version=policy_version,
         capability=policy.capability_id,
         receipt_fingerprint=receipt.receipt_fingerprint(),
         dispositions=tuple(

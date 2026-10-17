@@ -10,7 +10,7 @@ from typing import Any
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from core.container import get
-from core.errors import ConflictError
+from core.errors import ConflictError, ValidationError
 from core.service_keys import (
     STORY_SCENE_SOURCE,
 )
@@ -21,7 +21,10 @@ from modules.evidence.compilation.contracts import (
     ContextConfirmationRequest,
 )
 from modules.evidence.compilation.repositories import ContextConfirmationRepository
-from modules.evidence.compilation.services.compiled_context import CompiledContext
+from modules.evidence.compilation.services.compiled_context import (
+    CompiledContext,
+    compiled_context_fingerprint,
+)
 from modules.evidence.compilation.services.context_compiler import ContextCompiler
 from modules.evidence.compilation.services.review_projection import (
     context_review_metadata,
@@ -48,6 +51,83 @@ _ASSET_TYPE_ALIASES = {
     "reveal_plans": "reveal_plan",
     "context_sections": "context_section",
 }
+
+_MAP_CONFIRMATION_METADATA = frozenset(
+    {"map_spatial_baseline", "compiled_context_core_fingerprint"}
+)
+_ADVISORY_REFERENCE_SECTION_KEYS = frozenset({"map_spatial", "director_reference"})
+
+
+def execution_compile_options(options: Mapping[str, Any]) -> dict[str, Any]:
+    """Strip confirmation-only map baselines before constructing CompileOptions."""
+    return {
+        key: value
+        for key, value in options.items()
+        if key not in _MAP_CONFIRMATION_METADATA
+    }
+
+
+def _map_spatial_baseline(compiled: CompiledContext) -> list[dict[str, Any]]:
+    for section in compiled.sections:
+        if section.key == "map_spatial":
+            baseline = (section.retrieval_metadata or {}).get("map_baseline") or []
+            return sorted(
+                [dict(item) for item in baseline if isinstance(item, dict)],
+                key=lambda item: str(item.get("node_id") or ""),
+            )
+    return []
+
+
+def _core_context_fingerprint(compiled: CompiledContext) -> str:
+    return compiled_context_fingerprint(
+        compiled.model_copy(
+            update={
+                "sections": [
+                    section
+                    for section in compiled.sections
+                    if section.key not in _ADVISORY_REFERENCE_SECTION_KEYS
+                ]
+            }
+        )
+    )
+
+
+def _omit_changed_map_reference(
+    compiled: CompiledContext,
+    *,
+    expected: list[dict[str, Any]],
+    current: list[dict[str, Any]],
+) -> None:
+    section = next(
+        (item for item in compiled.sections if item.key == "map_spatial"), None
+    )
+    if section is not None:
+        compiled.omitted_items.extend(
+            item.model_copy(
+                update={
+                    "selection_state": "omitted",
+                    "omission_reason": "确认后地图版本变化，空间参考已省略",
+                }
+            )
+            for item in section.materialize_items().items
+        )
+        compiled.sections = [
+            item for item in compiled.sections if item.key != "map_spatial"
+        ]
+        compiled.total_tokens = sum(item.token_count for item in compiled.sections)
+    compiled.warnings = list(
+        dict.fromkeys(
+            [
+                *compiled.warnings,
+                "确认后地图版本发生变化，空间参考已省略；可重新核对地图版本后再确认。",
+            ]
+        )
+    )
+    compiled.selection_trace["map_spatial_staleness"] = {
+        "status": "changed",
+        "expected_baseline": expected,
+        "current_baseline": current,
+    }
 
 
 class ContextConfirmationService:
@@ -131,6 +211,7 @@ class ContextConfirmationService:
             user_note=request.user_note,
             include_world_synopsis=request.include_world_synopsis,
             selected_world_bible_draft_ids=request.selected_world_bible_draft_ids or [],
+            director_reference_ids=request.director_reference_ids or [],
             activation_profile_id=request.activation_profile_id,
             activation_profile_version=request.activation_profile_version,
             scene_memory_contract_version=(
@@ -160,6 +241,13 @@ class ContextConfirmationService:
         options.compiled_context_fingerprint = review["context_fingerprint"]
         selected_asset_ids = review["selected_asset_ids"]
         warnings = list(compiled.warnings)
+        compile_options_json = self._compile_options_json(options)
+        compile_options_json.update(
+            {
+                "map_spatial_baseline": _map_spatial_baseline(compiled),
+                "compiled_context_core_fingerprint": _core_context_fingerprint(compiled),
+            }
+        )
         record = await self._repo.create(
             db,
             novel_id=parse_uuid(request.novel_id, "novel_id"),
@@ -171,7 +259,7 @@ class ContextConfirmationService:
             excluded_asset_ids=request.excluded_asset_ids or {},
             selected_asset_ids=selected_asset_ids,
             user_note=request.user_note,
-            compile_options=self._compile_options_json(options),
+            compile_options=compile_options_json,
             warnings=warnings,
         )
         await self._repo.replace_asset_refs(
@@ -283,6 +371,7 @@ class ContextConfirmationService:
         novel_id: str,
         action: str,
         confirmation_id: str | uuid.UUID,
+        consumer_action: str | None = None,
     ) -> CompiledContext:
         confirmation = await self.require_confirmation(
             db,
@@ -291,11 +380,17 @@ class ContextConfirmationService:
             confirmation_id=confirmation_id,
         )
         compile_options = dict(confirmation.compile_options)
+        expected_map_baseline = compile_options.pop("map_spatial_baseline", None)
+        expected_core_fingerprint = compile_options.pop(
+            "compiled_context_core_fingerprint", None
+        )
         compile_options.setdefault(
             "scene_memory_contract_version",
             _scene_memory_port().scene_memory_v1_version(),
         )
         options = CompileOptions(**compile_options)
+        if consumer_action:
+            options.map_spatial_consumer_action = consumer_action
         compiled = await self._compiler.compile_with_tiers(
             db,
             options,
@@ -322,7 +417,23 @@ class ContextConfirmationService:
                     "Scene time state changed; review and confirm the latest context",
                     code="scene_state_changed",
                 )
-        if options.compiled_context_fingerprint:
+        if expected_core_fingerprint is not None:
+            current_core_fingerprint = _core_context_fingerprint(compiled)
+            if current_core_fingerprint != expected_core_fingerprint:
+                raise ConflictError(
+                    "AI 参考资料已变化，请重新审查后再开始任务",
+                    code="context_changed",
+                )
+            current_map_baseline = _map_spatial_baseline(compiled)
+            if current_map_baseline != (expected_map_baseline or []) and (
+                not consumer_action or consumer_action == action or expected_map_baseline
+            ):
+                _omit_changed_map_reference(
+                    compiled,
+                    expected=expected_map_baseline or [],
+                    current=current_map_baseline,
+                )
+        elif options.compiled_context_fingerprint:
             current_fingerprint = context_review_metadata(compiled, options)[
                 "context_fingerprint"
             ]
@@ -590,6 +701,7 @@ class ContextConfirmationService:
             "user_note": options.user_note,
             "include_world_synopsis": options.include_world_synopsis,
             "selected_world_bible_draft_ids": options.selected_world_bible_draft_ids,
+            "director_reference_ids": options.director_reference_ids,
             "world_synopsis_revision_id": options.world_synopsis_revision_id,
             "world_synopsis_source_hash": options.world_synopsis_source_hash,
             "world_synopsis_block_hash": options.world_synopsis_block_hash,
@@ -801,6 +913,18 @@ def resolve_retrieval_purpose(
     *,
     reveal_mode: str,
 ) -> str:
+    operation_purposes = {
+        "story.character_card.generate": "story_character_card",
+        "story.reaction.generate": "story_character_reaction",
+        "story.script.generate": "story_scene_script",
+    }
+    operation_purpose = operation_purposes.get(action)
+    if operation_purpose is not None:
+        if requested not in {"generic_context", operation_purpose}:
+            raise ValidationError(
+                "retrieval purpose does not match the confirmed Story operation"
+            )
+        return operation_purpose
     if requested != "generic_context":
         return requested
     if reveal_mode == "character":

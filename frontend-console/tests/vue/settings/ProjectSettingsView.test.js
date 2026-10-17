@@ -62,6 +62,35 @@ beforeEach(() => {
       rehearsal: { available: true, reason: null },
       model: { available: true, reason: null },
     })),
+    operationTraceReport: vi.fn(async () => ({
+      schema_version: "1",
+      period: "30d",
+      timezone: "UTC",
+      as_of: "2026-10-16T00:00:00+00:00",
+      window_start: "2026-09-17",
+      window_end: "2026-10-16",
+      collection_enabled_now: true,
+      events: [],
+      operation_candidates: [],
+      sequences: [],
+      parameter_profiles: [],
+      lifecycle: [],
+      metrics: [],
+      coverage: {
+        status: "no_records",
+        completeness_provable: false,
+        capture_enabled_now: true,
+        first_record_date: null,
+        last_record_date: null,
+        days_with_records: 0,
+        missing_metric_event_count: 0,
+        missing_lifecycle_event_count: 0,
+        incomplete_legacy_sequence_count: 0,
+        parameter_profile_gap_by_operation: {},
+        legacy_event_aggregates_preserved: true,
+        note: "只展示实际记录样本。",
+      },
+    })),
   }
   globalThis.api.interactions = {
     listJourneys: vi.fn(async () => ({ items: [], total: 0 })),
@@ -74,6 +103,11 @@ beforeEach(() => {
     select: vi.fn(async () => ({ kind: "claude", device_id: "mac-1" })),
     revoke: vi.fn(async () => ({ revoked: true })),
   }
+  globalThis.api.projects.getObjectDossierSettings = vi.fn(async () => ({ version: 0, allow_story_override: false }))
+  globalThis.api.projects.setObjectDossierSettings = vi.fn(async (_projectId, payload) => ({
+    version: payload.expected_version + 1,
+    allow_story_override: payload.allow_story_override,
+  }))
 })
 
 afterEach(() => {
@@ -114,12 +148,33 @@ describe("结构与导航", () => {
     const wrapper = mount(ProjectSettingsView, { props: makeProps() })
     await flushPromises()
     const tabs = wrapper.findAll(".settings-tab-nav .tab-btn")
-    expect(tabs.map((item) => item.text())).toEqual(["创作偏好", "高级导入", "AI 能力"])
+    expect(tabs.map((item) => item.text())).toEqual(["创作偏好", "高级导入", "AI 能力", "操作留痕"])
     expect(wrapper.text()).toContain("AI 文本服务：DeepSeek · deepseek-v4-flash · 未连接")
     expect(wrapper.find("#llm-model").exists()).toBe(false)
 
     await wrapper.find("#project-settings-goto-global").trigger("click")
     expect(globalThis.router.navigate).toHaveBeenCalledWith("settings")
+  })
+
+  it("操作留痕在作品设置加载失败时仍可从作者设置页打开", async () => {
+    const wrapper = mount(ProjectSettingsView, {
+      props: makeProps({
+        effectiveLLM: null,
+        effectivePrefs: null,
+        loadError: "设置读取失败",
+      }),
+    })
+    await wrapper.findAll(".settings-tab-nav .tab-btn")[3].trigger("click")
+    await flushPromises()
+
+    expect(wrapper.text()).toContain("真实操作留痕")
+    expect(wrapper.text()).toContain("当前范围没有留痕记录")
+    expect(wrapper.text()).not.toContain("当前作品的设置暂时无法加载")
+    expect(globalThis.api.assistant.operationTraceReport).toHaveBeenCalledWith(
+      "p1",
+      "30d",
+      expect.any(Object),
+    )
   })
 
   it("模型提示使用账户当前连接 metadata，不误读旧的有效设置模型", async () => {
@@ -261,6 +316,74 @@ describe("结构与导航", () => {
     save.resolve()
     await flushPromises()
     expect(wrapper.get("#project-settings-tab-panel").attributes("aria-busy")).toBe("false")
+  })
+})
+
+describe("世界对象有效期设置", () => {
+  it("默认作者区间优先，并在保存成功后才显示剧情覆盖已开启", async () => {
+    const wrapper = mount(ProjectSettingsView, { props: makeProps() })
+    await flushPromises()
+
+    const toggle = wrapper.get("#project-object-dossier-override")
+    expect(toggle.element.checked).toBe(false)
+    expect(wrapper.text()).toContain("已保存：作者区间优先")
+    await toggle.setValue(true)
+    await flushPromises()
+
+    expect(globalThis.api.projects.setObjectDossierSettings).toHaveBeenCalledWith("p1", {
+      expected_version: 0,
+      allow_story_override: true,
+    })
+    expect(wrapper.get("#project-object-dossier-override").element.checked).toBe(true)
+    expect(wrapper.text()).toContain("已保存：剧情覆盖已开启")
+    wrapper.unmount()
+  })
+
+  it("409 保留选择并重读版本，重试后以新的 CAS 版本保存", async () => {
+    const conflict = Object.assign(new Error("设置版本已变化"), { status: 409 })
+    globalThis.api.projects.getObjectDossierSettings
+      .mockResolvedValueOnce({ version: 0, allow_story_override: false })
+      .mockResolvedValueOnce({ version: 2, allow_story_override: false })
+    globalThis.api.projects.setObjectDossierSettings
+      .mockRejectedValueOnce(conflict)
+      .mockResolvedValueOnce({ version: 3, allow_story_override: true })
+    const wrapper = mount(ProjectSettingsView, { props: makeProps() })
+    await flushPromises()
+
+    await wrapper.get("#project-object-dossier-override").setValue(true)
+    await flushPromises()
+    expect(wrapper.get("#project-object-dossier-override").element.checked).toBe(true)
+    expect(wrapper.text()).toContain("你的选择仍保留")
+    await wrapper.get(".settings-save-state.is-error button").trigger("click")
+    await flushPromises()
+
+    expect(globalThis.api.projects.setObjectDossierSettings).toHaveBeenNthCalledWith(2, "p1", {
+      expected_version: 2,
+      allow_story_override: true,
+    })
+    expect(wrapper.text()).toContain("已保存：剧情覆盖已开启")
+    wrapper.unmount()
+  })
+
+  it("项目切换后忽略旧项目的迟到读取", async () => {
+    const oldRead = deferred()
+    globalThis.api.projects.getObjectDossierSettings.mockImplementation((projectId) => (
+      projectId === "p1"
+        ? oldRead.promise
+        : Promise.resolve({ version: 7, allow_story_override: false })
+    ))
+    const wrapper = mount(ProjectSettingsView, { props: makeProps() })
+    await Promise.resolve()
+    appState.currentProjectId = "p2"
+    await wrapper.setProps({ projectId: "p2" })
+    await flushPromises()
+    oldRead.resolve({ version: 99, allow_story_override: true })
+    await flushPromises()
+
+    expect(wrapper.get("#project-object-dossier-override").element.checked).toBe(false)
+    expect(wrapper.text()).toContain("已保存：作者区间优先")
+    expect(wrapper.text()).not.toContain("已保存：剧情覆盖已开启")
+    wrapper.unmount()
   })
 })
 

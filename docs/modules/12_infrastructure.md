@@ -136,6 +136,10 @@ Embedding、streaming 和 `generate_simple()` 不是本 harness 的默认迁移�
 `infrastructure.llm.schemas.AIRunEnvelopeV1` 定义 run 级累计账本与 step 回执，
 `infrastructure.llm.workflow_budget.AIRunEnvelope` 负责累计，`ai_run_scope()` 与
 `managed_step_scope()` 通过 ContextVar 把运行身份与当前 step 注入 provider 调用链。
+Goal v3 使用独立作者授权的冻结能力范围；Assistant 目录 v4 仅允许从服务端冻结的
+v9 目录导出的两项 C2 Story 子能力，子任务沿父 run 计数、期限和启动时间。
+恢复对比任务私有范围与信封，执行再核目录指纹；v4 在未知扣费或 80% 请求阈值后
+拒绝下一次 provider 预留，v1/v2 原有能力规则不扩宽。
 自动重试、恢复、requeue 与 manual resume 累加同一 run；只有作者显式续算或确认可能重复扣费
 才增加请求额度，且不移动 deadline。已取得含 usage 完整回执（含失败请求）记 `recorded`；已发出
 但结果或用量证据不完整记 `possible`；预算或 deadline 拒绝记 `none`，且拒绝发生在任何计数之前。
@@ -460,12 +464,24 @@ bucket。这不是分布式或全局 DDoS 防护，也不表示当前外部 Clou
 | world | `world_alias_relation_extraction`、`world_entity_fusion_suggestions`、`world_bible_projection_refresh`、`world_bible_synopsis_refresh`、`world_generation_suggestion`、`world_opening_skeleton`、`world_cocreation_turn`、`world_validation`、`map_atlas_generate`、`world_map_schematic_generate`、`world_object_image_generate`（ADR-0029，本机 CLI 对象图片候选，`never_retry`）、`map_atlas_storage_cleanup`、`world_object_image_cleanup` |
 
 `world_generation_suggestion` 的 task meta 可携带 `session_id` 与 `session_action`（ADR-0021）：任务成功后由 world 域把作者回合与成果引用追加进持久化共创会话，失败或重试不落半截记录；transport 幂等仍由 operation receipt 承担，会话写入不改变任务指纹语义。
-| story | `story_outline_generate`、`outline_analyze`、`outline_generate`、`scene_fusion_preview`、`story_character_card_generate`、`story_reaction_propose`、`story_scene_script_generate`、`story_one_click`；`plot_structure_generate`、`chapter_card_extraction`、`chapter_scene_generate` 仅为存量任务的 unsupported 兼容注册 |
+| story | `story_outline_generate`、`outline_analyze`、`outline_generate`、`scene_fusion_preview`、`story_character_card_generate`、`story_reaction_propose`、`story_scene_script_generate`、`story_one_click`、`story_scene_director`；`plot_structure_generate`、`chapter_card_extraction`、`chapter_scene_generate` 仅为存量任务的 unsupported 兼容注册 |
 | evidence | `rag_index_chapter`、`rag_reindex_novel`、`rag_retry_embeddings`、`rag_reannotate_entities`（持久化 task type 不改名） |
 | writing | `publish_chapter`、`writing_generate`、`writing_semantic_review`、`writing_targeted_revision`、`writing_comment_run`、`writing_conflict_ai_review`、`writing_conflict_item_ai_suggestion` |
 | imports | `deep_import`、`scene_auto_extraction`、`world_object_auto_extraction`、`plot_structure_auto_extraction` |
 | interaction | `interaction_story_generate`、`interaction_summary_refresh` |
-| evolution | `evolution_scene_step_v2`、`evolution_world_audit_supplement_v1` |
+| evolution | `evolution_scene_step_v2`、`evolution_world_audit_supplement_v1`、`evolution_category_rescan_v1`、`evolution_spatial_rescan_v1` |
+
+新建 `simulation_v3` Scene 排演复用 `story_one_click` 任务：Story 在确认入队前与 worker
+生成／落盘时核对当前项目的 World 身份引用；基础设施任务类型、lease 和队列语义不变。
+C4b Scene Director 使用 Story 自有的 `story_scene_director` handler 和历史记录，内部复用
+`simulation_v3`，并以持久化根 `AIRunEnvelope` 跨分支累计额度；task manifest、v10 操作目录、
+HTTP trace 与 Notice 来源已在应用组合根注册。
+
+`evolution_spatial_rescan_v1` 使用 `manual_resume` 恢复策略，根能力为
+`evolution.spatial_discover`，沿用 Evolution 的任务预算与请求额度计算；它不是新队列。
+地图只读组合根分别注册 `world.read_map_spatial_brief` 与
+`world.read_map_spatial_advisories` typed port。后者接收显式 Scene 请求并返回提醒、覆盖省略
+与实际核对的地图版本；Writing 在 Savepoint 内读取，可选查询失败不污染检查保存事务。
 
 任务处理器仍由 owning 模块的 `tasks.py` 声明；`app.task_runtime` 拥有 API 与 worker 共同
 消费的显式启动 manifest，并负责在两个组合根注册这些声明。`infrastructure/tasks` 不导入或
@@ -671,6 +687,8 @@ PostgreSQL 队列仍是唯一调度与 lease；
 合并；来源/Scene 身份、live/shadow 模式与阶段化免采样恢复由 Evolution 校验。
 未取得结果的请求保留费用待核对，不由队列盲目重采样；旧 deep_import 入口尚未切换。
 契约见 [Evolution](22_evolution.md) 和 [tasks README](../../backend/infrastructure/tasks/README.md)。
+新空间阅读的主 Scene 提交与持久可选阶段沿同一任务恢复，不新增任务、预算或基础设施协议；
+主回执先可读且保持不可变，具体阶段由 [Evolution](22_evolution.md#adr-0036-空间可选阅读步骤m1) 持有。
 
 理解任务的 project preflight/commit guard 同时验证 engine/epoch/schema token；项目切换只
 取消理解任务，保留预算和结果。PG trigger 对旧 v1 任务和失效 owner 失败关闭，以 NOWAIT

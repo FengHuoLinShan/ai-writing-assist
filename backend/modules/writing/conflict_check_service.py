@@ -47,10 +47,12 @@ from modules.writing.service_support import (
     _CONTINUITY_DIMENSION_BY_KIND,
     MapContinuityLoader,
     MapNodeHeadLoader,
+    MapSpatialAdvisoryLoader,
     SceneCheckpointLoader,
     SceneContractLoader,
     _default_map_continuity_loader,
     _default_map_node_head_loader,
+    _default_map_spatial_advisory_loader,
     _default_scene_checkpoint_loader,
     _default_scene_contract_loader,
     _parse_uuid,
@@ -67,6 +69,7 @@ MAP_BASELINE_KEY = "map_baseline"
 _MAP_BASELINE_NODE_LIMIT = 200
 _MAP_BASELINE_SOURCE_HASH_LIMIT = 32
 _MAP_STALENESS_NODE_LIMIT = 20
+MAP_SPATIAL_ADVISORY_CAPABILITY = "writing.conflict_check.spatial_advisory"
 
 
 class WritingConflictCheckService:
@@ -80,6 +83,7 @@ class WritingConflictCheckService:
         scene_checkpoint_loader: SceneCheckpointLoader | None = None,
         map_continuity_loader: MapContinuityLoader | None = None,
         map_node_head_loader: MapNodeHeadLoader | None = None,
+        map_spatial_advisory_loader: MapSpatialAdvisoryLoader | None = None,
         llm_client: LLMClient | None = None,
     ) -> None:
         self._repo = repo or WritingConflictCheckRepository()
@@ -97,8 +101,9 @@ class WritingConflictCheckService:
         self._map_continuity_loader = (
             map_continuity_loader or _default_map_continuity_loader
         )
-        self._map_node_head_loader = (
-            map_node_head_loader or _default_map_node_head_loader
+        self._map_node_head_loader = map_node_head_loader or _default_map_node_head_loader
+        self._map_spatial_advisory_loader = (
+            map_spatial_advisory_loader or _default_map_spatial_advisory_loader
         )
         self._ai_review_service = ConflictCheckAiReviewService(
             self._repo,
@@ -233,6 +238,8 @@ class WritingConflictCheckService:
         omissions: list[dict[str, str]] = []
         continuity_coverage: dict[str, str] = {}
         map_baseline: dict | None = None
+        advisory_baseline_facts: list[dict[str, Any]] = []
+        map_advisory_summary: dict[str, Any] | None = None
         if data.scene_id:
             scene = await self._load_scene(db, data.novel_id, data.scene_id)
             if scene is None:
@@ -295,6 +302,41 @@ class WritingConflictCheckService:
         else:
             scene = None
 
+        if scene is not None and self._map_spatial_advisories_enabled():
+            try:
+                transitions = self._map_spatial_transitions(
+                    checkpoint_set if data.scene_id else None,
+                    scene,
+                )
+                # Optional reads must not poison the write transaction on DB failure.
+                async with db.begin_nested():
+                    advisory_response = await self._map_spatial_advisory_loader(
+                        db,
+                        data.novel_id,
+                        str(getattr(scene, "id", data.scene_id)),
+                        transitions,
+                    )
+                advisory_items, advisory_baseline_facts, omitted_count = (
+                    self._map_spatial_advisory_items(scene, advisory_response)
+                )
+                items.extend(advisory_items)
+                map_advisory_summary = {
+                    "status": "checked",
+                    "item_count": len(advisory_items),
+                    "omitted_count": omitted_count,
+                }
+                unknowns = getattr(advisory_response, "unknowns", None)
+                if unknowns:
+                    map_advisory_summary["unknowns"] = list(unknowns)
+            except Exception as exc:
+                logger.warning(
+                    "Failed to load optional map spatial advisories: %s",
+                    redact_diagnostic(exc, limit=500),
+                )
+                map_advisory_summary = {"status": "not_checked"}
+        elif scene is not None:
+            map_advisory_summary = {"status": "disabled"}
+
         repetition_items, repetition_omissions = await self._repetition_items(
             db,
             novel_id=data.novel_id,
@@ -311,6 +353,22 @@ class WritingConflictCheckService:
         summary_json = self._summary(items, degraded_sources, omissions)
         if continuity_coverage:
             summary_json["continuity_coverage"] = continuity_coverage
+        if map_advisory_summary is not None:
+            summary_json["map_spatial_advisory"] = map_advisory_summary
+        if advisory_baseline_facts:
+            existing_nodes = (
+                map_baseline.get("nodes", {}) if isinstance(map_baseline, dict) else {}
+            )
+            prior_facts = [
+                {
+                    "node_id": node_id,
+                    "revision_id": value.get("revision_id"),
+                    "source_hashes": value.get("source_hashes") or [],
+                }
+                for node_id, value in existing_nodes.items()
+                if isinstance(value, dict)
+            ]
+            map_baseline = self._map_baseline([*prior_facts, *advisory_baseline_facts])
         if map_baseline is not None:
             # 基线在创建时写一次且此后不变：发布快照与 AI 复核语义指纹都会
             # 读 summary_json，读时比较结果绝不能写回，否则指纹会漂移。
@@ -342,6 +400,147 @@ class WritingConflictCheckService:
             items=items,
         )
         return self._to_check_response(check, created_items)
+
+    @staticmethod
+    def _map_spatial_advisories_enabled() -> bool:
+        from core.config import get_settings
+
+        return MAP_SPATIAL_ADVISORY_CAPABILITY in set(
+            get_settings().map_spatial_enabled_capabilities
+        )
+
+    @classmethod
+    def _map_spatial_transitions(
+        cls, checkpoint_set: object | None, scene: object
+    ) -> list[dict[str, Any]]:
+        payload = cls._checkpoint_payload(checkpoint_set)
+        checkpoint = next(
+            (
+                item
+                for item in payload.get("items") or []
+                if isinstance(item, dict) and item.get("dimension") == "locations"
+            ),
+            {},
+        )
+        if checkpoint.get("status") != "ready" or not (
+            checkpoint.get("source") == "system_generated"
+            or checkpoint.get("confirmed") is True
+        ):
+            return []
+        state = checkpoint.get("state_json") or {}
+        current_index = getattr(scene, "scene_index", None)
+        result = []
+        for change in state.get("changes") or []:
+            if not isinstance(change, dict):
+                continue
+            meta = change.get("meta") or {}
+            raw_index = change.get("scene_index")
+            if raw_index is None:
+                raw_index = change.get("effective_at", meta.get("effective_at"))
+            try:
+                if (
+                    isinstance(raw_index, bool)
+                    or current_index is None
+                    or int(raw_index) != int(current_index)
+                ):
+                    continue
+            except (TypeError, ValueError):
+                continue
+            before = cls._location_id(change.get("old_value"))
+            after = cls._location_id(change.get("new_value"))
+            if not before or not after or before == after:
+                continue
+            mover = change.get("subject_id") or meta.get("subject_id")
+            try:
+                mover_id = str(uuid.UUID(str(mover))) if mover else None
+            except (TypeError, ValueError):
+                mover_id = None
+            result.append(
+                {
+                    "from_location_id": before,
+                    "to_location_id": after,
+                    "mover_id": mover_id,
+                }
+            )
+        return result[:50]
+
+    @staticmethod
+    def _map_spatial_advisory_items(
+        scene: object, response: object
+    ) -> tuple[list[dict], list[dict[str, Any]], int]:
+        payload = (
+            response.model_dump(mode="python")
+            if hasattr(response, "model_dump")
+            else dict(response)
+            if isinstance(response, Mapping)
+            else {}
+        )
+        items = []
+        baseline = [
+            dict(value)
+            for value in payload.get("map_revisions") or []
+            if isinstance(value, dict)
+            and value.get("node_id")
+            and value.get("revision_id")
+        ]
+        for raw in payload.get("items") or []:
+            advisory = (
+                raw.model_dump(mode="python") if hasattr(raw, "model_dump") else raw
+            )
+            if not isinstance(advisory, dict):
+                continue
+            node_id = str(advisory.get("node_id") or "").strip()
+            revision_id = str(advisory.get("revision_id") or "").strip()
+            rule_code = str(advisory.get("rule_code") or "").strip()
+            summary = str(advisory.get("summary") or "").strip()
+            if not (node_id and revision_id and rule_code and summary):
+                continue
+            baseline.append(
+                {
+                    "node_id": node_id,
+                    "revision_id": revision_id,
+                    "source_hashes": list(advisory.get("source_hashes") or [])[:32],
+                }
+            )
+            location = evidence_location(
+                source_module="world",
+                source_type=f"map_spatial_advisory.{rule_code}",
+                source_id=node_id,
+                source_label="已采用地图版本",
+                source_field="空间提醒",
+                source_excerpt=summary[:500],
+                open_target={
+                    "kind": "map_atlas_node",
+                    "node_id": node_id,
+                    "revision_id": revision_id,
+                },
+                needs_review_reason="这只是确定性提醒，地图与正文都可核对或修订。",
+            )
+            location.update(
+                rule_code=rule_code,
+                map_revision={
+                    "node_id": node_id,
+                    "revision_id": revision_id,
+                    "revision_hash": advisory.get("revision_hash"),
+                    "source_hashes": list(advisory.get("source_hashes") or [])[:32],
+                },
+                fix_paths=list(advisory.get("fix_paths") or ["writing", "map"]),
+                dismissible=bool(advisory.get("dismissible", True)),
+                unknowns=list(advisory.get("unknowns") or [])[:4],
+            )
+            items.append(
+                {
+                    "kind": "space_continuity_risk",
+                    "severity": "low",
+                    "source_module": "world",
+                    "source_type": f"map_spatial_advisory.{rule_code}",
+                    "source_id": node_id,
+                    "evidence_summary": summary,
+                    "needs_review": True,
+                    "location_json": location,
+                }
+            )
+        return items, baseline, int(payload.get("omitted_count") or 0)
 
     async def list_checks(
         self,
@@ -776,11 +975,17 @@ class WritingConflictCheckService:
         stale_checks: set[uuid.UUID] = set()
         for check, item in rows:
             latest_draft = drafts_by_chapter.get(check.chapter_index)
-            is_stale = latest_draft is not None and (
-                check.draft_id != latest_draft.id
-                or check.version_number != latest_draft.version_number
-                or check.scope.get("content_hash") != latest_draft.content_hash
+            scoped_chapter = (check.scope or {}).get("chapter_index")
+            is_stale = (
+                scoped_chapter is not None and scoped_chapter != check.chapter_index
             )
+            if latest_draft is not None:
+                is_stale = is_stale or (
+                    check.draft_id != latest_draft.id
+                    or check.version_number != latest_draft.version_number
+                    or (check.scope or {}).get("content_hash")
+                    != latest_draft.content_hash
+                )
             if is_stale:
                 if check.id in stale_checks:
                     continue
@@ -980,12 +1185,17 @@ class WritingConflictCheckService:
                 continue
             meta = change.get("meta") or {}
             subject = str(meta.get("subject_name") or change.get("subject_id") or "")
-            effective_at = str(
-                change.get("effective_at")
-                or change.get("scene_index")
-                or meta.get("effective_at")
-                or ""
-            )
+            raw_index = change.get("scene_index")
+            if raw_index is None:
+                raw_index = change.get("effective_at", meta.get("effective_at"))
+            try:
+                if isinstance(raw_index, bool) or int(raw_index) != getattr(
+                    scene, "scene_index", None
+                ):
+                    continue
+            except (TypeError, ValueError):
+                continue
+            effective_at = str(raw_index)
             location = change.get("new_value")
             if subject and effective_at and location not in (None, ""):
                 grouped.setdefault((subject, effective_at), set()).add(
@@ -1509,9 +1719,7 @@ class WritingConflictCheckService:
             node_id = str(fact.get("node_id") or "").strip()
             if not node_id:
                 continue
-            entry = nodes.setdefault(
-                node_id, {"revision_id": "", "source_hashes": set()}
-            )
+            entry = nodes.setdefault(node_id, {"revision_id": "", "source_hashes": set()})
             revision_id = str(fact.get("revision_id") or "").strip()
             if revision_id and not entry["revision_id"]:
                 entry["revision_id"] = revision_id
@@ -1541,11 +1749,7 @@ class WritingConflictCheckService:
         nodes = baseline.get("nodes") if isinstance(baseline, dict) else None
         if not isinstance(nodes, dict):
             return []
-        return [
-            node_id
-            for node_id in (str(key).strip() for key in nodes)
-            if node_id
-        ]
+        return [node_id for node_id in (str(key).strip() for key in nodes) if node_id]
 
     async def _load_map_node_heads(
         self,
@@ -1588,9 +1792,7 @@ class WritingConflictCheckService:
         表同版本），source_hashes 仅在 revision 缺失时作辅助；节点被取消采用、
         删除（head 缺失）都算已变。无基线或 head 未预取（含预取失败）不提示。
         """
-        baseline = (
-            summary.get(MAP_BASELINE_KEY) if isinstance(summary, dict) else None
-        )
+        baseline = summary.get(MAP_BASELINE_KEY) if isinstance(summary, dict) else None
         nodes = baseline.get("nodes") if isinstance(baseline, dict) else None
         if not isinstance(nodes, dict) or not nodes or map_heads is None:
             return None
@@ -1603,17 +1805,13 @@ class WritingConflictCheckService:
                 changed.append({"node_id": node_id, "title": None})
                 continue
             if str(head.get("status") or "") != "adopted":
-                changed.append(
-                    {"node_id": node_id, "title": head.get("title")}
-                )
+                changed.append({"node_id": node_id, "title": head.get("title")})
                 continue
             base_revision = str(entry.get("revision_id") or "")
             head_revision = str(head.get("revision_id") or "")
             if base_revision and head_revision:
                 if base_revision != head_revision:
-                    changed.append(
-                        {"node_id": node_id, "title": head.get("title")}
-                    )
+                    changed.append({"node_id": node_id, "title": head.get("title")})
                 continue
             # revision 缺失（如测试 fake loader 容错）：退回 source_hashes 辅助
             # 比较；基线是 head 文档来源的子集，仍无信号时不提示。
@@ -1624,9 +1822,7 @@ class WritingConflictCheckService:
                 str(value) for value in head.get("source_hashes") or [] if value
             }
             if base_sources and not base_sources.issubset(head_sources):
-                changed.append(
-                    {"node_id": node_id, "title": head.get("title")}
-                )
+                changed.append({"node_id": node_id, "title": head.get("title")})
         return {
             "changed": bool(changed),
             "changed_count": len(changed),
@@ -1653,9 +1849,7 @@ class WritingConflictCheckService:
                 "include_candidates": check.include_candidates,
                 "status": check.status,
                 "summary_json": public_conflict_summary(check.summary_json),
-                "map_staleness": self._map_staleness(
-                    check.summary_json, map_heads
-                ),
+                "map_staleness": self._map_staleness(check.summary_json, map_heads),
                 "ai_review_enabled": check.ai_review_enabled,
                 "ai_review_status": check.ai_review_status,
                 "ai_review_confirmation_id": check.ai_review_confirmation_id,

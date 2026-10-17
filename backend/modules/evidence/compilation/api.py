@@ -11,7 +11,12 @@ from fastapi import APIRouter, HTTPException, Query
 from fastapi import status as http_status
 
 from core.api_params import NovelIdQuery
+from core.container import get
 from core.dependencies import DbSession
+from core.service_keys import (
+    STORY_GET_SCENE_CONTRACT,
+    WORLD_GET_CHARACTER_ID_BY_WORLD_ENTITY,
+)
 from modules.evidence.compilation.contracts import (
     ContextConfirmationRequest,
     VisibilityContextContract,
@@ -60,6 +65,9 @@ from modules.evidence.compilation.facade import (
     read_novel_evidence as _read_novel_evidence,
 )
 from modules.evidence.compilation.facade import (
+    read_object_dossier_brief as _read_object_dossier_brief,
+)
+from modules.evidence.compilation.facade import (
     restore_activation_profile_revision as _restore_activation_profile_revision,
 )
 from modules.evidence.compilation.facade import (
@@ -75,6 +83,10 @@ from modules.evidence.compilation.facade import (
     update_activation_profile as _update_activation_profile,
 )
 from modules.evidence.compilation.markdown_renderer import render_compiled_context
+from modules.evidence.compilation.object_dossier_schemas import (
+    ObjectDossierBriefRequest,
+    ObjectDossierBriefResponse,
+)
 from modules.evidence.compilation.schemas import (
     ContextActivationPreviewRequest,
     ContextActivationPreviewResponse,
@@ -152,6 +164,36 @@ async def scene_lens(
     return SceneLensResponse(**result)
 
 
+@router.post(
+    "/object-dossier-brief",
+    response_model=ObjectDossierBriefResponse,
+    openapi_extra={
+        "x-novelcraft-operation-exemption": (
+            "Scene object dossier brief only reads owner-scoped source projections; "
+            "it creates no persistent asset or operation outcome."
+        )
+    },
+)
+async def object_dossier_brief(
+    db: DbSession,
+    request: ObjectDossierBriefRequest,
+) -> ObjectDossierBriefResponse:
+    """Read one Scene-bounded, visibility-filtered object reference projection."""
+    await require_active_project(db, request.novel_id, allow_demo_readonly=False)
+    result = await _read_object_dossier_brief(
+        db,
+        novel_id=request.novel_id,
+        scene_id=request.scene_id,
+        entity_ids=request.entity_ids,
+        reveal_mode=request.reveal_mode,
+        viewpoint_character_id=request.viewpoint_character_id,
+        content_mode=request.content_mode,
+        include_patterns=request.include_patterns,
+        only_adopted_patterns=request.only_adopted_patterns,
+    )
+    return ObjectDossierBriefResponse.model_validate(result)
+
+
 def _build_tier_compile_response(
     request: ContextCompileRequest | ContextRenderRequest,
     ctx,
@@ -187,11 +229,95 @@ def _validate_character_reveal_mode(
         request.reveal_mode in {"reader", "character"}
         and request.visible_until_chapter is None
         and request.chapter_index is None
+        and request.visible_until_scene_id is None
     ):
         raise HTTPException(
             status_code=400,
-            detail="reader/character 揭示模式必须提供可见截止章",
+            detail="reader/character 揭示模式必须提供章节或 Scene 可见截止点",
         )
+
+
+def _validate_story_generation_scope(request: ContextConfirmRequest) -> None:
+    if request.action not in {
+        "story.character_card.generate",
+        "story.reaction.generate",
+    }:
+        return
+    if (
+        request.scope != "scene"
+        or not request.scene_id
+        or request.visible_until_scene_id != request.scene_id
+        or request.chapter_index is not None
+        or request.visible_until_chapter is not None
+        or request.visible_until_offset is not None
+    ):
+        raise HTTPException(
+            status_code=400,
+            detail="Story 人物生成确认必须只绑定同一 Scene 的可见截止点",
+        )
+    if (
+        not request.character_ids
+        or len(request.character_ids) > 24
+        or len(set(request.character_ids)) != len(request.character_ids)
+    ):
+        raise HTTPException(
+            status_code=400,
+            detail="Story 人物生成确认必须提供不重复的目标人物",
+        )
+    if request.action == "story.character_card.generate":
+        if (
+            request.reveal_mode != "character"
+            or not request.viewpoint_character_id
+            or request.character_ids != [request.viewpoint_character_id]
+        ):
+            raise HTTPException(
+                status_code=400,
+                detail="人物卡确认必须将唯一目标人物绑定为 POV",
+            )
+    elif request.reveal_mode != "author_safe" or request.viewpoint_character_id:
+        raise HTTPException(
+            status_code=400,
+            detail="反应提案确认必须使用作者安全视角",
+        )
+
+
+async def _validate_confirmed_scene_scope(
+    db: DbSession,
+    request: ContextConfirmRequest,
+) -> None:
+    """Keep scene cutoffs and character POVs inside the confirmed project."""
+    if (
+        request.reveal_mode == "character"
+        and request.scene_id
+        and request.visible_until_scene_id
+        and request.scene_id != request.visible_until_scene_id
+    ):
+        raise HTTPException(
+            status_code=400,
+            detail="character POV confirmation must use the target Scene as its cutoff",
+        )
+
+    if request.scene_id or request.visible_until_scene_id:
+        for scene_id in dict.fromkeys(
+            item for item in (request.scene_id, request.visible_until_scene_id) if item
+        ):
+            if (
+                await get(STORY_GET_SCENE_CONTRACT)(db, request.novel_id, scene_id)
+                is None
+            ):
+                raise HTTPException(status_code=404, detail="Scene not found in project")
+
+    if request.reveal_mode == "character" and request.viewpoint_character_id:
+        character_id = await get(WORLD_GET_CHARACTER_ID_BY_WORLD_ENTITY)(
+            db,
+            request.novel_id,
+            request.viewpoint_character_id,
+        )
+        if str(character_id or "") != request.viewpoint_character_id:
+            raise HTTPException(
+                status_code=404,
+                detail="POV character not found in project",
+            )
 
 
 @router.post("/compile", response_model=ContextTierCompileResponse)
@@ -207,6 +333,20 @@ async def compile_context(
     _validate_scope(request)
     _validate_character_reveal_mode(request)
 
+    from modules.evidence.compilation.services.confirmation_service import (
+        resolve_retrieval_purpose,
+    )
+
+    retrieval_purpose = (
+        resolve_retrieval_purpose(
+            request.action,
+            request.retrieval_purpose,
+            reveal_mode=request.reveal_mode,
+        )
+        if request.action
+        else request.retrieval_purpose
+    )
+
     ctx = await compile_with_tiers(
         db=db,
         novel_id=request.novel_id,
@@ -214,7 +354,7 @@ async def compile_context(
         scope=request.scope,
         budget_tokens=request.budget_tokens,
         scene_id=request.scene_id,
-        retrieval_purpose="generic_context",
+        retrieval_purpose=retrieval_purpose,
         chapter_index=request.chapter_index,
         visible_until_chapter=request.visible_until_chapter,
         visible_until_scene_id=request.visible_until_scene_id,
@@ -236,6 +376,7 @@ async def compile_context(
         user_note=request.user_note,
         include_world_synopsis=request.include_world_synopsis,
         selected_world_bible_draft_ids=request.selected_world_bible_draft_ids,
+        director_reference_ids=request.director_reference_ids,
         activation_profile_id=request.activation_profile_id,
         activation_profile_version=request.activation_profile_version,
         consumer_action=request.action,
@@ -313,6 +454,8 @@ async def confirm_context(
     await require_active_project(db, request.novel_id)
     _validate_scope(request)
     _validate_character_reveal_mode(request)
+    _validate_story_generation_scope(request)
+    await _validate_confirmed_scene_scope(db, request)
 
     confirmation = await _confirm_context(
         db,
@@ -321,7 +464,7 @@ async def confirm_context(
             action=request.action,
             task=request.task,
             scope=request.scope,
-            retrieval_purpose="generic_context",
+            retrieval_purpose=request.retrieval_purpose,
             chapter_index=request.chapter_index,
             visible_until_chapter=request.visible_until_chapter,
             visible_until_scene_id=request.visible_until_scene_id,
@@ -347,6 +490,7 @@ async def confirm_context(
             user_note=request.user_note,
             include_world_synopsis=request.include_world_synopsis,
             selected_world_bible_draft_ids=request.selected_world_bible_draft_ids,
+            director_reference_ids=request.director_reference_ids,
             activation_profile_id=request.activation_profile_id,
             activation_profile_version=request.activation_profile_version,
             expected_context_fingerprint=request.expected_context_fingerprint,

@@ -19,9 +19,9 @@ from infrastructure.llm.agent_runtime import (
     run_project_agent,
 )
 from infrastructure.llm.capabilities import capability_from_execution_snapshot
-from infrastructure.llm.schemas import LLMCallRequest, LLMMessage
+from infrastructure.llm.schemas import AIRunEnvelopeV4, LLMCallRequest, LLMMessage
 from infrastructure.llm.web_search import search_snapshot, search_snapshot_matches
-from infrastructure.llm.workflow_budget import workflow_budget
+from infrastructure.llm.workflow_budget import current_ai_run_envelope, workflow_budget
 from infrastructure.tasks.facade import (
     enqueue_operation_task,
     list_task_lifecycle_contracts,
@@ -46,8 +46,8 @@ from modules.assistant.models import (
 from modules.assistant.operations import (
     generate_candidate,
     generate_structure,
+    operation_discovery_tools,
     operation_manifest,
-    operation_tool,
     prepare_actions,
     resolve_operations,
     review_assets,
@@ -66,7 +66,7 @@ from modules.assistant.schemas import (
     work_directive,
 )
 from modules.assistant.sessions import AssistantSessionService
-from modules.evidence.contracts import GroupSource, govern_group_output
+from modules.evidence.contracts import GroupSource, build_group_scope, govern_group_output
 from modules.project.facade import (
     build_project_llm_execution_snapshot,
     create_project_snapshot_llm_client,
@@ -88,12 +88,66 @@ _INSTRUCTIONS = """你是作者的项目助手。理解当前工作位置，主�
 只有 permission=confirm 的业务修改可提出 actions。
 如果提供 revise_candidate，可按 writing.targeted_revision 只修复原审稿的指定问题。
 返修后重新审稿。
+若提供地图工具，作者直接给出的安排经预览确认后保存为作者安排；从正文推断的信息仅进入带逐字引文和模态的候选线索。
+不猜坐标，不把缺少行程或位置记录解释为可通行或已到达。空间提醒只作建议，可准备正文候选或地图修改预览，也可逐条静默。
+演化入口只准备授权预览；费用确认由作者在演化页独立完成，未知请求结果不能自行重发。
 不能声称已经修改或保存。
 每个操作给具体内容和影响，同一资产的修改合并，依赖用同批次 key。
 不要自行指定身份或确认字段。
 查现实通用事实可按需使用已开放联网工具；不要发送私人正文、原作剧情、密钥或项目标识。
 回答使用作者语言，简洁给结论、证据和可操作下一步，不展示工具名、内部 ID、JSON 或思考过程。
 讨论历史不代表最新作品事实；当前证据和作者最新明确要求优先。"""
+
+_V7_INSTRUCTIONS = _INSTRUCTIONS.replace(
+    "先通过 available_operations 查看能力与参数。",
+    "先通过 find_operations 按任务查找能力，再用 describe_operation "
+    "查看完整参数、风险和费用。",
+).replace(
+    "只读复核直接调用 review_assets，生成领域回执，",
+    "R0 只读目录操作可通过 read_operation 读取；其余只读复核直接调用 "
+    "review_assets，生成领域回执，",
+)
+
+_CATALOG_CHILD_STEPS = {
+    "story.character_card.generate": "story.character_card",
+    "story.reaction.generate": "story.reaction",
+}
+
+
+def _assistant_catalog_budget_scope(
+    runtime_version: str, frozen_operations: dict
+) -> dict | None:
+    """Derive child steps only from C2 operations actually frozen for this run."""
+    if runtime_version not in {
+        "9",
+        "10",
+        "11",
+        "12",
+        "13",
+        "14",
+        "15",
+        "16",
+        "17",
+    } or not isinstance(frozen_operations, dict):
+        return None
+    current = operation_manifest()
+    children = sorted(
+        step
+        for op_id, step in _CATALOG_CHILD_STEPS.items()
+        if op_id in frozen_operations
+        and op_id in current
+        and current[op_id]["metadata"]["ai_available"] is True
+        and current[op_id]["metadata"]["permission"] == "suggest"
+        and fingerprint(frozen_operations[op_id]) == fingerprint(current[op_id])
+    )
+    if not children:
+        return None
+    return {
+        "scope_fingerprint": fingerprint(
+            {"runtime_version": runtime_version, "operations": frozen_operations}
+        ),
+        "authorized_step_capabilities": children,
+    }
 
 
 def display_sources(references, keys):
@@ -157,6 +211,54 @@ def display_sources(references, keys):
     return result
 
 
+def _assistant_evidence_dimensions(references: dict[str, dict]) -> tuple[str, ...]:
+    dimensions = (
+        "world_entities",
+        "world_rules",
+        "world_bible",
+        "prior_prose",
+        "outline",
+        "plot_threads",
+        "memory",
+    )
+    if any(
+        (item.get("map_spatial_guard") or item.get("spatial_advisory"))
+        for item in references.values()
+    ):
+        return (*dimensions, "map_spatial")
+    return dimensions
+
+
+def _assistant_evidence_sources(references: dict[str, dict]):
+    # Keep optional map evidence separate from required facts during adjudication.
+    core = {
+        key: item
+        for key, item in references.items()
+        if not (item.get("map_spatial_guard") or item.get("spatial_advisory"))
+    }
+    return (
+        GroupSource(
+            source_key="assistant_evidence",
+            source_type="imported_assets",
+            content_hash=fingerprint(core),
+            label="项目助手已查证资料",
+            dimensions=_assistant_evidence_dimensions(core),
+        ),
+        *(
+            GroupSource(
+                source_key=key,
+                source_type="map_spatial",
+                source_id=str((item.get("target_ref") or {}).get("target_id") or ""),
+                content_hash=fingerprint(item),
+                label=item.get("title") or "地图空间参考",
+                dimensions=("map_spatial",),
+            )
+            for key, item in references.items()
+            if (item.get("map_spatial_guard") or item.get("spatial_advisory"))
+        ),
+    )
+
+
 def history_visible(work: WorkContext, previous_context, confirmation_id) -> bool:
     if work.context_confirmation_id:
         return str(confirmation_id or "") == str(work.context_confirmation_id)
@@ -207,8 +309,12 @@ async def expire_run_histories(db):
         COLLABORATION_STOP_UNAVAILABLE_RUNS,
     )
     from modules.assistant.forecast.maintenance import expire_assessments
+    from modules.assistant.operation_trace_service import (
+        archive_one_expired_operation_trace_project,
+    )
 
     await expire_assessments(db)
+    await archive_one_expired_operation_trace_project(db)
     await get(COLLABORATION_STOP_UNAVAILABLE_RUNS)(db)
     rows = await db.scalars(
         select(AssistantRun)
@@ -391,6 +497,9 @@ class AssistantService:
         if session is None or session.status != "active":
             raise NotFoundError("助手会话不存在或已归档")
         payload = data.model_dump(mode="json") | {"session_id": session_id}
+        from modules.assistant.operation_trace_service import operation_trace_enabled
+
+        payload["operation_trace_enabled"] = await operation_trace_enabled(db, owner_id)
         if regression_targets:
             payload["regression_targets"] = regression_targets
         if quoted_discussion:
@@ -509,6 +618,12 @@ class AssistantService:
                 **payload["context"],
                 "source_hash": draft.content_hash,
             }
+        frozen_operations = {
+            name: value
+            for name, value in operation_manifest().items()
+            if operation_names is None or name in operation_names
+        }
+        catalog_budget_scope = _assistant_catalog_budget_scope("17", frozen_operations)
         run = AssistantRun(
             id=data.operation_id,
             novel_id=data.novel_id,
@@ -518,19 +633,23 @@ class AssistantService:
             request_json=frozen_payload
             | {
                 "llm_snapshot": snapshot,
-                "runtime_version": "3",
+                "runtime_version": "17",
                 **({"team": team} if team else {}),
                 "web_search": search_snapshot()
                 if data.allow_web and data.web_backend == "searxng-v1"
                 else None,
-                "operations": {
-                    name: value
-                    for name, value in operation_manifest().items()
-                    if operation_names is None or name in operation_names
-                },
+                "operations": frozen_operations,
                 "read_tools": {
                     tool.name: fingerprint(tool.function_schema.json_schema)
-                    for tool in author_read_tools(allow_web=True, version="3")
+                    for tool in author_read_tools(allow_web=True, version="17")
+                    if tool.name
+                    not in {
+                        "map_spatial_brief",
+                        "map_spatial_advisories",
+                        "map_journey",
+                        "map_object_position",
+                    }
+                    or "assistant.turn" in get_settings().map_spatial_enabled_capabilities
                 },
             },
             budget_json=AgentRunBudget(
@@ -545,7 +664,14 @@ class AssistantService:
                 task_type="assistant_turn",
                 novel_id=novel_id,
                 request_payload=payload,
-                meta={"run_id": str(run.id)},
+                meta={
+                    "run_id": str(run.id),
+                    **(
+                        {"_assistant_catalog_budget_v1": catalog_budget_scope}
+                        if catalog_budget_scope
+                        else {}
+                    ),
+                },
             )
         except ValueError as exc:
             raise ConflictError(
@@ -594,11 +720,26 @@ class AssistantService:
 
     def view(self, run, *, can_resume: bool = False):
         executor = (run.request_json or {}).get("agent_executor") or {}
+        result = dict(run.result_json or {})
+        if (run.request_json or {}).get("runtime_version") in {
+            "7",
+            "8",
+            "9",
+            "10",
+            "11",
+            "12",
+            "13",
+            "14",
+            "15",
+            "16",
+            "17",
+        } and (run.checkpoint_json or {}).get("operation_trace_incomplete"):
+            result["operation_trace_incomplete"] = True
         return {
             "id": str(run.id),
             "session_id": str(run.session_id) if run.session_id else None,
             "status": run.status,
-            "result": run.result_json or {},
+            "result": result,
             "usage": run.budget_json or {},
             "error": run.error,
             "task_id": str(run.task_id) if run.task_id else None,
@@ -910,7 +1051,32 @@ class AssistantService:
             or (payload.get("cocreation_intent") or {}).get("quality_mode") == "pro"
         )
         protocol = runtime_protocol(payload)
-        operations = resolve_operations(protocol["operations"])
+        runtime_version = str(payload.get("runtime_version", "2"))
+        frozen_scope = _assistant_catalog_budget_scope(
+            runtime_version, protocol["operations"]
+        )
+        if frozen_scope != (task.meta or {}).get("_assistant_catalog_budget_v1"):
+            raise ConflictError(
+                "助手目录的子能力授权已变化",
+                code="assistant_runtime_changed",
+            )
+        if frozen_scope is not None:
+            envelope = current_ai_run_envelope()
+            snapshot = envelope.snapshot() if envelope is not None else None
+            if not isinstance(snapshot, AIRunEnvelopeV4) or (
+                snapshot.scope_fingerprint != frozen_scope["scope_fingerprint"]
+                or snapshot.authorized_step_capabilities
+                != frozen_scope["authorized_step_capabilities"]
+            ):
+                raise ConflictError(
+                    "助手运行缺少当前冻结目录的子能力授权",
+                    code="assistant_runtime_changed",
+                )
+        operations = resolve_operations(
+            protocol["operations"],
+            allow_stale=runtime_version
+            in {"7", "8", "9", "10", "11", "12", "13", "14", "15", "16", "17"},
+        )
         read_tools = {
             tool.name: tool
             for tool in author_read_tools(
@@ -945,6 +1111,28 @@ class AssistantService:
         await db.commit()
         client = None
         deps = None
+        from modules.assistant.operation_trace_service import (
+            bind_operation_trace_context,
+            reset_operation_trace_context,
+        )
+
+        trace_status = {
+            "incomplete_count": int(
+                saved_state.get("operation_trace_incomplete_count") or 0
+            )
+        }
+        trace_token = bind_operation_trace_context(trace_status)
+
+        def trace_incomplete_marker():
+            count = trace_status["incomplete_count"]
+            return (
+                {
+                    "operation_trace_incomplete_count": count,
+                    "operation_trace_incomplete": True,
+                }
+                if count
+                else {}
+            )
 
         async def checkpoint(values):
             row = await self.require_run(db, novel_id, run_id, lock=True)
@@ -958,6 +1146,7 @@ class AssistantService:
                 row.checkpoint_json = {
                     **(row.checkpoint_json or {}),
                     "evidence_refs": dict(deps.evidence_refs),
+                    **trace_incomplete_marker(),
                 }
             record_run_event(row, "checking")
             await db.commit()
@@ -966,7 +1155,11 @@ class AssistantService:
             row = await self.require_run(db, novel_id, run_id, lock=True)
             if row.status != "running" or str(row.task_id) != str(task.id):
                 raise ConflictError("任务已停止或被替代", code="assistant_superseded")
-            row.checkpoint_json = {**(row.checkpoint_json or {}), "model_history": state}
+            row.checkpoint_json = {
+                **(row.checkpoint_json or {}),
+                "model_history": state,
+                **trace_incomplete_marker(),
+            }
             await db.commit()
 
         try:
@@ -985,7 +1178,24 @@ class AssistantService:
                     payload.get("allow_web", False)
                     and (
                         search_snapshot_matches(payload.get("web_search"))
-                        if payload.get("runtime_version") == "3"
+                        if payload.get("runtime_version")
+                        in {
+                            "3",
+                            "4",
+                            "5",
+                            "6",
+                            "7",
+                            "8",
+                            "9",
+                            "10",
+                            "11",
+                            "12",
+                            "13",
+                            "14",
+                            "15",
+                            "16",
+                            "17",
+                        }
                         else verified_native_search(profile.provider_id, profile.model)
                     )
                 ),
@@ -995,6 +1205,8 @@ class AssistantService:
                 task_id=str(task.id),
                 llm_snapshot=payload["llm_snapshot"],
                 operations=operations,
+                operation_catalog_snapshot=protocol["operations"],
+                operation_trace_enabled=bool(payload.get("operation_trace_enabled")),
                 final_requests=2 if quality_review else 1,
                 session_id=str(run.session_id) if run.session_id else None,
             )
@@ -1009,7 +1221,12 @@ class AssistantService:
             messages = [
                 LLMMessage(
                     role="system",
-                    content=_INSTRUCTIONS
+                    content=(
+                        _V7_INSTRUCTIONS
+                        if runtime_version
+                        in {"7", "8", "9", "10", "11", "12", "13", "14", "15", "16", "17"}
+                        else _INSTRUCTIONS
+                    )
                     + f"\n本次请求的日历日期为 {today}（{work.timezone}）。"
                     + "相对日期待办据此换算，这不是故事内时间。",
                 )
@@ -1123,7 +1340,24 @@ class AssistantService:
                         not in {"research_fact", "search_general_fact", "read_web_source"}
                         or deps.allow_web
                     ]
-                    + [operation_tool(), Tool(review_assets, sequential=True)]
+                    + operation_discovery_tools(
+                        legacy=runtime_version
+                        not in {
+                            "7",
+                            "8",
+                            "9",
+                            "10",
+                            "11",
+                            "12",
+                            "13",
+                            "14",
+                            "15",
+                            "16",
+                            "17",
+                        },
+                        operations=operations,
+                    )
+                    + [Tool(review_assets, sequential=True)]
                     + (
                         [Tool(generate_candidate, sequential=True)]
                         if "writing.generate_candidate" in operations
@@ -1225,30 +1459,13 @@ class AssistantService:
                     )
                     return review.output.model_dump_json()
 
-                evidence_hash = fingerprint(deps.evidence_refs)
                 with workflow_budget(budget, checkpoint):
                     governed = await govern_group_output(
                         client,
                         capability="assistant.turn",
                         novel_id=novel_id,
                         group_key=f"run:{run_id}",
-                        sources=(
-                            GroupSource(
-                                source_key="assistant_evidence",
-                                source_type="imported_assets",
-                                content_hash=evidence_hash,
-                                label="项目助手已查证资料",
-                                dimensions=(
-                                    "world_entities",
-                                    "world_rules",
-                                    "world_bible",
-                                    "prior_prose",
-                                    "outline",
-                                    "plot_threads",
-                                    "memory",
-                                ),
-                            ),
-                        ),
+                        sources=_assistant_evidence_sources(deps.evidence_refs),
                         output=answer.model_dump_json(),
                         task_instruction=payload["message"]
                         + (
@@ -1295,12 +1512,30 @@ class AssistantService:
                 db,
                 novel_id,
                 answer.actions,
-                context=AssistantOperationContext(run_id, owner_id, work),
+                context=AssistantOperationContext(
+                    run_id,
+                    owner_id,
+                    work,
+                    trace_enabled=bool(payload.get("operation_trace_enabled")),
+                    trace_session_id=str(run.session_id) if run.session_id else None,
+                ),
+                operations=operations,
             )
             run = await self.require_run(db, novel_id, run_id, lock=True)
             if run.status != "running" or str(run.task_id) != str(task.id):
                 return {"status": "superseded"}
             result_json = answer.model_dump(mode="json")
+            if any(
+                (item.get("map_spatial_guard") or item.get("spatial_advisory"))
+                for item in deps.evidence_refs.values()
+            ):
+                scope, _plan = build_group_scope(
+                    capability="assistant.turn",
+                    novel_id=novel_id,
+                    group_key=f"run:{run_id}",
+                    sources=_assistant_evidence_sources(deps.evidence_refs),
+                )
+                result_json["knowledge_scope_receipt"] = scope.receipt.to_dict()
             if payload.get("team"):
                 from modules.assistant.teams.runner import public_collaboration
 
@@ -1326,7 +1561,16 @@ class AssistantService:
                         db,
                         novel_id,
                         plan.actions,
-                        context=AssistantOperationContext(run_id, owner_id, work),
+                        context=AssistantOperationContext(
+                            run_id,
+                            owner_id,
+                            work,
+                            trace_enabled=bool(payload.get("operation_trace_enabled")),
+                            trace_session_id=str(run.session_id)
+                            if run.session_id
+                            else None,
+                        ),
+                        operations=operations,
                     )
                     option = {**plan.model_dump(mode="json"), "actions": actions}
                     options.append({**option, "fingerprint": fingerprint(option)})
@@ -1353,7 +1597,10 @@ class AssistantService:
                 key: value
                 for key, value in (run.checkpoint_json or {}).items()
                 if key not in {"model_history", "planned_answer"}
-            } | {"evidence_refs": dict(deps.evidence_refs)}
+            } | {
+                "evidence_refs": dict(deps.evidence_refs),
+                **trace_incomplete_marker(),
+            }
             run.status = "waiting_approval" if prepared else "completed"
             record_run_event(run, run.status)
             if run.session_id:
@@ -1382,6 +1629,10 @@ class AssistantService:
                     key: value
                     for key, value in (row.checkpoint_json or {}).items()
                     if key != "model_history"
+                }
+                row.checkpoint_json = {
+                    **row.checkpoint_json,
+                    **trace_incomplete_marker(),
                 }
                 record_run_event(row, "budget_exceeded")
                 row.error = "本轮已达到执行上限，讨论和过程资料已保留。"
@@ -1454,6 +1705,7 @@ class AssistantService:
                 row.checkpoint_json = {
                     **(row.checkpoint_json or {}),
                     "failure": {"kind": type(error).__name__, "frames": frames[-12:]},
+                    **trace_incomplete_marker(),
                 }
                 row.error = (
                     "本次处理未完成，原有作品没有被修改；请核对资料或模型连接后重试。"
@@ -1462,5 +1714,6 @@ class AssistantService:
                 await db.commit()
             raise RuntimeError("Assistant run failed; see its scoped receipt") from None
         finally:
+            reset_operation_trace_context(trace_token)
             if client is not None:
                 await client.close()

@@ -9,10 +9,17 @@ from uuid import UUID
 
 from pydantic_ai import ModelRetry, RunContext, Tool
 
+from core.config import get_settings
+from core.container import get
 from core.errors import ConflictError, NotFoundError
+from core.service_keys import (
+    WORLD_READ_MAP_SPATIAL_BRIEF,
+    WORLD_READ_PROJECT_VOCABULARY,
+)
 from infrastructure.llm.agent_runtime import AgentRunBudget
 from infrastructure.llm.workflow_budget import budgeted_tool
 from infrastructure.stable_hash import stable_hash
+from modules.assistant.operation_scope import require_operation_targets
 from modules.assistant.schemas import WorkContext
 from modules.evidence import facade as evidence
 from modules.evidence.contracts import VisibilityContextContract
@@ -24,6 +31,39 @@ from modules.writing.facade import get_draft, get_latest_draft_for_chapter
 
 def fingerprint(value: Any) -> str:
     return stable_hash(value)
+
+
+def fixed_reference_context(confirmed):
+    compiled = confirmed.compiled
+    map_section = next(
+        (section for section in compiled.sections if section.key == "map_spatial"),
+        None,
+    )
+    map_spatial = None
+    if map_section is not None:
+        map_spatial = {
+            "scene_id": (map_section.retrieval_metadata or {}).get("scene_id"),
+            "chapter_index": (map_section.retrieval_metadata or {}).get("chapter_index"),
+            "items": [
+                {
+                    **dict(item.source or {}),
+                    "node_id": (item.source or {}).get("node_id")
+                    or (item.source or {}).get("id"),
+                    "content": item.content,
+                }
+                for item in map_section.materialize_items().items
+                if item.selection_state not in {"excluded", "omitted"}
+            ],
+            "omitted_count": int(
+                (map_section.retrieval_metadata or {}).get("omitted_count") or 0
+            ),
+        }
+    return {
+        "title": "已确认的参考资料",
+        "text": evidence.render_compiled_context(compiled),
+        "confirmation_id": str(confirmed.confirmation.id),
+        "map_spatial": map_spatial,
+    }
 
 
 @dataclass
@@ -42,6 +82,9 @@ class AssistantToolContext:
     task_id: str | None = None
     llm_snapshot: dict | None = None
     operations: dict | None = None
+    operation_catalog_snapshot: dict | None = None
+    operation_trace_incomplete: bool = False
+    operation_trace_enabled: bool = False
     final_requests: int = 1
     session_id: str | None = None
     web_snapshot: dict | None = None
@@ -90,12 +133,7 @@ class AssistantToolContext:
                 action=self.work.context_confirmation_action,
                 confirmation_id=str(self.work.context_confirmation_id),
             )
-            compiled = confirmed.compiled
-            self.fixed_context = {
-                "title": "已确认的参考资料",
-                "text": evidence.render_compiled_context(compiled),
-                "confirmation_id": str(self.work.context_confirmation_id),
-            }
+            self.fixed_context = fixed_reference_context(confirmed)
         return project
 
     @property
@@ -123,6 +161,14 @@ class AssistantToolContext:
         excluded = set(self.work.excluded_targets) | {
             value.rsplit(":", 1)[-1] for value in self.work.excluded_targets
         }
+        if target_type == "map_spatial":
+            excluded.update(
+                parts[1]
+                for value in self.work.excluded_targets
+                if (parts := value.split(":"))
+                and len(parts) > 1
+                and parts[0] == "map_spatial"
+            )
         if identities.intersection(excluded):
             return None
         key = fingerprint(payload)
@@ -137,8 +183,69 @@ class AssistantToolContext:
                     "回答引用了本次未查证的资料", code="assistant_unknown_evidence"
                 )
             item = self.evidence_refs[key]
+            if item.get("spatial_advisory"):
+                from modules.assistant.map_spatial_advisories import _identity, _read
+
+                result = await _read(self.db, self.novel_id, self.work)
+                if result is None or not any(
+                    _identity(result.scene_id, entry.model_dump(mode="json"))
+                    == item["advisory_fingerprint"]
+                    for entry in result.items
+                ):
+                    raise ConflictError(
+                        "空间提醒所用地图或来源已变化，请重新读取",
+                        code="assistant_source_stale",
+                    )
+                continue
+            if item.get("map_spatial_guard"):
+                guard = item["map_spatial_guard"]
+                if guard.get("fixed_context"):
+                    map_context = (self.fixed_context or {}).get("map_spatial") or {}
+                    current_items = map_context.get("items") or []
+                    current_by_id = {
+                        str(entry.get("node_id") or entry.get("id") or ""): entry
+                        for entry in current_items
+                    }
+                    if any(
+                        (entry := current_by_id.get(expected["node_id"])) is None
+                        or str(entry.get("revision_id") or "") != expected["revision_id"]
+                        or str(entry.get("revision_hash") or "")
+                        != expected["revision_hash"]
+                        or str(entry.get("geometry_hash") or "")
+                        != expected["geometry_hash"]
+                        or str(entry.get("content_hash") or "")
+                        != expected["content_hash"]
+                        or sorted(entry.get("source_hashes") or [])
+                        != expected["source_hashes"]
+                        for expected in guard["baseline"]
+                    ):
+                        raise ConflictError(
+                            "确认后地图参考已变化，请重新读取后再引用",
+                            code="assistant_source_stale",
+                        )
+                    continue
+                current = await get(WORLD_READ_MAP_SPATIAL_BRIEF)(
+                    self.db,
+                    guard["request"],
+                )
+                current_by_id = {entry.node_id: entry for entry in current.items}
+                baseline = guard["baseline"]
+                if any(
+                    (entry := current_by_id.get(expected["node_id"])) is None
+                    or entry.title != expected["title"]
+                    or entry.revision_id != expected["revision_id"]
+                    or entry.revision_hash != expected["revision_hash"]
+                    or entry.geometry_hash != expected["geometry_hash"]
+                    or entry.content_hash != expected["content_hash"]
+                    or sorted(entry.source_hashes) != expected["source_hashes"]
+                    for expected in baseline
+                ):
+                    raise ConflictError(
+                        "空间参考地图版本已变化，请重新读取后再引用",
+                        code="assistant_source_stale",
+                    )
+                continue
             if item.get("source_guard"):
-                from core.container import get
                 from core.service_keys import (
                     ASSISTANT_OPERATIONS,
                 )
@@ -153,7 +260,11 @@ class AssistantToolContext:
                     self.novel_id,
                     operation.schema.model_validate(guard["arguments"]),
                     context=AssistantOperationContext(
-                        self.run_id or "", self.owner_id, self.work
+                        self.run_id or "",
+                        self.owner_id,
+                        self.work,
+                        trace_enabled=self.operation_trace_enabled,
+                        trace_session_id=self.session_id,
                     ),
                 )
                 if fingerprint(preview) != guard["baseline_hash"]:
@@ -739,8 +850,6 @@ async def world_page_history(
     ctx: RunContext[AssistantToolContext], page_id: str, version_number: int | None = None
 ) -> dict:
     """查看世界书页面最近二十个版本；指定版本可读历史摘录，恢复仍需具体修改确认。"""
-    from modules.assistant.operation_scope import require_operation_targets
-
     deps = ctx.deps
     await deps.guard()
     await require_operation_targets(
@@ -794,6 +903,223 @@ async def review_resolution_result(
     return result or {}
 
 
+@budgeted_tool
+async def project_vocabulary(
+    ctx: RunContext[AssistantToolContext], kind: str | None = None, limit: int = 100
+) -> dict:
+    """读取本项目词条身份和当前修订，为类型修改准备参数；省略项不代表不存在。
+
+    仅全书资料范围可读。返回词表维护资料，不作为正文或世界事实证据。
+    """
+    deps = ctx.deps
+    await deps.guard()
+    await require_operation_targets(deps.db, deps.novel_id, deps, [], aggregate=True)
+    if deps.work.scope == "current" and (deps.work.chapter_index or deps.work.scene_id):
+        raise ModelRetry("项目词表属于全书范围，请切换到项目资料范围后再读取")
+    if not 1 <= limit <= 500:
+        raise ModelRetry("一次读取词表的上限须为 1 至 500 项")
+    response = await get(WORLD_READ_PROJECT_VOCABULARY)(
+        deps.db, deps.novel_id, kind=kind, limit=limit, include_archived=True
+    )
+    fields = {
+        "id",
+        "revision_id",
+        "kind",
+        "name",
+        "description",
+        "aliases",
+        "traits",
+        "status",
+        "source",
+        "author_confirmed",
+        "redirect_to_id",
+    }
+    result = {
+        "items": [
+            item.model_dump(mode="json", include=fields) for item in response.items
+        ],
+        "total_count": response.total_count,
+        "omitted_count": response.omitted_count,
+    }
+    await deps.db.commit()
+    return result
+
+
+@budgeted_tool
+async def map_spatial_brief(
+    ctx: RunContext[AssistantToolContext], query: str, limit: int = 5
+) -> dict:
+    """只读已采用地图的地点、明示通路、行程和有时点的位置参考。"""
+    deps = ctx.deps
+    query = query.strip()
+    if not 1 <= len(query) <= 1000 or not 1 <= limit <= 8:
+        raise ModelRetry("地图查询需提供简短问题，limit 须为 1 至 8")
+    await deps.guard()
+    if "assistant.turn" not in get_settings().map_spatial_enabled_capabilities:
+        await deps.db.commit()
+        return {"enabled": False, "items": [], "message": "空间参考尚未为本能力启用"}
+    if (
+        deps.fixed_context is None
+        and deps.work.scope == "current"
+        and not (deps.work.scene_id or deps.work.chapter_index)
+    ):
+        raise ModelRetry("当前范围需要明确章节或 Scene；也可切换到项目资料范围查询地图")
+    await require_operation_targets(deps.db, deps.novel_id, deps, [])
+
+    fixed_map = (
+        deps.fixed_context.get("map_spatial") if deps.fixed_context is not None else None
+    )
+    if deps.fixed_context is not None:
+        map_context = fixed_map or {"items": [], "omitted_count": 0}
+        raw_items = list(map_context.get("items") or [])
+        scene_id = map_context.get("scene_id")
+        chapter_index = map_context.get("chapter_index")
+        omitted_count = int(map_context.get("omitted_count") or 0)
+    else:
+        request = {
+            "novel_id": deps.novel_id,
+            "scene_id": (str(deps.work.scene_id) if deps.work.scene_id else None),
+            "chapter_index": deps.work.chapter_index,
+            "reveal_mode": "author_safe",
+            "query_text": query,
+            "excluded_ids": list(deps.work.excluded_targets),
+            "limit": limit,
+        }
+        result = await get(WORLD_READ_MAP_SPATIAL_BRIEF)(deps.db, request)
+        raw_items = [item.model_dump(mode="json") for item in result.items]
+        scene_id = result.scene_id
+        chapter_index = result.chapter_index
+        omitted_count = result.omitted_count
+
+    evidence = []
+    excluded_count = 0
+    for raw in raw_items[:limit]:
+        node_id = str(raw.get("node_id") or raw.get("id") or "")
+        revision_id = str(raw.get("revision_id") or "")
+        title = str(raw.get("title") or raw.get("label") or "已保存地图")[:200]
+        content = str(raw.get("content") or "")
+        baseline = {
+            "node_id": node_id,
+            "title": title,
+            "revision_id": revision_id,
+            "revision_hash": str(raw.get("revision_hash") or ""),
+            "geometry_hash": str(raw.get("geometry_hash") or ""),
+            "content_hash": str(raw.get("content_hash") or ""),
+            "source_hashes": list(raw.get("source_hashes") or [])[:64],
+        }
+        if not node_id or not revision_id or not content or not baseline["content_hash"]:
+            continue
+        source_ref = {"target_type": "map_spatial", "target_id": node_id}
+        item = deps.remember(
+            {
+                "title": title,
+                "snippet": content,
+                "target_ref": source_ref,
+                "domain_reference": {
+                    "type": "map_spatial",
+                    "id": node_id,
+                    "label": title,
+                },
+                "map_spatial_guard": {
+                    "request": {
+                        "novel_id": deps.novel_id,
+                        "scene_id": scene_id,
+                        "chapter_index": chapter_index,
+                        "reveal_mode": "author_safe",
+                        "query_text": query,
+                        "excluded_ids": list(deps.work.excluded_targets),
+                        "limit": limit,
+                    },
+                    "fixed_context": deps.fixed_context is not None,
+                    "baseline": [baseline],
+                },
+            }
+        )
+        if item is None:
+            excluded_count += 1
+        else:
+            evidence.append(
+                {key: value for key, value in item.items() if key != "map_spatial_guard"}
+            )
+    await deps.db.commit()
+    return {
+        "enabled": True,
+        "items": evidence,
+        "omitted_count": omitted_count + excluded_count + max(0, len(raw_items) - limit),
+        "note": "只作空间参考；不替代正文、世界正史或作者确认。",
+    }
+
+
+async def map_journey(
+    ctx: RunContext[AssistantToolContext], origin: str, destination: str
+) -> dict:
+    """查询两地之间已采用的行程声明；名称歧义或缺少依据时返回 unknown。"""
+    if (
+        not origin.strip()
+        or not destination.strip()
+        or max(len(origin), len(destination)) > 200
+    ):
+        raise ModelRetry("请提供两个明确的地点名称")
+    found = await map_spatial_brief(ctx, query=f"{origin} {destination}")
+    matches = []
+    for item in found.get("items", []):
+        try:
+            payload = json.loads(item.get("snippet") or "{}")
+        except (ValueError, TypeError):
+            continue
+        rows = [
+            row
+            for row in payload.get("行程与通行条件", [])
+            if row.get("from") == origin.strip() and row.get("to") == destination.strip()
+        ]
+        if rows:
+            matches.append(
+                {
+                    "evidence_id": item["evidence_id"],
+                    "journeys": rows,
+                    "map": item.get("domain_reference"),
+                }
+            )
+    return {
+        "status": "known" if len(matches) == 1 else "unknown",
+        "items": matches if len(matches) == 1 else [],
+        "reason": "只有同一对明确地点的已采用行程可作为依据；缺失或同名歧义不猜测",
+    }
+
+
+async def map_object_position(
+    ctx: RunContext[AssistantToolContext], object_name: str
+) -> dict:
+    """查询当前 Scene 截止时移动对象的最后明确位置；不从档案或地图回填位置。"""
+    if not object_name.strip() or len(object_name) > 200:
+        raise ModelRetry("请提供一个明确的移动对象名称")
+    found = await map_spatial_brief(ctx, query=object_name)
+    matches = []
+    for item in found.get("items", []):
+        try:
+            payload = json.loads(item.get("snippet") or "{}")
+        except (ValueError, TypeError):
+            continue
+        rows = [
+            row
+            for row in payload.get("移动对象最后位置", [])
+            if row.get("object") == object_name.strip()
+        ]
+        if rows:
+            matches.append(
+                {
+                    "evidence_id": item["evidence_id"],
+                    "positions": rows,
+                    "map": item.get("domain_reference"),
+                }
+            )
+    return {
+        "status": "known" if len(matches) == 1 else "unknown",
+        "items": matches if len(matches) == 1 else [],
+        "reason": "仅报告当前Scene及以前有精确正文来源的最后位置；没有记录时返回未知",
+    }
+
+
 def author_read_tools(*, allow_web: bool, version: str = "2") -> list[Tool]:
     functions = [
         search_project,
@@ -808,8 +1134,80 @@ def author_read_tools(*, allow_web: bool, version: str = "2") -> list[Tool]:
     ]
     if allow_web:
         functions.extend(
-            [search_general_fact, read_web_source] if version == "3" else [research_fact]
+            [search_general_fact, read_web_source]
+            if version
+            in {
+                "3",
+                "4",
+                "5",
+                "6",
+                "7",
+                "8",
+                "9",
+                "10",
+                "11",
+                "12",
+                "13",
+                "14",
+                "15",
+                "16",
+                "17",
+            }
+            else [research_fact]
         )
-    if version == "3":
+    if version in {
+        "3",
+        "4",
+        "5",
+        "6",
+        "7",
+        "8",
+        "9",
+        "10",
+        "11",
+        "12",
+        "13",
+        "14",
+        "15",
+        "16",
+        "17",
+    }:
         functions.extend([world_page_history, review_resolution_result])
+    if version in {
+        "4",
+        "5",
+        "6",
+        "7",
+        "8",
+        "9",
+        "10",
+        "11",
+        "12",
+        "13",
+        "14",
+        "15",
+        "16",
+        "17",
+    }:
+        functions.append(project_vocabulary)
+    if version in {
+        "5",
+        "6",
+        "7",
+        "8",
+        "9",
+        "10",
+        "11",
+        "12",
+        "13",
+        "14",
+        "15",
+        "16",
+        "17",
+    }:
+        functions.append(map_spatial_brief)
+    if version in {"6", "7", "8", "9", "10", "11", "12", "13", "14", "15", "16", "17"}:
+        from modules.assistant.map_spatial_advisories import map_spatial_advisories
+
+        functions.extend([map_spatial_advisories, map_journey, map_object_position])
     return [Tool(function, sequential=True) for function in functions]

@@ -1,12 +1,12 @@
 import { afterEach, expect, it, vi } from "vitest"
-import { enableAutoUnmount, mount } from "@vue/test-utils"
+import { enableAutoUnmount, flushPromises, mount } from "@vue/test-utils"
 import { reactive } from "vue"
 import ProjectAssistant from "../../../vue/components/ProjectAssistant.vue"
 
-const mocks = vi.hoisted(() => ({ assistant: null }))
+const mocks = vi.hoisted(() => ({ assistant: null, opener: null }))
 vi.mock("../../../vue/composables/useProjectAssistant.js", () => ({ createProjectAssistant: () => mocks.assistant }))
 vi.mock("../../../vue/bridge/index.js", () => ({
-  getAssistantWorkContext: () => ({}), registerProjectAssistantOpener: () => () => {},
+  getAssistantWorkContext: () => ({}), registerProjectAssistantOpener: handler => { mocks.opener = handler; return () => { mocks.opener = null } },
   getApi: () => ({}),
   getConfirm: () => () => true,
 }))
@@ -26,4 +26,46 @@ it("only resumes within the same budget when the server permits recovery", async
   state.run.can_resume = false
   await wrapper.vm.$nextTick()
   expect(resume()).toBeUndefined()
+})
+
+it("opens the exact editorial issue selected from a notice", async () => {
+  const state = reactive({ enabled: true, messages: [], sessions: [], input: "", run: null, loading: false, busy: false })
+  mocks.assistant = { state, load: vi.fn().mockResolvedValue(), dispose: vi.fn(), setInput: vi.fn() }
+  const wrapper = mount(ProjectAssistant, {
+    props: { projectId: "p1", open: false },
+    global: {
+      stubs: {
+        ProactiveCare: true,
+        EditorialDesk: {
+          props: ["projectId", "active", "focusChapter", "focusIssueId"],
+          template: '<div class="editorial-stub">{{ focusIssueId }}</div>',
+        },
+      },
+    },
+  })
+  await wrapper.vm.$nextTick()
+  await mocks.opener({ projectId: "p1", editorial: true, chapterIndex: 3, issueId: "issue-17" })
+  await wrapper.vm.$nextTick()
+
+  expect(wrapper.get(".editorial-stub").text()).toBe("issue-17")
+  expect(wrapper.findAll(".project-assistant-tabs button").find((button) => button.text() === "编辑台").attributes("aria-pressed")).toBe("true")
+})
+
+it.each([false, true])("resolves delayed capabilities in an open panel and preserves author RP choice (%s)", async (chooseRp) => {
+  const state = reactive({ enabled: false, messages: [], sessions: [], input: "恢复的讨论草稿", run: null })
+  let completeLoad
+  mocks.assistant = { state, load: vi.fn(() => new Promise(resolve => { completeLoad = resolve })), dispose: vi.fn() }
+  const wrapper = mount(ProjectAssistant, {
+    props: { projectId: "p1", open: true },
+    global: { stubs: { ProactiveCare: true, EditorialDesk: true, GoalRunsPanel: true, InteractionAuthorPanel: true } },
+  })
+  const tab = (label) => wrapper.findAll(".project-assistant-tabs button").find(button => button.text() === label)
+  if (chooseRp) await tab("RP旅程").trigger("click")
+
+  state.enabled = true
+  completeLoad()
+  await flushPromises()
+
+  expect(tab(chooseRp ? "RP旅程" : "讨论").attributes("aria-pressed")).toBe("true")
+  if (!chooseRp) expect(wrapper.get("#assistant-input").element.value).toBe("恢复的讨论草稿")
 })

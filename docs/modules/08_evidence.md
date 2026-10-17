@@ -13,6 +13,13 @@ evidence 是小说证据的唯一领域实现：indexing 子域负责 chunk、�
 预算、confirmation、snapshot、trace 与 hidden guard。原 RAG/Context 表名和持久化 task type
 保留兼容；canonical HTTP 已收敛到 `/api/evidence/{indexing,compilation}/*`，不再存在两套服务或写入路径。
 
+Assistant v8 的三个 A1 只读目录项复用 compilation facade；`/api/assistant/operation-http/evidence/*`
+是作者范围的窄入口，不接收自报 owner、visibility 或任意前后文窗口。助手运行若携带原资料确认，
+检索只返回原确认资料，来源回读须仍处于 selected 且未 excluded/omitted 的精确范围；当前 Scene
+截止继续由冻结 WorkContext 控制。
+仅凭目标 ID 命中原确认不足以展开整对象或整草稿：有原确认时目标范围预览拒绝整目标投影，
+作者可改用精确来源回读；无确认的正常作者检索仍按当前可见范围工作。
+
 当前有两条能力线：
 
 - `index_chapter_with_report()` / `retrieve()`：维护 chunk、embedding、索引新鲜度与混合召回
@@ -87,6 +94,18 @@ author_pinned 合计超预算时返回 blocker，不静默删除作者手选资�
 reader 视角不沿用作者 section 组装：编译器只纳入公开/已揭示世界信息、
 回读 writing 且校验 hash 的正文证据与无剧情事实的风格资产。完整 Scene 卡、
 剧情线、记忆、篇章纲和包含未来伏笔的动态约束一律排除。
+
+对象简报 `POST /api/evidence/compilation/object-dossier-brief` 是独立只读 Scene 投影，
+可选台账倾向默认关闭。Story、World、Evolution 经三个只读 DI 端口提供源数据；
+`author_safe` 只读取公开档案投影，隐藏条目不参与输出指纹或省略计数；角色视角不读取作者
+checkpoint 或 Evolution，并且只显示时点事实已证明可见的档案值。
+旧 profile 字段没有时点证明时不补作历史状态；未知、失效与预算省略只影响参考覆盖，
+不降低核心 KnowledgeScope。
+Assistant v9 的 `evidence.object_dossier_brief.read` 经同一 Evidence facade 读取；
+窄 HTTP 只接受 Scene、对象与安全视角，不接受调用方指定 owner 或任意正文窗口。
+已固定的片段确认/排除范围不能据此扩读整对象。编译器的对象简报和人物倾向开关
+分别由 `OBJECT_DOSSIER_ENABLED_CAPABILITIES` 与
+`CHARACTER_PATTERN_ENABLED_CAPABILITIES` 显式设置消费能力，默认均关闭。
 
 每个 `ContextSection` 会携带审查台元数据：
 
@@ -542,6 +561,36 @@ KnowledgeScopeReceipt 来源条目新增逐源 token、处置状态（included/t
 omitted）与哈希基底标记；可得正文参与 hash，预算逐出保留真实 token 与全部
 来源。不可分多源块使用 shared token_groups，复算按 group key 去重，独立数量
 才进入 token_count。账本不保存原文；增加审计字段本身不改变确认指纹。
+
+### 参考知识维度（2026-10-15）
+
+声明参考维度的能力使用知识策略 v2 区分必查维度与参考维度；没有参考维度且语义未变化的能力
+继续使用 v1。参考维度缺失、为空、被作者排除或被预算省略时，
+写入独立 `advisory_omitted`，不进入必查 `omitted`，不影响 `scope_complete` /
+`require_scope_complete`。scope 与 audit receipt 均记录省略，作者 review payload 显示预算省略
+提示并按可见范围隐藏 source key。旧 v1 receipt 仍按旧字段与指纹回读。审查 coverage 会显示
+参考维度未检查；漏报、重复或 `checked=false` 会追加独立参考省略，只有必查维度覆盖不完整
+才降低覆盖裁决。纯参考一致性 finding 的阻断级别由服务端压为提示，但不得覆盖必查来源的
+无法核验裁决，提前揭示和越权知识仍遵守原可见性门禁。公开 coverage 来源和省略原因也按当前
+可见范围脱敏。`map_spatial` 已通过 World 只读 facade 接入七个 Evidence 消费能力；
+Assistant v5 的只读工具单独受 `assistant.turn` 开关控制。八项能力均默认关闭，
+尚未通过五题材 paired eval，代码接入不代表产品功能已开启。
+空间参考仅使用核心上下文编译后的剩余预算；精确引用排除项同时传入地图来源过滤。
+语义审查、定向返修沿用原生成确认与核心指纹，但分别读取自身开关控制的空间参考；
+地图版本变化或参考省略不使核心资料失效。
+
+C4b 增加独立 `director_reference` advisory dimension，只供作者确认中显式选择副本的
+`writing.generate` 与 `writing.targeted_revision`。能力由默认空的
+`NOVELCRAFT_DIRECTOR_REFERENCE_ENABLED_CAPABILITIES` 环境白名单控制。Evidence 经
+`EVIDENCE_READ_STORY_DIRECTOR_REFERENCES` typed port 读取 Story 的当前 Scene 副本：作者视角可见所选内容，
+character POV 只保留本人表演及有感知回执的素材，reader view 不使用。素材缺失、来源变化、POV 过滤或预算省略
+写入 `advisory_omitted` 并提示作者，不影响核心 `scope_complete`；任务冻结已确认副本，后续删除或来源漂移不会
+改写当前任务输入。参考副本不是已采用剧本，也不进入 Story basis hash。app bootstrap 已注册该 DI port。
+
+场景导演生成端重物化同一 confirmation 后，`restrict_object_dossier_brief` 将作者与各角色的独立 POV 简报
+限定在最终编译条目的身份、完整内容及来源交集内；检索元数据不证明被排除、逐出或截断的条目仍可使用。
+作者侧只使用确认后渲染的上下文，原始卡片、示例与有效期提醒不得旁路注入。回合与恢复检查点保存确认范围指纹；
+续跑与单人物重写在追加预算及模型请求前重验父回合范围，旧快照无证明或范围变化时须新建运行。
 
 ### 第一阶段整改后的读取边界
 

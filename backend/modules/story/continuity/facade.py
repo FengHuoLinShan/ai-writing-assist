@@ -11,31 +11,105 @@ from typing import Any
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from modules.story.continuity.chapter_order import StoryChapterOrderService
 from modules.story.continuity.contracts import (
     ConfirmedContinuityEventIngest,
     MemoryContinuityEvidenceContract,
     MemoryDeltaEventIngest,
     MemoryDeltaIngestResult,
 )
+from modules.story.continuity.fact_timeline import StoryFactTimelineService
 from modules.story.continuity.scene_projection import SceneMemoryProjectionService
+from modules.story.continuity.schemas import StoryFactTimelineQuery
 from modules.story.continuity.services import MemoryService
 
 _memory = MemoryService()
 _scene_memory = SceneMemoryProjectionService()
+_chapter_order = StoryChapterOrderService()
+_fact_timeline = StoryFactTimelineService()
 
 __all__ = [
+    "apply_chapter_order_bindings",
     "capture_snapshot",
     "confirm_scene_continuity_event",
+    "confirm_custom_text_state",
+    "confirm_map_declaration_state",
     "ensure_scene_checkpoints",
     "get_continuity_evidence_for_writing",
     "get_memory_panorama",
     "get_scene_checkpoints",
     "get_scene_state_view",
+    "list_fact_timeline",
+    "list_pending_chapter_order_reviews",
     "ingest_delta_events",
     "list_scene_checkpoints",
     "replace_scene_memory_events",
+    "restore_chapter_order_bindings",
     "rollback_deep_import_delta_logs_by_workflow",
+    "preview_chapter_order_bindings",
+    "preview_restore_chapter_order_bindings",
 ]
+
+
+async def list_fact_timeline(
+    db: AsyncSession,
+    novel_id: str,
+    query: StoryFactTimelineQuery,
+):
+    """Read author-visible MemoryEvent facts with an optional Scene cutoff."""
+    return await _fact_timeline.list(db, novel_id, query)
+
+
+async def preview_chapter_order_bindings(
+    db: AsyncSession,
+    novel_id: str,
+    chapter_map: dict[int, int],
+    source_versions: dict[int, list[dict[str, str]]],
+):
+    """Preview exact Story reference changes for a Writing chapter permutation."""
+    return await _chapter_order.preview(db, novel_id, chapter_map, source_versions)
+
+
+async def apply_chapter_order_bindings(
+    db: AsyncSession,
+    novel_id: str,
+    receipt_id: str,
+    chapter_map: dict[int, int],
+    source_versions: dict[int, list[dict[str, str]]],
+    expected_fingerprint: str,
+):
+    """Apply Story-owned chapter binding remaps within the caller's transaction."""
+    return await _chapter_order.apply(
+        db,
+        novel_id,
+        receipt_id,
+        chapter_map,
+        source_versions,
+        expected_fingerprint,
+    )
+
+
+async def restore_chapter_order_bindings(
+    db: AsyncSession,
+    novel_id: str,
+    receipt_id: str,
+):
+    """Restore Story bindings only while their post-reorder CAS still matches."""
+    return await _chapter_order.restore(db, novel_id, receipt_id)
+
+
+async def preview_restore_chapter_order_bindings(
+    db: AsyncSession,
+    novel_id: str,
+    receipt_id: str,
+):
+    """Check whether the Story-owned post-reorder baseline can be restored."""
+    return await _chapter_order.preview_restore(db, novel_id, receipt_id)
+
+
+async def list_pending_chapter_order_reviews(db: AsyncSession, novel_id: str):
+    """List plan anchors still unchanged since an accepted chapter reorder."""
+    return await _chapter_order.list_pending_plan_reviews(db, novel_id)
 
 
 async def get_memory_panorama(
@@ -134,6 +208,54 @@ async def confirm_scene_continuity_event(
         scene_index=scene_index,
         chapter_index=chapter_index,
         event=event,
+    )
+
+
+async def confirm_custom_text_state(
+    db: AsyncSession,
+    novel_id: str,
+    *,
+    scene_id: str,
+    entity_id: str,
+    field_key: str,
+    value: str,
+    expected_template_version_number: int,
+    idempotency_key: str,
+):
+    return await _memory.confirm_custom_text_state(
+        db,
+        novel_id,
+        scene_id=scene_id,
+        entity_id=entity_id,
+        field_key=field_key,
+        value=value,
+        expected_template_version_number=expected_template_version_number,
+        idempotency_key=idempotency_key,
+    )
+
+
+async def confirm_map_declaration_state(
+    db: AsyncSession,
+    novel_id: str,
+    *,
+    scene_id: str,
+    node_id: str,
+    revision_id: str,
+    declaration_kind: str,
+    declaration_id: str,
+    status: str,
+    idempotency_key: str,
+):
+    return await _memory.confirm_map_declaration_state(
+        db,
+        novel_id,
+        scene_id=scene_id,
+        node_id=node_id,
+        revision_id=revision_id,
+        declaration_kind=declaration_kind,
+        declaration_id=declaration_id,
+        status=status,
+        idempotency_key=idempotency_key,
     )
 
 

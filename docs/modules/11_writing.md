@@ -22,6 +22,17 @@ writing 模块拥有正文版本事实源。作者界面只区分工作稿、已
 （version_number 自增），后续自动保存原地更新它。实质变化的判定只比较
 移除 Unicode 空白后的正文；标题或纯排版修改只保存在前端本地备份，
 除非作者显式强制保存新版本。旧 published 版本不可变，保留供稳定引用。
+Assistant v8 首批在现有服务上登记标题改名、编辑准备标记、批注状态和当前草稿确定性
+冲突检查。窄 HTTP 改名与检查先预览、作者确认后按相同指纹重验；它们不接受新正文或
+章节重排，也不把编辑准备等同发布/知识边界签署。
+
+完整章节顺序现由 `POST /api/writing/chapters/order/preview` 冻结 Writing 全版本、批注与
+Story 绑定来源；`/{receipt_id}/confirm` 以预览 hash 重验并在同一事务置换正文的真实
+`chapter_index`。历史 UUID、版本号、内容 hash 和不可变事实事件保留。`history` 与
+`restore-preview` 可找回及核对回执；`/{receipt_id}/restore` 仅在重排后无新编辑或绑定
+漂移时恢复，否则返回 409。Assistant 目录中的完整重排和历史读取要求项目工作范围，
+排除资产或原 Evidence 确认限制不能借 R3 确认扩大为整书权限。
+
 API 提供四种写入模式：
 
 1. **发布草稿**（`POST /drafts`）→ 原位提升当前 draft + 自动入队 `publish_chapter` 任务；响应的 `new_version=false` 表示无实质变化且未入队；冲突快照查询/归档失败时发布仍完成，但响应带 `conflict_check_degraded=true`（冲突基线缺失，后续比对无参照）
@@ -126,6 +137,13 @@ POST   /api/writing/targeted-revisions                  # 按审查 finding（�
 GET    /api/writing/export                              # 按章序导出每章当前已采用版本（txt/md/md-zip，可选 chapter_index 单章）
 ```
 
+`writing.generate` 与 `writing.targeted_revision` 可以在 Evidence 资料确认中显式选择 Scene
+Director 保存的参考副本；targeted revision 使用自己的 `writing.targeted_revision` confirmation。
+Evidence 仅编译 `director_reference` advisory section，默认 capability 白名单为空；角色视角由 Evidence
+按本人表演和确定性感知回执过滤。缺失、来源变化、POV 不可见或预算省略只产生提示，不改变必查资料范围。
+任务入队后冻结确认时的副本，来源在任务运行期间删除或漂移时仍沿用冻结内容并追加警告。候选 provenance
+记录所选/纳入/省略状态；参考副本不属于 adopted scripts，不进入 Scene 执行合同或 story basis hash。
+
 公开演示的 `demo_readonly` principal 只能读取 `published` 章节列表与按章最新正文；显式白名单投影仅含章号、标题、正文和读者可见字数，不含 raw ID、内部状态、时间戳、provenance、冲突快照或作者状态。未发布章节不进列表，draft ID、版本历史与原参考范围 `regeneration-context` 均不对公开演示开放。
 
 ## 稳定原文引用
@@ -178,6 +196,16 @@ AI 能力是显式追加流程，不替代规则层结果：
 - 正文生成、整体验证和单条建议的官方前端提交前保存 operation receipt；刷新后只查询原
   task，404 提示重新开始且不自动重放。任务结果原位更新进度/候选/检查区，不覆盖作者期间
   的正文输入、筛选、焦点或滚动。
+
+### Unified notice adapter (ADR-0040 §13)
+
+The `writing.conflict` provider projects saved rule/AI check items and statuses, stale saved-body
+bases, degraded checks, and the existing G8b `map_staleness` result. The `writing.invalidation`
+provider reads the existing author-language `WritingRecomputeService.list_pending_notices()` view.
+They preserve the domain check and invalidation records as the sources of truth. The server does not
+include the unsaved editor buffer in a saved-body check; the editor keeps its local dirty/stale
+indicator. G8a Evolution map-atlas source checks remain a separate provider and are not included in
+this Writing adapter.
 
 ## AI 正文建议与采用
 
@@ -325,6 +353,8 @@ AI candidate 必须复验原 confirmation、正文和 world 来源；人工稿�
 所有 working/published 写入和回退经仓储统一通知 Context、working/canonical 索引及演化/Story
 失效；包括助手应用、创意采用、协作和导入入口。候选未采用时不触发。传播失败回滚正文事务，
 不会显示假保存；作者确认与原回执保留，重算只标 recompute_required，不自动支付模型调用。
+完整章节重排与恢复同样在各自事务内移动绑定草稿的冲突检查，旧检查在章号不符时只提示重检；
+逐个标记变动章节两种内容模式的索引待重建，并使引用原草稿的 Context 确认过期。
 
 ## 交给编辑看
 

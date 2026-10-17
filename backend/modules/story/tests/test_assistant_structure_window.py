@@ -265,7 +265,7 @@ async def test_rolling_layers_adopt_with_fresh_confirmations_and_actual_domain_w
     db, nid = db_session, test_project_id
     context, _ = await _prepared_context(db, nid)
     artifacts = {"rolling_decision": {"accepted": True, "at_chapter": 1, "window": 3}}
-    run = SimpleNamespace(id=uuid.uuid4())
+    run = SimpleNamespace(id=uuid.uuid4(), session_id=None)
     plan_operation = story_structure_operations["story.plan_structure"]
     adopt_operation = story_structure_operations["story.adopt_structure"]
     contexts = []

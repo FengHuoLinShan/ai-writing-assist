@@ -46,8 +46,14 @@ async def _update_preview(db, novel_id, args, *, context=None):
     patch = AuthorTaskPatchRequest.model_validate(args.changes)
     if patch.source:
         await AuthorTaskService()._require_source(db, novel_id, patch.source)
-    before = {key: getattr(task, key) for key in ("title", "note", "due_date", "status")}
+    before = {
+        key: getattr(task, key)
+        for key in ("title", "note", "due_date", "status", "completed_at")
+    }
     before["due_date"] = task.due_date.isoformat() if task.due_date else None
+    before["completed_at"] = (
+        task.completed_at.isoformat() if task.completed_at else None
+    )
     before["source"] = (
         {"kind": task.source_kind, "id": task.source_id} if task.source_kind else None
     )

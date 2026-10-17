@@ -76,6 +76,8 @@ class EvolutionSceneStepRequest(EvolutionSourceRange):
     enrichment_version: Literal[0, 1] = 0
     world_version: Literal[0, 1, 2, 3] = 0
     discovery_version: Literal[0, 1, 2] = 0
+    spatial_version: Literal[0, 1] = 0
+    source_content_mode: Literal["working", "canonical"] | None = None
 
 
 @task_handler(
@@ -398,6 +400,12 @@ async def _execute_scene_step(db: AsyncSession, task) -> dict[str, Any]:
                 )
             )
 
+        from modules.evolution.optional_scene import apply_spatial_result
+
+        spatial_pending = await apply_spatial_result(
+            db_session, store, frozen, request.novel_id
+        )
+
         events = [
             {**event, "source": "evolution"}
             for event in (frozen.payload or {}).get("scene_events") or []
@@ -413,7 +421,11 @@ async def _execute_scene_step(db: AsyncSession, task) -> dict[str, Any]:
         )
         from modules.evolution.discovery import apply_discovery
 
-        discovery_pending = await apply_discovery(db_session, store, frozen)
+        discovery_pending = (
+            []
+            if frozen.payload.get("optional_stage_version") == 1
+            else await apply_discovery(db_session, store, frozen)
+        )
         from modules.evolution.pipeline import scene_state_fingerprint
 
         committed_frozen = await store.load_frozen(frozen.run_id, frozen.attempt_id)
@@ -441,6 +453,7 @@ async def _execute_scene_step(db: AsyncSession, task) -> dict[str, Any]:
             )
             + enrichment_pending
             + world_result["pending"]
+            + spatial_pending
             + [
                 "discovery_requires_decision"
                 for item in discovery_pending
@@ -483,6 +496,16 @@ async def _execute_scene_step(db: AsyncSession, task) -> dict[str, Any]:
             raise CommitConflictError(
                 "request_changed", "receipt belongs to another scene"
             )
+        from modules.evolution.optional_scene import finish_committed_optional_steps
+
+        await db.commit()
+        await finish_committed_optional_steps(
+            db,
+            store,
+            frozen,
+            binding,
+            SceneMethodCaller(db, request, run.llm_snapshot_json),
+        )
         return {
             "run_key": request.run_key,
             "attempt_id": committed.attempt_id,
@@ -509,6 +532,7 @@ async def _execute_scene_step(db: AsyncSession, task) -> dict[str, Any]:
         scene_index=request.scene_index,
         applier=applier,
         identity_candidates=exact_name_candidate_lookup(db),
+        content_mode=request.source_content_mode or "working",
         source_manifest_hash=request_hash,
         scene_id=request.scene_id,
         state_reviewer=review_states,
@@ -545,11 +569,14 @@ async def _execute_scene_step(db: AsyncSession, task) -> dict[str, Any]:
             sampler=sampler,
             applier=applier,
             identity_candidates=exact_name_candidate_lookup(db),
+            content_mode=request.source_content_mode or "working",
+            source_content_mode=request.source_content_mode,
             state_review_version=request.state_review_version,
             state_reviewer=review_states,
             enrichment_version=1 if enrich else 0,
             world_version=request.world_version,
             discovery_version=request.discovery_version,
+            spatial_version=request.spatial_version,
             scene_card=card if enrich else None,
             scene_method_caller=call_scene_method,
         )
@@ -579,7 +606,13 @@ async def enqueue_evolution_scene_step(
         require_understanding_writer,
     )
 
-    meta = request.model_dump(mode="json")
+    meta = request.model_dump(
+        mode="json",
+        exclude={
+            *({"spatial_version"} if request.spatial_version == 0 else set()),
+            *({"source_content_mode"} if request.source_content_mode is None else set()),
+        },
+    )
     if request.execution_mode == "live":
         meta["_understanding_owner"] = await require_understanding_writer(
             db, request.novel_id, engine="evolution"
@@ -639,5 +672,18 @@ async def handle_world_audit_supplement(db, task):
 )
 async def handle_category_rescan(db, task):
     from modules.evolution.category_rescan import handle_category_rescan as execute
+
+    return await execute(db, task)
+
+
+@task_handler(
+    "evolution_spatial_rescan_v1",
+    recovery_policy="manual_resume",
+    root_capability_id="evolution.spatial_discover",
+    run_budget_policy=task_budget_policy,
+    run_request_limit=task_request_limit,
+)
+async def handle_spatial_rescan(db, task):
+    from modules.evolution.spatial_rescan import handle_spatial_rescan as execute
 
     return await execute(db, task)

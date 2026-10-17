@@ -12,11 +12,17 @@ import uuid
 
 from core.container import get
 from core.service_keys import WORLD_GET_CHARACTER_ID_BY_WORLD_ENTITY
-from infrastructure.llm.collaboration import content_hash
 from infrastructure.stable_hash import stable_hash
 from modules.story.continuity.scene_state_view import SceneStateViewService
 from modules.story.contracts import SceneStateTrialRequest
-from modules.story.observations import ResolutionBatch, StateDelta, replay_batch
+from modules.story.simulation_v3 import (
+    FiniteOutcome,
+    FiniteResolution,
+    SimulationIntent,
+    SimulationReference,
+    replay_batch,
+    resolve_simulation_v3,
+)
 
 
 def _condition_source_status(source: object) -> str | None:
@@ -283,38 +289,54 @@ async def compare_scene_state_trial(
         # P2-A 判决理由：exact 精确回指、unverified/conflict 显式降级；
         # 三值裁决本身只看条件 met/unmet/unknown，不受来源状态影响。
         verdict_reason = _verdict_reasons(conditions)
-        patches = []
-        if verdict == "succeeded" and request.action == "transfer_key":
-            patches.append(
-                StateDelta(
-                    kind="resource_holder",
-                    key=key_id,
-                    before=state["resource_holders"][key_id],
-                    after=str(request.recipient_id),
-                )
-            )
-        batch = ResolutionBatch(
-            base_state_revision=0,
-            base_state_hash=content_hash(state),
-            intents_hash=stable_hash(
-                request.model_dump(mode="json", exclude={"comparison_digest"})
+        intent = SimulationIntent(
+            intent_id="scene-state-trial",
+            mode="state_trial",
+            actor=SimulationReference(kind="object", id=actor),
+            kind=request.action,
+            action=request.action,
+            effect="resource_transfer" if request.action == "transfer_key" else "none",
+            visibility="private",
+            resource=(
+                SimulationReference(kind="object", id=key_id)
+                if request.action == "transfer_key"
+                else None
             ),
-            rule_revision=stable_hash("scene-key-lock-v1"),
-            events=[
-                {
-                    "actor_id": actor,
-                    "kind": request.action,
-                    "outcome": verdict,
-                    "truth": "simulated_outcome",
-                }
-            ],
-            state_patches=patches,
-            unresolved_outcomes=[actor] if verdict == "uncertain" else [],
+            recipient=(
+                SimulationReference(kind="object", id=str(request.recipient_id))
+                if request.action == "transfer_key"
+                else None
+            ),
+            record_observation=False,
+        )
+        def object_key(value: str) -> str:
+            return SimulationReference(kind="object", id=value).state_key
+
+        simulation_state = {
+            **state,
+            "resource_holders": {
+                object_key(resource): object_key(holder) if holder is not None else None
+                for resource, holder in state["resource_holders"].items()
+            },
+        }
+        batch = resolve_simulation_v3(
+            [intent],
+            FiniteResolution(
+                outcomes=[FiniteOutcome(intent_id=intent.intent_id, outcome=verdict)]
+            ),
+            simulation_state,
+            observers={intent.actor.state_key},
+            rule_revision=stable_hash("scene-key-lock-v2:simulation_v3"),
             assumptions=["给定依据和假设下的条件比较，不是已经发生的事件。"],
         )
-        # observation协议使用content_hash；只在候选内存重放，零事件写入。
-
-        replayed = replay_batch(state, batch)
+        # 只在候选内存重放；HTTP 状态试验不写 continuity、World 或正文。
+        replayed = replay_batch(simulation_state, batch)
+        replayed["resource_holders"] = {
+            resource.removeprefix("object:"): holder.removeprefix("object:")
+            if isinstance(holder, str) and holder.startswith("object:")
+            else holder
+            for resource, holder in replayed["resource_holders"].items()
+        }
         return {
             "outcome": verdict,
             "conditions": conditions,

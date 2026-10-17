@@ -318,10 +318,28 @@ async def finish_preparation(db, novel_id, run):
         selected,
         prep["start_scene_index"],
         [source["chapter_index"] for source in prep["sources"]],
+        include_source_content_mode=(run.reading_plan_json.get("spatial_version") == 1),
     )
+    mandatory_scene_calls = run.reading_plan_json.get("mandatory_scene_calls", [])
+    if run.reading_plan_json.get("spatial_version") == 1:
+        from modules.evolution.workflow import _mandatory_scene_call_specs
+
+        indexed = {int(item["scene_index"]): item for item in mandatory_scene_calls}
+        indexed.update(
+            {
+                int(item["scene_index"]): item
+                for item in _mandatory_scene_call_specs(selected, run.reading_plan_json)
+            }
+        )
+        mandatory_scene_calls = [indexed[key] for key in sorted(indexed)]
     run.reading_plan_json = {
         **run.reading_plan_json,
         "steps": [*run.reading_plan_json["steps"], *steps],
+        **(
+            {"mandatory_scene_calls": mandatory_scene_calls}
+            if run.reading_plan_json.get("spatial_version") == 1
+            else {}
+        ),
         "preparation": {**prep, "stage": "complete"},
     }
     await db.flush()

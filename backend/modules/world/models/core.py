@@ -324,6 +324,12 @@ class EntityRelation(Base, UUIDMixin, TimestampMixin, NovelMixin):
         default=dict,
         comment="人工复核审计元数据",
     )
+    validity_json: Mapped[dict | None] = mapped_column(
+        JSON,
+        nullable=True,
+        default=None,
+        comment="作者声明的关系生效 Scene/章节区间",
+    )
     status: Mapped[str] = mapped_column(
         String(16),
         nullable=False,

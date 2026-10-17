@@ -16,6 +16,7 @@ project 模块负责统一项目隔离根。作者项目使用 `project_kind=aut
 - 管理目标规模（字数/章节数）和当前创作阶段
 - 提供 `novel_id` / `project_id`
 - 提供项目级默认策略（如 `default_reveal_policy`）
+- 保存“允许剧情覆盖作者有效期”项目开关，默认关闭；显式开启只改变 World 档案、关系与地图有效期的截止点读取，不改写 Story 或作者历史
 - 管理项目作者偏好覆盖，并组合 account 默认与项目覆盖形成 effective 配置
 - 在 `projects.settings.editorial_brief_v1` 保存作者确认的版本化编辑约定；`GET/PUT /api/projects/{id}/editorial-brief` 读写，PUT 用 `expected_version` 校验并发。公开只读演示源不能写入，模型意见和单次忽略不会自动更新约定。「也用于 AI 写作」开关（默认关闭）经 `/editorial-brief/for-writing` 读写，开启后约定进入 writing 确认上下文；`GET /ai-usage` 为 owner 次级诊断聚合窗口期 AI 用量，并经 Evidence 只读缝按作品成果归因（已采用 / 待处理 / 未采用返修 / 失败恢复 / 辅助消耗，BR-7），未知用量逐桶单列。
 - 根据项目 owner 打开账户级文本与图片连接；项目只保留非 secret 工作流设置和可恢复 snapshot
@@ -194,6 +195,8 @@ deep-import 快照在提交时已将项目值、环境覆盖和代码默认
 | GET | `/api/projects/llm/provider-templates` | LLM 供应商模板 |
 | GET | `/api/projects/{project_id}/llm-settings` | 兼容读取项目非 secret LLM/深度导入设置 |
 | PUT | `/api/projects/{project_id}/llm-settings` | 兼容更新非 secret 项目设置；Key 写入被拒绝 |
+| GET | `/api/projects/{project_id}/object-dossier-settings` | 读取作者有效期剧情覆盖开关（默认关闭） |
+| PUT | `/api/projects/{project_id}/object-dossier-settings` | 以 `expected_version` 并发保护更新该开关；只影响读取，不修改历史 |
 | GET/PUT/DELETE | `/api/projects/{project_id}/author-preferences` | 项目作者偏好覆盖的 canonical 路径 |
 | GET | `/api/projects/{project_id}/effective-llm-settings` | 账户连接与项目工作流设置的有效投影 |
 | GET | `/api/projects/{project_id}/effective-author-preferences` | 项目、全局与系统作者偏好的有效投影 |

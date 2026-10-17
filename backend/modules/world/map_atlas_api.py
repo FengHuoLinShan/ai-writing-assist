@@ -30,6 +30,16 @@ from modules.world.map_atlas_schemas import (
 )
 from modules.world.map_atlas_service import MapAtlasService, parse_reference_page_ids
 from modules.world.map_atlas_storage import MAX_IMAGE_BYTES
+from modules.world.map_auto_draft_api import router as _auto_draft_router
+from modules.world.map_node_merge import (
+    MapNodeMergeApplyRequest,
+    MapNodeMergePreview,
+    MapNodeMergePreviewRequest,
+    MapNodeMergeService,
+    MapNodeMergeUndoPreview,
+    MapNodeMergeUndoRequest,
+)
+from modules.world.map_spatial_clue_api import router as _spatial_clue_router
 from modules.world.map_structure_schemas import (
     MapGenerateRequest,
     MapLayoutResponse,
@@ -50,6 +60,7 @@ from modules.world.map_structure_service import MapStructureService
 router = APIRouter(prefix="/api/world/map-atlas", tags=["world-map-atlas"])
 _service = MapAtlasService()
 _structure = MapStructureService()
+_node_merge = MapNodeMergeService()
 
 
 @router.get("/capabilities")
@@ -96,6 +107,40 @@ async def get_map_links(
             limit=limit,
         ),
     )
+
+
+@router.post("/{novel_id}/nodes/merge-preview", response_model=MapNodeMergePreview)
+async def preview_map_node_merge(
+    db: DbSession, novel_id: ActiveNovelId, data: MapNodeMergePreviewRequest
+):
+    return await _node_merge.preview(
+        db, novel_id, data.source_node_id, data.target_node_id
+    )
+
+
+@router.post("/{novel_id}/nodes/merge", status_code=201)
+async def merge_map_nodes(
+    db: DbSession, novel_id: ActiveNovelId, data: MapNodeMergeApplyRequest
+):
+    return await _node_merge.apply(db, novel_id, data)
+
+
+@router.post(
+    "/{novel_id}/nodes/merge-undo-preview", response_model=MapNodeMergeUndoPreview
+)
+async def preview_map_node_merge_undo(
+    db: DbSession, novel_id: ActiveNovelId, data: MapNodeMergePreviewRequest
+):
+    return await _node_merge.preview_undo(
+        db, novel_id, data.source_node_id, data.target_node_id
+    )
+
+
+@router.post("/{novel_id}/nodes/merge-undo")
+async def undo_map_node_merge(
+    db: DbSession, novel_id: ActiveNovelId, data: MapNodeMergeUndoRequest
+):
+    return await _node_merge.undo(db, novel_id, data)
 
 
 @router.get("/{novel_id}/nodes/{node_id}/map", response_model=MapNodeMapResponse)
@@ -576,3 +621,7 @@ async def read_page_image(db: DbSession, novel_id: ActiveNovelId, page_id: str):
             "X-Content-Type-Options": "nosniff",
         },
     )
+
+
+router.include_router(_spatial_clue_router)
+router.include_router(_auto_draft_router)

@@ -1,15 +1,31 @@
 from copy import deepcopy
 
 import pytest
+from pydantic import ValidationError
 
 from modules.story.observations import (
     InputStimulus,
+    ObservationIntent,
+    ResolutionBatch,
     ResolutionProposal,
     observe_stimuli,
     replay_batch,
     resolve_batch,
 )
 from modules.story.simulation import ActionIntent
+
+GOLDEN_BASE_STATE_HASH = (
+    "1d0fae5ef5d3615330e409faad20400"
+    "4019eaca34872d882d1820deb6c6d23e7"
+)
+GOLDEN_INTENTS_HASH = (
+    "0150d7cccac6efffe315e4098e97cb38"
+    "d7439e81cfe0fd76d59d9505d32cb4c4"
+)
+GOLDEN_EVENT_ID = (
+    "afed6d44030a6bdcd7e23ff4b2362268"
+    "99294e3ad41bc2e42568ce3a6282917d"
+)
 
 
 def test_player_speech_action_and_out_of_scene_instruction_remain_distinct():
@@ -221,3 +237,138 @@ def test_unresolved_player_claim_cannot_be_promoted_by_resolver():
         rule_revision="a" * 64,
     )
     assert batch.unresolved_outcomes == ["player"]
+
+
+def test_observation_v2_replay_golden_for_existing_rp_round():
+    """Freeze the pre-v3 observer batch and replay bytes for existing RP runs."""
+    state = {
+        "revision": 0,
+        "resource_holders": {"key-1": "actor-2"},
+        "locations": {"actor-1": "hall"},
+        "location_catalog": ["hall"],
+        "routes": [],
+        "observations": {},
+        "departed": [],
+    }
+    batch = resolve_batch(
+        {
+            "actor-1": ObservationIntent(
+                kind="act", action="取钥匙", resource_key="key-1"
+            )
+        },
+        ResolutionProposal(
+            outcomes=[{"actor_id": "actor-1", "outcome": "succeeded"}]
+        ),
+        state,
+        observers={"actor-1", "actor-2"},
+        rule_revision="a" * 64,
+    )
+    replayed = replay_batch(state, batch)
+
+    assert batch.model_dump(mode="json") == {
+        "protocol": "observation_v2",
+        "base_state_revision": 0,
+        "base_state_hash": GOLDEN_BASE_STATE_HASH,
+        "intents_hash": GOLDEN_INTENTS_HASH,
+        "rule_revision": "a" * 64,
+        "events": [
+            {
+                "actor_id": "actor-1",
+                "event_type": "resolved_action",
+                "kind": "act",
+                "action": "取钥匙",
+                "outcome": "succeeded",
+                "visibility": "public",
+                "observers": ["actor-1", "actor-2"],
+                "truth": "simulated_outcome",
+                "event_id": GOLDEN_EVENT_ID,
+            }
+        ],
+        "state_patches": [
+            {
+                "kind": "observation",
+                "key": "actor-1",
+                "before": None,
+                "after": {
+                    "actor_id": "actor-1",
+                    "event_type": "resolved_action",
+                    "kind": "act",
+                    "action": "取钥匙",
+                    "outcome": "succeeded",
+                    "visibility": "public",
+                    "truth": "simulated_outcome",
+                    "event_id": GOLDEN_EVENT_ID,
+                },
+            },
+            {
+                "kind": "observation",
+                "key": "actor-2",
+                "before": None,
+                "after": {
+                    "actor_id": "actor-1",
+                    "event_type": "resolved_action",
+                    "kind": "act",
+                    "action": "取钥匙",
+                    "outcome": "succeeded",
+                    "visibility": "public",
+                    "truth": "simulated_outcome",
+                    "event_id": GOLDEN_EVENT_ID,
+                },
+            },
+            {
+                "kind": "resource_holder",
+                "key": "key-1",
+                "before": "actor-2",
+                "after": "actor-1",
+            },
+        ],
+        "unresolved_outcomes": [],
+        "assumptions": ["这是给定资料与规则下的一次模拟裁决，不是事实证明。"],
+    }
+    assert replayed == {
+        "revision": 1,
+        "resource_holders": {"key-1": "actor-1"},
+        "locations": {"actor-1": "hall"},
+        "location_catalog": ["hall"],
+        "routes": [],
+        "observations": {
+            "actor-1": [
+                {
+                    "actor_id": "actor-1",
+                    "event_type": "resolved_action",
+                    "kind": "act",
+                    "action": "取钥匙",
+                    "outcome": "succeeded",
+                    "visibility": "public",
+                    "truth": "simulated_outcome",
+                    "event_id": GOLDEN_EVENT_ID,
+                }
+            ],
+            "actor-2": [
+                {
+                    "actor_id": "actor-1",
+                    "event_type": "resolved_action",
+                    "kind": "act",
+                    "action": "取钥匙",
+                    "outcome": "succeeded",
+                    "visibility": "public",
+                    "truth": "simulated_outcome",
+                    "event_id": GOLDEN_EVENT_ID,
+                }
+            ],
+        },
+        "departed": [],
+    }
+
+
+def test_observation_v2_resolution_batch_keeps_its_historical_limit():
+    data = {
+        "protocol": "observation_v2",
+        "base_state_revision": 0,
+        "base_state_hash": "a" * 64,
+        "intents_hash": "b" * 64,
+        "rule_revision": "c" * 64,
+        "events": [{} for _ in range(17)],
+    }
+    with pytest.raises(ValidationError, match="observation_v2 batch"):
+        ResolutionBatch.model_validate(data)

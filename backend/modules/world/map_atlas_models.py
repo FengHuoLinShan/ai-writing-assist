@@ -92,6 +92,16 @@ class MapAtlasNode(Base, UUIDMixin, TimestampMixin, NovelMixin):
         ),
         UniqueConstraint("novel_id", "id", name="uq_map_atlas_nodes_novel_id"),
         ForeignKeyConstraint(
+            ["novel_id", "merged_into_node_id"],
+            ["map_atlas_nodes.novel_id", "map_atlas_nodes.id"],
+            name="fk_map_atlas_node_merged_into_same_novel",
+            ondelete="RESTRICT",
+        ),
+        CheckConstraint(
+            "merged_into_node_id IS NULL OR merged_into_node_id <> id",
+            name="ck_map_atlas_node_not_merged_into_self",
+        ),
+        ForeignKeyConstraint(
             ["novel_id", "id", "current_revision_id"],
             [
                 "map_atlas_revisions.novel_id",
@@ -112,12 +122,26 @@ class MapAtlasNode(Base, UUIDMixin, TimestampMixin, NovelMixin):
             "status IN ('provisional', 'adopted')",
             name="ck_map_atlas_nodes_status",
         ),
+        CheckConstraint(
+            "(level_type_ref IS NULL) = (level_type_revision_id IS NULL)",
+            name="ck_map_node_level_type_pair",
+        ),
+        ForeignKeyConstraint(
+            ["novel_id", "level_type_ref", "level_type_revision_id"],
+            [
+                "project_vocabulary_revisions.novel_id",
+                "project_vocabulary_revisions.term_id",
+                "project_vocabulary_revisions.id",
+            ],
+            name="fk_map_node_level_type_revision",
+        ),
         Index(
             "ix_map_atlas_nodes_novel_parent_order",
             "novel_id",
             "parent_id",
             "sort_order",
         ),
+        Index("ix_map_atlas_nodes_merge_target", "novel_id", "merged_into_node_id"),
     )
 
     created_by_run_id: Mapped[uuid.UUID | None] = mapped_column(
@@ -136,6 +160,8 @@ class MapAtlasNode(Base, UUIDMixin, TimestampMixin, NovelMixin):
         nullable=True,
         index=True,
     )
+    merged_into_node_id: Mapped[uuid.UUID | None] = mapped_column(UUIDType, nullable=True)
+    merge_metadata: Mapped[dict | None] = mapped_column(JSON, nullable=True)
     location_entity_id: Mapped[uuid.UUID | None] = mapped_column(
         UUIDType,
         ForeignKey("core_entities.id", ondelete="SET NULL"),
@@ -145,6 +171,10 @@ class MapAtlasNode(Base, UUIDMixin, TimestampMixin, NovelMixin):
     semantic_key: Mapped[str] = mapped_column(String(255), nullable=False)
     title: Mapped[str] = mapped_column(String(255), nullable=False)
     level: Mapped[str] = mapped_column(String(16), nullable=False, index=True)
+    level_type_ref: Mapped[uuid.UUID | None] = mapped_column(UUIDType, nullable=True)
+    level_type_revision_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUIDType, nullable=True
+    )
     status: Mapped[str] = mapped_column(
         String(16), nullable=False, default="provisional", index=True
     )
@@ -289,7 +319,8 @@ class MapAtlasRevision(Base, UUIDMixin, TimestampMixin, NovelMixin):
             name="fk_map_revision_node",
         ),
         CheckConstraint(
-            "status IN ('candidate', 'saved', 'rejected')", name="ck_map_revision_status"
+            "status IN ('candidate', 'saved', 'rejected', 'superseded')",
+            name="ck_map_revision_status",
         ),
         CheckConstraint(
             "writing_chapter_index IS NULL OR writing_chapter_index >= 0",

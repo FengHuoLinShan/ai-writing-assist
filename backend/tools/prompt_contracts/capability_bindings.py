@@ -109,6 +109,8 @@ CAPABILITY_BINDINGS: dict[str, tuple[str, ...]] = {
     ),
     "modules/story/outline_state/structure_dedup.py": ("story.structure_dedup",),
     "modules/story/outline_state/scene_fusion_draft.py": ("story.scene_fusion",),
+    "modules/story/director_tasks.py": ("story.scene_director",),
+    "modules/story/world_progression_tasks.py": ("story.world_progression",),
     # Imports
     "modules/imports/workflow_scene_phase.py": (
         "imports.scene_plan",
@@ -127,6 +129,10 @@ CAPABILITY_BINDINGS: dict[str, tuple[str, ...]] = {
     "modules/evolution/llm_sampler.py": (
         "evolution.scene_observe",
         "evolution.state_review",
+        "evolution.details_discover",
+        "evolution.details_review",
+        "evolution.spatial_discover",
+        "evolution.spatial_review",
         "imports.scene_enrichment",
         "imports.entity_extraction",
         "imports.structure_analysis",
@@ -175,6 +181,7 @@ CAPABILITY_BINDINGS: dict[str, tuple[str, ...]] = {
     "modules/world/team_stress.py": ("assistant.turn", "world.team_stress"),
     # Assistant
     "modules/assistant/service.py": ("assistant.turn",),
+    "modules/assistant/goal_runs/service.py": ("assistant.goal.plan",),
     "modules/assistant/evidence_tools.py": ("assistant.turn",),
     # Evidence 内部 helper（登记为基础设施豁免能力）
     "modules/evidence/compilation/services/retrieval_query_planner.py": (

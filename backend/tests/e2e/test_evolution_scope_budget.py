@@ -120,7 +120,25 @@ def migrate(direction, revision):
     )
 
 
-async def test_migration_keeps_legacy_quota_and_refuses_null_downgrade():
+@pytest.fixture
+def scope_budget_migration_database(monkeypatch):
+    from tests.e2e.test_00_fresh_migrations import _disposable_database
+
+    # Retained dossier history from other tests must keep blocking downgrade.
+    with _disposable_database() as (url, _engine):
+        monkeypatch.setattr(
+            sys.modules[__name__],
+            "DATABASE_URL",
+            url.render_as_string(hide_password=False),
+        )
+        result = migrate("upgrade", "head")
+        assert result.returncode == 0, result.stderr
+        yield
+
+
+async def test_migration_keeps_legacy_quota_and_refuses_null_downgrade(
+    scope_budget_migration_database,
+):
     engine = create_async_engine(DATABASE_URL, pool_size=1, max_overflow=0)
     sessions = async_sessionmaker(engine, expire_on_commit=False)
     nid = uuid4()
@@ -152,6 +170,11 @@ async def test_migration_keeps_legacy_quota_and_refuses_null_downgrade():
             )
             run.reading_plan_json = {"budget_mode": "confirmed_scope"}
             await db.commit()
+            # Later migrations share the downgrade transaction. A refused
+            # budget downgrade must preserve the head present before it began.
+            version_before = await db.scalar(
+                text("SELECT version_num FROM alembic_version")
+            )
         result = await asyncio.to_thread(
             migrate, "downgrade", "20261013_delta_category_text"
         )
@@ -159,7 +182,7 @@ async def test_migration_keeps_legacy_quota_and_refuses_null_downgrade():
         async with sessions() as db:
             assert (
                 await db.execute(text("SELECT version_num FROM alembic_version"))
-            ).scalar_one() == "20261014_model_scope_budget"
+            ).scalar_one() == version_before
             assert (
                 await PostgresAttemptStore(db, str(nid)).load_run("scope")
             ).budget_remaining is None

@@ -79,7 +79,7 @@ function readStoredDraft(projectId, sceneId) {
       notes: parsed.notes && typeof parsed.notes === "object" ? Object.fromEntries(
         Object.entries(parsed.notes).slice(0, 24).map(([key, value]) => [String(key), String(value || "").slice(0, 4000)]),
       ) : {},
-      backupComplete: true,
+      backupComplete: parsed.backupComplete !== false,
       updatedAt: parsed.updatedAt || null,
     }
   } catch {
@@ -126,7 +126,7 @@ function asSerializableSimulation(simulation) {
     sourceTaskId: typeof simulation.sourceTaskId === "string" ? simulation.sourceTaskId.slice(0, 120) : null,
     contextSnapshotId: typeof simulation.contextSnapshotId === "string" ? simulation.contextSnapshotId.slice(0, 160) : null,
     reactions: Array.isArray(simulation.reactions)
-      ? simulation.reactions.slice(0, 24).map((item) => ({
+      ? simulation.reactions.map((item) => ({
         id: String(item?.id || "").slice(0, 120),
         characterId: String(item?.characterId || "").slice(0, 120),
         name: String(item?.name || "人物").slice(0, 120),
@@ -143,6 +143,33 @@ function asSerializableSimulation(simulation) {
         confidence: Number(item?.confidence || 0),
         knowledgeBasis: Array.isArray(item?.knowledgeBasis) ? item.knowledgeBasis.slice(0, 20).map((value) => String(value).slice(0, 240)) : [],
         alternatives: Array.isArray(item?.alternatives) ? item.alternatives.slice(0, 8).map((value) => String(value).slice(0, 240)) : [],
+        ...(item?.schemaVersion === "story.reaction.v2" && item?.selectedPerformance ? {
+          schemaVersion: "story.reaction.v2",
+          optionId: String(item.optionId || "").slice(0, 64),
+          fullInternalPressure: String(item.fullInternalPressure || "").slice(0, 12000),
+          motivation: String(item.motivation || "").slice(0, 12000),
+          facialExpression: String(item.facialExpression || "").slice(0, 12000),
+          bodyLanguage: String(item.bodyLanguage || "").slice(0, 12000),
+          innerResponse: String(item.innerResponse || "").slice(0, 12000),
+          attention: String(item.attention || "").slice(0, 12000),
+          change: String(item.change || "").slice(0, 12000),
+          sourceFactIds: (item.sourceFactIds || []).slice(0, 16).map((value) => String(value).slice(0, 200)),
+          sourcePatternIds: (item.sourcePatternIds || []).slice(0, 8).map((value) => String(value).slice(0, 200)),
+          selectedPerformance: {
+            option_id: String(item.selectedPerformance.option_id || "").slice(0, 64),
+            motivation: String(item.selectedPerformance.motivation || "").slice(0, 12000),
+            source_fact_ids: (item.selectedPerformance.source_fact_ids || []).slice(0, 16).map((value) => String(value).slice(0, 200)),
+            source_pattern_ids: (item.selectedPerformance.source_pattern_ids || []).slice(0, 8).map((value) => String(value).slice(0, 200)),
+            action: String(item.selectedPerformance.action || "").slice(0, 12000),
+            facial_expression: String(item.selectedPerformance.facial_expression || "").slice(0, 12000),
+            body_language: String(item.selectedPerformance.body_language || "").slice(0, 12000),
+            voice_and_dialogue: String(item.selectedPerformance.voice_and_dialogue || "").slice(0, 12000),
+            inner_response: String(item.selectedPerformance.inner_response || "").slice(0, 12000),
+            attention: String(item.selectedPerformance.attention || "").slice(0, 12000),
+            change: String(item.selectedPerformance.change || "").slice(0, 12000),
+            confidence: Number(item.selectedPerformance.confidence || 0),
+          },
+        } : {}),
         status: ["candidate", "kept", "rejected"].includes(item?.status) ? item.status : "candidate",
       }))
       : [],
@@ -163,37 +190,22 @@ function asSerializableSimulation(simulation) {
 }
 
 function serializedDraftWithinLimit(next) {
-  const serialized = JSON.stringify(next)
-  if (serialized.length <= MAX_DRAFT_BYTES) return serialized
+  const serialized = JSON.stringify({ ...next, backupComplete: true })
+  if (serialized.length <= MAX_DRAFT_BYTES) return { serialized, complete: true }
 
-  const bounded = {
-    ...next,
-    scriptDrafts: {},
-    simulation: next.simulation
-      ? asSerializableSimulation({ ...next.simulation, reactions: [] })
-      : null,
-  }
-  if (JSON.stringify(bounded).length > MAX_DRAFT_BYTES) {
-    bounded.simulation = null
-    bounded.scriptPreview = null
-  }
-  if (JSON.stringify(bounded).length > MAX_DRAFT_BYTES) bounded.notes = {}
-
+  // Keep reaction choices intact. If all current content cannot fit, leave the
+  // last backup untouched and report that only the in-memory draft is current.
+  const bounded = { ...next, scriptDrafts: {}, backupComplete: false }
   let output = JSON.stringify(bounded)
-  if (output.length > MAX_DRAFT_BYTES) {
-    const overflow = output.length - MAX_DRAFT_BYTES
-    bounded.scriptDraft = bounded.scriptDraft.slice(0, Math.max(0, bounded.scriptDraft.length - overflow - 1))
-    output = JSON.stringify(bounded)
-  }
-
+  if (output.length > MAX_DRAFT_BYTES) throw new RangeError("Scene draft exceeds local backup capacity")
   for (const [key, value] of Object.entries(next.scriptDrafts).reverse()) {
-    if (key === next.activeScriptFileId) continue
+    if (key === next.activeScriptFileId && value === next.scriptDraft) continue
     bounded.scriptDrafts[key] = value
     const candidate = JSON.stringify(bounded)
     if (candidate.length > MAX_DRAFT_BYTES) delete bounded.scriptDrafts[key]
     else output = candidate
   }
-  return output
+  return { serialized: output, complete: false }
 }
 
 export function sceneRuntimeSession(projectId, sceneId) {
@@ -237,9 +249,10 @@ export function persistSceneRuntimeDraft(projectId, sceneId, patch = {}) {
   }
   Object.assign(session, next)
   try {
-    localStorage.setItem(storageKey(projectId, sceneId), serializedDraftWithinLimit(next))
-    session.backupComplete = true
-    return { ...next, backupComplete: true }
+    const backup = serializedDraftWithinLimit(next)
+    localStorage.setItem(storageKey(projectId, sceneId), backup.serialized)
+    session.backupComplete = backup.complete
+    return { ...next, backupComplete: backup.complete }
   } catch {
     // 草稿持久化失败不阻断当前编辑；内存 session 仍保留本轮内容。
     session.backupComplete = false

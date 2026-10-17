@@ -1171,6 +1171,26 @@ class InteractionService(JourneyViewsMixin, JourneyOverviewMixin):
             attempt=self._attempt_response(attempt) if attempt else None,
         )
 
+    async def update_author_display_settings(
+        self,
+        db: AsyncSession,
+        *,
+        journey_id: str,
+        action_options_enabled: bool,
+        expected_selection_epoch: int,
+        expected_action_options_enabled: bool,
+    ) -> JourneyDetailResponse:
+        """Change the one author-facing RP display preference without starting a beat."""
+        journey = await self._active_journey_for_update(db, journey_id)
+        if (
+            journey.selection_epoch != expected_selection_epoch
+            or journey.action_options_enabled != expected_action_options_enabled
+        ):
+            raise ConflictError("旅程设置已变化，请重新读取", code="JOURNEY_CHANGED")
+        journey.action_options_enabled = action_options_enabled
+        self._repo.touch(journey)
+        return await self._detail(db, journey)
+
     async def heartbeat(
         self,
         db: AsyncSession,
@@ -1245,8 +1265,11 @@ class InteractionService(JourneyViewsMixin, JourneyOverviewMixin):
         *,
         journey_id: str,
         title: str,
+        expected_title: str | None = None,
     ) -> JourneyDetailResponse:
         journey = await self._active_journey_for_update(db, journey_id)
+        if expected_title is not None and journey.title != expected_title:
+            raise ConflictError("旅程标题已变化，请重新读取", code="JOURNEY_CHANGED")
         journey.title = title
         journey.title_source = "manual"
         self._repo.touch(journey)

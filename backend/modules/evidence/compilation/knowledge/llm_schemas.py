@@ -32,7 +32,7 @@ class DirectorShardPlan(BaseModel):
 
 
 class AuditFindingOutput(BaseModel):
-    """审查发现；message 不得复述隐藏事实原文，excerpt 只定位生成输出。"""
+    """审查发现；dimension 标明归属，message 不得复述隐藏事实原文。"""
 
     kind: Literal[
         "missing_required",
@@ -44,6 +44,7 @@ class AuditFindingOutput(BaseModel):
         "unchecked",
     ]
     severity: Literal["blocker", "major", "minor"]
+    dimension: str | None = Field(default=None, max_length=64)
     message: str = Field(min_length=1, max_length=1000)
     excerpt: str = Field(default="", max_length=500)
     source_key: str | None = None

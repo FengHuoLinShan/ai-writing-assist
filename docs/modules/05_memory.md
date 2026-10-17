@@ -92,6 +92,16 @@ Story continuity 子域维护小说世界的“变化历史”，不是再存一
   历史/早于追踪上线）。timeline 发生时间只保留已证明的相对顺序或原文明示日期
   （受控键经 `extract_timeline_when` 规范化，未知日历不推算绝对日期）。
 
+ADR-0039 的类型化状态扩展沿用上述赋值链，登记在 `STATE_FIELD_REGISTRY`，不新增
+状态真相表。人物的身体状况、情绪、装束、当前目标、身份、生死与在场状态，地点和物件
+状况、规则生效与知情者、秘密揭示状态，以及关系的有向态度，只有事件携带匹配的对象类型
+且字段实际落入 reducer 状态时才挂来源链。未声明类型的旧事件不会被套用全部类型字段；
+旧母题登记与旧 checkpoint 仍按原契约读取。有向态度必须与关系两端和方向一致，不能把
+甲对乙的态度投影为乙对甲。World 档案维持稳定设定；这些 Scene 时点值不回填成档案事实，
+当前 World 值也不用于补齐历史状态。自定义类型未登记的字段仍保留自由文本，不自动参与
+确定性检查。档案的跨层汇总与下游消费者切换状态见
+[对象档案主任务](../../.agent/tasks/2026/T-20261015-character-world-progression/TASK.md)。
+
 事件摄入时在 `snapshot_after.meta._field_source_refs` 冻结经服务器回读的稿源；
 机器事件只接受其原 source receipts，旧事件缺绑定不得按记录时间猜版本。
 投影重建须重验原 draft/hash/range，原地改稿失配降为 unverified，保留作者事实本身。
@@ -121,6 +131,7 @@ POST /api/novels/{novel_id}/memories/scene-checkpoints/ensure
 POST /api/novels/{novel_id}/memories/scene-checkpoints/rebuild
 POST /api/novels/{novel_id}/memories/scene-checkpoints/repair
 POST /api/novels/{novel_id}/memories/scene-state-view
+POST /api/novels/{novel_id}/memories/map-declaration-state
 ```
 
 查询参数要点：
@@ -129,6 +140,10 @@ POST /api/novels/{novel_id}/memories/scene-state-view
 - `events` 支持 `from_chapter` / `to_chapter`
 - `timeline` 支持 `skip` / `limit`
 - `rebuild` 需要 `from_chapter`
+
+`map-declaration-state` 由作者明确确认，写入绑定当前 adopted 地图节点、saved revision、声明 kind 与
+原始 FeatureKey 的 typed `effective_status` Story 事件；它不写回地图，也不把地图知识默认披露给人物或读者。
+事件投影由独立 `scene-checkpoints/ensure` 显式更新；Scene-state view 与地图 GET 保持只读。
 
 ## 设计要点
 
@@ -139,7 +154,7 @@ Context 审查升级不新增 continuity 表。Scene/角色任务仍以当前 Sc
 预览、确认与执行比较同一通用 Context
 指纹；人物或脚本领域 overlay 必须继承作者的 `excluded_refs`，不得读取后续 Scene 再回流到
 当前 Scene。缺失/漂移 checkpoint 继续按原规则失败关闭，不由确认窗补写事实。
-- `panorama` 是由事件流和快照重放得到的“某章世界状态视图”；快照后的增量事件按 `(chapter_index, sequence, id)` keyset 分页应用，避免大世界范围重放一次性加载全部事件
+- `panorama` 是由事件流和快照重放得到的“某章世界状态视图”；章节重排后，事件按重排回执和事件创建时间投影到当前章序，再按 `(当前章序, sequence, id)` keyset 分页应用。Scene 重提取会刷新事件绑定时间，避免旧创建时间再次映射已更新的章号。原始 `chapter_index` 与来源锚不改；列表、计数、最大章、回放和快照共用同一投影。受影响的单章候选超过 500 条时显式失败，不静默截断。
 - 快照 `events_until` 和手动重建终点使用聚合查询计算，显式事件列表查询仍保留按章节范围返回完整列表的 API 语义
 - `delta_log` 不是单独模块，而是 memory 提供给 world/imports/context 使用的结构化差分设施
 - 文本字段回滚依赖 `world.text_archive`；memory 主要负责事件和差分历史
@@ -170,9 +185,9 @@ World 的变更复核只消费 Story 结构来源并保存 World 回执，不写
 ## 创作试验的结构与观察边界
 
 Story 为 Collaboration 提供 Scene、伏笔/揭示安排的冻结可编辑字段与原领域操作 port。
-试改独立保存，采用仍验证当前结构版本。`observations.py` 区分输入刺激、私有意图、
-可观察事件和可重放的 ResolutionBatch；说法不是事实，未知资源或唯一资源冲突不宣告成功。
-`observation_v2` 不重新解释旧 rehearsal_v1。读者推测与作者安排分开，派生前瞻不是新信息计划。
+试改独立保存，采用仍验证当前结构版本。`observations.py` 保留 RP `observation_v2` 的输入刺激与观察语义；
+Story 的 `simulation_v3.py` 共用意图、有限结算、`StateDelta`、`ResolutionBatch` 与回放。
+说法不是事实，未知资源、路线或唯一资源冲突不宣告成功；旧协议历史按原协议只读。
 
 ## 软失效与有效场景投影
 
@@ -191,7 +206,7 @@ Story facade 的 `validate_machine_event_snapshot` 复用全景物化 schema，�
 
 ### 条件比较与历史依据
 
-`POST /memories/scene-state-trial` 只比较钥匙转交与三条件锁，返回原状态/有限假设的当前值、所需值、来源和失败/未知/通过。候选只用内存 ResolutionBatch 重放，不写事件或正史；状态指纹与比较 digest 绑定试改授权，采用前重新核对。
+`POST /memories/scene-state-trial` 只比较钥匙转交与三条件锁，返回原状态/有限假设的当前值、所需值、来源和失败/未知/通过。候选只用 `simulation_v3` ResolutionBatch 内存重放，不写事件或正史；HTTP 条件、owner、来源归因及零事件写入保持。协议字段变化使 `resolution.protocol` 与比较 digest 更新，方法指纹从 `scene-key-lock-v1` 升为 `scene-key-lock-v2:simulation_v3`（`e324598864c4b73c79a6abd5794a3f7ac183d0480f6ecf05fd5a3ad9ecdc764e` → `c12dae97d3cfd40e8095e9fbafa1592ece96acb412f595f0c6a470ac73cea5b3`）；旧 digest 不可复用。状态指纹与比较 digest 继续绑定试改授权，采用前重新核对。
 
 `GET /memories/scene-checkpoints/{checkpoint_id}` 及 `GET /memories/events/by-id?event_ids=…` 校验 owner + novel，显式读取历史来源，父 checkpoint 链按需回开。当前视图仍只消费 current checkpoint。历史回开是作者诊断用途：知识维度的条目在响应中逐条补 `knowledge_class` 方言标注（known/unknown/false_belief，`knowledge_contract.read_knowledge_statement` 判定，深拷贝副本不改 ORM 载荷），历史行的分类不被事件流改写或重建洗掉；面向角色/读者的视角边界在 `get_view` 承载。人物仅自己的位置可默认读；其他字段需明确知识值，误信或仅提到人物不授予事实。读者 timeline/causality 缺逐条揭示粒度，返回 unsupported；受限视角不返回整维来源或隐藏名称。机器断言（evolution producer）在信任边界剥离值绑定键（state_gate 亦显式拒绝 `value_binding_not_machine_grounded`），读入统一方言恒为 unknown 文本知识，不冒充值绑定。
 

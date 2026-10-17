@@ -1035,7 +1035,7 @@ test.describe("写作台模块", () => {
     await expect(page.locator("#writing-panel-container")).toContainText("Scene B")
   })
 
-  test("本章资料默认展示 Scene 执行信息且不被工作区裁切", async ({ page }) => {
+  test("本章资料默认展示本场摘要并可切换对象资料", async ({ page }) => {
     await createDraft(testProjectId, 1, "第一章 东门交锋", "东门交锋正文")
     await createScene(testProjectId, {
       scene_index: 0,
@@ -1056,10 +1056,11 @@ test.describe("写作台模块", () => {
     await page.getByRole("button", { name: /^打开第 1 章/ }).click()
 
     await expect(page.getByRole("tab", { name: "本场" })).toHaveClass(/active/)
-    await expect(page.locator('.cockpit-panel[data-panel="lore"]')).toContainText("拿到令牌后安全离开")
+    await expect(page.locator('.cockpit-panel[data-panel="main"]')).toContainText("拿到令牌后安全离开")
 
-    await page.getByRole("tab", { name: "地点" }).click()
-    await expect(page.getByRole("tab", { name: "地点" })).toHaveClass(/active/)
+    await page.getByRole("tab", { name: "对象", exact: true }).click()
+    await expect(page.getByRole("tab", { name: "对象", exact: true })).toHaveAttribute("aria-selected", "true")
+    await expect(page.locator('.cockpit-panel[data-panel="objects"]')).toBeVisible()
   })
 
   test("专注模式可恢复、可退出，并在桌面与手机保持正文状态", async ({ page, projectFactory, browserErrors }) => {

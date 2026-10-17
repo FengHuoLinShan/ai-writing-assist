@@ -16,8 +16,10 @@ SEMANTIC = frozenset(
         "writing.next_beat.v1",
         "story.open_question.v1",
         "story.character_response.v1",
+        "story.character_response.v2",
         "story.scene_transition.v1",
         "story.information_window.v1",
+        "story.spatial_planning.v1",
         "world.rule_decision.v1",
         "world.relationship_effect.v1",
         "evidence.next_query.v1",
@@ -32,6 +34,10 @@ def rollout_available(novel_id, capability):
     from core.config import get_settings
 
     settings = get_settings()
+    if capability == "story.spatial_planning.v1" and "story.spatial_planning" not in set(
+        settings.map_spatial_enabled_capabilities
+    ):
+        return False
     return capability not in settings.forecast_disabled_capabilities and (
         not settings.forecast_project_allowlist
         or str(novel_id) in settings.forecast_project_allowlist
@@ -70,7 +76,7 @@ def defaults(page, *, persona="author"):
             "story.open_question.v1",
             "writing.recall_pack.v1",
         ],
-        "scene": ["story.character_response.v1", "story.scene_transition.v1"],
+        "scene": ["story.character_response.v2", "story.scene_transition.v1"],
         "world": ["world.rule_decision.v1", "world.rule_impact.v1"],
         "outline": ["story.information_window.v1", "story.structure_impact.v1"],
         "map": ["world.map_precondition.v1"],

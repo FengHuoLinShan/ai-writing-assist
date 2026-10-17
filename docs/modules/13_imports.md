@@ -305,14 +305,20 @@ Phase 3 的单次结构化请求使用项目可配置的
 - 识别（classify + synonyms）：表名与中文表头同义词规则给出表类型与列映射建议，作者
   逐表逐列可调；未识别列默认进「作者备注」（追加 hidden_truth）；大纲类表默认预选
   AI 整理。
+- World 档案列复用既有固定 `ColumnTarget` 的 `dossier_facing`，映射需同时指定档案对象类型和
+  目标面向；内核映射显式携带 `source_entity_type + key`，项目面向携带本项目 `term_id`，并由作者选择
+  `public/secret`。自定义对象的借用面向还必须已在当前版本化模板声明；无效/停用面向、缺失映射、
+  外项目词条或来源类型猜测均在预览前失败关闭。导入计划把来源类型编码到借用面向 key，交由 World
+  服务再次核验对象类型、模板声明、可见性与时间锚点。
 - AI 整理：capability `imports.spreadsheet_migration`（CONFIRMATION_NONE），step
   `outline`/`cleanup`，`govern_group_output` 审查（一次返修）+ 确定性校验（行引用、
   逐字 evidence、章号、字段白名单、禁 id/status/source）；任务类型
   `spreadsheet_migration_ai`（auto_requeue、额度 packets*6+2）；scope_hash 漂移不写回。
   输出只进预览；作者跳过或单行失败回落规则映射，原文逐字保留。
 - 采用（apply）：同一事务「重算 preview 比对 preview_hash → 项目排他锁 →
-  world.apply → story.apply(entity_ids) → mark_applied 清 rows」；同名只补空、冲突
-  不落地。撤销先 story 后 world 按回执逆序，被改动/被引用项保留并给出原因。
+  world.apply（对象档案仍经 World dossier facade 的版本化写入）→ story.apply(entity_ids) →
+  mark_applied 清 rows」；同名只补空、冲突不落地。档案来源行、目标和预览 fingerprint/CAS 写入回执；
+  撤销先 story 后 world 按回执逆序，作者后续改写或被引用项保留并给出原因。
 - 路由清单见「API」节；鉴权要求 novel_id+owner 双隔离，匿名 demo 不可用。
 
 ## 专项查漏补全

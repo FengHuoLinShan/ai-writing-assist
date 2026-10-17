@@ -225,6 +225,7 @@ class EntityPromoteRequest(BaseModel):
     可选编辑字段与采用在同一事务中完成，供作者在采用前微调待处理对象。
     """
 
+    expected_source_hash: str | None = Field(default=None, pattern=r"^[0-9a-f]{64}$")
     approved_by: str | None = Field(
         default="manual",
         max_length=64,

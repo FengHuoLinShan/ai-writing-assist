@@ -54,6 +54,8 @@ EXPECTED_CAPABILITIES = (
     "story.reaction",
     "story.script",
     "story.one_click",
+    "story.scene_director",
+    "story.world_progression",
     "story.scene_fusion",
     "story.structure_dedup",
     # Imports
@@ -70,6 +72,10 @@ EXPECTED_CAPABILITIES = (
     # Evolution
     "evolution.scene_observe",
     "evolution.state_review",
+    "evolution.details_discover",
+    "evolution.details_review",
+    "evolution.spatial_discover",
+    "evolution.spatial_review",
     # Interaction
     "interaction.story_generate",
     "interaction.summary_refresh",
@@ -77,6 +83,7 @@ EXPECTED_CAPABILITIES = (
     "interaction.anonymous_story",
     # Assistant
     "assistant.turn",
+    "assistant.goal.plan",
     "assistant.guided_flow.direction_cards",
     "assistant.forecast",
     "assistant.editorial",
@@ -152,6 +159,51 @@ def test_world_cocreation_can_propose_but_source_questions_remain_answers() -> N
     assert chat.output_permissions == ("proposal",)
     assert ask.output_permissions == ("answer",)
     assert chat.adoption_gate == ask.adoption_gate == "display_only"
+
+
+def test_optional_reference_dimensions_are_advisory_for_selected_capabilities() -> None:
+    capabilities = (
+        "writing.generate",
+        "writing.targeted_revision",
+        "writing.semantic_review",
+        "writing.conflict_check.ai_review",
+        "story.script",
+        "story.one_click",
+        "world.ask",
+        "assistant.turn",
+    )
+    for capability in capabilities:
+        policy = require_capability_policy(capability)
+        expected = (
+            ("map_spatial", "object_dossier", "character_pattern", "director_reference")
+            if capability in {"writing.generate", "writing.targeted_revision"}
+            else ("map_spatial", "object_dossier", "character_pattern")
+            if capability
+            in {
+                "writing.semantic_review",
+                "writing.conflict_check.ai_review",
+                "story.one_click",
+            }
+            else ("map_spatial",)
+        )
+        assert policy.advisory_dimensions == expected
+        assert "map_spatial" not in policy.required_dimensions
+    for capability in ("story.character_card", "story.reaction"):
+        policy = require_capability_policy(capability)
+        assert policy.advisory_dimensions == ("object_dossier", "character_pattern")
+        assert not set(policy.advisory_dimensions) & set(policy.required_dimensions)
+    writing = require_capability_policy("writing.generate")
+    assert set(writing.advisory_dimensions) == {
+        "map_spatial",
+        "object_dossier",
+        "character_pattern",
+        "director_reference",
+    }
+    assert not set(writing.advisory_dimensions) & set(writing.required_dimensions)
+
+    map_generation = require_capability_policy("world.map_structure.generate")
+    assert "map_spatial" in map_generation.required_dimensions
+    assert map_generation.advisory_dimensions == ()
 
 
 def test_rp_capabilities_declare_held_release_notes() -> None:

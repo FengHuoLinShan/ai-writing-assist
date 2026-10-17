@@ -10,8 +10,9 @@ degraded + gap_reason，绕过失效钩子的正文/结构变更不再静默供�
 作者行豁免。世界正典修订不自动失效本视图（观察层记录「当时所见」），
 以 unsupported_dependencies 显式列出，核对待走 World 复核。
 
-P2-A 追加逐字段来源（field_provenance.py）：受控母题字段的 fact 在
-``source["provenance"]`` 携带单条记录 ``{field, event_id, source_refs, status}``；
+P2-A / ADR-0039 追加逐字段来源（field_provenance.py）：受控母题字段和已登记
+的类型化状态字段 fact 在 ``source["provenance"]`` 携带单条记录
+``{field, event_id, source_refs, status}``；类型化状态另带 ``object_type``；
 status 三态 exact/unverified/conflict，无记录（含旧格式 checkpoint）不冒充——
 不带 provenance，展示层显示「来源待核实」。历史 checkpoint 摘要与列表出口
 （``summarize_field_provenance`` / ``list_scene_checkpoints``）也由本模块提供。
@@ -170,7 +171,7 @@ def summarize_field_provenance(
 ) -> dict[tuple[str, str | None], dict[str, Any]]:
     """checkpoint 内嵌逐字段来源 → ``{(field_key, subject_ref): 单记录摘要}``。
 
-    摘要形态由 A0 夹具钉定，仅四键::
+    旧母题摘要形态由 A0 夹具钉定，类型化状态另带 ``object_type``::
 
         {"field": str, "status": "exact"|"unverified"|"conflict",
          "event_id": str | None, "source_refs": [SourceRangeRefContract 形态 dict]}
@@ -215,6 +216,23 @@ def summarize_field_provenance(
             if chosen
             else [],
         }
+        if chosen is not None and chosen.object_type is not None:
+            summaries[(field_key, subject_ref)]["object_type"] = chosen.object_type
+        if chosen is not None and chosen.identity_ref is not None:
+            summaries[(field_key, subject_ref)]["identity_ref"] = (
+                chosen.identity_ref.model_dump(mode="json")
+            )
+        if chosen is not None and chosen.author_confirmed:
+            summaries[(field_key, subject_ref)]["author_confirmed"] = True
+        if chosen is not None and chosen.event_scene_index is not None:
+            summaries[(field_key, subject_ref)]["occurred_at"] = {
+                "scene_index": chosen.event_scene_index,
+                **(
+                    {"scene_sequence": chosen.event_scene_sequence}
+                    if chosen.event_scene_sequence is not None
+                    else {}
+                ),
+            }
         if include_value_hash:
             summaries[(field_key, subject_ref)]["value_hash"] = (
                 chosen.value_hash if chosen else None
@@ -491,6 +509,8 @@ class SceneStateViewService:
             payload: dict[str, Any] | None = None,
             possibly_false: bool = False,
             provenance: dict[str, Any] | None = None,
+            field_provenance: dict[str, dict[str, Any]] | None = None,
+            confidence_override: str | None = None,
         ) -> None:
             entries.append(
                 SceneStateFactEntry(
@@ -499,7 +519,11 @@ class SceneStateViewService:
                     field=field,
                     value=value,
                     layer=layer,
-                    occurred_at=_occurred_at(payload or {}),
+                    occurred_at=(
+                        provenance.get("occurred_at")
+                        if provenance and provenance.get("occurred_at") is not None
+                        else _occurred_at(payload or {})
+                    ),
                     source={
                         **source,
                         **(
@@ -519,8 +543,13 @@ class SceneStateViewService:
                             else {}
                         ),
                         **({"provenance": provenance} if provenance else {}),
+                        **(
+                            {"field_provenance": field_provenance}
+                            if field_provenance
+                            else {}
+                        ),
                     },
-                    confidence=confidence,
+                    confidence=confidence_override or confidence,
                     possibly_false=possibly_false,
                 )
             )
@@ -531,6 +560,7 @@ class SceneStateViewService:
                     continue
                 label = cls._entity_label(payload, str(entity_id))
                 for field, value in cls._flatten_fields(payload):
+                    provenance = provenance_by_field.get((field, str(entity_id)))
                     add(
                         subject_id=str(entity_id),
                         subject_label=label,
@@ -540,7 +570,12 @@ class SceneStateViewService:
                         payload=payload,
                         # 逐字段来源按受控 payload 键登记；查询键带实体锚，
                         # 多实体同名字段各走各的链。未登记键查不到摘要。
-                        provenance=provenance_by_field.get((field, str(entity_id))),
+                        provenance=provenance,
+                        confidence_override=(
+                            "confirmed"
+                            if provenance and provenance.get("author_confirmed") is True
+                            else None
+                        ),
                     )
             for payload in state.get("changes") or []:
                 if not isinstance(payload, dict):
@@ -601,6 +636,24 @@ class SceneStateViewService:
                 if not isinstance(payload, dict):
                     continue
                 relation_id = payload.get("id") or payload.get("relation_id")
+                attitude_provenance = (
+                    provenance_by_field.get(("attitude", str(relation_id)))
+                    if relation_id and isinstance(payload.get("attitude"), dict)
+                    else None
+                )
+                relation_status_provenance = (
+                    provenance_by_field.get(("relation_status", str(relation_id)))
+                    if relation_id
+                    else None
+                )
+                relation_field_provenance = {
+                    key: value
+                    for key, value in (
+                        ("attitude", attitude_provenance),
+                        ("relation_status", relation_status_provenance),
+                    )
+                    if value is not None
+                }
                 add(
                     subject_id=str(relation_id) if relation_id else None,
                     subject_label=str(
@@ -610,6 +663,30 @@ class SceneStateViewService:
                     value=_clean_payload(payload),
                     layer="fact",
                     payload=payload,
+                    provenance=attitude_provenance,
+                    field_provenance=relation_field_provenance,
+                )
+            for payload in state.get("changes") or []:
+                if (
+                    not isinstance(payload, dict)
+                    or payload.get("relation_status") != "ended"
+                ):
+                    continue
+                relation_id = payload.get("id") or payload.get("relation_id")
+                add(
+                    subject_id=str(relation_id) if relation_id else None,
+                    subject_label=str(
+                        payload.get("label") or payload.get("kind") or "关系"
+                    ),
+                    field="relation_status",
+                    value=_clean_payload(payload),
+                    layer="observation",
+                    payload=payload,
+                    provenance=(
+                        provenance_by_field.get(("relation_status", str(relation_id)))
+                        if relation_id
+                        else None
+                    ),
                 )
         elif dimension == "timeline":
             for payload in state.get("facts") or []:

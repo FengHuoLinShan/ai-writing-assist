@@ -1,3 +1,5 @@
+from types import SimpleNamespace
+from unittest.mock import AsyncMock
 from uuid import UUID, uuid4
 
 import pytest
@@ -6,6 +8,7 @@ from app.assistant_operation_registry import writing_candidate_operations
 from core.errors import ConflictError
 from modules.account.facade import current_account_id
 from modules.assistant.contracts import AssistantOperationContext, WorkContext
+from modules.writing import assistant_candidate_tools
 from modules.writing.assistant_candidate_tools import SelectDraft
 from modules.writing.facade import create_draft_only, get_draft
 from modules.writing.repositories import WritingDraftRepository
@@ -55,6 +58,39 @@ async def test_adoption_rechecks_working_head_and_restore_creates_a_working_copy
     assert restored.id != original.id
     assert restored.provenance_json["restored_from_draft_id"] == original.id
     assert (await get_draft(db, nid, adopted.id)).content == "供作者选择的正文"
+
+
+@pytest.mark.asyncio
+async def test_targeted_revision_receipt_binds_operation_id(monkeypatch):
+    from modules.writing.assistant_candidate_tools import ReviseCandidate
+    from modules.writing.semantic_review import WritingSemanticWorkflowService
+
+    operation_id = str(uuid4())
+    preview = {"source_hash": "f" * 64}
+    monkeypatch.setattr(
+        assistant_candidate_tools,
+        "_revision_preview",
+        AsyncMock(return_value=preview),
+    )
+
+    async def submit(_service, *_args, **_kwargs):
+        return {"task_id": str(uuid4())}
+
+    monkeypatch.setattr(
+        WritingSemanticWorkflowService, "submit_targeted_revision", submit
+    )
+    context = SimpleNamespace(
+        operation_id=operation_id, internal_meta={}, llm_snapshot={}
+    )
+    args = ReviseCandidate(
+        draft_id=uuid4(), review_task_id=uuid4(), finding_ids=["finding-1"]
+    )
+    result = await assistant_candidate_tools._revise(
+        None, str(uuid4()), args, preview, context=context
+    )
+
+    assert result["operation_id"] == operation_id
+    assert result["task_id"] == result["id"]
 
 
 @pytest.mark.asyncio

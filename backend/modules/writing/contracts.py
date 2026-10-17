@@ -9,7 +9,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from datetime import datetime
-from typing import Any, Literal
+from typing import Any, Literal, Protocol
 
 # AO-5 / ADR-0031：正文区间引用是 evidence Context 的引用词汇（所有消费方
 # 都是 evidence 编译产物里的 source_ref 锚点），契约定义归 evidence；
@@ -60,6 +60,42 @@ class WritingProjectStatsContract:
     novel_id: str
     chapter_count: int = 0
     word_count: int = 0
+
+
+class StoryChapterOrderPort(Protocol):
+    """Story-owned reference remap consumed by Writing's chapter-order command."""
+
+    async def preview(
+        self,
+        db: Any,
+        novel_id: str,
+        chapter_map: dict[int, int],
+        source_versions: dict[int, list[dict[str, str]]],
+    ) -> dict[str, Any]: ...
+
+    async def apply(
+        self,
+        db: Any,
+        novel_id: str,
+        receipt_id: str,
+        chapter_map: dict[int, int],
+        source_versions: dict[int, list[dict[str, str]]],
+        expected_fingerprint: str,
+    ) -> dict[str, Any]: ...
+
+    async def restore(
+        self,
+        db: Any,
+        novel_id: str,
+        receipt_id: str,
+    ) -> dict[str, Any]: ...
+
+    async def preview_restore(
+        self,
+        db: Any,
+        novel_id: str,
+        receipt_id: str,
+    ) -> dict[str, Any]: ...
 
 
 @dataclass(frozen=True)

@@ -133,9 +133,11 @@ def _evidence_service():
     return NovelEvidenceService()
 
 
-def render_compiled_context(context: CompiledContext) -> str:
+def render_compiled_context(
+    context: CompiledContext, *, include_map_spatial: bool = True
+) -> str:
     """将已编译的上下文 IR 渲染为 Markdown。"""
-    return _render_compiled_context(context)
+    return _render_compiled_context(context, include_map_spatial=include_map_spatial)
 
 
 async def load_scene_lens(
@@ -153,6 +155,42 @@ async def load_scene_lens(
         novel_id=novel_id,
         scene_id=scene_id,
         chapter_index=chapter_index,
+    )
+
+
+async def read_object_dossier_brief(
+    db: AsyncSession,
+    *,
+    novel_id: str,
+    scene_id: str,
+    entity_ids: list[str],
+    reveal_mode: str = "author_safe",
+    viewpoint_character_id: str | None = None,
+    content_mode: str = "canonical",
+    include_patterns: bool = False,
+    only_adopted_patterns: bool = False,
+) -> dict[str, Any]:
+    """Read bounded World, Scene-state and optional Evolution references."""
+    from modules.evidence.compilation.services.object_dossier_brief import (
+        ObjectDossierBriefService,
+    )
+
+    options = CompileOptions(
+        novel_id=novel_id,
+        task="object_dossier_brief",
+        scope="scene",
+        scene_id=scene_id,
+        reveal_mode=reveal_mode,
+        viewpoint_character_id=viewpoint_character_id,
+        content_mode=content_mode,
+        visible_until_scene_id=scene_id,
+    )
+    return await ObjectDossierBriefService().load(
+        db,
+        options,
+        entity_ids=entity_ids,
+        include_patterns=include_patterns,
+        only_adopted_patterns=only_adopted_patterns,
     )
 
 
@@ -271,6 +309,7 @@ async def retrieve_planned_context_evidence(
     character_ids: list[str] | None = None,
     thread_ids: list[str] | None = None,
     top_k: int = 5,
+    include_map_spatial: bool = True,
 ) -> StructureContextBundle:
     """Run only the context-owned planner/RAG/rehydrate path for a consumer."""
     from modules.evidence.compilation.services.planned_retrieval_service import (
@@ -291,7 +330,9 @@ async def retrieve_planned_context_evidence(
         content_mode=content_mode,
         top_k=max(1, min(top_k, 50)),
     )
-    return await PlannedContextRetrievalService().retrieve(db, options)
+    return await PlannedContextRetrievalService().retrieve(
+        db, options, include_map_spatial=include_map_spatial
+    )
 
 
 def compile_author_question_evidence(
@@ -963,6 +1004,7 @@ async def prepare_confirmed_ai_action(
     action: str,
     confirmation_id: str,
     for_update: bool = False,
+    consumer_action: str | None = None,
 ) -> ConfirmedAIActionContext:
     """Return validated context, optionally locking its confirmation row."""
     return await _confirmed_ai_action_service.prepare(
@@ -971,7 +1013,129 @@ async def prepare_confirmed_ai_action(
         action=action,
         confirmation_id=confirmation_id,
         for_update=for_update,
+        **({"consumer_action": consumer_action} if consumer_action else {}),
     )
+
+
+def freeze_director_reference_context(
+    confirmed_context: ConfirmedAIActionContext,
+) -> dict:
+    """Freeze the optional director-reference projection for a queued Writing task."""
+    compiled = confirmed_context.compiled
+    section = next(
+        (item for item in compiled.sections if item.key == "director_reference"),
+        None,
+    )
+    omitted = [
+        item.model_dump(mode="json")
+        for item in compiled.omitted_items
+        if str(item.key).startswith("director_reference:")
+    ]
+    warnings = [str(item) for item in compiled.warnings if "导演参考" in str(item)]
+    return {
+        "section": section.model_dump(mode="json") if section is not None else None,
+        "omitted_items": omitted,
+        "warnings": list(dict.fromkeys(warnings)),
+        "selected_ids": list(
+            (confirmed_context.compile_options or {}).get("director_reference_ids") or []
+        ),
+        "advisory_only": True,
+    }
+
+
+def restore_director_reference_context(
+    confirmed_context: ConfirmedAIActionContext,
+    snapshot: dict | None,
+) -> dict:
+    """Restore the confirmed copy after revalidating core Evidence sources."""
+    if not snapshot:
+        return {"included_ids": [], "omitted_ids": [], "warnings": []}
+    from modules.evidence.compilation.services.compiled_context import (
+        ContextItem,
+        ContextSection,
+    )
+
+    compiled = confirmed_context.compiled
+    current_section = next(
+        (item for item in compiled.sections if item.key == "director_reference"),
+        None,
+    )
+    current_sources = {
+        str(item.get("id") or ""): item
+        for item in (current_section.sources if current_section is not None else [])
+        if item.get("id")
+    }
+    snapshot_section = snapshot.get("section")
+    frozen_sources = {
+        str(item.get("id") or ""): item
+        for item in (snapshot_section or {}).get("sources") or []
+        if item.get("id")
+    }
+    compiled.sections = [
+        item for item in compiled.sections if item.key != "director_reference"
+    ]
+    compiled.omitted_items = [
+        item
+        for item in compiled.omitted_items
+        if not str(item.key).startswith("director_reference:")
+    ]
+    compiled.evicted_keys = [
+        item for item in compiled.evicted_keys if item != "director_reference"
+    ]
+    raw_section = snapshot.get("section")
+    included_ids: list[str] = []
+    if raw_section is not None:
+        section = ContextSection.model_validate(raw_section)
+        compiled.sections.append(section)
+        included_ids = [
+            str(value)
+            for value in (section.retrieval_metadata or {}).get("reference_ids") or []
+        ]
+    omitted_items = [
+        ContextItem.model_validate(item)
+        for item in snapshot.get("omitted_items") or []
+        if isinstance(item, dict)
+    ]
+    compiled.omitted_items.extend(omitted_items)
+    compiled.total_tokens = sum(section.token_count for section in compiled.sections)
+    compiled.warnings = [
+        warning for warning in compiled.warnings if "导演参考" not in str(warning)
+    ]
+    warnings = [str(item) for item in snapshot.get("warnings") or []]
+    for reference_id in snapshot.get("selected_ids") or []:
+        reference_id = str(reference_id)
+        frozen_source = frozen_sources.get(reference_id)
+        current_source = current_sources.get(reference_id)
+        if frozen_source and not current_source:
+            warnings.append(
+                "确认后有导演参考副本变为不可读取或超出当前预算；本任务沿用确认时保存的副本。"
+            )
+        elif (
+            frozen_source
+            and current_source
+            and (
+                current_source.get("status") == "source_changed"
+                or current_source.get("source_basis_hash")
+                != frozen_source.get("source_basis_hash")
+            )
+        ):
+            warnings.append(
+                "确认后导演参考的来源依据已变化；本任务沿用确认时保存的内容副本。"
+            )
+    warnings = list(dict.fromkeys(warnings))
+    compiled.warnings.extend(warnings)
+    confirmed_context.rendered_markdown = _render_compiled_context(compiled)
+    omitted_ids = [
+        str((item.source or {}).get("id") or "")
+        for item in omitted_items
+        if (item.source or {}).get("id")
+    ]
+    return {
+        "included_ids": included_ids,
+        "omitted_ids": omitted_ids,
+        "selected_ids": list(snapshot.get("selected_ids") or []),
+        "warnings": list(dict.fromkeys(warnings)),
+    }
 
 
 async def build_hidden_guard_context(

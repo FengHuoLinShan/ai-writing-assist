@@ -18,6 +18,7 @@ from infrastructure.llm.client import LLMClient
 from infrastructure.llm.redaction import redact_diagnostic
 from infrastructure.llm.schemas import LLMCallRequest, LLMMessage
 from infrastructure.stable_hash import stable_hash
+from modules.evidence import facade as evidence_facade
 from modules.evidence.contracts import ContextSnapshotRequest, VisibilityContextContract
 from modules.world.llm_schemas import GeneratedAskWorldOutput
 from modules.world.schemas import (
@@ -83,9 +84,7 @@ class AskWorldService:
     ) -> AskWorldResponse:
         prepared = None
         if data.context_confirmation_id:
-            from modules.evidence.facade import prepare_confirmed_ai_action
-
-            prepared = await prepare_confirmed_ai_action(
+            prepared = await evidence_facade.prepare_confirmed_ai_action(
                 db,
                 novel_id=data.novel_id,
                 action="world.ask",
@@ -97,8 +96,10 @@ class AskWorldService:
             top_k=int(prepared.compile_options.get("top_k", 10))
             if prepared is not None
             else 10,
+            include_map_spatial=prepared is None,
         )
         if prepared is not None:
+            candidates.extend(self._map_candidates_from_compiled(prepared.compiled, data))
             before = len(candidates)
             candidates = self._confirmed_candidates(
                 candidates,
@@ -185,6 +186,7 @@ class AskWorldService:
         allowed_pages = set(selected_asset_ids.get("world_bible_page") or [])
         allowed_entities = set(selected_asset_ids.get("world_entities") or [])
         allowed_drafts = set(selected_asset_ids.get("writing_drafts") or [])
+        allowed_maps = set(selected_asset_ids.get("map_spatial") or [])
         result = []
         for candidate in candidates:
             citation = candidate.get("citation")
@@ -224,6 +226,14 @@ class AskWorldService:
                 ):
                     continue
                 result.append(candidate)
+            elif kind == "map_spatial":
+                cited_ids = {
+                    str(item.get("node_id") or "")
+                    for item in citation.map_baseline
+                    if isinstance(item, dict)
+                }
+                if cited_ids and cited_ids.issubset(allowed_maps):
+                    result.append(candidate)
         return result
 
     async def open_citation(
@@ -298,7 +308,87 @@ class AskWorldService:
                     chapter_index=citation.chapter_index,
                     warnings=list(result.get("warnings") or []),
                 )
-        except (NotFoundError, ValidationError, PydanticValidationError, ValueError):
+            if citation.kind == "map_spatial":
+                from modules.world.contracts import MapSpatialBriefRequest
+                from modules.world.facade import read_map_spatial_brief
+
+                if citation.map_context_confirmation_id:
+                    prepared = await evidence_facade.prepare_confirmed_ai_action(
+                        db,
+                        novel_id=novel_id,
+                        action="world.ask",
+                        confirmation_id=citation.map_context_confirmation_id,
+                    )
+                    candidates = self._map_candidates_from_compiled(
+                        prepared.compiled,
+                        AskWorldQuestionRequest(
+                            novel_id=novel_id,
+                            question=citation.map_query_text,
+                            context_confirmation_id=citation.map_context_confirmation_id,
+                        ),
+                    )
+                    current_by_id = {
+                        item["citation"].map_baseline[0]["node_id"]: {
+                            **item["citation"].map_baseline[0],
+                            "content": item["content"],
+                        }
+                        for item in candidates
+                    }
+                else:
+                    current = await read_map_spatial_brief(
+                        db,
+                        MapSpatialBriefRequest(
+                            novel_id=novel_id,
+                            scene_id=citation.map_scene_id,
+                            chapter_index=citation.map_chapter_index,
+                            reveal_mode="author_safe",
+                            query_text=citation.map_query_text,
+                            limit=20,
+                        ),
+                    )
+                    current_by_id = {
+                        item.node_id: item.model_dump() for item in current.items
+                    }
+                baseline = citation.map_baseline
+                baseline_by_id = {
+                    str(item.get("node_id") or ""): item for item in baseline
+                }
+                unchanged = bool(baseline) and all(
+                    (item := current_by_id.get(node_id)) is not None
+                    and item["title"] == str(expected.get("title") or "")
+                    and item["revision_id"] == str(expected.get("revision_id") or "")
+                    and item["revision_hash"] == str(expected.get("revision_hash") or "")
+                    and item["content_hash"] == str(expected.get("content_hash") or "")
+                    for node_id, expected in baseline_by_id.items()
+                )
+                text = "\n".join(
+                    current_by_id[node_id]["content"]
+                    for node_id in baseline_by_id
+                    if node_id in current_by_id
+                )
+                if not citation.map_context_confirmation_id and not unchanged:
+                    return AskWorldCitationOpenResponse(
+                        status="stale",
+                        kind=citation.kind,
+                        title=citation.title,
+                        warnings=["原地图引用缺少资料范围凭据，请重新确认资料后提问。"],
+                    )
+                return AskWorldCitationOpenResponse(
+                    status="current" if unchanged else "stale",
+                    kind=citation.kind,
+                    title=citation.title,
+                    text=text,
+                    source_hash=(
+                        hashlib.sha256(text.encode("utf-8")).hexdigest() if text else None
+                    ),
+                )
+        except (
+            ConflictError,
+            NotFoundError,
+            ValidationError,
+            PydanticValidationError,
+            ValueError,
+        ):
             return AskWorldCitationOpenResponse(
                 status="unavailable",
                 kind=citation.kind,
@@ -318,6 +408,7 @@ class AskWorldService:
         data: AskWorldQuestionRequest,
         *,
         top_k: int = 10,
+        include_map_spatial: bool = True,
     ) -> tuple[list[dict], dict]:
         from modules.evidence.facade import retrieve_planned_context_evidence
 
@@ -329,6 +420,7 @@ class AskWorldService:
             consumer_action="world.ask",
             content_mode="canonical",
             top_k=top_k,
+            include_map_spatial=include_map_spatial,
         )
         candidates = await self._page_candidates(db, data)
         entity_candidates, entity_limited = await self._entity_candidates(db, data)
@@ -371,6 +463,8 @@ class AskWorldService:
                     ),
                 }
             )
+        if include_map_spatial:
+            candidates.extend(self._map_candidates_from_bundle(bundle, data))
         warnings = list(bundle.warnings or [])
         if entity_limited:
             warnings.append(
@@ -380,6 +474,123 @@ class AskWorldService:
             "warnings": warnings,
             "degraded": bool(bundle.retrieval_trace.get("degraded")) or entity_limited,
         }
+
+    @staticmethod
+    def _map_candidates_from_bundle(bundle, data: AskWorldQuestionRequest) -> list[dict]:
+        brief = getattr(bundle, "map_spatial_brief", None) or {}
+        candidates = []
+        for item in brief.get("items") or []:
+            if not isinstance(item, dict):
+                continue
+            node_id = str(item.get("node_id") or "")
+            revision_id = str(item.get("revision_id") or "")
+            content = str(item.get("content") or "")
+            source_hash = str(item.get("content_hash") or "")
+            if (
+                not node_id
+                or not revision_id
+                or not content
+                or not re.fullmatch(r"[0-9a-f]{64}", source_hash)
+            ):
+                continue
+            title = str(item.get("title") or "已保存地图")
+            score = ask_world_relevance(data.question, title, content)
+            if score < MIN_RELEVANCE:
+                continue
+            key = f"map_spatial:{node_id}:{revision_id}:{source_hash[:12]}"
+            baseline = {
+                "node_id": node_id,
+                "title": title,
+                "revision_id": revision_id,
+                "revision_hash": str(item.get("revision_hash") or ""),
+                "geometry_hash": str(item.get("geometry_hash") or ""),
+                "content_hash": source_hash,
+                "source_hashes": list(item.get("source_hashes") or [])[:64],
+            }
+            candidates.append(
+                {
+                    "key": key,
+                    "kind": "map_spatial",
+                    "title": title,
+                    "content": content,
+                    "source_hash": source_hash,
+                    "score": score,
+                    "citation": AskWorldCitation(
+                        citation_key=key,
+                        kind="map_spatial",
+                        title=title,
+                        snippet=content[:500],
+                        source_hash=source_hash,
+                        map_baseline=[baseline],
+                        map_scene_id=brief.get("scene_id"),
+                        map_chapter_index=brief.get("chapter_index"),
+                        map_query_text=data.question,
+                    ),
+                }
+            )
+        return candidates
+
+    @staticmethod
+    def _map_candidates_from_compiled(
+        compiled, data: AskWorldQuestionRequest
+    ) -> list[dict]:
+        candidates = []
+        for section in compiled.sections:
+            if section.key != "map_spatial":
+                continue
+            for context_item in section.materialize_items().items:
+                if context_item.selection_state in {"excluded", "omitted"}:
+                    continue
+                source = dict(context_item.source or {})
+                node_id = str(source.get("id") or "")
+                revision_id = str(source.get("revision_id") or "")
+                content_hash = str(source.get("content_hash") or "")
+                content = str(context_item.content or "")
+                if (
+                    not node_id
+                    or not revision_id
+                    or not content
+                    or not re.fullmatch(r"[0-9a-f]{64}", content_hash)
+                ):
+                    continue
+                title = str(source.get("label") or "已保存地图")
+                score = ask_world_relevance(data.question, title, content)
+                if score < MIN_RELEVANCE:
+                    continue
+                baseline = {
+                    "node_id": node_id,
+                    "title": title,
+                    "revision_id": revision_id,
+                    "revision_hash": str(source.get("revision_hash") or ""),
+                    "geometry_hash": str(source.get("geometry_hash") or ""),
+                    "content_hash": content_hash,
+                    "source_hashes": list(source.get("source_hashes") or [])[:64],
+                }
+                key = f"map_spatial:{node_id}:{revision_id}:{content_hash[:12]}"
+                metadata = dict(section.retrieval_metadata or {})
+                candidates.append(
+                    {
+                        "key": key,
+                        "kind": "map_spatial",
+                        "title": title,
+                        "content": content,
+                        "source_hash": content_hash,
+                        "score": score,
+                        "citation": AskWorldCitation(
+                            citation_key=key,
+                            kind="map_spatial",
+                            title=title,
+                            snippet=content[:500],
+                            source_hash=content_hash,
+                            map_baseline=[baseline],
+                            map_scene_id=metadata.get("scene_id"),
+                            map_chapter_index=metadata.get("chapter_index"),
+                            map_query_text=data.question,
+                            map_context_confirmation_id=data.context_confirmation_id,
+                        ),
+                    }
+                )
+        return candidates
 
     async def _page_candidates(
         self,
@@ -490,11 +701,13 @@ class AskWorldService:
                 target_ref = citation.get("target_ref") or {}
                 target_id = target_ref.get("id") if isinstance(target_ref, dict) else None
                 chapter_index = citation.get("chapter_index")
+                map_baseline = citation.get("map_baseline") or []
             else:
                 page_id = getattr(citation, "page_id", None)
                 target_ref = getattr(citation, "target_ref", None) or {}
                 target_id = target_ref.get("id") if isinstance(target_ref, dict) else None
                 chapter_index = getattr(citation, "chapter_index", None)
+                map_baseline = getattr(citation, "map_baseline", None) or []
             kind = str(item["kind"])
             refs.append(
                 WorldBibleSourceRef(
@@ -503,9 +716,22 @@ class AskWorldService:
                         if kind == "world_bible_page"
                         else "core_entity"
                         if kind == "world_object"
+                        else "map_spatial"
+                        if kind == "map_spatial"
                         else "writing_chapter"
                     ),
-                    source_id=str(page_id or target_id or chapter_index or "") or None,
+                    source_id=str(
+                        page_id
+                        or target_id
+                        or (
+                            (map_baseline[0] if map_baseline else {}).get("node_id")
+                            if kind == "map_spatial"
+                            else None
+                        )
+                        or chapter_index
+                        or ""
+                    )
+                    or None,
                     source_hash=str(item.get("source_hash") or ""),
                     title=str(item.get("title") or kind),
                     chapter_index=chapter_index,
@@ -751,7 +977,25 @@ class AskWorldService:
                     "source_hashes": [item["source_hash"] for item in sources],
                     "degraded": trace.degraded,
                 },
-                section_metadata={"evidence_titles": [item["title"] for item in sources]},
+                section_metadata={
+                    "evidence_titles": [item["title"] for item in sources],
+                    **(
+                        {
+                            "map_spatial": {
+                                "retrieval_metadata": {
+                                    "map_baseline": [
+                                        baseline
+                                        for source in sources
+                                        if source["kind"] == "map_spatial"
+                                        for baseline in source["citation"].map_baseline
+                                    ]
+                                }
+                            }
+                        }
+                        if any(source["kind"] == "map_spatial" for source in sources)
+                        else {}
+                    ),
+                },
                 token_metadata={
                     "source_characters": sum(len(item["content"]) for item in sources)
                 },

@@ -148,16 +148,20 @@ async def test_saved_current_head_matches_real_old_source_and_persists_notice(
 
 
 @pytest.mark.asyncio
-async def test_working_draft_does_not_scan_maps(db_session, test_project_id):
-    async def forbidden(*args, **kwargs):
-        raise AssertionError("working edits must not invoke the map port")
+async def test_working_draft_checks_only_candidate_sources(db_session, test_project_id):
+    calls = []
 
-    with container_scope({WORLD_READ_MAP_CHAPTER_CONSUMERS: forbidden}):
+    async def candidates(db, novel_id, **kwargs):
+        calls.append(kwargs)
+        return {"maps": [], "auto_drafts": [], "checked": True}
+
+    with container_scope({WORLD_READ_MAP_CHAPTER_CONSUMERS: candidates}):
         await create_draft_only(db_session, test_project_id, 1, "工作稿", "东岸")
         receipt = await changed_receipt(
             db_session, test_project_id, published_changed=False
         )
-    assert "map_atlas" not in receipt.invalidated_consumers
+    assert calls and all(item["content_mode"] == "working" for item in calls)
+    assert receipt.invalidated_consumers["map_atlas"]["maps"] == []
 
 
 @pytest.mark.asyncio
@@ -317,3 +321,87 @@ async def test_only_saved_current_revision_counts_and_wrong_hash_is_visible(
     assert maps["unverified_sources"] == 1
     assert previous.status == "saved" and candidate_node.status == "adopted"
     assert forged_node.status == "adopted"
+
+
+def test_auto_draft_consumers_stay_candidates_and_report_incomplete_checks():
+    from modules.evolution.consumption import affected_view_entries
+    from modules.evolution.invalidation import InvalidationReceipt
+
+    receipt = InvalidationReceipt(
+        novel_id="novel",
+        chapter_index=2,
+        invalidated_consumers={
+            "map_atlas": {
+                "maps": [
+                    {
+                        "node_id": "saved",
+                        "revision_id": "s1",
+                        "title": "正式地图",
+                        "chapter_index": 2,
+                    }
+                ],
+                "auto_drafts": [
+                    {
+                        "node_id": "draft",
+                        "revision_id": "d1",
+                        "title": "候选地图",
+                        "chapter_index": 2,
+                        "kind": "auto_draft",
+                        "status": "candidate",
+                    }
+                ],
+                "checked": True,
+                "auto_draft_unverified": 3,
+                "auto_draft_truncated": True,
+            }
+        },
+    )
+    maps = [
+        item for item in affected_view_entries(receipt) if item["consumer"] == "map_atlas"
+    ]
+    saved, candidate, unknown = maps
+    assert saved["reason"] == "canonical_map_source_changed"
+    assert "map_kind" not in saved
+    assert candidate["map_kind"] == "auto_draft" and candidate["status"] == "candidate"
+    assert "待核自动草图" in candidate["note"]
+    assert unknown["basis"] == "unknown" and unknown["unverified_count"] == 3
+    assert unknown["truncated"] is True
+
+
+async def test_published_and_working_checks_use_their_own_source_identity(
+    db_session, test_project_id
+):
+    calls = []
+
+    async def maps(db, novel_id, **kwargs):
+        calls.append(kwargs)
+        mode = kwargs["content_mode"]
+        item = {"node_id": mode, "revision_id": mode, "title": mode, "chapter_index": 1}
+        return {
+            "checked": True,
+            "maps": [item],
+            "auto_drafts": [{**item, "kind": "auto_draft", "status": "candidate"}],
+            "auto_draft_unverified": int(mode == "working"),
+        }
+
+    with container_scope({WORLD_READ_MAP_CHAPTER_CONSUMERS: maps}):
+        canonical = await create_published_draft_only(
+            db_session, test_project_id, 1, "正式稿", "东岸港口"
+        )
+        working = await create_draft_only(
+            db_session, test_project_id, 1, "工作稿", "东岸山地"
+        )
+        calls.clear()
+        receipt = await changed_receipt(
+            db_session, test_project_id, published_changed=True
+        )
+    by_mode = {item["content_mode"]: item for item in calls}
+    assert by_mode["canonical"]["current_draft_id"] == str(canonical.id)
+    assert by_mode["canonical"]["current_source_hash"] == canonical.content_hash
+    assert by_mode["working"]["current_draft_id"] == str(working.id)
+    assert by_mode["working"]["current_source_hash"] == working.content_hash
+    result = receipt.invalidated_consumers["map_atlas"]
+    assert [item["node_id"] for item in result["maps"]] == ["canonical"]
+    assert {item["node_id"] for item in result["auto_drafts"]} == {"canonical", "working"}
+    assert result["auto_draft_unverified"] == 1
+    assert "地图册未核对完整" in receipt.coverage_note

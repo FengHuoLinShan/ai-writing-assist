@@ -22,6 +22,14 @@ export const assistant = {
     recheckEditorialIssue: (id, body) => post(`/assistant/editorial/issues/${encodeURIComponent(id)}/recheck`, body),
     reviseEditorialIssues: (body) => post("/assistant/editorial/issues/revise", body),
     capabilities: (novelId) => request(withQuery("/assistant/capabilities", { novel_id: novelId }), { cache: "no-store" }),
+    operationTraceReport: (novelId, period = "180d", options = {}) => request(
+      withQuery("/assistant/operation-traces/aggregate", { novel_id: novelId, period }),
+      { ...options, cache: "no-store" },
+    ),
+    exportOperationTraceReport: (novelId, period = "180d", format = "csv", options = {}) => request(
+      withQuery("/assistant/operation-traces/export", { novel_id: novelId, period, format }),
+      { ...options, cache: "no-store", _responseType: "blob" },
+    ),
     sessions: (novelId, params = {}) => request(withQuery("/assistant/sessions", { ...params, novel_id: novelId }), { cache: "no-store" }),
     createSession: (novelId, title = "项目助手") => post("/assistant/sessions", { novel_id: novelId, title }),
     session: (novelId, sessionId) => request(withQuery(`/assistant/sessions/${sessionId}`, { novel_id: novelId }), { cache: "no-store" }),
@@ -40,6 +48,22 @@ export const assistant = {
     careNotices: (novelId) => request(withQuery("/assistant/notices", { novel_id: novelId }), { cache: "no-store" }),
     recheckCareNotice: (novelId, noticeId, operationId) => post(withQuery(`/assistant/notices/${encodeURIComponent(noticeId)}/recheck`, { novel_id: novelId }), { operation_id: operationId }),
     decideCareNotice: (novelId, noticeId, disposition) => post(`/assistant/notices/${encodeURIComponent(noticeId)}/decide`, { novel_id: novelId, ...disposition }),
+    unifiedNotices: (novelId, { sceneId = null, chapterIndex = null, signal } = {}) => request(
+      withQuery("/assistant/unified-notices", {
+        novel_id: novelId,
+        scene_id: sceneId,
+        chapter_index: Number.isInteger(chapterIndex) ? chapterIndex : null,
+      }),
+      { cache: "no-store", signal },
+    ),
+    setUnifiedNoticeDisposition: (body) => post("/assistant/unified-notices/dispositions", body),
+    setUnifiedNoticeCategoryMute: (novelId, sourceId, category, expectedRowVersion, muted) => request(
+      `/assistant/unified-notices/category-mutes/${encodeURIComponent(sourceId)}/${encodeURIComponent(category)}`,
+      {
+        method: muted ? "PUT" : "DELETE",
+        body: JSON.stringify({ novel_id: novelId, expected_row_version: expectedRowVersion }),
+      },
+    ),
     // ============================================================
     // 引导流程（ADR-0032）：服务端确定性编排；前端只渲染停点与推进。
     // ============================================================
@@ -50,4 +74,19 @@ export const assistant = {
     guidedFlowAdvance: (runId, body) => post(`/assistant/flows/${encodeURIComponent(runId)}/advance`, body),
     guidedFlowSettings: (runId, body) => post(`/assistant/flows/${encodeURIComponent(runId)}/settings`, body),
     guidedFlowAbandon: (novelId, runId) => post(withQuery(`/assistant/flows/${encodeURIComponent(runId)}/abandon`, { novel_id: novelId })),
+    goalCapabilities: (novelId) => request(withQuery("/assistant/goals/capabilities", { novel_id: novelId }), { cache: "no-store" }),
+    activeGoal: (novelId) => request(withQuery("/assistant/goals/active", { novel_id: novelId }), { cache: "no-store" }),
+    recentGoals: (novelId) => request(withQuery("/assistant/goals/recent", { novel_id: novelId }), { cache: "no-store" }),
+    goal: (novelId, runId) => request(withQuery(`/assistant/goals/${encodeURIComponent(runId)}`, { novel_id: novelId }), { cache: "no-store" }),
+    startGoal: (body) => post("/assistant/goals", body),
+    approveGoal: (novelId, runId, body) => post(withQuery(`/assistant/goals/${encodeURIComponent(runId)}/approve`, { novel_id: novelId }), body),
+    advanceGoal: (novelId, runId, body) => post(withQuery(`/assistant/goals/${encodeURIComponent(runId)}/advance`, { novel_id: novelId }), body),
+    approveGoalStep: (novelId, runId, stepId, body) => post(withQuery(`/assistant/goals/${encodeURIComponent(runId)}/steps/${encodeURIComponent(stepId)}/approve`, { novel_id: novelId }), body),
+    reconcileGoalStep: (novelId, runId, stepId, body) => post(withQuery(`/assistant/goals/${encodeURIComponent(runId)}/steps/${encodeURIComponent(stepId)}/reconcile`, { novel_id: novelId }), body),
+    goalStepReceiptPreview: (novelId, runId, stepId, expectedRevision) => request(withQuery(`/assistant/goals/${encodeURIComponent(runId)}/steps/${encodeURIComponent(stepId)}/receipt`, { novel_id: novelId, expected_revision: expectedRevision }), { cache: "no-store" }),
+    pauseGoal: (novelId, runId, body) => post(withQuery(`/assistant/goals/${encodeURIComponent(runId)}/pause`, { novel_id: novelId }), body),
+    resumeGoal: (novelId, runId, body) => post(withQuery(`/assistant/goals/${encodeURIComponent(runId)}/resume`, { novel_id: novelId }), body),
+    cancelGoal: (novelId, runId, body) => post(withQuery(`/assistant/goals/${encodeURIComponent(runId)}/cancel`, { novel_id: novelId }), body),
+    replanGoal: (novelId, runId, body) => post(withQuery(`/assistant/goals/${encodeURIComponent(runId)}/replan`, { novel_id: novelId }), body),
+    restoreGoal: (novelId, runId, body) => post(withQuery(`/assistant/goals/${encodeURIComponent(runId)}/restore`, { novel_id: novelId }), body),
 };

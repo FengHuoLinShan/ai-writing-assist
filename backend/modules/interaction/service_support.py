@@ -66,6 +66,7 @@ async def _enqueue_overview_refresh_task(
             "llm_execution_snapshot": dict(snapshot),
         },
     )
+    journey.summary_refresh_task_id = uuid.UUID(contract.task_id)
     return contract.task_id
 
 

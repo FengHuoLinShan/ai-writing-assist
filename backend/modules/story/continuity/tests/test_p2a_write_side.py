@@ -17,6 +17,7 @@ from __future__ import annotations
 
 import hashlib
 import uuid
+from types import SimpleNamespace
 from typing import Any
 
 import pytest
@@ -32,6 +33,7 @@ from modules.story.continuity.field_provenance import (
 )
 from modules.story.continuity.models import MemoryEvent, MemorySceneCheckpoint
 from modules.story.continuity.scene_projection import SceneMemoryProjectionService
+from modules.story.continuity.scene_state_view import SceneStateViewService
 from modules.story.continuity.services import MemoryService
 from modules.story.outline_state.models import Scene
 from modules.writing.models import WritingDraft
@@ -213,6 +215,100 @@ async def test_ensure_scene_writes_exact_provenance_for_registered_fields(
     )
     for field_key in ("location_id", "text_state"):
         assert _latest_record(locations_state, field_key).event_id == moved_event
+
+
+@pytest.mark.asyncio
+async def test_ensure_scene_writes_type_scoped_state_and_attitude_provenance(
+    db_session: AsyncSession, test_project_id: str
+) -> None:
+    scene = await _scene(db_session, test_project_id, 0, 1)
+    draft = await _working_draft(
+        db_session, test_project_id, 1, 1, "甲惊惧交加，决意立刻离开。"
+    )
+    character_id = str(uuid.uuid4())
+    faction_id = str(uuid.uuid4())
+    relation_id = str(uuid.uuid4())
+    records = await _record(
+        db_session,
+        test_project_id,
+        scene,
+        [
+            {
+                "dimension": "entities",
+                "event_type": "entity_created",
+                "entity_type": "character",
+                "entity_id": character_id,
+                "snapshot_after": {
+                    "name": "甲",
+                    "emotion": "惊惧",
+                    "current_goal": "立刻离开",
+                    "unregistered_note": "仍透传",
+                },
+            },
+            {
+                "dimension": "relations",
+                "event_type": "relation_established",
+                "entity_type": "relation",
+                "entity_id": relation_id,
+                "snapshot_after": {
+                    "id": relation_id,
+                    "source_id": character_id,
+                    "target_id": faction_id,
+                    "relation_type": "conflict",
+                    "attitude": {
+                        "source_entity_id": character_id,
+                        "target_entity_id": faction_id,
+                        "label": "戒备",
+                        "degree": "strong",
+                    },
+                },
+            },
+        ],
+    )
+    await SceneMemoryProjectionService().ensure_scene(
+        db_session, test_project_id, str(scene.id)
+    )
+
+    entities = (
+        await _current_checkpoint(db_session, test_project_id, scene, "entities")
+    ).state_json
+    typed = [
+        item
+        for item in read_field_provenance(entities)
+        if item.object_type == "character"
+    ]
+    assert {item.field_key for item in typed} == {"emotion", "current_goal"}
+    assert all(
+        item.version == 1 and item.source_refs[0].draft_id == str(draft.id)
+        for item in typed
+    )
+    assert "unregistered_note" not in {
+        item.field_key for item in read_field_provenance(entities)
+    }
+    entity_facts = SceneStateViewService._entries_for(
+        "entities",
+        SimpleNamespace(
+            id=uuid.uuid4(), state_json=entities, confirmed=True, source="manual"
+        ),
+    )
+    emotion = next(item for item in entity_facts if item.field == "emotion")
+    assert emotion.source["provenance"]["object_type"] == "character"
+
+    relations = (
+        await _current_checkpoint(db_session, test_project_id, scene, "relations")
+    ).state_json
+    attitude = _latest_record(relations, "attitude")
+    assert attitude.object_type == "relation"
+    assert attitude.subject_ref == relation_id
+    assert attitude.event_id == _event_id(records, relation_id)
+    relation_facts = SceneStateViewService._entries_for(
+        "relations",
+        SimpleNamespace(
+            id=uuid.uuid4(), state_json=relations, confirmed=True, source="manual"
+        ),
+    )
+    relationship = next(item for item in relation_facts if item.field == "relation")
+    assert relationship.source["provenance"]["object_type"] == "relation"
 
 
 # ============================================================

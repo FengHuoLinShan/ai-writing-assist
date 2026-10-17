@@ -8,6 +8,7 @@ Memory 数据访问层
 from __future__ import annotations
 
 import uuid
+from datetime import UTC, datetime
 
 from sqlalchemy import and_, case, delete, func, or_, select, text, update
 from sqlalchemy.dialects.postgresql import insert as pg_insert
@@ -16,18 +17,123 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import aliased
 from sqlalchemy.sql.elements import ColumnElement
 
+from core.errors import ConflictError
+from modules.story.continuity.chapter_order_projection import (
+    MAX_CHAPTER_EVENT_CANDIDATES,
+    ChapterOrderTransition,
+    affected_chapter_indices,
+    build_chapter_order_transitions,
+    candidate_chapter_indices,
+    project_current_chapter_index,
+)
 from modules.story.continuity.models import (
     DeltaLog,
     MemoryEvent,
     MemorySceneCheckpoint,
     MemorySceneSnapshot,
     MemorySnapshot,
+    StoryChapterOrderReceipt,
 )
 from shared.constants import DEFAULT_PAGE_SIZE
 
 
 class EventRepository:
     """记忆事件数据访问"""
+
+    async def get_chapter_order_transitions(
+        self, db: AsyncSession, novel_id: uuid.UUID
+    ) -> tuple[ChapterOrderTransition, ...]:
+        receipts = list(
+            (
+                await db.scalars(
+                    select(StoryChapterOrderReceipt)
+                    .where(StoryChapterOrderReceipt.novel_id == novel_id)
+                    .order_by(
+                        StoryChapterOrderReceipt.created_at,
+                        StoryChapterOrderReceipt.id,
+                    )
+                )
+            ).all()
+        )
+        return build_chapter_order_transitions(receipts)
+
+    async def _affected_events(
+        self,
+        db: AsyncSession,
+        novel_id: uuid.UUID,
+        affected: set[int],
+    ) -> list[MemoryEvent]:
+        events = []
+        chapter_ids = sorted(affected)
+        for start in range(0, len(chapter_ids), 100):
+            chunk = chapter_ids[start : start + 100]
+            ranked = (
+                select(
+                    MemoryEvent.id.label("event_id"),
+                    func.row_number()
+                    .over(
+                        partition_by=MemoryEvent.chapter_index,
+                        order_by=(MemoryEvent.sequence, MemoryEvent.id),
+                    )
+                    .label("row_number"),
+                )
+                .where(
+                    MemoryEvent.novel_id == novel_id,
+                    MemoryEvent.chapter_index.in_(chunk),
+                    MemoryEvent.source_stale.is_(False),
+                )
+                .subquery()
+            )
+            rows = (
+                await db.execute(
+                    select(MemoryEvent, ranked.c.row_number)
+                    .join(ranked, ranked.c.event_id == MemoryEvent.id)
+                    .where(ranked.c.row_number <= MAX_CHAPTER_EVENT_CANDIDATES + 1)
+                    .order_by(
+                        MemoryEvent.chapter_index,
+                        MemoryEvent.sequence,
+                        MemoryEvent.id,
+                    )
+                )
+            ).all()
+            if any(
+                row_number > MAX_CHAPTER_EVENT_CANDIDATES for _event, row_number in rows
+            ):
+                raise ConflictError(
+                    "章节重排候选事件超过每章 500 条读取边界，请先缩小重排范围"
+                )
+            events.extend(event for event, _row_number in rows)
+        return events
+
+    @staticmethod
+    def _after_cursor(
+        event: MemoryEvent,
+        chapter_index: int,
+        after: tuple[int, int, uuid.UUID] | None,
+    ) -> bool:
+        return (
+            after is None
+            or (
+                chapter_index,
+                event.sequence,
+                event.id,
+            )
+            > after
+        )
+
+    @staticmethod
+    def _projected_order(
+        event: MemoryEvent,
+        transitions: tuple[ChapterOrderTransition, ...],
+    ) -> tuple[int, int, uuid.UUID]:
+        chapter_index = project_current_chapter_index(
+            event.chapter_index, event.created_at, transitions
+        )
+        return (
+            chapter_index if chapter_index is not None else -1,
+            event.sequence,
+            event.id,
+        )
 
     async def get_by_ids(
         self, db: AsyncSession, novel_id: uuid.UUID, event_ids: list[uuid.UUID]
@@ -161,6 +267,8 @@ class EventRepository:
                 "scene_index": insert_stmt.excluded.scene_index,
                 "scene_sequence": insert_stmt.excluded.scene_sequence,
                 "dimension": insert_stmt.excluded.dimension,
+                # The upserted chapter_index is in the current order already.
+                "created_at": func.now(),
             },
         )
         await db.execute(stmt)
@@ -193,6 +301,7 @@ class EventRepository:
                 "dimension",
             ):
                 setattr(existing, field, row.get(field))
+            existing.created_at = datetime.now(UTC)
 
     async def get_by_chapter(
         self,
@@ -218,7 +327,49 @@ class EventRepository:
         novel_id: uuid.UUID,
         from_chapter: int,
         to_chapter: int,
+        *,
+        order_transitions: tuple[ChapterOrderTransition, ...] | None = None,
     ) -> list[MemoryEvent]:
+        if order_transitions is None:
+            order_transitions = await self.get_chapter_order_transitions(db, novel_id)
+        touched = affected_chapter_indices(order_transitions)
+        candidates = candidate_chapter_indices(
+            from_chapter, to_chapter, order_transitions
+        )
+        if order_transitions and touched:
+            conditions = [
+                MemoryEvent.novel_id == novel_id,
+                MemoryEvent.chapter_index >= from_chapter,
+                MemoryEvent.chapter_index <= to_chapter,
+                MemoryEvent.source_stale.is_(False),
+                MemoryEvent.chapter_index.not_in(touched),
+            ]
+            unaffected = list(
+                (
+                    await db.scalars(
+                        select(MemoryEvent)
+                        .where(*conditions)
+                        .order_by(
+                            MemoryEvent.chapter_index,
+                            MemoryEvent.sequence,
+                            MemoryEvent.id,
+                        )
+                    )
+                ).all()
+            )
+            projected = [
+                event
+                for event in await self._affected_events(db, novel_id, candidates)
+                if from_chapter
+                <= project_current_chapter_index(
+                    event.chapter_index, event.created_at, order_transitions
+                )
+                <= to_chapter
+            ]
+            return sorted(
+                [*unaffected, *projected],
+                key=lambda event: self._projected_order(event, order_transitions),
+            )
         stmt = (
             select(MemoryEvent)
             .where(
@@ -238,15 +389,36 @@ class EventRepository:
         novel_id: uuid.UUID,
         from_chapter: int,
         to_chapter: int,
+        *,
+        order_transitions: tuple[ChapterOrderTransition, ...] | None = None,
     ) -> int:
-        stmt = select(func.count(MemoryEvent.id)).where(
+        if order_transitions is None:
+            order_transitions = await self.get_chapter_order_transitions(db, novel_id)
+        touched = affected_chapter_indices(order_transitions)
+        candidates = candidate_chapter_indices(
+            from_chapter, to_chapter, order_transitions
+        )
+        conditions = [
             MemoryEvent.novel_id == novel_id,
             MemoryEvent.chapter_index >= from_chapter,
             MemoryEvent.chapter_index <= to_chapter,
             MemoryEvent.source_stale.is_(False),
-        )
-        result = await db.execute(stmt)
-        return result.scalar_one()
+        ]
+        if order_transitions and touched:
+            conditions.append(MemoryEvent.chapter_index.not_in(touched))
+        result = await db.execute(select(func.count(MemoryEvent.id)).where(*conditions))
+        count = int(result.scalar_one())
+        if order_transitions and candidates:
+            count += sum(
+                1
+                for event in await self._affected_events(db, novel_id, candidates)
+                if from_chapter
+                <= project_current_chapter_index(
+                    event.chapter_index, event.created_at, order_transitions
+                )
+                <= to_chapter
+            )
+        return count
 
     async def get_max_chapter_in_range(
         self,
@@ -254,15 +426,45 @@ class EventRepository:
         novel_id: uuid.UUID,
         from_chapter: int,
         to_chapter: int,
+        *,
+        order_transitions: tuple[ChapterOrderTransition, ...] | None = None,
     ) -> int | None:
-        stmt = select(func.max(MemoryEvent.chapter_index)).where(
+        if order_transitions is None:
+            order_transitions = await self.get_chapter_order_transitions(db, novel_id)
+        touched = affected_chapter_indices(order_transitions)
+        candidates = candidate_chapter_indices(
+            from_chapter, to_chapter, order_transitions
+        )
+        conditions = [
             MemoryEvent.novel_id == novel_id,
             MemoryEvent.chapter_index >= from_chapter,
             MemoryEvent.chapter_index <= to_chapter,
             MemoryEvent.source_stale.is_(False),
+        ]
+        if order_transitions and touched:
+            conditions.append(MemoryEvent.chapter_index.not_in(touched))
+        result = await db.execute(
+            select(func.max(MemoryEvent.chapter_index)).where(*conditions)
         )
-        result = await db.execute(stmt)
-        return result.scalar_one()
+        maximum = result.scalar_one()
+        if order_transitions and candidates:
+            projected = [
+                project_current_chapter_index(
+                    event.chapter_index, event.created_at, order_transitions
+                )
+                for event in await self._affected_events(db, novel_id, candidates)
+            ]
+            changed_max = max(
+                (
+                    index
+                    for index in projected
+                    if index is not None and from_chapter <= index <= to_chapter
+                ),
+                default=None,
+            )
+            values = [value for value in (maximum, changed_max) if value is not None]
+            maximum = max(values) if values else None
+        return maximum
 
     async def get_by_chapter_range_page_after(
         self,
@@ -273,13 +475,22 @@ class EventRepository:
         *,
         after: tuple[int, int, uuid.UUID] | None,
         limit: int,
+        order_transitions: tuple[ChapterOrderTransition, ...] | None = None,
     ) -> list[MemoryEvent]:
+        if order_transitions is None:
+            order_transitions = await self.get_chapter_order_transitions(db, novel_id)
+        touched = affected_chapter_indices(order_transitions)
+        candidates = candidate_chapter_indices(
+            from_chapter, to_chapter, order_transitions
+        )
         conditions = [
             MemoryEvent.novel_id == novel_id,
             MemoryEvent.chapter_index >= from_chapter,
             MemoryEvent.chapter_index <= to_chapter,
             MemoryEvent.source_stale.is_(False),
         ]
+        if order_transitions and touched:
+            conditions.append(MemoryEvent.chapter_index.not_in(touched))
         if after is not None:
             after_chapter, after_sequence, after_id = after
             conditions.append(
@@ -300,10 +511,26 @@ class EventRepository:
             select(MemoryEvent)
             .where(*conditions)
             .order_by(MemoryEvent.chapter_index, MemoryEvent.sequence, MemoryEvent.id)
-            .limit(limit)
         )
-        result = await db.execute(stmt)
-        return list(result.scalars().all())
+        if not order_transitions or not touched:
+            result = await db.execute(stmt.limit(limit))
+            return list(result.scalars().all())
+        unaffected = list((await db.scalars(stmt.limit(limit))).all())
+        projected = []
+        for event in await self._affected_events(db, novel_id, candidates):
+            chapter_index = project_current_chapter_index(
+                event.chapter_index, event.created_at, order_transitions
+            )
+            if (
+                chapter_index is not None
+                and from_chapter <= chapter_index <= to_chapter
+                and self._after_cursor(event, chapter_index, after)
+            ):
+                projected.append(event)
+        return sorted(
+            [*unaffected, *projected],
+            key=lambda event: self._projected_order(event, order_transitions),
+        )[:limit]
 
     async def get_by_entity(
         self,
@@ -313,24 +540,66 @@ class EventRepository:
         *,
         skip: int = 0,
         limit: int = DEFAULT_PAGE_SIZE,
+        order_transitions: tuple[ChapterOrderTransition, ...] | None = None,
     ) -> tuple[list[MemoryEvent], int]:
+        if order_transitions is None:
+            order_transitions = await self.get_chapter_order_transitions(db, novel_id)
         conditions = [
             MemoryEvent.novel_id == novel_id,
             MemoryEvent.entity_id == entity_id,
             MemoryEvent.source_stale.is_(False),
         ]
-        count_stmt = select(func.count(MemoryEvent.id)).where(*conditions)
-        total = (await db.execute(count_stmt)).scalar() or 0
+        affected = affected_chapter_indices(order_transitions)
+        if not order_transitions or not affected:
+            total = int(
+                await db.scalar(select(func.count(MemoryEvent.id)).where(*conditions))
+                or 0
+            )
+            stmt = (
+                select(MemoryEvent)
+                .where(*conditions)
+                .offset(skip)
+                .limit(limit)
+                .order_by(
+                    MemoryEvent.chapter_index,
+                    MemoryEvent.sequence,
+                    MemoryEvent.id,
+                )
+            )
+            result = await db.execute(stmt)
+            return list(result.scalars().all()), total
 
-        stmt = (
-            select(MemoryEvent)
-            .where(*conditions)
-            .offset(skip)
-            .limit(limit)
-            .order_by(MemoryEvent.chapter_index, MemoryEvent.sequence, MemoryEvent.id)
+        unaffected_conditions = [*conditions, MemoryEvent.chapter_index.not_in(affected)]
+        unaffected_total = int(
+            await db.scalar(
+                select(func.count(MemoryEvent.id)).where(*unaffected_conditions)
+            )
+            or 0
         )
-        result = await db.execute(stmt)
-        return list(result.scalars().all()), total
+        unaffected = list(
+            (
+                await db.scalars(
+                    select(MemoryEvent)
+                    .where(*unaffected_conditions)
+                    .order_by(
+                        MemoryEvent.chapter_index,
+                        MemoryEvent.sequence,
+                        MemoryEvent.id,
+                    )
+                    .limit(skip + limit)
+                )
+            ).all()
+        )
+        changed = [
+            event
+            for event in await self._affected_events(db, novel_id, affected)
+            if event.entity_id == entity_id
+        ]
+        combined = sorted(
+            [*unaffected, *changed],
+            key=lambda event: self._projected_order(event, order_transitions),
+        )
+        return combined[skip : skip + limit], unaffected_total + len(changed)
 
     async def delete_by_chapter(
         self,
@@ -477,6 +746,8 @@ class EventRepository:
                 "scene_id": scene_id,
                 "scene_index": scene_index,
                 "chapter_index": chapter_index,
+                # The matched row is now bound to the current chapter order.
+                "created_at": datetime.now(UTC),
                 "scene_sequence": slot,
                 "sequence": (scene_index + 1) * 1000 + slot,
             }

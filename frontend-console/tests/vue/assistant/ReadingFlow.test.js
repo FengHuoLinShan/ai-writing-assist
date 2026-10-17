@@ -28,8 +28,10 @@ it("预览不启动任务，启动失联后按原授权重试，刷新只读进�
   const status = vi.fn().mockResolvedValue({ engine: { engine: "evolution", epoch: 2 }, run: null })
   const preview = vi.fn().mockResolvedValue({ fingerprint: "f".repeat(64), scene_count: 2, request_limit: 20 })
   const done = { engine: { engine: "evolution", epoch: 2 }, run: { run_key: "run-a", status: "completed", completed_scenes: 2, total_scenes: 2 } }
-  const start = vi.fn().mockRejectedValueOnce(new Error("暂时失联")).mockResolvedValue(done)
-  setBridgeOverrides({ api: { evolution: { status, preview, start } } })
+  const interrupted = { engine: { engine: "evolution", epoch: 2 }, run: { run_key: "run-a", status: "needs_scene_review", can_resume: true, completed_scenes: 1, total_scenes: 2 } }
+  const start = vi.fn().mockRejectedValueOnce(new Error("暂时失联")).mockResolvedValue(interrupted)
+  const resume = vi.fn().mockResolvedValue(done)
+  setBridgeOverrides({ api: { evolution: { status, preview, start, resume } } })
   const wrapper = mount(ReadingFlow, { props: { projectId: "a" } })
   expect(status).not.toHaveBeenCalled()
   await open(wrapper)
@@ -39,11 +41,14 @@ it("预览不启动任务，启动失联后按原授权重试，刷新只读进�
   await button(wrapper, "确认并开始理解").trigger("click"); await flushPromises()
   const frozen = JSON.parse(JSON.stringify(start.mock.calls[0][1]))
   expect(wrapper.findAll("input")[0].element.disabled).toBe(true)
+  status.mockResolvedValue(interrupted)
+  await button(wrapper, "刷新进度").trigger("click"); await flushPromises()
   await button(wrapper, "确认启动结果").trigger("click"); await flushPromises()
   expect(start.mock.calls[1]).toEqual(["a", frozen])
+  expect(button(wrapper, "恢复理解").element.disabled).toBe(false)
+  await button(wrapper, "恢复理解").trigger("click"); await flushPromises()
+  expect(resume).toHaveBeenCalledWith("a", "run-a")
   expect(wrapper.text()).toContain("所选范围理解已更新")
-  status.mockResolvedValue(done)
-  await button(wrapper, "刷新进度").trigger("click"); await flushPromises()
   expect(start).toHaveBeenCalledTimes(2)
   expect(preview).toHaveBeenCalledTimes(1)
   wrapper.unmount()
@@ -174,6 +179,36 @@ it("按页回看世界提案，转义模型内容并丢弃跨项目迟到结果"
   resolve({ offset: 20, limit: 20, total: 21, items: [{ scene_index: 9 }] }); await flushPromises()
   expect(wrapper.text()).not.toContain("第 10 场")
   expect(wrapper.text()).not.toContain("候选摘要")
+  wrapper.unmount()
+})
+
+it("完成场景阅读后仍明示结构候选待独立复核与逐场景来源", async () => {
+  const status = vi.fn().mockResolvedValue({ engine: { engine: "evolution" }, run: {
+    run_key: "run-structure", status: "completed", completed_scenes: 2, total_scenes: 2,
+    structure_review: { unresolved_reveal_count: 1, unresolved_reveals: [{
+      batch_key: "batch-1", title: "桥下旧约", summary: "旧桥誓约可能影响人物选择。",
+      review_reason: "需要确认它是否来自当前正文而非早期推断。",
+      supporting_scene_ids: ["scene-a"],
+      source_refs: [{ scene_id: "scene-a", run_key: "run-structure", attempt_id: "attempt-1" }],
+    }] },
+  } })
+  const listScenesOrdered = vi.fn().mockResolvedValue([{ id: "scene-a", title: "桥下重逢" }])
+  const start = vi.fn()
+  setBridgeOverrides({ api: { evolution: { status, start }, outline: { listScenesOrdered } } })
+  const wrapper = mount(ReadingFlow, { props: { projectId: "a" } })
+  await open(wrapper)
+  await flushPromises()
+
+  expect(status).toHaveBeenCalledTimes(1)
+  expect(start).not.toHaveBeenCalled()
+  expect(wrapper.text()).toContain("场景理解已完成；1 条剧情结构候选仍待独立复核")
+  const review = wrapper.get('[aria-label="待独立复核的剧情结构候选"]')
+  expect(review.text()).toContain("桥下旧约")
+  expect(review.text()).toContain("旧桥誓约可能影响人物选择")
+  expect(review.text()).toContain("需要确认它是否来自当前正文")
+  expect(review.text()).toContain("桥下重逢")
+  expect(review.text()).toContain("来源回执")
+  expect(review.find("button").exists()).toBe(false)
   wrapper.unmount()
 })
 
@@ -343,5 +378,268 @@ it.each([
   await wrapper.get('form .reading-recompute-toggle input').setValue(true)
   await button(wrapper, "预览类别补扫").trigger("click"); await flushPromises()
   expect(categoryRescanPreview.mock.calls[0][2].request_limit).toBe(expectedLimit)
+  wrapper.unmount()
+})
+
+it("新阅读显式开启空间发现，预览披露费用、子额度与候选边界，可取消", async () => {
+  const status = vi.fn().mockResolvedValue({ engine: { engine: "evolution", epoch: 1 }, run: null })
+  const preview = vi.fn().mockResolvedValue({ fingerprint: "f".repeat(64), spatial_discovery_enabled: true, optional_steps: { spatial: { quota: 8, used: 0, request_range: { minimum: 0, maximum: 8 } }, details: { quota: 16, used: 0, request_range: { minimum: 0, maximum: 16 } } } })
+  setBridgeOverrides({ api: { evolution: { status, preview } } })
+  const wrapper = mount(ReadingFlow, { props: { projectId: "p", entry: true } })
+  await flushPromises()
+  const checkbox = wrapper.get('[aria-label="同时发现空间线索"]')
+  expect(checkbox.element.checked).toBe(true)
+  await wrapper.get("form").trigger("submit"); await flushPromises()
+  expect(preview.mock.calls[0][1].discover_spatial).toBe(true)
+  expect(wrapper.text()).toContain("可能产生模型费用")
+  expect(wrapper.text()).toContain("独立额度 8 次")
+  expect(wrapper.text()).toContain("需作者审核后采用")
+  await checkbox.setValue(false); await flushPromises()
+  expect(button(wrapper, "确认并开始理解")).toBeUndefined()
+  await wrapper.get("form").trigger("submit"); await flushPromises()
+  expect(preview.mock.calls[1][1]).not.toHaveProperty("discover_spatial")
+  wrapper.unmount()
+})
+
+it.each([
+  ["completed", undefined, "append", false],
+  ["needs_budget", false, "continue", false],
+  ["completed", true, "append", true],
+])("%s读取继承冻结空间开关%s", async (statusName, spatialEnabled, mode, expected) => {
+  const status = vi.fn().mockResolvedValue({ engine: { engine: "evolution", epoch: 1 }, run: {
+    run_key: "old", status: statusName, completed_scenes: 1, total_scenes: 1,
+    end_chapter: 1, spatial_discovery_enabled: spatialEnabled,
+  } })
+  const preview = vi.fn().mockResolvedValue({ fingerprint: "f".repeat(64) })
+  setBridgeOverrides({ api: { evolution: { status, preview } } })
+  const wrapper = mount(ReadingFlow, { props: { projectId: "p", entry: true } })
+  await flushPromises()
+  expect(wrapper.find('[aria-label="同时发现空间线索"]').exists()).toBe(false)
+  await wrapper.get("form").trigger("submit"); await flushPromises()
+  const request = preview.mock.calls[0][1]
+  expect(request.mode).toBe(mode)
+  expect(request.discover_spatial === true).toBe(expected)
+  wrapper.unmount()
+})
+
+it("从旧运行切换到新项目恢复新阅读的空间选项", async () => {
+  const status = vi.fn().mockImplementation(projectId => Promise.resolve({ engine: { engine: "evolution", epoch: 1 }, run: projectId === "old" ? { run_key: "old-run", status: "completed", completed_scenes: 1, total_scenes: 1, end_chapter: 1 } : null }))
+  setBridgeOverrides({ api: { evolution: { status } } })
+  const wrapper = mount(ReadingFlow, { props: { projectId: "old", entry: true } })
+  await flushPromises()
+  await wrapper.setProps({ projectId: "new" }); await flushPromises()
+  expect(wrapper.get('[aria-label="同时发现空间线索"]').element.checked).toBe(true)
+  wrapper.unmount()
+})
+
+it("主阅读完成仍披露可选步骤未执行、未知和来源变化覆盖", async () => {
+  const status = vi.fn().mockResolvedValue({ engine: { engine: "evolution", epoch: 1 }, run: {
+    run_key: "old", status: "completed", completed_scenes: 4, total_scenes: 4, end_chapter: 1,
+    optional_step_coverage: { spatial: { counts: { inspected: 1, not_run: 1, unknown: 1, stale: 1 }, gaps: [{ scene_index: 2, journal_key: "private-call-key" }] } },
+  } })
+  setBridgeOverrides({ api: { evolution: { status } } })
+  const wrapper = mount(ReadingFlow, { props: { projectId: "p", entry: true } })
+  await flushPromises()
+  const coverage = wrapper.get('.reading-optional-coverage')
+  expect(coverage.text()).toContain('已检查 1 场，未执行 1 场，结果未知 1 场，来源变化 1 场')
+  expect(coverage.text()).toContain('另有 1 条检查缺口')
+  expect(coverage.text()).not.toContain('private-call-key')
+  wrapper.unmount()
+})
+
+it("旧阅读空间补扫单独预览并授权，失联保持原操作编号且换项目隔离", async () => {
+  const done = { engine: { engine: "evolution", epoch: 1 }, run: { run_key: "old", status: "completed", completed_scenes: 3, total_scenes: 3, end_chapter: 1, budget_mode: "bounded", spatial_rescans: [] } }
+  const status = vi.fn().mockResolvedValue(done)
+  const spatialRescanPreview = vi.fn().mockResolvedValue({ fingerprint: "f".repeat(64), scene_count: 3, request_range: { minimum: 0, maximum: 6 }, quota: 6, additional_budget: 4, mandatory_request_reserve: 2, budget_remaining: 4, model: "frozen-model" })
+  const spatialRescanStart = vi.fn().mockRejectedValueOnce(new Error("暂时失联")).mockResolvedValue({})
+  setBridgeOverrides({ api: { evolution: { status, spatialRescanPreview, spatialRescanStart } } })
+  const wrapper = mount(ReadingFlow, { props: { projectId: "p", entry: true } }); await flushPromises()
+  expect(wrapper.text()).toContain('补扫需要单独确认范围及模型费用')
+  await button(wrapper, '预览空间补扫').trigger('click'); await flushPromises()
+  expect(spatialRescanPreview.mock.lastCall).toEqual(['p', 'old', expect.objectContaining({ from_scene_index: 0, through_scene_index: 2, request_limit: 20 })])
+  expect(spatialRescanStart).not.toHaveBeenCalled()
+  expect(wrapper.text()).toContain('为主阅读保留 2 次')
+  await button(wrapper, '取消空间补扫').trigger('click')
+  expect(button(wrapper, '确认范围与费用并补扫空间')).toBeUndefined()
+  await button(wrapper, '预览空间补扫').trigger('click'); await flushPromises()
+  await button(wrapper, '确认范围与费用并补扫空间').trigger('click'); await flushPromises()
+  const frozen = JSON.parse(JSON.stringify(spatialRescanStart.mock.lastCall[2]))
+  expect(frozen.authorization_confirmed).toBe(true)
+  expect(wrapper.get('.reading-spatial-rescan fieldset').element.disabled).toBe(true)
+  expect(button(wrapper, '查看理解范围').attributes('disabled')).toBeDefined()
+  status.mockResolvedValue({ ...done, run: { ...done.run, run_key: 'replacement' } })
+  await button(wrapper, '刷新进度').trigger('click'); await flushPromises()
+  expect(wrapper.text()).toContain('原阅读范围和原操作编号')
+  status.mockResolvedValue({ ...done, run: null })
+  await button(wrapper, '刷新进度').trigger('click'); await flushPromises()
+  expect(button(wrapper, '查看理解范围').attributes('disabled')).toBeDefined()
+  await button(wrapper, '确认空间补扫启动结果').trigger('click'); await flushPromises()
+  expect(spatialRescanStart.mock.lastCall).toEqual(['p', 'old', frozen])
+  status.mockResolvedValue({ engine: { engine: 'evolution', epoch: 1 }, run: null })
+  await wrapper.setProps({ projectId: 'other' }); await flushPromises()
+  expect(wrapper.find('.reading-spatial-rescan').exists()).toBe(false)
+  wrapper.unmount()
+})
+
+it("空间补扫选范围使预览失效，结果未知不显示恢复按钮", async () => {
+  const status = vi.fn().mockResolvedValue({ engine: { engine: "evolution", epoch: 1 }, run: { run_key: "old", status: "completed", completed_scenes: 3, total_scenes: 3, end_chapter: 1, spatial_rescans: [{ operation_id: 'old-op', from_scene_index: 0, through_scene_index: 2, status: 'needs_reconciliation', can_resume: false }] } })
+  const spatialRescanPreview = vi.fn().mockResolvedValue({ fingerprint: "f".repeat(64), scene_count: 3, request_range: { minimum: 0, maximum: 6 }, quota: 6, additional_budget: 0, mandatory_request_reserve: 0, budget_remaining: null })
+  setBridgeOverrides({ api: { evolution: { status, spatialRescanPreview } } })
+  const wrapper = mount(ReadingFlow, { props: { projectId: "p", entry: true } }); await flushPromises()
+  expect(wrapper.text()).toContain('空间请求结果与费用尚未核清，不能重发')
+  expect(button(wrapper, '恢复空间补扫')).toBeUndefined()
+  await button(wrapper, '预览空间补扫').trigger('click'); await flushPromises()
+  await wrapper.get('[aria-label="空间补扫截止场景"]').setValue(2); await flushPromises()
+  expect(button(wrapper, '确认范围与费用并补扫空间')).toBeUndefined()
+  wrapper.unmount()
+})
+
+it('空间覆盖分开显示密度跳过、缺口与未检查，细节旧四态仍保留', async () => {
+  const status = vi.fn().mockResolvedValue({ engine: { engine: 'evolution', epoch: 1 }, run: {
+    run_key: 'new', status: 'completed', completed_scenes: 4, total_scenes: 4, end_chapter: 1,
+    optional_step_coverage: { spatial: { counts: { inspected: 1, density_skipped: 1, gap: 1, not_checked: 1 }, gaps: [{ scene_index: 2, reason: 'unknown' }] }, details: { counts: { inspected: 1, not_run: 1, unknown: 1, stale: 1 } } },
+  } })
+  setBridgeOverrides({ api: { evolution: { status } } })
+  const wrapper = mount(ReadingFlow, { props: { projectId: 'p', entry: true } }); await flushPromises()
+  expect(wrapper.text()).toContain('已检查 1 场，已检查但密度不足 1 场，有缺口 1 场，未检查 1 场')
+  expect(wrapper.text()).toContain('细节发现：已检查 1 场，未执行 1 场，结果未知 1 场，来源变化 1 场')
+  wrapper.unmount()
+})
+
+const frozenAuthorization = (overrides = {}) => ({
+  capability: 'evolution.prepare_spatial_reading',
+  arguments: { operation_id: 'frozen-reading', run_key: null, mode: 'bootstrap', end_chapter: 2, discover_spatial: true, request_limit: 20 },
+  preview: { authorization_preview: { fingerprint: 'a'.repeat(64), model: 'synthetic-model', request_limit: 20 } },
+  ...overrides,
+})
+
+it('引导冻结授权原样交给演化，作者点击前不预览也不启动，成功回传原运行', async () => {
+  sessionStorage.clear()
+  const start = vi.fn(async () => ({ run: { run_key: 'reading-frozen-reading' } })), preview = vi.fn()
+  const status = vi.fn(async () => ({ engine: { engine: 'evolution' }, run: null }))
+  setBridgeOverrides({ api: { evolution: { start, preview, status } } })
+  const preparedAuthorization = frozenAuthorization()
+  const wrapper = mount(ReadingFlow, { props: { projectId: 'frozen-project', preparedAuthorization } })
+  await flushPromises()
+  expect(start).not.toHaveBeenCalled(); expect(preview).not.toHaveBeenCalled()
+  await button(wrapper, '确认此范围与费用并启动演化').trigger('click'); await flushPromises()
+  expect(start).toHaveBeenCalledExactlyOnceWith('frozen-project', { ...preparedAuthorization.arguments, expected_fingerprint: 'a'.repeat(64), authorization_confirmed: true })
+  expect(wrapper.emitted('authorized')).toEqual([['reading-frozen-reading']])
+  expect(wrapper.emitted('authorization-state')).toEqual([[{ busy: true }], [{ busy: false }]])
+  wrapper.unmount()
+})
+
+it('空间补扫回执丢失与刷新都只核对原运行，保留编号指纹且不重发', async () => {
+  sessionStorage.clear()
+  const spatialRescanStart = vi.fn().mockRejectedValue(new TypeError('network'))
+  const preparedAuthorization = frozenAuthorization({ capability: 'evolution.prepare_spatial_rescan', arguments: { run_key: 'old-reading', operation_id: 'frozen-rescan', from_scene_index: 2, through_scene_index: 4, request_limit: null } })
+  const status = vi.fn(async () => ({ engine: { engine: 'evolution' }, run: { run_key: 'old-reading', status: 'completed', spatial_rescans: [] } }))
+  setBridgeOverrides({ api: { evolution: { spatialRescanStart, status } } })
+  let wrapper = mount(ReadingFlow, { props: { projectId: 'frozen-project', preparedAuthorization } })
+  await flushPromises()
+  await button(wrapper, '确认此范围与费用并启动演化').trigger('click'); await flushPromises()
+  expect(spatialRescanStart).toHaveBeenCalledExactlyOnceWith('frozen-project', 'old-reading', { operation_id: 'frozen-rescan', from_scene_index: 2, through_scene_index: 4, request_limit: null, expected_fingerprint: 'a'.repeat(64), authorization_confirmed: true })
+  expect(wrapper.text()).toContain('结果尚待核对')
+  expect(button(wrapper, '确认此范围与费用并启动演化')).toBeUndefined()
+  wrapper.unmount()
+  wrapper = mount(ReadingFlow, { props: { projectId: 'frozen-project', preparedAuthorization } })
+  await flushPromises()
+  await button(wrapper, '核对原授权结果').trigger('click'); await flushPromises()
+  expect(wrapper.emitted('authorized')).toEqual([['old-reading']])
+  expect(spatialRescanStart).toHaveBeenCalledTimes(1)
+  wrapper.unmount()
+})
+
+it('冻结授权来源冲突不重新预览或恢复费用按钮', async () => {
+  sessionStorage.clear()
+  const start = vi.fn().mockRejectedValueOnce(Object.assign(new Error('来源已变化'), { status: 409 }))
+  const preview = vi.fn()
+  const status = vi.fn(async () => ({ engine: { engine: 'evolution' }, run: null }))
+  setBridgeOverrides({ api: { evolution: { start, preview, status } } })
+  const wrapper = mount(ReadingFlow, { props: { projectId: 'frozen-project', preparedAuthorization: frozenAuthorization() } })
+  await flushPromises()
+  await button(wrapper, '确认此范围与费用并启动演化').trigger('click'); await flushPromises()
+  expect(wrapper.text()).toContain('请结束当前引导')
+  expect(button(wrapper, '确认此范围与费用并启动演化')).toBeUndefined()
+  expect(preview).not.toHaveBeenCalled()
+  wrapper.unmount()
+})
+
+it('重新核对保留旧范围输入，但绑定本次操作的新阅读运行', async () => {
+  sessionStorage.clear()
+  const start = vi.fn(async () => ({}))
+  const status = vi.fn(async () => ({ engine: { engine: 'evolution' }, run: { run_key: 'old-reading', status: 'failed', total_scenes: 4, preparing_scenes: false } }))
+  setBridgeOverrides({ api: { evolution: { start, status } } })
+  const preparedAuthorization = frozenAuthorization({ arguments: { operation_id: 'repair', run_key: 'old-reading', mode: 'scoped_recompute', from_scene_index: 2, end_chapter: 4, discover_spatial: true, request_limit: 20 } })
+  const wrapper = mount(ReadingFlow, { props: { projectId: 'frozen-project', preparedAuthorization } })
+  await flushPromises()
+  await button(wrapper, '确认此范围与费用并启动演化').trigger('click'); await flushPromises()
+  expect(start.mock.calls[0][1]).toMatchObject({ run_key: 'old-reading', operation_id: 'repair' })
+  expect(wrapper.emitted('authorized')).toEqual([['reading-repair']])
+  wrapper.unmount()
+})
+
+it('冻结授权响应晚于换项目时不绑定旧运行，确认在途受互斥状态保护', async () => {
+  sessionStorage.clear()
+  let resolve
+  const start = vi.fn(() => new Promise(done => { resolve = done }))
+  const status = vi.fn(async () => ({ engine: { engine: 'evolution' }, run: null }))
+  setBridgeOverrides({ api: { evolution: { start, status } } })
+  const wrapper = mount(ReadingFlow, { props: { projectId: 'old', preparedAuthorization: frozenAuthorization(), authorizationDisabled: true } })
+  await flushPromises()
+  expect(button(wrapper, '确认此范围与费用并启动演化').element.disabled).toBe(true)
+  await wrapper.setProps({ authorizationDisabled: false })
+  await button(wrapper, '确认此范围与费用并启动演化').trigger('click')
+  await wrapper.setProps({ projectId: 'new' })
+  resolve({}); await flushPromises()
+  expect(wrapper.emitted('authorized')).toBeUndefined()
+  expect(start).toHaveBeenCalledTimes(1)
+  wrapper.unmount()
+})
+
+it('冷启动冻结授权遇到进行中的阅读时阻止新请求并提示重新核对', async () => {
+  sessionStorage.clear()
+  const start = vi.fn()
+  const status = vi.fn(async () => ({ engine: { engine: 'evolution' }, run: { run_key: 'active-reading', status: 'running', total_scenes: 4 } }))
+  setBridgeOverrides({ api: { evolution: { start, status } } })
+  const wrapper = mount(ReadingFlow, { props: { projectId: 'frozen-project', preparedAuthorization: frozenAuthorization() } })
+  await flushPromises()
+  expect(button(wrapper, '确认此范围与费用并启动演化').element.disabled).toBe(true)
+  expect(wrapper.text()).toContain('当前理解状态已变化')
+  await button(wrapper, '确认此范围与费用并启动演化').trigger('click'); await flushPromises()
+  expect(start).not.toHaveBeenCalled()
+  wrapper.unmount()
+})
+
+it('冷启动冻结的空间追加遇到未启用空间发现的旧运行时要求重新核对', async () => {
+  sessionStorage.clear()
+  const start = vi.fn()
+  const status = vi.fn(async () => ({ engine: { engine: 'evolution' }, run: { run_key: 'old-reading', status: 'completed', spatial_discovery_enabled: false } }))
+  const preparedAuthorization = frozenAuthorization({ arguments: { operation_id: 'stale-spatial-append', run_key: 'old-reading', mode: 'append', end_chapter: 3, discover_spatial: true, request_limit: 20 } })
+  setBridgeOverrides({ api: { evolution: { start, status } } })
+  const wrapper = mount(ReadingFlow, { props: { projectId: 'frozen-project', preparedAuthorization } })
+  await flushPromises()
+  expect(button(wrapper, '确认此范围与费用并启动演化').element.disabled).toBe(true)
+  expect(wrapper.text()).toContain('当前理解状态已变化')
+  await button(wrapper, '确认此范围与费用并启动演化').trigger('click'); await flushPromises()
+  expect(start).not.toHaveBeenCalled()
+  wrapper.unmount()
+})
+
+it('B5-F1: 空间补扫运行中不提供追加阅读，追加会推进 head 使补扫失败关闭', async () => {
+  const status = vi.fn().mockResolvedValue({ engine: { engine: 'evolution', epoch: 1 }, run: {
+    run_key: 'old', status: 'completed', completed_scenes: 3, total_scenes: 3, end_chapter: 1, budget_mode: 'bounded', spatial_discovery_enabled: true,
+    spatial_rescans: [{ operation_id: 'running-op', from_scene_index: 0, through_scene_index: 2, status: 'running', can_resume: false }],
+  } })
+  const preview = vi.fn()
+  setBridgeOverrides({ api: { evolution: { status, preview } } })
+  const wrapper = mount(ReadingFlow, { props: { projectId: 'p', entry: true } }); await flushPromises()
+  // The rescan fieldset is already disabled; the append entry must be too.
+  expect(wrapper.find('fieldset[disabled]').exists()).toBe(true)
+  expect(wrapper.text()).toContain('空间补扫正在进行')
+  const prepare = button(wrapper, '查看理解范围')
+  if (prepare && !prepare.element.disabled) { await prepare.trigger('click'); await flushPromises() }
+  expect(prepare?.element.disabled ?? true).toBe(true)
+  expect(preview).not.toHaveBeenCalled()
   wrapper.unmount()
 })

@@ -9,6 +9,30 @@ resume 不重置累计账本；planner/nomination 的 step timeout 保持原样�
 `KnowledgeAuditReceipt`；它们的 provider step 只继承宿主 capability 的运行信封，不建立第二账本。
 运行信封中只保存稳定 step 名、计数和脱敏指纹，不保存编译正文或 Prompt。
 
+声明参考维度的能力使用知识治理 v2 receipt/policy，以区分必查维度与参考维度；
+没有参考维度且语义未变化的能力继续使用 v1。参考维度省略单列
+`advisory_omitted`，不进入 `omitted`，不影响 `scope_complete` 或
+`require_scope_complete`；scope 与 audit receipt 均记录该字段，作者 review payload 投影原因并
+隐藏不可见 source key。审查 coverage 仍只要求必查维度完整。v1 receipt 继续按原字段和指纹语义
+回读。`map_spatial` 作为参考维度由独立 loader 接入写作、剧本、冲突审查与 `world.ask`；
+每个能力由 `MAP_SPATIAL_ENABLED_CAPABILITIES` 独立选择且默认关闭。只读取 World facade
+返回的已采用空间简报；预算、作者排除、来源失效与截止点过滤均只记录参考省略，不阻断必查范围。
+空间参考仅使用核心资料编译后的剩余预算，不驱逐必查来源。语义审查、定向返修复用原生成
+confirmation 时仍保留其核心资料、排除项和知识边界，仅由服务端指定当前消费者的地图开关；
+地图变化或被省略不会改变核心资料指纹。已确认的 `world.ask` 直接消费其确认内简报，不再额外加载全书地图。
+
+`director_reference` 是另一项独立 advisory dimension，只适用于作者明确选择参考副本的
+`writing.generate` 与 `writing.targeted_revision`。能力开关
+`NOVELCRAFT_DIRECTOR_REFERENCE_ENABLED_CAPABILITIES` 默认空，只允许这两个 capability ID；
+编译请求和 confirmation 同时冻结所选副本身份。Evidence 通过
+`EVIDENCE_READ_STORY_DIRECTOR_REFERENCES` 只读 port 调用 Story facade，并负责 POV 投影、section、
+预算与 `advisory_omitted` 回执。作者视角可读取所选内容副本；character POV 只读取本人表演和
+具有该 POV 感知回执的素材，不读取其他人物内心或导演批注；reader view 禁用。所选副本缺失、来源指纹变化、
+角色不可感知或剩余预算不足只产生独立提醒，不阻断核心知识范围，也不进入 `KnowledgeScopeReceipt.omitted`。
+Writing 在任务入队时冻结经确认的副本；执行期间来源删除或变化时沿用快照并追加提示。此维度不写入
+`SceneScriptFile`、`adopted_scripts` 或 `get_scene_story_basis_hash`。最终 `app/bootstrap.py` DI port
+注册由 C4b 组合根完成；没有注册时默认关闭，若显式开启但 port 不可用，编译会警告并省略该 advisory 来源。
+
 ## 定位
 
 Evidence 的 compilation 子域决定本次 AI 操作能看到哪些资料、哪些资料要被裁剪，以及哪些
@@ -721,6 +745,59 @@ Evidence 为 Collaboration 收集授权的冻结资源集合，manifest 同时�
 `compile_with_tiers`、逐项 inspect 与排除门禁形成有上限的作者世界资料包；产物包含实际
 引用和 omission。Assistant 另验正文/资料版本，不把这个只读包当正式审稿或采用确认。
 
+
+## Scene 对象简报（C0b）
+
+`POST /api/evidence/compilation/object-dossier-brief` 返回一个严格绑定 Scene 截止点的只读聚合。
+请求字段为 `novel_id`、`scene_id`、1–16 个 `entity_ids`、`reveal_mode`、可选
+`viewpoint_character_id`、`content_mode`、`include_patterns` 和 `only_adopted_patterns`。
+服务端从 Story Scene 契约解析当前顺序，不接受客户端传入的 `through_scene_index`。
+
+响应含 `world_items`（World 档案条目或由显式模板 key/facing 映射的旧 profile 字段）、
+`continuity_items`（保留 fact/belief/observation 模态、字段来源与 checkpoint 引用）、
+`pattern_items`（可选 Evolution 历史解释及其来源坐标）、三层 fingerprint、当前 checkpoint 引用、
+`layers`、`unknown_layers`、`omitted_count`、`omissions`、`coverage` 和总体 `fingerprint`。
+档案证据和人物倾向只带稳定 source coordinates，不带引用原文或 `quote_text`。
+Story、World 分别通过 `evidence.read_story_object_state`、
+`evidence.read_world_object_dossier` 只读 DI 键提供；Evolution 通过
+`evidence.read_evolution_object_patterns` 只读 DI 键提供。缺键、截止不符、
+身份失效或来源不新鲜会显式省略，不回退到直接读取其他台账表。
+
+简报只接纳已采用的对象与旧 profile。demo 只读身份不能调用此作者管理简报，即使请求指定了演示项目。
+`author_safe` 的 Story 事实从已有 reader 可见投影取得逐字段证明；不能仅凭字段名未命中黑名单判定安全。
+该模式只返回公开 World 条目的安全投影；World 在分页和计数前筛掉秘密条目，无公开/秘密标记的旧 profile 字段、秘密条目、
+作者 checkpoint 引用与台账倾向均不进入该模式，相关指纹仅按返回的公开内容重算，隐藏项不计省略数。
+`author_full` 用于 owner 校验后的作者管理读取，保留作者完整引用，并可按显式开关读取
+supported 或作者保留/修正的台账倾向（`only_adopted_patterns` 默认关闭）；此响应不得复用作角色创作上下文。
+角色视角先使用 Story 的 POV 可见投影，再只接受 `visibility=public` 且值与同一主体的已确认、
+非疑似虚假的可见 Story fact 精确相等的 World 条目；World 在分页前按该证明值筛选，secret、belief-only 匹配、观察和
+Evolution 倾向都不进入角色材料。角色模式不读取作者 checkpoint set 或 Evolution port，
+不返回作者来源引用、原状态指纹或隐藏条目计数。reader 模式不返回对象档案与台账。作者接口默认
+`include_patterns=false`；该选项是本次读取授权，和写作 capability 的默认关闭开关分开。
+
+写作编译器还可把聚合投影加入 `object_dossier` 与 `character_pattern` 两个独立 P3 section。
+消费开关按 capability 分别配置、默认空集关闭；它们只作可排除参考，超预算时先逐出，不能
+挤掉核心资料。角色模式只渲染 Story POV 可见的稳定事实，绝不渲染 Evolution pattern；
+pattern section 明确标为解释而非事实。Context snapshot 保留入选档案 revision、checkpoint
+和台账引用。Assistant 的 `evidence.object_dossier_brief.read` 是同 request schema 的 R0/free
+只读操作，直接调用此 Evidence facade；HTTP 和 Assistant 都核对 active project，不接受
+执行上下文之外的 `novel_id`。
+
+旧 `GenericEntityProfile.data_json` 写入现经同一 Dossier 服务追加 `legacy_import` 修订；旧 GET/list
+只读投影当前修订，纯 GET 不物化。活动模板中唯一且有效的 key/facing 映射保留面向，未映射字段留在
+秘密区并作为未映射数量报告。旧导入修订没有伪造 Scene 有效期；进入 `author_full` 简报仍要求目标 Scene
+的当前 Story checkpoint 中存在同主体、同值、confirmed、非 possibly-false 且有 exact 正文区间来源的 fact。
+secret 与未映射值不进入 safe/character 投影；通过 Dossier API 的后续显式作者修订按自身来源处理。
+兼容旧 PUT 的 `expected_dossier_revision` 可省略：提供时 stale 返回 409，缺省时 entity/Profile 行锁只保证串行
+且旧式整份 JSON 替换仍为最后写者胜出；这不是旧客户端的乐观 CAS 保证。Dossier 原生更新仍必须带 revision CAS。
+Dossier 当前读投影会从 GenericEntityProfile 只读刷新状态和来源元数据，旧修订不会掩盖 profile 转为 draft/migrated。
+legacy_import 的 Story 截止证明仍有字段级绑定缺口：当前门禁核对主体和值以及 Story fact 自己的精确来源，尚未
+将 Story `field` 与 Generic `field_key` 对齐；在独立修复审查前不能视作完成字段级时点证明。
+
+Story card/reaction 的手动确认由固定 action 解析 retrieval purpose，并拒绝 action 与 purpose 不匹配：card 为
+`story_character_card`、reaction 为 `story_character_reaction`；Story script 为 `story_scene_script`。
+Story 人物生成确认必须绑定唯一 Scene cutoff；card 还要求同项目目标人物 POV，reaction 只接受 author-safe 确认。
+对象简报/倾向仍是可选参考，开关未显式配置时关闭，不参与核心资料缺口判定。
 
 ## 逐源证据与预算状态（B8）
 

@@ -19,12 +19,15 @@ from infrastructure.llm.agent_runtime import AGENT_STEP_NAME
 from infrastructure.llm.schemas import LLMCallResponse, LLMToolCall, LLMUsage
 from infrastructure.llm.workflow_budget import (
     AIRunEnvelope,
+    AIRunIdentityError,
     new_ai_run_envelope,
 )
 from infrastructure.tasks.models import AsyncTask
 from infrastructure.tasks.registry import get_registry
+from infrastructure.tasks.worker import TaskRunEnvelopeKeeper
 from modules.assistant import service as assistant_service
 from modules.assistant.models import AssistantRun
+from modules.assistant.operations import operation_manifest
 from modules.assistant.service import AssistantService
 
 
@@ -37,6 +40,107 @@ def test_assistant_turn_declares_run_envelope_contract() -> None:
     task = object()
     assert registry.resolve_run_request_limit("assistant_turn", task) == 30
     assert registry.resolve_run_deadline_seconds("assistant_turn", task) == 1800.0
+
+
+def test_c2_child_scope_requires_exact_frozen_v9_available_operation() -> None:
+    from modules.assistant.service import _assistant_catalog_budget_scope
+
+    manifest = operation_manifest()
+    frozen = {
+        op_id: manifest[op_id]
+        for op_id in ("story.character_card.generate", "story.reaction.generate")
+    }
+    scope = _assistant_catalog_budget_scope("9", frozen)
+    assert scope is not None
+    assert scope["authorized_step_capabilities"] == [
+        "story.character_card",
+        "story.reaction",
+    ]
+    assert _assistant_catalog_budget_scope("8", frozen) is None
+    stale = {
+        **frozen,
+        "story.reaction.generate": {
+            **frozen["story.reaction.generate"],
+            "revision": "stale",
+        },
+    }
+    assert _assistant_catalog_budget_scope("9", stale)[
+        "authorized_step_capabilities"
+    ] == ["story.character_card"]
+    disabled = {
+        **frozen,
+        "story.character_card.generate": {
+            **frozen["story.character_card.generate"],
+            "metadata": {
+                **frozen["story.character_card.generate"]["metadata"],
+                "ai_available": False,
+            },
+        },
+    }
+    assert _assistant_catalog_budget_scope("9", disabled)[
+        "authorized_step_capabilities"
+    ] == ["story.reaction"]
+
+
+def test_c2_resume_rejects_capability_marker_or_envelope_drift() -> None:
+    import modules.assistant.tasks  # noqa: F401 - production registration
+
+    scope = {
+        "scope_fingerprint": "a" * 64,
+        "authorized_step_capabilities": ["story.character_card"],
+    }
+    frozen = (
+        new_ai_run_envelope(
+            operation_id="run-c2",
+            run_id="run-c2",
+            root_capability_id="assistant.turn",
+            novel_id="novel-c2",
+            request_limit=30,
+            budget_mode="assistant_catalog",
+            **scope,
+        )
+        .snapshot()
+        .model_dump(mode="json")
+    )
+    task = AsyncTask(
+        id=uuid.uuid4(),
+        task_type="assistant_turn",
+        novel_id=uuid.uuid4(),
+        status="running",
+        attempt=1,
+        meta={"_assistant_catalog_budget_v1": scope, "_ai_run_envelope": frozen},
+    )
+
+    def resume():
+        return TaskRunEnvelopeKeeper(
+            task=task,
+            lease_id=str(uuid.uuid4()),
+            registry=get_registry(),
+            session_factory=None,
+        ).open()
+
+    assert resume().snapshot().requests_started == 0
+    task.meta = {
+        **task.meta,
+        "_assistant_catalog_budget_v1": {**scope, "scope_fingerprint": "b" * 64},
+    }
+    with pytest.raises(AIRunIdentityError, match="scope drifted"):
+        resume()
+    task.meta = {**task.meta, "_assistant_catalog_budget_v1": scope}
+    task.meta["_ai_run_envelope"] = (
+        new_ai_run_envelope(
+            operation_id="run-c2",
+            run_id="run-c2",
+            root_capability_id="assistant.turn",
+            novel_id="novel-c2",
+            request_limit=30,
+            budget_mode="bounded",
+        )
+        .snapshot()
+        .model_dump(mode="json")
+    )
+    with pytest.raises(AIRunIdentityError, match="scope drifted"):
+        resume()
 
 
 class _NullLimiter:
@@ -145,6 +249,8 @@ async def test_assistant_turn_agent_declares_root_capability_and_single_ledger(
             root_capability_id="assistant.turn",
             novel_id=test_project_id,
             request_limit=30,
+            budget_mode="assistant_catalog",
+            **task.meta["_assistant_catalog_budget_v1"],
             deadline_at=datetime.now(UTC) + timedelta(seconds=1800),
         ).snapshot()
     )

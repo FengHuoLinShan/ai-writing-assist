@@ -1,5 +1,9 @@
 # Module: evolution / 演化系统模块
 
+`ObservationModality` 的七种值统一定义于 `shared.observation`，本模块 contracts 保持
+原名再出口。类型共享不改变观察 wire、稳定身份或回执版本；地图与其他消费者不得另造
+不兼容的置信度枚举。
+
 第三阶段实施入口见 [作者全景、细节台账与持续发现计划](../plans/2026-10-08-world-evolution-phase3.md)。
 当前新增 `ledger_contracts.py` 定义派生主题、逐字证据/发生实例、修订变化包和独立作者决定，
 以及主题/不可变修订的 ORM 与迁移；`discovery.py` 已接逐场理解和原请求冻结/预算，
@@ -7,6 +11,8 @@
 写作侧栏及场景工作台接入表格、截止场景、来源、历史和作者判断；阶段验收仍在进行。
 World 候选采用现重验实际传递回执前缀（含继承），避免 drained/stopped 旧运行遗漏前序来源变化。
 append 保留已完成结构批次与游标，重新开放新增场景范围的结构阶段。
+Assistant v8 A1 的 `evolution.prepare_reading` 仅返回 `workflow.preview_reading` 的授权预览，
+不启动任务或模型；正式阅读仍由 Evolution 工作台独立确认。空间阅读/补扫的既有准备入口不变。
 
 V4 长期计划（`docs/plans/novelcraft-v4/plans/01-EVOLUTION.md`）的演化引擎：
 "读取正文 → 观察 → 身份解析 → 状态解释 → 校验 → 窄批次提交"的运行所有权。
@@ -15,6 +21,11 @@ V4 长期计划（`docs/plans/novelcraft-v4/plans/01-EVOLUTION.md`）的演化�
 验证。入口替代、观察期与真实质量验收仍未完成，旧编排尚未退役。
 
 ## 契约层（`contracts.py` / `observations.py`）
+
+评测只读入口 `read_map_spatial_evaluation_receipts(db, novel_id, run_key, operation_id, scene_ids)`
+经 owner 门禁校验实际空间阅读/补扫授权及请求 Scene 范围，返回冻结来源、空间覆盖与调用 journal、持久提交回执。
+不核对并修改任务，不返回项目配置或凭据。主阅读未保存逐授权 attempt 映射时标记 `operation_binding_status=unknown`；
+没有 attempt 的 Scene 覆盖同样标记 unknown，不能将缺失回执视为零调用或已完成。
 
 - `SourceRevisionRef`：不可变来源引用。range_hash 由 content_hash + 偏移确定性
   推导；章节序号只用于展示排序，来源身份由 draft/content_hash/revision 承担——
@@ -230,6 +241,10 @@ World 正典修订、地图册非正文/待审来源与世界知识的来源版�
 未复核结论。复核通过的批次以 `needs_review` Story 草稿持久化并登记
 `evolution_structure_ref`；故事大纲四类结构资产（剧情线/人物弧/伏笔/揭示）采用时
 重验原回执与最新来源，来源漂移拒绝采用，已采用条目回归作者自由编辑。
+揭示主题若没有可验证的既有对象目标，不猜测目标，也不写入需目标 ID 的 RevealPlan；
+批次回执保留原候选、逐 Scene 证据与 `unresolved_reveal_target` 待复核标记。
+作者可从 `GET /api/evolution/reading` 的 `run.structure_review` 读取未解析数量、
+具体条目及来源回执。流程 `completed` 表示阅读阶段结束，待复核揭示仍需作者处理。
 
 ## 测试
 
@@ -467,6 +482,55 @@ question即使复核确认“问题有依据”，仍另存绑定原主题/修�
 路由prior_review仅带verdict，不复制旧机器自由理由自证；完整主张、条件、作者决定、
 原始观察/引用/用途与已知发生锚仍提供，未缩短历史窗口或删证据。
 
+## ADR-0036 空间可选阅读步骤（M1）
+
+`discover_details` 与 `discover_spatial` 按 `optional_steps.py` 的纯数据规格登记。
+新建且开启空间发现的阅读计划冻结 `optional_stage_version=1`，确认启动时保留该版本；
+Scene attempt 在首次请求前固定同版本及计划已授权的 `spatial_method_fingerprint`，采样后仍保留原值。
+旧 run 的 append/continue 保持原阶段版本；新 recompute run 沿用其正式预览冻结的新协议。
+主采样、身份、World 候选和状态在原事务内先提交不可变 Scene 回执；同一持久 Scene 任务随后
+按 details、spatial 顺序执行可选阶段，再推进下一 Scene。可选 provider 慢或挂起时，其他会话已能读取
+主回执和 World 结果。`optional_scene_stage` 关联 `receipt_attempt_id`、提交后的 Scene 指纹和
+主状态指纹，各步骤记录 pending/running/complete/failed/unknown/not_run（关闭步骤为 not_run/step_disabled）；
+可选领域结果和计费仍保存在
+原 attempt 的 materialization/coverage/journal 中，完成后不改写主回执。恢复原任务时，已提交分支继续
+未收尾阶段；sampling/failed 未知费用只记本步骤缺口，不重发，其他步骤与后续 Scene 继续。
+阶段发送和物化前重验原 Scene 回执/head、owner、正文及提交后的 Scene 指纹；取消保留持久阶段待恢复。
+主游标已推进但可选阶段未收尾时，进度不提前显示全部完成，append 不越过该阶段。
+shadow 阶段明确标记 `not_run/shadow_isolated`，不写正式领域。补扫不复制原 Scene 的主提交阶段身份；
+原可选阶段未收尾时先恢复原任务，原发现请求费用未知时禁止用类别补扫重发。
+旧冻结负载、旧计划追加/继续均不升级此协议。
+
+`discover_details` 的旧 API 默认、journal、方法版本和写入链保持原行为；空间步骤另用
+`spatial_version=1`，API 开关默认关闭。新 UI 在授权预览显式提交开关，预览冻结空间子额度和
+主理解必需请求保留额；空间运行中 `details` 与 `spatial` 各自扣独立子额度，任一步耗尽只记该步缺口。
+`append`、`continue` 继承冻结版本和方法指纹，保留既有补扫 journal 登记与草图游标；
+方法变化只记空间缺口，不能通过恢复或新补扫操作重发未核清请求。
+
+空间抽取与复核分别使用 `scene_spatial_discovery` / `scene_spatial_review` journal，方法标识为
+`evolution.spatial_discover.v1` / `evolution.spatial_review.v1`。调用前冻结当前 Scene 正文、身份候选、
+项目空间类型与严格更早的线索，实际召回和省略数进入 consumer read-set；不读后续 Scene。
+本场主回执后，空间端点可投影独立审查且已物化的 World 新候选，不依赖主 observation 是否列出该地点。World 按 owner/作品、原回执与当前来源前缀及同 run/Scene/index/attempt 的实体来源元数据重新验证，未物化、其他运行、未来场景或失效对象不进入输入。中文标准类型沿用正式类型归一化；真实地点端点可触发密度门，只有正文实际包含的名称才计数，不推测自定义对象类型。端点投影版本进入方法指纹，旧冻结保留原指纹并诚实报告 stale。
+
+来源模式保持 Story 实际 `working` 或 `canonical`，引文必须在当前 Scene 正文唯一、逐字命中且落在一个
+被绑定的源区间。模型给出的端点 ID 只在本批 World 输入中解析；未解析端点保留为文字待放置线索。
+独立复核按提案与精确引文绑定；新类型首场只形成涌现草案，至少第二场的累计 prior+current 原文证据
+全部经复核后才可提交激活提案。World stage 还会重验来源、端点和类型修订；写入的只是地图域线索候选，
+不会写 World 关系或地图 head。空间失败、缺额度、未知请求、部分覆盖和来源冲突只影响该步骤覆盖，
+未知 journal 不自动重发。输入超限与已落失败 journal 的 provider 异常保留为空间缺口；
+主理解的 owner、来源或父回执冲突仍按原门禁拒绝。旧 Scene 的补扫 journal 不抵扣后续新 Scene 的主理解保留额。
+
+覆盖汇总使用 `inspected`、`density_skipped`、`gap`、`not_checked` 四态，并保留可见的原因与覆盖信息；
+不向界面暴露内部 journal key。旧阅读的空间补扫通过
+`POST /reading/{run_key}/spatial-rescan-preview`、`spatial-rescan` 和
+`spatial-rescan/{operation_id}/resume` 单独预览、确认和恢复。旧冻结来源没有 mode 时，分别按 Story
+的工作稿/正式稿合同精确校验；只有唯一模式与冻结正文及范围相符才允许补扫。
+
+阅读批次结束或补扫结束时，Evolution 聚合该运行截止 Scene 并经 `world.build_map_auto_drafts` 请求一次
+幂等草图批次；每次调用有界推进，running 在相同 build key 下恢复下一片，completed 重放原结果。
+失败或缺少构建 port 会保存可见状态，不把未构建算作完成。草图仍是作者审核候选，不自动保存或采用；
+World 端负责依据同一 run、截止 Scene 和逐条重验后的可用线索构建候选。
+
 ## #209 派生账本读取与发现容量
 
 `freshness.py` 缓存经过完整来源验证的前缀证明，以 PostgreSQL 事务内维护的
@@ -605,12 +669,15 @@ ID、章节、版本、content_hash、status 与 `deprecated_from_status` 单键
 provenance；来源须是
 published 或保留 published 来源标记的历史稿。当前地图引用与当前 canonical 身份不同才
 进入 `invalidated_consumers.map_atlas`，较旧历史引用也需核对；撤回/删除后的空 canonical
-同样披露旧引用，同章当前版本不误报，working 保存不触发。
+同样披露旧引用，同章当前版本不误报。working 保存仅核对工作稿自动草图，不扫描正式地图；
+published_changed 时分别使用 working/canonical 的当前稿身份核对后合并回执。
 
 这是建议性登记，地图名与对应章节及“去地图核对”入口出现在写作回执中；地图内容、status、
 append-only revision/CAS、World 正史均不改。地图不置 chapter_registered、不进入
 Scene 窗口或重算选项；原 Scene 保守扩大语义保留。超出上限标 truncated，来源 ID/hash/章
 不能重验时计 unverified_sources 并说明未完整核对；DB 查询失败或项目/身份门禁拒绝经 SAVEPOINT
 降级显示“地图册未核对”，不阻断正文失效。写作主提示只给地图核对缺口的作者语言说明，
-范围诊断只在折叠说明中出现。对象、世界书页来源与待审 candidate 仍为 map_atlas
-残余 unsupported，world_canon_revision 与 world_knowledge 不因此闭合。
+范围诊断只在折叠说明中出现。World 返回的 `auto_drafts` 单独投影为“待核自动草图”，不冒充正式地图；
+`auto_draft_unverified` 与 `auto_draft_truncated` 明确保留未核数量与覆盖缺口。
+对象、世界书页来源与非自动草图的待审 candidate 仍为 map_atlas 残余 unsupported，
+world_canon_revision 与 world_knowledge 不因此闭合。

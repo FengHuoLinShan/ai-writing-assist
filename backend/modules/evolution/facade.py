@@ -1,5 +1,6 @@
 """Stable domain entry points for source mutations; no model work is started."""
 
+from modules.evolution.completed_read_chapters import read_completed_chapter_indices
 from modules.evolution.consumption import (
     CONSUMPTION_REGISTRY_STATE_KEY,
     read_consumption_records,
@@ -12,6 +13,12 @@ from modules.evolution.impact import receipt_view
 from modules.evolution.invalidation import (
     apply_scene_reorder_invalidation,
     record_writing_source_change,
+)
+from modules.evolution.map_assistant_read_service import (
+    read_map_cold_start_status as read_map_cold_start_status,
+)
+from modules.evolution.map_evaluation_read_service import (
+    read_map_spatial_evaluation_receipts as read_map_spatial_evaluation_receipts,
 )
 from modules.evolution.ownership import switch_project_engine
 from modules.evolution.reading import (
@@ -69,11 +76,14 @@ __all__ = [
     "apply_scene_reorder_invalidation",
     "record_writing_source_change",
     "receipt_view",
+    "read_map_cold_start_status",
+    "read_map_spatial_evaluation_receipts",
     "register_scene_consumption",
     "CONSUMPTION_REGISTRY_STATE_KEY",
     "read_consumption_records",
     "switch_project_engine",
     "read_committed_understanding",
+    "read_completed_chapter_indices",
     "require_current_world_candidate",
     "require_current_structure_candidate",
 ]

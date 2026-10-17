@@ -9,9 +9,9 @@ from __future__ import annotations
 import uuid
 from datetime import datetime
 from enum import StrEnum
-from typing import Any
+from typing import Any, Literal
 
-from pydantic import BaseModel, ConfigDict, Field, field_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 from modules.story.continuity.contracts import (
     CURRENT_SCENE_MEMORY_CONTRACT_VERSION,
@@ -58,6 +58,24 @@ class EntityInPanorama(BaseModel):
     status: str = "canonical"
 
 
+class RelationAttitude(BaseModel):
+    """One directed, scene-time attitude carried by a relation event."""
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    source_entity_id: str = Field(min_length=1, max_length=64)
+    target_entity_id: str = Field(min_length=1, max_length=64)
+    label: str = Field(min_length=1, max_length=64)
+    degree: Literal["slight", "moderate", "strong"] = "moderate"
+    description: str | None = Field(default=None, max_length=500)
+
+    @model_validator(mode="after")
+    def require_direction(self) -> RelationAttitude:
+        if self.source_entity_id == self.target_entity_id:
+            raise ValueError("attitude must point from one object to another")
+        return self
+
+
 class RelationInPanorama(BaseModel):
     """全景中的单个关系"""
 
@@ -68,6 +86,16 @@ class RelationInPanorama(BaseModel):
     description: str | None = None
     strength: float = 0.5
     status: str = "canonical"
+    attitude: RelationAttitude | None = None
+
+    @model_validator(mode="after")
+    def attitude_matches_relation(self) -> RelationInPanorama:
+        if self.attitude is not None and (
+            self.attitude.source_entity_id != self.source_id
+            or self.attitude.target_entity_id != self.target_id
+        ):
+            raise ValueError("attitude direction must match relation endpoints")
+        return self
 
 
 class CharacterLocationInPanorama(BaseModel):
@@ -176,6 +204,39 @@ class EventListResponse(BaseModel):
 
     items: list[MemoryEventResponse]
     total: int
+
+
+class StoryFactTimelineQuery(BaseModel):
+    """Author-only factual-event timeline filters; no outline-plan fields."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    entity_id: uuid.UUID | None = None
+    cutoff_scene_id: uuid.UUID | None = None
+    source: str | None = Field(default=None, min_length=1, max_length=32)
+    status: Literal["current", "stale", "unknown"] | None = None
+    skip: int = Field(default=0, ge=0)
+    limit: int = Field(default=50, ge=1, le=200)
+
+
+class StoryFactTimelineItemResponse(MemoryEventResponse):
+    entity_label: str | None = None
+    current_chapter_index: int | None = None
+    current_scene_index: int | None = None
+    time_status: Literal["current", "stale", "unknown"]
+
+
+class StoryFactTimelineResponse(BaseModel):
+    items: list[StoryFactTimelineItemResponse]
+    total: int
+    unknown_time_count: int = 0
+    pending_revalidation_count: int = 0
+    consumer_scope: Literal["author"] = "author"
+    cutoff_scene: dict[str, Any] | None = None
+    source_options: list[str] = Field(default_factory=list)
+    entity_options: list[dict[str, Any]] = Field(default_factory=list)
+    scene_options: list[dict[str, Any]] = Field(default_factory=list)
+    pending_revalidations: list[dict[str, Any]] = Field(default_factory=list)
 
 
 # ============================================================
@@ -390,6 +451,66 @@ class SceneStateViewRequest(BaseModel):
         if any(item not in SCENE_MEMORY_DIMENSIONS for item in unique):
             raise ValueError("unknown memory checkpoint dimension")
         return unique
+
+
+class CustomTextStateUpdateRequest(BaseModel):
+    """Author-confirmed write of one World-declared custom Story text field."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    scene_id: uuid.UUID
+    entity_id: uuid.UUID
+    field_key: str = Field(min_length=1, max_length=64, pattern=r"^[a-z][a-z0-9_]*$")
+    value: str = Field(max_length=4000)
+    expected_template_version_number: int = Field(ge=1)
+    idempotency_key: str = Field(min_length=8, max_length=128)
+    confirmed: Literal[True]
+
+    @field_validator("value")
+    @classmethod
+    def nonblank_value(cls, value: str) -> str:
+        normalized = value.strip()
+        if not normalized:
+            raise ValueError("状态内容不能为空")
+        return normalized
+
+
+class MapDeclarationStateUpdateRequest(BaseModel):
+    """Author-confirmed status for one exact, current World map declaration."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    scene_id: uuid.UUID
+    node_id: uuid.UUID
+    revision_id: uuid.UUID
+    declaration_kind: Literal["feature", "constraint", "journey"]
+    declaration_id: str = Field(
+        min_length=1,
+        max_length=96,
+        pattern=r"^[a-zA-Z0-9][a-zA-Z0-9:_.-]{0,95}$",
+    )
+    status: Literal["active", "inactive"]
+    idempotency_key: str = Field(min_length=8, max_length=128)
+    confirmed: Literal[True]
+
+
+class MapDeclarationStateBinding(BaseModel):
+    """Validated World identity returned through the registered DI port."""
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    novel_id: uuid.UUID
+    node_id: uuid.UUID
+    revision_id: uuid.UUID
+    declaration_kind: Literal["feature", "constraint", "journey"]
+    declaration_id: str = Field(
+        min_length=1,
+        max_length=96,
+        pattern=r"^[a-zA-Z0-9][a-zA-Z0-9:_.-]{0,95}$",
+    )
+    field_key: Literal["effective_status"]
+    subject_id: uuid.UUID
+    label: str = Field(min_length=1, max_length=80)
 
 
 class SceneStateViewResponse(BaseModel):

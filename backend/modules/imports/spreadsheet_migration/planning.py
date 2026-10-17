@@ -168,7 +168,9 @@ class SheetContext:
     kind: str
     header_row: int
     default_entity_type: str | None = None
+    dossier_profile_type: str | None = None
     columns: dict[str, str] = field(default_factory=dict)
+    facing_mappings: dict[str, dict[str, Any]] = field(default_factory=dict)
     rows: list[list[str]] = field(default_factory=list)
 
 
@@ -215,6 +217,7 @@ class _EntityAccumulator:
     hidden_truth: str | None = None
     author_notes: list[tuple[str, str]] = field(default_factory=list)
     character_fields: dict[str, str] = field(default_factory=dict)
+    dossier_fields: list[dict[str, Any]] = field(default_factory=list)
     ai_cleanup_applied: bool = False
 
 
@@ -310,6 +313,7 @@ def _accumulate_entity_row(
     hidden_truth = ""
     notes: list[tuple[str, str]] = []
     character_fields: dict[str, str] = {}
+    dossier_values: list[tuple[dict[str, Any], str]] = []
 
     for column_key, target in targets:
         value = _cell(row, column_key)
@@ -330,6 +334,14 @@ def _accumulate_entity_row(
             hidden_truth = value
         elif target == "author_note":
             _append_note(notes, f"表格·{header}", value)
+        elif target == "dossier_facing":
+            mapping = sheet.facing_mappings.get(column_key)
+            if not isinstance(mapping, dict):
+                raise ValidationError(
+                    "档案面向列缺少作者映射，请返回映射步骤补全",
+                    code="migration_dossier_facing_mapping_missing",
+                )
+            dossier_values.append((mapping, value))
         elif target in _CHARACTER_FIELD_TARGETS:
             if sheet.kind == "characters":
                 character_fields[target] = value
@@ -339,15 +351,22 @@ def _accumulate_entity_row(
     if not name:
         return
 
-    entity_type = (
-        synonyms.normalize_entity_type(raw_entity_type)
-        if raw_entity_type
-        else (
+    entity_type = synonyms.normalize_entity_type(
+        raw_entity_type
+        or (
             "character"
             if sheet.kind == "characters"
-            else (sheet.default_entity_type or "concept")
+            else (sheet.default_entity_type or sheet.dossier_profile_type or "concept")
         )
     )
+    if dossier_values and (
+        not sheet.dossier_profile_type
+        or entity_type != synonyms.normalize_entity_type(sheet.dossier_profile_type)
+    ):
+        raise ValidationError(
+            "档案列对应的对象类型与此行不一致；请按对象类型拆分表格或重新选择映射",
+            code="migration_dossier_profile_type_mismatch",
+        )
     key = (name, entity_type)
     accumulator = entities.get(key)
     if accumulator is None:
@@ -361,6 +380,23 @@ def _accumulate_entity_row(
         entities[key] = accumulator
     accumulator.rows.append(row)
     entities_by_ref[(sheet.sheet_key, row_index)] = accumulator
+    for mapping, value in dossier_values:
+        if len(accumulator.dossier_fields) >= 128:
+            raise ValidationError("同一对象的档案面向条目超过 128 项，请分批迁移")
+        facing = {
+            key: mapping[key]
+            for key in ("kind", "key", "source_entity_type", "term_id")
+            if key in mapping and mapping[key] is not None
+        }
+        accumulator.dossier_fields.append(
+            {
+                "facing": facing,
+                "content": value[:20000],
+                "visibility": mapping.get("visibility", "public"),
+                "source_ref": _row_ref(sheet.sheet_key, row_index),
+                "source_hash": _rows_hash([row]),
+            }
+        )
     if aliases_text:
         _merge_aliases(accumulator.aliases, aliases_text)
 
@@ -463,6 +499,7 @@ def _materialize_entities(
                     for label, value in accumulator.author_notes
                 ],
                 character_fields=dict(accumulator.character_fields),
+                dossier_fields=list(accumulator.dossier_fields),
                 decision=action,
                 target_entity_id=target_entity_id,
             )

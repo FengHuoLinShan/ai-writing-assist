@@ -19,6 +19,10 @@ Story outline_state 子域负责把事实层资产组织成“可执行的剧情
 Scene stage 负责。旧 `candidate` 仅兼容读取，不再允许
 作为新 Scene 写入状态；`needs_review` 是注意原因，不是第二套生命周期。
 
+Assistant v8 首批登记 Scene 完整重排、合并与受限拆分：排序需覆盖当前作品全部有效 Scene，
+合并/拆分经作者 R3 确认且重验预览。窄拆分不接受任意 `draft_scenes`；伏笔/揭示操作只改
+计划章节，不写入已发生事实时间线。
+
 当前活跃对象：
 
 - `story_outline_heads` / `story_outline_revisions`：小说总纲当前指针与不可变版本
@@ -359,9 +363,9 @@ P20、总纲生成与 Scene fusion 现在保存知识复核回执；采用必须
 ## 创作试验的结构与观察边界
 
 Story 为 Collaboration 提供 Scene、伏笔/揭示安排的冻结可编辑字段与原领域操作 port。
-试改独立保存，采用仍验证当前结构版本。`observations.py` 区分输入刺激、私有意图、
-可观察事件和可重放的 ResolutionBatch；说法不是事实，未知资源或唯一资源冲突不宣告成功。
-`observation_v2` 不重新解释旧 rehearsal_v1。读者推测与作者安排分开，派生前瞻不是新信息计划。
+试改独立保存，采用仍验证当前结构版本。`observations.py` 保留 RP `observation_v2` 的输入刺激与观察语义；
+Story 的 `simulation_v3.py` 共用意图、有限结算、`StateDelta`、`ResolutionBatch` 与回放。
+说法不是事实，未知资源、路线或唯一资源冲突不宣告成功；旧协议历史按原协议只读。
 
 ### DS Flash 档位调优（2026-09-21）
 
@@ -398,3 +402,11 @@ Story 总纲生成将实际进入 `world_bible_pages` 输入的页面 revision_i
 本片覆盖上述大纲直接页面输入；Evidence 确认资料内的额外页面、综合梗概、其他生成消费方、
 Story checkpoint 和 Evolution 台账未登记该基线，仍属于未覆盖依赖，不能据此声称全链正典追踪。
 SceneStateViewResponse 的 world_canon_revision unsupported 标记继续保留。
+
+### 跨模块生效锚点读取
+
+既有 `story.scene_source` 只读端口新增 `read_temporal_anchor_scenes(db, novel_id)`，
+由 Story facade 返回本作品 Scene 的当前顺序、状态、章节引用和替换链。退役 Scene 保留在结果中，
+供空间等消费方解析融合后的锚点；不把历史章节序号猜成稳定身份，也不保存当时的顺序副本。
+作者开放元数据里的替换引用为 null 或非列表时，返回空替换列表；退役身份仍保留，
+消费方须视为未解析锚点，不回退为全书有效。此接口只供证，具体生效区间和失效提醒由消费领域判断。

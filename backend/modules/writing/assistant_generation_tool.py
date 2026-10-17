@@ -151,6 +151,7 @@ async def _submit(db, novel_id, args, preview, *, context=None):
         "id": task_id,
         "task_id": task_id,
         "task_type": "writing_generate",
+        "operation_id": str(context.operation_id),
         "label": "正文生成候选",
     }
 

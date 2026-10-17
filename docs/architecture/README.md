@@ -67,7 +67,9 @@ ADR-0023/ADR-0025 的有界 Agent、canonical capability 和回执约束由统�
   由 deep_import 编排，显式启用项目经 `/api/evolution` 使用受控理解入口，旧 owner
   必须排空或明确停止；全面替代与退役仍待独立验收。
 - Assistant 持有项目讨论、运行、成组确认和提醒投影，以及 ADR-0032 的确定性创作引导；
-  经 Evidence 只读查证，经领域操作提交具体修改。有限 PydanticAI 核心复用共享 LLM/队列，RP 继续持有自己的树、回顾和 attempt。
+  经 Evidence 只读查证，经领域操作提交具体修改。ADR-0040 的统一提醒由只读 source registry
+  聚合领域投影，领域保持各自 finding/处置；失败来源作为不可用状态展示。有限 PydanticAI 核心
+  复用共享 LLM/队列，RP 继续持有自己的树、回顾和 attempt。
 - 创作三层为事实层（`project/world`）、结构与连续性层（`story/outline_state`、
   `story/continuity`）和辅助层（`imports/evidence/story/writing`）。RAG 索引和 Context 编译/确认归 `evidence`；
   账户连接与全局偏好归 `account`，项目偏好与有效配置

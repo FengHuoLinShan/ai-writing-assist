@@ -18,15 +18,51 @@ it("keeps an intentional rule flaw when retesting only its selected scenario", a
   expect(opener).toHaveBeenCalledWith(expect.objectContaining({ previousReportId: "report", scenarioKeys: ["outside"], preservedConstraints: ["保留情境：外侧推门"], context: report.source_scope }))
   unregister(); wrapper.unmount()
 })
-it("passes exact immutable parent round into a new rehearsal fork", async () => {
-  const rehearsal = { id: "run", rounds: [{ number: 1, hash: "frozen-round", events: [{ actor_id: "actor", action: "等候", outcome: "succeeded" }] }] }
-  setBridgeOverrides({ api: { assistant: { capabilities: vi.fn(async () => ({ rehearsal: { available: true } })) }, story: { rehearsal: vi.fn(async () => rehearsal) } } })
+it("keeps a simulation_v3 rehearsal read-only and verifies it without creating a fork", async () => {
+  const rehearsal = { id: "run", protocol: "simulation_v3", rounds: [{ number: 1, hash: "frozen-round", events: [{ actor_id: "actor", action: "等候", outcome: "succeeded" }] }] }
+  const replay = vi.fn(async () => ({ verified: true }))
+  setBridgeOverrides({ api: { story: { rehearsal: vi.fn(async () => rehearsal), replayRehearsal: replay } } })
   const wrapper = mount(SceneRehearsalPanel, { props: { projectId: "p1", rehearsalId: "run", characters: [{ id: "actor", name: "阿澄" }] } })
   await flushPromises()
-  await wrapper.findAll("button").find(button => button.text().includes("另试一种发展")).trigger("click")
-  expect(wrapper.emitted("run")[0][0]).toMatchObject({ rehearsal: true, characterIds: ["actor"], parentId: "run", forkRound: 1, parentHash: "frozen-round" })
+  expect(wrapper.text()).toContain("旧版排演历史")
+  expect(wrapper.text()).toContain("不可续跑或分叉")
+  expect(wrapper.findAll("button").some(button => button.text().includes("另试一种发展"))).toBe(false)
+  await wrapper.findAll("button").find(button => button.text() === "核对已记录回合").trigger("click")
+  await flushPromises()
+  expect(replay).toHaveBeenCalledWith("p1", "run")
+  expect(wrapper.text()).toContain("已按原记录核对状态")
+  expect(wrapper.emitted("run")).toBeUndefined()
   await wrapper.setProps({ running: true })
-  expect(wrapper.findAll("button").every(button => button.attributes("disabled") !== undefined)).toBe(true)
+  expect(wrapper.findAll("button").find(button => button.text() === "核对已记录回合").attributes("disabled")).toBeDefined()
+  wrapper.unmount()
+})
+
+it("does not expose a new simulation form through the legacy rehearsal panel", async () => {
+  const wrapper = mount(SceneRehearsalPanel, { props: { projectId: "p1", characters: [{ id: "actor", name: "阿澄" }] } })
+  await flushPromises()
+  expect(wrapper.find(".scene-rehearsal").exists()).toBe(false)
+  expect(wrapper.findAll('input[type="checkbox"]')).toHaveLength(0)
+  expect(wrapper.findAll("textarea")).toHaveLength(0)
+  expect(wrapper.findAll("button")).toHaveLength(0)
+  expect(wrapper.emitted("run")).toBeUndefined()
+  wrapper.unmount()
+})
+
+it("keeps historical v1 and v2 runs readable without offering a fork", async () => {
+  const rehearsal = { id: "old-run", protocol: "observation_v2", rounds: [{ number: 1, hash: "old-hash", events: [] }] }
+  setBridgeOverrides({
+    api: {
+      assistant: { capabilities: vi.fn(async () => ({ rehearsal: { available: true } })) },
+      story: { rehearsal: vi.fn(async () => rehearsal) },
+    },
+  })
+  const wrapper = mount(SceneRehearsalPanel, { props: { projectId: "p1", rehearsalId: "old-run", characters: [{ id: "actor", name: "阿澄" }] } })
+  await flushPromises()
+
+  const fork = wrapper.findAll("button").find(button => button.text().includes("另试一种发展"))
+  expect(wrapper.text()).toContain("此记录保留原协议来源，不可续跑或分叉")
+  expect(fork).toBeUndefined()
+  expect(wrapper.emitted("run")).toBeUndefined()
   wrapper.unmount()
 })
 

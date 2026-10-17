@@ -63,6 +63,7 @@ class EntityRevisionSnapshotView(BaseModel):
     public_info: str | None = None
     hidden_truth: str | None = None
     aliases: list[str] = Field(default_factory=list)
+    alias_details: list[dict[str, Any]] = Field(default_factory=list)
     content_json: dict[str, Any] = Field(default_factory=dict)
     importance: float | None = None
     importance_level: str | None = None

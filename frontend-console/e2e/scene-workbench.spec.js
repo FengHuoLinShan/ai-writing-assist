@@ -62,7 +62,7 @@ test.describe("Scene 工作台", () => {
     }
   })
 
-  test("一键推演在任务提交前确认 Scene Context", async ({ page }) => {
+  test("场景导演在任务提交前确认本场资料与参与人物", async ({ page }) => {
     const project = await createProject({ title: "Story Context E2E", genre: "fantasy", language: "zh" })
     testProjectId = project.id
     const character = await createEntity(project.id, {
@@ -80,40 +80,41 @@ test.describe("Scene 工作台", () => {
       chapter_ids: ["1"],
     })
     const submissions = []
-    await page.route(`**/api/story/scenes/${scene.id}/story-context?*`, async (route) => {
-      await route.fulfill({
-        status: 200,
-        contentType: "application/json",
-        body: JSON.stringify({
-          character_cards: [{ character_id: character.id, name: "沈岚", content: { personality: "谨慎" } }],
-          script_files: [],
-        }),
-      })
+    await page.route(`**/api/story/scenes/${scene.id}/director/history?*`, async (route) => {
+      await route.fulfill({ json: { roots: [], branches: [], rounds: [], references: [] } })
     })
-    await page.route("**/api/story/character-cards?*", async (route) => {
-      await route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ items: [], total: 0 }) })
+    await page.route("**/api/story/scenes/director/budget-preview", async (route) => {
+      await route.fulfill({ json: {
+        preview_hash: "a".repeat(64), rounds: 1, participants: 1,
+        request_count: { minimum: 4, maximum: 4 },
+        token_count: { minimum: 100, maximum: 300 },
+        time_seconds: { minimum: 8, maximum: 100 },
+        omitted: [], warnings: [],
+      } })
     })
-    await page.route("**/api/story/tasks/one-click", async (route) => {
+    await page.route(`**/api/story/scenes/${scene.id}/director`, async (route) => {
       submissions.push(route.request().postDataJSON())
-      await route.fulfill({
-        status: 202,
-        contentType: "application/json",
-        body: JSON.stringify({ task_id: "story-context-task", status: "pending" }),
-      })
+      await route.fulfill({ status: 202, json: { task_id: "story-context-task", status: "pending" } })
     })
     await page.route("**/api/tasks/story-context-task**", async (route) => {
       await route.fulfill({
         status: 200,
         contentType: "application/json",
-        body: JSON.stringify({ task_id: "story-context-task", task_type: "story_one_click", status: "pending", progress: 0 }),
+        body: JSON.stringify({ task_id: "story-context-task", task_type: "story_scene_director", status: "pending", progress: 0 }),
       })
     })
 
     await openWorkbench(page, project, "scene", scene.id)
     await page.getByRole("tab", { name: /推演/ }).click()
-    const run = page.getByRole("button", { name: "推演并补齐人物卡" })
+    await page.locator(".scene-director__person-select").filter({ hasText: "沈岚" }).getByRole("checkbox").check()
+    await page.getByLabel("最多请求", { exact: true }).fill("12")
+    await page.getByLabel("Token 上限", { exact: true }).fill("5000")
+    await page.getByLabel("时限（分钟）", { exact: true }).fill("30")
+    await page.getByRole("button", { name: "预览请求与用量", exact: true }).click()
+    const run = page.getByRole("button", { name: "确认资料并开始", exact: true })
     await expect(run).toBeEnabled()
     await run.click()
+    expect(submissions).toHaveLength(0)
     await approveContext(page)
 
     await expect.poll(() => submissions.length).toBe(1)
@@ -122,7 +123,7 @@ test.describe("Scene 工作台", () => {
       scene_id: scene.id,
       character_ids: [character.id],
       context_confirmation_id: expect.any(String),
-      submit_authorized: true,
+      budget_preview_hash: "a".repeat(64),
     }))
   })
 
@@ -1171,7 +1172,7 @@ test.describe("Scene 工作台", () => {
       await page.keyboard.press("Escape")
       await expect(dialog).toHaveCount(0)
       await expect(page.locator("#sidebar")).toBeVisible()
-      await expect(page).not.toHaveURL(/scene_id=/)
+      await expect(page).toHaveURL(new RegExp(`scene_id=${scene.id}`))
       await expect(opener).toBeFocused()
 
       await page.locator(`.scene-workbench-row[data-id="${scene.id}"] [data-action="handle-scene-health"][data-health="missing_setup"]`).click()

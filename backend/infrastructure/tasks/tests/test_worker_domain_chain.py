@@ -177,11 +177,175 @@ async def test_interaction_summary_refresh_chain_runs_through_worker_and_client(
             envelope = read_ai_run_envelope((stored.meta or {}).get("_ai_run_envelope"))
             assert envelope is not None
             assert envelope.root_capability_id == "interaction.summary_refresh"
+            assert envelope.deadline_at is None  # legacy RP-triggered task
             assert envelope.requests_started == 1
             assert envelope.requests_settled == 1
             assert envelope.status is AIRunStatus.succeeded
             assert "_ai_run_envelope" not in (stored.result or {})
             assert current_ai_run_envelope() is None
+    finally:
+        await _cleanup(sessions, [task_id])
+
+
+@pytest.mark.asyncio
+async def test_author_summary_unknown_charge_stops_retry_and_restart(
+    test_engine, monkeypatch
+) -> None:
+    """A timed-out provider request cannot buy another attempt or replay."""
+    import modules.interaction.tasks as interaction_tasks
+    from infrastructure.llm.errors import LLMTimeoutError
+    from infrastructure.llm.schemas import LLMMessage
+    from modules.interaction.generation import PreparedSummaryGeneration
+
+    sessions = async_sessionmaker(test_engine, expire_on_commit=False, autoflush=False)
+    novel_id = str(uuid.uuid4())
+    calls = 0
+
+    class TimedOutProvider:
+        name = "fake"
+
+        async def generate(self, _request):
+            nonlocal calls
+            calls += 1
+            raise LLMTimeoutError("provider outcome unknown")
+
+    async def prepare(_db, *, task):
+        return PreparedSummaryGeneration(
+            novel_id=novel_id,
+            journey_id=str(uuid.uuid4()),
+            path_hash="author-path",
+            node_ids=[],
+            segment_node_ids=[],
+            started_overview_epoch=0,
+            messages=[LLMMessage(role="user", content="旧故事段")],
+            executable_settings={
+                "llm": {"provider_id": "deepseek", "model": "deepseek-flash"}
+            },
+        )
+
+    async def failed(*_args, **_kwargs):
+        return None
+
+    monkeypatch.setattr(interaction_tasks._workflow, "prepare_summary_task", prepare)
+    monkeypatch.setattr(interaction_tasks._workflow, "mark_summary_failed", failed)
+    monkeypatch.setattr(
+        interaction_tasks,
+        "create_project_snapshot_llm_client",
+        lambda *args, **kwargs: _chain_client(monkeypatch, TimedOutProvider()),
+    )
+    task_id = await _enqueue(
+        sessions,
+        "interaction_summary_refresh",
+        meta={"novel_id": novel_id, "author_project_id": str(uuid.uuid4())},
+        novel_id=novel_id,
+    )
+    fresh_id = None
+    try:
+        first = await _run_once(test_engine, sessions)
+        assert first is not None and first.status == "failed" and first.attempt == 1
+        assert calls == 1
+        async with sessions.begin() as db:
+            stored = await db.get(AsyncTask, task_id)
+            envelope = read_ai_run_envelope(stored.meta[AI_RUN_ENVELOPE_KEY])
+            assert envelope is not None
+            assert envelope.requests_started == envelope.requests_unknown == 1
+            origin = envelope.started_at
+            deadline = envelope.deadline_at
+            # Simulate a stale worker's pending retry from the same frozen task.
+            stored.status = "pending"
+            stored.meta = {
+                **stored.meta,
+                AI_RUN_ENVELOPE_KEY: envelope.model_copy(
+                    update={"status": AIRunStatus.running}
+                ).model_dump(mode="json"),
+            }
+        second = await _run_once(test_engine, sessions)
+        assert second is not None and second.status == "failed"
+        assert calls == 1
+        async with sessions() as db:
+            restored = await db.get(AsyncTask, task_id)
+            envelope = read_ai_run_envelope(restored.meta[AI_RUN_ENVELOPE_KEY])
+            assert envelope.requests_started == envelope.requests_unknown == 1
+            assert envelope.started_at == origin and envelope.deadline_at == deadline
+        # A separately confirmed task may start one new bounded run. If its
+        # provider result is unknown too, that new run must stop on its own.
+        fresh_id = await _enqueue(
+            sessions,
+            "interaction_summary_refresh",
+            meta={"novel_id": novel_id, "author_project_id": str(uuid.uuid4())},
+            novel_id=novel_id,
+        )
+        fresh = await _run_once(test_engine, sessions)
+        assert fresh is not None and fresh.id == fresh_id and fresh.status == "failed"
+        assert calls == 2
+        async with sessions() as db:
+            fresh_run = await db.get(AsyncTask, fresh_id)
+            new_envelope = read_ai_run_envelope(fresh_run.meta[AI_RUN_ENVELOPE_KEY])
+            assert new_envelope.requests_started == new_envelope.requests_unknown == 1
+    finally:
+        await _cleanup(sessions, [task_id, *([fresh_id] if fresh_id else [])])
+
+
+@pytest.mark.asyncio
+async def test_existing_rp_summary_retains_legacy_retry_and_no_run_deadline(
+    test_engine, monkeypatch
+) -> None:
+    """The author-only stop must not reinterpret an old RP queue receipt."""
+    import modules.interaction.tasks as interaction_tasks
+    from infrastructure.llm.errors import LLMTimeoutError
+    from infrastructure.llm.schemas import LLMMessage
+    from modules.interaction.generation import PreparedSummaryGeneration
+
+    sessions = async_sessionmaker(test_engine, expire_on_commit=False, autoflush=False)
+    novel_id = str(uuid.uuid4())
+    calls = 0
+
+    class TimedOutProvider:
+        name = "fake"
+
+        async def generate(self, _request):
+            nonlocal calls
+            calls += 1
+            raise LLMTimeoutError("legacy provider outcome unknown")
+
+    async def prepare(_db, *, task):
+        return PreparedSummaryGeneration(
+            novel_id=novel_id,
+            journey_id=str(uuid.uuid4()),
+            path_hash="legacy-path",
+            node_ids=[],
+            segment_node_ids=[],
+            started_overview_epoch=0,
+            messages=[LLMMessage(role="user", content="旧故事段")],
+            executable_settings={
+                "llm": {"provider_id": "deepseek", "model": "deepseek-flash"}
+            },
+        )
+
+    async def failed(*_args, **_kwargs):
+        return None
+
+    monkeypatch.setattr(interaction_tasks._workflow, "prepare_summary_task", prepare)
+    monkeypatch.setattr(interaction_tasks._workflow, "mark_summary_failed", failed)
+    monkeypatch.setattr(
+        interaction_tasks,
+        "create_project_snapshot_llm_client",
+        lambda *args, **kwargs: _chain_client(monkeypatch, TimedOutProvider()),
+    )
+    task_id = await _enqueue(
+        sessions,
+        "interaction_summary_refresh",
+        meta={"novel_id": novel_id},
+        novel_id=novel_id,
+    )
+    try:
+        await _run_once(test_engine, sessions)
+        assert calls == 2  # the old two-call retry remains available
+        async with sessions() as db:
+            task = await db.get(AsyncTask, task_id)
+            envelope = read_ai_run_envelope(task.meta[AI_RUN_ENVELOPE_KEY])
+            assert envelope is not None and envelope.deadline_at is None
+            assert envelope.requests_unknown == 2
     finally:
         await _cleanup(sessions, [task_id])
 

@@ -13,9 +13,11 @@ from infrastructure.llm.schemas import (
     LLMToolCall,
     LLMUsage,
 )
+from modules.assistant.contracts import AssistantOperation
 from modules.assistant.operations import (
     operation_manifest,
     resolve_operations,
+    runtime_protocol,
     validate_agent_answer,
 )
 from modules.assistant.schemas import AssistantAnswer
@@ -79,6 +81,77 @@ def test_frozen_operation_scope_rejects_new_tools_and_changed_revisions():
             resolve_operations(manifest)
 
 
+def test_runtime_v6_is_a_fresh_frozen_operation_directory():
+    payload = {"runtime_version": "6", "operations": {}, "read_tools": {}}
+    assert runtime_protocol(payload) == payload
+
+
+def test_runtime_v4_freezes_new_operations_without_widening_old_manifests():
+    from modules.world.assistant_vocabulary_tools import OPERATIONS_SPEC
+
+    operation = AssistantOperation(
+        label=OPERATIONS_SPEC["world.vocabulary.create"]["label"],
+        schema=OPERATIONS_SPEC["world.vocabulary.create"]["schema"],
+        prepare=OPERATIONS_SPEC["world.vocabulary.create"]["prepare"],
+        apply=OPERATIONS_SPEC["world.vocabulary.create"]["apply"],
+    )
+    with container_scope({"assistant.operations": dict(project_operations)}):
+        old_manifest = operation_manifest(legacy=True)
+    with container_scope(
+        {
+            "assistant.operations": {
+                **project_operations,
+                "world.vocabulary.create": operation,
+            }
+        }
+    ):
+        new_manifest = operation_manifest(legacy=True)
+        assert "world.vocabulary.create" not in resolve_operations(old_manifest)
+        assert "world.vocabulary.create" in resolve_operations(new_manifest)
+        payload = {"runtime_version": "4", "operations": new_manifest}
+        assert runtime_protocol(payload) is payload
+
+
+@pytest.mark.parametrize(
+    "schema_hash,interior",
+    [
+        ("afb6aa06a68c39a27026fc50565cdc87d72e266e569b362d95fdd23a428c2bc8", False),
+        ("061686f1c3f683f833a391f1515de6fea596a0403a38f357390d53b5bc54e5e7", True),
+    ],
+)
+def test_frozen_map_node_schema_keeps_original_fields(schema_hash, interior):
+    from uuid import uuid4
+
+    from pydantic import ValidationError
+
+    from app.assistant_operation_registry import world_map_operations
+    from modules.assistant.evidence_tools import fingerprint
+
+    with container_scope({"assistant.operations": world_map_operations}):
+        resolved = resolve_operations(
+            {"map.create_node": {"schema_hash": schema_hash, "revision": "1"}}
+        )
+        schema = resolved["map.create_node"].schema
+        assert fingerprint(schema.model_json_schema()) == schema_hash
+        assert schema.model_validate({"title": "旧运行"}).title == "旧运行"
+        with pytest.raises(ValidationError):
+            schema.model_validate(
+                {
+                    "title": "旧运行",
+                    "level_type_ref": str(uuid4()),
+                    "level_type_revision_id": str(uuid4()),
+                }
+            )
+        if interior:
+            assert (
+                schema.model_validate({"title": "室内", "level": "interior"}).level
+                == "interior"
+            )
+        else:
+            with pytest.raises(ValidationError):
+                schema.model_validate({"title": "室内", "level": "interior"})
+
+
 @pytest.mark.asyncio
 async def test_invalid_domain_arguments_are_corrected_once_inside_sdk_budget():
     class Client:
@@ -133,3 +206,202 @@ async def test_invalid_domain_arguments_are_corrected_once_inside_sdk_budget():
     assert client.calls == budget.requests == 2
     assert result.output.actions[0].arguments["due_date"] == "2026-09-11"
     assert budget.usage_complete
+
+
+def test_new_merge_operation_does_not_widen_frozen_v6_runs():
+    from app.assistant_operation_registry import world_map_operations
+
+    old = {
+        name: operation
+        for name, operation in world_map_operations.items()
+        if name != "map.merge_nodes"
+    }
+    with container_scope({"assistant.operations": old}):
+        frozen = {
+            "runtime_version": "6",
+            "operations": operation_manifest(legacy=True),
+            "read_tools": {},
+        }
+    with container_scope({"assistant.operations": dict(world_map_operations)}):
+        restored = resolve_operations(runtime_protocol(frozen)["operations"])
+        fresh = operation_manifest(legacy=True)
+    assert "map.merge_nodes" not in restored
+    assert "map.preview_node_merge" in restored
+    assert fresh["map.merge_nodes"] == {
+        "revision": "2",
+        "schema_hash": "2c04c4b212a0dda6e4c71a0dd64688599bd566b9c9e3cdad9d8922c088cecce9",
+    }
+    assert (
+        fresh["map.preview_node_merge"] == frozen["operations"]["map.preview_node_merge"]
+    )
+
+
+def test_legacy_run_manifest_stays_two_fields_and_replays_after_v7_catalog():
+    from app.assistant_operation_registry import world_map_operations
+
+    with container_scope({"assistant.operations": dict(world_map_operations)}):
+        legacy = operation_manifest(legacy=True)
+        fresh = operation_manifest()
+        restored = resolve_operations(legacy)
+    assert set(legacy["map.merge_nodes"]) == {"schema_hash", "revision"}
+    assert set(fresh["map.merge_nodes"]) == {
+        "schema_hash",
+        "revision",
+        "op_version",
+        "metadata_hash",
+        "metadata",
+        "schema",
+    }
+    assert restored["map.merge_nodes"].schema.model_fields.keys() == (
+        world_map_operations["map.merge_nodes"].schema.model_fields.keys()
+    )
+    assert restored["map.prepare_tray_placement"].permission == "confirm"
+    with container_scope({"assistant.operations": dict(world_map_operations)}):
+        assert (
+            resolve_operations(operation_manifest())[
+                "map.prepare_tray_placement"
+            ].permission
+            == "read"
+        )
+
+
+def test_v7_frozen_operation_can_be_described_but_not_executed_after_change():
+    from dataclasses import replace
+    from types import SimpleNamespace
+
+    from modules.assistant.operations import describe_operation
+
+    original = dict(project_operations)
+    with container_scope({"assistant.operations": original}):
+        frozen = operation_manifest()
+    changed = {
+        **original,
+        "project.add_task": replace(
+            original["project.add_task"], description="用途已变化"
+        ),
+    }
+    with container_scope({"assistant.operations": changed}):
+        executable = resolve_operations(frozen, allow_stale=True)
+        ctx = SimpleNamespace(
+            deps=SimpleNamespace(
+                operations=executable,
+                operation_catalog_snapshot=frozen,
+            )
+        )
+        description = __import__("asyncio").run(
+            describe_operation(ctx, "project.add_task")
+        )
+    assert "project.add_task" not in executable
+    assert "project.update_task" in executable
+    assert description["executable"] is False
+    assert description["unavailable_reason"] == "操作已下线或已变更"
+    assert description["schema"] == frozen["project.add_task"]["schema"]
+
+
+@pytest.mark.parametrize(
+    ("revision", "schema_hash"),
+    [
+        ("1", "db350f7f859917fd69288cfe848f3b66bfc3262bf1e121c0b34657b9f62e952c"),
+        ("2", "c4ff8a3587de5a80460cbd51b7eb16cf63886b87133b467763b923ed56371d43"),
+    ],
+)
+def test_old_dossier_template_schema_stays_frozen_and_fails_closed(revision, schema_hash):
+    from asyncio import run
+    from copy import deepcopy
+
+    from core.errors import ConflictError
+    from modules.assistant.evidence_tools import fingerprint
+    from modules.assistant.operations import describe_operation
+
+    op_id = "world.dossier.template.edit"
+    current = operation_manifest()[op_id]
+    assert current["revision"] == current["op_version"] == "3"
+    old = deepcopy(current)
+    old["schema"]["$defs"]["DossierTemplateUpsert"]["properties"].pop("state_fields")
+    old["schema"]["$defs"].pop("DossierStateField")
+    if revision == "1":
+        old["schema"]["$defs"]["DossierTemplateField"]["properties"].pop("key")
+    old["schema_hash"] = fingerprint(old["schema"])
+    assert old["schema_hash"] == schema_hash
+    old["revision"] = old["op_version"] = old["metadata"]["op_version"] = revision
+    old["metadata_hash"] = fingerprint(old["metadata"])
+    frozen = {op_id: old}
+
+    assert resolve_operations(frozen, allow_stale=True) == {}
+    with pytest.raises(ConflictError, match="工具版本不可用"):
+        resolve_operations(frozen)
+    description = run(
+        describe_operation(
+            SimpleNamespace(
+                deps=SimpleNamespace(operations={}, operation_catalog_snapshot=frozen)
+            ),
+            op_id,
+        )
+    )
+    assert description["schema"] == old["schema"]
+    assert description["executable"] is False
+
+
+def test_find_operations_is_small_and_never_embeds_schema():
+    from types import SimpleNamespace
+
+    from modules.assistant.operations import find_operations
+
+    with container_scope({"assistant.operations": dict(project_operations)}):
+        operations = resolve_operations(operation_manifest())
+        ctx = SimpleNamespace(
+            deps=SimpleNamespace(
+                operations=operations,
+                operation_catalog_snapshot=operation_manifest(),
+            )
+        )
+        result = __import__("asyncio").run(find_operations(ctx, query="待办"))
+    assert len(result["operations"]) <= 8
+    assert all("schema" not in item for item in result["operations"])
+
+
+def test_read_operation_only_calls_prepare_never_apply():
+    import asyncio
+    from types import SimpleNamespace
+
+    from pydantic import BaseModel
+
+    from modules.assistant.operations import read_operation
+    from modules.assistant.schemas import WorkContext
+
+    class Args(BaseModel):
+        value: str
+
+    calls = []
+
+    async def guard():
+        return None
+
+    async def prepare(_db, _novel_id, args, *, context):
+        calls.append(args.value)
+        return {"status": "read"}
+
+    async def apply(*_args, **_kwargs):
+        raise AssertionError("read_operation must never invoke apply")
+
+    operation = AssistantOperation(
+        "读取示例", Args, prepare, apply, permission="read", risk_level="R0"
+    )
+    ctx = SimpleNamespace(
+        deps=SimpleNamespace(
+            guard=guard,
+            operations={"sample.read": operation},
+            operation_catalog_snapshot={},
+            run_id="run",
+            session_id=None,
+            owner_id="owner",
+            work=WorkContext(),
+            operation_trace_enabled=False,
+            db=object(),
+            novel_id="novel",
+        )
+    )
+    assert asyncio.run(read_operation(ctx, "sample.read", {"value": "safe"})) == {
+        "status": "read"
+    }
+    assert calls == ["safe"]

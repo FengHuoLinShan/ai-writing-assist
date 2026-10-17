@@ -22,7 +22,14 @@ if TYPE_CHECKING:
         CreativeResourcePort,
         ResourceSnapshot,
     )
+    from modules.evidence.compilation.contracts import (
+        EvolutionObjectPatternReadPort,
+        StoryDirectorReferencesForWritingPort,
+        StoryObjectStateReadPort,
+        WorldObjectDossierReadPort,
+    )
     from modules.evidence.confirmation_reads_port import ConfirmationReadsPort
+    from modules.evolution.contracts import EvolutionReadMapColdStartStatusPort
     from modules.project.contracts import (
         StoryDedupSuggestionProvider,
         StoryWorkspaceStatsProvider,
@@ -39,10 +46,19 @@ if TYPE_CHECKING:
         SceneService,
     )
     from modules.story.scene_source_port import SceneSourcePort
-    from modules.world.contracts import WorldAliasRelationTaskPort
+    from modules.world.contracts import (
+        MapAuthorDecisionReaderPort,
+        WorldAliasRelationTaskPort,
+        WorldBuildMapAutoDraftsPort,
+        WorldReadMapColdStartDraftsPort,
+        WorldReadMapNotificationSignalsPort,
+        WorldReadMapSpatialAdvisoriesPort,
+        WorldReadMapSpatialBriefPort,
+    )
     from modules.world.services.worldbuilding.adoption_package_service import (
         WorldAdoptionPackageService,
     )
+    from modules.writing.contracts import StoryChapterOrderPort
     from modules.writing.manuscript_source_port import ManuscriptSourcePort
 
 # --- assistant -----------------------------------------------------------
@@ -60,6 +76,39 @@ ASSISTANT_FORECAST_SOURCES: ServiceKey[dict[str, Any]] = ServiceKey(
     "assistant.forecast.sources"
 )
 ASSISTANT_OPERATIONS: ServiceKey[dict[str, Any]] = ServiceKey("assistant.operations")
+ASSISTANT_OPERATION_TRACE: ServiceKey[Callable[..., Any]] = ServiceKey(
+    "assistant.operation_trace"
+)
+ASSISTANT_NOTICE_SOURCES: ServiceKey[dict[str, Any]] = ServiceKey(
+    "assistant.notice_sources"
+)
+ASSISTANT_READ_MAP_AUTHOR_DECISION: ServiceKey[MapAuthorDecisionReaderPort] = ServiceKey(
+    "assistant.read_map_author_decision"
+)
+EVOLUTION_READ_MAP_COLD_START_STATUS: ServiceKey[EvolutionReadMapColdStartStatusPort] = (
+    ServiceKey("evolution.read_map_cold_start_status")
+)
+EVIDENCE_READ_EVOLUTION_OBJECT_PATTERNS: ServiceKey[EvolutionObjectPatternReadPort] = (
+    ServiceKey("evidence.read_evolution_object_patterns")
+)
+EVIDENCE_READ_WORLD_OBJECT_DOSSIER: ServiceKey[WorldObjectDossierReadPort] = ServiceKey(
+    "evidence.read_world_object_dossier"
+)
+EVIDENCE_READ_OBJECT_DOSSIER_BRIEF: ServiceKey[Callable[..., Any]] = ServiceKey(
+    "evidence.read_object_dossier_brief"
+)
+EVIDENCE_READ_STORY_OBJECT_STATE: ServiceKey[StoryObjectStateReadPort] = ServiceKey(
+    "evidence.read_story_object_state"
+)
+EVIDENCE_READ_STORY_DIRECTOR_REFERENCES: ServiceKey[
+    StoryDirectorReferencesForWritingPort
+] = ServiceKey("evidence.read_story_director_references")
+WORLD_READ_MAP_COLD_START_DRAFTS: ServiceKey[WorldReadMapColdStartDraftsPort] = (
+    ServiceKey("world.read_map_cold_start_drafts")
+)
+WORLD_READ_MAP_NOTIFICATION_SIGNALS: ServiceKey[WorldReadMapNotificationSignalsPort] = (
+    ServiceKey("world.read_map_notification_signals")
+)
 SOURCE_CHANGED: ServiceKey[Callable[..., Any]] = ServiceKey("source.changed")
 ASSISTANT_PROACTIVE_SUBMITTERS: ServiceKey[dict[str, Callable[..., Any]]] = ServiceKey(
     "assistant.proactive.submitters"
@@ -81,6 +130,9 @@ ASSISTANT_MARK_EDITORIAL_READY: ServiceKey[Callable[..., Any]] = ServiceKey(
 )
 ASSISTANT_RUN_DISCUSSION_SCOPE: ServiceKey[Callable[..., Any]] = ServiceKey(
     "assistant.run_discussion_scope"
+)
+ASSISTANT_IS_AUTHOR_TURN_RUN: ServiceKey[Callable[..., Any]] = ServiceKey(
+    "assistant.is_author_turn_run"
 )
 ASSISTANT_REQUIRE_OPERATION_TARGETS: ServiceKey[Callable[..., Any]] = ServiceKey(
     "assistant.require_operation_targets"
@@ -249,6 +301,16 @@ STORY_GET_SCENE_CONTRACT: ServiceKey[Callable[..., Any]] = ServiceKey(
     "story.get_scene_contract"
 )
 STORY_SCENE_SOURCE: ServiceKey[SceneSourcePort] = ServiceKey("story.scene_source")
+STORY_QUEUE_WORLD_PROGRESSION_READ_CHECK: ServiceKey[Callable[..., Any]] = ServiceKey(
+    "story.queue_world_progression_read_check"
+)
+EVOLUTION_READ_COMPLETED_CHAPTERS: ServiceKey[Callable[..., Any]] = ServiceKey(
+    "evolution.read_completed_chapters"
+)
+STORY_INVALIDATE_WORLD_PROGRESSION_FOR_REORDER: ServiceKey[Callable[..., Any]] = (
+    ServiceKey("story.invalidate_world_progression_for_reorder")
+)
+STORY_CHAPTER_ORDER: ServiceKey[StoryChapterOrderPort] = ServiceKey("story.chapter_order")
 
 # --- world ------------------------------------------------------------------
 
@@ -266,6 +328,33 @@ WORLD_LIST_ADOPTED_MAP_CONTINUITY_FACTS: ServiceKey[Callable[..., Any]] = Servic
 )
 WORLD_READ_MAP_NODE_HEADS: ServiceKey[Callable[..., Any]] = ServiceKey(
     "world.read_map_node_heads"
+)
+WORLD_STAGE_SPATIAL_DISCOVERY: ServiceKey[Callable[..., Any]] = ServiceKey(
+    "world.stage_spatial_discovery"
+)
+WORLD_BUILD_MAP_AUTO_DRAFTS: ServiceKey[WorldBuildMapAutoDraftsPort] = ServiceKey(
+    "world.build_map_auto_drafts"
+)
+WORLD_READ_MAP_SPATIAL_BRIEF: ServiceKey[WorldReadMapSpatialBriefPort] = ServiceKey(
+    "world.read_map_spatial_brief"
+)
+WORLD_REQUIRE_CUSTOM_TEXT_STATE_FIELD: ServiceKey[Callable[..., Any]] = ServiceKey(
+    "world.require_custom_text_state_field"
+)
+WORLD_REQUIRE_MAP_DECLARATION_STATE: ServiceKey[Callable[..., Any]] = ServiceKey(
+    "world.require_map_declaration_state"
+)
+WORLD_READ_OBJECT_VALIDITY_NOTICES: ServiceKey[Callable[..., Any]] = ServiceKey(
+    "world.read_object_validity_notices"
+)
+WORLD_READ_MAP_SPATIAL_ADVISORIES: ServiceKey[WorldReadMapSpatialAdvisoriesPort] = (
+    ServiceKey("world.read_map_spatial_advisories")
+)
+WORLD_READ_SPATIAL_DISCOVERY_CONTEXT: ServiceKey[Callable[..., Any]] = ServiceKey(
+    "world.read_spatial_discovery_context"
+)
+WORLD_READ_PROJECT_VOCABULARY: ServiceKey[Callable[..., Any]] = ServiceKey(
+    "world.read_project_vocabulary"
 )
 WORLD_READ_BIBLE_PAGE_REVISIONS: ServiceKey[Callable[..., Any]] = ServiceKey(
     "world.read_bible_page_revisions"
@@ -303,6 +392,9 @@ WORLD_ASSISTANT_CHAT_INTENT: ServiceKey[Callable[..., Any]] = ServiceKey(
 )
 WORLD_LIST_CHARACTERS: ServiceKey[Callable[..., Any]] = ServiceKey(
     "world.list_characters"
+)
+WORLD_GET_CHARACTERS_CONTEXT: ServiceKey[Callable[..., Any]] = ServiceKey(
+    "world.get_characters_context"
 )
 WORLD_LIST_ENTITY_TERMS: ServiceKey[Callable[..., Any]] = ServiceKey(
     "world.list_entity_terms"
@@ -345,12 +437,23 @@ WRITING_MANUSCRIPT_SOURCE: ServiceKey[ManuscriptSourcePort] = ServiceKey(
 
 #: 组合根登记的全部键（与 ``app/bootstrap.py`` 一一对应）。
 ALL_SERVICE_KEYS: tuple[ServiceKey[Any], ...] = (
+    ASSISTANT_READ_MAP_AUTHOR_DECISION,
+    EVOLUTION_READ_MAP_COLD_START_STATUS,
+    EVIDENCE_READ_EVOLUTION_OBJECT_PATTERNS,
+    EVIDENCE_READ_WORLD_OBJECT_DOSSIER,
+    EVIDENCE_READ_OBJECT_DOSSIER_BRIEF,
+    EVIDENCE_READ_STORY_OBJECT_STATE,
+    EVIDENCE_READ_STORY_DIRECTOR_REFERENCES,
+    WORLD_READ_MAP_COLD_START_DRAFTS,
+    WORLD_READ_MAP_NOTIFICATION_SIGNALS,
     EVIDENCE_CONFIRMATION_READS,
     ASSISTANT_FORECAST_INSTRUCTIONS,
     ASSISTANT_FORECAST_PERSONAS,
     ASSISTANT_FORECAST_CHOICES,
     ASSISTANT_FORECAST_SOURCES,
     ASSISTANT_OPERATIONS,
+    ASSISTANT_OPERATION_TRACE,
+    ASSISTANT_NOTICE_SOURCES,
     SOURCE_CHANGED,
     ASSISTANT_PROACTIVE_SUBMITTERS,
     ASSISTANT_PROACTIVE_FINDINGS,
@@ -359,6 +462,7 @@ ALL_SERVICE_KEYS: tuple[ServiceKey[Any], ...] = (
     ASSISTANT_SUBMIT_COMMENT_PROPOSALS,
     ASSISTANT_MARK_EDITORIAL_READY,
     ASSISTANT_RUN_DISCUSSION_SCOPE,
+    ASSISTANT_IS_AUTHOR_TURN_RUN,
     ASSISTANT_REQUIRE_OPERATION_TARGETS,
     ASSISTANT_EDITORIAL_POST_ADOPTION_RECHECKS,
     COLLABORATION_RESOURCES,
@@ -404,11 +508,24 @@ ALL_SERVICE_KEYS: tuple[ServiceKey[Any], ...] = (
     RAG_REQUEST_ENTITY_ACTIVITY_REANNOTATION,
     STORY_GET_SCENE_CONTRACT,
     STORY_SCENE_SOURCE,
+    STORY_QUEUE_WORLD_PROGRESSION_READ_CHECK,
+    EVOLUTION_READ_COMPLETED_CHAPTERS,
+    STORY_INVALIDATE_WORLD_PROGRESSION_FOR_REORDER,
+    STORY_CHAPTER_ORDER,
     WORLD_MAP_CAPABILITIES,
     WORLD_REVIEW_TEAM_STRESS,
     WORLD_LIST_ADOPTED_MAP_CONTINUITY_FACTS,
     WORLD_READ_MAP_CHAPTER_CONSUMERS,
     WORLD_READ_MAP_NODE_HEADS,
+    WORLD_READ_MAP_SPATIAL_BRIEF,
+    WORLD_REQUIRE_CUSTOM_TEXT_STATE_FIELD,
+    WORLD_REQUIRE_MAP_DECLARATION_STATE,
+    WORLD_READ_OBJECT_VALIDITY_NOTICES,
+    WORLD_READ_MAP_SPATIAL_ADVISORIES,
+    WORLD_READ_PROJECT_VOCABULARY,
+    WORLD_STAGE_SPATIAL_DISCOVERY,
+    WORLD_BUILD_MAP_AUTO_DRAFTS,
+    WORLD_READ_SPATIAL_DISCOVERY_CONTEXT,
     WORLD_READ_BIBLE_PAGE_REVISIONS,
     WORLD_WORLDBUILDING_REQUIRE_LEGACY_CANON_WRITE_ALLOWED,
     WORLD_WORLDBUILDING_MARK_SYNOPSIS_SOURCE_CHANGED,
@@ -422,6 +539,7 @@ ALL_SERVICE_KEYS: tuple[ServiceKey[Any], ...] = (
     WORLD_ASSISTANT_CHAT,
     WORLD_ASSISTANT_CHAT_INTENT,
     WORLD_LIST_CHARACTERS,
+    WORLD_GET_CHARACTERS_CONTEXT,
     WORLD_LIST_ENTITY_TERMS,
     WORLD_LIST_ENTITIES,
     WORLD_RUN_SCENE_ENTITY_EXTRACTION,

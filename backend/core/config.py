@@ -16,6 +16,8 @@
 - LOG_LEVEL: 日志级别（默认 INFO）
 - HTTP_RATE_LIMIT_*: 进程级 HTTP direct-peer 限流配置
 - LLM_MODEL_LIMITS_JSON: 按来源/provider/model 的独立限流配置
+- ASSISTANT_GOAL_RUNS_ENABLED / ASSISTANT_GOAL_RUNS_PROJECT_ALLOWLIST: 目标运行
+  试点开关与项目白名单
 """
 
 from __future__ import annotations
@@ -287,6 +289,24 @@ class Settings:
     assistant_enabled: bool = field(
         default_factory=lambda: _env_bool("ASSISTANT_ENABLED", False)
     )
+    # ADR-0038 §6：目标运行需显式总开关和项目白名单；不随 Assistant 总开关自动开放。
+    assistant_goal_runs_enabled: bool = field(
+        default_factory=lambda: _env_bool("ASSISTANT_GOAL_RUNS_ENABLED", False)
+    )
+    assistant_goal_runs_project_allowlist: tuple[str, ...] = field(
+        default_factory=lambda: tuple(
+            filter(
+                None,
+                (
+                    value.strip()
+                    for value in _env("ASSISTANT_GOAL_RUNS_PROJECT_ALLOWLIST").split(",")
+                ),
+            )
+        )
+    )
+    assistant_operation_trace_enabled: bool = field(
+        default_factory=lambda: _env_bool("ASSISTANT_OPERATION_TRACE_ENABLED", True)
+    )
     assistant_editorial_enabled: bool = field(
         default_factory=lambda: _env_bool("ASSISTANT_EDITORIAL_ENABLED", False)
     )
@@ -346,6 +366,32 @@ class Settings:
     )
     assistant_import_consult_enabled: bool = field(
         default_factory=lambda: _env_bool("ASSISTANT_IMPORT_CONSULT_ENABLED", False)
+    )
+    # ADR-0037/0038: each first-wave consumer opts in independently after paired
+    # evaluation. Empty by default; accepted values are capability IDs.
+    map_spatial_enabled_capabilities: tuple[str, ...] = field(
+        default_factory=lambda: tuple(
+            value.strip()
+            for value in _env("MAP_SPATIAL_ENABLED_CAPABILITIES").split(",")
+            if value.strip()
+        )
+    )
+    story_scene_director_enabled: bool = field(
+        default_factory=lambda: _env_bool("STORY_SCENE_DIRECTOR_ENABLED", False)
+    )
+    object_dossier_enabled_capabilities: tuple[str, ...] = field(
+        default_factory=lambda: tuple(
+            value.strip()
+            for value in _env("OBJECT_DOSSIER_ENABLED_CAPABILITIES").split(",")
+            if value.strip()
+        )
+    )
+    character_pattern_enabled_capabilities: tuple[str, ...] = field(
+        default_factory=lambda: tuple(
+            value.strip()
+            for value in _env("CHARACTER_PATTERN_ENABLED_CAPABILITIES").split(",")
+            if value.strip()
+        )
     )
     interaction_agent_enabled: bool = field(
         default_factory=lambda: _env_bool("INTERACTION_AGENT_ENABLED", False)

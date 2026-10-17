@@ -21,11 +21,22 @@ from modules.writing.contracts import (
     WritingProjectStatsContract,
 )
 from modules.writing.manuscript_source import ManuscriptSourceService
-from modules.writing.schemas import WritingDraftCreate
-from modules.writing.services import WritingConflictCheckService, WritingDraftService
+from modules.writing.schemas import (
+    ChapterOrderConfirmedRequest,
+    ChapterOrderPreviewRequest,
+    ChapterOrderRestoreConfirmedRequest,
+    WritingDraftCreate,
+)
+from modules.writing.services import (
+    WritingChapterOrderService,
+    WritingConflictCheckService,
+    WritingDraftService,
+)
 
 __all__ = [
     "adopt_candidate_to_working",
+    "confirm_chapter_order",
+    "preview_chapter_order_restore",
     "build_manuscript_range_ref",
     "create_draft_only",
     "create_published_draft_only",
@@ -45,9 +56,12 @@ __all__ = [
     "list_effective_chapter_indices",
     "list_latest_drafts_for_chapters",
     "list_manuscript_sources",
+    "list_chapter_order_history",
     "list_project_writing_stats",
     "lock_chapter_versions_for_revalidation",
     "read_manuscript_range",
+    "restore_chapter_order",
+    "preview_chapter_order",
     "submit_comment_revision",
     "submit_semantic_review",
 ]
@@ -55,6 +69,68 @@ __all__ = [
 _service = WritingDraftService()
 _conflict_service = WritingConflictCheckService()
 _manuscript_source = ManuscriptSourceService()
+_chapter_order = WritingChapterOrderService()
+
+
+async def preview_chapter_order(
+    db: AsyncSession,
+    novel_id: str,
+    request: ChapterOrderPreviewRequest,
+):
+    """Persist a source-bound chapter-order preview; does not move any draft."""
+    return await _chapter_order.preview(db, novel_id, request)
+
+
+async def confirm_chapter_order(
+    db: AsyncSession,
+    novel_id: str,
+    receipt_id: str,
+    request: ChapterOrderConfirmedRequest,
+):
+    """Execute only the exact preview the author confirmed."""
+    return await _chapter_order.confirm(
+        db,
+        novel_id,
+        receipt_id,
+        expected_preview_hash=request.expected_preview_hash,
+        confirmed=request.confirmed,
+    )
+
+
+async def restore_chapter_order(
+    db: AsyncSession,
+    novel_id: str,
+    receipt_id: str,
+    *,
+    request: ChapterOrderRestoreConfirmedRequest,
+):
+    """Restore the prior order if current Writing and Story fingerprints match."""
+    return await _chapter_order.restore(
+        db,
+        novel_id,
+        receipt_id,
+        confirmed=request.confirmed,
+        expected_preview_hash=request.expected_preview_hash,
+    )
+
+
+async def preview_chapter_order_restore(
+    db: AsyncSession,
+    novel_id: str,
+    receipt_id: str,
+):
+    """Build an author-facing, source-bound preview before restoring an order."""
+    return await _chapter_order.preview_restore(db, novel_id, receipt_id)
+
+
+async def list_chapter_order_history(
+    db: AsyncSession,
+    novel_id: str,
+    *,
+    limit: int = 20,
+):
+    """Read recent previews and receipts so a lost UI session can resume."""
+    return await _chapter_order.list_history(db, novel_id, limit=limit)
 
 
 async def create_draft_only(

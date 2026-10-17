@@ -1,6 +1,10 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
+import "../../../apiContracts.js"
 import { DOMWrapper, flushPromises, mount } from "@vue/test-utils"
 import WritingView from "../../../vue/views/writing/WritingView.vue"
+import AutoExtractionDialog from "../../../vue/views/writing/components/AutoExtractionDialog.vue"
+import SceneCockpit from "../../../vue/views/writing/components/SceneCockpit.vue"
+import ChapterOrderDialog from "../../../vue/views/writing/components/ChapterOrderDialog.vue"
 import { getAppState, resetBridgeOverrides, setBridgeOverrides } from "../../../vue/bridge/index.js"
 import { ISLAND_LEAVE_GUARD } from "../../../vue/mountIsland.js"
 import {
@@ -10,6 +14,7 @@ import {
 } from "../../../vue/views/writing/writingSession.js"
 import { projectSettingsSession } from "../../../vue/views/settings/projectSettingsSession.js"
 import { invalidateEditorialReviewCache } from "../../../vue/composables/useEditorialGuard.js"
+import { characterArcs } from "../../../api/characterArcs.js"
 
 function deferred() {
   let resolve
@@ -72,6 +77,7 @@ describe("WritingView", () => {
     Object.defineProperty(window, 'innerWidth', { configurable: true, value: originalWidth })
     vi.useRealTimers()
     resetBridgeOverrides()
+    vi.restoreAllMocks()
   })
 
   it("Vue 模板拥有写作台 DOM，动态内容按文本转义", async () => {
@@ -112,6 +118,26 @@ describe("WritingView", () => {
     const call = globalThis.router.navigate.mock.calls.at(-1)
     expect(call.slice(0, 3)).toEqual(["writing", null, true])
     expect(call[3].get("home")).toBe("1")
+    wrapper.unmount()
+  })
+
+  it("Evolution 阅读提醒从写作统一提醒打开既有阅读面板", async () => {
+    const wrapper = mount(WritingView, { props: props(), attachTo: document.body })
+    await flushPromises()
+    const cockpit = wrapper.findComponent(SceneCockpit)
+    expect(cockpit.exists()).toBe(true)
+
+    await cockpit.vm.$emit("open-notice", {
+      notice_key: "evolution.reading:unread:chapter-1",
+      source_id: "evolution.reading",
+      category: "reading_unread",
+      target: { chapter_index: 1, scene_id: "s1" },
+      actions: [{ kind: "navigate", page: "writing", chapter_index: 1, scene_id: "s1", open_evolution_reading: true }],
+    })
+    await flushPromises()
+
+    expect(wrapper.findComponent(AutoExtractionDialog).props("model").open).toBe(true)
+    expect(globalThis.api.evolution.status).toHaveBeenCalled()
     wrapper.unmount()
   })
 
@@ -232,7 +258,7 @@ describe("WritingView", () => {
     expect(wrapper.findAll("button").some((button) => button.text() === "进入专注")).toBe(true)
     expect(wrapper.findAll('[data-action="open-owner-ai-drawer"]')).toHaveLength(0)
     expect(wrapper.findAll('[data-action="writing-ai-menu"]')).toHaveLength(1)
-    expect(wrapper.findAll(".btn-primary")).toHaveLength(1)
+    expect(wrapper.findAll(".btn-primary").filter((button) => button.isVisible())).toHaveLength(1)
     wrapper.unmount()
   })
 
@@ -813,9 +839,7 @@ describe("WritingView", () => {
     globalThis.api.writing.listConflictChecks.mockImplementation(({ scene_id: sceneId }) => (
       sceneId === "s1" ? oldCheck.promise : Promise.resolve({ items: [{ id: "check-s2", scene_id: "s2", chapter_index: 1 }] })
     ))
-    globalThis.api.world.listEntities.mockImplementation(async ({ scene_id: sceneId, entity_type: type }) => (
-      type === "character" ? [{ id: `${sceneId}-person`, name: `${sceneId} 人物` }] : []
-    ))
+    globalThis.api.world.listEntities.mockClear()
     const wrapper = mount(WritingView, {
       props: props({ scenes: [
         { id: "s1", title: "入口", scene_index: 1, status: "draft", chapter_ids: ["1"] },
@@ -829,15 +853,15 @@ describe("WritingView", () => {
     vm.conflictDialog.check = { id: "dialog-s1", scene_id: "s1" }
     Object.assign(vm.conflictTask, { taskId: "task-s1", progress: { status: "running" } })
     await vm.selectScene("s2")
-    expect(vm.sceneState.people.map((person) => person.name)).toEqual(["s2 人物"])
     expect(vm.conflictState.latest?.id).toBe("check-s2")
     expect(vm.conflictDialog).toMatchObject({ open: false, check: null })
     expect(vm.conflictTask).toMatchObject({ taskId: null, progress: null })
+    expect(globalThis.api.world.listEntities).not.toHaveBeenCalled()
 
     oldCheck.resolve({ items: [{ id: "check-s1", scene_id: "s1", chapter_index: 1 }] })
     await flushPromises()
-    expect(vm.sceneState.people.map((person) => person.name)).toEqual(["s2 人物"])
     expect(vm.conflictState.latest?.id).toBe("check-s2")
+    expect(globalThis.api.world.listEntities).not.toHaveBeenCalled()
     wrapper.unmount()
   })
 
@@ -1111,6 +1135,163 @@ describe("WritingView", () => {
     expect(wrapper.find('[aria-label="版本历史"]').exists()).toBe(true)
     expect(wrapper.text()).toContain("旧正文")
     expect(wrapper.text()).toContain("新正文")
+    wrapper.unmount()
+  })
+
+  it.each([false, true])("章节顺序完成后刷新目录和场景，并跟随当前正文（恢复=%s）", async (restored) => {
+    const initialChapter = restored ? 2 : 1
+    const targetChapter = restored ? 1 : 2
+    globalThis.api.writing.listChapters.mockResolvedValue({ chapters: [
+      { chapter_index: 1, title: restored ? "原第一章" : "原第二章" },
+      { chapter_index: 2, title: restored ? "原第二章" : "原第一章" },
+    ] })
+    globalThis.api.outline.listScenesOrdered.mockResolvedValue([
+      { ...props().scenes[0], chapter_ids: [String(targetChapter)], scene_chunks: [] },
+    ])
+    const wrapper = mount(WritingView, { props: props({
+      chapterList: [1, 2],
+      requestedLocation: { chapter: initialChapter, draftId: "d1" },
+      scenes: [{ ...props().scenes[0], chapter_ids: [String(initialChapter)], scene_chunks: [] }],
+    }), attachTo: document.body })
+    await flushPromises()
+    wrapper.findComponent(ChapterOrderDialog).vm.$emit("completed", {
+      result: { chapter_map: { 1: 2, 2: 1 } }, restored,
+      projectId: "p1", selectedChapter: initialChapter,
+    })
+    await flushPromises()
+    const vm = wrapper.vm.$.setupState.vm
+    expect(globalThis.api.writing.listChapters).toHaveBeenCalledWith("p1")
+    expect(globalThis.api.outline.listScenesOrdered).toHaveBeenCalledWith("p1")
+    expect(vm.selectedChapter.value).toBe(targetChapter)
+    expect(vm.currentScene.value.id).toBe("s1")
+    expect(vm.currentScene.value.chapter_ids).toEqual([String(targetChapter)])
+    expect(toastMock).toHaveBeenCalledWith(restored ? "章节顺序已恢复" : "章节顺序已更新", "success")
+    wrapper.unmount()
+  })
+
+  it("章节重排后刷新期间离开写作页，不在新页面弹出旧刷新反馈", async () => {
+    const wrapper = mount(WritingView, { props: props(), attachTo: document.body })
+    await flushPromises()
+    toastMock.mockClear()
+    const pending = deferred()
+    globalThis.api.writing.listChapters.mockImplementationOnce(() => pending.promise)
+    wrapper.findComponent(ChapterOrderDialog).vm.$emit("completed", {
+      result: { chapter_map: { 1: 2, 2: 1 } }, restored: false,
+      projectId: "p1", selectedChapter: 1,
+    })
+    wrapper.unmount()
+    pending.resolve({ chapters: [] })
+    await flushPromises()
+    expect(toastMock).not.toHaveBeenCalledWith(expect.stringContaining("页面刷新失败"), expect.anything())
+    expect(toastMock).not.toHaveBeenCalledWith("章节顺序已更新", "success")
+  })
+
+  it.each(["save", "restore", "archive", "unarchive"])("人物弧 %s 后刷新保留另一人物的未保存输入", async (action) => {
+    const characters = ["a", "b"].map((id) => ({ character_id: id, character_name: id, is_pov: id === "a" }))
+    let savedPlan = "原计划"
+    vi.spyOn(characterArcs, "sceneCharacters").mockResolvedValue({ characters, gaps: [] })
+    vi.spyOn(characterArcs, "compare").mockImplementation(async (_novel, _scene, id) => ({
+      character_id: id,
+      cutoff: { chapter_cutoff: 1 },
+      coverage: "unknown",
+      plan: { plan_text: savedPlan, version: 1 },
+      actual_events: [], unknowns: [],
+    }))
+    const method = { save: "confirmPlan", restore: "confirmRestore", archive: "confirmArchive", unarchive: "confirmUnarchive" }[action]
+    vi.spyOn(characterArcs, method).mockImplementation(async () => { savedPlan = "已确认计划" })
+    vi.spyOn(characterArcs, "history").mockResolvedValue({ items: [] })
+    const wrapper = mount(WritingView, { props: props(), attachTo: document.body })
+    await flushPromises()
+    await wrapper.get('[data-action="toggle-outline-float"]').trigger("click")
+    await flushPromises()
+    const vm = wrapper.vm.$.setupState.vm
+    await wrapper.get('[aria-label="b的人物弧计划"]').setValue("尚未保存的 B 计划")
+    if (action === "save") {
+      await wrapper.get('[aria-label="a的人物弧计划"]').setValue("已确认计划")
+      vm.outlineFloat.arcPreviews.a = { operationId: "save-a", proposed_plan_text: "已确认计划", expected_version: 1, preview_fingerprint: "fp" }
+    } else {
+      vm.outlineFloat.arcRestorePreviews.a = { operationId: `${action}-a`, action, revisionId: "revision-a", expectedVersion: 1, fingerprint: "fp" }
+    }
+    await vm[{
+      save: "confirmCharacterArcPlan", restore: "confirmRestoreCharacterArcPlan",
+      archive: "confirmArchiveCharacterArcPlan", unarchive: "confirmUnarchiveCharacterArcPlan",
+    }[action]]("a")
+    await flushPromises()
+    expect(wrapper.get('[aria-label="b的人物弧计划"]').element.value).toBe("尚未保存的 B 计划")
+    expect(wrapper.get('[aria-label="a的人物弧计划"]').element.value).toBe("已确认计划")
+    wrapper.unmount()
+  })
+
+  it("人物计划保存冲突保留输入与原确认身份，刷新后仍可编辑", async () => {
+    vi.spyOn(characterArcs, "sceneCharacters").mockResolvedValue({ characters: [{ character_id: "a", character_name: "a" }], gaps: [] })
+    vi.spyOn(characterArcs, "compare").mockResolvedValue({ cutoff: {}, plan: { plan_text: "原计划", version: 1 }, actual_events: [], unknowns: [] })
+    vi.spyOn(characterArcs, "previewPlan").mockImplementation(async (_novel, payload) => ({ ...payload, preview_fingerprint: "original-fp" }))
+    const confirm = vi.spyOn(characterArcs, "confirmPlan").mockRejectedValue(new Error("版本冲突，请刷新后再试"))
+    const wrapper = mount(WritingView, { props: props(), attachTo: document.body })
+    await flushPromises()
+    await wrapper.get('[data-action="toggle-outline-float"]').trigger("click")
+    await flushPromises()
+    const vm = wrapper.vm.$.setupState.vm
+    await wrapper.get('[aria-label="a的人物弧计划"]').setValue("不能丢失的新计划")
+    await vm.previewCharacterArcPlan("a")
+    const originalId = vm.outlineFloat.arcPreviews.a.operationId
+    expect(await vm.confirmCharacterArcPlan("a")).toBe(false)
+    expect(wrapper.get('[aria-label="a的人物弧计划"]').element.value).toBe("不能丢失的新计划")
+    expect(vm.outlineFloat.arcPreviews.a.operationId).toBe(originalId)
+    expect(confirm.mock.calls[0][1].operation_id).toBe(originalId)
+    await wrapper.get('[aria-label="刷新人物弧线对照"]').trigger("click")
+    await flushPromises()
+    expect(wrapper.get('[aria-label="a的人物弧计划"]').element.value).toBe("不能丢失的新计划")
+    wrapper.unmount()
+  })
+
+  it("人物对照尚在加载时关闭再打开，重新读取并忽略旧请求", async () => {
+    const pending = deferred()
+    vi.spyOn(characterArcs, "sceneCharacters")
+      .mockImplementationOnce(() => pending.promise)
+      .mockResolvedValue({ characters: [{ character_id: "a", character_name: "当前人物" }], gaps: [] })
+    vi.spyOn(characterArcs, "compare").mockResolvedValue({ cutoff: {}, plan: null, actual_events: [], unknowns: [] })
+    const wrapper = mount(WritingView, { props: props(), attachTo: document.body })
+    await flushPromises()
+    await wrapper.get('[data-action="toggle-outline-float"]').trigger("click")
+    await flushPromises()
+    expect(wrapper.find("#outline-float-panel").text()).toContain("正在核对")
+    await wrapper.get('[aria-label="关闭大纲浮窗"]').trigger("click")
+    await wrapper.get('[data-action="toggle-outline-float"]').trigger("click")
+    await flushPromises()
+    expect(wrapper.find("#outline-float-panel").text()).toContain("当前人物")
+    pending.resolve({ characters: [{ character_id: "old", character_name: "旧请求人物" }], gaps: [] })
+    await flushPromises()
+    expect(wrapper.find("#outline-float-panel").text()).not.toContain("旧请求人物")
+    wrapper.unmount()
+  })
+
+  it("Scene 人物超过十二位时完整加载人物弧线，不静默截断", async () => {
+    const characters = Array.from({ length: 13 }, (_, index) => ({
+      character_id: `character-${index + 1}`,
+      character_name: `人物 ${index + 1}`,
+      is_pov: index === 0,
+    }))
+    vi.spyOn(characterArcs, "sceneCharacters").mockResolvedValue({ characters, gaps: [] })
+    const compare = vi.spyOn(characterArcs, "compare").mockImplementation(async (_novel, _scene, id) => ({
+      character_id: id,
+      cutoff: { chapter_cutoff: 1 },
+      coverage: "unknown",
+      plan: null,
+      actual_events: [],
+      unknowns: [],
+    }))
+    globalThis.api.outline.listThreads.mockResolvedValue({ items: [] })
+    const wrapper = mount(WritingView, {
+      props: props({ scenes: [{ ...props().scenes[0], scene_index: 0 }] }),
+      attachTo: document.body,
+    })
+    await flushPromises()
+    await wrapper.get('[data-action="toggle-outline-float"]').trigger("click")
+    await flushPromises()
+    expect(compare).toHaveBeenCalledTimes(13)
+    expect(wrapper.findAll(".outline-arc-card")).toHaveLength(13)
+    expect(wrapper.find("#outline-float-panel").text()).toContain("人物 13")
     wrapper.unmount()
   })
 
@@ -1389,18 +1570,48 @@ describe("WritingView", () => {
     reloaded.unmount()
   })
 
-  it("从 Vue 警报页打开由 Vue 托管的完整冲突详情", async () => {
+  it("从统一提醒打开由 Vue 托管的完整冲突详情", async () => {
     const check = { id: "check-1", chapter_index: 1, items: [{ id: "i1", severity: "high", status: "open", evidence_summary: "证据" }] }
     globalThis.api.writing.listConflictChecks.mockResolvedValue({ items: [check] })
+    globalThis.api.writing.getConflictCheck.mockResolvedValue(check)
+    const originalAssistantApi = globalThis.api.assistant
+    globalThis.api.assistant = {
+      unifiedNotices: vi.fn().mockResolvedValue({
+        items: [{
+          notice_key: "writing.conflict:i1",
+          source_id: "writing.conflict",
+          category: "conflict_check",
+          severity: "high",
+          target: { chapter_index: 1, scene_id: "s1" },
+          summary: "请复核设定冲突。",
+          evidence: [{ note: "证据" }],
+          basis_fingerprint: "a".repeat(64),
+          stale: false,
+          status: "unread",
+          row_version: 1,
+          actions: [{ kind: "navigate", page: "writing", check_id: "check-1", item_id: "i1", chapter_index: 1 }],
+        }],
+        unavailable_sources: [],
+        muted_categories: [],
+        partial: false,
+      }),
+    }
     const wrapper = mount(WritingView, { props: props(), attachTo: document.body })
-    await flushPromises()
-    await expandWritingCopilot(wrapper)
-    await wrapper.findAll("button").find((button) => button.text() === "警报").trigger("click")
-    await wrapper.findAll("button").find((button) => button.text() === "查看最近校验").trigger("click")
-    const dialog = wrapper.get('[aria-label="剧情设定冲突检查"]')
-    expect(dialog.text()).toContain("证据")
-    expect(globalThis.showModalHtml).not.toHaveBeenCalled()
-    wrapper.unmount()
+    try {
+      await flushPromises()
+      await expandWritingCopilot(wrapper)
+      await wrapper.findAll('[role="tab"]').find((tab) => tab.text() === "提醒").trigger("click")
+      await flushPromises()
+      await wrapper.findAll("button").find((button) => button.text() === "查看检查").trigger("click")
+      const dialog = wrapper.get('[aria-label="剧情设定冲突检查"]')
+      expect(dialog.text()).toContain("证据")
+      expect(globalThis.api.writing.getConflictCheck).toHaveBeenCalledWith("check-1", "p1")
+      expect(globalThis.showModalHtml).not.toHaveBeenCalled()
+    } finally {
+      wrapper.unmount()
+      if (originalAssistantApi === undefined) delete globalThis.api.assistant
+      else globalThis.api.assistant = originalAssistantApi
+    }
   })
 
   it("从 Vue 选项对话框提交带当前版本与待处理范围的冲突检查", async () => {

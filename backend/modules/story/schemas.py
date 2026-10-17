@@ -34,6 +34,75 @@ class StorySchema(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
 
+class CharacterCardFact(StorySchema):
+    """Deterministic, source-addressable basis for a generated card."""
+
+    fact_id: Annotated[
+        str,
+        StringConstraints(
+            strip_whitespace=True,
+            min_length=3,
+            max_length=200,
+            pattern=r"^[a-z][a-z0-9_.:-]*$",
+        ),
+    ]
+    kind: Literal[
+        "character_profile",
+        "world_dossier",
+        "legacy_profile_field",
+        "story_state",
+    ]
+    layer: Literal["fact", "belief", "observation"]
+    subject_id: str = Field(min_length=1, max_length=128)
+    dimension: str = Field(min_length=1, max_length=80)
+    field: str = Field(min_length=1, max_length=120)
+    value: StoryText
+    source_refs: list[dict[str, Any]] = Field(default_factory=list, max_length=16)
+    entry_id: str | None = Field(default=None, max_length=128)
+    revision_id: str | None = Field(default=None, max_length=128)
+    checkpoint_id: str | None = Field(default=None, max_length=128)
+    checkpoint_source_hash: str | None = Field(default=None, max_length=128)
+    as_of_scene_id: str | None = Field(default=None, max_length=128)
+    possibly_false: bool = False
+
+
+class CharacterCardPattern(StorySchema):
+    """Author-only Evolution interpretation retained with its evidence refs."""
+
+    pattern_id: Annotated[
+        str,
+        StringConstraints(
+            strip_whitespace=True,
+            min_length=3,
+            max_length=200,
+            pattern=r"^[a-z][a-z0-9_.:-]*$",
+        ),
+    ]
+    statement: StoryText
+    modality: StoryText
+    evidence_refs: list[dict[str, Any]] = Field(default_factory=list, max_length=24)
+
+
+class CharacterCardInterpretation(StorySchema):
+    """A non-canonical proposal linked to facts and/or reviewed patterns."""
+
+    category: StoryKey
+    statement: StoryText
+    source_fact_ids: list[str] = Field(default_factory=list, max_length=16)
+    source_pattern_ids: list[str] = Field(default_factory=list, max_length=8)
+    confidence: float = Field(default=0.5, ge=0.0, le=1.0)
+
+    @model_validator(mode="after")
+    def require_sources(self) -> CharacterCardInterpretation:
+        if not (self.source_fact_ids or self.source_pattern_ids):
+            raise ValueError("interpretations require at least one source id")
+        if len(set(self.source_fact_ids)) != len(self.source_fact_ids):
+            raise ValueError("source_fact_ids must be unique")
+        if len(set(self.source_pattern_ids)) != len(self.source_pattern_ids):
+            raise ValueError("source_pattern_ids must be unique")
+        return self
+
+
 class CharacterCardContent(StorySchema):
     """Versioned character state used by a Scene, not a replacement World card."""
 
@@ -55,11 +124,50 @@ class CharacterCardContent(StorySchema):
     author_notes: str | None = Field(default=None, max_length=12000)
 
 
+class CharacterCardContentV2(StorySchema):
+    """Generated source-bound Scene card; interpretations never become facts."""
+
+    version: Literal["character_card.v2"] = "character_card.v2"
+    story_time: str | None = Field(default=None, max_length=255)
+    story_progress: int | None = Field(default=None, ge=0, le=10_000_000)
+    fact_basis: list[CharacterCardFact] = Field(default_factory=list, max_length=64)
+    pattern_basis: list[CharacterCardPattern] = Field(default_factory=list, max_length=24)
+    interpretations: list[CharacterCardInterpretation] = Field(
+        default_factory=list, max_length=32
+    )
+
+    @model_validator(mode="after")
+    def validate_versioned_content(self) -> CharacterCardContentV2:
+        fact_ids = {item.fact_id for item in self.fact_basis}
+        pattern_ids = {item.pattern_id for item in self.pattern_basis}
+        if len(fact_ids) != len(self.fact_basis):
+            raise ValueError("fact_basis ids must be unique")
+        if len(pattern_ids) != len(self.pattern_basis):
+            raise ValueError("pattern_basis ids must be unique")
+        for interpretation in self.interpretations:
+            if not set(interpretation.source_fact_ids).issubset(fact_ids):
+                raise ValueError("interpretation references an unknown fact id")
+            if not set(interpretation.source_pattern_ids).issubset(pattern_ids):
+                raise ValueError("interpretation references an unknown pattern id")
+        return self
+
+
+VersionedCharacterCardContent = CharacterCardContent | CharacterCardContentV2
+
+
+def parse_character_card_content(value: Any) -> VersionedCharacterCardContent:
+    if isinstance(value, CharacterCardContentV2) or (
+        isinstance(value, dict) and value.get("version") == "character_card.v2"
+    ):
+        return CharacterCardContentV2.model_validate(value)
+    return CharacterCardContent.model_validate(value)
+
+
 class CardRevisionCreate(StorySchema):
     novel_id: str
     scene_id: str
     character_id: str
-    content: CharacterCardContent
+    content: VersionedCharacterCardContent
     expected_revision_id: uuid.UUID | None = None
     confirmed: Literal[True]
     source_manifest: dict[str, Any] = Field(default_factory=dict, max_length=40)
@@ -105,7 +213,7 @@ class CharacterCardRevisionResponse(StorySchema):
     character_id: uuid.UUID
     scene_id: uuid.UUID
     version_number: int = Field(ge=1)
-    content: CharacterCardContent
+    content: VersionedCharacterCardContent
     content_hash: str = Field(min_length=64, max_length=64)
     source: str
     status: str
@@ -257,7 +365,7 @@ class StoryTaskRequest(StorySchema):
     additional_notes: Annotated[
         str | None, StringConstraints(strip_whitespace=True, max_length=4000)
     ] = None
-    accepted_reactions: list[ReactionProposal] = Field(
+    accepted_reactions: list[ReactionProposal | AcceptedReactionChoiceV1] = Field(
         default_factory=list, max_length=24
     )
     accepted_beats: list[ScriptBeat] = Field(default_factory=list, max_length=100)
@@ -275,6 +383,21 @@ class StoryTaskRequest(StorySchema):
         if len(normalized) != len(set(normalized)):
             raise ValueError("character_ids must be unique")
         return normalized
+
+    @model_validator(mode="after")
+    def one_selected_per_character(self) -> StoryTaskRequest:
+        selected = {
+            item.character_id
+            for item in self.accepted_reactions
+            if isinstance(item, AcceptedReactionChoiceV1)
+        }
+        if any(
+            sum(item.character_id == character_id for item in self.accepted_reactions)
+            != 1
+            for character_id in selected
+        ):
+            raise ValueError("only one selected performance per character")
+        return self
 
 
 class StoryCardTaskRequest(StorySchema):
@@ -295,6 +418,10 @@ class StoryCardTaskRequest(StorySchema):
 
 
 from modules.story.observations import SimulationSeed  # noqa: E402
+from modules.story.simulation_v3 import (  # noqa: E402
+    SimulationReference,
+    SimulationV3Context,
+)
 
 
 class StoryOneClickTaskRequest(StorySchema):
@@ -302,37 +429,70 @@ class StoryOneClickTaskRequest(StorySchema):
 
     novel_id: str
     scene_id: str
-    character_ids: list[str] = Field(default_factory=list, max_length=24)
+    character_ids: list[str] = Field(default_factory=list)
     context_confirmation_id: str = Field(min_length=1, max_length=128)
     operation_id: uuid.UUID | None = None
     additional_notes: Annotated[
         str | None, StringConstraints(strip_whitespace=True, max_length=4000)
     ] = None
-    accepted_reactions: list[ReactionProposal] = Field(
+    accepted_reactions: list[ReactionProposal | AcceptedReactionChoiceV1] = Field(
         default_factory=list, max_length=24
     )
     accepted_beats: list[ScriptBeat] = Field(default_factory=list, max_length=100)
     submit_authorized: bool = False
     use_round_candidates: bool = False
-    simulation_protocol: Literal["legacy", "rehearsal_v1", "observation_v2"] = "legacy"
-    simulation_seed: SimulationSeed | None = None
-    rehearsal_rounds: int = Field(default=2, ge=1, le=3)
+    simulation_protocol: Literal[
+        "legacy", "rehearsal_v1", "observation_v2", "simulation_v3"
+    ] = "legacy"
+    simulation_seed: SimulationSeed | SimulationV3Context | None = None
+    rehearsal_rounds: int = Field(default=2, ge=1)
     narrator_character_id: uuid.UUID | None = None
     parent_rehearsal_id: uuid.UUID | None = None
-    fork_round: int = Field(default=0, ge=0, le=100)
+    fork_round: int = Field(default=0, ge=0)
     parent_round_hash: str | None = Field(default=None, pattern=r"^[a-f0-9]{64}$")
 
     @model_validator(mode="after")
     def bounded_rehearsal(self):
-        if self.simulation_seed and self.simulation_protocol != "observation_v2":
+        if self.simulation_protocol == "simulation_v3":
+            if "rehearsal_rounds" not in self.model_fields_set:
+                self.rehearsal_rounds = 1
+            if not self.character_ids:
+                raise ValueError("simulation_v3 needs at least one selected actor")
+            if self.simulation_seed and not isinstance(
+                self.simulation_seed, SimulationV3Context
+            ):
+                raise ValueError("simulation_v3 requires typed simulation references")
+            if isinstance(self.simulation_seed, SimulationV3Context):
+                selected = {
+                    SimulationReference(kind="object", id=value).state_key
+                    for value in self.character_ids
+                }
+                declared = {
+                    participant.state_key
+                    for participant in self.simulation_seed.participants
+                }
+                if declared != selected:
+                    raise ValueError(
+                        "simulation context participants must match selected actors"
+                    )
+            if (
+                self.narrator_character_id
+                and str(self.narrator_character_id) not in self.character_ids
+            ):
+                raise ValueError("叙述视角必须属于本轮人物")
+        elif self.simulation_seed and self.simulation_protocol != "observation_v2":
             raise ValueError("旧协议不能重新解释试验初始状态")
-        if self.simulation_seed:
+        if self.simulation_seed and self.simulation_protocol == "observation_v2":
             from modules.story.observations import seeded_state
 
+            if not isinstance(self.simulation_seed, SimulationSeed):
+                raise ValueError("observation_v2 requires its original simulation seed")
             seeded_state(self.simulation_seed, self.character_ids)
         if self.simulation_protocol in {"rehearsal_v1", "observation_v2"}:
             if not 1 <= len(self.character_ids) <= 3:
                 raise ValueError("排演每轮需要一至三名人物")
+            if self.rehearsal_rounds > 3 or self.fork_round > 100:
+                raise ValueError("旧协议保持原有轮次限制")
             if (
                 self.narrator_character_id
                 and str(self.narrator_character_id) not in self.character_ids
@@ -342,8 +502,26 @@ class StoryOneClickTaskRequest(StorySchema):
                 self.parent_rehearsal_id and self.fork_round < 1
             ):
                 raise ValueError("分叉需要原回合及准确来源版本")
+        elif self.simulation_protocol == "simulation_v3":
+            if bool(self.parent_rehearsal_id) != bool(self.parent_round_hash) or (
+                self.parent_rehearsal_id and self.fork_round < 1
+            ):
+                raise ValueError("分叉需要原回合及准确来源版本")
         elif self.parent_rehearsal_id:
             raise ValueError("旧推演不能携带排演分叉")
+        elif self.simulation_protocol == "legacy" and len(self.character_ids) > 24:
+            raise ValueError("普通一键操作最多选择二十四名人物")
+        selected = {
+            item.character_id
+            for item in self.accepted_reactions
+            if isinstance(item, AcceptedReactionChoiceV1)
+        }
+        if any(
+            sum(item.character_id == character_id for item in self.accepted_reactions)
+            != 1
+            for character_id in selected
+        ):
+            raise ValueError("only one selected performance per character")
         return self
 
     @field_validator("novel_id", "scene_id")
@@ -367,12 +545,14 @@ class StoryTaskResponse(StorySchema):
 
 class CardPreview(StorySchema):
     character_id: uuid.UUID
-    content: CharacterCardContent
+    content: VersionedCharacterCardContent
     warnings: list[StoryText] = Field(default_factory=list, max_length=20)
     knowledge_review: dict[str, Any] | None = None
 
 
 class ReactionProposal(StorySchema):
+    """Legacy reaction payload retained for saved and accepted v1 history."""
+
     character_id: uuid.UUID
     known_information: list[StoryText] = Field(default_factory=list, max_length=40)
     subjective_judgment: StoryText | None = None
@@ -386,11 +566,109 @@ class ReactionProposal(StorySchema):
     internal_pressure: StoryText
     knowledge_basis: list[StoryText] = Field(default_factory=list, max_length=20)
     alternatives: list[StoryText] = Field(default_factory=list, max_length=8)
+    motivations: list[CharacterCardInterpretation] = Field(
+        default_factory=list, max_length=4
+    )
+
+    @model_validator(mode="after")
+    def validate_motivation_count(self) -> ReactionProposal:
+        if len(self.motivations) == 1:
+            raise ValueError("motivations must be omitted or contain 2 to 4 items")
+        return self
 
 
 class ReactionPreview(StorySchema):
+    """Legacy v1 result shape retained for reading earlier task payloads."""
+
     scene_id: uuid.UUID
     proposals: list[ReactionProposal] = Field(default_factory=list, max_length=24)
+    warnings: list[StoryText] = Field(default_factory=list, max_length=20)
+    knowledge_review: dict[str, Any] | None = None
+
+
+class ReactionPerformanceOption(StorySchema):
+    """One source-bound, fully staged way the character may react."""
+
+    option_id: StoryKey
+    motivation: StoryText
+    source_fact_ids: list[str] = Field(default_factory=list, max_length=16)
+    source_pattern_ids: list[str] = Field(default_factory=list, max_length=8)
+    action: StoryText
+    facial_expression: StoryText
+    body_language: StoryText
+    voice_and_dialogue: StoryText
+    inner_response: StoryText
+    attention: StoryText
+    change: StoryText
+    confidence: float = Field(default=0.0, ge=0.0, le=1.0)
+
+    @model_validator(mode="after")
+    def require_unique_sources(self) -> ReactionPerformanceOption:
+        if not (self.source_fact_ids or self.source_pattern_ids):
+            raise ValueError("reaction options require at least one source id")
+        if len(set(self.source_fact_ids)) != len(self.source_fact_ids):
+            raise ValueError("source_fact_ids must be unique")
+        if len(set(self.source_pattern_ids)) != len(self.source_pattern_ids):
+            raise ValueError("source_pattern_ids must be unique")
+        return self
+
+
+class AcceptedReactionChoiceV1(StorySchema):
+    """One author-selected V2 performance for downstream script proposals."""
+
+    schema_version: Literal["story.reaction.choice.v1"]
+    character_id: uuid.UUID
+    internal_pressure: StoryText
+    selected_performance: ReactionPerformanceOption
+
+
+class ReactionProposalV2(StorySchema):
+    """New source-bound performance-card format; v1 stays readable above."""
+
+    schema_version: Literal["story.reaction.v2"] = "story.reaction.v2"
+    character_id: uuid.UUID
+    known_information: list[StoryText] = Field(default_factory=list, max_length=40)
+    subjective_judgment: StoryText | None = None
+    goal: StoryText | None = None
+    conflict: StoryText | None = None
+    internal_pressure: StoryText
+    performances: list[ReactionPerformanceOption] = Field(min_length=2, max_length=4)
+
+    @model_validator(mode="after")
+    def require_distinct_performances(self) -> ReactionProposalV2:
+        def normalize(value: str) -> str:
+            return " ".join(value.casefold().split())
+
+        motivations = [normalize(item.motivation) for item in self.performances]
+        if len(set(motivations)) != len(motivations):
+            raise ValueError("reaction performances must use distinct motivations")
+        signatures = [
+            tuple(
+                normalize(getattr(item, field))
+                for field in (
+                    "action",
+                    "facial_expression",
+                    "body_language",
+                    "voice_and_dialogue",
+                    "inner_response",
+                    "attention",
+                    "change",
+                )
+            )
+            for item in self.performances
+        ]
+        if len(set(signatures)) != len(signatures):
+            raise ValueError("reaction performances must be behaviorally distinct")
+        option_ids = [item.option_id for item in self.performances]
+        if len(set(option_ids)) != len(option_ids):
+            raise ValueError("reaction option ids must be unique")
+        return self
+
+
+class ReactionPreviewV2(StorySchema):
+    schema_version: Literal["story.reaction.v2"] = "story.reaction.v2"
+    scene_id: uuid.UUID
+    proposals: list[ReactionProposalV2] = Field(default_factory=list, max_length=24)
     warnings: list[StoryText] = Field(default_factory=list, max_length=20)
     knowledge_review: dict[str, Any] | None = None
 
@@ -419,7 +697,9 @@ class ScriptPreview(StorySchema):
 class OneClickOutput(StorySchema):
     scene_id: uuid.UUID
     cards: list[CardPreview] = Field(default_factory=list, max_length=24)
-    reactions: list[ReactionProposal] = Field(default_factory=list, max_length=24)
+    reactions: list[ReactionProposal | ReactionProposalV2] = Field(
+        default_factory=list, max_length=24
+    )
     script: ScriptPreview
 
 

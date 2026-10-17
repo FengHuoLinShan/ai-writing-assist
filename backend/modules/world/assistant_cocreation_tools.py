@@ -10,15 +10,12 @@ from core.service_keys import (
     ASSISTANT_RUN_DISCUSSION_SCOPE,
     ASSISTANT_SESSION_SERVICE,
 )
-from modules.assistant.contracts import (
-    AssistantOperation,
-    WorldCocreationCheckpointAdvanceRequest,
-)
 from modules.evidence.contracts import VisibilityContextContract
 from modules.evidence.facade import inspect_novel_target
 from modules.world.schemas import (
     GeneratedWorldCoreConvergence,
     GeneratedWorldGenerationDecisionState,
+    WorldCocreationCheckpointAdvanceRequest,
     WorldCoreCheckpointDecision,
     WorldCoreCheckpointPayload,
     WorldCoreCheckpointSaveRequest,
@@ -184,8 +181,11 @@ async def _save(db, novel_id, args, preview, *, context=None):
     }
 
 
-OPERATIONS = {
-    "world.save_checkpoint": AssistantOperation(
-        "保存并继续世界讨论阶段成果", SaveCheckpoint, _preview, _save
-    ),
+OPERATIONS_SPEC = {
+    "world.save_checkpoint": {
+        "label": "保存并继续世界讨论阶段成果",
+        "schema": SaveCheckpoint,
+        "prepare": _preview,
+        "apply": _save,
+    },
 }

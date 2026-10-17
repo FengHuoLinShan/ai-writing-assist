@@ -3,6 +3,10 @@ from uuid import UUID, uuid4
 import pytest
 from sqlalchemy import func, select
 
+from app.assistant_operation_registry import (
+    world_cocreation_operations,
+    world_outcome_operations,
+)
 from core.errors import ConflictError, NotFoundError
 from infrastructure.tasks.models import AsyncTask
 from modules.account.facade import current_account_id
@@ -10,7 +14,7 @@ from modules.assistant.contracts import AssistantOperationContext, WorkContext
 from modules.assistant.models import AssistantMessage, AssistantRun, AssistantSession
 from modules.assistant.schemas import SessionCreate
 from modules.assistant.service import AssistantService
-from modules.world.assistant_cocreation_tools import OPERATIONS, SaveCheckpoint
+from modules.world.assistant_cocreation_tools import SaveCheckpoint
 from modules.world.models import CreationSuggestion
 
 
@@ -40,7 +44,7 @@ async def test_stage_save_keeps_session_lineage_decisions_and_rejects_late_point
     context = AssistantOperationContext(
         str(run.id), str(current_account_id()), WorkContext(scope="project")
     )
-    operation = OPERATIONS["world.save_checkpoint"]
+    operation = world_cocreation_operations["world.save_checkpoint"]
     first = SaveCheckpoint(
         decisions=[
             {"item_key": "door", "text": "铜门只从内侧开启", "disposition": "locked"}
@@ -88,9 +92,6 @@ async def test_stage_save_keeps_session_lineage_decisions_and_rejects_late_point
         for message in receipts
     )
     from modules.world.assistant_outcome_tools import (
-        OPERATIONS as OUTCOMES,
-    )
-    from modules.world.assistant_outcome_tools import (
         PreparePackage,
     )
 
@@ -107,7 +108,7 @@ async def test_stage_save_keeps_session_lineage_decisions_and_rejects_late_point
             }
         ]
     )
-    package_op = OUTCOMES["world.prepare_package"]
+    package_op = world_outcome_operations["world.prepare_package"]
     package_preview = await package_op.prepare(db, nid, package_args, context=context)
     package_result = await package_op.apply(
         db, nid, package_args, package_preview, context=context

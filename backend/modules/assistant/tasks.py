@@ -4,6 +4,19 @@ from infrastructure.tasks.registry import task_handler
 from modules.assistant.service import AssistantService
 
 
+def _assistant_turn_budget_policy(task):
+    meta = task.meta or {}
+    if "_assistant_catalog_budget_v1" not in meta:
+        return {"budget_mode": "bounded"}
+    scope = meta["_assistant_catalog_budget_v1"]
+    if not isinstance(scope, dict) or set(scope) != {
+        "scope_fingerprint",
+        "authorized_step_capabilities",
+    }:
+        raise ValueError("assistant catalog task scope is invalid")
+    return {"budget_mode": "assistant_catalog", **scope}
+
+
 @task_handler(
     "assistant_turn",
     recovery_policy="manual_resume",
@@ -15,6 +28,7 @@ from modules.assistant.service import AssistantService
     root_capability_id="assistant.turn",
     run_request_limit=30,
     run_deadline_seconds=1800.0,
+    run_budget_policy=_assistant_turn_budget_policy,
 )
 async def handle_assistant_turn(db, task):
     return await AssistantService().execute(db, task)

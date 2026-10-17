@@ -201,6 +201,7 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         - 关闭所有数据库连接
     """
     settings = get_settings()
+    install_operation_trace_route_adapters(app)
 
     # --- 配置日志 ---
     _configure_application_logging(settings.log_level)
@@ -751,7 +752,13 @@ from modules.account.oidc import (  # noqa: E402
 )
 from modules.account.oidc import router as account_oidc_router  # noqa: E402
 from modules.assistant import api as assistant_api  # noqa: E402
+from modules.assistant.notices_api import router as assistant_notices_router  # noqa: E402
+from modules.assistant.operation_api import router as assistant_operation_http_router  # noqa: E402
+from modules.assistant.operation_trace_http_adapter import (  # noqa: E402
+    install_operation_trace_route_adapters,
+)
 from modules.collaboration import api as collaboration_api  # noqa: E402
+from modules.collaboration import author_operations_api as collaboration_author_api  # noqa: E402
 from modules.evidence import api as evidence_api  # noqa: E402
 from modules.evolution import api as evolution_api  # noqa: E402
 
@@ -762,6 +769,7 @@ from modules.imports.spreadsheet_migration import (  # noqa: E402
     api as spreadsheet_migration_api,  # noqa: E402
 )
 from modules.interaction import api as interaction_api  # noqa: E402
+from modules.interaction import author_api as interaction_author_api  # noqa: E402
 from modules.interaction.forecast_api import (  # noqa: E402
     router as interaction_forecast_router,  # noqa: E402
 )
@@ -771,14 +779,21 @@ from modules.project.settings_api import (  # noqa: E402
     defaults_handler_router as project_defaults_handler_router,
 )
 from modules.story import api as story_api  # noqa: E402
+from modules.story.character_arcs.api import router as story_character_arcs_router  # noqa: E402
 from modules.story.continuity import api as memory_api  # noqa: E402
+from modules.story.director_api import router as story_director_router  # noqa: E402
 from modules.story.outline_state import api as outline_api  # noqa: E402
+from modules.story.world_progression_api import router as story_world_progression_router  # noqa: E402
 from modules.world import api as world_api  # noqa: E402
 from modules.world import map_atlas_api as world_map_atlas_api  # noqa: E402
+from modules.world import project_vocabulary_api as world_vocabulary_api  # noqa: E402
 from modules.writing import api as writing_api  # noqa: E402
 
 app.include_router(assistant_api.router)
+app.include_router(assistant_operation_http_router)
+app.include_router(assistant_notices_router)
 app.include_router(collaboration_api.router)
+app.include_router(collaboration_author_api.router)
 app.include_router(project_router)
 app.include_router(local_agent_router)
 app.include_router(account_auth_router)
@@ -790,16 +805,21 @@ app.include_router(interaction_api.demo_router)
 app.include_router(spreadsheet_migration_api.router)
 app.include_router(imports_api.router)
 app.include_router(interaction_api.router)
+app.include_router(interaction_author_api.router)
 
 app.include_router(interaction_forecast_router)
 app.include_router(world_api.router)
 app.include_router(world_map_atlas_api.router)
+app.include_router(world_vocabulary_api.router)
 app.include_router(memory_api.router)
 app.include_router(outline_api.router)
 app.include_router(evidence_api.router)
 app.include_router(evolution_api.router)
 app.include_router(writing_api.router)
 app.include_router(story_api.router)
+app.include_router(story_director_router)
+app.include_router(story_character_arcs_router)
+app.include_router(story_world_progression_router)
 app.include_router(tasks_api.router)
 if not _public_mode:
     app.include_router(debug_api.router)
@@ -808,6 +828,7 @@ app.include_router(
     prefix="/api/account/settings",
 )
 
+install_operation_trace_route_adapters(app)
 
 # ---------------------------------------------------------------------------
 # 列出所有注册路由（便于调试）

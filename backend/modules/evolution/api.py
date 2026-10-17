@@ -7,7 +7,13 @@ from fastapi import APIRouter, Depends, Query, Request
 from pydantic import BaseModel, ConfigDict, Field
 
 from core.dependencies import DbSession
-from modules.evolution import category_rescan, ledger, workflow, world_audit_supplement
+from modules.evolution import (
+    category_rescan,
+    ledger,
+    spatial_rescan,
+    workflow,
+    world_audit_supplement,
+)
 from modules.evolution.ledger_contracts import LedgerCategory, LedgerDecision
 from modules.evolution.ownership import switch_project_engine
 from modules.project.facade import (
@@ -115,7 +121,26 @@ async def change_engine(db: DbSession, novel_id: UUID, data: EngineSwitch):
     )
 
 
-@router.post("/reading/preview")
+@router.post(
+    "/reading/preview",
+    openapi_extra={
+        "x-novelcraft-operation-id": "evolution.prepare_reading",
+        "x-novelcraft-operation-phase": "prepare",
+        "x-novelcraft-operation-trace-fields": {
+            "operation_id": "data.operation_id",
+            "mode": "data.mode",
+            "run_key": "data.run_key",
+            "from_scene_index": "data.from_scene_index",
+            "entity_id": "data.entity_id",
+            "observation_id": "data.observation_id",
+            "end_chapter": "data.end_chapter",
+            "request_limit": "data.request_limit",
+            "budget_mode": "data.budget_mode",
+            "discover_details": "data.discover_details",
+            "discover_spatial": "data.discover_spatial",
+        },
+    },
+)
 async def preview_reading(db: DbSession, novel_id: UUID, data: workflow.ReadingRequest):
     return await workflow.preview_reading(db, str(novel_id), data)
 
@@ -211,5 +236,34 @@ async def resume_category_rescan(
     db: DbSession, novel_id: UUID, run_key: str, operation_id: UUID
 ):
     return await category_rescan.resume_category_rescan(
+        db, str(novel_id), run_key, operation_id
+    )
+
+
+@router.post("/reading/{run_key}/spatial-rescan-preview")
+async def preview_spatial_rescan(
+    db: DbSession,
+    novel_id: UUID,
+    run_key: str,
+    data: spatial_rescan.SpatialRescanRequest,
+):
+    return await spatial_rescan.preview_spatial_rescan(db, str(novel_id), run_key, data)
+
+
+@router.post("/reading/{run_key}/spatial-rescan", status_code=201)
+async def start_spatial_rescan(
+    db: DbSession,
+    novel_id: UUID,
+    run_key: str,
+    data: spatial_rescan.SpatialRescanStart,
+):
+    return await spatial_rescan.start_spatial_rescan(db, str(novel_id), run_key, data)
+
+
+@router.post("/reading/{run_key}/spatial-rescan/{operation_id}/resume")
+async def resume_spatial_rescan(
+    db: DbSession, novel_id: UUID, run_key: str, operation_id: UUID
+):
+    return await spatial_rescan.resume_spatial_rescan(
         db, str(novel_id), run_key, operation_id
     )

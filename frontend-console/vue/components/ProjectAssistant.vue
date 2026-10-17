@@ -1,20 +1,24 @@
 <template>
-  <div v-if="state.enabled" v-show="open" ref="overlayRef" class="project-assistant" :class="{ 'project-assistant--mobile': narrow }">
+  <div v-if="state.enabled || projectId" v-show="open" ref="overlayRef" class="project-assistant" :class="{ 'project-assistant--mobile': narrow }">
     <button v-if="narrow" type="button" class="project-assistant-backdrop" aria-label="关闭项目助手" @click="close"></button>
     <aside id="project-assistant-panel" ref="dialogRef" class="project-assistant-panel" :role="narrow ? 'dialog' : 'complementary'" :aria-modal="narrow || undefined" aria-label="项目助手" tabindex="-1" @keydown="handleKeydown" @focusin="onFocusin">
       <header class="project-assistant-header"><div><strong>项目助手</strong><p>查资料、理思路，准备可审阅的修改。</p></div><button class="btn btn-sm" type="button" aria-label="关闭项目助手" @click="close">关闭</button></header>
       <div class="project-assistant-tabs" role="group" aria-label="助手页面">
-        <button type="button" :aria-pressed="activeTab === 'chat'" @click="switchTab('chat')">讨论</button>
-        <button type="button" :aria-pressed="activeTab === 'care'" @click="switchTab('care')">提醒</button>
-        <button type="button" :aria-pressed="activeTab === 'editorial'" @click="switchTab('editorial')">编辑台</button>
-        <button type="button" :aria-pressed="activeTab === 'forecast'" @click="openForecast">下一步</button>
-        <button type="button" :aria-pressed="activeTab === 'creative'" @click="openCreative">试改</button>
+        <button v-if="state.enabled" type="button" :aria-pressed="activeTab === 'chat'" @click="switchTab('chat')">讨论</button>
+        <button v-if="state.enabled" type="button" :aria-pressed="activeTab === 'care'" @click="switchTab('care')">提醒</button>
+        <button v-if="state.enabled" type="button" :aria-pressed="activeTab === 'editorial'" @click="switchTab('editorial')">编辑台</button>
+        <button v-if="state.enabled" type="button" :aria-pressed="activeTab === 'forecast'" @click="openForecast">下一步</button>
+        <button v-if="state.enabled" type="button" :aria-pressed="activeTab === 'creative'" @click="openCreative">试改</button>
+        <button v-if="projectId" type="button" :aria-pressed="activeTab === 'rp'" @click="switchTab('rp')">RP旅程</button>
+        <button v-if="goalAvailable" type="button" :aria-pressed="activeTab === 'goal'" @click="switchTab('goal')">目标</button>
       </div>
-      <ProactiveCare v-show="activeTab === 'care'" :target-id="projectId" standalone @locate="locateAssistantSource" @editorial="openEditorialFromNotice" />
-      <EditorialDesk v-show="activeTab === 'editorial'" :project-id="projectId" :active="open && activeTab === 'editorial'" :focus-chapter="editorialFocusChapter" :focus-issue-id="editorialFocusIssueId" />
+      <ProactiveCare v-if="state.enabled" v-show="activeTab === 'care'" :target-id="projectId" standalone @locate="locateAssistantSource" @editorial="openEditorialFromNotice" />
+      <EditorialDesk v-if="state.enabled" v-show="activeTab === 'editorial'" :project-id="projectId" :active="open && activeTab === 'editorial'" :focus-chapter="editorialFocusChapter" :focus-issue-id="editorialFocusIssueId" />
       <div v-if="activeTab === 'forecast'" class="project-assistant-history"><ForecastDock :project-id="projectId" :context="experimentContext" :active="open" standalone /></div>
       <div v-if="activeTab === 'creative'" class="project-assistant-history"><CreativeExperiments ref="creativeRef" :project-id="projectId" :context="experimentContext" :active="open" /></div>
-      <div v-show="activeTab === 'chat'" class="project-assistant-chat">
+      <div v-if="activeTab === 'rp'" class="project-assistant-history"><InteractionAuthorPanel :project-id="projectId" :active="open && activeTab === 'rp'" /></div>
+      <div v-show="activeTab === 'goal'" class="project-assistant-goal"><GoalRunsPanel :project-id="projectId" :source-session-id="state.sessionId" :active="open && activeTab === 'goal'" @availability="goalAvailable = $event" /></div>
+      <div v-if="state.enabled" v-show="activeTab === 'chat'" class="project-assistant-chat">
       <div class="project-assistant-sessions"><label for="assistant-session">讨论</label><select id="assistant-session" :value="state.sessionId || ''" :disabled="state.busy || state.loading" @change="assistant.selectSession($event.target.value)"><option v-if="!state.sessionId" value="">新的讨论</option><option v-for="session in state.sessions" :key="session.id" :value="session.id">{{ session.title }}</option></select><button type="button" class="btn btn-sm" :disabled="state.busy" @click="assistant.newSession">新讨论</button></div>
       <div v-if="state.error" class="project-assistant-error" role="alert">{{ state.error }}</div>
       <button v-if="state.pendingSubmission && state.error" class="btn" type="button" :disabled="state.busy" @click="assistant.recoverSubmission">恢复上次提交</button>
@@ -75,6 +79,8 @@ import ProactiveCare from "./ProactiveCare.vue"
 import EditorialDesk from "./EditorialDesk.vue"
 import ForecastDock from "./ForecastDock.vue"
 import CreativeExperiments from "./CreativeExperiments.vue"
+import InteractionAuthorPanel from "./InteractionAuthorPanel.vue"
+import GoalRunsPanel from "./GoalRunsPanel.vue"
 import { locateAssistantSource, openAssistantDestination } from "../shared/assistantNavigation.js"
 
 const props = defineProps({ projectId: { type: String, default: null }, page: { type: String, default: "today" }, open: Boolean, initialContext: { type: Object, default: null } })
@@ -84,6 +90,8 @@ const state = assistant.state
 const receiptMessageIds = computed(() => new Set(new Map(state.messages.filter(message => message.assistant_run_id).map(message => [message.assistant_run_id, message.id])).values()))
 const narrow = ref(false)
 const activeTab = ref("chat")
+let tabChosenByAuthor = false
+const goalAvailable = ref(false)
 const editorialFocusChapter = ref(null)
 const editorialFocusIssueId = ref(null)
 const experimentContext = ref({ page: "today" })
@@ -92,13 +100,13 @@ const creativeRef = ref(null)
 // "只润色"等意图会实际进入模型输入并在前瞻侧收窄能力集。
 const taskHint = ref("unknown")
 function withIntent(context) { return { ...(context || {}), task_hint: taskHint.value } }
-function switchTab(tab) { if (activeTab.value === "creative" && creativeRef.value?.canLeave?.() === false) return; activeTab.value = tab }
+function switchTab(tab) { if (activeTab.value === "creative" && creativeRef.value?.canLeave?.() === false) return; tabChosenByAuthor = true; activeTab.value = tab }
 function openEditorialFromNotice(source) { editorialFocusIssueId.value = source?.id || null; activeTab.value = "editorial" }
 function openForecast() { if (activeTab.value === "creative" && creativeRef.value?.canLeave?.() === false) return; try { experimentContext.value = withIntent(capture(true)); activeTab.value = "forecast" } catch (error) { state.error = error.message } }
 function openCreative() { try { experimentContext.value = withIntent(capture(true)); activeTab.value = "creative" } catch (error) { state.error = error.message } }
 let media
 const close = () => { if (activeTab.value !== "creative" || creativeRef.value?.canLeave?.() !== false) emit("close") }
-const { overlayRef, dialogRef, onKeydown, onFocusin } = useModalDialog({ isOpen: () => props.open && state.enabled && narrow.value, requestClose: close })
+const { overlayRef, dialogRef, onKeydown, onFocusin } = useModalDialog({ isOpen: () => props.open && (state.enabled || props.projectId) && narrow.value, requestClose: close })
 const hints = ["检查当前章节的前后设定", "帮我整理已有正文", "把接下来要处理的事项理清楚"]
 const running = computed(() => ["pending", "running"].includes(state.run?.status))
 const batch = computed(() => state.run?.result?.batch)
@@ -125,7 +133,7 @@ const removeOpener = registerProjectAssistantOpener(async request => {
   if (request.editorial) {
     if (activeTab.value === "creative" && creativeRef.value?.canLeave?.() === false) throw new Error("试改区还有未保存的内容，请先处理。")
     editorialFocusChapter.value = Number(request.chapterIndex) || null
-    editorialFocusIssueId.value = null
+    editorialFocusIssueId.value = request.issueId || null
     activeTab.value = "editorial"
     emit("open")
     return
@@ -160,8 +168,15 @@ const removeOpener = registerProjectAssistantOpener(async request => {
   activeTab.value = "chat"
   emit("open")
 })
-watch(() => props.projectId, value => { activeTab.value = "chat"; loadPromise = assistant.load(value) }, { immediate: true })
-watch(() => state.enabled, value => emit("availability", value))
+watch(() => props.projectId, value => {
+  tabChosenByAuthor = false
+  activeTab.value = state.enabled ? "chat" : "rp"
+  goalAvailable.value = false
+  loadPromise = Promise.resolve(assistant.load(value)).then(() => {
+    if (state.enabled && !tabChosenByAuthor && activeTab.value === "rp") activeTab.value = "chat"
+  })
+}, { immediate: true })
+watch(() => [state.enabled, props.projectId], ([enabled, projectId]) => emit("availability", Boolean(enabled || projectId)), { immediate: true })
 watch(() => props.open, async value => { if (value && !state.input && !state.context) { try { state.context = capture() } catch (error) { state.error = error.message } } if (value) await nextTick() })
 onMounted(() => { media = globalThis.matchMedia?.("(max-width: 1100px)"); syncMedia(); media?.addEventListener?.("change", syncMedia) })
 onBeforeUnmount(() => { disposed = true; removeOpener(); assistant.dispose(); media?.removeEventListener?.("change", syncMedia) })
@@ -171,6 +186,7 @@ onBeforeUnmount(() => { disposed = true; removeOpener(); assistant.dispose(); me
 .project-assistant-scope{display:flex;align-items:center;justify-content:space-between;gap:8px;font-size:12px;margin-top:8px}.project-assistant-scope select{min-height:40px;padding:6px;background:var(--bg-muted);color:inherit;border:1px solid var(--border);border-radius:6px}
 .project-assistant{flex:0 0 min(25rem,36vw);min-width:0;border-left:1px solid var(--border-color,var(--border));background:var(--bg-primary,var(--bg-base));color:var(--text-primary);height:100%;overflow:hidden}
 .project-assistant-chat{display:flex;flex-direction:column;flex:1;min-height:0}.project-assistant-tabs{display:flex;padding:6px 16px;gap:8px;border-bottom:1px solid var(--border-color,var(--border))}.project-assistant-tabs button{border:0;background:transparent;color:var(--text-secondary);padding:8px 16px;min-height:40px;cursor:pointer}.project-assistant-tabs button[aria-pressed=true]{color:var(--text-primary);background:var(--bg-muted);border-radius:6px;font-weight:600}.project-assistant-panel{height:100%;display:flex;flex-direction:column;min-width:0;outline:none}
+.project-assistant-goal{display:flex;flex:1;min-height:0;overflow:hidden}
 .project-assistant-header,.project-assistant-sessions,.project-assistant-composer{padding:14px 16px;border-bottom:1px solid var(--border-color,var(--border))}
 .project-assistant-header,.project-assistant-sessions,.project-assistant-actions,.project-assistant-context{display:flex;align-items:center;justify-content:space-between;gap:8px}
 .project-assistant-header p,.project-assistant-context{font-size:12px;color:var(--text-secondary);margin:4px 0}

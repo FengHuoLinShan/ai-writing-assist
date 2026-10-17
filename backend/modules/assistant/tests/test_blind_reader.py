@@ -6,6 +6,7 @@ from dataclasses import replace
 
 from core.config import get_settings
 from infrastructure.llm.schemas import LLMCallResponse, LLMToolCall, LLMUsage
+from infrastructure.llm.workflow_budget import ai_run_scope, new_ai_run_envelope
 from infrastructure.tasks.models import AsyncTask
 from modules.assistant.models import AssistantRun
 from modules.assistant.service import AssistantService
@@ -111,7 +112,18 @@ async def test_blind_reader_unlocks_chapters_and_preserves_guess_before_reveal(
     )
     assert created.status_code == 202, created.text
     task = await db_session.get(AsyncTask, uuid.UUID(created.json()["task_id"]))
-    await AssistantService().execute(db_session, task)
+    with ai_run_scope(
+        new_ai_run_envelope(
+            operation_id=str(task.id),
+            run_id=str(task.id),
+            root_capability_id="assistant.turn",
+            novel_id=test_project_id,
+            request_limit=30,
+            budget_mode="assistant_catalog",
+            **task.meta["_assistant_catalog_budget_v1"],
+        )
+    ):
+        await AssistantService().execute(db_session, task)
     run = await db_session.get(AssistantRun, uuid.UUID(created.json()["id"]))
     assert run.status == "completed", run.checkpoint_json.get("failure")
     trail = run.result_json["collaboration"]["reading_nodes"]

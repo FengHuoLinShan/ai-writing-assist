@@ -4,6 +4,7 @@ import AuthorPreferencesForm from "./components/AuthorPreferencesForm.vue"
 import DeepImportFields from "./components/DeepImportFields.vue"
 import ImageExportPanel from "./components/ImageExportPanel.vue"
 import ReadingFlow from "../../components/ReadingFlow.vue"
+import OperationTraceReport from "./components/OperationTraceReport.vue"
 import { getApi, getAppState, getConfirm, getRouter, getToast } from "../../bridge/index.js"
 import { useSaveButton } from "../../composables/useSaveButton.js"
 import { useLeaveGuard } from "../../composables/useLeaveGuard.js"
@@ -27,6 +28,7 @@ const TABS = [
   { key: "author", label: "创作偏好" },
   { key: "deep", label: "高级导入" },
   { key: "ai", label: "AI 能力" },
+  { key: "operation-traces", label: "操作留痕" },
 ]
 
 function deepImportSettingsSource(llm) {
@@ -82,7 +84,13 @@ const loadPending = ref(false)
 const authorValidationError = ref("")
 const authorFeedback = ref(null)
 const deepImportFeedback = ref(null)
+const objectDossierSettings = ref(null)
+const objectDossierOverrideDraft = ref(false)
+const objectDossierSettingsLoading = ref(false)
+const objectDossierSettingsSaving = ref(false)
+const objectDossierSettingsError = ref("")
 let disposed = false
+let objectDossierSettingsRequest = 0
 
 function ownsProjectSettings(projectId) {
   const state = getAppState()
@@ -159,6 +167,67 @@ async function loadLocalAgent(projectId = props.projectId) {
   } catch (error) {
     if (ownsProjectSettings(projectId)) localAgentError.value = error.message || "本机执行器暂时无法读取。"
   }
+}
+
+async function loadObjectDossierSettings(projectId = props.projectId) {
+  if (!projectId) return false
+  const requestId = ++objectDossierSettingsRequest
+  objectDossierSettingsLoading.value = true
+  objectDossierSettingsError.value = ""
+  try {
+    const result = await getApi().projects.getObjectDossierSettings(projectId)
+    if (!ownsProjectSettings(projectId) || requestId !== objectDossierSettingsRequest) return false
+    objectDossierSettings.value = result
+    objectDossierOverrideDraft.value = result?.allow_story_override === true
+    return true
+  } catch (error) {
+    if (!ownsProjectSettings(projectId) || requestId !== objectDossierSettingsRequest) return false
+    objectDossierSettings.value = null
+    objectDossierSettingsError.value = error?.message || "无法读取对象有效期设置。"
+    return false
+  } finally {
+    if (ownsProjectSettings(projectId) && requestId === objectDossierSettingsRequest) objectDossierSettingsLoading.value = false
+  }
+}
+
+async function saveObjectDossierOverride(enabled = objectDossierOverrideDraft.value) {
+  const projectId = props.projectId
+  if (!projectId || objectDossierSettingsSaving.value || !objectDossierSettings.value) return false
+  const requestId = ++objectDossierSettingsRequest
+  objectDossierOverrideDraft.value = Boolean(enabled)
+  objectDossierSettingsSaving.value = true
+  objectDossierSettingsError.value = ""
+  try {
+    const result = await getApi().projects.setObjectDossierSettings(projectId, {
+      expected_version: objectDossierSettings.value.version,
+      allow_story_override: objectDossierOverrideDraft.value,
+    })
+    if (!ownsProjectSettings(projectId) || requestId !== objectDossierSettingsRequest) return false
+    objectDossierSettings.value = result
+    objectDossierOverrideDraft.value = result.allow_story_override === true
+    return true
+  } catch (error) {
+    if (!ownsProjectSettings(projectId) || requestId !== objectDossierSettingsRequest) return false
+    const draft = objectDossierOverrideDraft.value
+    try {
+      const latest = await getApi().projects.getObjectDossierSettings(projectId)
+      if (!ownsProjectSettings(projectId) || requestId !== objectDossierSettingsRequest) return false
+      objectDossierSettings.value = latest
+      objectDossierOverrideDraft.value = draft
+      objectDossierSettingsError.value = "保存结果需要核对；你的选择仍保留。请重试保存。"
+    } catch {
+      if (ownsProjectSettings(projectId) && requestId === objectDossierSettingsRequest) {
+        objectDossierSettingsError.value = error?.message || "保存失败；你的选择仍保留，可以重试。"
+      }
+    }
+    return false
+  } finally {
+    if (ownsProjectSettings(projectId) && requestId === objectDossierSettingsRequest) objectDossierSettingsSaving.value = false
+  }
+}
+
+function toggleObjectDossierOverride(event) {
+  return saveObjectDossierOverride(event.target.checked)
 }
 
 async function pairLocalAgent() {
@@ -757,10 +826,20 @@ onMounted(() => {
   void loadAccountConnectionMetadata()
   void loadAiCapabilities()
   void loadLocalAgent()
+  void loadObjectDossierSettings()
   if (tab.value === "ai" && props.projectId) {
     void loadAuthorExamples()
     void loadCostSaving()
   }
+})
+watch(() => props.projectId, (projectId) => {
+  objectDossierSettingsRequest += 1
+  objectDossierSettings.value = null
+  objectDossierOverrideDraft.value = false
+  objectDossierSettingsLoading.value = false
+  objectDossierSettingsSaving.value = false
+  objectDossierSettingsError.value = ""
+  if (projectId) void loadObjectDossierSettings(projectId)
 })
 onBeforeUnmount(() => {
   disposed = true
@@ -797,7 +876,7 @@ onBeforeUnmount(() => {
       >{{ item.label }}</button>
     </nav>
 
-    <aside v-if="dataReady" class="settings-account-model-notice">
+    <aside v-if="dataReady && tab !== 'operation-traces'" class="settings-account-model-notice">
       <span>AI 文本服务：{{ activeModelLabel }}</span>
       <button
         id="project-settings-goto-global"
@@ -813,7 +892,11 @@ onBeforeUnmount(() => {
       :aria-labelledby="tabId(tab)"
       :aria-busy="loadPending || activeTabSaving"
     >
-      <div v-if="projectLoadError" class="error-card settings-load-error" role="alert">
+      <OperationTraceReport
+        v-if="tab === 'operation-traces'"
+        :project-id="props.projectId"
+      />
+      <div v-else-if="projectLoadError" class="error-card settings-load-error" role="alert">
         <div>
           <strong>当前作品的设置暂时无法加载</strong>
           <p>已有偏好和导入设置没有改变，可以重新加载。</p>
@@ -1102,6 +1185,32 @@ onBeforeUnmount(() => {
               @click="saveAuthorPrefs"
             >保存创作偏好</button>
             <p class="settings-save-state" :class="`is-${authorState.kind}`" role="status">{{ authorState.message }}</p>
+          </div>
+          <div class="settings-section">
+            <h3>世界对象有效期</h3>
+            <p class="settings-section-hint">
+              默认由作者设定的有效区间决定该时点的读法。开启后，只有结构化字段精确对齐，且有作者确认的剧情状态或可信正文来源时，剧情变化才会从后续场景起覆盖读取；它不会改写作者档案或历史记录。
+            </p>
+            <div class="settings-actions">
+              <label class="settings-inline-toggle">
+                <input
+                  type="checkbox"
+                  id="project-object-dossier-override"
+                  :checked="objectDossierOverrideDraft"
+                  :disabled="objectDossierSettingsLoading || objectDossierSettingsSaving || !objectDossierSettings"
+                  @change="toggleObjectDossierOverride"
+                />
+                允许剧情覆盖作者有效期
+              </label>
+              <span v-if="objectDossierSettingsLoading" role="status">正在读取…</span>
+              <span v-else-if="objectDossierSettings && !objectDossierSettingsSaving && !objectDossierSettingsError" class="settings-save-state is-saved" role="status">{{ objectDossierSettings.allow_story_override ? "已保存：剧情覆盖已开启" : "已保存：作者区间优先" }}</span>
+              <span v-else-if="objectDossierSettingsSaving" class="settings-save-state is-saving" role="status">正在保存…</span>
+              <span v-if="objectDossierSettingsError" class="settings-save-state is-error" role="alert">
+                {{ objectDossierSettingsError }}
+                <button v-if="objectDossierSettings" type="button" class="btn btn-sm" :disabled="objectDossierSettingsSaving" @click="saveObjectDossierOverride()">重试保存</button>
+                <button v-else type="button" class="btn btn-sm" :disabled="objectDossierSettingsLoading" @click="loadObjectDossierSettings()">重新读取</button>
+              </span>
+            </div>
           </div>
           <div class="settings-section">
             <h3>导出作品</h3>

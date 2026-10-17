@@ -1,18 +1,23 @@
 from __future__ import annotations
 
 import uuid
+from datetime import UTC
+from unittest.mock import patch
 
 import pytest
 from pydantic import ValidationError as SchemaError
+from sqlalchemy import select
 
+from core.container import container_scope
 from core.errors import ConflictError, NotFoundError, ValidationError
+from core.service_keys import ASSISTANT_READ_MAP_AUTHOR_DECISION
 from modules.world.map_atlas_models import (
     MapAtlasNode,
     MapAtlasPage,
     MapAtlasRevision,
     MapAtlasRun,
 )
-from modules.world.map_atlas_schemas import MapAtlasNodeUpdate
+from modules.world.map_atlas_schemas import MapAtlasNodeResponse, MapAtlasNodeUpdate
 from modules.world.map_atlas_service import MapAtlasService, _path_part
 from modules.world.map_structure_geometry import (
     affine_transform,
@@ -21,13 +26,26 @@ from modules.world.map_structure_geometry import (
     render_structure_png,
 )
 from modules.world.map_structure_schemas import (
+    MapAuthorDecision,
     MapDocument,
     MapImagePlacement,
     MapNodeCreate,
     MapRevisionReview,
     MapSaveRequest,
+    MapSource,
+    SpatialJourney,
 )
 from modules.world.map_structure_service import MapStructureService
+from modules.world.project_vocabulary_schemas import (
+    VocabularyTermCreate,
+    VocabularyTermUpdate,
+    VocabularyTraits,
+)
+from modules.world.project_vocabulary_service import (
+    archive_project_vocabulary_term,
+    create_project_vocabulary_term,
+    update_project_vocabulary_term,
+)
 
 
 def document():
@@ -106,6 +124,198 @@ def test_layout_is_stable_preserves_existing_points_and_explicit_routes():
     assert [f.points for f in second.document.features[:2]] == [
         f.points for f in first.document.features[:2]
     ]
+
+
+@pytest.mark.asyncio
+async def test_spatial_service_uses_pinned_active_type_traits_only(
+    db_session, test_project_id
+):
+    feature_type = await create_project_vocabulary_term(
+        db_session,
+        test_project_id,
+        VocabularyTermCreate(
+            kind="feature",
+            name="点状地点",
+            traits=VocabularyTraits(geometry=["point"]),
+        ),
+    )
+    relation_type = await create_project_vocabulary_term(
+        db_session,
+        test_project_id,
+        VocabularyTermCreate(
+            kind="relation",
+            name="北向关系",
+            traits=VocabularyTraits(orientation=["compass"]),
+        ),
+    )
+    changed_feature_type = await update_project_vocabulary_term(
+        db_session,
+        test_project_id,
+        str(feature_type.id),
+        VocabularyTermUpdate(
+            name="文字地点",
+            description="",
+            aliases=[],
+            traits=VocabularyTraits(),
+            expected_revision_id=feature_type.revision_id,
+        ),
+    )
+    changed_relation_type = await update_project_vocabulary_term(
+        db_session,
+        test_project_id,
+        str(relation_type.id),
+        VocabularyTermUpdate(
+            name="普通关系",
+            description="",
+            aliases=[],
+            traits=VocabularyTraits(),
+            expected_revision_id=relation_type.revision_id,
+        ),
+    )
+    service, node = await create_map(db_session, test_project_id)
+    document_with_old_revisions = MapDocument.model_validate(
+        {
+            "schema_version": 2,
+            "features": [
+                {
+                    "id": "a",
+                    "kind": "location",
+                    "label": "甲",
+                    "type_ref": str(feature_type.id),
+                    "type_revision_id": str(feature_type.revision_id),
+                    "points": [{"x": 0, "y": 100}],
+                },
+                {
+                    "id": "b",
+                    "kind": "location",
+                    "label": "乙",
+                    "type_ref": str(feature_type.id),
+                    "type_revision_id": str(feature_type.revision_id),
+                    "points": [{"x": 0, "y": 0}],
+                },
+            ],
+            "constraints": [
+                {
+                    "id": "north",
+                    "subject": "a",
+                    "relation": "north",
+                    "target": "b",
+                    "type_ref": str(relation_type.id),
+                    "type_revision_id": str(relation_type.revision_id),
+                }
+            ],
+        }
+    )
+    request = MapSaveRequest(
+        base_revision_id=node["current_revision_id"],
+        document=document_with_old_revisions,
+    )
+
+    old_revision_result = await service.preview_layout(
+        db_session, test_project_id, node["id"], request
+    )
+    assert any(
+        problem.code == "direction_conflict" for problem in old_revision_result.problems
+    )
+    assert changed_feature_type.revision_id != feature_type.revision_id
+    assert changed_relation_type.revision_id != relation_type.revision_id
+
+    saved = await service.save(db_session, test_project_id, node["id"], request)
+    assert "direction_conflict" in {item.code for item in saved.problems}
+    request.base_revision_id = uuid.UUID(saved.id)
+
+    archived = await archive_project_vocabulary_term(
+        db_session,
+        test_project_id,
+        str(feature_type.id),
+        changed_feature_type.revision_id,
+    )
+    archived_result = await service.preview_layout(
+        db_session, test_project_id, node["id"], request
+    )
+    assert not any(
+        problem.code == "direction_conflict" for problem in archived_result.problems
+    )
+    assert any(
+        problem.code == "spatial_type_not_computable"
+        for problem in archived_result.problems
+    )
+    assert archived.status == "archived"
+    current = await service.get_map(db_session, test_project_id, node["id"])
+    historic = await service.preview_revision(
+        db_session, test_project_id, node["id"], saved.id
+    )
+    assert "direction_conflict" not in {item.code for item in current.revision.problems}
+    assert "direction_conflict" not in {item.code for item in historic.problems}
+
+
+@pytest.mark.asyncio
+async def test_atlas_node_persists_a_revision_pinned_custom_level(
+    db_session, test_project_id
+):
+    level_type = await create_project_vocabulary_term(
+        db_session,
+        test_project_id,
+        VocabularyTermCreate(kind="level", name="浮空群岛"),
+    )
+    service = MapStructureService()
+
+    node = await service.create_node(
+        db_session,
+        test_project_id,
+        MapNodeCreate(
+            title="天穹群岛",
+            level="region",
+            level_type_ref=level_type.id,
+            level_type_revision_id=level_type.revision_id,
+        ),
+    )
+
+    stored = await db_session.get(MapAtlasNode, uuid.UUID(node["id"]))
+    assert stored.level == "region"
+    assert stored.level_type_ref == level_type.id
+    assert stored.level_type_revision_id == level_type.revision_id
+    assert node["level_type_ref"] == str(level_type.id)
+    changed = await update_project_vocabulary_term(
+        db_session,
+        test_project_id,
+        str(level_type.id),
+        VocabularyTermUpdate(
+            expected_revision_id=level_type.revision_id,
+            name="浮空领域",
+            description="新修订的说明",
+        ),
+    )
+    await archive_project_vocabulary_term(
+        db_session, test_project_id, str(level_type.id), changed.revision_id
+    )
+    atlas = MapAtlasService()
+    projected = (await atlas.get_tree(db_session, test_project_id))["nodes"][0]
+    assert projected["level_type"] == {
+        "name": "浮空群岛",
+        "description": "",
+        "status": "archived",
+    }
+    MapAtlasNodeResponse.model_validate(projected)
+    refreshed = await atlas.update_node(
+        db_session,
+        test_project_id,
+        node["id"],
+        MapAtlasNodeUpdate(expected_updated_at=stored.updated_at, before_node_id=None),
+    )
+    assert refreshed["level_type"] == projected["level_type"]
+    assert stored.level == "region" and stored.parent_id is None
+    cleared = await atlas.update_node(
+        db_session,
+        test_project_id,
+        node["id"],
+        MapAtlasNodeUpdate(
+            expected_updated_at=stored.updated_at,
+            level_type_ref=None,
+            level_type_revision_id=None,
+        ),
+    )
+    assert cleared["level_type"] is None
 
 
 def test_contradictory_directions_stay_unplaced():
@@ -371,6 +581,12 @@ async def test_path_node_rename_and_move_rewrite_only_actual_path_descendants(
     assert root.semantic_key == f"path:root:{_path_part('新世界')}"
     assert region.semantic_key == f"path:{root.semantic_key}:{_path_part('地区')}"
     assert city.semantic_key == f"path:{region.semantic_key}:{_path_part('城')}"
+    persisted_city_updated_at = await db_session.scalar(
+        select(MapAtlasNode.updated_at).where(MapAtlasNode.id == city.id)
+    )
+    assert city.updated_at.replace(tzinfo=UTC) == persisted_city_updated_at.replace(
+        tzinfo=UTC
+    )
     await service.update_node(
         db_session,
         test_project_id,
@@ -398,7 +614,7 @@ async def test_manual_node_update_preserves_hierarchy_and_project_boundaries(
     _, foreign = await create_map(db_session, foreign_id)
     service = MapAtlasService()
     row = await db_session.get(MapAtlasNode, uuid.UUID(parent["id"]))
-    for patch in (
+    for update_fields in (
         {"parent_id": parent["id"]},
         {"parent_id": child["id"]},
         {"parent_id": foreign["id"]},
@@ -410,7 +626,7 @@ async def test_manual_node_update_preserves_hierarchy_and_project_boundaries(
                 db_session,
                 test_project_id,
                 parent["id"],
-                MapAtlasNodeUpdate(expected_updated_at=row.updated_at, **patch),
+                MapAtlasNodeUpdate(expected_updated_at=row.updated_at, **update_fields),
             )
     with pytest.raises(NotFoundError):
         await service.update_node(
@@ -455,8 +671,16 @@ async def test_map_title_update_does_not_rename_bound_world_location(
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "feature_qualifiers",
+    [
+        {},
+        {"modality": "belief"},
+        {"effective": {"start": {"kind": "scene", "id": str(uuid.UUID(int=99))}}},
+    ],
+)
 async def test_continuity_facts_require_current_adopted_revision_and_sources(
-    db_session, test_project_id
+    db_session, test_project_id, feature_qualifiers
 ):
     from modules.world.facade import list_adopted_map_continuity_facts
     from modules.world.map_structure_service import source_digest, source_payload
@@ -483,6 +707,15 @@ async def test_continuity_facts_require_current_adopted_revision_and_sources(
     )
     db_session.add_all([source, start, end])
     await db_session.flush()
+    relation_type = await create_project_vocabulary_term(
+        db_session,
+        test_project_id,
+        VocabularyTermCreate(
+            kind="relation",
+            name="可通行连通",
+            traits=VocabularyTraits(connection=["traversable"]),
+        ),
+    )
     node = await MapStructureService().create_node(
         db_session,
         test_project_id,
@@ -495,6 +728,7 @@ async def test_continuity_facts_require_current_adopted_revision_and_sources(
                 "kind": "location",
                 "label": "甲城",
                 "entity_id": start.id,
+                **feature_qualifiers,
             },
             {
                 "id": "end",
@@ -509,6 +743,8 @@ async def test_continuity_facts_require_current_adopted_revision_and_sources(
                 "subject": "start",
                 "relation": "connects",
                 "target": "end",
+                "type_ref": str(relation_type.id),
+                "type_revision_id": str(relation_type.revision_id),
                 "sources": [
                     {
                         "kind": "entity",
@@ -535,11 +771,29 @@ async def test_continuity_facts_require_current_adopted_revision_and_sources(
         [str(start.id), str(end.id)],
     )
 
+    if feature_qualifiers:
+        assert facts == []
+        return
     assert len(facts) == 1
     assert facts[0].relation == "connects"
     assert facts[0].subject_entity_id == str(start.id)
     assert facts[0].target_entity_id == str(end.id)
     assert facts[0].source_hashes
+
+    await archive_project_vocabulary_term(
+        db_session,
+        test_project_id,
+        str(relation_type.id),
+        relation_type.revision_id,
+    )
+    assert (
+        await list_adopted_map_continuity_facts(
+            db_session,
+            test_project_id,
+            [str(start.id), str(end.id)],
+        )
+        == []
+    )
 
     source.summary = "来源已修改。"
     await db_session.flush()
@@ -792,12 +1046,167 @@ async def test_reader_projection_omits_hidden_endpoints_routes_and_source_fields
         db_session, test_project_id, node["id"], chapter=1
     )
     assert {f["id"] for f in early["features"]} == {"harbor", "pass"}
-    assert all(set(f) == {"id", "kind", "label", "points"} for f in early["features"])
+    assert all(
+        set(f) == {"id", "space_id", "kind", "label", "points"} for f in early["features"]
+    )
     late = await service.reader_preview(
         db_session, test_project_id, node["id"], chapter=5
     )
     assert {f["id"] for f in late["features"]} == {"harbor", "pass", "fort", "road"}
     assert early["features"][0]["points"] == late["features"][0]["points"]
+
+
+@pytest.mark.asyncio
+async def test_reader_projection_includes_only_public_event_journeys(
+    db_session, test_project_id
+):
+    service, node = await create_map(db_session, test_project_id)
+    doc = document()
+    source = MapSource(
+        kind="entity",
+        id=uuid.uuid4(),
+        source_hash="a" * 64,
+        quote="乘船半日可达",
+    )
+    doc.journeys = [
+        SpatialJourney(
+            id="ferry-trip",
+            origin="harbor",
+            destination="pass",
+            transport_label="渡船",
+            duration={"minimum": 0.5, "maximum": 1, "unit": "day"},
+            sources=[source],
+        ),
+        SpatialJourney(
+            id="rumored-trip",
+            origin="harbor",
+            destination="pass",
+            transport_label="传闻中的暗道",
+            modality="belief",
+            sources=[source],
+        ),
+    ]
+    with (
+        patch.object(
+            MapStructureService,
+            "source",
+            autospec=True,
+            return_value="乘船半日可达",
+        ),
+        patch.object(
+            MapStructureService,
+            "reader_source_visible",
+            autospec=True,
+            return_value=True,
+        ),
+    ):
+        saved = await service.save(
+            db_session,
+            test_project_id,
+            node["id"],
+            MapSaveRequest(base_revision_id=node["current_revision_id"], document=doc),
+        )
+        projection = await service.reader_preview(
+            db_session, test_project_id, node["id"], chapter=1
+        )
+
+    assert [journey["id"] for journey in projection["journeys"]] == ["ferry-trip"]
+    assert projection["journeys"][0]["duration"]["unit"] == "day"
+    assert "sources" not in projection["journeys"][0]
+    assert saved.document.journeys[0].id == "ferry-trip"
+
+
+def test_journey_accepts_author_arrangement_without_fabricated_quote():
+    decision = MapAuthorDecision(origin="manual")
+    journey = SpatialJourney(
+        id="planned-trip",
+        origin="harbor",
+        destination="pass",
+        transport_label="渡船",
+        author_decision=decision,
+    )
+    assert journey.sources == []
+    assert journey.author_decision == decision
+
+    with pytest.raises(SchemaError, match="quoted evidence or an author decision"):
+        SpatialJourney(
+            id="unsupported-trip",
+            origin="harbor",
+            destination="pass",
+            transport_label="渡船",
+        )
+    with pytest.raises(SchemaError, match="verified author message"):
+        MapAuthorDecision(origin="assistant", run_id=uuid.uuid4())
+
+
+@pytest.mark.asyncio
+async def test_assistant_arrangement_is_reverified_against_its_author_message(
+    db_session, test_project_id
+):
+    service, node = await create_map(db_session, test_project_id)
+    baseline = await service.save(
+        db_session,
+        test_project_id,
+        node["id"],
+        MapSaveRequest(base_revision_id=node["current_revision_id"], document=document()),
+    )
+    baseline = await service.revision(
+        db_session, test_project_id, node["id"], baseline.id
+    )
+    decision = MapAuthorDecision(
+        origin="assistant",
+        run_id=uuid.uuid4(),
+        message_id=uuid.uuid4(),
+        statement_hash="a" * 64,
+    )
+    document_with_journey = MapDocument.model_validate(
+        {
+            **baseline.document,
+            "journeys": [
+                {
+                    "id": "author-planned-trip",
+                    "origin": "harbor",
+                    "destination": "pass",
+                    "transport_label": "渡船",
+                    "author_decision": decision.model_dump(mode="json"),
+                }
+            ],
+        }
+    )
+
+    async def reader(_db, _novel_id, run_id, *, message_id=None):
+        assert run_id == str(decision.run_id)
+        assert message_id == str(decision.message_id)
+        return decision
+
+    with container_scope({ASSISTANT_READ_MAP_AUTHOR_DECISION: reader}):
+        saved = await service.save(
+            db_session,
+            test_project_id,
+            node["id"],
+            MapSaveRequest(
+                base_revision_id=str(baseline.id),
+                document=document_with_journey,
+            ),
+        )
+    assert saved.document.journeys[0].author_decision == decision
+
+    changed = decision.model_copy(update={"statement_hash": "b" * 64})
+
+    async def changed_reader(_db, _novel_id, _run_id, *, message_id=None):
+        return changed
+
+    with container_scope({ASSISTANT_READ_MAP_AUTHOR_DECISION: changed_reader}):
+        with pytest.raises(ConflictError, match="作者安排来源已变化"):
+            await service.save(
+                db_session,
+                test_project_id,
+                node["id"],
+                MapSaveRequest(
+                    base_revision_id=saved.id,
+                    document=document_with_journey,
+                ),
+            )
 
 
 @pytest.mark.asyncio
@@ -1248,9 +1657,7 @@ async def test_read_map_node_heads_returns_current_head_identity(
                 "subject": "start",
                 "relation": "connects",
                 "target": "end",
-                "sources": [
-                    {"kind": "entity", "id": source.id, "source_hash": digest}
-                ],
+                "sources": [{"kind": "entity", "id": source.id, "source_hash": digest}],
             }
         ],
     )
@@ -1304,3 +1711,278 @@ async def test_read_map_node_heads_is_empty_for_unknown_unsaved_or_other_novel(
     assert set(heads) == {node["id"]}
     assert heads[node["id"]]["source_hashes"] == ()
     assert await read_map_node_heads(db_session, other_novel_id, [node["id"]]) == {}
+
+
+async def test_reader_and_layout_exclude_archived_space_but_keep_its_author_document(
+    db_session, test_project_id
+):
+    space_type = await create_project_vocabulary_term(
+        db_session,
+        test_project_id,
+        VocabularyTermCreate(kind="space", name="梦境"),
+    )
+    service, node = await create_map(db_session, test_project_id)
+    doc = document()
+    doc.spaces[0].type_ref = space_type.id
+    doc.spaces[0].type_revision_id = space_type.revision_id
+    saved = await service.save(
+        db_session,
+        test_project_id,
+        node["id"],
+        MapSaveRequest(base_revision_id=node["current_revision_id"], document=doc),
+    )
+    assert (
+        await service.reader_preview(db_session, test_project_id, node["id"], chapter=1)
+    )["features"]
+    await archive_project_vocabulary_term(
+        db_session, test_project_id, str(space_type.id), space_type.revision_id
+    )
+    projection = await service.reader_preview(
+        db_session, test_project_id, node["id"], chapter=1
+    )
+    assert projection["features"] == []
+    unplaced = doc.model_copy(deep=True)
+    for item in unplaced.features:
+        item.points = []
+    result = await service.preview_layout(
+        db_session,
+        test_project_id,
+        node["id"],
+        MapSaveRequest(base_revision_id=saved.id, document=unplaced),
+    )
+    assert all(not item.points for item in result.document.features)
+    assert len(result.document.features) == 3
+    assert any(
+        problem.code == "spatial_type_not_computable" for problem in result.problems
+    )
+
+
+async def test_reader_journey_types_must_be_active_and_cross_space_connections_capable(
+    db_session, test_project_id
+):
+    archived_transport = await create_project_vocabulary_term(
+        db_session,
+        test_project_id,
+        VocabularyTermCreate(kind="transport", name="弃用渡船"),
+    )
+    connections = []
+    for name, traits in (
+        ("普通通路", ["traversable"]),
+        ("传送门", ["cross_space", "traversable"]),
+    ):
+        connections.append(
+            await create_project_vocabulary_term(
+                db_session,
+                test_project_id,
+                VocabularyTermCreate(
+                    kind="relation", name=name, traits=VocabularyTraits(connection=traits)
+                ),
+            )
+        )
+    service, node = await create_map(db_session, test_project_id)
+    doc = document().model_dump(mode="json")
+    doc["spaces"].append({"id": "dream", "label": "作者秘密空间名"})
+    doc["features"].append(
+        {
+            "id": "dream-entry",
+            "kind": "location",
+            "label": "入口",
+            "space_id": "dream",
+            "points": [{"x": 0, "y": 0}],
+            "reader_from_chapter": 1,
+        }
+    )
+    source = {
+        "kind": "entity",
+        "id": str(uuid.uuid4()),
+        "source_hash": "a" * 64,
+        "quote": "乘船半日可达",
+    }
+    base = {
+        "origin": "harbor",
+        "destination": "pass",
+        "transport_label": "渡船",
+        "sources": [source],
+    }
+    doc["journeys"] = [
+        {**base, "id": "public"},
+        {
+            **base,
+            "id": "archived",
+            "transport_type_ref": archived_transport.id,
+            "transport_type_revision_id": archived_transport.revision_id,
+        },
+        *[
+            {
+                **base,
+                "id": f"cross-{index}",
+                "destination": "dream-entry",
+                "connection_type_ref": term.id,
+                "connection_type_revision_id": term.revision_id,
+            }
+            for index, term in enumerate(connections)
+        ],
+    ]
+    with (
+        patch.object(
+            MapStructureService, "source", autospec=True, return_value="乘船半日可达"
+        ),
+        patch.object(
+            MapStructureService, "reader_source_visible", autospec=True, return_value=True
+        ),
+    ):
+        await service.save(
+            db_session,
+            test_project_id,
+            node["id"],
+            MapSaveRequest(base_revision_id=node["current_revision_id"], document=doc),
+        )
+        await archive_project_vocabulary_term(
+            db_session,
+            test_project_id,
+            str(archived_transport.id),
+            archived_transport.revision_id,
+        )
+        projection = await service.reader_preview(
+            db_session, test_project_id, node["id"], chapter=1
+        )
+    assert [item["id"] for item in projection["journeys"]] == ["public", "cross-1"]
+    assert {item["id"]: item["space_id"] for item in projection["features"]} == {
+        "harbor": "main",
+        "pass": "main",
+        "dream-entry": "dream",
+    }
+    assert "spaces" not in projection
+
+
+async def test_anchor_warnings_refresh_after_reorder_in_current_and_revision_views(
+    db_session, test_project_id
+):
+    service, node = await create_map(db_session, test_project_id)
+    doc = document()
+    from modules.world.map_structure_schemas import SpatialValidity
+
+    doc.features[0].effective = SpatialValidity(
+        start={"kind": "scene", "id": str(uuid.UUID(int=1))},
+        end={"kind": "scene", "id": str(uuid.UUID(int=2))},
+    )
+    scenes = [
+        {"scene_id": str(uuid.UUID(int=1)), "status": "canonical", "scene_index": 8},
+        {"scene_id": str(uuid.UUID(int=2)), "status": "canonical", "scene_index": 3},
+    ]
+    from modules.world.map_spatial_anchors import validity_problems
+    from modules.world.map_structure_schemas import MapProblem
+
+    async def current_problems(db, novel_id, document):
+        return [
+            MapProblem.model_validate(item)
+            for item in validity_problems(document, scenes)
+        ]
+
+    with patch(
+        "modules.world.map_structure_service.spatial_anchor_problems",
+        autospec=True,
+        side_effect=current_problems,
+    ):
+        saved = await service.save(
+            db_session,
+            test_project_id,
+            node["id"],
+            MapSaveRequest(base_revision_id=node["current_revision_id"], document=doc),
+        )
+        assert "spatial_anchor_order_reversed" in {item.code for item in saved.problems}
+        scenes[0]["scene_index"] = 1
+        current = await service.get_map(db_session, test_project_id, node["id"])
+        preview = await service.preview_revision(
+            db_session, test_project_id, node["id"], saved.id
+        )
+        assert "spatial_anchor_order_reversed" not in {
+            item.code for item in current.revision.problems
+        }
+        assert "spatial_anchor_order_reversed" not in {
+            item.code for item in preview.problems
+        }
+        scenes[0]["scene_index"] = 10
+        preview = await service.preview_revision(
+            db_session, test_project_id, node["id"], saved.id
+        )
+        assert "spatial_anchor_order_reversed" in {item.code for item in preview.problems}
+
+
+@pytest.mark.parametrize(
+    "bad_reference", ["foreign_project", "different_term", "wrong_kind"]
+)
+async def test_spatial_type_reference_rejects_foreign_mismatched_revision_and_kind(
+    db_session, test_project_id, project_factory, bad_reference
+):
+    first = await create_project_vocabulary_term(
+        db_session,
+        test_project_id,
+        VocabularyTermCreate(
+            kind="feature", name="地点一", traits=VocabularyTraits(geometry=["point"])
+        ),
+    )
+    second_project = (
+        str(await project_factory.create_project())
+        if bad_reference == "foreign_project"
+        else test_project_id
+    )
+    second = await create_project_vocabulary_term(
+        db_session,
+        second_project,
+        VocabularyTermCreate(
+            kind="level" if bad_reference == "wrong_kind" else "feature", name="类型二"
+        ),
+    )
+    service, node = await create_map(db_session, test_project_id)
+    doc = document()
+    doc.features[0].type_ref = (
+        first.id if bad_reference == "different_term" else second.id
+    )
+    doc.features[0].type_revision_id = second.revision_id
+    with pytest.raises(ValidationError, match="空间类型引用"):
+        await service.save(
+            db_session,
+            test_project_id,
+            node["id"],
+            MapSaveRequest(base_revision_id=node["current_revision_id"], document=doc),
+        )
+    stored_node = await db_session.get(MapAtlasNode, uuid.UUID(node["id"]))
+    assert str(stored_node.current_revision_id) == node["current_revision_id"]
+
+
+async def test_reader_image_keeps_its_coordinate_space_without_private_space_name(
+    db_session, test_project_id
+):
+    service, node = await create_map(db_session, test_project_id)
+    doc = document()
+    payload = doc.model_dump(mode="json")
+    payload["spaces"].append({"id": "dream", "label": "作者秘密空间名"})
+    for item in payload["features"]:
+        item["space_id"] = "dream"
+        item["reader_from_chapter"] = 1
+    page_id = uuid.uuid4()
+    placement = image_placement(page_id)
+    placement.reader_from_chapter = 1
+    placement.reader_image_hash = "a" * 64
+    payload["images"] = [placement.model_dump(mode="json")]
+    # A persisted adopted fixture; image publication/storage is tested separately.
+    row = await db_session.get(MapAtlasRevision, uuid.UUID(node["current_revision_id"]))
+    row.document = MapDocument.model_validate(payload).model_dump(mode="json")
+    row.geometry_hash = geometry_hash(MapDocument.model_validate(payload))
+    await db_session.flush()
+    layer = {
+        "page_id": str(page_id),
+        "role": "background",
+        "feature_id": None,
+        "transform": [1, 0, 0, 1, 0, 0],
+        "opacity": 1,
+        "state": "ready",
+        "image_hash": "a" * 64,
+    }
+    with patch.object(service, "image_layers", return_value=[layer], autospec=True):
+        projection = await service.reader_preview(
+            db_session, test_project_id, node["id"], chapter=1
+        )
+    assert projection["images"][0]["space_id"] == "dream"
+    assert "作者秘密空间名" not in str(projection)

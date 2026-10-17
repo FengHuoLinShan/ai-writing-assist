@@ -41,6 +41,46 @@ class SceneSourcePort:
         return await outline_facade.get_scene_contract(db, novel_id, scene_id)
 
     @staticmethod
+    async def get_scene_spans_for_scene(
+        db: AsyncSession,
+        novel_id: str,
+        scene_id: str,
+        *,
+        status_filter: list[str] | None = None,
+        content_mode: str = "canonical",
+    ):
+        return await outline_facade.get_scene_spans_for_scene(
+            db,
+            novel_id,
+            scene_id,
+            status_filter=status_filter,
+            content_mode=content_mode,
+        )
+
+    @staticmethod
+    async def validate_scene_source_ranges(
+        db: AsyncSession,
+        novel_id: str,
+        scene_id: str,
+        scene_index: int,
+        sources: list[dict],
+        *,
+        content_mode: str | None = None,
+    ) -> None:
+        await outline_facade.validate_scene_source_ranges(
+            db,
+            novel_id,
+            scene_id,
+            scene_index,
+            sources,
+            content_mode=content_mode,
+        )
+
+    @staticmethod
+    async def read_temporal_anchor_scenes(db: AsyncSession, novel_id: str):
+        return await story_facade.read_temporal_anchor_scenes(db, novel_id)
+
+    @staticmethod
     async def get_scene_state_view(
         db: AsyncSession,
         novel_id: str,

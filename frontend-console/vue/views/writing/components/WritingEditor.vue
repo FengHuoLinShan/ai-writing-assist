@@ -267,6 +267,12 @@ const mirrorSize = ref({})
 const selectedFocus = ref(null)
 // P2-C C4：保存后失效提示的展开入口；notice 变化时面板自行复位，这里只管开合。
 const invalidationPanelOpen = ref(false)
+function openInvalidationPanel() {
+  if (!props.state.invalidationNotice) return false
+  invalidationPanelOpen.value = true
+  return true
+}
+defineExpose({ openInvalidationPanel, scrollCommentIntoView })
 watch(() => props.state.invalidationNotice, (value) => {
   if (!value) invalidationPanelOpen.value = false
 })
@@ -327,7 +333,6 @@ function scrollCommentIntoView(start) {
   editor.scrollTop = Math.max(0, top - editor.clientHeight / 3)
   syncMirrorScroll({ target: editor })
 }
-defineExpose({ scrollCommentIntoView })
 function watchMirrorSize() {
   mirrorObserver?.disconnect()
   if (!editorEl.value || !globalThis.ResizeObserver) return

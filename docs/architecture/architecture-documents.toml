@@ -57,7 +57,7 @@ kind = "business"
 source_roots = ["backend/modules/assistant"]
 design_docs = ["docs/modules/20_assistant.md"]
 code_docs = ["backend/modules/assistant/README.md"]
-api_prefixes = ["/api/assistant", "/flows", "/forecasts"]
+api_prefixes = ["/api/assistant", "/api/assistant/operation-http", "/api/assistant/unified-notices", "/flows", "/forecasts", "/goals"]
 
 [[components]]
 name = "local_agent"
@@ -73,7 +73,7 @@ kind = "business"
 source_roots = ["backend/modules/collaboration"]
 design_docs = ["docs/modules/21_collaboration.md"]
 code_docs = ["backend/modules/collaboration/README.md"]
-api_prefixes = ["/api/collaboration"]
+api_prefixes = ["/api/collaboration", "/api/collaboration/author-operations"]
 
 [[components]]
 name = "account"
@@ -110,7 +110,7 @@ kind = "business"
 source_roots = ["backend/modules/world"]
 design_docs = ["docs/modules/02_world.md", "docs/modules/15_map.md"]
 code_docs = ["backend/modules/world/README.md"]
-api_prefixes = ["/api/world", "/api/world/map-atlas"]
+api_prefixes = ["/api/world", "/api/world/map-atlas", "/api/world/project-vocabulary"]
 
 [[components]]
 name = "story"
@@ -128,6 +128,8 @@ api_prefixes = [
   "/api/novels/{novel_id}/memories",
   "/api/outline",
   "/api/story",
+  "/api/story/character-arcs",
+  "/api/story/world-progression",
 ]
 
 [[components]]
@@ -158,7 +160,7 @@ kind = "business"
 source_roots = ["backend/modules/interaction"]
 design_docs = ["docs/modules/18_interaction.md"]
 code_docs = ["backend/modules/interaction/README.md"]
-api_prefixes = ["/api/interactions", "/api/demo", "/api/interactions/journeys/{journey_id}/forecasts"]
+api_prefixes = ["/api/interactions", "/api/demo", "/api/interactions/author", "/api/interactions/journeys/{journey_id}/forecasts"]
 
 [[components]]
 name = "evolution"

@@ -1,5 +1,11 @@
 # 开放任务
 
+- [T-20261015-character-world-progression](tasks/2026/T-20261015-character-world-progression/TASK.md) — 世界对象档案、场景导演、写作副驾驶与世界推进设计
+
+- [T-20261015-agent-operation-surface](tasks/2026/T-20261015-agent-operation-surface/TASK.md) — 全模块 AI 操作入口、目标运行与操作留痕设计
+
+- [T-20261015-map-enhancement-design](tasks/2026/T-20261015-map-enhancement-design/TASK.md) — 地图系统增强设计（自动冷启动、参与创作决策、题材鲁棒性）
+
 - [T-20261014-audit-first-batch](tasks/2026/T-20261014-audit-first-batch/TASK.md) — 能力审计首批实施与集成验收
 
 - [T-20261009-world-evolution-phase4-impl](tasks/2026/T-20261009-world-evolution-phase4-impl/TASK.md) — 世界演化第四阶段实施：长篇跑通、台账扩类与精细依赖

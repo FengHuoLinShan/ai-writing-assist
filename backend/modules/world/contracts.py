@@ -13,10 +13,143 @@ from typing import TYPE_CHECKING, Any, Literal, Protocol
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
+from modules.world.map_auto_draft_schemas import (
+    MapAutoDraftBuildRequest as MapAutoDraftBuildRequest,
+)
+from modules.world.map_auto_draft_schemas import (
+    MapAutoDraftBuildResult as MapAutoDraftBuildResult,
+)
+from modules.world.map_spatial_advisory_schemas import (
+    MapSpatialAdvisoryRequest as MapSpatialAdvisoryRequest,
+)
+from modules.world.map_spatial_advisory_schemas import (
+    MapSpatialAdvisoryResponse as MapSpatialAdvisoryResponse,
+)
+from modules.world.map_spatial_brief_schemas import (
+    MapSpatialBriefItem as MapSpatialBriefItem,
+)
+from modules.world.map_spatial_brief_schemas import (
+    MapSpatialBriefRequest as MapSpatialBriefRequest,
+)
+from modules.world.map_spatial_brief_schemas import (
+    MapSpatialBriefResponse as MapSpatialBriefResponse,
+)
+from modules.world.map_spatial_clue_schemas import (
+    MapSpatialClue as MapSpatialClue,
+)
+from modules.world.map_spatial_clue_schemas import (
+    MapSpatialClueBatch as MapSpatialClueBatch,
+)
+from modules.world.map_spatial_clue_schemas import (
+    MapSpatialClueCallRef as MapSpatialClueCallRef,
+)
+from modules.world.map_spatial_clue_schemas import (
+    MapSpatialClueContext as MapSpatialClueContext,
+)
+from modules.world.map_spatial_clue_schemas import (
+    MapSpatialClueDecisionRequest as MapSpatialClueDecisionRequest,
+)
+from modules.world.map_spatial_clue_schemas import (
+    MapSpatialClueEndpoint as MapSpatialClueEndpoint,
+)
+from modules.world.map_spatial_clue_schemas import (
+    MapSpatialClueEndpointIdentity as MapSpatialClueEndpointIdentity,
+)
+from modules.world.map_spatial_clue_schemas import (
+    MapSpatialClueEvidenceResponse as MapSpatialClueEvidenceResponse,
+)
+from modules.world.map_spatial_clue_schemas import (
+    MapSpatialClueListResponse as MapSpatialClueListResponse,
+)
+from modules.world.map_spatial_clue_schemas import (
+    MapSpatialClueResponse as MapSpatialClueResponse,
+)
+from modules.world.map_spatial_clue_schemas import (
+    MapSpatialClueResultRef as MapSpatialClueResultRef,
+)
+from modules.world.map_spatial_clue_schemas import (
+    MapSpatialClueReview as MapSpatialClueReview,
+)
+from modules.world.map_spatial_clue_schemas import (
+    MapSpatialClueSourceBinding as MapSpatialClueSourceBinding,
+)
+from modules.world.map_spatial_clue_schemas import (
+    MapSpatialClueStageResult as MapSpatialClueStageResult,
+)
+from modules.world.map_spatial_clue_schemas import (
+    MapSpatialClueTypeProposalDraft as MapSpatialClueTypeProposalDraft,
+)
+from modules.world.map_spatial_clue_schemas import (
+    MapSpatialClueTypeProposalResponse as MapSpatialClueTypeProposalResponse,
+)
+from modules.world.project_vocabulary_schemas import (
+    ModelVocabularyProposal as ModelVocabularyProposal,
+)
+from modules.world.project_vocabulary_schemas import (
+    ProjectVocabularyReadResponse as ProjectVocabularyReadResponse,
+)
+from modules.world.project_vocabulary_schemas import (
+    VocabularyEvidence as VocabularyEvidence,
+)
+from modules.world.project_vocabulary_schemas import (
+    VocabularyReviewReceipt as VocabularyReviewReceipt,
+)
+from modules.world.project_vocabulary_schemas import (
+    VocabularyTraits as VocabularyTraits,
+)
+from modules.world.project_vocabulary_schemas import (
+    vocabulary_evidence_hash as vocabulary_evidence_hash,
+)
+from modules.world.project_vocabulary_schemas import (
+    vocabulary_proposal_hash as vocabulary_proposal_hash,
+)
 from modules.world.schemas import RelationKind
 
 if TYPE_CHECKING:
     from sqlalchemy.ext.asyncio import AsyncSession
+
+
+class WorldBuildMapAutoDraftsPort(Protocol):
+    async def __call__(
+        self, db: AsyncSession, novel_id: str, request: MapAutoDraftBuildRequest
+    ) -> MapAutoDraftBuildResult: ...
+
+
+class TemporalAnchorScenePort(Protocol):
+    async def read_temporal_anchor_scenes(
+        self, db: AsyncSession, novel_id: str
+    ) -> list[dict]: ...
+
+
+class WorldReadMapSpatialBriefPort(Protocol):
+    """Owner-checked, read-only projection of adopted spatial declarations."""
+
+    async def __call__(
+        self,
+        db: AsyncSession,
+        request: MapSpatialBriefRequest,
+    ) -> MapSpatialBriefResponse: ...
+
+
+class WorldReadMapSpatialAdvisoriesPort(Protocol):
+    """Read-only deterministic reminders over adopted, current map revisions."""
+
+    async def __call__(
+        self, db: AsyncSession, request: MapSpatialAdvisoryRequest
+    ) -> MapSpatialAdvisoryResponse: ...
+
+
+class MapAuthorDecisionReaderPort(Protocol):
+    """Read a verified author message reference without returning its text."""
+
+    async def __call__(
+        self,
+        db: AsyncSession,
+        novel_id: str,
+        run_id: str,
+        *,
+        message_id: str | None = None,
+    ) -> dict[str, Any]: ...
 
 
 ENTITY_FUSION_CHECKPOINT_PAIR_BATCH_SIZE = 12
@@ -387,9 +520,10 @@ class GenerationBackgroundProvider(Protocol):
     ) -> dict[str, Any]: ...
 
 
-# ============================================================
+# =====================================================
+
 # 表格迁移（ADR-0030）— 作者在途项目资产迁移的 world 契约
-# ============================================================
+# =====================================================
 
 
 class AuthorNote(BaseModel):
@@ -416,6 +550,44 @@ CharacterFieldName = Literal[
 ]
 
 
+class AuthorMigrationDossierFacing(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    kind: Literal["core", "project"]
+    key: str | None = Field(default=None, min_length=1, max_length=96)
+    source_entity_type: str | None = Field(default=None, min_length=1, max_length=64)
+    term_id: str | None = Field(default=None, min_length=1, max_length=64)
+
+    @model_validator(mode="after")
+    def validate_reference(self):
+        if self.kind == "core" and (self.key is None or self.term_id is not None):
+            raise ValueError("core 档案面向必须包含 key")
+        if self.kind == "project" and (
+            self.term_id is None
+            or self.key is not None
+            or self.source_entity_type is not None
+        ):
+            raise ValueError("项目档案面向必须包含 term_id")
+        return self
+
+
+class AuthorMigrationDossierField(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    facing: AuthorMigrationDossierFacing
+    content: str = Field(min_length=1, max_length=20000)
+    visibility: Literal["public", "secret"] = "public"
+    source_ref: str = Field(min_length=1, max_length=64)
+    source_hash: str = Field(pattern=r"^[a-f0-9]{64}$")
+
+    @field_validator("content")
+    @classmethod
+    def require_content(cls, value: str) -> str:
+        if not value.strip():
+            raise ValueError("档案内容不能为空")
+        return value
+
+
 class AuthorMigrationEntityInput(BaseModel):
     """一条待迁移的世界对象/人物条目。"""
 
@@ -432,6 +604,9 @@ class AuthorMigrationEntityInput(BaseModel):
     hidden_truth: str | None = Field(None, max_length=20000)
     author_notes: list[AuthorNote] = Field(default_factory=list, max_length=64)
     character_fields: dict[CharacterFieldName, str] = Field(default_factory=dict)
+    dossier_fields: list[AuthorMigrationDossierField] = Field(
+        default_factory=list, max_length=128
+    )
     decision: Literal[
         "auto",
         "different_object",
@@ -548,6 +723,7 @@ class MigrationAppliedChange(BaseModel):
         "alias",
         "relation_create",
         "relation_fill",
+        "dossier_create",
     ]
     before: dict = Field(default_factory=dict)
     after_hash: str
@@ -593,7 +769,13 @@ class WorldAliasRelationTaskPort(Protocol):
 
 
 __all__ = [
+    "MapAuthorDecisionReaderPort",
+    "MapAutoDraftBuildRequest",
+    "MapAutoDraftBuildResult",
+    "WorldBuildMapAutoDraftsPort",
     "AuthorMigrationEntityInput",
+    "AuthorMigrationDossierFacing",
+    "AuthorMigrationDossierField",
     "AuthorMigrationRelationInput",
     "AuthorMigrationWorldRequest",
     "AuthorNote",
@@ -615,6 +797,11 @@ __all__ = [
     "GenerationBackgroundProvider",
     "KnowledgeVisibilityDecision",
     "KnowledgeVisibilityRequest",
+    "MapSpatialBriefItem",
+    "MapSpatialBriefRequest",
+    "MapSpatialBriefResponse",
+    "MapSpatialAdvisoryRequest",
+    "MapSpatialAdvisoryResponse",
     "MergeResult",
     "ResolveResult",
     "WorldBackgroundBundleContract",
@@ -625,6 +812,10 @@ __all__ = [
     "WorldBibleActivationTargetContract",
     "WorldBibleSynopsisContextContract",
     "WorldAliasRelationTaskPort",
+    "WorldReadMapSpatialBriefPort",
+    "WorldReadMapColdStartDraftsPort",
+    "WorldReadMapNotificationSignalsPort",
+    "WorldReadMapSpatialAdvisoriesPort",
     "normalize_author_entity_type",
 ]
 
@@ -632,3 +823,13 @@ __all__ = [
 from modules.world.services.core.entity_types import (  # noqa: E402
     normalize_author_entity_type as normalize_author_entity_type,
 )
+
+
+class WorldReadMapColdStartDraftsPort(Protocol):
+    async def __call__(self, db: AsyncSession, novel_id: str, run_key: str) -> dict: ...
+
+
+class WorldReadMapNotificationSignalsPort(Protocol):
+    async def __call__(
+        self, db: AsyncSession, novel_id: str, request: dict
+    ) -> dict | None: ...

@@ -20,6 +20,48 @@ from modules.story.generation import STORY_ONE_CLICK_ACTION, StoryGenerationServ
 from modules.story.models import StorySimulationRun, StorySimulationStep
 from modules.story.schemas import OneClickOutput, StoryOneClickTaskRequest
 from modules.story.simulation import rehearse_round
+from modules.story.simulation_v3 import SimulationReference, SimulationV3Context
+from modules.world.facade import get_hidden_guard_sources, read_map_node_heads
+
+
+async def validate_simulation_context_refs(
+    db, novel_id: str, context: SimulationV3Context
+) -> None:
+    """Only current World identities may enter the typed initial state."""
+    refs = [*context.participants, *context.locations]
+    for position in context.positions:
+        refs.extend((position.subject, position.location))
+    for resource in context.resources:
+        refs.append(resource.resource)
+        if resource.holder:
+            refs.append(resource.holder)
+    for route in context.routes:
+        refs.extend((route.origin, route.destination))
+    ids = {kind: set() for kind in ("object", "map_node")}
+    for ref in refs:
+        if ref.kind not in ids:
+            continue
+        try:
+            if str(UUID(str(ref.id))) != ref.id:
+                raise ValueError("noncanonical ID")
+        except (TypeError, ValueError) as exc:
+            raise ValueError("推演中的现有对象或地图引用无效") from exc
+        ids[ref.kind].add(ref.id)
+
+    if ids["object"]:
+        entities, _ = await get_hidden_guard_sources(
+            db, novel_id=novel_id, entity_ids=sorted(ids["object"]), relation_ids=[]
+        )
+        actual = {entity.entity_id for entity in entities if entity.status == "canonical"}
+        if actual != ids["object"]:
+            raise ValueError("推演中的现有对象不属于当前作品或尚未采用")
+    if ids["map_node"]:
+        heads = await read_map_node_heads(db, novel_id, sorted(ids["map_node"]))
+        actual = {
+            node_id for node_id, head in heads.items() if head["status"] == "adopted"
+        }
+        if actual != ids["map_node"]:
+            raise ValueError("推演中的地图节点不属于当前作品或尚未采用")
 
 
 async def _run(db, novel_id, run_id, *, lock=False):
@@ -52,21 +94,24 @@ async def run_rehearsal(
     db, task, data, *, client, authority, scene_context, character_reveals
 ):
     from modules.story.facade import get_scene_story_context
-    from modules.story.observations import seeded_state
 
+    if data.simulation_protocol != "simulation_v3":
+        raise ConflictError("旧协议排演只读；Story 不再新建或续跑旧协议")
+    if data.rehearsal_rounds != 1:
+        raise ConflictError("当前一次只提交一回合；连续推进需新的预算与授权入口")
     novel_id, run_id = data.novel_id, str(task.id)
+    context = data.simulation_seed or SimulationV3Context(
+        participants=[
+            SimulationReference(kind="object", id=actor) for actor in data.character_ids
+        ]
+    )
+    await validate_simulation_context_refs(db, novel_id, context)
     source_hash = content_hash(
         {
-            **(
-                {
-                    "protocol": data.simulation_protocol,
-                    "seed": data.simulation_seed.model_dump(mode="json")
-                    if data.simulation_seed
-                    else None,
-                }
-                if data.simulation_protocol == "observation_v2"
-                else {}
-            ),
+            "protocol": data.simulation_protocol,
+            "seed": data.simulation_seed.model_dump(mode="json")
+            if data.simulation_seed
+            else None,
             "scene": scene_context["context_hash"],
             "characters": {
                 key: value["hash"] for key, value in character_reveals.items()
@@ -89,6 +134,8 @@ async def run_rehearsal(
         await db.flush()
         if data.parent_rehearsal_id:
             parent = await _run(db, novel_id, str(data.parent_rehearsal_id))
+            if parent.request_json.get("simulation_protocol") != data.simulation_protocol:
+                raise ConflictError("旧协议历史只读；不能跨协议重解释或分叉")
             prefix = [
                 step
                 for step in await _steps(db, novel_id, str(parent.id))
@@ -131,11 +178,10 @@ async def run_rehearsal(
         character.character_id: character.name for character in characters.characters
     }
     steps = await _steps(db, novel_id, run_id)
-    state = (
-        deepcopy(steps[-1].state_json)
-        if steps
-        else seeded_state(data.simulation_seed, packets)
-    )
+    if steps:
+        state = deepcopy(steps[-1].state_json)
+    else:
+        state = context.initial_state()
     pending = dict(row.request_json.get("pending_round") or {})
     lock = asyncio.Lock()
 
@@ -151,6 +197,7 @@ async def run_rehearsal(
             await db.commit()
 
     async def revalidate():
+        await validate_simulation_context_refs(db, novel_id, context)
         await prepare_confirmed_ai_action(
             db,
             novel_id=novel_id,
@@ -209,7 +256,7 @@ async def run_rehearsal(
                 "intents": result["intents"],
                 "resolution_batch": result["resolution_batch"],
             }
-            if data.simulation_protocol == "observation_v2"
+            if data.simulation_protocol in {"observation_v2", "simulation_v3"}
             else result["intents"],
             events_json=result["events"],
             state_json=result["state"],
@@ -302,16 +349,31 @@ async def replay_rehearsal(db, novel_id, run_id):
         replay_batch,
         seeded_state,
     )
+    from modules.story.simulation_v3 import SimulationReference, SimulationV3Context
 
     row = await _run(db, novel_id, run_id)
-    if row.request_json.get("simulation_protocol") != "observation_v2":
+    protocol = row.request_json.get("simulation_protocol")
+    if protocol not in {"observation_v2", "simulation_v3"}:
         raise ConflictError("这份旧排演没有可重放的状态差量，仍可查看原回合")
-    state = seeded_state(
-        SimulationSeed.model_validate(row.request_json["simulation_seed"])
-        if row.request_json.get("simulation_seed")
-        else None,
-        row.request_json["character_ids"],
-    )
+    if protocol == "observation_v2":
+        state = seeded_state(
+            SimulationSeed.model_validate(row.request_json["simulation_seed"])
+            if row.request_json.get("simulation_seed")
+            else None,
+            row.request_json["character_ids"],
+        )
+    else:
+        context = (
+            SimulationV3Context.model_validate(row.request_json["simulation_seed"])
+            if row.request_json.get("simulation_seed")
+            else SimulationV3Context(
+                participants=[
+                    SimulationReference(kind="object", id=actor)
+                    for actor in row.request_json["character_ids"]
+                ]
+            )
+        )
+        state = context.initial_state()
     rounds = []
     for step in await _steps(db, novel_id, run_id):
         batch = ResolutionBatch.model_validate(step.intents_json["resolution_batch"])

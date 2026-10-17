@@ -58,21 +58,23 @@
       <p>{{ formatDate(candidateView.created_at) }} · 对照基线：{{ formatDate(revision?.created_at) }}</p>
       <p>与当前已保存地图比较；这些变化尚未应用。采用或恢复时会再次核对来源与版本。</p>
       <MapChangeReview v-model="selectedChangeKeys" :changes="candidateChanges" :selectable="candidateView.status === 'candidate' && !recovery" @locate="locateChange" />
-      <p v-if="candidateView.status === 'candidate' && candidateView.base_revision_id !== revision?.id" role="alert">此候选基于较早地图，仅供比较；请重新整理需要更新的部分。</p>
-      <button v-if="candidateView.status === 'candidate' && !adoptionPreview" class="btn btn-primary" :disabled="busy || previewing || dirty || Boolean(recovery) || !selectedChangeKeys.length || candidateView.base_revision_id !== revision?.id" @click="previewAdoption">{{ previewing ? '正在核对采用范围…' : '核对所选 ' + selectedChangeKeys.length + ' 项修改' }}</button>
+      <p v-if="candidateView.status === 'candidate' && reviewBase(candidateView) !== (revision?.id || null)" role="alert">此候选基于较早地图，仅供比较；请重新整理需要更新的部分。</p>
+      <button v-if="candidateView.status === 'candidate' && !adoptionPreview" class="btn btn-primary" :disabled="busy || previewing || dirty || Boolean(recovery) || !selectedChangeKeys.length || reviewBase(candidateView) !== (revision?.id || null)" @click="previewAdoption">{{ previewing ? '正在核对采用范围…' : '核对所选 ' + selectedChangeKeys.length + ' 项修改' }}</button>
       <div v-if="adoptionPreview" class="map-adoption-preview" aria-label="即将采用的修改">
         <strong>将采用 {{ adoptionPreview.applied_change_keys.length }} 项修改</strong>
         <p>请核对实际生效范围；标有“关联修改”的内容会一并采用，未列出的修改继续保留为候选。</p>
         <ul><li v-for="change in adoptionChanges" :key="change.key">{{ change.action }}：{{ change.label }}<strong v-if="adoptionPreview.expanded_change_keys.includes(change.key)">（关联修改）</strong></li></ul>
-        <button class="btn btn-primary" :disabled="busy || dirty || Boolean(recovery)" @click="review(candidateView, 'adopt', selectedChangeKeys)">确认采用共 {{ adoptionPreview.applied_change_keys.length }} 项修改</button>
+        <MapCandidateLocations :project-id="projectId" :locations="adoptionPreview.candidate_locations || []" :truncated="adoptionPreview.candidate_locations_truncated" :disabled="loading || saving || metadataBusy || confirming || dirty || Boolean(recovery)" @state="candidateLocationState = $event" @adopted="previewAdoption" @stale="refreshLocationPreview" />
+        <button class="btn btn-primary" :disabled="busy || candidateLocationState.selected || dirty || Boolean(recovery)" @click="review(candidateView, 'adopt', selectedChangeKeys)">确认采用共 {{ adoptionPreview.applied_change_keys.length }} 项修改</button>
       </div>
       <button v-if="candidateView.status === 'saved'" class="btn btn-primary" :disabled="busy || dirty || Boolean(recovery) || candidateView.id === revision?.id" @click="review(candidateView, 'restore')">恢复为新版本</button>
-      <button class="btn btn-sm" @click="compareCandidateCurrent = !compareCandidateCurrent">{{ compareCandidateCurrent ? '查看候选地图' : '对照已保存地图' }}</button>
-      <button class="btn btn-sm" @click="exitCandidate">返回当前地图</button>
+      <button class="btn btn-sm" :disabled="busy" @click="compareCandidateCurrent = !compareCandidateCurrent">{{ compareCandidateCurrent ? '查看候选地图' : '对照已保存地图' }}</button>
+      <button class="btn btn-sm" :disabled="busy" @click="exitCandidate">返回当前地图</button>
     </section>
     <template v-if="!referenceOnly">
       <div class="map-navigation">
         <div class="map-canvas-controls">
+          <label v-if="spaceChoices.length > 1">空间<select v-model="activeSpaceId" aria-label="当前地图空间" class="form-select" :disabled="busy"><option v-for="space in spaceChoices" :key="space.id" :value="space.id">{{ space.label }}</option></select></label>
           <label>缩放 <input v-model.number="zoom" aria-label="空间地图缩放" type="range" min="60" max="200" step="10" /></label>
           <button class="btn btn-sm" @click="zoom = 100">适合画布</button>
           <details v-if="!focused" class="map-legend"><summary>图例</summary><span>● 地点 ━ 河流 ┄ 道路 ▱ 区域</span></details>
@@ -147,6 +149,7 @@
       <button v-if="reader && !externalTools" class="btn btn-sm" @click="exitReader">回到作者视图</button>
       <span v-if="reader">仅显示该章开始前可公开的内容，位置保持不变。</span>
     </div>
+    <MapSpatialMetadataPanel v-if="!readOnly && !focused" :project-id="projectId" :document="doc" :selected-feature-id="selectedId" :node-id="node.id" :revision-id="revision?.id || ''" :state-disabled="dirty || Boolean(recovery) || node.status !== 'adopted' || revision?.status !== 'saved' || revision?.id !== node.current_revision_id" :disabled="loading || saving || confirming || metadataBusy" @change="applySpatialDocument" @state="metadataBusy = $event.busy" />
     <div v-if="!readOnly" v-show="!focused" class="map-evidence-panel">
     <FocusedEvidencePanel
       :project-id="projectId" consumer="map" :scope-key="node.id"
@@ -241,7 +244,7 @@ import { confirmAsync } from "../../../shared/confirmAsync.js"
 import { confirmAiReference } from "../../../shared/aiReferenceModal.js"
 import { ACCOUNT_MARKER_KEY } from "../../../shared/accountStorage.js"
 import { formatFullTime, formatRelativeTime, formatWritingProgress } from "../../../shared/revisionHistory.js"
-import { copyMap, emptyMap, geometrySignature, mapBounds, mapChangeDetails, mapFeatureCenter, mapImageChanges, mapRelationLabels, mapSourceRangeKey, mapSourceSelections, pointsAttribute, rehearseMapRoute, removeMapFeature } from "./mapStructureEditor.js"
+import { copyMap, emptyMap, geometrySignature, mapBounds, mapChangeDetails, mapChangedPinnedTypeRefs, mapFeatureCenter, mapImageChanges, mapRelationLabels, mapSourceRangeKey, mapSourceSelections, pointsAttribute, rehearseMapRoute, removeMapFeature } from "./mapStructureEditor.js"
 import { focusWorkspaceTool } from "../../components/workspaceTools.js"
 import FocusedEvidencePanel from "../../components/FocusedEvidencePanel.vue"
 import MapChangeReview from './MapChangeReview.vue'
@@ -249,10 +252,19 @@ import MapRehearsalPanel from './MapRehearsalPanel.vue'
 import MapBindAcrossMaps from "./MapBindAcrossMaps.vue"
 import MapSourcePicker from './MapSourcePicker.vue'
 import MapScenePanel from './MapScenePanel.vue'
+import MapSpatialMetadataPanel from './MapSpatialMetadataPanel.vue'
+import MapCandidateLocations from './MapCandidateLocations.vue'
 
 const props = defineProps({ projectId: { type: String, required: true }, node: { type: Object, required: true }, images: { type: Array, default: () => [] }, knownNodes: { type: Array, default: () => [] }, hasReference: Boolean, externalTools: Boolean, reviewImageId: { type: String, default: "" }, initialFeatureId: { type: String, default: '' }, initialRevisionId: { type: String, default: '' }, evidenceRefs: { type: Array, default: () => [] } })
 const emit = defineEmits(["saved", "open-node", "reference-visible", "state", "select-feature", "pin-evidence", "clear-evidence"])
-const api = getApi(), confirm = message => confirmAsync(message, "确认", { confirmAction: getConfirmAction() })
+const api = getApi()
+async function confirm(message) {
+  if (!alive || busy.value) return false
+  const token = epoch
+  confirming.value = true
+  try { return await confirmAsync(message, "确认", { confirmAction: getConfirmAction() }) && alive && token === epoch }
+  finally { if (alive && token === epoch) confirming.value = false }
+}
 const toolsRoot = ref(null)
 const doc = ref(emptyMap()), revision = ref(null), serverRevision = ref(null), baseline = ref(JSON.stringify(emptyMap()))
 const candidates = ref([]), candidateView = ref(null), history = ref([]), imageLayers = ref([]), checkedGeometry = ref("")
@@ -261,9 +273,11 @@ const recovery = ref(null), backupError = ref(false), backedUp = ref(false), con
 const discardBackupOpen = ref(false), discardBackupTrigger = ref(null), discardBackupConfirm = ref(null), recoveryCorrupt = ref(false)
 const undoStack = ref([]), redoStack = ref([]), selectedId = ref(""), selectedVertex = ref(0), selectedSegment = ref(0), placing = ref(false)
 const canvas = ref(null), canvasWidth = ref(700), canvasHeight = ref(0), zoom = ref(100), referenceOnly = ref(false), dragBounds = ref(null)
+const activeSpaceId = ref("main")
 const focused = ref(false), mapQuery = ref(""), locatorMessage = ref(""), compareCandidateCurrent = ref(false)
 const selectedChangeKeys = ref([]), selectedFeatureIds = ref([]), comparisonLayers = ref([]), reviewNotice = ref(''), rehearsalStops = ref([]), scrollArea = ref(null)
 const adoptionPreview = ref(null), previewing = ref(false), imageBaseline = ref(null), imageBaselineStatus = ref('unknown'), panning = ref(false)
+const candidateLocationState = ref({ selected: false, busy: false })
 const generationSummary = ref(null), cancelling = ref(false), generationTools = ref(null)
 const bindingQuery = ref(''), bindingLocations = ref([]), bindingLoading = ref(false), bindingError = ref(''), boundName = ref(''), imageControls = ref(null)
 let bindingEpoch = 0
@@ -292,12 +306,15 @@ const imageUrls = reactive({}), anchorIndex = ref(0), annotationId = ref(""), an
 const imageForm = reactive({ page_id: "", role: "illustration", feature_id: "", opacity: 0.65, anchors: [{ feature_id: "", image_x: 0.1, image_y: 0.1 }, { feature_id: "", image_x: 0.8, image_y: 0.1 }, { feature_id: "", image_x: 0.1, image_y: 0.8 }], reader_from_chapter: "" })
 const relation = reactive({ subject: "", relation: "north", target: "" })
 const relationLabels = mapRelationLabels
+const pinnedTypeNames = ref({})
+const pinnedTypeCache = new Map()
 const sourcePickerOpen = ref(false), sourcePickerInitial = ref(null)
 const imageRequests = new Map()
 let resizeObserver = null
-let epoch = 0, alive = true, installing = false, backupTimer = null, pollTimer = null, drag = null, reviewEpoch = 0, imageBaselineEpoch = 0, comparisonEpoch = 0, lastLoadError = '', pan = null
+let epoch = 0, alive = true, installing = false, backupTimer = null, pollTimer = null, drag = null, reviewEpoch = 0, imageBaselineEpoch = 0, comparisonEpoch = 0, vocabularyTypeEpoch = 0, lastLoadError = '', pan = null
 const dirty = computed(() => JSON.stringify(doc.value) !== baseline.value)
-const busy = computed(() => loading.value || saving.value)
+const metadataBusy = ref(false), confirming = ref(false)
+const busy = computed(() => loading.value || saving.value || metadataBusy.value || confirming.value || previewing.value || candidateLocationState.value.busy)
 const taskRunning = computed(() => ["pending", "running"].includes(taskStatus.value))
 const generationCounters = computed(() => {
   const summary = generationSummary.value
@@ -310,10 +327,18 @@ const discardCounts = computed(() => {
 })
 const incompleteGeometry = computed(() => doc.value.features.some(feature => feature.points.length > 0 && feature.points.length < (feature.kind === 'area' ? 3 : ['road', 'river'].includes(feature.kind) ? 2 : 1)))
 const readOnly = computed(() => Boolean(recovery.value || reader.value || candidateView.value || compareServer.value))
-const displayDocument = computed(() => reader.value ? { features: reader.value.features } : candidateView.value ? (compareCandidateCurrent.value ? revision.value?.document || emptyMap() : candidateView.value.document) : (compareServer.value && serverRevision.value ? serverRevision.value.document : doc.value))
+const rawDisplayDocument = computed(() => reader.value ? { features: reader.value.features } : candidateView.value ? (compareCandidateCurrent.value ? revision.value?.document || emptyMap() : candidateView.value.document) : (compareServer.value && serverRevision.value ? serverRevision.value.document : doc.value))
+const spaceChoices = computed(() => {
+  const document = rawDisplayDocument.value
+  const spaces = new Map((document.spaces || []).map(item => [item.id, item.label]))
+  for (const feature of document.features) if (!spaces.has(feature.space_id || 'main')) spaces.set(feature.space_id || 'main', (feature.space_id || 'main') === 'main' ? '主空间' : `独立空间 ${spaces.size + 1}`)
+  if (!spaces.size) spaces.set('main', '主空间')
+  return [...spaces].map(([id, label]) => ({ id, label }))
+})
+const displayDocument = computed(() => ({ ...rawDisplayDocument.value, features: rawDisplayDocument.value.features.filter(feature => (feature.space_id || 'main') === activeSpaceId.value) }))
 const displayedFeature = computed(() => displayDocument.value.features.find(feature => feature.id === selectedId.value))
-const matchingFeatures = computed(() => displayDocument.value.features.filter(feature => feature.label.toLocaleLowerCase().includes(mapQuery.value.trim().toLocaleLowerCase())))
-const candidateChanges = computed(() => candidateView.value ? mapChangeDetails(revision.value?.document || emptyMap(), candidateView.value.document) : [])
+const matchingFeatures = computed(() => rawDisplayDocument.value.features.filter(feature => feature.label.toLocaleLowerCase().includes(mapQuery.value.trim().toLocaleLowerCase())))
+const candidateChanges = computed(() => candidateView.value ? mapChangeDetails(revision.value?.document || emptyMap(), candidateView.value.document, pinnedTypeNames.value) : [])
 const adoptionChanges = computed(() => candidateChanges.value.filter(change => adoptionPreview.value?.applied_change_keys.includes(change.key)))
 const rehearsal = computed(() => readOnly.value ? { message: '', legs: [], featureIds: [] } : rehearseMapRoute(doc.value, rehearsalStops.value, problems.value.flatMap(problem => problem.feature_ids)))
 const selectedRelations = computed(() => doc.value.constraints.filter(item => [item.subject, item.target].includes(selectedId.value)))
@@ -356,7 +381,7 @@ const labelPositions = computed(() => {
   }
   return result
 })
-const selectedFeature = computed(() => doc.value.features.find(f => f.id === selectedId.value))
+const selectedFeature = computed(() => doc.value.features.find(f => f.id === selectedId.value && (f.space_id || 'main') === activeSpaceId.value))
 const evidenceRoots = computed(() => {
   const ids = selectedFeature.value?.entity_id ? [selectedFeature.value.entity_id] : selectedLocationIds.value.length ? selectedLocationIds.value : props.node.location_entity_id ? [props.node.location_entity_id] : []
   return ids.map(id => ({ target_ref: { target_type: "core_entity", target_id: id, target_path: "" } }))
@@ -370,14 +395,43 @@ const canRemovePoint = computed(() => selectedFeature.value?.points.length > (se
 const anchorFeatures = computed(() => doc.value.features.filter(f => ["location", "landmark"].includes(f.kind) && f.points.length === 1))
 const childChoices = computed(() => props.knownNodes.filter(node => node.id !== props.node.id && node.parent_id === props.node.id))
 const annotations = computed(() => props.images.flatMap(page => page.annotations || []))
-const conflictChanges = computed(() => serverRevision.value ? mapChangeDetails(serverRevision.value.document, doc.value) : [])
+const conflictChanges = computed(() => serverRevision.value ? mapChangeDetails(serverRevision.value.document, doc.value, pinnedTypeNames.value) : [])
+const pinnedTypeRefs = computed(() => {
+  const refs = [
+    ...mapChangedPinnedTypeRefs(revision.value?.document, candidateView.value?.document),
+    ...mapChangedPinnedTypeRefs(serverRevision.value?.document, doc.value),
+  ]
+  return [...new Map(refs.map(ref => [`${ref.typeRef}@${ref.revisionId}`, ref])).values()]
+})
+watch(pinnedTypeRefs, async refs => {
+  const token = ++vocabularyTypeEpoch
+  if (!api?.world?.getVocabularyTerm) return
+  const entries = await Promise.all(refs.map(async ({ typeRef, revisionId }) => {
+    const key = `${typeRef}@${revisionId}`
+    if (!pinnedTypeCache.has(key)) {
+      try {
+        const term = await api.world.getVocabularyTerm(props.projectId, typeRef, revisionId)
+        pinnedTypeCache.set(key, { name: term.name, revision_number: term.revision_number })
+      } catch { return [key, null] }
+    }
+    return [key, pinnedTypeCache.get(key)]
+  }))
+  if (!alive || token !== vocabularyTypeEpoch) return
+  pinnedTypeNames.value = Object.fromEntries(entries.filter(([, term]) => term))
+}, { immediate: true })
 const saveLabel = computed(() => saving.value ? "正在处理地图操作…" : recovery.value ? "当前浏览已保存地图，本机编辑尚待处理" : dirty.value ? (backedUp.value ? "未保存到服务端 · 当前编辑已在本机备份" : "有未保存修改") : revision.value ? "已保存到服务端" : "空间结构尚未保存")
+function imageInActiveSpace(layer) {
+  if (reader.value) return (layer.space_id || 'main') === activeSpaceId.value
+  const placement = rawDisplayDocument.value.images?.find(item => item.page_id === layer.page_id)
+  const anchor = placement?.anchors?.[0]?.feature_id
+  return (rawDisplayDocument.value.features.find(item => item.id === anchor)?.space_id || 'main') === activeSpaceId.value
+}
 const backgrounds = computed(() => {
-  if (candidateView.value && !compareCandidateCurrent.value) return comparisonLayers.value.filter(layer => layer.role === 'background' && layer.state === 'ready' && layer.transform)
-  if (candidateView.value) return imageLayers.value.filter(layer => layer.role === 'background' && layer.state === 'ready' && layer.transform)
+  if (candidateView.value && !compareCandidateCurrent.value) return comparisonLayers.value.filter(layer => layer.role === 'background' && layer.state === 'ready' && layer.transform && imageInActiveSpace(layer))
+  if (candidateView.value) return imageLayers.value.filter(layer => layer.role === 'background' && layer.state === 'ready' && layer.transform && imageInActiveSpace(layer))
   if (compareServer.value) return []
   const layers = reader.value ? reader.value.images : imageLayers.value
-  return layers.filter(layer => layer.role === "background" && layer.transform && (reader.value || imageState(doc.value.images.find(i => i.page_id === layer.page_id)) === "ready")).map(layer => ({ ...layer, opacity: reader.value ? layer.opacity : doc.value.images.find(i => i.page_id === layer.page_id)?.opacity ?? layer.opacity }))
+  return layers.filter(layer => layer.role === "background" && layer.transform && imageInActiveSpace(layer) && (reader.value || imageState(doc.value.images.find(i => i.page_id === layer.page_id)) === "ready")).map(layer => ({ ...layer, opacity: reader.value ? layer.opacity : doc.value.images.find(i => i.page_id === layer.page_id)?.opacity ?? layer.opacity }))
 })
 const selectedIllustrations = computed(() => (reader.value ? reader.value.images : candidateView.value && !compareCandidateCurrent.value ? comparisonLayers.value : imageLayers.value).filter(layer => layer.role === "illustration" && (!layer.feature_id || layer.feature_id === selectedId.value) && (reader.value || layer.state === "ready")))
 
@@ -467,9 +521,17 @@ function mutate(change) {
   if (JSON.stringify(doc.value) === previous) return
   undoStack.value = [...undoStack.value.slice(-19), previous]; redoStack.value = []
 }
+function applySpatialDocument(value) {
+  mutate(document => Object.assign(document, value))
+  const selected = doc.value.features.find(feature => feature.id === selectedId.value)
+  if (selected) {
+    activeSpaceId.value = selected.space_id || 'main'
+    selectedId.value = selected.id
+  }
+}
 function undo() { if (readOnly.value || !undoStack.value.length) return; redoStack.value.push(JSON.stringify(doc.value)); doc.value = JSON.parse(undoStack.value.pop()) }
 function redo() { if (readOnly.value || !redoStack.value.length) return; undoStack.value.push(JSON.stringify(doc.value)); doc.value = JSON.parse(redoStack.value.pop()) }
-function selectFeature(id) { inspectorOpen.value = Boolean(id); selectedId.value = id; selectedVertex.value = 0; selectedSegment.value = 0; if (!readOnly.value) emit('select-feature', id) }
+function selectFeature(id) { const feature = rawDisplayDocument.value.features.find(item => item.id === id); if (feature) activeSpaceId.value = feature.space_id || 'main'; inspectorOpen.value = Boolean(id); selectedId.value = id; selectedVertex.value = 0; selectedSegment.value = 0; if (!readOnly.value) emit('select-feature', id) }
 function locateChange(ids) {
   const id = ids.find(value => displayDocument.value.features.some(feature => feature.id === value))
   if (id) return locateFeature(id)
@@ -479,7 +541,7 @@ function rememberView() {
   if (!initialized.value || !alive || readOnly.value) return
   try {
     const key = backupKey().replace('novel_map_draft:', 'novel_map_view:')
-    localStorage.setItem(key, JSON.stringify({ selectedId: selectedId.value, zoom: zoom.value, focused: focused.value, left: scrollArea.value?.scrollLeft || 0, top: scrollArea.value?.scrollTop || 0, stops: rehearsalStops.value }))
+    localStorage.setItem(key, JSON.stringify({ selectedId: selectedId.value, spaceId: activeSpaceId.value, zoom: zoom.value, focused: focused.value, left: scrollArea.value?.scrollLeft || 0, top: scrollArea.value?.scrollTop || 0, stops: rehearsalStops.value }))
   } catch { /* View preferences are optional; document saving retains its own protection. */ }
 }
 async function restoreView() {
@@ -488,7 +550,11 @@ async function restoreView() {
     if (Number.isFinite(value.zoom)) zoom.value = Math.max(60, Math.min(200, value.zoom))
     focused.value = value.focused === true
     const id = props.initialFeatureId || value.selectedId
-    if (doc.value.features.some(feature => feature.id === id)) selectedId.value = id
+    if (doc.value.features.some(feature => feature.id === id)) {
+      activeSpaceId.value = doc.value.features.find(feature => feature.id === id).space_id || 'main'
+      selectedId.value = id
+    }
+    else if (spaceChoices.value.some(space => space.id === value.spaceId)) activeSpaceId.value = value.spaceId
     rehearsalStops.value = Array.isArray(value.stops) ? value.stops.filter(id => typeof id === 'string').slice(0, 20) : []
     await nextTick()
     if (!alive) return
@@ -502,6 +568,8 @@ function bindEntity(id) {
   changeFeature('entity_id', id || null)
 }
 async function locateFeature(id) {
+  const feature = rawDisplayDocument.value.features.find(item => item.id === id)
+  if (feature) activeSpaceId.value = feature.space_id || 'main'
   selectFeature(id)
   locatorMessage.value = displayedFeature.value?.points.length ? '' : '这个地点尚未定位，可在编辑工具中放置。'
   await nextTick()
@@ -595,7 +663,7 @@ function insertPoint() {
 }
 function addFeature() {
   const id = "mark:" + crypto.randomUUID()
-  mutate(document => document.features.push({ id, kind: newKind.value, label: newLabel.value.trim(), entity_id: null, target_node_id: null, points: [], locked: false, sources: [], depends_on: [], note: "", reader_from_chapter: null }))
+  mutate(document => document.features.push({ id, ...(document.schema_version === 2 ? { space_id: activeSpaceId.value } : {}), kind: newKind.value, label: newLabel.value.trim(), entity_id: null, target_node_id: null, points: [], locked: false, sources: [], depends_on: [], note: "", reader_from_chapter: null }))
   selectedId.value = id; newLabel.value = ""; placing.value = true
 }
 async function removeFeature() {
@@ -620,7 +688,7 @@ async function searchLocations() {
   } catch (err) { error.value = err.message || "地点读取失败，请重试" }
 }
 function addLocations() {
-  mutate(document => { for (const location of locations.value.filter(item => selectedLocationIds.value.includes(item.id))) if (!document.features.some(f => f.entity_id === location.id)) document.features.push({ id: "loc:" + location.id, kind: "location", label: location.name, entity_id: location.id, target_node_id: null, points: [], locked: false, sources: [], depends_on: [], note: "", reader_from_chapter: null }) })
+  mutate(document => { for (const location of locations.value.filter(item => selectedLocationIds.value.includes(item.id))) if (!document.features.some(f => f.entity_id === location.id)) document.features.push({ id: "loc:" + location.id, ...(document.schema_version === 2 ? { space_id: activeSpaceId.value } : {}), kind: "location", label: location.name, entity_id: location.id, target_node_id: null, points: [], locked: false, sources: [], depends_on: [], note: "", reader_from_chapter: null }) })
 }
 async function load(initial = false) {
   const token = ++epoch
@@ -640,9 +708,16 @@ async function load(initial = false) {
     else if (!dirty.value && !candidateView.value) problems.value = result.revision?.problems || []
     await loadLayerImages()
     if (initial && props.initialRevisionId && props.initialRevisionId !== result.revision?.id) {
+      let target = result.candidates.find(item => item.id === props.initialRevisionId)
+      if (!target) {
+        const records = await api.world.listMapRevisions(props.projectId, props.node.id)
+        if (!alive || token !== epoch) return
+        target = records.find(item => item.id === props.initialRevisionId)
+      }
+      if (!target) throw new Error('此版本不在可访问记录中，请从草图或地图历史重新打开。')
       const preview = await api.world.previewMapRevision(props.projectId, props.node.id, props.initialRevisionId)
       if (!alive || token !== epoch) return
-      await viewCandidate({ ...preview, id: props.initialRevisionId, status: 'saved' }, preview)
+      await viewCandidate(target, preview)
     }
   } catch (err) { if (alive && token === epoch) error.value = lastLoadError = err.message || "地图读取失败" }
   finally { if (alive && token === epoch) { loading.value = false; if (taskRunning.value) { clearTimeout(pollTimer); pollTimer = setTimeout(() => load(), 2500) } } }
@@ -725,10 +800,12 @@ async function viewCandidate(value, existingPreview = null) {
     await Promise.all(comparisonLayers.value.filter(layer => layer.state === 'ready').map(layer => loadImage(layer.page_id)))
   } catch (err) { if (alive && token === comparisonEpoch && candidateView.value?.id === value.id) error.value = err.message || '版本图片读取失败，结构仍可比较' }
 }
-function exitCandidate() { comparisonReturn?.focus?.(); comparisonReturn?.scrollIntoView?.({ block: 'nearest' }); ++comparisonEpoch; candidateView.value = null; compareCandidateCurrent.value = false; problems.value = serverRevision.value?.problems || revision.value?.problems || [] }
+function exitCandidate() { if (busy.value) return; comparisonReturn?.focus?.(); comparisonReturn?.scrollIntoView?.({ block: 'nearest' }); ++comparisonEpoch; candidateView.value = null; compareCandidateCurrent.value = false; problems.value = serverRevision.value?.problems || revision.value?.problems || [] }
+function reviewBase(value) { return value.is_auto_draft ? value.review_base_revision_id : value.base_revision_id }
+async function refreshLocationPreview(message) { await previewAdoption(); if (alive) error.value = message }
 async function previewAdoption() {
   const value = candidateView.value, baseId = revision.value?.id || null, keys = [...selectedChangeKeys.value]
-  if (!value || value.status !== 'candidate' || value.base_revision_id !== baseId || busy.value || dirty.value || recovery.value || !keys.length) return
+  if (!value || value.status !== 'candidate' || reviewBase(value) !== baseId || busy.value || dirty.value || recovery.value || !keys.length) return
   const token = ++reviewEpoch
   adoptionPreview.value = null; previewing.value = true; error.value = ''; reviewNotice.value = ''
   try {
@@ -747,7 +824,7 @@ function explainRequiredChanges(err) {
   if (required.length) reviewNotice.value = '请明确勾选关联修改后再采用：' + candidateChanges.value.filter(change => required.includes(change.key)).map(change => change.label).join('、')
 }
 async function review(value, action, changeKeys = null) {
-  if (busy.value || dirty.value || recovery.value) return
+  if (busy.value || dirty.value || recovery.value || (action === 'adopt' && candidateLocationState.value.selected)) return
   if (action === 'adopt' && (!adoptionPreview.value || adoptionPreview.value.candidate_revision_id !== value.id || adoptionPreview.value.base_revision_id !== (revision.value?.id || null))) return
   if (action === "restore" && !await confirm("将历史地图恢复为新版本？当前版本仍保留在历史中。")) return
   if (action === "reject" && !await confirm("不使用这个空间候选？已保存地图不会受到影响。")) return
@@ -905,7 +982,7 @@ async function saveAndLeave() {
   if (!dirty.value && !saving.value) finishLeave(true)
 }
 function canLeave() {
-  if (saving.value || drag) return false
+  if (busy.value || drag) return false
   if (!dirty.value) return true
   persistDraft()
   if (!backedUp.value && !downloaded.value) { error.value = "当前编辑还未保存或备份，请先保存或下载备份。"; return false }
@@ -914,7 +991,7 @@ function canLeave() {
   leaveDialog.value.showModal()
   return leaveDecision
 }
-function beforeUnload(event) { persistDraft(); if (dirty.value || saving.value) { event.preventDefault(); event.returnValue = "" } }
+function beforeUnload(event) { persistDraft(); if (dirty.value || busy.value) { event.preventDefault(); event.returnValue = "" } }
 watch(doc, () => {
   if (installing || !initialized.value) return
   backedUp.value = false; downloaded.value = false; clearTimeout(backupTimer); backupTimer = setTimeout(persistDraft, 200)
@@ -992,10 +1069,12 @@ async function runToolbarAction(key) {
   const selectors = { add: ".map-edit-grid details", selected: ".map-inspector", "save-area": ".map-toolbar", recovery: ".map-recovery", conflict: ".map-conflict", comparison: '[aria-label="候选地图差异"], .map-conflict', candidates: ".map-candidates", progress: ".map-generation-feedback", rehearsal: ".map-rehearsal", "reader-settings": ".map-reader", find: ".map-locator", history: ".map-history-panel", problems: ".map-problems" }
   if (selectors[key]) return focusWorkspaceTool(toolsRoot.value, selectors[key])
 }
-watch([dirty, revision, reader, focused, toolbar], () => emit("state", { nodeId: props.node.id, dirty: dirty.value, revision: revision.value, reader: Boolean(reader.value), focused: focused.value, toolbar: toolbar.value }), { immediate: true })
-watch([selectedId, zoom, focused, rehearsalStops], rememberView, { deep: true })
+watch(spaceChoices, choices => { if (!choices.some(space => space.id === activeSpaceId.value)) activeSpaceId.value = choices[0].id }, { immediate: true })
+watch(activeSpaceId, () => { selectedId.value = ''; placing.value = false; rehearsalStops.value = []; dragBounds.value = null; drag = null; if (scrollArea.value) { scrollArea.value.scrollLeft = 0; scrollArea.value.scrollTop = 0 } }, { flush: 'sync' })
+watch([dirty, revision, reader, focused, toolbar, metadataBusy, loading, saving, confirming, previewing, candidateLocationState], () => emit("state", { nodeId: props.node.id, dirty: dirty.value, busy: busy.value, revision: revision.value, reader: Boolean(reader.value), focused: focused.value, toolbar: toolbar.value }), { immediate: true })
+watch([selectedId, activeSpaceId, zoom, focused, rehearsalStops], rememberView, { deep: true })
 watch([selectedId, busy, focused, readOnly], () => { sourcePickerOpen.value = false }, { flush: 'sync' })
-watch([candidateView, () => revision.value?.id, () => serverRevision.value?.id, selectedChangeKeys], () => { ++reviewEpoch; adoptionPreview.value = null; previewing.value = false }, { deep: true, flush: 'sync' })
+watch([candidateView, () => revision.value?.id, () => serverRevision.value?.id, selectedChangeKeys], () => { ++reviewEpoch; adoptionPreview.value = null; previewing.value = false; candidateLocationState.value = { selected: false, busy: false } }, { deep: true, flush: 'sync' })
 watch([() => imageForm.page_id, imageBaselineRevision, imageBaselineKind], loadImageBaseline)
 watch([() => imageForm.page_id, selectedImageRevision, selectedCalibrationRevision], () => { ++comparisonEpoch }, { flush: 'sync' })
 watch(reader, value => { if (value) ++comparisonEpoch }, { flush: 'sync' })

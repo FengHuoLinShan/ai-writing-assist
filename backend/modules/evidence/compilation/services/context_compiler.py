@@ -10,6 +10,7 @@ from typing import Any
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from core.config import get_settings
 from infrastructure.llm.redaction import redact_diagnostic
 from infrastructure.llm.token_estimation import estimate_token_count
 from modules.evidence.compilation.contracts import (
@@ -28,11 +29,16 @@ from modules.evidence.compilation.services.compiled_context import (
     selection_ref_key,
 )
 from modules.evidence.compilation.services.constraint_engine import ConstraintEngine
+from modules.evidence.compilation.services.director_reference_sections import (
+    DirectorReferenceSectionBuilder,
+)
 from modules.evidence.compilation.services.loaders import (
     AuthorExamplesLoader,
     CharactersLoader,
+    DirectorReferenceLoader,
     EditorialBriefLoader,
     EventsLoader,
+    MapSpatialLoader,
     MemoryRecordsLoader,
     OutlineAnalysisLoader,
     OutlineArcLoader,
@@ -42,6 +48,14 @@ from modules.evidence.compilation.services.loaders import (
     SceneLoader,
     WorldBibleLoader,
     WorldEntitiesLoader,
+)
+from modules.evidence.compilation.services.loaders.object_dossier_loader import (
+    ObjectDossierLoader,
+    enabled_object_reference_capabilities,
+    object_dossier_capability,
+)
+from modules.evidence.compilation.services.object_dossier_sections import (
+    ObjectDossierSectionBuilder,
 )
 from modules.evidence.compilation.services.protocol import Loader
 
@@ -182,7 +196,10 @@ class ContextCompiler:
             PlotThreadsLoader(),
             OutlineArcLoader(),
             SceneLoader(),
+            MapSpatialLoader(),
+            ObjectDossierLoader(),
             OutlineAnalysisLoader(),
+            DirectorReferenceLoader(),
         ]
 
     async def compile(
@@ -211,6 +228,35 @@ class ContextCompiler:
         )
 
         loader_names = list(SCOPE_LOADERS.get(options.scope, ["project"]))
+        if (
+            options.consumer_action in {"writing.generate", "writing.targeted_revision"}
+            and options.director_reference_ids
+            and "director_reference" not in loader_names
+        ):
+            loader_names.append("director_reference")
+        from modules.evidence.compilation.services.loaders.map_spatial_loader import (
+            map_spatial_capability,
+        )
+
+        spatial_capability = map_spatial_capability(
+            options.map_spatial_consumer_action or options.consumer_action
+        )
+        if (
+            spatial_capability
+            and spatial_capability in get_settings().map_spatial_enabled_capabilities
+        ):
+            if "map_spatial" not in loader_names:
+                loader_names.append("map_spatial")
+        dossier_capability = object_dossier_capability(options.consumer_action)
+        dossier_capabilities, pattern_capabilities = (
+            enabled_object_reference_capabilities(get_settings())
+        )
+        if dossier_capability and (
+            dossier_capability in dossier_capabilities
+            or dossier_capability in pattern_capabilities
+        ):
+            if "object_dossier" not in loader_names:
+                loader_names.append("object_dossier")
         if (
             "rag_chunks" in loader_names
             and isinstance(self._loaders.get("rag_chunks"), RagChunksLoader)
@@ -374,9 +420,23 @@ class ContextCompiler:
         ) = await self._build_activation_section(db, bundle, options)
         if activation_section is not None:
             sections.append(activation_section)
+        excluded_section_keys = set(
+            options.excluded_asset_ids.get("context_sections", [])
+        )
+        map_section_exclusions = [
+            item.model_copy(
+                update={
+                    "selection_state": "excluded",
+                    "omission_reason": "作者显式排除空间参考",
+                }
+            )
+            for section in sections
+            if section.key == "map_spatial" and section.key in excluded_section_keys
+            for item in section.materialize_items().items
+        ]
         sections, exclusion_warnings = self._apply_section_exclusions(
             sections,
-            options.excluded_asset_ids.get("context_sections", []),
+            list(excluded_section_keys),
         )
         sections = [section.materialize_items() for section in sections]
         sections, excluded_items, item_exclusion_warnings = self._apply_item_exclusions(
@@ -384,6 +444,46 @@ class ContextCompiler:
             options.excluded_refs,
             pinned_refs=options.pinned_refs,
         )
+        for section in sections:
+            if section.key == "object_dossier":
+                included_items = [
+                    item
+                    for item in section.items
+                    if item.selection_state not in {"excluded", "omitted"}
+                ]
+                selected_ids = {
+                    str(item.source.get("fact_id") or item.key) for item in included_items
+                }
+                section.retrieval_metadata["fact_basis"] = [
+                    item
+                    for item in section.retrieval_metadata.get("fact_basis", [])
+                    if str(item.get("fact_id")) in selected_ids
+                ]
+                if not included_items:
+                    section.retrieval_metadata["reference_dimensions"] = []
+            elif section.key == "character_pattern":
+                included_items = [
+                    item
+                    for item in section.items
+                    if item.selection_state not in {"excluded", "omitted"}
+                ]
+                selected_ids = {str(item.key) for item in included_items}
+                section.retrieval_metadata["pattern_basis"] = [
+                    item
+                    for item in section.retrieval_metadata.get("pattern_basis", [])
+                    if str(item.get("pattern_id")) in selected_ids
+                ]
+                if not included_items:
+                    section.retrieval_metadata["reference_dimensions"] = []
+        for section in sections:
+            if section.key == "map_spatial":
+                selected_nodes = {str(item.source.get("id")) for item in section.items}
+                section.retrieval_metadata["map_baseline"] = [
+                    item
+                    for item in section.retrieval_metadata.get("map_baseline", [])
+                    if str(item.get("node_id")) in selected_nodes
+                ]
+        excluded_items.extend(map_section_exclusions)
         sections, pin_blockers = await self._apply_pinned_refs(
             db,
             sections,
@@ -414,7 +514,75 @@ class ContextCompiler:
             excluded_items=excluded_items,
             blockers=pin_blockers,
         )
+        director_brief = bundle.director_reference_brief or {}
+        for reference_id in director_brief.get("omitted") or []:
+            reference_id = str(reference_id or "")
+            if not reference_id:
+                continue
+            ctx.omitted_items.append(
+                ContextItem(
+                    key=f"director_reference:{reference_id}",
+                    content="",
+                    title="场景导演参考",
+                    status="omitted",
+                    source={
+                        "type": "director_reference",
+                        "id": reference_id,
+                        "label": "作者选择的导演参考副本",
+                        "advisory_only": True,
+                        "adoption_status": "not_adopted",
+                    },
+                    selection_state="omitted",
+                    omission_reason=(
+                        "参考副本缺失、未能用于当前 POV 或超出独立参考容量；"
+                        "不影响核心资料范围"
+                    ),
+                )
+            )
+        # Advisory references are fitted after the required context, so they
+        # cannot evict or shrink the confirmed core knowledge scope.
+        advisory_keys = {
+            "map_spatial",
+            "object_dossier",
+            "character_pattern",
+            "director_reference",
+        }
+        advisory_sections = [
+            section for section in ctx.sections if section.key in advisory_keys
+        ]
+        ctx.sections = [
+            section for section in ctx.sections if section.key not in advisory_keys
+        ]
+        ctx.total_tokens = sum(section.token_count for section in ctx.sections)
         compiled = ctx.enforce_budget()
+        for section in advisory_sections:
+            if compiled.total_tokens + section.token_count <= budget_tokens:
+                compiled.sections.append(section)
+                compiled.total_tokens += section.token_count
+            else:
+                if section.key not in compiled.evicted_keys:
+                    compiled.evicted_keys.append(section.key)
+                compiled.omitted_items.extend(
+                    item.model_copy(
+                        update={
+                            "selection_state": "omitted",
+                            "omission_reason": (
+                                "空间参考超出剩余预算"
+                                if section.key == "map_spatial"
+                                else (
+                                    "导演参考副本超出剩余预算；仅作为可选提醒省略"
+                                    if section.key == "director_reference"
+                                    else "对象或人物参考超出剩余预算"
+                                )
+                            ),
+                        }
+                    )
+                    for item in section.materialize_items().items
+                )
+                if section.key == "director_reference":
+                    compiled.warnings.append(
+                        "所选导演参考副本超出剩余上下文预算，已单独省略；核心资料范围保持不变。"
+                    )
         if activation_trace:
             self._apply_global_activation_budget_trace(compiled)
         return compiled
@@ -890,10 +1058,14 @@ class ContextCompiler:
 
         if options is not None and options.reveal_mode == "character":
             sections.extend(self._build_character_reveal_sections(bundle, options))
+            sections.extend(self._build_map_spatial_sections(bundle))
+            sections.extend(self._build_object_dossier_sections(bundle, options))
+            sections.extend(DirectorReferenceSectionBuilder.build(bundle))
             return sections
 
         if options is not None and options.reveal_mode == "reader":
             sections.extend(self._build_reader_reveal_sections(bundle, options))
+            sections.extend(self._build_map_spatial_sections(bundle))
             return sections
 
         if bundle.world_bible_synopsis:
@@ -967,6 +1139,11 @@ class ContextCompiler:
                     can_exclude=True,
                 )
             )
+
+        sections.extend(self._build_map_spatial_sections(bundle))
+        sections.extend(self._build_object_dossier_sections(bundle, options))
+        if options is None or options.reveal_mode != "reader":
+            sections.extend(DirectorReferenceSectionBuilder.build(bundle))
 
         if bundle.scene:
             content = json.dumps(bundle.scene, ensure_ascii=False, indent=2)
@@ -1431,6 +1608,110 @@ class ContextCompiler:
         return sections
 
     @staticmethod
+    def _build_map_spatial_sections(
+        bundle: StructureContextBundle,
+    ) -> list[ContextSection]:
+        brief = bundle.map_spatial_brief or {}
+        entries = brief.get("items") or []
+        if not entries:
+            return []
+        items: list[ContextItem] = []
+        sources = []
+        map_baseline = []
+        for raw in entries[:20]:
+            if not isinstance(raw, dict):
+                continue
+            node_id = str(raw.get("node_id") or "")
+            revision_id = str(raw.get("revision_id") or "")
+            content = str(raw.get("content") or "")
+            content_hash = str(raw.get("content_hash") or "")
+            revision_hash = str(raw.get("revision_hash") or "")
+            geometry_hash = str(raw.get("geometry_hash") or "")
+            if not (node_id and revision_id and content and content_hash):
+                continue
+            title = str(raw.get("title") or "已保存地图")[:200]
+            source = {
+                "type": "map_spatial",
+                "id": node_id,
+                "label": title,
+                "status": "adopted",
+                "content_hash": content_hash,
+                "revision_id": revision_id,
+                "revision_hash": revision_hash,
+                "geometry_hash": geometry_hash,
+                "source_hashes": list(raw.get("source_hashes") or [])[:64],
+            }
+            source_ref = {
+                "kind": "target",
+                "target_ref": {
+                    "target_type": "map_spatial",
+                    "target_id": node_id,
+                    "target_path": "",
+                },
+            }
+            items.append(
+                ContextItem(
+                    key=f"map_spatial:{node_id}:{revision_id}",
+                    content=content,
+                    token_count=estimate_token_count(content),
+                    title=title,
+                    preview=content[:160],
+                    status="adopted",
+                    activation_reason=(
+                        "当前 Scene 的地图参考；仅使用已保存、已采用且来源有效的声明"
+                    ),
+                    source=source,
+                    selection_ref=source_ref,
+                    can_exclude=True,
+                )
+            )
+            sources.append(source)
+            map_baseline.append(
+                {
+                    "node_id": node_id,
+                    "title": title,
+                    "revision_id": revision_id,
+                    "revision_hash": revision_hash,
+                    "geometry_hash": geometry_hash,
+                    "content_hash": content_hash,
+                    "source_hashes": list(raw.get("source_hashes") or [])[:64],
+                }
+            )
+        if not items:
+            return []
+        content = "\n".join(item.content for item in items)
+        section = ContextSection(
+            key="map_spatial",
+            tier=Tier.P3,
+            content=content,
+            token_count=estimate_token_count(content),
+            truncatable_per_item=True,
+            max_items=20,
+            title="空间简报",
+            preview=items[0].preview,
+            status="adopted",
+            activation_reason="可选空间参考；不构成正史事实或写作约束",
+            sources=sources,
+            can_exclude=True,
+            retrieval_metadata={
+                "scene_id": brief.get("scene_id"),
+                "scene_index": brief.get("scene_index"),
+                "chapter_index": brief.get("chapter_index"),
+                "map_baseline": map_baseline,
+                "omitted_count": int(brief.get("omitted_count") or 0),
+            },
+            items=items,
+        )
+        return [section]
+
+    @staticmethod
+    def _build_object_dossier_sections(
+        bundle: StructureContextBundle,
+        options: CompileOptions | None,
+    ) -> list[ContextSection]:
+        return ObjectDossierSectionBuilder.build(bundle, options)
+
+    @staticmethod
     def _build_outline_analysis_sections(
         bundle: StructureContextBundle,
         options: CompileOptions | None,
@@ -1670,6 +1951,73 @@ class ContextCompiler:
 
         if bundle.characters:
             content = self._format_role_profile(bundle.characters, options)
+            profile_facts = []
+            profile_fields = (
+                "name",
+                "role",
+                "appearance",
+                "personality",
+                "desire",
+                "fear",
+                "weakness",
+                "stance",
+                "voice_style",
+                "behavior_rules",
+            )
+            for raw in bundle.characters:
+                if isinstance(raw, dict):
+                    item = raw
+                else:
+                    dump = getattr(raw, "model_dump", None)
+                    item = (
+                        dump(mode="python")
+                        if callable(dump)
+                        else getattr(raw, "__dict__", {})
+                    )
+                entity_id = str(
+                    item.get("character_id")
+                    or item.get("entity_id")
+                    or item.get("id")
+                    or ""
+                )
+                if not entity_id or (
+                    options.viewpoint_character_id
+                    and self._id_key(entity_id)
+                    != self._id_key(options.viewpoint_character_id)
+                ):
+                    continue
+                for field_name in profile_fields:
+                    value = item.get(field_name)
+                    if value is None or value == "" or value == [] or value == {}:
+                        continue
+                    profile_facts.append(
+                        {
+                            "fact_id": f"character_profile:{entity_id}:{field_name}",
+                            "kind": "character_profile",
+                            "layer": "fact",
+                            "subject_id": entity_id,
+                            "dimension": "character_profile",
+                            "field": field_name,
+                            "value": (
+                                value
+                                if isinstance(value, str)
+                                else json.dumps(
+                                    value,
+                                    ensure_ascii=False,
+                                    sort_keys=True,
+                                    default=str,
+                                )
+                            ),
+                            "source_refs": [
+                                {
+                                    "source_type": "character_profile",
+                                    "source_id": entity_id,
+                                    "revision_id": item.get("revision_id"),
+                                }
+                            ],
+                            "possibly_false": False,
+                        }
+                    )
             sections.append(
                 self._make_section(
                     key="role_profile",
@@ -1683,6 +2031,7 @@ class ContextCompiler:
                         default_type="character",
                         status=status,
                     ),
+                    retrieval_metadata={"fact_basis": profile_facts},
                     can_exclude=False,
                 )
             )
@@ -2313,9 +2662,9 @@ class ContextCompiler:
                 ("渴望", item.get("desire")),
                 ("恐惧", item.get("fear")),
                 ("弱点", item.get("weakness")),
-                ("当前目标", item.get("current_goal")),
-                ("当前状态", item.get("current_state")),
-                ("当前情绪", item.get("current_emotion")),
+                ("作者备注·当前目标（非本场时点真源）", item.get("current_goal")),
+                ("作者备注·当前状态（非本场时点真源）", item.get("current_state")),
+                ("作者备注·当前情绪（非本场时点真源）", item.get("current_emotion")),
                 ("立场", item.get("stance")),
                 ("语气", item.get("voice_style")),
                 (

@@ -252,6 +252,58 @@ def test_flow_registry_covers_all_three_flows():
     assert adopt.kind == "author_confirm" and adopt.operation is None
 
 
+def test_world_progression_review_is_registered_and_uses_default_off_gate(monkeypatch):
+    from types import SimpleNamespace
+
+    from modules.assistant.guided_flow import runtime as guided_runtime
+
+    flow = FLOWS["world_progression_review"]
+    assert flow.version == 1
+    assert flow.steps[0].step_id == "select_scope"
+    assert "confirm_reference" in {step.step_id for step in flow.steps}
+    assert "authorize_progression" in {step.step_id for step in flow.steps}
+    assert "adopt_hook" in {step.step_id for step in flow.steps}
+    assert all(step.kind != "auto" for step in flow.steps)
+
+    monkeypatch.setattr(
+        guided_runtime,
+        "get_settings",
+        lambda: SimpleNamespace(
+            assistant_enabled=True,
+            assistant_guided_flows_enabled=False,
+            guided_flow_project_allowlist=(),
+        ),
+    )
+    assert guided_runtime.available_for(None) is False
+
+
+@pytest.mark.asyncio
+async def test_world_progression_review_requires_a_fresh_budget_preview(monkeypatch):
+    from modules.assistant.guided_flow import world_progression_review
+
+    prepared = []
+
+    async def prepare(_db, novel_id, args):
+        prepared.append((novel_id, args))
+        return {"preview_hash": "a" * 64, "scene_id": "scene-1"}
+
+    operation = SimpleNamespace(
+        schema=SimpleNamespace(model_validate=lambda value: dict(value)),
+        prepare=prepare,
+    )
+    monkeypatch.setattr(
+        world_progression_review,
+        "_operations",
+        lambda: {"story.world_progression.preview": operation},
+    )
+    data = SimpleNamespace(
+        input={"novel_id": OWNER, "budget_preview_hash": ""}
+    )
+    with pytest.raises(ConflictError, match="预算预览"):
+        await world_progression_review.start_check(object(), OWNER, data)
+    assert len(prepared) == 1
+
+
 def test_flow_registry_rejects_cycles_duplicates_and_unknown_kind():
     def step(step_id, kind="auto", requires=(), produces=None):
         return StepDefinition(
@@ -881,7 +933,7 @@ async def test_rolling_plan_passes_the_confirmed_end_chapter(
             db_session,
             test_project_id,
             OWNER,
-            SimpleNamespace(id=uuid.uuid4()),
+            SimpleNamespace(id=uuid.uuid4(), session_id=None),
             FLOWS["continue_writing"],
             {
                 "rolling_decision": {"at_chapter": 1, "accepted": True, "window": window},

@@ -34,7 +34,8 @@
               <button type="button" class="btn btn-sm" :data-action="`edit-scene-character-${character.id}`" @click="$emit('edit', character.id)">{{ selectedId === character.id ? "收起编辑" : character.cardId ? "编辑人物卡" : "新建人物卡" }}</button>
             </div>
           </div>
-          <dl class="scene-character-card__facts">
+          <CharacterCardV2Content v-if="character.content?.version === 'character_card.v2'" class="scene-character-card__facts" :content="character.content" />
+          <dl v-else class="scene-character-card__facts">
             <div><dt>当前状态</dt><dd>{{ character.status || "待补充" }}</dd></div>
             <div v-if="character.currentGoal"><dt>当前目标</dt><dd>{{ character.currentGoal }}</dd></div>
             <div v-if="character.currentEmotion"><dt>情绪</dt><dd>{{ character.currentEmotion }}</dd></div>
@@ -56,11 +57,17 @@
               <strong>{{ character.cardId ? "编辑本场人物卡" : "新建本场人物卡" }}</strong>
               <span v-if="character.versionNumber">当前 v{{ character.versionNumber }}</span>
             </div>
-            <label><span>人物底色</span><textarea class="form-textarea" rows="3" :value="cardDraft.personality || ''" @input="$emit('update-card', 'personality', $event.target.value)"></textarea></label>
-            <label><span>当前目标</span><input class="form-input" :value="cardDraft.currentGoal || ''" @input="$emit('update-card', 'currentGoal', $event.target.value)" /></label>
-            <label><span>当前状态</span><input class="form-input" :value="cardDraft.currentState || ''" @input="$emit('update-card', 'currentState', $event.target.value)" /></label>
-            <label><span>当前情绪</span><input class="form-input" :value="cardDraft.currentEmotion || ''" @input="$emit('update-card', 'currentEmotion', $event.target.value)" /></label>
-            <label><span>本场作者笔记</span><textarea class="form-textarea" rows="2" :value="cardDraft.authorNotes || ''" @input="$emit('update-card', 'authorNotes', $event.target.value)"></textarea></label>
+            <template v-if="cardDraft.fullContent?.version === 'character_card.v2'">
+              <p>来源绑定人物卡只保存已生成的事实依据与解释。作者笔记继续保留在本机场景草稿。</p>
+              <CharacterCardV2Content :content="cardDraft.fullContent" />
+            </template>
+            <template v-else>
+              <label><span>人物底色</span><textarea class="form-textarea" rows="3" :value="cardDraft.personality || ''" @input="$emit('update-card', 'personality', $event.target.value)"></textarea></label>
+              <label><span>当前目标</span><input class="form-input" :value="cardDraft.currentGoal || ''" @input="$emit('update-card', 'currentGoal', $event.target.value)" /></label>
+              <label><span>当前状态</span><input class="form-input" :value="cardDraft.currentState || ''" @input="$emit('update-card', 'currentState', $event.target.value)" /></label>
+              <label><span>当前情绪</span><input class="form-input" :value="cardDraft.currentEmotion || ''" @input="$emit('update-card', 'currentEmotion', $event.target.value)" /></label>
+              <label><span>本场作者笔记</span><textarea class="form-textarea" rows="2" :value="cardDraft.authorNotes || ''" @input="$emit('update-card', 'authorNotes', $event.target.value)"></textarea></label>
+            </template>
             <div class="scene-runtime-panel__actions">
               <button type="button" class="btn btn-sm btn-primary" :disabled="cardSaving" data-action="save-scene-character-card" @click="$emit('save-card')">{{ cardSaving ? "保存中..." : "保存新版本" }}</button>
               <button type="button" class="btn btn-sm" :disabled="cardGenerating" data-action="generate-scene-character-card" @click="$emit('generate-card')">{{ cardGenerating ? "生成中..." : "生成建议" }}</button>
@@ -68,7 +75,10 @@
             </div>
             <div v-if="generatedCard" class="scene-character-card__generated">
               <strong>待确认的人物卡建议</strong>
-              <p>{{ generatedCard.content?.personality || "生成结果暂未包含人物底色" }}</p>
+              <template v-if="generatedCard.content?.version === 'character_card.v2'">
+                <CharacterCardV2Content :content="generatedCard.content" />
+              </template>
+              <p v-else>{{ generatedCard.content?.personality || "生成结果暂未包含人物底色" }}</p>
               <button type="button" class="btn btn-sm" data-action="apply-generated-scene-character-card" @click="$emit('apply-generated')">放入编辑器</button>
             </div>
             <div v-if="cardHistoryLoading" class="scene-runtime-loading scene-runtime-loading--compact">正在加载版本历史…</div>
@@ -86,6 +96,8 @@
 </template>
 
 <script setup>
+import CharacterCardV2Content from "./CharacterCardV2Content.vue"
+
 defineProps({
   scene: { type: Object, default: null },
   characters: { type: Array, default: () => [] },
@@ -109,4 +121,5 @@ defineEmits([
 function initials(name) {
   return String(name || "人").trim().slice(0, 1) || "人"
 }
+
 </script>

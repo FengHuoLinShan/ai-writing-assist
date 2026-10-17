@@ -19,6 +19,13 @@ from pydantic import (
     model_validator,
 )
 
+_DIRECTOR_REFERENCE_DESCRIPTION = " ".join(
+    (
+        "作者本次显式选择的场景导演参考副本；",
+        "仅作为 Evidence advisory dimension",
+    )
+)
+
 
 def project_writing_draft_state(
     status: str | None,
@@ -403,12 +410,21 @@ class WritingGenerateRequest(BaseModel):
         False,
         description="确认继续使用已采用但上游依据已变化的 Scene 剧本",
     )
+    director_reference_ids: list[str] = Field(
+        default_factory=list,
+        max_length=20,
+        description=_DIRECTOR_REFERENCE_DESCRIPTION,
+    )
     operation_id: uuid.UUID | None = None
 
     @model_validator(mode="after")
     def validate_generation_base(self) -> WritingGenerateRequest:
         if self.generation_mode == "continue" and not self.base_draft_id:
             raise ValueError("base_draft_id is required for continue mode")
+        normalized = [str(uuid.UUID(value)) for value in self.director_reference_ids]
+        if len(set(normalized)) != len(normalized):
+            raise ValueError("director_reference_ids must be unique")
+        self.director_reference_ids = normalized
         return self
 
 
@@ -569,12 +585,27 @@ class WritingTargetedRevisionRequest(BaseModel):
         ),
     )
     instruction: str | None = Field(None, max_length=4000)
+    context_confirmation_id: str | None = Field(
+        default=None,
+        description="选择导演参考副本时，对 writing.targeted_revision 资料的独立确认",
+    )
+    director_reference_ids: list[str] = Field(
+        default_factory=list,
+        max_length=20,
+        description=_DIRECTOR_REFERENCE_DESCRIPTION,
+    )
     operation_id: uuid.UUID | None = None
 
     @model_validator(mode="after")
     def require_revision_targets(self) -> WritingTargetedRevisionRequest:
         if not self.finding_ids and not self.contract_item_ids:
             raise ValueError("finding_ids 与 contract_item_ids 至少提供一项")
+        if self.director_reference_ids and not self.context_confirmation_id:
+            raise ValueError("使用导演参考副本进行定向返修需要单独确认 Evidence 资料")
+        normalized = [str(uuid.UUID(value)) for value in self.director_reference_ids]
+        if len(set(normalized)) != len(normalized):
+            raise ValueError("director_reference_ids must be unique")
+        self.director_reference_ids = normalized
         return self
 
     @field_validator("draft_id", "review_task_id")
@@ -639,6 +670,102 @@ class WritingDraftAutosaveCreate(BaseModel):
     chapter_index: int = Field(..., ge=1, description="章节索引")
     title: str | None = Field(None, max_length=500, description="草稿标题")
     content: str | None = Field(None, max_length=100000, description="草稿正文")
+
+
+class ChapterOrderPreviewRequest(BaseModel):
+    """Desired order of the currently visible chapter identities."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    chapter_indices: list[int] = Field(
+        ...,
+        min_length=1,
+        max_length=2000,
+        description=(
+            "按希望正文出现顺序提交当前章节号。系统将按现有章节槽位重新编号；"
+            "有编号空洞时也保持列表所表达的顺序。"
+        ),
+    )
+
+    @model_validator(mode="after")
+    def validate_indices(self) -> ChapterOrderPreviewRequest:
+        if any(index < 1 for index in self.chapter_indices):
+            raise ValueError("章节号必须为正整数")
+        if len(set(self.chapter_indices)) != len(self.chapter_indices):
+            raise ValueError("章节顺序不能包含重复章节")
+        return self
+
+
+class ChapterOrderConfirmedRequest(BaseModel):
+    """Explicit author confirmation bound to the exact saved preview."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    expected_preview_hash: str = Field(..., pattern=r"^[a-f0-9]{64}$")
+    confirmed: Literal[True]
+
+
+class ChapterOrderRestoreConfirmedRequest(BaseModel):
+    """Explicit confirmation bound to the current recovery preview."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    expected_preview_hash: str = Field(..., pattern=r"^[a-f0-9]{64}$")
+    confirmed: Literal[True]
+
+
+class ChapterOrderMove(BaseModel):
+    from_chapter_index: int
+    to_chapter_index: int
+    title: str | None = None
+    version_count: int = 0
+    has_published_version: bool = False
+
+
+class ChapterOrderPreviewResponse(BaseModel):
+    receipt_id: uuid.UUID
+    preview_hash: str
+    source_order: list[int]
+    target_order: list[int]
+    moves: list[ChapterOrderMove]
+    story_impact: dict[str, Any]
+    requires_r3_confirmation: Literal[True] = True
+
+
+class ChapterOrderResultResponse(BaseModel):
+    receipt_id: uuid.UUID
+    status: Literal["executed", "restored"]
+    replayed: bool = False
+    chapter_map: dict[int, int]
+    story_impact: dict[str, Any]
+    result_ref: dict[str, str]
+
+
+class ChapterOrderRestorePreviewResponse(BaseModel):
+    receipt_id: uuid.UUID
+    status: Literal["executed", "restored"]
+    can_restore: bool
+    restore_preview_hash: str
+    chapter_map: dict[int, int]
+    story_impact: dict[str, Any]
+    blockers: list[dict[str, Any]] = Field(default_factory=list)
+
+
+class ChapterOrderHistoryItem(BaseModel):
+    receipt_id: uuid.UUID
+    status: Literal["previewed", "executed", "restored"]
+    source_order: list[int]
+    target_order: list[int]
+    preview_hash: str
+    story_impact: dict[str, Any]
+    can_restore: bool
+    created_at: datetime | None = None
+    executed_at: datetime | None = None
+    restored_at: datetime | None = None
+
+
+class ChapterOrderHistoryResponse(BaseModel):
+    items: list[ChapterOrderHistoryItem]
 
 
 class WritingConflictCheckCreate(BaseModel):

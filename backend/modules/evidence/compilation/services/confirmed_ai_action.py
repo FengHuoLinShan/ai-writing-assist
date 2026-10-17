@@ -13,6 +13,7 @@ from modules.evidence.compilation.contracts import (
 from modules.evidence.compilation.markdown_renderer import render_compiled_context
 from modules.evidence.compilation.services.confirmation_service import (
     ContextConfirmationService,
+    execution_compile_options,
 )
 
 
@@ -33,6 +34,7 @@ class ConfirmedAIActionService:
         action: str,
         confirmation_id: str,
         for_update: bool = False,
+        consumer_action: str | None = None,
     ) -> ConfirmedAIActionContext:
         confirmation_kwargs = {
             "novel_id": novel_id,
@@ -50,12 +52,13 @@ class ConfirmedAIActionService:
             novel_id=novel_id,
             action=action,
             confirmation_id=confirmation_id,
+            **({"consumer_action": consumer_action} if consumer_action else {}),
         )
         return ConfirmedAIActionContext(
             confirmation=confirmation,
             compiled=compiled,
             rendered_markdown=render_compiled_context(compiled),
-            compile_options=dict(confirmation.compile_options),
+            compile_options=execution_compile_options(confirmation.compile_options),
             result_refs=list(confirmation.result_refs),
         )
 

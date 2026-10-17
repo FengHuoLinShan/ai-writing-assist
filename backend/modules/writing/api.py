@@ -33,9 +33,31 @@ from modules.project.facade import (
     require_active_project,
 )
 from modules.writing.facade import (
+    confirm_chapter_order as _confirm_chapter_order,
+)
+from modules.writing.facade import (
     create_draft_only as _create_draft_only,
 )
+from modules.writing.facade import (
+    list_chapter_order_history as _list_chapter_order_history,
+)
+from modules.writing.facade import (
+    preview_chapter_order as _preview_chapter_order,
+)
+from modules.writing.facade import (
+    preview_chapter_order_restore as _preview_chapter_order_restore,
+)
+from modules.writing.facade import (
+    restore_chapter_order as _restore_chapter_order,
+)
 from modules.writing.schemas import (
+    ChapterOrderConfirmedRequest,
+    ChapterOrderHistoryResponse,
+    ChapterOrderPreviewRequest,
+    ChapterOrderPreviewResponse,
+    ChapterOrderRestoreConfirmedRequest,
+    ChapterOrderRestorePreviewResponse,
+    ChapterOrderResultResponse,
     ChapterSummaryItem,
     EditorialReadyRequest,
     PublicChapterListResponse,
@@ -116,6 +138,124 @@ async def get_writing_comments(db: DbSession, draft_id: UUID, novel_id: NovelIdQ
     return {"items": await list_comments(db, novel_id, draft_id)}
 
 
+@router.post(
+    "/chapters/order/preview",
+    response_model=ChapterOrderPreviewResponse,
+    openapi_extra={
+        "x-novelcraft-operation-id": "writing.chapter.reorder",
+        "x-novelcraft-operation-phase": "prepare",
+        "x-novelcraft-operation-trace-fields": {
+            "chapter_indices": "data.chapter_indices",
+            "expected_preview_hash": "data.expected_preview_hash",
+            "confirmed": "data.confirmed",
+        },
+    },
+)
+async def preview_writing_chapter_order(
+    db: DbSession,
+    data: ChapterOrderPreviewRequest,
+    novel_id: NovelIdQuery,
+) -> ChapterOrderPreviewResponse:
+    await require_active_project(db, novel_id)
+    return await _preview_chapter_order(db, novel_id, data)
+
+
+@router.post(
+    "/chapters/order/{receipt_id}/confirm",
+    response_model=ChapterOrderResultResponse,
+    openapi_extra={
+        "x-novelcraft-operation-id": "writing.chapter.reorder",
+        "x-novelcraft-operation-phase": "execute",
+        "x-novelcraft-operation-call-id-field": "receipt_id",
+        "x-novelcraft-operation-confirmation-field": "data.confirmed",
+        "x-novelcraft-operation-trace-fields": {
+            "chapter_indices": "data.chapter_indices",
+            "expected_preview_hash": "data.expected_preview_hash",
+            "confirmed": "data.confirmed",
+        },
+    },
+)
+async def confirm_writing_chapter_order(
+    db: DbSession,
+    receipt_id: UUID,
+    data: ChapterOrderConfirmedRequest,
+    novel_id: NovelIdQuery,
+) -> ChapterOrderResultResponse:
+    await require_active_project(db, novel_id)
+    return await _confirm_chapter_order(db, novel_id, str(receipt_id), data)
+
+
+@router.get(
+    "/chapters/order/history",
+    response_model=ChapterOrderHistoryResponse,
+    openapi_extra={
+        "x-novelcraft-operation-id": "writing.chapter.order.history.read",
+        "x-novelcraft-operation-trace-fields": {"limit": "limit"},
+    },
+)
+async def get_writing_chapter_order_history(
+    db: DbSession,
+    novel_id: NovelIdQuery,
+    limit: int = Query(20, ge=1, le=100),
+) -> ChapterOrderHistoryResponse:
+    await require_active_project(db, novel_id)
+    return await _list_chapter_order_history(db, novel_id, limit=limit)
+
+
+@router.get(
+    "/chapters/order/{receipt_id}/restore-preview",
+    response_model=ChapterOrderRestorePreviewResponse,
+    openapi_extra={
+        "x-novelcraft-operation-id": "writing.chapter.reorder.restore",
+        "x-novelcraft-operation-phase": "prepare",
+        "x-novelcraft-operation-trace-fields": {
+            "receipt_id": "receipt_id",
+            "expected_preview_hash": "expected_preview_hash",
+            "confirmed": "confirmed",
+        },
+    },
+)
+async def preview_writing_chapter_order_restore(
+    db: DbSession,
+    receipt_id: UUID,
+    novel_id: NovelIdQuery,
+) -> ChapterOrderRestorePreviewResponse:
+    await require_active_project(db, novel_id)
+    return await _preview_chapter_order_restore(db, novel_id, str(receipt_id))
+
+
+@router.post(
+    "/chapters/order/{receipt_id}/restore",
+    response_model=ChapterOrderResultResponse,
+    openapi_extra={
+        "x-novelcraft-operation-id": "writing.chapter.reorder.restore",
+        "x-novelcraft-operation-phase": "execute",
+        "x-novelcraft-operation-call-id-field": "receipt_id",
+        "x-novelcraft-operation-confirmation-field": "data.confirmed",
+        "x-novelcraft-operation-terminal-event": "restored",
+        "x-novelcraft-operation-reversal-op-ids": ("writing.chapter.reorder",),
+        "x-novelcraft-operation-trace-fields": {
+            "receipt_id": "receipt_id",
+            "expected_preview_hash": "data.expected_preview_hash",
+            "confirmed": "data.confirmed",
+        },
+    },
+)
+async def restore_writing_chapter_order(
+    db: DbSession,
+    receipt_id: UUID,
+    data: ChapterOrderRestoreConfirmedRequest,
+    novel_id: NovelIdQuery,
+) -> ChapterOrderResultResponse:
+    await require_active_project(db, novel_id)
+    return await _restore_chapter_order(
+        db,
+        novel_id,
+        str(receipt_id),
+        request=data,
+    )
+
+
 @router.post("/drafts/{draft_id}/comments", status_code=201)
 async def post_writing_comment(db: DbSession, draft_id: UUID, data: WritingCommentCreate):
     await require_active_project(db, data.novel_id)
@@ -124,7 +264,16 @@ async def post_writing_comment(db: DbSession, draft_id: UUID, data: WritingComme
     return await create_comment(db, draft_id, data)
 
 
-@router.patch("/comments/{comment_id}")
+@router.patch(
+    "/comments/{comment_id}",
+    openapi_extra={
+        "x-novelcraft-operation-id": "writing.comment.set_status",
+        "x-novelcraft-operation-trace-fields": {
+            "comment_id": "comment_id",
+            "status": "data.status",
+        },
+    },
+)
 async def patch_writing_comment(
     db: DbSession, comment_id: UUID, data: WritingCommentUpdate
 ):
@@ -395,6 +544,12 @@ async def enqueue_conflict_item_ai_suggestion(
     "/drafts/autosave",
     response_model=WritingDraftResponse,
     status_code=201,
+    openapi_extra={
+        "x-novelcraft-operation-exemption": (
+            "High-frequency autosaves are represented by versioned draft history; "
+            "operation trace intentionally does not duplicate each saved prose revision."
+        )
+    },
 )
 async def create_autosaved_draft(
     db: DbSession,
@@ -656,7 +811,17 @@ async def get_draft(
     )
 
 
-@router.post("/drafts/{draft_id}/editorial-ready", response_model=WritingDraftResponse)
+@router.post(
+    "/drafts/{draft_id}/editorial-ready",
+    response_model=WritingDraftResponse,
+    openapi_extra={
+        "x-novelcraft-operation-id": "writing.chapter.mark_editorial_ready",
+        "x-novelcraft-operation-trace-fields": {
+            "draft_id": "draft_id",
+            "expected_content_hash": "data.expected_content_hash",
+        },
+    },
+)
 async def mark_editorial_ready(
     db: DbSession,
     draft_id: str,

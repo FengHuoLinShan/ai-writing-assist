@@ -67,6 +67,7 @@ async def _submit(db, novel_id, args, preview, *, context=None):
         "id": receipt.task_id,
         "task_id": receipt.task_id,
         "task_type": "smart_dedup_scan",
+        "operation_id": str(context.operation_id),
         "label": "相似资料扫描",
     }
 

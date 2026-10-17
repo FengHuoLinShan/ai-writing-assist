@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import uuid
 from datetime import datetime
+from typing import Literal
 
 from fastapi import APIRouter, Query
 from pydantic import BaseModel
@@ -17,7 +18,9 @@ from core.dependencies import DbSession
 from modules.story.continuity.scene_projection import SceneMemoryProjectionService
 from modules.story.continuity.schemas import (
     ChapterPanorama,
+    CustomTextStateUpdateRequest,
     EventListResponse,
+    MapDeclarationStateUpdateRequest,
     MemoryStatusResponse,
     SceneCheckpointEnsureRequest,
     SceneCheckpointRebuildRequest,
@@ -29,6 +32,8 @@ from modules.story.continuity.schemas import (
     SceneStateViewResponse,
     SnapshotListResponse,
     SnapshotResponse,
+    StoryFactTimelineQuery,
+    StoryFactTimelineResponse,
 )
 from modules.story.continuity.services import MemoryService
 from modules.story.continuity.state_trial import (
@@ -106,6 +111,49 @@ async def get_entity_timeline(
         entity_id,
         skip,
         limit,
+    )
+
+
+@router.get(
+    "/fact-timeline",
+    response_model=StoryFactTimelineResponse,
+    openapi_extra={
+        "x-novelcraft-operation-id": "story.fact_timeline.read",
+        "x-novelcraft-operation-trace-fields": {
+            "entity_id": "entity_id",
+            "cutoff_scene_id": "cutoff_scene_id",
+            "source": "source",
+            "status": "status",
+            "skip": "skip",
+            "limit": "limit",
+        },
+    },
+)
+async def get_fact_timeline(
+    db: DbSession,
+    novel_id: NovelIdPath,
+    entity_id: uuid.UUID | None = Query(None),
+    cutoff_scene_id: uuid.UUID | None = Query(None),
+    source: str | None = Query(None, min_length=1, max_length=32),
+    status: Literal["current", "stale", "unknown"] | None = Query(None),
+    skip: int = Query(0, ge=0),
+    limit: int = Query(50, ge=1, le=200),
+) -> StoryFactTimelineResponse:
+    """Read factual MemoryEvents, with a Scene cutoff separate from outline plans."""
+    await _require_active_project(db, novel_id)
+    from modules.story.continuity.facade import list_fact_timeline
+
+    return await list_fact_timeline(
+        db,
+        novel_id,
+        StoryFactTimelineQuery(
+            entity_id=entity_id,
+            cutoff_scene_id=cutoff_scene_id,
+            source=source,
+            status=status,
+            skip=skip,
+            limit=limit,
+        ),
     )
 
 
@@ -276,6 +324,80 @@ async def get_scene_state_view(
         request.scene_id,
         viewpoint=viewpoint,
         include_dimensions=request.include_dimensions,
+    )
+
+
+@router.post(
+    "/custom-text-state",
+    openapi_extra={
+        "x-novelcraft-operation-id": "story.custom_text_state.confirm",
+        "x-novelcraft-operation-confirmation-field": "request.confirmed",
+        "x-novelcraft-operation-trace-fields": {
+            "scene_id": "request.scene_id",
+            "entity_id": "request.entity_id",
+            "field_key": "request.field_key",
+            "value": "request.value",
+            "expected_template_version_number": (
+                "request.expected_template_version_number"
+            ),
+            "idempotency_key": "request.idempotency_key",
+            "confirmed": "request.confirmed",
+        },
+    },
+)
+async def write_custom_text_state(
+    db: DbSession,
+    novel_id: NovelIdPath,
+    request: CustomTextStateUpdateRequest,
+) -> dict:
+    """Append one explicitly confirmed custom text status to this Scene."""
+    await _require_active_project(db, novel_id)
+    return await _service.confirm_custom_text_state(
+        db,
+        novel_id,
+        scene_id=str(request.scene_id),
+        entity_id=str(request.entity_id),
+        field_key=request.field_key,
+        value=request.value,
+        expected_template_version_number=request.expected_template_version_number,
+        idempotency_key=request.idempotency_key,
+    )
+
+
+@router.post(
+    "/map-declaration-state",
+    openapi_extra={
+        "x-novelcraft-operation-id": "story.map_declaration_state.confirm",
+        "x-novelcraft-operation-confirmation-field": "request.confirmed",
+        "x-novelcraft-operation-trace-fields": {
+            "scene_id": "request.scene_id",
+            "node_id": "request.node_id",
+            "revision_id": "request.revision_id",
+            "declaration_kind": "request.declaration_kind",
+            "declaration_id": "request.declaration_id",
+            "status": "request.status",
+            "idempotency_key": "request.idempotency_key",
+            "confirmed": "request.confirmed",
+        },
+    },
+)
+async def write_map_declaration_state(
+    db: DbSession,
+    novel_id: NovelIdPath,
+    request: MapDeclarationStateUpdateRequest,
+) -> dict:
+    """Append an explicitly confirmed status for one current adopted map item."""
+    await _require_active_project(db, novel_id)
+    return await _service.confirm_map_declaration_state(
+        db,
+        novel_id,
+        scene_id=str(request.scene_id),
+        node_id=str(request.node_id),
+        revision_id=str(request.revision_id),
+        declaration_kind=request.declaration_kind,
+        declaration_id=request.declaration_id,
+        status=request.status,
+        idempotency_key=request.idempotency_key,
     )
 
 

@@ -48,6 +48,7 @@ async def test_generation_freezes_original_context_and_reuses_parented_task(
     operation = writing_generation_operations["writing.generate_candidate"]
     preview = await operation.prepare(db, nid, args, context=context)
     reference = await operation.apply(db, nid, args, preview, context=context)
+    assert reference["operation_id"] == context.operation_id
     assert await operation.apply(db, nid, args, preview, context=context) == reference
     task = await db.get(AsyncTask, UUID(reference["task_id"]))
     assert task.meta["_parent_task_id"] == str(parent.id)

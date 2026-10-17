@@ -52,6 +52,39 @@ def _alias_texts(content_json: object) -> list[str]:
     return texts
 
 
+def _alias_states(content_json: object) -> list[tuple[str, object]]:
+    """Compare author-visible alias text and validity, ignoring review metadata."""
+    if not isinstance(content_json, dict):
+        return []
+    states = []
+    for entry in content_json.get("aliases") or []:
+        if isinstance(entry, dict):
+            value = entry.get("alias")
+            validity = entry.get("validity")
+        else:
+            value = entry
+            validity = None
+        if value is not None:
+            states.append((str(value), validity))
+    return states
+
+
+def _alias_details(content_json: object) -> list[dict[str, object]]:
+    if not isinstance(content_json, dict):
+        return []
+    details = []
+    for entry in content_json.get("aliases") or []:
+        if isinstance(entry, dict):
+            value = entry.get("alias")
+            validity = entry.get("validity")
+        else:
+            value = entry
+            validity = None
+        if value is not None:
+            details.append({"alias": str(value), "validity": validity})
+    return details
+
+
 def _content_without_markers(content_json: object) -> dict:
     """去掉内部来源标记（``_meta``）与别名（单独比较）后的扩展内容。"""
     if not isinstance(content_json, dict):
@@ -81,7 +114,7 @@ def entity_state_dict(entity: object) -> dict:
 def diff_revision_snapshots(before: dict, after: dict) -> list[str]:
     """比较两份同构快照，返回按固定顺序排列的改动字段名。
 
-    - 别名从 ``content_json.aliases`` 单独拆为 ``aliases``；
+    - 别名文本与有效期从 ``content_json.aliases`` 单独拆为 ``aliases``；
     - ``content`` 比较去掉内部来源标记（``_meta``）与别名后的剩余内容；
     - ``importance`` 覆盖数值与级别两列；
     - 没有差异时返回空列表。
@@ -97,7 +130,7 @@ def diff_revision_snapshots(before: dict, after: dict) -> list[str]:
     ):
         if before.get(simple) != after.get(simple):
             changed.add(simple)
-    if _alias_texts(before.get("content_json")) != _alias_texts(
+    if _alias_states(before.get("content_json")) != _alias_states(
         after.get("content_json")
     ):
         changed.add("aliases")
@@ -128,6 +161,7 @@ def _snapshot_view(snapshot: dict) -> EntityRevisionSnapshotView:
         public_info=snapshot.get("public_info"),
         hidden_truth=snapshot.get("hidden_truth"),
         aliases=aliases,
+        alias_details=_alias_details(raw_content),
         content_json=content,
         importance=snapshot.get("importance"),
         importance_level=snapshot.get("importance_level"),
@@ -413,8 +447,31 @@ class EntityRevisionService:
                 restored_fields.append(field_name)
 
             if update_values:
+                text_fields = {"summary", "public_info", "hidden_truth"} & set(
+                    update_values
+                )
+                clear_fields = {
+                    field
+                    for field in text_fields
+                    if update_values[field] is None
+                    or (
+                        isinstance(update_values[field], str)
+                        and not update_values[field].strip()
+                    )
+                }
+                for field in clear_fields:
+                    setattr(entity, field, None)
+                if clear_fields:
+                    await db.flush()
                 update_data = CoreEntityUpdate(**update_values)
                 await self._entity_repo.update(db, entity, update_data)
+                from modules.world.dossier_service import WorldObjectDossierService
+
+                dossier_service = WorldObjectDossierService()
+                for field in sorted(text_fields):
+                    await dossier_service.sync_core_entity_legacy_field(
+                        db, entity, field, getattr(entity, field), force_create=True
+                    )
         else:
             revisions, _ = await self._repo.get_revisions(
                 db,
@@ -457,7 +514,22 @@ class EntityRevisionService:
                     changed_by="rollback",
                 )
                 await self._invalidate_type_change(db, novel_id, entity_id)
+            clear_fields = set()
+            for field in ("summary", "public_info", "hidden_truth"):
+                value = getattr(update_data, field)
+                if value is None or (isinstance(value, str) and not value.strip()):
+                    setattr(entity, field, None)
+                    clear_fields.add(field)
+            if clear_fields:
+                await db.flush()
             await self._entity_repo.update(db, entity, update_data)
+            from modules.world.dossier_service import WorldObjectDossierService
+
+            dossier_service = WorldObjectDossierService()
+            for field in ("summary", "public_info", "hidden_truth"):
+                await dossier_service.sync_core_entity_legacy_field(
+                    db, entity, field, getattr(entity, field), force_create=True
+                )
             restored_fields = [
                 "summary",
                 "public_info",

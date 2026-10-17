@@ -14,18 +14,59 @@ beforeEach(() => {
       getCharacter: vi.fn(async () => profile),
       updateCharacter: vi.fn(async (_id, payload) => ({ ...profile, ...payload })),
       getEntityRevisions: vi.fn(async () => ({ items: [], total: 0 })),
+      getEntityDossier: vi.fn(async () => ({ entries: [], total_count: 0, omitted_count: 0, unknown: true })),
+      listEntityDossierFacets: vi.fn(async () => ({ items: [] })),
     },
+    outline: { listScenesOrdered: vi.fn(async () => []) },
   }
   setBridgeOverrides({ api, toast: vi.fn() })
 })
 
-afterEach(() => resetBridgeOverrides())
+afterEach(() => {
+  resetBridgeOverrides()
+})
 
 function mountDetail(entity = character) {
   return mount(WorldEntityDetail, { props: { entity, projectId: "p1", typeLabel: "人物" } })
 }
 
 describe("WorldEntityDetail 人物档案", () => {
+  it("对象详情中的对象档案默认收起，展开后从真实档案接口读取并纳入 dirty 状态", async () => {
+    const wrapper = mountDetail()
+    const section = wrapper.get("details.world-entity-dossier")
+    expect(api.world.getEntityDossier).not.toHaveBeenCalled()
+    section.element.open = true
+    await section.trigger("toggle")
+    await flushPromises()
+    expect(api.world.getEntityDossier).toHaveBeenCalledWith("character-1", "p1", { cache: "no-store", asOfSceneId: null })
+    expect(wrapper.text()).toContain("当前没有已确认的稳定档案条目")
+    wrapper.findComponent({ name: "WorldObjectDossierEditor" }).vm.$emit("dirty", true)
+    await wrapper.vm.$nextTick()
+    expect(wrapper.emitted("profile-dirty").at(-1)).toEqual([true])
+    const editor = wrapper.findComponent({ name: "WorldObjectDossierEditor" })
+    section.element.open = false
+    await section.trigger("toggle")
+    expect(editor.exists()).toBe(true)
+    expect(wrapper.findComponent({ name: "WorldObjectDossierEditor" }).element).toBe(editor.element)
+    expect(wrapper.emitted("profile-dirty").at(-1)).toEqual([true])
+    section.element.open = true
+    await section.trigger("toggle")
+    expect(api.world.getEntityDossier).toHaveBeenCalledTimes(1)
+    wrapper.unmount()
+  })
+
+  it("公开演示中的对象档案不挂载写入操作", async () => {
+    setBridgeOverrides({ publicDemoReadOnly: true })
+    const wrapper = mountDetail()
+    const section = wrapper.get("details.world-entity-dossier")
+    section.element.open = true
+    await section.trigger("toggle")
+    await flushPromises()
+    expect(wrapper.text()).toContain("只读演示")
+    expect(wrapper.text()).not.toContain("新增档案条目")
+    wrapper.unmount()
+  })
+
   it("人物档案保存期间的新输入保持未保存，并使用服务器新基线重试", async () => {
     let resolve
     api.world.updateCharacter.mockImplementationOnce(() => new Promise((done) => { resolve = done }))

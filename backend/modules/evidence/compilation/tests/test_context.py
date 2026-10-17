@@ -697,6 +697,8 @@ async def test_scene_state_confirmation_freezes_versions_but_old_records_replay(
         ),
     }
     legacy_compile_options.pop("scene_memory_contract_version")
+    legacy_compile_options.pop("map_spatial_baseline")
+    legacy_compile_options.pop("compiled_context_core_fingerprint")
     record.compile_options = legacy_compile_options
     await db_session.flush()
 

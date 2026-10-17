@@ -481,11 +481,13 @@ class SettingsService:
         }
 
         async def query(provider_id: str) -> AccountLLMBalanceItem:
+            queried_at = datetime.now(UTC)
             if provider_id == "codex":
                 return AccountLLMBalanceItem(
-                    provider_id=provider_id, status="unavailable"
+                    provider_id=provider_id,
+                    status="unavailable",
+                    queried_at=queried_at,
                 )
-            queried_at = datetime.now(UTC)
             row = credentials[provider_id]
             try:
                 api_key = decrypt_secret(row.encrypted_api_key)

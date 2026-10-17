@@ -351,6 +351,7 @@ class RevisionRequest(StrictModel):
 
 class MergeRequest(RevisionRequest):
     operation_id: UUID
+    expected_preview_hash: Hash | None = None
     confirmed: bool = False
     editor_state: Literal["saved", "dirty"]
 

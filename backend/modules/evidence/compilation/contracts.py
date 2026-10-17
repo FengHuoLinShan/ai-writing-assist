@@ -10,8 +10,36 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Protocol
 
+from core.container import ServiceKey
+
 if TYPE_CHECKING:
+    from sqlalchemy.ext.asyncio import AsyncSession
+
     from modules.evidence.compilation.services.compiled_context import CompiledContext
+
+
+class DirectorReferenceReadResult(Protocol):
+    def model_dump(self, *, mode: str) -> dict: ...
+
+
+class StoryDirectorReferencesForWritingPort(Protocol):
+    """Story's bounded copy reader; Evidence controls the action and POV filter."""
+
+    async def __call__(
+        self,
+        db: AsyncSession,
+        *,
+        novel_id: str,
+        scene_id: str | None,
+        reference_ids: list[str],
+        consumer_action: str,
+        max_chars: int,
+    ) -> DirectorReferenceReadResult: ...
+
+
+EVIDENCE_READ_STORY_DIRECTOR_REFERENCES: ServiceKey[
+    StoryDirectorReferencesForWritingPort
+] = ServiceKey("evidence.read_story_director_references")
 
 
 class SceneMemoryContractPort(Protocol):
@@ -27,6 +55,52 @@ class SceneMemoryContractPort(Protocol):
     def scene_memory_v1_version(self) -> int: ...
 
     def scene_memory_dimensions(self, contract_version: int) -> tuple[str, ...]: ...
+
+
+class EvolutionObjectPatternReadPort(Protocol):
+    """Read-only L3 ledger projection; Evidence owns POV and budget filtering."""
+
+    async def __call__(
+        self,
+        db: AsyncSession,
+        *,
+        novel_id: str,
+        scene_id: str,
+        entity_ids: list[str],
+        only_adopted: bool = False,
+    ) -> dict: ...
+
+
+class WorldObjectDossierReadPort(Protocol):
+    """Read one World dossier at a requested Scene anchor."""
+
+    async def __call__(
+        self,
+        db: AsyncSession,
+        novel_id: str,
+        entity_id: str,
+        *,
+        as_of_scene_id: str,
+        limit: int,
+        offset: int,
+        visibility_filter: str | None,
+        visible_contents: list[str] | None,
+        visible_fields: dict[str, list[str]] | None,
+    ) -> object: ...
+
+
+class StoryObjectStateReadPort(Protocol):
+    """Read one POV state, with author checkpoints only when requested."""
+
+    async def __call__(
+        self,
+        db: AsyncSession,
+        *,
+        novel_id: str,
+        scene_id: str,
+        viewpoint: dict[str, str],
+        include_checkpoints: bool,
+    ) -> dict: ...
 
 
 INTERACTION_SOURCE_CONTEXT_MAX_TOKENS = 16_000
@@ -57,6 +131,8 @@ class CompileOptions:
     scope: str
     consumer_action: str | None = None
     """后端确定的消费动作，如 writing.generate；不接受前端伪造"""
+    map_spatial_consumer_action: str | None = None
+    """Reuse the original core confirmation with the downstream consumer's map switch."""
     retrieval_purpose: str = "generic_context"
     """确定性检索用途；未知调用方使用 generic_context"""
     chapter_index: int | None = None
@@ -117,6 +193,8 @@ class CompileOptions:
     """是否为作者模式加入 LLM 派生的世界观简介"""
     selected_world_bible_draft_ids: list[str] = field(default_factory=list)
     """作者显式选择的 World Bible 工作稿"""
+    director_reference_ids: list[str] = field(default_factory=list)
+    """作者显式选择的导演参考副本；只适用于 writing.generate/targeted_revision。"""
     world_synopsis_revision_id: str | None = None
     """确认/回放时钉住的不可变简介 revision"""
     world_synopsis_source_hash: str | None = None
@@ -190,6 +268,7 @@ class ContextConfirmationRequest:
     user_note: str | None = None
     include_world_synopsis: bool = False
     selected_world_bible_draft_ids: list[str] | None = None
+    director_reference_ids: list[str] | None = None
     activation_profile_id: str | None = None
     activation_profile_version: int | None = None
     expected_context_fingerprint: str | None = None
@@ -268,6 +347,7 @@ class ContextSnapshotContract:
     created_at: str
     updated_at: str | None
     consumer_novel_id: str | None = None
+    map_staleness: list[dict] | None = None
 
 
 @dataclass
@@ -501,6 +581,14 @@ class StructureContextBundle:
     """人物列表"""
     geo_locations: list = field(default_factory=list)
     """地理地点列表"""
+    map_spatial_brief: dict | None = None
+    """来自 World adopted-map facade 的有界只读空间参考。"""
+    object_dossier_brief: dict | None = None
+    """Evidence-owned projection of World dossiers, Story cutoff state and L3 patterns."""
+    object_reference_dimensions: list[str] = field(default_factory=list)
+    """Optional reference dimensions explicitly enabled for this consumer action."""
+    director_reference_brief: dict | None = None
+    """Evidence projection of explicitly selected Story Director reference copies."""
     memory_records: list = field(default_factory=list)
     """长期记忆记录列表"""
     scene_checkpoint_set: dict | None = None
@@ -575,6 +663,7 @@ from modules.evidence.compilation.knowledge import (  # noqa: F401,E402
     GovernedGenerationOutcome,
     GovernedWorkflowHooks,
     GroupSource,
+    KnowledgeAdvisoryOmission,
     KnowledgeAuditFinding,
     KnowledgeAuditReceipt,
     KnowledgeContractError,

@@ -29,6 +29,7 @@ from modules.collaboration.models import (
     CollaborationArtifact,
     CollaborationRun,
     CreativeMergeReceipt,
+    CreativeWorkspaceRevision,
 )
 from modules.writing.facade import create_draft_only, get_latest_draft_for_chapter
 
@@ -176,6 +177,54 @@ async def test_failed_second_write_rolls_back_every_domain_write(
             await get_latest_draft_for_chapter(db, nid, draft.chapter_index)
         ).id == draft.id
     assert await db.scalar(select(func.count()).select_from(CreativeMergeReceipt)) == 0
+
+
+async def test_duplicate_workspace_edit_returns_its_original_revision_without_appending(
+    db_session, test_project_id, monkeypatch
+):
+    db, nid = db_session, test_project_id
+    _case, view, drafts, baseline = await setup_trial(db, nid, monkeypatch)
+    first_revision_id = view["revision_id"]
+    original_patch = ResourcePatch(
+        kind="writing_draft",
+        id=drafts[0].id,
+        value={
+            "title": drafts[0].title,
+            "content": drafts[0].content + "她仍保留了退路。",
+        },
+    )
+    later = await workspaces.edit_workspace(
+        db,
+        nid,
+        view["id"],
+        WorkspaceEdit(
+            expected_revision_id=view["revision_id"],
+            patches=[
+                ResourcePatch(
+                    kind="writing_draft",
+                    id=drafts[0].id,
+                    value={
+                        "title": drafts[0].title,
+                        "content": drafts[0].content + "她仍保留了退路。她没有立刻答应。",
+                    },
+                )
+            ],
+        ),
+    )
+    replay = await workspaces.edit_workspace(
+        db,
+        nid,
+        view["id"],
+        WorkspaceEdit(expected_revision_id=str(baseline.id), patches=[original_patch]),
+    )
+    revision_count = await db.scalar(
+        select(func.count())
+        .select_from(CreativeWorkspaceRevision)
+        .where(CreativeWorkspaceRevision.workspace_id == UUID(view["id"]))
+    )
+    assert replay["revision_id"] == first_revision_id
+    assert later["revision_id"] != first_revision_id
+    assert revision_count == 3
 
 
 async def test_new_source_invalidates_negative_query_and_old_trial(

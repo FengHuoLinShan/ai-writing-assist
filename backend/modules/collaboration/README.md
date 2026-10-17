@@ -23,6 +23,20 @@ evidence/story/writing 的 resource provider 由组合根装配。
 必须显式 flush：生产会话 `autoflush=False`，`require_case`/`require_workspace`
 以 `populate_existing` 重读会丢弃未 flush 的属性改写。
 
+`assistant_tools.py` 导出纯 `OPERATIONS_SPEC`：隔离 workspace 创建、修订、读取、封存，R4
+模型检查的资料/预算预览与确认，以及 R3 原子采用的完整读集预览与逐次确认。预览使用当前
+owner/novel/case/workspace 双重范围校验与原 domain facade，不建 grant、不排 Task、不写作者
+资产。检查确认复用 `cases.submit_run` 的 exact operation ID、TaskRegistry `collaboration.run`
+（最多 30 provider request、1800 秒 deadline、manual_resume）和原 budget snapshot；目标运行
+上下文拒绝该独立根。case 的 `AgentRunBudget` 在模型请求前持久化，累计已用额度跨恢复不重置；
+unknown 用量会在每次新请求预留前 fail closed，manual resume 同样拒绝 `usage_unknown`。
+`author_operations_api.py` 独立导出 `/api/collaboration/author-operations`，由组合根先注册
+本模块操作目录再挂载，以便共享 HTTP trace adapter 校验每条 route 的精确 `op_id`、phase、
+confirmation 与 schema 字段。准备不排队、不改作者资产，也不创建或扩大 Grant。采用预览复核完整
+read set、来源与检查回执；执行仍只调用既有 `merge_workspace`，沿用排他项目锁、逐资源
+validate/apply、receipt、outbox 与 CAS。`merge_policy=whitespace_only` 不再绕过每次明确确认。
+旧 `/api/collaboration` 领域 API 保持在旧 router；作者操作 UI 使用独立的 operation-bound 路由。
+
 当前 port：正文工作稿、Scene、伏笔/揭示安排、世界书工作稿。工作区删除覆盖不能直接作为
 领域废弃；仍走原领域确认。自定义配方只改变问题与检查清单，不增加能力、资料或联网权限。
 实验开关默认关闭，工程测试、真实模型质量和生产灰度分别验收。

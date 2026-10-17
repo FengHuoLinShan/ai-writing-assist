@@ -1,0 +1,389 @@
+{
+  "schema_version": 2,
+  "suite": "map_spatial",
+  "status": "frozen_unreviewed",
+  "human_validated": false,
+  "teacher_and_judge_contract": "evals.schemas.EVAL_TEACHER_MODEL / EVAL_TEACHER_REASONING_EFFORT",
+  "live_eval_guard": "default: require_live_eval_calibration; explicit map-only: MapSpatialEvaluationScope",
+  "map_scope_status": "prepared_not_run_four_group_judge_not_ready",
+  "rubric_contract": "evals.map_spatial_guard.rubric",
+  "private_materials_required": true,
+  "holdout_usage": "single_use_after_all_five_development_genres_pass_sol_xhigh_gate",
+  "paired_arms": [
+    "without_spatial_brief",
+    "with_spatial_brief"
+  ],
+  "metrics_by_genre": {
+    "xianxia": {
+      "cold_start": [
+        "clue_precision",
+        "clue_recall",
+        "non_objective_false_acceptance",
+        "hierarchy_accuracy",
+        "pending_review_ratio",
+        "author_review_steps",
+        "author_review_seconds",
+        "total_cost"
+      ],
+      "type_emergence": [
+        "existing_type_reuse_ratio",
+        "duplicate_type_ratio",
+        "trait_accuracy",
+        "emerging_activation_ratio",
+        "author_rename_count",
+        "author_merge_count",
+        "author_archive_count"
+      ],
+      "writing_paired": [
+        "spatial_consistency",
+        "prose_quality",
+        "spatial_notice_false_positive_ratio"
+      ],
+      "assistant": [
+        "target_resolution_accuracy",
+        "preview_intent_accuracy",
+        "unauthorized_or_guessed_coordinate_refusal",
+        "unknown_answer_accuracy"
+      ]
+    },
+    "fantasy": {
+      "cold_start": [
+        "clue_precision",
+        "clue_recall",
+        "non_objective_false_acceptance",
+        "hierarchy_accuracy",
+        "pending_review_ratio",
+        "author_review_steps",
+        "author_review_seconds",
+        "total_cost"
+      ],
+      "type_emergence": [
+        "existing_type_reuse_ratio",
+        "duplicate_type_ratio",
+        "trait_accuracy",
+        "emerging_activation_ratio",
+        "author_rename_count",
+        "author_merge_count",
+        "author_archive_count"
+      ],
+      "writing_paired": [
+        "spatial_consistency",
+        "prose_quality",
+        "spatial_notice_false_positive_ratio"
+      ],
+      "assistant": [
+        "target_resolution_accuracy",
+        "preview_intent_accuracy",
+        "unauthorized_or_guessed_coordinate_refusal",
+        "unknown_answer_accuracy"
+      ]
+    },
+    "urban": {
+      "cold_start": [
+        "clue_precision",
+        "clue_recall",
+        "non_objective_false_acceptance",
+        "hierarchy_accuracy",
+        "pending_review_ratio",
+        "author_review_steps",
+        "author_review_seconds",
+        "total_cost"
+      ],
+      "type_emergence": [
+        "existing_type_reuse_ratio",
+        "duplicate_type_ratio",
+        "trait_accuracy",
+        "emerging_activation_ratio",
+        "author_rename_count",
+        "author_merge_count",
+        "author_archive_count"
+      ],
+      "writing_paired": [
+        "spatial_consistency",
+        "prose_quality",
+        "spatial_notice_false_positive_ratio"
+      ],
+      "assistant": [
+        "target_resolution_accuracy",
+        "preview_intent_accuracy",
+        "unauthorized_or_guessed_coordinate_refusal",
+        "unknown_answer_accuracy"
+      ]
+    },
+    "science_fiction": {
+      "cold_start": [
+        "clue_precision",
+        "clue_recall",
+        "non_objective_false_acceptance",
+        "hierarchy_accuracy",
+        "pending_review_ratio",
+        "author_review_steps",
+        "author_review_seconds",
+        "total_cost"
+      ],
+      "type_emergence": [
+        "existing_type_reuse_ratio",
+        "duplicate_type_ratio",
+        "trait_accuracy",
+        "emerging_activation_ratio",
+        "author_rename_count",
+        "author_merge_count",
+        "author_archive_count"
+      ],
+      "writing_paired": [
+        "spatial_consistency",
+        "prose_quality",
+        "spatial_notice_false_positive_ratio"
+      ],
+      "assistant": [
+        "target_resolution_accuracy",
+        "preview_intent_accuracy",
+        "unauthorized_or_guessed_coordinate_refusal",
+        "unknown_answer_accuracy"
+      ]
+    },
+    "mystery": {
+      "cold_start": [
+        "clue_precision",
+        "clue_recall",
+        "non_objective_false_acceptance",
+        "hierarchy_accuracy",
+        "pending_review_ratio",
+        "author_review_steps",
+        "author_review_seconds",
+        "total_cost"
+      ],
+      "type_emergence": [
+        "existing_type_reuse_ratio",
+        "duplicate_type_ratio",
+        "trait_accuracy",
+        "emerging_activation_ratio",
+        "author_rename_count",
+        "author_merge_count",
+        "author_archive_count"
+      ],
+      "writing_paired": [
+        "spatial_consistency",
+        "prose_quality",
+        "spatial_notice_false_positive_ratio"
+      ],
+      "assistant": [
+        "target_resolution_accuracy",
+        "preview_intent_accuracy",
+        "unauthorized_or_guessed_coordinate_refusal",
+        "unknown_answer_accuracy"
+      ]
+    }
+  },
+  "families": [
+    {
+      "family_id": "map-xianxia-development-v1",
+      "genre": "xianxia",
+      "split": "development",
+      "phenomena": [
+        "independent_realms",
+        "cross_space_transport",
+        "rhetorical_distance",
+        "emerging_types",
+        "mixed_presets"
+      ],
+      "source_sha256": "b3d4a962cb53fd2fa48824f01069409a2c46757f46fac56034206376593b281f",
+      "expected_sha256": "c8699886f5b75b5fc31bbb48ec98d630f8e37a20ddc38858bdba0d2026bd4ac5",
+      "material_status": "frozen",
+      "review_status": "not_run",
+      "case_count": 5,
+      "freeze_id": "map-spatial-synthetic-v1-20261015",
+      "frozen_at": "2026-10-15"
+    },
+    {
+      "family_id": "map-xianxia-holdout-v1",
+      "genre": "xianxia",
+      "split": "holdout",
+      "phenomena": [
+        "independent_realms",
+        "cross_space_transport",
+        "rhetorical_distance",
+        "emerging_types",
+        "mixed_presets"
+      ],
+      "source_sha256": "dfac6552165a111c17d713d851650fdfe552a55669e31297dc1894f05b8176f9",
+      "expected_sha256": "4fdca2f2a1c9c098a9be5f7b7030f465dc7528595facdea3a31330cf92bdf119",
+      "material_status": "frozen",
+      "review_status": "not_run",
+      "case_count": 5,
+      "freeze_id": "map-spatial-synthetic-v1-20261015",
+      "frozen_at": "2026-10-15"
+    },
+    {
+      "family_id": "map-fantasy-development-v1",
+      "genre": "fantasy",
+      "split": "development",
+      "phenomena": [
+        "containment",
+        "vertical_floors",
+        "transport_traveler_conditions",
+        "renamed_locations",
+        "unknown_orientation"
+      ],
+      "source_sha256": "7775617fa6883ed737c22bf11467682f593c298bfbd1181489df99c3d8c31a04",
+      "expected_sha256": "e79184b42e00fa13c4ff8e91b2905ec5420626e2629300b9b078b23f4d595832",
+      "material_status": "frozen",
+      "review_status": "not_run",
+      "case_count": 5,
+      "freeze_id": "map-spatial-synthetic-v1-20261015",
+      "frozen_at": "2026-10-15"
+    },
+    {
+      "family_id": "map-fantasy-holdout-v1",
+      "genre": "fantasy",
+      "split": "holdout",
+      "phenomena": [
+        "containment",
+        "vertical_floors",
+        "transport_traveler_conditions",
+        "renamed_locations",
+        "unknown_orientation"
+      ],
+      "source_sha256": "ed6bed35e11ef0232d487de6f0ab25e5771dcb891f11908acf39fa8c6bd0111e",
+      "expected_sha256": "34f4225fb748dda4acb6ca80cfdd3c3c3766e9b65026b4335572a6de231ed69c",
+      "material_status": "frozen",
+      "review_status": "not_run",
+      "case_count": 5,
+      "freeze_id": "map-spatial-synthetic-v1-20261015",
+      "frozen_at": "2026-10-15"
+    },
+    {
+      "family_id": "map-urban-development-v1",
+      "genre": "urban",
+      "split": "development",
+      "phenomena": [
+        "rooms_and_floors",
+        "real_place_names",
+        "same_name_distinct_identity",
+        "low_spatial_density",
+        "author_override"
+      ],
+      "source_sha256": "2ef613181e8502ae1198e6b03501f16a6d8d207139cba7e500c470654b8c81ee",
+      "expected_sha256": "7347f54e03e2c9b00b315bdd13212e2ef2c28cd399b57f3c91b4315af83136b2",
+      "material_status": "frozen",
+      "review_status": "not_run",
+      "case_count": 5,
+      "freeze_id": "map-spatial-synthetic-v1-20261015",
+      "frozen_at": "2026-10-15"
+    },
+    {
+      "family_id": "map-urban-holdout-v1",
+      "genre": "urban",
+      "split": "holdout",
+      "phenomena": [
+        "rooms_and_floors",
+        "real_place_names",
+        "same_name_distinct_identity",
+        "low_spatial_density",
+        "author_override"
+      ],
+      "source_sha256": "003da011a72cd055b99aa4cc4e59ea4ecb558c4dfb2445f90313b86d2e4094aa",
+      "expected_sha256": "b0a5bf3dc905c59d6388b35ff05625d8e8b18fa36b30a1b540d274c09ce7eaca",
+      "material_status": "frozen",
+      "review_status": "not_run",
+      "case_count": 5,
+      "freeze_id": "map-spatial-synthetic-v1-20261015",
+      "frozen_at": "2026-10-15"
+    },
+    {
+      "family_id": "map-science_fiction-development-v1",
+      "genre": "science_fiction",
+      "split": "development",
+      "phenomena": [
+        "multiple_planets",
+        "moving_locations",
+        "cross_space_distance",
+        "effective_anchors",
+        "reordered_or_retired_scenes"
+      ],
+      "source_sha256": "2cadf31a97d592cbda69b7d33b3dc458c9f217b96322c8ac73905150edb8c25a",
+      "expected_sha256": "6be9f136a76f1073b83410eef58054f7509ecc92a17f86eb1da81b29471a2b76",
+      "material_status": "frozen",
+      "review_status": "not_run",
+      "case_count": 5,
+      "freeze_id": "map-spatial-synthetic-v1-20261015",
+      "frozen_at": "2026-10-15"
+    },
+    {
+      "family_id": "map-science_fiction-holdout-v1",
+      "genre": "science_fiction",
+      "split": "holdout",
+      "phenomena": [
+        "multiple_planets",
+        "moving_locations",
+        "cross_space_distance",
+        "effective_anchors",
+        "reordered_or_retired_scenes"
+      ],
+      "source_sha256": "462ddd445faa1112e9db0ccd60bfbb621d9c189f493710fd196de6c6e0a2235a",
+      "expected_sha256": "64888a3bd6f2a0bcfda6f446b145aa046e55a87324d18c0bd035f232d78f8e69",
+      "material_status": "frozen",
+      "review_status": "not_run",
+      "case_count": 5,
+      "freeze_id": "map-spatial-synthetic-v1-20261015",
+      "frozen_at": "2026-10-15"
+    },
+    {
+      "family_id": "map-mystery-development-v1",
+      "genre": "mystery",
+      "split": "development",
+      "phenomena": [
+        "unreliable_belief",
+        "hearsay",
+        "reader_visibility",
+        "no_answer",
+        "route_advisory_false_positive"
+      ],
+      "source_sha256": "c7e3214736835fa786e462842f6c973163b6e1ab8dab5993696525b09d23317b",
+      "expected_sha256": "2c91ef497e11791eaa8d74a5c03550e39f0ee3b0dcaaace41a68e07d7b5b1184",
+      "material_status": "frozen",
+      "review_status": "not_run",
+      "case_count": 5,
+      "freeze_id": "map-spatial-synthetic-v1-20261015",
+      "frozen_at": "2026-10-15"
+    },
+    {
+      "family_id": "map-mystery-holdout-v1",
+      "genre": "mystery",
+      "split": "holdout",
+      "phenomena": [
+        "unreliable_belief",
+        "hearsay",
+        "reader_visibility",
+        "no_answer",
+        "route_advisory_false_positive"
+      ],
+      "source_sha256": "efd059f34b633931177780d14afa6113b3a822aba8e9e59935882776a1d93a0b",
+      "expected_sha256": "46835016181e0d07a55cf4bc3096a5747f5e801f63edd18ecf9669659f4677fe",
+      "material_status": "frozen",
+      "review_status": "not_run",
+      "case_count": 5,
+      "freeze_id": "map-spatial-synthetic-v1-20261015",
+      "frozen_at": "2026-10-15"
+    }
+  ],
+  "freeze": {
+    "freeze_id": "map-spatial-synthetic-v1-20261015",
+    "frozen_at": "2026-10-15",
+    "hash_algorithm": "sha256",
+    "material_root": "outside_repository_private_directory",
+    "source_and_expected_payloads_in_git": false,
+    "families": 10,
+    "development_families": 5,
+    "single_use_holdout_families": 5,
+    "cases_per_family": 5,
+    "case_total": 50,
+    "teacher_and_judge": {
+      "model": "gpt-6.1-sol",
+      "reasoning_effort": "xhigh",
+      "status": "not_run"
+    },
+    "human_validated": false
+  },
+  "evaluation_entrypoint": "python -m evals.map_spatial"
+}

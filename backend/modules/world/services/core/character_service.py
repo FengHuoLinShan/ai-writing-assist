@@ -8,6 +8,8 @@
 
 from __future__ import annotations
 
+import uuid
+
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -86,6 +88,16 @@ class CharacterService(
             meta.update(submitted_meta or {})
             meta["auto_materialized"] = False
             changes["meta"] = meta
+            from modules.world.dossier_service import (
+                LEGACY_CHARACTER_FACINGS,
+                WorldObjectDossierService,
+            )
+
+            dossier_service = WorldObjectDossierService()
+            for field in changes.keys() & LEGACY_CHARACTER_FACINGS.keys():
+                await dossier_service.sync_character_legacy_field(
+                    db, existing, field, changes[field]
+                )
             updated = await self.repo.update(
                 db,
                 existing,
@@ -93,19 +105,32 @@ class CharacterService(
             )
             if updated is None:
                 self._raise_404(data.entity_id)
-            return self._to_response(updated)
+            return await self._legacy_response(db, updated)
         try:
             obj = await self.repo.create(db, nid, data)
         except IntegrityError as exc:
             raise ValidationError(
                 f"CoreEntity {data.entity_id} not found or conflict"
             ) from exc
-        return self._to_response(obj)
+        from modules.world.dossier_service import (
+            LEGACY_CHARACTER_FACINGS,
+            WorldObjectDossierService,
+        )
+
+        dossier_service = WorldObjectDossierService()
+        changes = data.model_dump(exclude={"entity_id", "novel_id"}, exclude_unset=True)
+        for field in changes.keys() & LEGACY_CHARACTER_FACINGS.keys():
+            await dossier_service.sync_character_legacy_field(
+                db, obj, field, changes[field], force_create=True
+            )
+        return await self._legacy_response(db, obj)
 
     async def ensure_for_core_entity(
         self,
         db: AsyncSession,
         entity: CoreEntity,
+        *,
+        explicitly_changed: set[str] | None = None,
     ) -> Character:
         """Ensure an adopted character identity has its minimum typed profile.
 
@@ -121,28 +146,41 @@ class CharacterService(
 
         existing = await self.repo.get(db, entity.id)
         core_meta = dict(entity.content_json or {})
+        explicitly_changed = explicitly_changed or set()
         scaffold_meta = {
             "auto_materialized": True,
             "source": "core_entity",
             "core_summary": entity.summary,
             "public_info": entity.public_info,
+            "core_hidden_truth": entity.hidden_truth,
         }
         if existing is not None:
             if existing.novel_id != entity.novel_id:
                 raise ValidationError("Character profile belongs to another novel")
             existing_meta = dict(existing.meta or {})
             if existing_meta.get("auto_materialized") is True:
+                secret_is_scaffold_owned = (
+                    "core_hidden_truth" in existing_meta
+                    and existing.secret == existing_meta["core_hidden_truth"]
+                )
                 existing_meta.update(scaffold_meta)
+                changes = {
+                    "name": entity.name,
+                    "aliases": self._core_aliases(core_meta),
+                    "meta": existing_meta,
+                    "status": "canonical",
+                }
+                secret_row = await self._latest_legacy_secret(db, entity)
+                if (
+                    "hidden_truth" in explicitly_changed
+                    and secret_row is None
+                    and secret_is_scaffold_owned
+                ):
+                    changes["secret"] = entity.hidden_truth
                 updated = await self.repo.update(
                     db,
                     existing,
-                    CharacterUpdate(
-                        name=entity.name,
-                        aliases=self._core_aliases(core_meta),
-                        secret=entity.hidden_truth,
-                        meta=existing_meta,
-                        status="canonical",
-                    ),
+                    CharacterUpdate(**changes),
                 )
                 assert updated is not None
                 return updated
@@ -163,11 +201,23 @@ class CharacterService(
                 entity_id=str(entity.id),
                 name=entity.name,
                 aliases=self._core_aliases(core_meta),
-                secret=entity.hidden_truth,
+                **(
+                    {"secret": entity.hidden_truth}
+                    if entity.hidden_truth is not None
+                    else {}
+                ),
                 meta=scaffold_meta,
                 status="canonical",
             ),
         )
+
+    async def _latest_legacy_secret(self, db: AsyncSession, entity: CoreEntity):
+        from modules.world.dossier_repository import WorldObjectDossierRepository
+
+        latest = await WorldObjectDossierRepository().latest_legacy_field(
+            db, entity.novel_id, entity.id, "secret"
+        )
+        return latest if latest and latest.status in {"active", "cleared"} else None
 
     @staticmethod
     def _core_aliases(content_json: dict) -> list[dict]:
@@ -202,7 +252,7 @@ class CharacterService(
             entity_type="character",
             label="Character",
         )
-        return self._to_response(character)
+        return await self._legacy_response(db, character)
 
     async def update(  # type: ignore[override]
         self,
@@ -238,9 +288,20 @@ class CharacterService(
             entity_type="character",
             label="Character",
         )
+        from modules.world.dossier_service import (
+            LEGACY_CHARACTER_FACINGS,
+            WorldObjectDossierService,
+        )
+
+        dossier_service = WorldObjectDossierService()
+        changed_fields = data.model_fields_set & LEGACY_CHARACTER_FACINGS.keys()
+        for field in changed_fields:
+            await dossier_service.sync_character_legacy_field(
+                db, character, field, getattr(data, field)
+            )
         updated = await self.repo.update(db, character, data)
         self._assert_found_in_novel(updated, id, nid)
-        return self._to_response(updated)
+        return await self._legacy_response(db, updated)
 
     async def list(  # type: ignore[override]
         self,
@@ -259,7 +320,31 @@ class CharacterService(
             skip=skip,
             limit=limit,
         )
-        return [CharacterResponse.model_validate(c) for c in items], total
+        from modules.world.dossier_service import WorldObjectDossierService
+
+        values = await WorldObjectDossierService().legacy_character_values(
+            db, novel_id, items
+        )
+        return [
+            await self._legacy_response(db, character, values=values)
+            for character in items
+        ], total
+
+    async def _legacy_response(
+        self,
+        db: AsyncSession,
+        character: Character,
+        *,
+        values: dict[uuid.UUID, dict[str, object]] | None = None,
+    ) -> CharacterResponse:
+        response = CharacterResponse.model_validate(character)
+        if values is None:
+            from modules.world.dossier_service import WorldObjectDossierService
+
+            values = await WorldObjectDossierService().legacy_character_values(
+                db, str(character.novel_id), [character]
+            )
+        return response.model_copy(update=values.get(character.entity_id, {}))
 
     # ============================================================
     # CharacterState 更新 (跨多字段, 非 5 verb 标准 update)
@@ -288,11 +373,18 @@ class CharacterService(
             entity_type="character",
             label="Character",
         )
-        update_data = CharacterUpdate(
-            current_state=current_state,
-            current_emotion=current_emotion,
-            current_goal=current_goal,
-        )
+        state_changes = {
+            field: value
+            for field, value in (
+                ("current_state", current_state),
+                ("current_emotion", current_emotion),
+                ("current_goal", current_goal),
+            )
+            if value is not None
+        }
+        if not state_changes:
+            return CharacterResponse.model_validate(existing)
+        update_data = CharacterUpdate(**state_changes)
         character = await self.repo.update(db, existing, update_data)
         if character is None:
             self._raise_404(character_id)
@@ -312,29 +404,37 @@ class CharacterService(
         nid = parse_uuid(novel_id, "novel_id")
         cids = [parse_uuid(cid, "character_id") for cid in character_ids]
         characters = await self.repo.get_by_ids(db, nid, cids)
+        from modules.world.dossier_service import WorldObjectDossierService
+
+        dossier_values = await WorldObjectDossierService().legacy_character_values(
+            db, novel_id, characters
+        )
 
         items = []
         for char in characters:
+            values = dossier_values.get(char.entity_id, {})
             item = CharacterContextItem(
                 character_id=str(char.entity_id),
                 name=char.name,
-                role=char.role,
-                appearance=char.appearance,
-                personality=char.personality,
-                desire=char.desire,
-                fear=char.fear,
-                weakness=char.weakness,
+                role=values.get("role", char.role),
+                appearance=values.get("appearance", char.appearance),
+                personality=values.get("personality", char.personality),
+                desire=values.get("desire", char.desire),
+                fear=values.get("fear", char.fear),
+                weakness=values.get("weakness", char.weakness),
                 current_goal=char.current_goal,
                 current_state=char.current_state,
                 current_emotion=char.current_emotion,
-                stance=char.stance,
-                voice_style=char.voice_style,
-                behavior_rules=char.behavior_rules or [],
-                relationship_summary=char.relationship_summary,
+                stance=values.get("stance", char.stance),
+                voice_style=values.get("voice_style", char.voice_style),
+                behavior_rules=values.get("behavior_rules", char.behavior_rules or []),
+                relationship_summary=values.get(
+                    "relationship_summary", char.relationship_summary
+                ),
                 meta=char.meta or {},
             )
             if reveal_mode == "author_only":
-                item.secret = char.secret
+                item.secret = values.get("secret", char.secret)
             items.append(item)
 
         return CharacterContextBundle(

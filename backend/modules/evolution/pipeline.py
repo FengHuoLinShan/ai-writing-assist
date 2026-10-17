@@ -806,6 +806,7 @@ async def run_scene_step(
     identity_candidates: Callable[[str, str, str | None], Awaitable[list[Any]]]
     | None = None,
     content_mode: str = "working",
+    source_content_mode: str | None = None,
     producer_version: str = "evolution/pipeline",
     observer_contract_version: int = 1,
     state_review_version: int = 1,
@@ -813,6 +814,7 @@ async def run_scene_step(
     enrichment_version: int = 0,
     world_version: int = 0,
     discovery_version: int = 0,
+    spatial_version: int = 0,
     scene_card: dict[str, Any] | None = None,
     scene_method_caller: Callable[..., Awaitable[dict[str, Any]]] | None = None,
 ) -> PipelineStepResult:
@@ -855,7 +857,12 @@ async def run_scene_step(
     source = resolved[0]
     if scene_id:
         await _verify_scene_binding(
-            db, str(store.novel_id), scene_id, scene_index, source
+            db,
+            str(store.novel_id),
+            scene_id,
+            scene_index,
+            source,
+            content_mode=source_content_mode if spatial_version == 1 else None,
         )
     input_manifest = await prepare_scene_input(
         store,
@@ -900,6 +907,18 @@ async def run_scene_step(
     # 执行模式以 run 登记为准，并盖章进冻结负载（A01：恢复与提交边界
     # 都以协议内标记为准，不依赖调用方自觉换 applier）。
     execution_mode = run_row.execution_mode if run_row else "live"
+    plan = run_row.reading_plan_json or {}
+    scene_protocol = {}
+    if plan.get("optional_stage_version") == 1:
+        scene_protocol["optional_stage_version"] = 1
+    if spatial_version == 1:
+        scene_protocol["spatial_version"] = 1
+        if "spatial_method_fingerprint" in plan:
+            scene_protocol["spatial_method_fingerprint"] = plan[
+                "spatial_method_fingerprint"
+            ]
+        if source_content_mode is not None:
+            scene_protocol["source_content_mode"] = source_content_mode
 
     # A07 请求前冻结：attempt 身份、来源绑定、预算关系（run 行已扣减）在
     # provider 请求发出**之前**耐久化。此后任何一点崩溃，恢复按阶段区分
@@ -938,6 +957,7 @@ async def run_scene_step(
             "enrichment_version": enrichment_version,
             "world_version": world_version,
             "discovery_version": discovery_version,
+            **scene_protocol,
             "scene_card": scene_card,
             "input_manifest": input_manifest.model_dump(mode="json"),
         },
@@ -1004,6 +1024,7 @@ async def run_scene_step(
             "enrichment_version": enrichment_version,
             "world_version": world_version,
             "discovery_version": discovery_version,
+            **scene_protocol,
             "scene_card": scene_card,
             "input_manifest": input_manifest.model_dump(mode="json"),
         }
@@ -1054,7 +1075,14 @@ async def run_scene_step(
         source_verifier=_source_verifier(source),
         owner_epoch_provider=store.owner_epoch_provider(run_key),
     )
+    from modules.evolution.optional_scene import (
+        finish_committed_optional_steps,
+        initialize_optional_stage,
+    )
+
+    frozen = await initialize_optional_stage(db, store, frozen, receipt)
     await db.commit()
+    await finish_committed_optional_steps(db, store, frozen, source, scene_method_caller)
     return PipelineStepResult(
         receipt_attempt_id=receipt.attempt_id,
         committed_prefix=receipt.committed_prefix,
@@ -1187,7 +1215,14 @@ async def recover_scene_step(
         source_verifier=_source_verifier(source),
         owner_epoch_provider=store.owner_epoch_provider(run_key),
     )
+    from modules.evolution.optional_scene import (
+        finish_committed_optional_steps,
+        initialize_optional_stage,
+    )
+
+    frozen = await initialize_optional_stage(db, store, frozen, receipt)
     await db.commit()
+    await finish_committed_optional_steps(db, store, frozen, source, scene_method_caller)
     return receipt
 
 
@@ -1222,21 +1257,32 @@ async def _run_scene_call(
             await db.commit()
             return frozen
         # Source/parent/owner are rechecked BEFORE reserving and sending a second call.
-        await _source_verifier(source)(db, frozen)
-        current = await prepare_scene_input(
-            store,
-            run_key=frozen.run_id,
-            scene_index=payload.get(
-                "operation_parent_scene_index", payload["scene_index"]
-            ),
-            source_manifest_hash=frozen.source_manifest_hash,
-        )
-        if (
-            current.dependency_status != "committed"
-            or current.previous_scene_attempt_id != frozen.previous_receipt
-            or current.previous_committed_prefix != frozen.previous_committed_prefix
+        if payload.get("optional_stage_version") == 1 and payload.get(
+            "optional_scene_stage"
         ):
-            raise CommitConflictError("parent_advanced", "scene call parent changed")
+            from modules.evolution.optional_scene import (
+                require_committed_optional_parent,
+                verify_optional_source,
+            )
+
+            await verify_optional_source(db, frozen, source)
+            await require_committed_optional_parent(store, frozen)
+        else:
+            await _source_verifier(source)(db, frozen)
+            current = await prepare_scene_input(
+                store,
+                run_key=frozen.run_id,
+                scene_index=payload.get(
+                    "operation_parent_scene_index", payload["scene_index"]
+                ),
+                source_manifest_hash=frozen.source_manifest_hash,
+            )
+            if (
+                current.dependency_status != "committed"
+                or current.previous_scene_attempt_id != frozen.previous_receipt
+                or current.previous_committed_prefix != frozen.previous_committed_prefix
+            ):
+                raise CommitConflictError("parent_advanced", "scene call parent changed")
         from modules.evolution.consumer_reuse import (
             consumer_kind,
             find_reusable,
@@ -1284,6 +1330,31 @@ async def _run_scene_call(
             await store.replace_frozen_payload(frozen)
             await db.commit()
             return frozen
+        from modules.evolution.optional_step_budget import (
+            OptionalStepQuotaExhaustedError,
+            adjust_optional_quota,
+            optional_call_block_reason,
+            optional_step_for_journal,
+            record_optional_gap,
+        )
+
+        optional_step = optional_step_for_journal(journal_key)
+        plan = run.reading_plan_json or {}
+        if (
+            optional_step
+            and plan.get("spatial_version") == 1
+            and not payload.get("category_rescan_operation_id")
+            and not payload.get("spatial_rescan_operation_id")
+        ):
+            reason = optional_call_block_reason(run, payload, optional_step)
+            if reason:
+                record_optional_gap(payload, optional_step, journal_key, reason)
+                await store.replace_frozen_payload(
+                    frozen.model_copy(update={"payload": payload})
+                )
+                await db.commit()
+                raise OptionalStepQuotaExhaustedError(optional_step, journal_key, reason)
+            run.reading_plan_json = adjust_optional_quota(plan, optional_step, 1)
         if payload.get("category_rescan_operation_id"):
             operation_id = payload["category_rescan_operation_id"]
             operations = list(run.reading_plan_json.get("category_rescans", []))
@@ -1304,6 +1375,35 @@ async def _run_scene_call(
                         "calls_remaining": item["calls_remaining"] - 1
                         if item["calls_remaining"] is not None
                         else None,
+                    }
+                    if item["operation_id"] == operation_id
+                    else item
+                    for item in operations
+                ],
+            }
+        if payload.get("spatial_rescan_operation_id"):
+            operation_id = payload["spatial_rescan_operation_id"]
+            operations = list(run.reading_plan_json.get("spatial_rescans", []))
+            operation = next(
+                (item for item in operations if item["operation_id"] == operation_id),
+                None,
+            )
+            if operation is None or int(operation.get("calls_remaining", 0)) <= 0:
+                raise BudgetExhaustedError("补扫确认的空间调用上限已用完")
+            from modules.evolution.optional_step_budget import (
+                mandatory_requests_remaining,
+            )
+
+            if run.budget_remaining is not None and int(
+                run.budget_remaining
+            ) - 1 < mandatory_requests_remaining(run, payload):
+                raise BudgetExhaustedError("主理解剩余额度已达保护线，空间补扫未发送")
+            run.reading_plan_json = {
+                **run.reading_plan_json,
+                "spatial_rescans": [
+                    {
+                        **item,
+                        "calls_remaining": int(item["calls_remaining"]) - 1,
                     }
                     if item["operation_id"] == operation_id
                     else item
@@ -1381,6 +1481,22 @@ async def _return_unissued_scene_call(
             )
         if run.budget_remaining is not None:
             run.budget_remaining += 1
+        from modules.evolution.optional_step_budget import (
+            adjust_optional_quota,
+            optional_step_for_journal,
+        )
+
+        optional_step = optional_step_for_journal(journal_key)
+        plan = run.reading_plan_json or {}
+        quotas = dict(plan.get("optional_step_quotas") or {})
+        if (
+            optional_step
+            and plan.get("spatial_version") == 1
+            and optional_step in quotas
+            and not payload.get("category_rescan_operation_id")
+            and not payload.get("spatial_rescan_operation_id")
+        ):
+            run.reading_plan_json = adjust_optional_quota(plan, optional_step, -1)
         operation_id = payload.get("category_rescan_operation_id")
         if operation_id:
             run.reading_plan_json = {
@@ -1391,6 +1507,17 @@ async def _return_unissued_scene_call(
                     and item["calls_remaining"] is not None
                     else item
                     for item in run.reading_plan_json.get("category_rescans", [])
+                ],
+            }
+        spatial_operation_id = payload.get("spatial_rescan_operation_id")
+        if spatial_operation_id:
+            run.reading_plan_json = {
+                **run.reading_plan_json,
+                "spatial_rescans": [
+                    {**item, "calls_remaining": item["calls_remaining"] + 1}
+                    if item["operation_id"] == spatial_operation_id
+                    else item
+                    for item in run.reading_plan_json.get("spatial_rescans", [])
                 ],
             }
         payload.pop(journal_key)
@@ -1425,6 +1552,7 @@ async def _settle_scene_call(
 async def _finish_scene_results(db, store, frozen, source, reviewer, caller):
     from modules.evolution.discovery import finish_scene_discovery
     from modules.evolution.enrichment import finish_scene_enrichment
+    from modules.evolution.spatial import finish_scene_spatial
     from modules.evolution.world import finish_scene_world
 
     if frozen.payload.get("world_version", 0) < 2:
@@ -1433,7 +1561,10 @@ async def _finish_scene_results(db, store, frozen, source, reviewer, caller):
     frozen = await finish_scene_world(db, store, frozen, source, caller)
     if frozen.payload.get("world_version") in {2, 3}:
         frozen = await _finish_state_review(db, store, frozen, source, reviewer)
-    return await finish_scene_discovery(db, store, frozen, source, caller)
+    if frozen.payload.get("optional_stage_version") == 1:
+        return frozen
+    frozen = await finish_scene_discovery(db, store, frozen, source, caller)
+    return await finish_scene_spatial(db, store, frozen, source, caller)
 
 
 async def _finish_state_review(db, store, frozen, source, reviewer):
@@ -1577,7 +1708,9 @@ def _shadow_applier(scene_index: int, source_revision: int):
     return applier
 
 
-async def _verify_scene_binding(db, novel_id, scene_id, scene_index, source):
+async def _verify_scene_binding(
+    db, novel_id, scene_id, scene_index, source, *, content_mode=None
+):
     from core.errors import ValidationError
 
     try:
@@ -1587,6 +1720,7 @@ async def _verify_scene_binding(db, novel_id, scene_id, scene_index, source):
             scene_id,
             scene_index,
             [part.model_dump(mode="json") for part in source.ranges()],
+            content_mode=content_mode,
         )
     except ValidationError as exc:
         raise CommitConflictError("source_changed", str(exc)) from exc
@@ -1615,7 +1749,16 @@ def _source_verifier(expected: SceneSourceBinding):
             )
         if scene_id := (frozen.payload or {}).get("scene_id"):
             await _verify_scene_binding(
-                db, frozen.novel_id, scene_id, frozen.payload["scene_index"], resolved[0]
+                db,
+                frozen.novel_id,
+                scene_id,
+                frozen.payload["scene_index"],
+                resolved[0],
+                content_mode=(
+                    frozen.payload.get("source_content_mode")
+                    if frozen.payload.get("spatial_version") == 1
+                    else None
+                ),
             )
             if scene_card := frozen.payload.get("scene_card"):
                 from dataclasses import asdict

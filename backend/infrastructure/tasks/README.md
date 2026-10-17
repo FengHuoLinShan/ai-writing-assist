@@ -45,6 +45,8 @@ infrastructure/tasks/
 普通队列不领取 `_execution_mode=inline_only` 子任务。该类领域复核由助手在原 task scope
 内调用既有 inline executor；父子 lease 同时约束提交，共享累计预算。inline 的 progress
 与 worker 一样脱离 ORM identity map，领域 `expire_all()` 不得丢失 lease/进度身份。
+Goal 的确定 ID 父任务也通过 enqueuer 创建为 `inline_only` / `manual_resume`；其状态由 Goal
+检查点控制，普通 worker 不领取，也不以队列重试代替作者恢复。
 
 父子关系在子任务创建时写入 `_parent_task_id`，取消按该关系查找，不能依赖领域稍后投影的
 结果引用。取消按子任务→父任务锁序收敛；失联扫描清理终态父任务的遗留子任务，可恢复父任务
@@ -60,9 +62,12 @@ infrastructure/tasks/
   （`world_generation_suggestion` 的 meta 可携带 `session_id`/`session_action`：任务成功后由
   world 域把回合与成果追加进持久化共创会话，见 ADR-0021；transport 合并与任务指纹不受影响）
 - story：`story_outline_generate`、`outline_analyze`、`outline_generate`、`scene_fusion_preview`、
-  `story_character_card_generate`、`story_reaction_propose`、`story_scene_script_generate`、`story_one_click`。
+  `story_character_card_generate`、`story_reaction_propose`、`story_scene_script_generate`、
+  `story_one_click`、`story_scene_director`、`story_world_progression`、
+  `story_world_progression_read_commit_check`（Evolution 成功读入回执后的免费检查）。
   `plot_structure_generate`、`chapter_card_extraction`、`chapter_scene_generate` 仅为存量任务返回
   `unsupported` 的兼容注册，不是当前生产生成入口
+
 - evidence（持久化 type 保留 `rag_*`）：`rag_index_chapter`、`rag_reindex_novel`、`rag_retry_embeddings`、
   `rag_reannotate_entities`
 - writing：`publish_chapter`、`writing_generate`、`writing_semantic_review`、
@@ -71,6 +76,17 @@ infrastructure/tasks/
 - imports：`deep_import`、`scene_auto_extraction`、`world_object_auto_extraction`、`spreadsheet_migration_ai`、
   `plot_structure_auto_extraction`
 - interaction：`interaction_story_generate`、`interaction_summary_refresh`
+
+`story_one_click` 同时承载新建的 `simulation_v3` Scene 排演；通用入口仍默认旧版请求形状。
+`story_scene_director` 是独立的 Story handler，复用同一协议与有限结算，使用 `never_retry` 和同一根累计
+`AIRunEnvelope`；未知/可能计费结果需要作者显式续算。handler 由 Story 模块声明并经
+app task manifest 注册。
+
+`story_world_progression` 是 Story 的独立候选推进 handler，使用 `simulation_v3` 与不可变步骤记录，
+按 `never_retry`/`max_attempts=1` 执行；每次 provider 调用前先提交单调累计账本和分支检查点，可能计费结果未知时暂停。
+`story_world_progression_read_commit_check` 仅检查 Evolution 已成功读入的完整新章和作者 standing grant；
+它不调用模型、不新建根，只有原根剩余额度与授权仍有效时才可能排入前一个处理器。两者已由 app
+task manifest 注册；本地离线验证不代表真实模型输出质量或作者验收。
 
 `deep_import` 完成时可把 post-import adoption package 的 compact receipt 写入既有
 `result.phase_artifacts`；这不是新任务类型或队列状态。包组装失败不得覆盖已完成的
@@ -319,6 +335,9 @@ worker 与 inline 在 handler 执行前为 attempt 注入 `task_id/attempt/lease
 自动 requeue、stale 恢复与 manual resume 只更换执行载体，不重置累计计数、冻结额度或 deadline；
 inline 子任务复用父 run，不另开账本。快照通过 `TaskLifecycleService.checkpoint_run_envelope()` 的
 窄 lease-fenced merge 落库，只合并该私有键，不提交或覆盖 handler 的业务事务；lease 丢失时拒绝写入。
+`assistant_turn` 的新 v9 任务从冻结目录派生 C2 Story 子能力与指纹，私有任务范围和 v4 信封
+在恢复时逐项核对；旧 v1/v2 信封与旧运行不因此获得跨域能力。子任务只能沿父任务内联执行，
+同一累计请求账本达到 80% 或出现未知扣费即停止新 provider 预留。
 终态快照由 `finalize(envelope=...)` 与任务终态在同一事务提交，stale 扫描与 cancel 路径在同一事务内
 把未 settle 的请求收敛为 unknown/possible。没有信封且已领取过一次（`attempt > 1`）的旧在途任务标记
 `legacy_untracked` 且 `usage_complete=false`，不回填猜测计数；首次领取的新任务从本 attempt 开始完整跟踪。
@@ -474,6 +493,8 @@ AnyIO 重复取消直到连接归还，仍执行原 lease fence；模型与网�
 live/shadow 模式及来源指纹；已提交结果重放原回执，sampled/compiled 复用冻结结果，
 sampling/failed 保留计量待核对，不能由通用重试静默再次付费。恢复请求变化返回
 request_changed。当前没有把 deep_import 的生产入口重定向到此 handler。
+新空间阅读仍使用同一个 Scene 任务：领域先提交主回执，再按持久阶段执行可选步骤；已提交分支
+恢复未收尾阶段，不改写主回执、不重发未知请求。阶段与兼容边界见 [Evolution 合同](../../../docs/modules/22_evolution.md#adr-0036-空间可选阅读步骤m1)。
 
 旧版 World 整场容量延后由作者预览、确认后进入独立补审任务。已冻结的分组结果可从原任务检查点继续，
 不重发已采样请求；unknown 费用或请求结果只允许人工核对，不能使用 manual resume。
@@ -497,6 +518,8 @@ AI 用量汇总保留 `usage_complete`；旧恢复回执 `legacy_untracked` 即�
 
 `evolution_category_rescan_v1` 是已确认类别补扫的 manual_resume 任务，冻结结果恢复不重发；
 请求未知先核对，沿用原理解 run 的根预算，并限制本操作调用上限。
+
+`evolution_spatial_rescan_v1` 是空间补扫的 manual_resume 任务，范围、模型与来源在授权时冻结，独立空间额度和主阅读保留额在发送前核对；结果未知时阻止自动重发，已完成的理解回执保留。
 
 兼容投影 `update_task_projection` 默认只写 pending/running；领域在显式恢复已证实的失败时可传 `allow_failed=True` 修正失败投影，仍校验同 task_id/type/novel_id 并加锁，不覆盖 done/cancelled，也不绕过 manual_resume 策略或重置 AI 账本。
 

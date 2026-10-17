@@ -17,10 +17,13 @@ os.environ.setdefault(
     "LLM_SETTINGS_ENCRYPTION_KEY",
     "MDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDA=",
 )
-# Settings 的布尔开关一律按代码默认值（均为 false）运行：core.config 的 load_env_file
+# Settings 的布尔开关一律按代码默认值运行：core.config 的 load_env_file
 # 不覆盖已存在的环境变量，先 setdefault 即可让本机 backend/.env 的开关不进入测试。
 # 新增布尔开关须同步此处；tests/unit/test_config.py 的守护用例会指出遗漏。
 os.environ.setdefault("ASSISTANT_ENABLED", "false")
+os.environ.setdefault("ASSISTANT_OPERATION_TRACE_ENABLED", "true")
+os.environ.setdefault("ASSISTANT_GOAL_RUNS_ENABLED", "false")
+os.environ.setdefault("ASSISTANT_GOAL_RUNS_PROJECT_ALLOWLIST", "")
 os.environ.setdefault("ASSISTANT_EDITORIAL_ENABLED", "false")
 os.environ.setdefault("ASSISTANT_EDITORIAL_AUTOMATIC_ENABLED", "false")
 os.environ.setdefault("ASSISTANT_FORECAST_ENABLED", "false")
@@ -38,6 +41,7 @@ os.environ.setdefault("INTERACTION_FORECAST_ENABLED", "false")
 os.environ.setdefault("INTERACTION_AGENT_ENABLED", "false")
 os.environ.setdefault("INTERACTION_TEAM_ENABLED", "false")
 os.environ.setdefault("STORY_REHEARSAL_ENABLED", "false")
+os.environ.setdefault("STORY_SCENE_DIRECTOR_ENABLED", "false")
 os.environ.setdefault("RERANKER_ENABLED", "false")
 os.environ.setdefault("RAG_QUERY_PLANNER_ENABLED", "false")
 os.environ.setdefault("RAG_PREWARM_ON_STARTUP", "false")
@@ -83,10 +87,12 @@ import modules.story.continuity.models  # noqa: F401
 import modules.story.models  # noqa: F401
 import modules.story.outline_state.models  # noqa: F401
 import modules.world.map_atlas_models  # noqa: F401
+import modules.world.map_spatial_clue_models  # noqa: F401
 import modules.world.models  # noqa: F401
 import modules.writing.models  # noqa: F401
 from app.bootstrap import register_container_services
 from app.main import app
+from core import database
 from core.base import Base
 from core.container import reset as reset_container
 from core.dependencies import get_db
@@ -291,6 +297,7 @@ async def test_character_id(db_session: AsyncSession, test_project_id: str) -> s
 @pytest_asyncio.fixture
 async def async_client(db_session: AsyncSession) -> AsyncGenerator[AsyncClient, None]:
     """FastAPI test client with SQLite db override."""
+    original_manager = database._manager
 
     async def override_get_db() -> AsyncGenerator[AsyncSession, None]:
         yield db_session
@@ -302,11 +309,16 @@ async def async_client(db_session: AsyncSession) -> AsyncGenerator[AsyncClient, 
             yield client
     finally:
         app.dependency_overrides.clear()
+        created_manager = database._manager
+        if created_manager is not None and created_manager is not original_manager:
+            await created_manager.close()
+            database.reset_manager()
 
 
 @pytest_asyncio.fixture
 async def raw_async_client(db_session: AsyncSession) -> AsyncGenerator[AsyncClient, None]:
     """FastAPI test client without automatic write-request guard headers."""
+    original_manager = database._manager
 
     async def override_get_db() -> AsyncGenerator[AsyncSession, None]:
         yield db_session
@@ -318,3 +330,7 @@ async def raw_async_client(db_session: AsyncSession) -> AsyncGenerator[AsyncClie
             yield client
     finally:
         app.dependency_overrides.clear()
+        created_manager = database._manager
+        if created_manager is not None and created_manager is not original_manager:
+            await created_manager.close()
+            database.reset_manager()

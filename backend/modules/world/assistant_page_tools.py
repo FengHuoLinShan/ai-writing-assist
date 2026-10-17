@@ -11,7 +11,6 @@ from core.errors import ConflictError, NotFoundError
 from core.service_keys import (
     ASSISTANT_REQUIRE_OPERATION_TARGETS,
 )
-from modules.assistant.contracts import AssistantOperation
 from modules.world.models import WorldBiblePageDraft, WorldBiblePageRevision
 from modules.world.schemas import WorldBiblePageDraftUpdate, WorldBibleSection
 from modules.world.services.worldbuilding.world_authority_service import (
@@ -240,16 +239,25 @@ async def _restore(db, novel_id, args, preview, *, context=None):
     }
 
 
-OPERATIONS = {
-    "world.edit_page_draft": AssistantOperation(
-        "编辑资料标题、正文与条目", EditPage, _edit_preview, _edit
-    ),
-    "world.publish_page_draft": AssistantOperation(
-        "发布资料工作稿", PublishPage, _publish_preview, _publish
-    ),
-    "world.restore_page_revision": AssistantOperation(
-        "从资料历史继续编辑", RestorePage, _restore_preview, _restore
-    ),
+OPERATIONS_SPEC = {
+    "world.edit_page_draft": {
+        "label": "编辑资料标题、正文与条目",
+        "schema": EditPage,
+        "prepare": _edit_preview,
+        "apply": _edit,
+    },
+    "world.publish_page_draft": {
+        "label": "发布资料工作稿",
+        "schema": PublishPage,
+        "prepare": _publish_preview,
+        "apply": _publish,
+    },
+    "world.restore_page_revision": {
+        "label": "从资料历史继续编辑",
+        "schema": RestorePage,
+        "prepare": _restore_preview,
+        "apply": _restore,
+    },
 }
 
 

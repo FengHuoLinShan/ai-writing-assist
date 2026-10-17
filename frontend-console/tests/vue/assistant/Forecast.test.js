@@ -89,7 +89,6 @@ describe("selection snapshot stays bound to its source version (PR160-162 F2)", 
     const calls = api.forecasts.feed.mock.calls
     return calls[calls.length - 1][1].context
   }
-  async function settle() { await flushPromises(); await new Promise(resolve => setTimeout(resolve, 0)); await flushPromises() }
   it("carries the selected range while the saved content still matches at the captured offsets", async () => {
     const api = apiFixture()
     setBridgeOverrides({ api, state: { currentProjectId: projectA } })
@@ -102,12 +101,12 @@ describe("selection snapshot stays bound to its source version (PR160-162 F2)", 
     const editor = editorWith(savedWithSelection)
     setBridgeOverrides({ api, state: { currentProjectId: projectA } })
     const wrapper = mount(ForecastDock, { props: { projectId: projectA, context: selectionContext, editor } }); wrappers.push(wrapper)
-    await settle()
+    await vi.waitFor(() => expect(api.forecasts.feed).toHaveBeenCalledTimes(1))
     expect(lastFocus(api).selected_range).toBeDefined()
     // 前文插字并保存：dock 以旧 props.context 重新 configure——新指纹不得
     // 配旧偏移，选区必须失效（不带范围），而不是静默指向别的文字。
     editor.lastSavedContent = "他在城门外停下。林舟走进文白石城，星盘在袖中发亮。"
-    await settle()
+    await vi.waitFor(() => expect(api.forecasts.feed).toHaveBeenCalledTimes(2))
     const focus = lastFocus(api)
     expect(focus.selected_range).toBeUndefined()
     expect(focus.draft_id).toBe(draftId)

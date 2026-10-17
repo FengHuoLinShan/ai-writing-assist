@@ -11,6 +11,14 @@ from core.container import ensure_registered, get as _get
 from core.container import register as _register
 from core.service_keys import (
     ALL_SERVICE_KEYS,
+    ASSISTANT_READ_MAP_AUTHOR_DECISION,
+    EVOLUTION_READ_MAP_COLD_START_STATUS,
+    EVIDENCE_READ_EVOLUTION_OBJECT_PATTERNS,
+    EVIDENCE_READ_OBJECT_DOSSIER_BRIEF,
+    EVIDENCE_READ_STORY_OBJECT_STATE,
+    EVIDENCE_READ_WORLD_OBJECT_DOSSIER,
+    WORLD_READ_MAP_COLD_START_DRAFTS,
+    WORLD_READ_MAP_NOTIFICATION_SIGNALS,
     CONDITIONALLY_REGISTERED,
     ACCOUNT_PROJECT_CONTEXT,
     ACCOUNT_PROJECT_IDS_FOR_OWNER,
@@ -24,10 +32,13 @@ from core.service_keys import (
     ASSISTANT_EDITORIAL_POST_ADOPTION_RECHECKS,
     ASSISTANT_MARK_EDITORIAL_READY,
     ASSISTANT_OPERATIONS,
+    ASSISTANT_OPERATION_TRACE,
+    ASSISTANT_NOTICE_SOURCES,
     ASSISTANT_PROACTIVE_FINDINGS,
     ASSISTANT_PROACTIVE_SUBMITTERS,
     ASSISTANT_REQUIRE_OPERATION_TARGETS,
     ASSISTANT_RUN_DISCUSSION_SCOPE,
+    ASSISTANT_IS_AUTHOR_TURN_RUN,
     ASSISTANT_SESSION_SERVICE,
     ASSISTANT_SUBMIT_COMMENT_PROPOSALS,
     COLLABORATION_CHANGED_CASES,
@@ -71,6 +82,10 @@ from core.service_keys import (
     SOURCE_CHANGED,
     STORY_GET_SCENE_CONTRACT,
     STORY_SCENE_SOURCE,
+    STORY_QUEUE_WORLD_PROGRESSION_READ_CHECK,
+    EVOLUTION_READ_COMPLETED_CHAPTERS,
+    STORY_INVALIDATE_WORLD_PROGRESSION_FOR_REORDER,
+    STORY_CHAPTER_ORDER,
     WORLD_ASSISTANT_CHAT,
     WORLD_ASSISTANT_CHAT_INTENT,
     WORLD_ASSISTANT_OUTCOME_STATES,
@@ -82,8 +97,18 @@ from core.service_keys import (
     WORLD_LIST_ADOPTED_MAP_CONTINUITY_FACTS,
     WORLD_READ_MAP_CHAPTER_CONSUMERS,
     WORLD_READ_MAP_NODE_HEADS,
+    WORLD_READ_MAP_SPATIAL_BRIEF,
+    WORLD_REQUIRE_CUSTOM_TEXT_STATE_FIELD,
+    WORLD_REQUIRE_MAP_DECLARATION_STATE,
+    WORLD_READ_OBJECT_VALIDITY_NOTICES,
+    WORLD_READ_MAP_SPATIAL_ADVISORIES,
+    WORLD_READ_PROJECT_VOCABULARY,
+    WORLD_STAGE_SPATIAL_DISCOVERY,
+    WORLD_BUILD_MAP_AUTO_DRAFTS,
+    WORLD_READ_SPATIAL_DISCOVERY_CONTEXT,
     WORLD_READ_BIBLE_PAGE_REVISIONS,
     WORLD_LIST_CHARACTERS,
+    WORLD_GET_CHARACTERS_CONTEXT,
     WORLD_LIST_ENTITIES,
     WORLD_LIST_ENTITY_TERMS,
     WORLD_MAP_CAPABILITIES,
@@ -103,6 +128,10 @@ from core.service_keys import (
     WRITING_MANUSCRIPT_SOURCE,
 )
 from modules.evidence.facade import compile_structure_context as _ctx_compile
+from modules.evidence.facade import (
+    read_object_dossier_brief as _evidence_read_object_dossier_brief,
+)
+from modules.evidence.compilation.contracts import EVIDENCE_READ_STORY_DIRECTOR_REFERENCES
 from modules.evidence.facade import (
     compile_generation_background as _ctx_generation_background,
 )
@@ -151,6 +180,8 @@ from modules.writing.project_ports import (
     WritingWorkspaceStatsAdapter as _WritingWorkspaceStatsAdapter,
 )
 from modules.world.facade import (
+    get_characters_context as _world_get_characters_context,
+    read_project_vocabulary as _world_read_project_vocabulary,
     create_character as _world_create_char,
     get_character_id_by_world_entity as _world_get_char_id,
     list_characters as _world_list_characters,
@@ -158,6 +189,7 @@ from modules.world.facade import (
     list_entity_terms as _world_list_entity_terms,
     review_team_stress as _world_review_team_stress,
 )
+from modules.world.notice_sources import list_object_validity_notices
 from modules.evidence.facade import (
     purge_project_interaction_cache as _purge_project_interaction_cache,
 )
@@ -193,32 +225,69 @@ from modules.evolution.facade import (
     require_current_world_candidate as _evolution_require_current_world_candidate,
     receipt_view as _evolution_receipt_view,
 )
+from modules.evolution.evidence_read import read_evolution_object_patterns
 from modules.story.facade import get_scene_contract as _story_get_scene_contract
+from modules.story.facade import read_object_dossier_state
+from modules.story.facade import read_scene_director_references_for_writing
 from modules.world import assistant_ports as _world_assistant
-from modules.world.assistant_tools import OPERATIONS as _WORLD_OPERATIONS
-from app.assistant_operation_registry import evidence_forecast_operations
+from modules.world.facade import (
+    read_world_object_dossier,
+    require_custom_text_state_field as _world_require_custom_text_state_field,
+    require_map_declaration_state as _world_require_map_declaration_state,
+    read_spatial_discovery_context as _world_read_spatial_discovery_context,
+    stage_spatial_discovery as _world_stage_spatial_discovery,
+    build_map_auto_drafts as _world_build_map_auto_drafts,
+    read_map_spatial_brief as _world_read_map_spatial_brief,
+    read_map_spatial_advisories as _world_read_map_spatial_advisories,
+)
+from app.assistant_operation_registry import (
+    evidence_forecast_operations,
+    evolution_operations,
+    assistant_spatial_advisory_operations,
+    assistant_notice_operations,
+    imports_operations,
+    world_dossier_operations,
+    world_validity_operations,
+)
+from app.notice_source_registry import notice_sources as _assistant_notice_sources
 from app.assistant_operation_registry import project_dedup_operations
+from app.assistant_operation_registry import evidence_read_operations
+from app.assistant_operation_registry import evidence_object_dossier_operations
 from app.assistant_operation_registry import project_operations
+from app.assistant_operation_registry import project_validity_operations
 from app.assistant_operation_registry import story_information_operations
 from app.assistant_operation_registry import story_operations
 from app.assistant_operation_registry import story_planning_operations
+from app.assistant_operation_registry import story_scene_operations
+from app.assistant_operation_registry import story_state_operations
+from app.assistant_operation_registry import story_director_operations
+from app.assistant_operation_registry import story_world_progression_operations
+from app.assistant_operation_registry import story_fact_timeline_operations
+from app.assistant_operation_registry import story_character_arc_operations
+from app.assistant_operation_registry import story_generation_operations
 from app.assistant_operation_registry import story_structure_operations
 from app.assistant_operation_registry import writing_candidate_operations
+from app.assistant_operation_registry import writing_a1_operations
+from app.assistant_operation_registry import writing_chapter_order_operations
 from app.assistant_operation_registry import writing_generation_operations
 from app.assistant_operation_registry import writing_operations
 from app.assistant_operation_registry import world_opening_operations
-from modules.world.assistant_page_tools import OPERATIONS as _WORLD_PAGE_OPERATIONS
-from modules.world.assistant_outcome_tools import OPERATIONS as _WORLD_OUTCOME_OPERATIONS
-from modules.world.assistant_cocreation_tools import (
-    OPERATIONS as _WORLD_COCREATION_OPERATIONS,
+from app.assistant_operation_registry import world_author_operations
+from app.assistant_operation_registry import (
+    collaboration_author_operations,
+    interaction_author_operations,
 )
+from app.assistant_operation_registry import world_map_operations
+from app.assistant_operation_registry import world_cocreation_operations
+from app.assistant_operation_registry import world_outcome_operations
+from app.assistant_operation_registry import world_page_operations
+from app.assistant_operation_registry import world_review_operations
+from app.assistant_operation_registry import world_operations
+from app.assistant_operation_registry import world_vocabulary_operations
 from modules.story.proactive import schedule_proactive_review as _story_proactive_review
-from modules.imports.assistant_tools import OPERATIONS as _IMPORTS_OPERATIONS
 from modules.imports.assistant_tools import (
     schedule_proactive_review as _imports_proactive_review,
 )
-from modules.world.assistant_map_tools import OPERATIONS as _MAP_OPERATIONS
-from modules.world.assistant_review_tools import OPERATIONS as _WORLD_REVIEW_OPERATIONS
 from modules.world.assistant_review_tools import (
     schedule_proactive_review as _world_proactive_review,
     review_findings as _world_review_findings,
@@ -227,6 +296,15 @@ from modules.writing.assistant_tools import (
     schedule_proactive_review as _writing_proactive_review,
 )
 from modules.assistant.facade import mark_changed as _assistant_mark_changed
+from modules.assistant.facade import is_author_turn_run as _assistant_is_author_turn_run
+from modules.assistant.facade import read_map_author_decision as _read_map_author_decision
+from modules.evolution.facade import (
+    read_map_cold_start_status as _read_map_cold_start_status,
+)
+from modules.world.facade import read_map_cold_start_drafts as _read_map_cold_start_drafts
+from modules.world.facade import (
+    read_map_notification_signals as _read_map_notification_signals,
+)
 from modules.collaboration.facade import (
     changed_cases as _collab_changed_cases,
     collect_forecast_understanding as _collab_collect_forecast_understanding,
@@ -240,8 +318,7 @@ from modules.assistant.facade import (
     submit_comment_proposals as _assistant_submit_comment_proposals,
 )
 from modules.assistant.facade import (
-    trigger_editorial_post_adoption_rechecks
-    as _assistant_editorial_post_adoption_rechecks,
+    trigger_editorial_post_adoption_rechecks as _assistant_post_adoption_rechecks,
 )
 from modules.assistant.facade import (
     run_discussion_scope as _assistant_run_discussion_scope,
@@ -284,6 +361,8 @@ def _register_orm_models() -> None:
     """Import ORM models with Base.metadata for FK dependency resolution."""
     import modules.account.models  # noqa: F401, I001
     import modules.assistant.models  # noqa: F401, E402
+    import modules.assistant.notice_models  # noqa: F401, E402
+    import modules.assistant.operation_trace_models  # noqa: F401, E402
     import modules.assistant.forecast.models  # noqa: F401, E402
     import modules.collaboration.models  # noqa: F401, E402
     import modules.account.settings_models  # noqa: F401, I001
@@ -294,10 +373,12 @@ def _register_orm_models() -> None:
     import modules.local_agent.models  # noqa: F401, I001
     import modules.project.models  # noqa: F401, I001
     import modules.story.models  # noqa: F401, I001
+    import modules.story.world_progression_models  # noqa: F401, I001
     import modules.story.continuity.models  # noqa: F401, I001
     import modules.story.outline_state.models  # noqa: F401, I001
     import modules.project.settings_models  # noqa: F401, I001
     import modules.world.map_atlas_models  # noqa: F401, I001
+    import modules.world.map_spatial_clue_models  # noqa: F401, I001
     import modules.world.models  # noqa: F401, I001
 
 
@@ -318,8 +399,36 @@ def _container_services() -> Iterable[tuple[ServiceKey[Any], Any]]:
     from modules.account import forecast as account_forecast
     from modules.interaction import forecast as interaction_forecast
     from modules.assistant.forecast import domain as assistant_forecast
+    from modules.assistant.operation_trace_service import (
+        record_operation_trace as _record_operation_trace,
+    )
+    from modules.story.world_progression_continuous import (
+        invalidate_world_progression_authorization_for_reorder,
+        queue_progression_read_check,
+    )
+    from modules.evolution.facade import read_completed_chapter_indices
+    from modules.story.continuity import facade as story_continuity
+    from types import SimpleNamespace
 
     return (
+        (
+            STORY_QUEUE_WORLD_PROGRESSION_READ_CHECK,
+            queue_progression_read_check,
+        ),
+        (EVOLUTION_READ_COMPLETED_CHAPTERS, read_completed_chapter_indices),
+        (
+            STORY_INVALIDATE_WORLD_PROGRESSION_FOR_REORDER,
+            invalidate_world_progression_authorization_for_reorder,
+        ),
+        (
+            STORY_CHAPTER_ORDER,
+            SimpleNamespace(
+                preview=story_continuity.preview_chapter_order_bindings,
+                apply=story_continuity.apply_chapter_order_bindings,
+                restore=story_continuity.restore_chapter_order_bindings,
+                preview_restore=story_continuity.preview_restore_chapter_order_bindings,
+            ),
+        ),
         (
             ASSISTANT_FORECAST_INSTRUCTIONS,
             {
@@ -371,27 +480,65 @@ def _container_services() -> Iterable[tuple[ServiceKey[Any], Any]]:
         (
             ASSISTANT_OPERATIONS,
             {
-                **_WORLD_OPERATIONS,
+                **world_operations,
                 **project_dedup_operations,
                 **story_information_operations,
-                **_WORLD_PAGE_OPERATIONS,
-                **_WORLD_OUTCOME_OPERATIONS,
-                **_WORLD_COCREATION_OPERATIONS,
+                **world_page_operations,
+                **world_outcome_operations,
+                **world_cocreation_operations,
                 **writing_operations,
                 **writing_generation_operations,
                 **writing_candidate_operations,
                 **project_operations,
+                **project_validity_operations,
                 **story_operations,
                 **story_structure_operations,
                 **story_planning_operations,
+                **story_scene_operations,
+                **story_state_operations,
+                **story_director_operations,
+                **story_world_progression_operations,
+                **story_fact_timeline_operations,
+                **story_character_arc_operations,
+                **story_generation_operations,
                 **world_opening_operations,
-                **_IMPORTS_OPERATIONS,
+                **imports_operations,
                 **evidence_forecast_operations,
-                **_MAP_OPERATIONS,
-                **_WORLD_REVIEW_OPERATIONS,
+                **evidence_read_operations,
+                **evidence_object_dossier_operations,
+                **world_map_operations,
+                **evolution_operations,
+                **assistant_spatial_advisory_operations,
+                **world_vocabulary_operations,
+                **world_review_operations,
+                **world_author_operations,
+                **assistant_notice_operations,
+                **world_dossier_operations,
+                **world_validity_operations,
+                **writing_a1_operations,
+                **writing_chapter_order_operations,
+                **interaction_author_operations,
+                **collaboration_author_operations,
             },
         ),
+        (ASSISTANT_OPERATION_TRACE, _record_operation_trace),
+        (ASSISTANT_NOTICE_SOURCES, _assistant_notice_sources),
         (SOURCE_CHANGED, _assistant_mark_changed),
+        (ASSISTANT_READ_MAP_AUTHOR_DECISION, _read_map_author_decision),
+        (EVOLUTION_READ_MAP_COLD_START_STATUS, _read_map_cold_start_status),
+        (EVIDENCE_READ_EVOLUTION_OBJECT_PATTERNS, read_evolution_object_patterns),
+        (EVIDENCE_READ_STORY_OBJECT_STATE, read_object_dossier_state),
+        (
+            EVIDENCE_READ_STORY_DIRECTOR_REFERENCES,
+            read_scene_director_references_for_writing,
+        ),
+        (EVIDENCE_READ_WORLD_OBJECT_DOSSIER, read_world_object_dossier),
+        (EVIDENCE_READ_OBJECT_DOSSIER_BRIEF, _evidence_read_object_dossier_brief),
+        (WORLD_REQUIRE_CUSTOM_TEXT_STATE_FIELD, _world_require_custom_text_state_field),
+        (WORLD_REQUIRE_MAP_DECLARATION_STATE, _world_require_map_declaration_state),
+        (WORLD_READ_OBJECT_VALIDITY_NOTICES, list_object_validity_notices),
+        (WORLD_READ_MAP_COLD_START_DRAFTS, _read_map_cold_start_drafts),
+        (WORLD_READ_MAP_NOTIFICATION_SIGNALS, _read_map_notification_signals),
         (
             ASSISTANT_PROACTIVE_SUBMITTERS,
             {
@@ -452,6 +599,12 @@ def _container_services() -> Iterable[tuple[ServiceKey[Any], Any]]:
         ),
         (WORLD_READ_MAP_CHAPTER_CONSUMERS, _world_read_map_chapter_consumers),
         (WORLD_READ_MAP_NODE_HEADS, _world_read_map_node_heads),
+        (WORLD_READ_MAP_SPATIAL_BRIEF, _world_read_map_spatial_brief),
+        (WORLD_READ_MAP_SPATIAL_ADVISORIES, _world_read_map_spatial_advisories),
+        (WORLD_READ_PROJECT_VOCABULARY, _world_read_project_vocabulary),
+        (WORLD_STAGE_SPATIAL_DISCOVERY, _world_stage_spatial_discovery),
+        (WORLD_BUILD_MAP_AUTO_DRAFTS, _world_build_map_auto_drafts),
+        (WORLD_READ_SPATIAL_DISCOVERY_CONTEXT, _world_read_spatial_discovery_context),
         (WORLD_READ_BIBLE_PAGE_REVISIONS, _world_read_bible_page_revisions),
         # AO-5 第二批：evidence(L2)/writing(L2) 消费 assistant facade 能力经这些
         # DI 键，assistant 反方向顶层/函数内导入清零。
@@ -463,7 +616,7 @@ def _container_services() -> Iterable[tuple[ServiceKey[Any], Any]]:
         (ASSISTANT_MARK_EDITORIAL_READY, _assistant_mark_editorial_ready),
         (
             ASSISTANT_EDITORIAL_POST_ADOPTION_RECHECKS,
-            _assistant_editorial_post_adoption_rechecks,
+            _assistant_post_adoption_rechecks,
         ),
         # AO-5: evidence 编译与 world 地图经此只读 port 消费 story 场景事实，
         # world→story / evidence→story 的反向顶层导入清零。
@@ -500,6 +653,7 @@ def _container_services() -> Iterable[tuple[ServiceKey[Any], Any]]:
             _WorldAdoptionPackageService,
         ),
         (ASSISTANT_RUN_DISCUSSION_SCOPE, _assistant_run_discussion_scope),
+        (ASSISTANT_IS_AUTHOR_TURN_RUN, _assistant_is_author_turn_run),
         (
             ASSISTANT_REQUIRE_OPERATION_TARGETS,
             _assistant_require_operation_targets,
@@ -510,6 +664,7 @@ def _container_services() -> Iterable[tuple[ServiceKey[Any], Any]]:
         (WORLD_ASSISTANT_CHAT, _world_assistant.chat),
         (WORLD_ASSISTANT_CHAT_INTENT, _world_assistant.chat_intent),
         (WORLD_LIST_CHARACTERS, _world_list_characters),
+        (WORLD_GET_CHARACTERS_CONTEXT, _world_get_characters_context),
         (WORLD_LIST_ENTITY_TERMS, _world_list_entity_terms),
         (WORLD_LIST_ENTITIES, _world_list_entities),
         (WORLD_RUN_SCENE_ENTITY_EXTRACTION, scene_extraction.extract_by_scenes),

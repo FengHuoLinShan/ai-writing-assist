@@ -1,0 +1,52 @@
+# C0 模板与互通的剩余实施
+
+2026-10-16 root 按主计划 §4.2–4.4、§4.9 核对 primary `6ad6b94df` 后确认。
+本文件是原三份计划中的实施交接，不新增产品范围，不替代当前源码或授权。
+仍按 Luna/max 实施、Sol/high 独立审查并直接修复；root 独占三份 TASK。
+
+- 自定义类型借用内置内核面向：当前 `WorldObjectDossierService._validate_facing` 只认
+  `CORE_FACINGS[entity_type]`，`list_facets` 同样只给该类型内核与全项目词表面向。
+  自定义类型虽能使用项目面向，尚不能显式借用人物、种族等内核。复用版本化
+  `EntityProfileTemplate`，明确作者选择、来源类型和键，处理重复键与类型转换；不能仅放宽校验
+  就让模型任意声明内核。角色视角、证据来源及确定性检查的注册字段边界保持。
+- 五题材档案面向预设：`project_vocabulary_presets.py` 当前五包只覆盖空间种类，没有
+  `dossier_facing`。按修仙、西幻、都市、科幻、悬疑覆盖受支持对象类型，复用同一项目词表、
+  模板与 copy-on-apply 语义；预设版本、作者修改、重复应用和撤销依据可验证。
+  当前CORE_FACINGS已有character/location/item/faction/species/rule/secret/event八类，
+  包括既有faction的形态、理念等内核，题材档案预设应全部覆盖，不能因外部前置省略这一类。
+  本批不补独立势力路线图的新治理/成员/领地模型，不用旧字段假装完成M5或推进势力接入。
+- 表格与 JSON 互通：Imports 的 `spreadsheet_migration.ColumnTarget` 仍是旧固定字段，
+  当前目录无 Dossier/facet 映射；World dossier HTTP 只有条目/历史/模板接口，尚无按模板导出。
+  复用现有上传/映射预览/显式采用和来源修订，不另建导入基础设施；任意列不得直接成为
+  确定性状态字段，未知/失效面向、跨项目 term、过期模板及冲突须明确停下。
+  JSON 的具体模式先核对既有领域导入导出入口，保证导出可回读、身份/来源/可见性清楚。
+  导出仅作者 HTTP；ADR-0038 禁止对 AI 开放向系统外公开发布或导出，不能将作者导出误作新 AI 工具。
+- 可发现与可操作：沿用 WorldObjectDossierEditor、ProjectVocabularyPanel 与现有表格映射界面，
+  保留草稿、409、键盘和窄屏。每个新增 AI 可用操作提供纯 SPEC、真实 HTTP/trace 与版本冻结；
+  仅导出文件或接线清单不能算闭环。
+
+当前 C0c 已由 Sol 完成并合入 primary `9b9c022a5`，前端 fixture 后固定 `bd31d959d`；
+root 的5133后端、27专库PG、3173前端与lint/build/docs/repo-gates全部通过。
+上述尾项已由新 Luna/max 批次接手。共享 keys/bootstrap/目录冻结、worker及TaskRegistry现由 A4 Sol 独占；
+后续从最新已审 primary 复用干净任务树，新建主题分支，最终由 Sol 顺序组合。
+旧模板 format_version=1、Dossier/Assistant 的历史输入快照保持版本化，不因新增借用字段改写。
+结构化 JSON 只走明确的作者档案 manifest 边界，不扩文稿或表格上传后缀白名单。
+唯一后端环境为 primary/backend/.venv，Node24，无安装依赖、默认开发库、真实模型、R3或holdout访问。
+PostgreSQL 只用 root 明确分配的新专库，不能借用其他代理的库。保持旧目录与 map.edit 哈希冻结。
+
+root核实原world-object-dossier-impl干净后保留旧codex/world-object-validity-impl/ee51f869a，
+新分支codex/dossier-template-interchange-impl已fast-forward到f5c6d5cc5。
+新代理luna_dossier_template_interchange（Luna/max）已启动；独占
+PG dossier_template_interchange_impl_test_20261016和18592/18593端口已分配，尚未报告创建。
+禁借其他代理专库，保存合成数据；不向消息或仓库写连接secret。root独占TASK与本artifact。
+
+
+## 2026-10-16T06:44:53+08:00 Luna固定与Sol独立审修
+
+Luna最终b4381119fc032137575f68b72ff69aa4acca9412，world-object-dossier-impl树干净退出，18592/18593停。101后端/34Vue/1PG E2E/1browser（390/1280键盘借用与secret）及lint/build/docs通过；未新增migration，旧专库当前head20261016_interaction_summary_task_pointer。旧库保留，不重建。
+
+新Sol/high sol_review_dossier_interchange在map-spatial-eval-review/codex/dossier-template-interchange-review从primary10b4合b438无冲突，正独立review+直接修。World facade/dossier/template/Imports/world.js归该Sol，顶层不抢C4/C5；新专库dossier_template_interchange_review_test_20261016和18598/18599，尚未回报创建。root要求纠正Luna“无新op即无需接线”的缺口：新author PUT/manifest preview/apply须版本化pureSPEC/R3/真实HTTP trace，旧冻结与map.edit不改；手动export保留明确界面边界而非AI外部导出，不新增永久unsupported占位。当前api末尾return后两个无用tuple也由Sol审时清理。最终仍须并发/CAS/rollback/owner/secret/browser及共享顺序装配实证。
+
+## 2026-10-16T07:12:34+08:00 当前执行检查点
+
+C0 Sol独立审修已固定干净008d515a07aaa13f09cb69624ee897a068b2d8df并退出（map-spatial-eval-review/codex/dossier-template-interchange-review）。直接修同名facet重复/异值冲突、借用移除并发、manifest来源伪造/编辑后CAS/重复采用；四纯SPEC/HTTP bindings与真实JSON文件预览映射确认UI完成。独立专库2PG/44目标后端、253文件3184前端全套、lint/build、390/1280文件导出→预览→R3采用Playwright1和docs/repo gates通过；root已实际看/tmp/c0-dossier-import-{390,1280}.png，1280有采用1条反馈，390为可用的映射与确认界面。旧专库dossier_template_interchange_review_test_20261016当前真实head20261016_operation_trace_archive_days，无本域新migration，18598/18599停；现正式移交当前Sol C5在顺序合008d后增量升级和复验，不能重建。总目录版本/旧冻结与新物化仍pending并交C5负责，不把domain checkpoint当完整C0已合。World facade/dossier/Imports/world.js现也移交C5，独立C0代理已无写入。

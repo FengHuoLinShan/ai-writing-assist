@@ -11,6 +11,17 @@ Story 是作者工作台的 Scene 级派生层，保存人物卡的时点状态�
 World 仍拥有 canonical Character，Outline 仍拥有 Scene；Story 通过 facade 校验二者，不把
 人物卡或剧本写回 World、Memory、Writing。
 
+Story 前瞻注册 `story.spatial_planning.v1` 地理视角：仅在
+`MAP_SPATIAL_ENABLED_CAPABILITIES` 包含 `story.spatial_planning` 时，经 World 的
+`read_map_spatial_brief` typed port 读取本场显式地点相关的已采用地图，提示旅程分段、
+地点分布和转场。地点集中提示还会读取此前最多五个未废弃 Scene 的已采用、可见简报，
+不读取后续 Scene；当前场景和至少四个此前场景各有唯一且绑定稳定 World 身份的地点，
+同一地点出现在至少五场、占有明确地点的场景至少八成时，才建议核对节奏。
+未知、多地点及未绑定身份的同名图元不计作集中。前瞻记录本场与参与集中判断的地图
+node/revision/hash 及来源；无显式地点或相关简报时不猜测，不推算坐标距离和耗时，
+也不在缺少领地资料时判断势力接壤。此能力默认关闭，只出建议，不修改大纲或 Scene。
+详细投影边界见[地图模块的 M4 地理前瞻](15_map.md#空间提醒与地理前瞻m4)。
+
 ## 物理 owner 融合
 
 Story 同时拥有原 Outline 与 Memory 的唯一生产实现，内部子域位于
@@ -23,8 +34,8 @@ Story 同时拥有原 Outline 与 Memory 的唯一生产实现，内部子域位
 `plot_threads`、`outline_arcs`、`scenes`、`scene_spans`、`scene_fusion_suggestions`、
 `scene_summary_checkpoints`、`scene_chapter_links`、`foreshadowing_plans`、`reveal_plans`、
 `memory_events`、`memory_snapshots`、`memory_scene_checkpoints`、`memory_scene_snapshots`、
-`delta_log`，以及四张 Scene Story asset 表与两张排演历史表。公开 API 前缀不变：`/api/outline`、
-`/api/novels/{novel_id}/memories`、`/api/story`。
+`delta_log`，以及四张 Scene Story asset 表、两张人物弧计划表与两张排演历史表。公开 API 前缀为 `/api/outline`、
+`/api/novels/{novel_id}/memories`、`/api/story`、`/api/story/character-arcs`。
 
 ## 对外能力
 
@@ -47,6 +58,20 @@ Scene memory（continuity）另提供只读状态视图 `facade.get_scene_state_
 [05_memory](05_memory.md) 与
 [M2 契约](../plans/2026-10-07-world-state-read-m2-contract.md)。Scene Lens 的
 对象状态区消费该视图。
+
+### 人物弧线作者计划
+
+篇章结构 `OutlineArc` 与人物弧线计划是不同对象。`story.character-arcs` 保存作者明确确认的
+人物变化意图，按人物维护 CAS head 和不可变 revision；计划采用 `director_only` 可见性，不能
+进入角色反应、角色知识或 Evolution 事实。Outline 浮窗将作者计划与截止 Scene 前的真实正文
+和已确认 continuity 事件并列；来源失效或无法核验时显示未知，不把计划 Scene、候选推进或模型
+解释当作已经发生的经历。HTTP router 前缀为 `/api/story/character-arcs`，含计划预览/确认、历史、
+恢复、归档和指定 Scene 的人物比较。当前分支已定义 router，仍需组合根挂载并再出口稳定 facade。
+
+数据库使用 `story_character_arc_plan_heads` 与 `story_character_arc_plan_revisions` 两表，迁移为
+`20261016_story_character_arc_plan`，parent=`20261016_wp_read_count`。该已应用 migration 的
+数据库级级联删除触发器存在嵌套调用校验待修项；独立后继 migration 与 PostgreSQL 绕过拒绝用例
+由后续 review 修复。
 
 ## 数据与采用边界
 
@@ -82,6 +107,9 @@ Scene 融合的请求 Scene 集合还必须与 confirmation 中的 pinned Scene 
 只接收重新物化的 confirmed Markdown，不再旁路加载完整 World/Outline 资料。
 
 总览手工版本可携带既有结构的来源版本标识，源结构更新只提示核对，不双向覆盖。简单结构生成使用 main/sub/background 分类及显式兼容映射，参数版本 phase3_structure_simple_v3。
+Evolution 阅读结构的揭示输出是待核主题；在没有已验证对象 ID 时，Story 不把标题当实体名。
+未解析揭示留在阅读批次回执和作者状态投影，带独立复核证据与待复核原因；
+其余结构资产保持严格持久化，RevealPlan 仍要求真实目标。
 ## 剧情线自动入选（2026-10 修正）
 
 写作上下文的剧情线自动入选（`PlotThreadRepository.get_active`，经
@@ -112,6 +140,14 @@ ADR-0023 注册 Story 自有的版本化总纲、场景规划、人物卡和剧�
 既有 v1 按原算法回验，新增 hash 字段不会使旧剧本自动失效。开放结尾的剧情线从已知起点延续。
 结构采用/退役/移动保存旧受影响 Scene，再合并新范围到同事务待检标记，结果注明实际检查上限。
 
+### Unified structural notices (ADR-0040 §13)
+
+`story.structure` is a Story-owned read-only provider for Assistant's notice registry. It projects
+SceneWorkbench structure and health without an Assistant dependency or a second issue ledger. It
+preserves trusted semantic-field rules (`not_applicable` is complete; `uncertain` needs confirmation),
+review/organization health, and the Scene–chapter many-to-many mapping. The aggregate API validates
+the active project and Scene's novel ownership before invoking the provider.
+
 ### 滚动规划窗口（BR-6）
 
 story.plan_structure 的滚动推进携带起止章窗口：篇章/剧情线窗口默认 3 章、上限 5 章，
@@ -139,9 +175,33 @@ Story 生成预览与 Imports Phase 1c/3 均保留组级回执。P20/总纲采�
 ## 有限排演与分叉
 
 ADR-0027 增加 `story_simulation_runs` / `story_simulation_steps` 两张领域历史表，复用原
-one-click task。人物独立意图 → 环境结果 → 按观察者投影 → 下一回合，最终剧本仍是候选。
-回放复用不可变完成回合；分叉绑定准确父回合 hash 和来源，来源变化拒绝继续。Scene 工作台
-可选人物、回合和观察视角，并从完成回合另试发展；默认关闭，不改变旧卡片/剧本采用流。
+one-click task。Story 新建排演使用 `simulation_v3`，共用类型化身份、人物意图、有限结算、
+`StateDelta`、`ResolutionBatch` 与确定性回放；协议层没有参与者、地点、受众或回合数上限。
+新排演的现有对象/地图节点引用在公开入队和 worker 前后按当前作品的 canonical/adopted 身份重验；
+临时设定保留 candidate/text_label 身份，公开事件只对本人及已知同地者可见，未知位置不推定同地。
+公开演示不能读取或重放作者私有排演。
+旧 `rehearsal_v1` / `observation_v2` 运行保持只读、按原协议展示，不迁移、不跨协议分叉；
+`observation_v2` 可用原差量校验回放，`rehearsal_v1` 只有历史事件视图。
+
+Assistant v8 首批另注册 Scene 完整排序、合并及窄拆分操作；执行前重验当前作品的 Scene 集合、
+来源与影响预览，合并/拆分须作者 R3 确认。旧可带 `draft_scenes` 的宽拆分路由保持原作者工作台
+用途，不扩大为 AI 的窄操作。伏笔/揭示计划章节调整仍由原 `story.edit_information_plan` 承担，
+不是一般事实时间线编辑。
+Assistant v9 新增人物卡与反应预览目录项，窄 HTTP 仅准备、留痕，不启动任务；
+建议真正执行须沿当前 Assistant 父任务的模型快照和共享额度内联运行。
+人物卡 v2 将确定性事实与带来源的解释分开保存；人物反应 v2 每人生成 2–4 套完整表演，
+作者仅选一个 `story.reaction.choice.v1` 及其来源供剧本或一键建议使用。
+旧 v1 卡片、反应和 `story.save_card` 参数保持可读/冻结，不把整组未选表演当作者采用。
+Interaction 的 `team_v1` 与 `observation_v2` 仍按原入口策略执行，`max_actors` 不变。通用 OneClick
+的旧目录请求继续走 `legacy`；未来目录接入 v3 时需显式版本/路由，不得默默重解释冻结运行。
+现有 Scene 排演入口保留单回合 v3；旧 rehearsal 记录只读。C4b 在独立 Story 域中实现了多轮导演入口、共享根预算续算、作者历史树、参考副本、素材和介入；
+Task manifest、v10 操作目录、HTTP trace、Notice 来源、Writing 参考 port 与路由已在应用组合根接线；导演专用迁移在当前基线为单 head。
+导演角色意图只收到当前 Evidence 角色 POV 简报，Story 卡自由文本仅留在作者侧；Writing `director_reference` Evidence 维度接入 generate/targeted-revision，默认白名单为空。
+导演结果全为候选，不写入 Scene、World、continuity 或正文。
+World 作者有效期提醒现经 typed 只读端口进入导演作者侧一致性核对和来源指纹：
+精确同对象、同字段、当前 Scene 以前的确认事实可报告作者优先或已启用的剧情覆盖；
+旧来源、锚点失效及读取上限返回缺口，角色 POV 不收到作者提醒。Story 状态确认
+只追加 MemoryEvent，并把原事件的 Scene 时间带入逐字段来源链；旧链缺时间不推断。
 排演的人物意图、环境裁决与剧本生成均使用项目账户连接；本机 CLI 按
 [ADR-0029](../adr/0029-local-cli-image-only.md) 只用于图片生成。共享 Story 输入入口在 Context 重物化与账户客户端恢复前拒绝带
 `_local_agent` 或 `agent_llm_execution_snapshot` 的遗留任务，包含同时保留有效账户快照的
@@ -150,9 +210,9 @@ one-click task。人物独立意图 → 环境结果 → 按观察者投影 → 
 ## 创作试验的结构与观察边界
 
 Story 为 Collaboration 提供 Scene、伏笔/揭示安排的冻结可编辑字段与原领域操作 port。
-试改独立保存，采用仍验证当前结构版本。`observations.py` 区分输入刺激、私有意图、
-可观察事件和可重放的 ResolutionBatch；说法不是事实，未知资源或唯一资源冲突不宣告成功。
-`observation_v2` 不重新解释旧 rehearsal_v1。读者推测与作者安排分开，派生前瞻不是新信息计划。
+试改独立保存，采用仍验证当前结构版本。`observations.py` 保留 RP `observation_v2` 的输入刺激与观察语义；
+`simulation_v3.py` 提供 Story 共用意图、有限结算、差量和回放。说法不是事实，未知资源、路线或唯一资源冲突不宣告成功。
+读者推测与作者安排分开，派生前瞻不是新信息计划。
 
 ## 地图消费者与派生流生命周期
 
@@ -174,3 +234,10 @@ Scene payload 的章节锚统一由 story.contracts.scene_chapter_indices 提供
 ### 2026-10-13 连续性自由类别
 
 `delta_log.category`使用Text存储来源化自由类别描述，避免已通过schema的长类别导致整个场景事务回滚。升级无损，降级先检查32字符边界并拒绝破坏历史；Story facades、六维连续性、确认及项目隔离不变。
+
+## 世界推进候选（ADR-0041 / C5）
+
+Story 将世界推进保存在独立根、分支和不可变步骤中；每步基于 `simulation_v3`，仅生成可比较、可恢复的候选状态与大纲钩子，不写 World、continuity、正文或 RP，也不接入 Writing 检索和 Evolution 阅读。`/api/story/world-progression` 是默认关闭的 C5 域路由；它提供预算预览、R4 独立根启动、原根内 R1 单步续算、R0 历史/比较、作者历史管理、R3 钩子预览/采用，以及持续授权设置。具体合同见 [Story 模块实现](../../backend/modules/story/README.md) 与 [正式计划 §8/§10](../plans/2026-10-15-world-object-dossier-and-scene-director.md)。
+
+`story_world_progression` handler、Story router、9 项纯操作、`NOTICE_SOURCE_SPEC` 与 `world_progression_review` 引导流程已在应用组合根登记。持续授权默认关闭；Evolution 成功阅读回执在原事务投递免费检查，提交后仅以当前 canonical 正文的整章完整覆盖计数，未读/失败/局部 Scene、跳序号和同章改版重读不冒充新章节。章节重排撤销原序号授权，作者需重确认；Notice GET 保持只读。长篇/题材质量、势力路线图阶段 1/2、真实模型表现和作者验收分别保留为外部门禁。
+持续提醒仍绑定根运行的资料确认截止 Scene；读入新章只触发门槛，不扩大确认范围。最新已写 Scene 超出该截止点时，系统持久化停止原因并关闭自动续跑。作者需从最新 Scene 新建并确认推进后再开启提醒。

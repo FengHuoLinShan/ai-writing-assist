@@ -77,6 +77,17 @@ async def test_finite_transfer_lock_unknown_and_receipt_revalidation(
     )
     transfer = await compare_scene_state_trial(db, nid, request)
     assert transfer["baseline"]["outcome"] == "succeeded"
+    assert [condition["status"] for condition in transfer["baseline"]["conditions"]] == [
+        "met",
+        "met",
+        "met",
+    ]
+    assert transfer["baseline"]["conditions"][0]["source_status"] == "exact"
+    assert transfer["baseline"]["resolution"]["protocol"] == "simulation_v3"
+    assert transfer["baseline"]["resolution"]["rule_revision"] == (
+        "c12dae97d3cfd40e8095e9fbafa1592ece96acb412f595f0c6a470ac73cea5b3"
+    )
+    assert any("保管钥匙" in reason for reason in transfer["baseline"]["verdict_reason"])
     state = transfer["baseline"]["candidate_state"]
     assert state["resource_holders"][ids["key"]] == ids["jia"]
     assert state["owners"][ids["key"]] == ids["jia"]
@@ -93,6 +104,25 @@ async def test_finite_transfer_lock_unknown_and_receipt_revalidation(
     comparison = await compare_scene_state_trial(db, nid, opening)
     assert comparison["baseline"]["outcome"] == "failed"
     assert comparison["candidate"]["outcome"] == "succeeded"
+    baseline_statuses = [
+        condition["status"] for condition in comparison["baseline"]["conditions"]
+    ]
+    assert baseline_statuses == [
+        "met",
+        "unmet",
+        "unknown",
+        "met",
+    ]
+    candidate_statuses = [
+        condition["status"] for condition in comparison["candidate"]["conditions"]
+    ]
+    assert candidate_statuses == [
+        "met",
+        "met",
+        "met",
+        "met",
+    ]
+    assert comparison["candidate"]["resolution"]["protocol"] == "simulation_v3"
     assert comparison["candidate"]["candidate_state"]["owners"][ids["key"]] == ids["jia"]
     assert comparison["candidate"]["resolution"]["state_patches"] == []  # 开锁不转移物品
     assert comparison["assumptions"]

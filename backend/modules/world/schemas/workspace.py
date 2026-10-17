@@ -25,6 +25,12 @@ class TargetRefSchema(BaseModel):
 class WorldProfileUpsertRequest(BaseModel):
     """Create or update a strong/generic worldbuilding profile."""
 
+    expected_dossier_revision: str | None = Field(
+        default=None,
+        min_length=64,
+        max_length=64,
+        pattern=r"^[0-9a-f]{64}$",
+    )
     status: str = Field(default="draft", max_length=32)
     source: str = Field(default="manual", max_length=64)
     confidence: float | None = Field(default=None, ge=0.0, le=1.0)
@@ -66,7 +72,7 @@ class WorldProfileUpsertRequest(BaseModel):
 
     truth_summary: str | None = None
     holder_entity_ids_json: list[str] | None = None
-    risk_level: str | None = None
+    risk_level: str | None = Field(default=None, min_length=1, max_length=32)
     reveal_status: str | None = None
     linked_target_refs_json: list[dict[str, Any]] | None = None
 
@@ -84,6 +90,7 @@ class WorldProfileResponse(BaseModel):
     evidence_refs_json: list = Field(default_factory=list)
     extra_json: dict = Field(default_factory=dict)
     data_json: dict | None = None
+    expected_dossier_revision: str | None = None
     fields: dict[str, Any] = Field(default_factory=dict)
     created_at: datetime | None = None
     updated_at: datetime | None = None

@@ -37,6 +37,8 @@ _TIER_HEADERS: dict[str, str] = {
     "scene_director_constraints": "Scene 导演约束",
     "scene_time_boundary": "Scene 时间边界",
     "current_scene_evidence": "当前 Scene 证据",
+    "map_spatial": "空间简报",
+    "director_reference": "场景导演参考（作者选择的思路，不是正史）",
 }
 
 # 按 section key 确定性标注资料性质；只描述资料类别，不改变 section.content，
@@ -50,6 +52,7 @@ _FACT_LEVEL_LABELS: dict[str, str] = {
     "derived": "派生：AI 派生或按视角过滤的摘要，非作者事实",
     "candidate": "候选：未定稿或未采用的草稿与建议，不是正史事实",
     "mixed": "混合：事实与候选混排，以各条目来源为准",
+    "reference": "参考：已保存地图的受限摘要，不替代正文或世界正史",
 }
 
 _SECTION_FACT_LEVELS: dict[str, str] = {
@@ -66,6 +69,7 @@ _SECTION_FACT_LEVELS: dict[str, str] = {
     "retrieval_evidence_packs": "derived",
     "style_assets": "fact",
     "world_entities": "fact",
+    "director_reference": "reference",
     "world_bible_activation": "fact",
     "world_bible_synopsis": "fact",
     "world_bible_working_pages": "candidate",
@@ -87,6 +91,7 @@ _SECTION_FACT_LEVELS: dict[str, str] = {
     "current_scene_evidence": "fact",
     "editorial_brief": "fact",
     "author_examples": "fact",
+    "map_spatial": "reference",
 }
 
 
@@ -138,8 +143,27 @@ def _section_fact_level(section: ContextSection) -> str | None:
     return _SECTION_FACT_LEVELS.get(section.key)
 
 
-def render_compiled_context(ctx: CompiledContext) -> str:
+def render_compiled_context(
+    ctx: CompiledContext, *, include_map_spatial: bool = True
+) -> str:
     """从 CompiledContext IR 渲染为 Markdown，保持 Tier 顺序"""
+    if not include_map_spatial:
+        ctx = ctx.model_copy(
+            update={
+                "sections": [
+                    section for section in ctx.sections if section.key != "map_spatial"
+                ],
+                "evicted_keys": [key for key in ctx.evicted_keys if key != "map_spatial"],
+                "truncated_keys": [
+                    key for key in ctx.truncated_keys if key != "map_spatial"
+                ],
+                "budget_events": [
+                    event
+                    for event in ctx.budget_events
+                    if event.section_key != "map_spatial"
+                ],
+            }
+        )
     parts = []
     for section in sorted(ctx.sections, key=lambda s: s.tier):
         header = _TIER_HEADERS.get(section.key, section.key)

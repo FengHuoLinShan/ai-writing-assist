@@ -929,6 +929,19 @@ describe("route guard and normalization", () => {
     expect(window.router.getCurrentQuery().get("view")).toBe("card")
   })
 
+  it("protects unsaved entity drafts when only the World entity query changes", async () => {
+    addWorkspace()
+    const canLeave = vi.fn(() => false)
+    window.router.registerView("world", { canLeave, async render() { return "<p>对象详情</p>" } })
+    state.currentProjectId = "p1"
+    state.currentProject = { id: "p1", title: "项目一" }
+    await window.router.navigate("world", "bible", false, new URLSearchParams({ entity_id: "entity-a" }))
+    const result = await window.router.navigate("world", "bible", true, new URLSearchParams({ entity_id: "entity-b" }))
+    expect(result).toBe(false)
+    expect(canLeave).toHaveBeenCalledTimes(1)
+    expect(window.router.getCurrentQuery().get("entity_id")).toBe("entity-a")
+  })
+
   it("keeps the current route when its renderer rejects leaving", async () => {
     addWorkspace()
     const canLeave = vi.fn(() => false)

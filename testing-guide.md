@@ -79,6 +79,13 @@ BM25/MCP 用例会 skip；完整离线验收须另外执行该目标。报告保
 
 ## Per-Module Tests (every module)
 
+Unified notice provider/CAS behavior uses the SQLite-only module test
+`cd backend && python -m pytest modules/assistant/tests/test_unified_notices.py -q`. It verifies
+separate provider sessions, failure/timeout placeholders, basis-bound dispositions, category mute,
+Scene ownership, the SQLite migration create/downgrade, and the real registered readers on an empty
+project. This is offline provider/API contract evidence; it does not substitute for composition-root
+mounting, PostgreSQL migration verification, frontend behavior, or author acceptance.
+
 RP 同正文资料刷新须验证 owner 隔离、正文/索引/Scene 就绪门禁、精确来源回读、旧冻结行与旅程
 不变、无修改时幂等，以及新版引用按章内截止点过滤。SQLite 定向测试之外，迁移及同正文多版本
 必须在专用 PostgreSQL 副本验证；真实项目增量实施前先备份，不通过删除旧版本恢复唯一约束。
@@ -528,6 +535,11 @@ with more than 1,000 objects using the explicit PostgreSQL E2E environment and `
 真实浏览器 `map-structure.spec.js` 使用合成地图/PNG、专用 PostgreSQL 和私有 MinIO，
 不调用付费模型。模型质量和付费图片效果必须通过各自显式实测报告，不能由上述结果代替。
 
+项目词表的 PostgreSQL 门禁为 `tests/e2e/test_project_vocabulary_postgres.py`，已纳入
+`make test-postgresql-critical`：验证修订与词条禁止直接硬删、历史不可修改、head/previous
+不能引用另一词条、并发同名创建去重、同一版本竞争更新只成功一次，以及项目删除的级联清理。
+只允许显式专用数据库；SQLite 词表测试不代替这些事务验证。
+
 RP 长期约定与max兼容性用例位于 interaction 的 services/prompts/tasks 测试、LLM能力/客户端测试、
 `tests/e2e/test_rp_agreements.py` 和前端 InteractionView/interaction E2E。验收包括旧快照、零覆盖、
 省略/清空、多次reducer、分支、并发、格式失败与30秒等待状态。工程测试不调用付费模型。
@@ -653,7 +665,7 @@ P8 固定比较范围按指定 head 的 Git blob 计数，不读取其他 checko
 `backend/.venv`。Python 3.13 实验完成后开发/CI解释器和依赖保持原状。
 服务文件拆分需验证原类/方法行为、来源与事务、失败恢复及真实PG锁；共享导入名继续保留。
 
-独立 Codex eval 的新文字调用现已暂停：旧 Spark/Luna/terra/DeepSeek 的教师与复核
+除下述显式窄 scope 外，独立 Codex eval 的新文字调用现已暂停：旧 Spark/Luna/terra/DeepSeek 的教师与复核
 配置自 G6a 起降级为冻结元数据，仅保留用于冻结元数据与 cache-only 重放，不得将旧
 分数改标为当前模型成绩。教师与 judge 已固定 `gpt-6.1-sol/xhigh`，被测业务生成经
 owner 已验证的 Project 运行时走 Luna/max；G6b 解除暂停前守卫继续拒绝新的独立
@@ -687,3 +699,37 @@ codex_luna_runtime_test）后运行 `python -m evals.codex_luna --output /privat
 owner/Project Luna/max snapshot；与 Ask World 教师 scope 隔离，其余独立入口继续暂停。
 合成校准冻结与去原文回执见 `T-20261015-audit-wave3/G7-FREEZE.json`、`G7-CALIBRATION.json`，
 seeded 32/32、独立 debug 12/12，unknown=0。它不证明真实稿件质量，`human_validated=false`。
+
+
+### 地图五题材评测的独立窄 scope
+
+`evals.map_spatial` 的离线 `verify/report` 不访问模型；留出只核权限和哈希，不解码正文/期望。
+所有产品执行命令必须同时显式 `--execute` 与 `MAP_SPATIAL_EVAL_ALLOW_LIVE=1`。教师 scope
+仅放行 `eval.map_spatial.teacher_calibration` / `eval.map_spatial.judge` 的 Sol/xhigh、attempts=1；
+不改变全局暂停，也不借 Ask World/G7 scope。产品 SUT 仅经正常 Project facade/产品 API 和当前
+owner 的 verified Codex Luna/max snapshot，限定本地隔离库 `map_spatial_eval_20261015`。
+每次任务前重验 owner/Project snapshot 并释放读事务。
+
+产品 setup 经正式 Project、词表、Writing draft 与 Scene API 建立五个独立合成 Scene 和精确
+canonical source range。先冻结共同 owner/Project/Scene/source 基线（要求空地图），随后运行一条
+四-seed teacher calibration，再通过 `preview-evolution` 实际读取 mandatory reserve 与空间 child
+quota，root 检查后只启动同一 operation id，并用精确 Scene task `run_once(task_id, novel_id)`。
+演化 candidate、World auto-draft、作者代理审核、最终地图 head、两臂 Writing、正常 Assistant turn
+和逐 case judge 各用各自正式领域读取契约；Evolution/Assistant/Writing 不假设统一 task metadata
+或产品 `result.eval_observations`。来源、owner、Scene scope、method/prompt/schema fingerprint 与
+真实 raw hash 不匹配时失败关闭。`started/pending/unknown/completed` 不重发；费用缺失为 unknown。
+
+评测产品 API 使用同进程真实 FastAPI + ASGITransport，先绑定实际隔离 manager，拒绝所有网络 API
+地址，避免首个写入落错库；正常 composition 先 import，不启动 lifespan/后台 worker。环境为
+`APP_ENV=test`、`AUTH_MODE=local`。Assistant 提交/worker 同时临时启用地图能力并恢复，task_hint
+保持 unknown；Writing/Assistant/Evolution 精确 task timeout 900 秒。整 CLI 阶段也有 deadline。
+费用无实际遥测仍报告 unknown，不作为没有既定阈值的质量准入；单案例无机会可 n/a，整题材
+缺质量 coverage 或真实证据仍失败。一个开发族 pilot 不开放 holdout，仍需全部25开发案例门槛。
+每 Writing 臂真实registry根请求≤14、Assistant≤30，含正常首次账户验证的全族上界297+M+Q；
+并发≤2。Codex 输出 token 只是目标，硬token额度不支持，费用不估零。代理审核始终
+`human_validated=false`。本批工程检查不调用真实模型，不代表质量或作者验收。
+
+执行命令、专用隔离 setup、逐阶段预算和未完成接口见
+[地图预检交接](.agent/tasks/2026/T-20261015-map-enhancement-design/artifacts/evaluation/MAP-SPATIAL-LIVE-PREFLIGHT.md)。
+原始材料/输出只存仓库外0700/0600私有目录；`human_validated=false`，本准备批没有真实调用，
+不代表五题材质量、作者验收或默认启用结论。

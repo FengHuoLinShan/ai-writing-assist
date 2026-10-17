@@ -47,6 +47,7 @@ from modules.world.services.core.entity_revision_service import (
     diff_revision_snapshots,
     entity_state_dict,
 )
+from modules.world.validity import validate_changed_alias_intervals
 from shared.constants import DEFAULT_PAGE_SIZE, MAX_PAGE_SIZE
 
 logger = logging.getLogger(__name__)
@@ -113,6 +114,11 @@ class WorldEntityService(
                     )
                 }
             )
+            await validate_changed_alias_intervals(
+                db,
+                novel_id,
+                (data.content_json or {}).get("aliases") or [],
+            )
 
         if data.status == "canonical" and not _validation_prechecked:
             require_legacy_canon_write_allowed = _container_get(
@@ -169,6 +175,13 @@ class WorldEntityService(
                 else {}
             ),
         )
+        from modules.world.dossier_service import WorldObjectDossierService
+
+        dossier_service = WorldObjectDossierService()
+        for field in ("summary", "public_info", "hidden_truth"):
+            await dossier_service.sync_core_entity_legacy_field(
+                db, obj, field, getattr(obj, field), force_create=True
+            )
         if obj.status == "canonical":
             if obj.entity_type == "character":
                 from modules.world.services.core.character_service import (
@@ -542,6 +555,11 @@ class WorldEntityService(
                 else None,
             )
             original = existing.content_json or {}
+            await validate_changed_alias_intervals(
+                db,
+                novel_id,
+                submitted.get("aliases") or [],
+            )
             original_ref = (original.get("_meta") or {}).get("evolution_ref")
             if original_ref:
                 submitted["_meta"] = {
@@ -641,6 +659,19 @@ class WorldEntityService(
 
         updated = await self.repo.update(db, existing, data)
         self._assert_found_in_novel(updated, id, nid)
+        dossier_fields = (_NULLABLE_CLEAR_FIELDS & changed.keys()) | clear_fields
+        if dossier_fields:
+            from modules.world.dossier_service import WorldObjectDossierService
+
+            dossier_service = WorldObjectDossierService()
+            for field in sorted(dossier_fields):
+                await dossier_service.sync_core_entity_legacy_field(
+                    db,
+                    updated,
+                    field,
+                    getattr(updated, field),
+                    force_create=True,
+                )
         await revision_service.record_change_summary(
             db,
             snapshot_result["revision_id"],
@@ -650,7 +681,9 @@ class WorldEntityService(
         if updated.status == "canonical" and updated.entity_type == "character":
             from modules.world.services.core.character_service import CharacterService
 
-            await CharacterService().ensure_for_core_entity(db, updated)
+            await CharacterService().ensure_for_core_entity(
+                db, updated, explicitly_changed=data.model_fields_set
+            )
         result = self._to_response(updated)
         stale_reasons: list[str] = []
         if "name" in changed:
@@ -897,6 +930,12 @@ class WorldEntityService(
         self._assert_found_in_novel(entity, entity_id, nid)
         assert entity is not None
 
+        if data.expected_source_hash is not None:
+            from modules.world.map_candidate_locations import promotion_source_hash
+
+            if promotion_source_hash(entity) != data.expected_source_hash:
+                raise ConflictError("地点内容已变化，请重新预览后确认采用")
+
         if not _validation_prechecked:
             require_legacy_canon_write_allowed = _container_get(
                 WORLD_WORLDBUILDING_REQUIRE_LEGACY_CANON_WRITE_ALLOWED
@@ -927,7 +966,7 @@ class WorldEntityService(
             key: value
             for key, value in data.model_dump(
                 exclude_unset=True,
-                exclude={"approved_by"},
+                exclude={"approved_by", "expected_source_hash"},
             ).items()
             if value is not None
         }
@@ -979,10 +1018,19 @@ class WorldEntityService(
         updated = await self.repo.update(db, entity, update_data)
         self._assert_found_in_novel(updated, entity_id, nid)
         assert updated is not None
+        from modules.world.dossier_service import WorldObjectDossierService
+
+        dossier_service = WorldObjectDossierService()
+        for field in ("summary", "public_info", "hidden_truth"):
+            await dossier_service.sync_core_entity_legacy_field(
+                db, updated, field, getattr(updated, field), force_create=True
+            )
         if updated.entity_type == "character":
             from modules.world.services.core.character_service import CharacterService
 
-            await CharacterService().ensure_for_core_entity(db, updated)
+            await CharacterService().ensure_for_core_entity(
+                db, updated, explicitly_changed=set(changes)
+            )
         try:
             from modules.evidence.facade import mark_asset_context_changed
 

@@ -27,6 +27,54 @@ import {
   // ============================================================
 
 export const world = {
+    async listMapAutoDrafts(novelId, options = {}) {
+      return contractFetch("world.listMapAutoDrafts", { novelId }, options)
+    },
+    async resumeMapAutoDrafts(novelId, batchId, payload) {
+      return contractJson("world.resumeMapAutoDrafts", { novelId, batchId }, {}, payload)
+    },
+    async redoMapAutoDrafts(novelId, batchId, payload) {
+      return contractJson("world.redoMapAutoDrafts", { novelId, batchId }, {}, payload)
+    },
+    async previewAutoDraftTrayPlacement(novelId, batchId, nodeId, revisionId, itemId, payload) {
+      return contractJson("world.previewAutoDraftTrayPlacement", { novelId, batchId, nodeId, revisionId, itemId }, {}, payload)
+    },
+    async placeAutoDraftTrayItem(novelId, batchId, nodeId, revisionId, itemId, payload) {
+      return contractJson("world.placeAutoDraftTrayItem", { novelId, batchId, nodeId, revisionId, itemId }, {}, payload)
+    },
+    async listSpatialClues(novelId, options = {}) {
+      return contractFetch("world.listSpatialClues", { novelId }, options)
+    },
+    async reviewSpatialClue(novelId, clueId, payload) {
+      return contractJson("world.reviewSpatialClue", { novelId, clueId }, {}, payload)
+    },
+    async listProjectVocabulary(novelId, options = {}) {
+      return contractFetch("world.listProjectVocabulary", { novelId }, { limit: 500, ...options }, { cache: "no-store" })
+    },
+    async getVocabularyTerm(novelId, typeRef, revisionId) {
+      return contractFetch("world.getVocabularyTerm", { novelId, typeRef }, revisionId ? { revision_id: revisionId } : {}, { cache: "no-store" })
+    },
+    async createVocabularyTerm(novelId, payload) {
+      return contractJson("world.createVocabularyTerm", { novelId }, {}, payload)
+    },
+    async updateVocabularyTerm(novelId, typeRef, payload) {
+      return contractJson("world.updateVocabularyTerm", { novelId, typeRef }, {}, payload)
+    },
+    async archiveVocabularyTerm(novelId, typeRef, payload) {
+      return contractJson("world.archiveVocabularyTerm", { novelId, typeRef }, {}, payload)
+    },
+    async restoreVocabularyTerm(novelId, typeRef, payload) {
+      return contractJson("world.restoreVocabularyTerm", { novelId, typeRef }, {}, payload)
+    },
+    async mergeVocabularyTerms(novelId, payload) {
+      return contractJson("world.mergeVocabularyTerms", { novelId }, {}, payload)
+    },
+    async splitVocabularyTerm(novelId, typeRef, payload) {
+      return contractJson("world.splitVocabularyTerm", { novelId, typeRef }, {}, payload)
+    },
+    async applyVocabularyPresets(novelId, payload) {
+      return contractJson("world.applyVocabularyPresets", { novelId }, {}, payload)
+    },
     async listEntities(params = {}) {
       return contractFetch("world.listEntities", {}, params)
     },
@@ -76,6 +124,85 @@ export const world = {
     },
     async getEntity(id, novelId, options = {}) {
       return contractFetch("world.getEntity", { id }, { novel_id: novelId }, options)
+    },
+
+    async getEntityDossier(entityId, novelId, options = {}) {
+      const { asOfSceneId = null, limit = 100, offset = 0, ...requestOptions } = options
+      return request(withQuery(`/world/entities/${encodeURIComponent(entityId)}/dossier`, {
+        novel_id: novelId,
+        as_of_scene_id: asOfSceneId,
+        limit,
+        offset,
+      }), { cache: "no-store", ...requestOptions })
+    },
+
+    async listEntityDossierFacets(entityId, novelId, options = {}) {
+      return request(
+        withQuery(`/world/entities/${encodeURIComponent(entityId)}/dossier/facets`, { novel_id: novelId }),
+        { cache: "no-store", ...options },
+      )
+    },
+
+    async listDossierFacetsForType(profileType, novelId, options = {}) {
+      return request(
+        withQuery(`/world/dossier-facets/${encodeURIComponent(profileType)}`, { novel_id: novelId }),
+        { cache: "no-store", ...options },
+      )
+    },
+
+    async listEntityDossierHistory(entityId, novelId, options = {}) {
+      const { entryGroupId = null, limit = 100, offset = 0, ...requestOptions } = options
+      return request(withQuery(`/world/entities/${encodeURIComponent(entityId)}/dossier/history`, {
+        novel_id: novelId,
+        entry_group_id: entryGroupId,
+        limit,
+        offset,
+      }), { cache: "no-store", ...requestOptions })
+    },
+
+    async exportEntityDossierManifest(entityId, novelId, options = {}) {
+      return request(
+        withQuery(`/world/entities/${encodeURIComponent(entityId)}/dossier/manifest`, { novel_id: novelId }),
+        { cache: "no-store", _responseType: "blob", ...options },
+      )
+    },
+
+    async previewEntityDossierManifest(entityId, novelId, payload, options = {}) {
+      return post(withQuery(`/world/entities/${encodeURIComponent(entityId)}/dossier/manifest/preview`, { novel_id: novelId }), payload, options)
+    },
+
+    async applyEntityDossierManifest(entityId, novelId, payload, options = {}) {
+      return post(withQuery(`/world/entities/${encodeURIComponent(entityId)}/dossier/manifest/apply`, { novel_id: novelId }), payload, options)
+    },
+
+    async createEntityDossierEntry(entityId, novelId, payload, options = {}) {
+      return post(withQuery(`/world/entities/${encodeURIComponent(entityId)}/dossier/entries`, { novel_id: novelId }), payload, options)
+    },
+
+    async updateEntityDossierEntry(entityId, revisionId, novelId, payload, options = {}) {
+      return patch(withQuery(`/world/entities/${encodeURIComponent(entityId)}/dossier/entries/${encodeURIComponent(revisionId)}`, { novel_id: novelId }), payload, options)
+    },
+
+    async restoreEntityDossierEntry(entityId, entryGroupId, novelId, payload, options = {}) {
+      return post(withQuery(`/world/entities/${encodeURIComponent(entityId)}/dossier/groups/${encodeURIComponent(entryGroupId)}/restore`, { novel_id: novelId }), payload, options)
+    },
+
+    async getEntityDossierTemplate(profileType, novelId, options = {}) {
+      return request(
+        withQuery(`/world/dossier-templates/${encodeURIComponent(profileType)}/author`, { novel_id: novelId }),
+        { cache: "no-store", ...options },
+      )
+    },
+
+    async listEntityDossierTemplateHistory(profileType, novelId, options = {}) {
+      return request(
+        withQuery(`/world/dossier-templates/${encodeURIComponent(profileType)}/history`, { novel_id: novelId }),
+        { cache: "no-store", ...options },
+      )
+    },
+
+    async saveEntityDossierTemplate(profileType, novelId, payload, options = {}) {
+      return put(withQuery(`/world/dossier-templates/${encodeURIComponent(profileType)}/author`, { novel_id: novelId }), payload, options)
     },
 
     async getCharacter(id, novelId) {
@@ -746,6 +873,18 @@ export const world = {
 
     // ============================================================
     // AI 地图册
+    async previewMapNodeMerge(novelId, payload) {
+      return contractJson("world.previewMapNodeMerge", { novelId }, {}, payload)
+    },
+    async mergeMapNodes(novelId, payload) {
+      return contractJson("world.mergeMapNodes", { novelId }, {}, payload)
+    },
+    async previewMapNodeMergeUndo(novelId, payload) {
+      return contractJson("world.previewMapNodeMergeUndo", { novelId }, {}, payload)
+    },
+    async undoMapNodeMerge(novelId, payload) {
+      return contractJson("world.undoMapNodeMerge", { novelId }, {}, payload)
+    },
     async createMapNode(novelId, payload) {
       return contractJson("world.createMapNode", { novelId }, {}, payload)
     },

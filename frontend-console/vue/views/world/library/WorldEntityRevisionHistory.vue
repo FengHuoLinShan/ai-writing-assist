@@ -241,15 +241,38 @@ function toggleCompare(revision) {
 function typeLabel(value) {
   return SYSTEM_ENTITY_TYPE_FALLBACK.find((item) => item.value === value)?.label || value || "未设置"
 }
-function aliasList(source) {
+function aliasDetails(source) {
   const list = Array.isArray(source) ? source : []
-  return list.map((item) => (typeof item === "string" ? item : item?.alias)).filter(Boolean)
+  return list.map((item) => (typeof item === "string"
+    ? { alias: item, validity: null }
+    : { alias: item?.alias, validity: item?.validity || null }))
+    .filter((item) => item.alias)
 }
-function snapshotAliases(revision) {
-  return aliasList(revision?.snapshot?.aliases)
+function snapshotAliasDetails(revision) {
+  const details = revision?.snapshot?.alias_details
+  if (Array.isArray(details)) return aliasDetails(details)
+  return aliasDetails(revision?.snapshot?.aliases)
 }
-function currentAliases() {
-  return aliasList(props.entity?.content_json?.aliases)
+function currentAliasDetails() {
+  return aliasDetails(props.entity?.content_json?.aliases)
+}
+function aliasValidityLabel(validity) {
+  if (!validity) return "全书有效"
+  const label = (anchor) => {
+    if (!anchor) return ""
+    const name = anchor.label || anchor.title || anchor.name
+    return name || (anchor.kind === "scene" ? "场景名称暂不可用" : "章节名称暂不可用")
+  }
+  return `${label(validity.start) || "全书起始"} — ${label(validity.end) || "持续至今"}`
+}
+function aliasText(entries) {
+  return entries.map((item) => `${item.alias}（${aliasValidityLabel(item.validity)}）`).join("、") || "（无）"
+}
+function aliasState(revision) {
+  return snapshotAliasDetails(revision).map((item) => ({ alias: item.alias, validity: item.validity }))
+}
+function currentAliasState() {
+  return currentAliasDetails().map((item) => ({ alias: item.alias, validity: item.validity }))
 }
 function importanceText(source) {
   return IMPORTANCE_LEVEL_LABELS[source?.importance_level] || "普通设定"
@@ -264,7 +287,7 @@ const COMPARE_FIELDS = [
   { key: "summary", label: ENTITY_REVISION_FIELD_LABELS.summary, text: true, before: (r) => r?.snapshot?.summary || "", after: () => props.entity?.summary || "" },
   { key: "public_info", label: ENTITY_REVISION_FIELD_LABELS.public_info, text: true, before: (r) => r?.snapshot?.public_info || "", after: () => props.entity?.public_info || "" },
   { key: "hidden_truth", label: ENTITY_REVISION_FIELD_LABELS.hidden_truth, text: true, before: (r) => r?.snapshot?.hidden_truth || "", after: () => props.entity?.hidden_truth || "" },
-  { key: "aliases", label: ENTITY_REVISION_FIELD_LABELS.aliases, inline: true, before: (r) => snapshotAliases(r).join("、") || "（无）", after: () => currentAliases().join("、") || "（无）" },
+  { key: "aliases", label: ENTITY_REVISION_FIELD_LABELS.aliases, inline: true, before: (r) => aliasText(snapshotAliasDetails(r)), after: () => aliasText(currentAliasDetails()) },
   { key: "content", label: ENTITY_REVISION_FIELD_LABELS.content, json: true, before: (r) => r?.snapshot?.content_json || null, after: () => props.entity?.content_json || null },
   { key: "importance", label: ENTITY_REVISION_FIELD_LABELS.importance, inline: true, before: (r) => importanceText(r?.snapshot), after: () => importanceText(props.entity) },
   { key: "reveal_level", label: ENTITY_REVISION_FIELD_LABELS.reveal_level, inline: true, before: (r) => revealText(r?.snapshot), after: () => revealText(props.entity) },
@@ -275,7 +298,7 @@ function fieldChanged(field, revision) {
     return stableStringify(normalizeJson(field.before(revision))) !== stableStringify(normalizeJson(field.after()))
   }
   if (field.key === "aliases") {
-    return snapshotAliases(revision).join("\u0000") !== currentAliases().join("\u0000")
+    return stableStringify(aliasState(revision)) !== stableStringify(currentAliasState())
   }
   if (field.text) return String(field.before(revision) || "") !== String(field.after() || "")
   return field.before(revision) !== field.after()

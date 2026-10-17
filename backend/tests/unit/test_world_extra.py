@@ -350,7 +350,14 @@ class TestEntityServiceList:
             assert "Use /entities/{entity_id}/promote" in exc_info.value.message
             mock_repo.update.assert_not_called()
 
-    async def test_update_reuses_loaded_entity_for_repo_update(self) -> None:
+    @patch(
+        "modules.world.dossier_service.WorldObjectDossierService."
+        "sync_core_entity_legacy_field",
+        autospec=True,
+    )
+    async def test_update_reuses_loaded_entity_for_repo_update(
+        self, sync_dossier
+    ) -> None:
         db = MagicMock()
         nid = str(uuid.uuid4())
         entity_id = str(uuid.uuid4())
@@ -385,6 +392,8 @@ class TestEntityServiceList:
             assert result.id == entity_id
             mock_repo.update.assert_awaited_once()
             assert mock_repo.update.await_args.args[1] is existing
+        sync_dossier.assert_awaited()
+        assert sync_dossier.await_count == 1
 
     async def test_promote_canonical_entity_raises_domain_validation(self) -> None:
         db = MagicMock()
@@ -412,7 +421,14 @@ class TestEntityServiceList:
             assert "只有待处理的 draft/candidate 实体可以采用" in exc_info.value.message
             mock_repo.update.assert_not_called()
 
-    async def test_promote_reuses_loaded_entity_for_repo_update(self) -> None:
+    @patch(
+        "modules.world.dossier_service.WorldObjectDossierService."
+        "sync_core_entity_legacy_field",
+        autospec=True,
+    )
+    async def test_promote_reuses_loaded_entity_for_repo_update(
+        self, sync_dossier
+    ) -> None:
         db = MagicMock()
         nid = str(uuid.uuid4())
         entity_id = str(uuid.uuid4())
@@ -437,6 +453,8 @@ class TestEntityServiceList:
             assert result.entity_id == entity_id
             mock_repo.update.assert_awaited_once()
             assert mock_repo.update.await_args.args[1] is existing
+        sync_dossier.assert_awaited()
+        assert sync_dossier.await_count == 3
 
 
 # ============================================================
@@ -1325,11 +1343,17 @@ class TestDedupSyncCharacterOnMerge:
         char_repo.get.side_effect = [candidate_char, target_char]
         char_repo.update = AsyncMock()
 
-        with patch(
-            "modules.world.services.core.dedup_service.CharacterRepository",
-            return_value=char_repo,
-            autospec=True,
+        with (
+            patch(
+                "modules.world.services.core.dedup_service.CharacterRepository",
+                return_value=char_repo,
+                autospec=True,
+            ),
+            patch(
+                "modules.world.dossier_service.WorldObjectDossierService", autospec=True
+            ) as dossier,
         ):
+            dossier.return_value.legacy_character_values.return_value = {}
             result = await svc._sync_character_on_merge(
                 MagicMock(),
                 str(uuid.uuid4()),
@@ -1469,7 +1493,14 @@ class TestDedupMergeCandidate:
         assert exc.value.status_code == 422
         assert "Merge candidate must be draft or candidate" in exc.value.message
 
-    async def test_merge_updates_loaded_candidate_and_target_objects(self) -> None:
+    @patch(
+        "modules.world.dossier_service.WorldObjectDossierService."
+        "sync_core_entity_legacy_field",
+        autospec=True,
+    )
+    async def test_merge_updates_loaded_candidate_and_target_objects(
+        self, sync_dossier
+    ) -> None:
         svc = EntityDedupService()
         novel_id = uuid.uuid4()
         target = _mock_entity(novel_id=novel_id, status="draft")
@@ -1511,6 +1542,8 @@ class TestDedupMergeCandidate:
         assert first_call.args[2].status == "merged"
         assert second_call.args[1] is target
         assert second_call.args[2].status == "canonical"
+        sync_dossier.assert_awaited()
+        assert sync_dossier.await_count == 3
 
 
 class TestDedupFindDuplicates:
@@ -1540,7 +1573,12 @@ class TestDedupResolveCandidate:
             await svc.resolve_candidate(db, str(uuid.uuid4()), str(uuid.uuid4()))
         assert exc.value.status_code == 404
 
-    async def test_no_suggestions_promotes_to_canonical(self) -> None:
+    @patch(
+        "modules.world.dossier_service.WorldObjectDossierService."
+        "sync_core_entity_legacy_field",
+        autospec=True,
+    )
+    async def test_no_suggestions_promotes_to_canonical(self, sync_dossier) -> None:
         svc = EntityDedupService()
         svc._entity_repo = AsyncMock()
         candidate = _mock_entity(entity_type="character", name="NewOne", status="draft")
@@ -1557,6 +1595,8 @@ class TestDedupResolveCandidate:
         assert result.action == "promoted"
         svc._entity_repo.update.assert_awaited_once()
         assert svc._entity_repo.update.call_args[0][1] is candidate
+        sync_dossier.assert_awaited()
+        assert sync_dossier.await_count == 3
 
     async def test_high_confidence_auto_merges(self) -> None:
         svc = EntityDedupService()

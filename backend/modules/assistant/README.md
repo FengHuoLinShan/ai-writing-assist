@@ -4,6 +4,10 @@
 
 `assistant_turn` 在 worker 领取时冻结 root capability、请求额度和 30 分钟 deadline；恢复与
 重排累计同一 run。信封只写任务私有元数据，公共响应仍只返回既有结果投影。
+新 v9 运行仅从服务端冻结且仍可用的两项 C2 Story 操作导出精确子能力，并将目录指纹
+写入私有任务范围。worker 恢复核对范围与信封，执行时再核目录指纹；不接受请求参数
+指定子能力。Story 内联任务共用此父账本，已用请求达 80% 或出现未知扣费后停止新请求。
+旧 v1/v2 信封及旧目录运行不扩权，Goal v3 使用独立作者授权范围。
 
 Assistant 拥有跨页面讨论、Agent 执行、成组提案与提醒展示；不拥有世界事实、正文、结构、
 RP 历史或领域复核。PydanticAI 仅通过 Project LLM gateway 执行注册工具，内部资料只经
@@ -27,6 +31,37 @@ Evidence 读取；业务写入需具体批次确认与来源重验。
 HTTP 入口为 `/api/assistant`；账户与项目身份由服务端验证。RP 提醒通过 Interaction 路由
 接入，调用方只传 journey ID，不接受由浏览器指定隐藏项目或 owner。
 
+### 目标运行（ADR-0038 §6，`goal_run_v1`）
+
+`goal_runs.api.router` 以 `/goals` 挂在 `/api/assistant` 下，提供能力、活动/最近运行、计划审批、推进、
+暂停/继续/取消、受限重规划、逐步确认和恢复清单。目标复用 `assistant_runs`，`mode='goal'`、
+`session_id=NULL`；计划、版本、逐步回执与预算信封仅在私有检查点中。模型规划请求由作者在发起目标时
+明确确认预算后执行，并计入同一根 `AIRunEnvelope`；目标审批只冻结已注册 operation 的范围与服务端
+映射出的 task capability，不开放任意工具或 capability。规划先从 Goal 当前可执行操作中，
+用一次轻量目录选择请求挑选所需操作（至多 30 类），再用第二次请求仅查看选中操作的完整参数 schema；
+两次均记入同一根账本，输入和输出按冻结的项目模型输出上限及剩余 80% token 额度预检；
+冻结上限缺失或额度不足时停止，请作者核对模型设置、缩小目标或增额。未接入根预算/稳定领域
+回执的模型操作和需独立授权的 R4 操作会在能力接口列明原因，并在计划确认及恢复执行时按同一
+规则重验。单轮助手的完整目录不受此过滤影响。
+
+能力默认关闭：需同时开启 `ASSISTANT_ENABLED`、`ASSISTANT_GOAL_RUNS_ENABLED`，并把项目 ID 列入
+`ASSISTANT_GOAL_RUNS_PROJECT_ALLOWLIST`。请求仍须通过作者 owner、活跃 author project 和非 demo 门禁。
+Goal 父任务经统一 enqueuer 保存为确定 ID 的 `inline_only` / `manual_resume` 回执，普通 worker 不领取。
+每项目活动目标由 `uq_assistant_goal_run_active` 保证唯一；计划审批、预算停点和暂停沿用
+`waiting_approval`，原因留在检查点。R0/R1按目录和实际 task adapter 自动推进；R2 默认逐步确认，只有本目标
+显式开启且存在真实恢复入口的操作才可自动执行；R3 仍逐步确认，R4 需要独立领域授权。地图作者决定读取
+仍需原工作台的作者决定凭据，goal 不伪造会话消息身份。恢复清单只支持已有领域 CAS/版本回执的待办更新和
+世界档案版本编辑；未知领域回执停止核对，不盲目重试。
+`auto_r2` 仅对这两类操作的可恢复子集生效：待办只能改标题、说明、截止日期或来源，档案编辑须生成原修订与新修订回执；
+清单在同一事务内生成，恢复再次执行领域版本 CAS。通过能力与预算门禁的其他 R2 保持 `step_review`；R4 不进入 Goal，须回原工作台单独授权。
+未接入目标根预算的操作仍列为不可用，不会进入步骤预览。
+结果未知按 run 与 step 定位；作者提交当前 `expected_revision` 和 `applied`、`not_applied` 或 `still_unknown`。
+作者可先读取同一 run/step 的只读回执预览；预览核对当前修订号、原步骤 operation、调用标识和服务端保存的任务引用，只投影限长摘要及对应工作台定位，不返回完整原始结果，也不写检查点、入队或调用模型。只有预览中的终态领域回执明确证明结果时，界面才显示 `applied` 或 `not_applied` 确认入口。
+服务端收到决定后仍只使用原步骤已保存的 operation、调用标识和任务引用重新读取领域回执，并要求作者明确确认；缺少终态回执时失败关闭。
+`applied` 仅在原回执证明完成时释放步骤；`not_applied` 仅在终态领域回执明确证明未应用时进入失败/重规划，未知用量仍留在原预算账本。
+`still_unknown` 维持阻断。三种决定都不会重放原操作、重新入队、重置预算或返还未知用量。
+请求数、可能费用、令牌与耗时在 80% 使用点暂停供作者复核；续批不重置原始开始时间或硬截止。
+
 - `assistant_runs`：owner/project/session、请求与冻结上下文、任务、预算、私有检查点和结果。
 - `assistant_action_batches`：具体操作预览、基线指纹、确认、依赖与执行回执。
 - `assistant_notices`：领域结果引用及已读/暂缓/忽略；不替代领域问题处置。
@@ -34,10 +69,77 @@ HTTP 入口为 `/api/assistant`；账户与项目身份由服务端验证。RP �
 
 公开响应不得返回运行私有检查点或供应商思考内容。RP 独立消息树/attempt 继续归 Interaction。
 
-运行协议 v2 冻结逐工具的参数签名与实现修订；v1 的目录保持独立快照。新增工具不自动进入
+运行协议 v2 起冻结逐工具的参数签名与实现修订；v1 的目录保持独立快照。新增工具不自动进入
 旧运行，修改签名/修订时必须保留兼容实现或明确拒绝。确认批次也重验操作签名，已完成回执
 的重放不重新写入。人工正文可使用 `review_world_constraints`，原 AI 建议继续用原资料审稿。
 实现与验收状态见项目持久任务记录；仅离线协议通过不等于原生联网或产品质量验收。
+
+新作者运行使用 v17，加入章节重排与事实时间线读取；下文 v11/v16 表示历史集成批次。v11：在 v10 的 C4b 场景导演八项之上加入 C0c 的五项项目设置、关系读取与 Story 状态操作；v9 包含 C2 三项，v8 包含 A1 首批 15 项。v1–v10 冻结目录不自动获得新项。运行快照冻结每项操作的完整参数 schema、版本与目录元数据（用途、
+R0–R4 风险、可能计费类别、可撤销性、前置条件、产出、目标类型、事务形态及留痕规则）。
+模型先用 `find_operations` 获取至多八项摘要，再用 `describe_operation` 读取单项完整说明；
+R0 目录读取经 `read_operation` 进入领域读取端口。已下线或改版的冻结项仍可查看原说明，
+但不能执行；其他未变化的项可以继续使用。既有 v7 不自动获得 A1 新操作；v1–v6 运行仍按原两字段操作快照和
+`available_operations` 恢复，原批次确认与显式重试规则不变。`world.dossier.template.edit`
+因模板字段 `key` 先升为修订 2，C0c 再升为修订 3；旧修订冻结目录可查看，但不在旧运行中替换 schema
+执行，作者须发起新运行。目录元数据是声明；物化后的
+`prepare/apply` 回调通过 `ASSISTANT_OPERATION_TRACE` 记录提议、预览、确认、拒绝、执行、失败和
+多阶段结果未知。HTTP 写路由须绑定目录 `operation_id` 或给出明确豁免，C3 提醒和对象档案路由
+也经同一端口接入；静态 ratchet 禁止未绑定写路由增加。高频正文 autosave 豁免留痕，因为版本草稿
+历史已经保存该编辑节奏，且明细不复制正文。
+
+留痕只保存声明参数的类型、长度、分桶或按作品独立盐值生成的 HMAC；未声明字段只保存出现标记，
+不存正文、prompt、模型输出或密钥。单事务写入把成功事件放在业务事务内，trace 自身用 savepoint
+隔离；多阶段异常记为结果未知，不自动重放。留痕写入失败不阻断业务；响应发送前的 HTTP 留痕缺口用
+`x-novelcraft-operation-trace-incomplete` 标记，v7–v17 助手运行在 checkpoint 和结果中标记
+`operation_trace_incomplete`，以便作者识别记录缺口。绑定操作的 HTTP 入口先验证当前 owner 和未回收项目，
+再读取留痕开关或写入盐值；终态留痕只可使用与该请求业务会话同一数据库引擎的会话，异库时标记缺口。
+HTTP 留痕路由适配由 `operation_trace_http_adapter.py` 持有；`app/main.py` 只负责在组合根安装，适配器保留实际
+APIRoute dispatch、同请求事务及原有缺口标记语义。
+账户偏好由 `/operation-traces/preference`
+管理：本机默认开启，公开账户默认关闭并需作者主动开启，演示账户永不记录。作者可通过
+`/operation-traces/aggregate` 查看作者当前作品的 30/90/180 天或全部可用记录，也可通过
+`/operation-traces/export` 下载 JSON/CSV。报表固定使用数据库事务时间和 UTC 日期窗口；当前明细与
+ID-free 日汇总在同一项目归档锁内合并，旧序列摘要标为不完整，不能补造历史指标。序列按 UTC 日和
+会话/运行/调用边界分组，只纳入执行、失败、结果未知等终态；接受率只统计有同日调用关联、提议在先的
+明确接受/拒绝，重复确认按调用去重。执行结果与作者接受分别呈现；先修改后接受、恢复/撤销、耗时及用量
+只在现有回执、事件顺序和白名单账本可证明时统计。缺少历史指标、关联或覆盖时标为部分/不可测，不推算为零。
+执行后恢复率以窗口内可关联执行组为分母，同一组多次恢复只计一次；保留期内同一调用可跨 UTC 日关联，
+匿名日归档或旧版碎片不能证明跨日关系时标为部分可测，无执行分母时不显示零比率。
+候选排名按留痕事件数展示，不自动挑选或生成新的 Top 3 操作配方；真实持续使用数据不足前不能据此实施配方。
+导出仅含匿名汇总、UTC 日期、固定操作标识和粗粒度参数形状，不包含所有者/会话/运行/调用/目标/资产 ID、
+正文、prompt、文本哈希或可逆参数；由浏览器下载，不会自动上传。明细到期后只保留无 ID 汇总。
+归档按数据库事务时钟的精确 `now - 180 天` 截止删除明细。首次有过期明细时，归档在同一事务中
+为该 UTC 日生成不含 ID 的完整序列和生命周期快照；之后逐次汇入到期频次与用量，报表按日期排除
+仍存活明细的重复序列。已有碎片归档只保持不完整覆盖，不能重建旧关联。
+GET 报表只读取匿名归档和当前明细，不触发写入；现有任务 worker 的维护节拍每次清理一个有过期明细的作品，
+即使作者不打开报表，闲置作品也会清理。
+
+A1 首批已注册 World 4、Story 3、Writing 4、Evidence 3、Evolution 1 个新目录项。
+已有同语义的领域路由直接标注操作 ID；对象类型迁移、Scene 拆分、章节改名、当前草稿冲突检查
+以及 Evidence 只读查询使用 `/api/assistant/operation-http/*` 窄入口。窄写入先取预览指纹，
+作者提交相同参数和 `confirmed=true` 后重新准备、对比指纹再调用领域服务；R3 融合/合并
+须领域 `confirmed=true`，Evolution 的 HTTP 预览只记预览、不启动任务或记成作者最终授权。
+旧宽体类型编辑、正文 checkpoint 和任意正文冲突检查路由保留原用途，不标作这些窄操作。
+后续 v17 已接入安全章节重排（预览、确认及回执恢复）和只读事实时间线；不提供任意覆盖历史事件。A4 数周真实使用与作者验收仍未完成。
+
+C2 新增对象简报 R0 读取及人物卡/人物反应 R1 建议；窄 HTTP 对象简报入口只读，
+Story 窄入口只准备并留痕预览，不排队。Assistant 执行先无 operation_id 准备，
+再沿当前父任务模型快照和额度确认、入队、内联执行并回读结果。原 Story 宽任务路由
+保留作者独立确认与根预算，不冒充窄入口。旧 v1–v8 不自动得到新操作，
+`story.save_card` v1 与 `story.save_script` 参数指纹不变；对象档案条目创建和编辑因纳入原类型
+`legacy_value` 输入升至操作修订 3，其余既有档案操作保持修订 2。
+
+C0c 新增 `project.object_validity_settings.read/edit`、`world.relations.read` 与
+`story.custom_text_state.confirm`、`story.map_declaration_state.confirm`。两项 Story 状态操作
+按已确认正史写入定为 R3，prepare 与 apply 均重验 Scene、对象或当前已采用地图修订；
+实际 HTTP 写入先验证 owner 与活跃项目，Story 事件只追加、重复幂等。C0c 批次使用 v11，
+旧 v1–v10 快照不升级；对象档案读取、历史、模板读取与恢复操作保持修订 2，条目创建和编辑升修订 3，模板编辑升修订 3，旧冻结项
+可描述但发生 schema 或修订漂移时不能执行。项目设置采用预期版本 CAS，默认关闭。
+
+C3 集成批次使用 v16：在正式 v15 目录之后加入 Story 人物弧的三项 R0 读取与四项 R3
+写入；v1–v15 冻结目录均不自动获得这些能力。R0 历史和实际对照需要完整作品可信工作范围，
+写入须预览、显式确认及领域 CAS。恢复留痕凭同一修订回执关联原执行的
+`op_id/call_id`，重放不重复记录恢复；缺少原回执时只标留痕不完整。
 
 ## 主动检查与提醒
 
@@ -50,6 +152,58 @@ World/Writing 复用原领域审稿任务；RP 使用 Interaction 的连续性�
 任务引用和提示投影。来源变化时抑制旧通知，已读/忽略/暂缓不会把领域问题判为已解决；
 相同问题的证据未变化时保持原展示决定。当前作者/RP 均有站内回访与提醒入口。
 独立审稿所需原 confirmation 不可被新助手范围替换；无法证明排除范围一致时返回明确冲突。
+
+## 统一作者提醒（ADR-0040 §13，C3a 后端切片）
+
+`modules.assistant.notices_api.router` 声明 `/api/assistant/unified-notices`：GET 按章节或
+Scene 聚合；POST `/dispositions` 处理已读、稍后（1–720 小时）和忽略；PUT/DELETE
+`/category-mutes/{source_id}/{category}` 以行版本静默或恢复类别。路由先校验当前 owner 的
+活跃项目；Scene scope 再经 `OUTLINE_SCENE_SERVICE` 按同一 novel 校验。写操作沿请求事务
+flush，不在领域服务内 commit；处置与类别静默服务入口拒绝公开 demo 只读身份。
+
+`app.notice_source_registry.notice_sources` 物化只读 provider spec。Assistant 聚合只调用此
+registry；每个并行来源各自打开和关闭 AsyncSession，超时或异常显示“暂时无法读取”并令响应
+`partial=true`，不会被当作空结果缓存。来源没有领域处置时，`assistant_notice_dispositions`
+按项目、来源、稳定键和依据指纹独立 CAS；稍后到期回到未读，忽略只绑定原指纹。类别静默由
+独立 `assistant_notice_category_mutes` 保存，不混入 `assistant_notices`。已有处置入口仍由来源
+adapter 转发。
+Writing 冲突项的领域 `later` 没有唤醒时间，统一入口的定时“稍后”使用上述展示处置记录；
+到期后原 open 项重新出现，领域忽略仍走原条目状态。前瞻卡超过 10 条或单章待重算项超过
+100 条时，已读取条目继续显示，并附“还有更多”导航提醒，不把整个来源报为不可用。
+
+当前注册 `story.structure`、`writing.conflict`、`writing.invalidation`、
+`assistant.proactive`、`assistant.forecast`、`assistant.editorial`、
+`evolution.reading` 和 `world.map_source`。
+`story.structure` 迁移原前端结构缺项规则，
+冲突检查读取已保存正文基线并包括 G8b 地图基线；短期前瞻仍走原 forecast CAS。Assistant
+主动提醒适配器只投影现有 active AssistantNotice（含当前可见的 map_changes 与 editorial_issue），
+不另立审读结论。除本节记录的编辑意见、G8a 地图来源及 Evolution 阅读外，地图空间提醒、档案/状态、
+对象一致性和世界推进提醒仍由各自来源接入；本切片不把它们伪装为已支持。
+
+组合根通过 `ASSISTANT_NOTICE_SOURCES` 注册上述来源并挂载 router；
+`modules.assistant.notice_models` 的两张 ORM 表已纳入 bootstrap/Alembic 元数据。来源/操作仍是
+纯 spec；离线 provider 测试不能代替共享 app 的真实 HTTP 验证。
+
+## 写作副驾驶提醒界面
+
+`SceneCockpit.vue` 读取 `/assistant/unified-notices`，按来源和类别分组；中/高优先级默认展开，低/信息折叠。
+来源失败以独立占位显示，`partial=true` 时明确说明成功来源之外仍未知。已读、稍后 24 小时、忽略和类别静音
+使用响应里的 `basis_fingerprint` 与 `row_version`；409 保留当前内容并重新读取，不乐观地移除提醒。公开演示及
+只读版本不显示写操作。未保存正文只在本地显示提示，不进入服务器请求或提醒依据。
+
+本场、对象、提醒、导演四个标签分别显示 Scene Lens、对象档案入口、统一提醒和场景导演入口。对象档案尚不可用时
+保留下方 Evidence 查证；场景导演暂未开放时只提供现有场景工作台入口，不生成模拟建议。提醒动作直达既有规则检查、
+重算选项、前瞻面板、编辑台具体意见或地图节点。
+
+`modules.assistant.editorial_notice_source.NOTICE_SOURCE_SPEC` 将现有 EditorialIssue 队列作为独立来源；已读和暂缓
+只影响统一提醒显示，忽略映射现有 `IssueDecision(disposition="closed")` 与意见行版本 CAS。旧 `assistant.proactive`
+编辑意见提醒仅在同一意见也能由新来源读取时于界面去重；新来源不可用时旧提醒仍可见，旧提醒的关闭也转发给同一领域决定。
+`modules.evolution.notice_sources.NOTICE_SOURCE_SPEC` 提供 G8a 地图来源提醒：当前地图 head 与最新正式正文来源的只读核对
+决定是否提醒，历史失效回执只在 node/revision 完全匹配时补充证据；历史回执本身不维持已解决提示。地图/来源扫描截断
+或无法验证时保留已核实条目并追加覆盖提示。
+
+这两个 provider 是纯 SPEC；只有 `app.notice_source_registry` 注册后才会进入生产聚合。其加入不改变领域事实、失效窗口、
+地图内容或重算范围；处置依然沿原领域决定或独立展示状态保存。
 
 ## 成组执行与恢复
 
@@ -98,7 +252,16 @@ World/Story 操作目录并生成相关资产的待确认提案。会话创建�
 
 ## 自托管联网与维护补全
 
-新运行 v3 注册公开事实搜索、按本次引用读取网页和世界书历史工具；v1/v2 仍按提交目录恢复。
+新运行 v5 保留 v4 的公开事实搜索、按本次引用读取网页和世界书历史工具、项目词表只读工具，
+并新增只读 `map_spatial_brief`。它只返回当前授权范围内已采用地图的受限简报；地图 revision/hash
+保存在私有运行检查点并于最终答复前重验，知识回执将其标为 `map_spatial` 参考维度。该工具需
+`MAP_SPATIAL_ENABLED_CAPABILITIES` 含 `assistant.turn`，默认关闭。v1 使用独立快照，v2/v3/v4
+按各自运行记录的工具与操作清单恢复，v5 新工具不会进入旧运行。
+关闭时新运行不注册地图工具；已冻结的运行保留原目录，调用时仍重验开关。地图引用逐条作为独立
+参考来源进入最终 `knowledge_scope_receipt`；普通回答仅记录实际读取范围，不代表已经通过独立知识审查。
+v4 的 `project_vocabulary` 只读工具返回本作品有界词条身份、当前修订和特性，披露省略数；
+只用于准备类型管理参数，不作为正文或世界事实证据。原确认、排除项或章节范围无法覆盖全书
+词表时拒绝读取，领域修改仍需具体方案预览和作者确认。
 `TurnCreate.web_backend=searxng-v1` 与 `allow_web` 同时启用才授权新渠道，历史浏览器偏好没有
 backend 标记时不继承。首次自动创建讨论保留输入、参考范围与联网选择。能力接口分别返回
 模型连接和私有搜索服务的状态、原因及受控入口；模型不可用时仍能读取讨论和已有回执。
@@ -152,6 +315,9 @@ pro 模式将本轮实际工具证据冻结为 `assistant.turn` 组级 scope，�
 `forecast_v1` 子路由声明前缀 `/forecasts`，挂载后的完整入口是
 `/api/assistant/forecasts`。feed 仅读取保存稿、领域回执和派生候选，不请求模型或创建任务。
 显式 evaluate 用原 AssistantRun 和 `assistant_forecast`，最多四次请求（含复核与修复）。
+新 Scene 默认在同一父运行预算下分别生成角色已知范围的人物表演卡 v2 和作者视角转场卡；
+两份资料独立物化、独立模型调用和复核，通过后一起发布。第二类调用失败或费用未知时
+保留已完成检查点，但不发布部分候选或自动重试。旧冻结 v1 卡及转场按原来源形状读取。
 语义任务、自动触发与 RP 各有默认关闭的开关。后台 forecast 与原 review 共享 active_run
 和每日额度，分别保留自身稳定期与冷却期；原客户端保存设置不会覆盖新授权分区。
 
@@ -202,7 +368,7 @@ uuid5 幂等执行与批次指纹；或既有领域任务如 `writing_semantic_r
 依赖方向（ADR-0031）：guided_flow 只经操作目录或 facade 触达
 Evidence/Writing/Project/Story；不新增模块依赖边，Assistant 仍禁止直接 import
 World（骨架与采用经操作目录调用 `world.draft_opening_skeleton` /
-`world.adopt_package`）。三个流程共用一张注册表与派发表（`flows.py`），按同一
+`world.adopt_package`）。现有五个流程共用一张注册表与派发表（`flows.py`），按同一
 机制追加推导、确认/选择输入与自动执行实现，不另起编排层。
 
 HTTP 入口为 `/api/assistant/flows`（start/active/latest/view/advance/settings/abandon）；鉴权与项目隔离与 Assistant 其余入口一致，作者语言视图为唯一公开投影。开始请求按流程携带输入（`continue_writing` 需 `chapter_index`；`new_book_opening` 需 `input.vision` 与可选题材/篇幅意向；`editorial_revision` 无开始输入），推进请求除资料确认外支持 `choice`（作者选择停点的输入，由各流程在服务端校验）；视图的 `panel` 承载当前停点的作者面向载荷（方向卡、骨架包引用、修订条目、滚动窗口进度）。
@@ -245,6 +411,11 @@ HTTP 入口为 `/api/assistant/flows`（start/active/latest/view/advance/setting
 或被引用资产按领域回执保留。取舍保存 CAS 冲突保留编辑，重读前本地备份可恢复；
 备份失败保留当前编辑并阻止无保护离页。审读台重新挂载读取活动流程恢复停点。
 方向卡能力归属为 `assistant.guided_flow.direction_cards`，只声明对齐作者构想 `author_intent`，输出不构成世界事实或知识审查通过回执。审读修订的改后复核任务仍在途时保持流程进行中；终态回执才进入复核结果停点。
+
+`world_progression_review` v1 已注册为作者逐步复核流程：选择参与者/方式/步长 → 确认资料 →
+单独确认 R4 根预算并推进 → 查看候选 → 按钩子逐次确认滚动窗口、R0 预览与 R3 采用。流程没有
+自动提交模型任务或资产写入的 step；它经 Assistant 操作目录调用 Story。C5 操作目录与 Task/app
+组合接线完成前，流程定义不代表此入口已可运行；全局引导流程开关保持默认关闭。
 
 ## 工作上下文的意图与选区范围（R00）
 

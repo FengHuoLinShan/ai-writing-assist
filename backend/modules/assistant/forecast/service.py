@@ -71,6 +71,22 @@ def candidate_view(candidate, notice, *, dirty=False):
     payload = candidate.payload_json
     proposal = payload["proposal"]
     declined = declined_direction_ids(candidate, notice)
+    character_response = None
+    if payload.get("character_response"):
+        from modules.assistant.forecast.character_response import CharacterResponseView
+
+        character_response = CharacterResponseView.model_validate(
+            payload["character_response"]
+        )
+        character_response = character_response.model_copy(
+            update={
+                "options": [
+                    option
+                    for option in character_response.options
+                    if option.direction_id not in declined
+                ]
+            }
+        )
     return CandidateView(
         candidate_id=candidate.id,
         issue_key=candidate.issue_key,
@@ -103,6 +119,9 @@ def candidate_view(candidate, notice, *, dirty=False):
             ),
         ],
         evidence=payload["evidence"],
+        character_response=character_response.model_dump(mode="json")
+        if character_response
+        else None,
         actions=[
             action
             for action in public_actions(candidate, dirty=dirty)
@@ -186,7 +205,33 @@ def is_applicable(candidate, ctx):
 
 
 async def feed(db, novel_id, data, *, persona="author"):
-    ctx = await materialize(db, novel_id, data.context, persona=persona)
+    from modules.assistant.forecast.registry import defaults
+
+    capabilities = defaults(data.context.page, persona=persona)
+    scene_pair = capabilities == [
+        "story.character_response.v2",
+        "story.scene_transition.v1",
+    ]
+    ctx = await materialize(
+        db,
+        novel_id,
+        data.context,
+        persona=persona,
+        include_understanding=not scene_pair,
+        capabilities=["story.character_response.v2"] if scene_pair else capabilities,
+    )
+    transition_ctx = (
+        await materialize(
+            db,
+            novel_id,
+            data.context,
+            persona=persona,
+            include_understanding=True,
+            capabilities=["story.scene_transition.v1"],
+        )
+        if scene_pair
+        else None
+    )
     # Rank latest before testing validity: an invalid latest assessment must not
     # resurrect an older pass. Fetch dependency/notice sets once, not per card.
     latest_ids = (
@@ -205,7 +250,10 @@ async def feed(db, novel_id, data, *, persona="author"):
         .where(
             ForecastCandidate.novel_id == UUID(novel_id),
             ForecastCandidate.audience_key == ctx.scope.audience_key,
-            ForecastCandidate.scope_hash == ctx.scope.scope_hash,
+            ForecastCandidate.scope_hash.in_(
+                [ctx.scope.scope_hash]
+                + ([transition_ctx.scope.scope_hash] if transition_ctx else [])
+            ),
         )
         .subquery()
     )
@@ -216,14 +264,58 @@ async def feed(db, novel_id, data, *, persona="author"):
             .where(latest_ids.c.position == 1)
         )
     ).all()
-    legacy_ctx = (
-        await materialize(
-            db, novel_id, data.context, persona=persona, include_understanding=False
-        )
-        if ctx.understanding.get("records")
-        and any(not row.payload_json.get("understanding_enabled") for row in rows)
-        else ctx
+    run_ids = {row.run_id for row in rows}
+    runs = (
+        {
+            run.id: run.request_json
+            for run in (
+                await db.scalars(
+                    select(AssistantRun).where(
+                        AssistantRun.novel_id == UUID(novel_id),
+                        AssistantRun.id.in_(run_ids),
+                    )
+                )
+            ).all()
+        }
+        if run_ids
+        else {}
     )
+    contexts = {
+        (
+            tuple(["story.character_response.v2"] if scene_pair else capabilities),
+            not scene_pair,
+        ): ctx
+    }
+    if transition_ctx:
+        contexts[("story.scene_transition.v1",), True] = transition_ctx
+
+    def context_key(request, row):
+        selected = tuple(request.get("selected_capabilities") or capabilities)
+        if request.get("companion_scope") and selected == (
+            "story.character_response.v2",
+            "story.scene_transition.v1",
+        ):
+            return (
+                ("story.scene_transition.v1",),
+                True,
+            ) if row.capability_id == "story.scene_transition.v1" else (
+                ("story.character_response.v2",),
+                False,
+            )
+        return selected, bool(request.get("understanding_enabled"))
+
+    for row in rows:
+        request = runs.get(row.run_id, {})
+        key = context_key(request, row)
+        if key not in contexts:
+            contexts[key] = await materialize(
+                db,
+                novel_id,
+                data.context,
+                persona=persona,
+                include_understanding=key[1],
+                capabilities=list(key[0]),
+            )
     deps = {}
     if rows:
         for dependency in (
@@ -255,7 +347,8 @@ async def feed(db, novel_id, data, *, persona="author"):
     )
     valid, counts = [], {key: 0 for key in CoverageCounts.model_fields}
     for row in rows:
-        row_ctx = ctx if row.payload_json.get("understanding_enabled") else legacy_ctx
+        request = runs.get(row.run_id, {})
+        row_ctx = contexts[context_key(request, row)]
         if not await _valid(db, row, row_ctx, deps.get(row.id, [])):
             counts["source_invalid"] += 1
             continue
@@ -344,7 +437,17 @@ async def require_candidate(db, novel_id, candidate_id, *, focus=None, persona="
         novel_id,
         focus or FocusRequest.model_validate(run.request_json["context"]),
         persona=persona,
-        include_understanding=bool(run.request_json.get("understanding_enabled")),
+        include_understanding=(
+            candidate.capability_id == "story.scene_transition.v1"
+            if run.request_json.get("companion_scope")
+            else bool(run.request_json.get("understanding_enabled"))
+        ),
+        capabilities=(
+            [candidate.capability_id]
+            if run.request_json.get("companion_scope")
+            else run.request_json.get("selected_capabilities")
+            or [candidate.capability_id]
+        ),
     )
     if not await _valid(db, candidate, ctx):
         raise ConflictError("资料或授权已变化，请重新检查", code="SOURCE_STALE")
@@ -593,15 +696,21 @@ async def inherit_issue_identity(db, run, item, cache):
     return item["issue_key"]
 
 
-async def publish(db, run, ctx, assessments):
+async def publish(
+    db, run, ctx, assessments, *, ordinal_start=0, include_understanding=None
+):
     if len(ctx.dependencies) > 256:
         raise ValidationError("依赖过多，请缩小本次资料范围", code="DEPENDENCY_LIMIT")
     rows = []
-    for ordinal, item in enumerate(assessments):
+    for ordinal, item in enumerate(assessments, start=ordinal_start):
         payload = {
             **item["payload"],
             "context_keys": ctx.scope.context_keys,
-            "understanding_enabled": bool(run.request_json.get("understanding_enabled")),
+            "understanding_enabled": (
+                bool(run.request_json.get("understanding_enabled"))
+                if include_understanding is None
+                else include_understanding
+            ),
         }
         if len(json.dumps(payload, ensure_ascii=False).encode()) > 65536:
             raise ValidationError(

@@ -128,11 +128,12 @@ def test_revision_digest_rewrites_bind_destination_identity() -> None:
         "world_bible_page_revisions": {"src-rev": new_revision_id},
     }
 
-    digests = DemoProjectCopyService._revision_digest_rewrites(
+    digests = DemoProjectCopyService._prepare_copy_fingerprints(
         destination_id,
         rows_by_table,
         rewrites,
         {str(source_entity_id): destination_entity_id},
+        prepared_rows={},
     )
 
     new_id, digest = digests["world_bible_page_revisions"]["src-rev"]

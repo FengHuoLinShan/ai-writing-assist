@@ -18,7 +18,6 @@ import {
 } from "../../bridge/index.js"
 import { useLeaveGuard } from "../../composables/useLeaveGuard.js"
 import { activeEditorialReviews, confirmEditorialImpact } from "../../composables/useEditorialGuard.js"
-import { buildSceneAlerts } from "./sceneAlerts.js"
 import { buildVersionDiff } from "../../../shared/versionDiff.js"
 import { isVersionActive } from "./versionState.js"
 import { applyToolsResult } from "../../../shared/writingToolsResult.js"
@@ -36,6 +35,7 @@ import {
   rememberWritingLocation,
 } from "./writingSession.js"
 import { projectSettingsSession } from "../settings/projectSettingsSession.js"
+import { characterArcs } from "../../../api/characterArcs.js"
 
 function normalizeChapters(data = {}) {
   const summaries = Array.isArray(data.chapters) ? data.chapters : []
@@ -217,13 +217,32 @@ export function useWritingWorkspace(props) {
   const conflictOptions = reactive({ open: false, includeCandidates: false })
   const conflictDialog = reactive({ open: false, check: null, busy: false, error: null, sourcePreview: null, focusItemId: null })
   const conflictTask = reactive({ taskId: null, progress: null })
-  const sceneState = reactive({ loading: false, alerts: [], people: [], location: null })
   const sceneLens = reactive({ sceneId: null, loading: false, data: null, error: null })
   const deepImportState = reactive({ taskId: null, projectId: null, progress: null })
   const deepImportHasScenes = computed(() => scenes.value.length > 0)
   const deepAuditOpen = ref(false)
   const autoExtraction = reactive({ open: false, stage: "scenes", start: 1, end: 1, highQuality: false, targetedCompletion: false, busy: false })
-  const outlineFloat = reactive({ open: false, loading: false, threads: [], error: null })
+  const outlineFloat = reactive({
+    open: false,
+    loading: false,
+    threads: [],
+    error: null,
+    threadsLoaded: false,
+    arcLoading: false,
+    arcError: null,
+    arcGaps: [],
+    characterArcs: [],
+    arcOmission: null,
+    arcDrafts: {},
+    arcPreviews: {},
+    arcErrors: {},
+    arcSavingCharacter: null,
+    arcHistoryOpen: {},
+    arcHistoryLoading: null,
+    arcHistoryErrors: {},
+    arcHistory: {},
+    arcRestorePreviews: {},
+  })
   const versionDialog = reactive({ open: false, diffOpen: false, leftId: null, rightId: null, diff: null, loading: false, error: null })
   const generationLoading = ref(false)
   const generationTask = reactive({ taskId: null, progress: null, result: null })
@@ -237,6 +256,8 @@ export function useWritingWorkspace(props) {
   let selectionGeneration = 0
   let sceneGeneration = 0
   let sceneLensGeneration = 0
+  let outlineArcGeneration = 0
+  const outlineArcEdits = new Map()
   let publishGeneration = 0
   let versionDiffGeneration = 0
   let publishPoller = null
@@ -319,10 +340,7 @@ export function useWritingWorkspace(props) {
       }
       syncLegacyState({ persistLocation: !hot })
       if (hot) scheduleInputDerivedUpdate()
-      else {
-        dispatchDashboardUpdate()
-        refreshSceneAlerts()
-      }
+      else dispatchDashboardUpdate()
     },
     onVersionChanged: async () => {
       if (!selectedChapter.value || getAppState()?.currentProjectId !== projectId) return
@@ -362,7 +380,6 @@ export function useWritingWorkspace(props) {
       if (!checkMatchesSelection(check)) return
       conflictDialog.check = check
       conflictState.latest = check
-      refreshSceneAlerts()
     },
     onProgress: (value) => Object.assign(conflictTask, value),
   })
@@ -383,6 +400,31 @@ export function useWritingWorkspace(props) {
   }
 
   const focusedSelection = useEvidenceSelection(() => `${projectId}:writing:${selectedChapter.value}:${currentScene.value?.id || ''}`)
+  const directorReferenceStorageKey = `writing-director-reference-ids-v1:${projectId}`
+  const directorReferenceIdsByScene = reactive({})
+  try {
+    const saved = JSON.parse(globalThis.sessionStorage?.getItem(directorReferenceStorageKey) || "{}")
+    if (saved && typeof saved === "object" && !Array.isArray(saved)) {
+      for (const [sceneId, values] of Object.entries(saved)) {
+        if (Array.isArray(values)) directorReferenceIdsByScene[sceneId] = [...new Set(values.map(String))].slice(0, 20)
+      }
+    }
+  } catch { /* invalid session draft is safely ignored */ }
+  const directorReferenceIds = computed(() => directorReferenceIdsByScene[currentScene.value?.id || ""] || [])
+  function setDirectorReferenceIds(values) {
+    const sceneId = currentScene.value?.id
+    if (!sceneId) return false
+    const ids = [...new Set((Array.isArray(values) ? values : []).map(String))]
+    if (ids.length > 20) {
+      toast("一次最多选择 20 份导演参考副本。", "warning")
+      return false
+    }
+    directorReferenceIdsByScene[sceneId] = ids
+    try { globalThis.sessionStorage?.setItem(directorReferenceStorageKey, JSON.stringify(directorReferenceIdsByScene)) } catch {
+      toast("导演参考选择暂存在本页；浏览器未能保存会话副本。", "warning")
+    }
+    return true
+  }
   const commands = createWritingCommandController({
     api,
     toast,
@@ -390,6 +432,7 @@ export function useWritingWorkspace(props) {
     getChapter: () => selectedChapter.value,
     getScene: () => currentScene.value,
     getPinnedRefs: () => focusedSelection.refs.value,
+    getDirectorReferenceIds: () => directorReferenceIds.value,
     editor,
     onResult: applyCommandResult,
     onLoadingChange: (value) => { generationLoading.value = Boolean(value) },
@@ -508,7 +551,6 @@ export function useWritingWorkspace(props) {
     inputDerivedFrame = requestAnimationFrame(() => {
       inputDerivedFrame = null
       dispatchDashboardUpdate()
-      refreshSceneAlerts()
     })
   }
 
@@ -1205,7 +1247,6 @@ export function useWritingWorkspace(props) {
       })
       if (!ownsRequest()) return
       conflictState.latest = check
-      refreshSceneAlerts()
       toast("冲突检查已完成", "success")
       openConflictDialog(check)
     } catch (err) {
@@ -1271,7 +1312,6 @@ export function useWritingWorkspace(props) {
       if (conflictDialog.open && (!conflictDialog.check?.id || conflictDialog.check.id === updated?.id)) {
         conflictDialog.check = updated
       }
-      refreshSceneAlerts()
       return updated
     } catch (err) {
       toast(err?.message || "刷新检查记录失败", "error")
@@ -1374,20 +1414,6 @@ export function useWritingWorkspace(props) {
     toast("AI 建议已采用到当前工作稿", "success")
   }
 
-  function refreshSceneAlerts() {
-    sceneState.alerts = buildSceneAlerts({
-      scene: currentScene.value,
-      chapterIndex: selectedChapter.value,
-      content: editorState.content,
-      latestCheck: conflictState.latest,
-      checkError: conflictState.error,
-      checkLoading: conflictState.loading,
-      draftId: editorState.draftId,
-      versionNumber: editorState.versionNumber,
-      isDirty: editorState.dirty,
-    })
-  }
-
   async function loadSceneContext() {
     const scene = currentScene.value
     const chapter = selectedChapter.value
@@ -1405,10 +1431,6 @@ export function useWritingWorkspace(props) {
     conflictDialog.sourcePreview = null
     conflictDialog.busy = false
     Object.assign(conflictTask, { taskId: null, progress: null })
-    sceneState.people = []
-    sceneState.location = null
-    sceneState.loading = Boolean(scene?.id)
-    refreshSceneAlerts()
     if (!scene?.id) return
     const ownsRequest = () => (
       generation === sceneGeneration
@@ -1418,51 +1440,24 @@ export function useWritingWorkspace(props) {
       && getAppState()?.currentProjectId === projectId
     )
     try {
-      const entityQuery = (entityType) => api.world.listEntities({
+      const checks = await api.writing.listConflictChecks({
         novel_id: projectId,
+        chapter_index: chapter,
         scene_id: scene.id,
-        entity_type: entityType,
-        display_state: "active",
-        skip: 0,
-        limit: 12,
+        limit: 1,
       })
-      const [checkResult, peopleResult, locationResult] = await Promise.allSettled([
-        api.writing.listConflictChecks({ novel_id: projectId, chapter_index: chapter, scene_id: scene.id, limit: 1 }),
-        entityQuery("character"),
-        entityQuery("location"),
-      ])
       if (!ownsRequest()) return
-      if (checkResult.status === "fulfilled") {
-        const candidate = checkResult.value?.items?.[0] || null
-        const mismatch = candidate && (
-          (candidate.novel_id && candidate.novel_id !== projectId)
-          || (candidate.chapter_index != null && Number(candidate.chapter_index) !== Number(chapter))
-          || (candidate.scene_id && candidate.scene_id !== scene.id)
-        )
-        conflictState.latest = mismatch ? null : candidate
-        conflictState.error = mismatch ? "最近校验身份不匹配，已安全忽略" : null
-      } else conflictState.error = checkResult.reason?.message || "最近检查加载失败"
-      const listItems = (value) => Array.isArray(value) ? value : (value?.items || [])
-      const dedupe = (items) => {
-        const seen = new Set()
-        return items.filter((item) => {
-          const key = item?.id || item?.entity_id || item?.name || item?.title
-          if (!key || seen.has(key)) return false
-          seen.add(key)
-          return true
-        })
-      }
-      sceneState.people = dedupe([
-        ...(Array.isArray(scene.scene_characters) ? scene.scene_characters : []),
-        ...(peopleResult.status === "fulfilled" ? listItems(peopleResult.value) : []),
-      ])
-      sceneState.location = scene.primary_location || scene.location
-        || (locationResult.status === "fulfilled" ? listItems(locationResult.value)[0] : null)
-    } finally {
-      if (ownsRequest()) {
-        sceneState.loading = false
-        refreshSceneAlerts()
-      }
+      const candidate = checks?.items?.[0] || null
+      const mismatch = candidate && (
+        (candidate.novel_id && candidate.novel_id !== projectId)
+        || (candidate.chapter_index != null && Number(candidate.chapter_index) !== Number(chapter))
+        || (candidate.scene_id && candidate.scene_id !== scene.id)
+      )
+      conflictState.latest = mismatch ? null : candidate
+      conflictState.error = mismatch ? "最近校验身份不匹配，已安全忽略" : null
+    } catch (error) {
+      if (!ownsRequest()) return
+      conflictState.error = error?.message || "最近检查加载失败"
     }
   }
 
@@ -1507,21 +1502,421 @@ export function useWritingWorkspace(props) {
     router?.navigate?.("outline", "scenes", true, query)
   }
 
-  async function toggleOutlineFloat() {
-    outlineFloat.open = !outlineFloat.open
-    if (!outlineFloat.open || outlineFloat.threads.length) return
+  async function loadOutlineArcComparisons({ force = false } = {}) {
+    const scene = currentScene.value
+    const sceneId = scene?.id || null
+    const loadKey = `${projectId}:${sceneId || "none"}`
+    if (!outlineFloat.open || outlineFloat.arcLoading || (!force && outlineFloat.arcLoadedKey === loadKey)) return
+    const generation = ++outlineArcGeneration
+    const stillOwnsRequest = () => (
+      !disposed.value
+      && generation === outlineArcGeneration
+      && outlineFloat.open
+      && currentScene.value?.id === sceneId
+      && getAppState()?.currentProjectId === projectId
+    )
+    outlineFloat.arcLoading = true
+    outlineFloat.arcError = null
+    outlineFloat.arcGaps = []
+    outlineFloat.arcOmission = null
+    outlineFloat.characterArcs = []
+    outlineFloat.arcPreviews = {}
+    outlineFloat.arcRestorePreviews = {}
+    outlineFloat.arcHistoryOpen = {}
+    outlineFloat.arcHistory = {}
+    outlineFloat.arcHistoryErrors = {}
+    if (!sceneId) {
+      outlineFloat.arcGaps = ["当前章节没有选中有效 Scene，无法验证人物弧线截止点。"]
+      outlineFloat.arcLoadedKey = loadKey
+      outlineFloat.arcLoading = false
+      return
+    }
+    if (publicDemo) {
+      outlineFloat.arcError = "演示项目不开放作者计划和作者私有的实际对照。"
+      outlineFloat.arcLoading = false
+      return
+    }
+    try {
+      const options = await characterArcs.sceneCharacters(projectId, sceneId)
+      if (!stillOwnsRequest()) return
+      outlineFloat.arcGaps = options?.gaps || []
+      const characters = options?.characters || []
+      const results = []
+      for (let index = 0; index < characters.length; index += 8) {
+        const batch = await Promise.all(characters.slice(index, index + 8).map(async (character) => {
+          try {
+            const comparison = await characterArcs.compare(projectId, sceneId, character.character_id)
+            return { ...character, comparison }
+          } catch (error) {
+            return {
+              ...character,
+              comparisonError: error?.message || "人物弧线对照暂时无法读取。",
+            }
+          }
+        }))
+        if (!stillOwnsRequest()) return
+        results.push(...batch)
+      }
+      if (!stillOwnsRequest()) return
+      outlineFloat.characterArcs = results
+      outlineFloat.arcDrafts = Object.fromEntries(results.map((item) => [
+        item.character_id,
+        outlineArcEdits.get(`${sceneId}:${item.character_id}`) ?? item.comparison?.plan?.plan_text ?? "",
+      ]))
+      outlineFloat.arcLoadedKey = loadKey
+    } catch (error) {
+      if (stillOwnsRequest()) outlineFloat.arcError = error?.message || "人物弧线对照加载失败。"
+    } finally {
+      if (generation === outlineArcGeneration) {
+        outlineFloat.arcLoading = false
+        if (outlineFloat.open && currentScene.value?.id !== sceneId) void loadOutlineArcComparisons()
+      }
+    }
+  }
+
+  async function loadOutlineThreads() {
+    if (outlineFloat.threadsLoaded || outlineFloat.loading || !api?.outline) return
     outlineFloat.loading = true
     outlineFloat.error = null
     try {
       const result = await api.outline.listThreads(projectId, { limit: 50 })
       if (getAppState()?.currentProjectId !== projectId) return
       outlineFloat.threads = result?.items || result || []
+      outlineFloat.threadsLoaded = true
     } catch (err) {
       outlineFloat.error = err?.message || "大纲加载失败"
     } finally {
       outlineFloat.loading = false
     }
   }
+
+  async function toggleOutlineFloat() {
+    outlineFloat.open = !outlineFloat.open
+    if (!outlineFloat.open) {
+      outlineArcGeneration += 1
+      outlineFloat.arcLoading = false
+      return
+    }
+    await Promise.all([loadOutlineThreads(), loadOutlineArcComparisons()])
+  }
+
+  function updateArcDraft(characterId, value) {
+    outlineArcEdits.set(`${currentScene.value?.id}:${characterId}`, value)
+    outlineFloat.arcDrafts = { ...outlineFloat.arcDrafts, [characterId]: value }
+    const preview = outlineFloat.arcPreviews[characterId]
+    if (preview && preview.proposed_plan_text !== value) {
+      outlineFloat.arcPreviews = { ...outlineFloat.arcPreviews }
+      delete outlineFloat.arcPreviews[characterId]
+    }
+  }
+
+  function newArcOperationId() {
+    if (globalThis.crypto?.randomUUID) return globalThis.crypto.randomUUID()
+    return "xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx".replace(/[xy]/g, (letter) => {
+      const value = Math.floor(Math.random() * 16)
+      return (letter === "x" ? value : ((value & 3) | 8)).toString(16)
+    })
+  }
+
+  function arcTarget(characterId) {
+    return outlineFloat.characterArcs.find((item) => item.character_id === characterId) || null
+  }
+
+  async function previewCharacterArcPlan(characterId) {
+    const arc = arcTarget(characterId)
+    const sceneId = currentScene.value?.id
+    const planText = String(outlineFloat.arcDrafts[characterId] || "").trim()
+    if (!arc?.comparison || !sceneId || publicDemo || !planText) return false
+    const operationId = newArcOperationId()
+    const expectedVersion = arc.comparison.plan?.version || 0
+    outlineFloat.arcSavingCharacter = characterId
+    outlineFloat.arcErrors = { ...outlineFloat.arcErrors, [characterId]: null }
+    try {
+      const preview = await characterArcs.previewPlan(projectId, {
+        operation_id: operationId,
+        scene_id: sceneId,
+        character_id: characterId,
+        expected_version: expectedVersion,
+        plan_text: planText,
+      })
+      if (currentScene.value?.id !== sceneId || !outlineFloat.open) return false
+      outlineFloat.arcPreviews = {
+        ...outlineFloat.arcPreviews,
+        [characterId]: { ...preview, operationId, proposed_plan_text: planText },
+      }
+      return true
+    } catch (error) {
+      outlineFloat.arcErrors = {
+        ...outlineFloat.arcErrors,
+        [characterId]: error?.message || "计划预览失败，请重新读取后再试。",
+      }
+      return false
+    } finally {
+      outlineFloat.arcSavingCharacter = null
+    }
+  }
+
+  async function confirmCharacterArcPlan(characterId) {
+    const preview = outlineFloat.arcPreviews[characterId]
+    const sceneId = currentScene.value?.id
+    if (!preview || !sceneId || publicDemo) return false
+    if (outlineFloat.arcDrafts[characterId]?.trim() !== preview.proposed_plan_text) {
+      updateArcDraft(characterId, outlineFloat.arcDrafts[characterId] || "")
+      return false
+    }
+    outlineFloat.arcSavingCharacter = characterId
+    try {
+      await characterArcs.confirmPlan(projectId, {
+        operation_id: preview.operationId,
+        scene_id: sceneId,
+        character_id: characterId,
+        expected_version: preview.expected_version,
+        plan_text: preview.proposed_plan_text,
+        preview_fingerprint: preview.preview_fingerprint,
+      })
+      outlineArcEdits.delete(`${sceneId}:${characterId}`)
+      toast("人物弧计划已保存为作者确认版本。", "success")
+      outlineFloat.arcLoadedKey = null
+      await loadOutlineArcComparisons({ force: true })
+      return true
+    } catch (error) {
+      outlineFloat.arcErrors = {
+        ...outlineFloat.arcErrors,
+        [characterId]: error?.message || "保存失败；计划未改变。",
+      }
+      return false
+    } finally {
+      outlineFloat.arcSavingCharacter = null
+    }
+  }
+
+  function cancelCharacterArcPreview(characterId) {
+    outlineFloat.arcPreviews = { ...outlineFloat.arcPreviews }
+    delete outlineFloat.arcPreviews[characterId]
+  }
+
+  function cancelCharacterArcManagementPreview(characterId) {
+    outlineFloat.arcRestorePreviews = { ...outlineFloat.arcRestorePreviews }
+    delete outlineFloat.arcRestorePreviews[characterId]
+  }
+
+  async function toggleCharacterArcHistory(characterId) {
+    const open = !outlineFloat.arcHistoryOpen[characterId]
+    outlineFloat.arcHistoryOpen = { ...outlineFloat.arcHistoryOpen, [characterId]: open }
+    if (!open || outlineFloat.arcHistory[characterId]) return
+    const sceneId = currentScene.value?.id
+    if (!sceneId) return
+    outlineFloat.arcHistoryLoading = characterId
+    outlineFloat.arcHistoryErrors = { ...outlineFloat.arcHistoryErrors, [characterId]: null }
+    try {
+      const history = await characterArcs.history(projectId, sceneId, characterId)
+      if (currentScene.value?.id !== sceneId) return
+      outlineFloat.arcHistory = { ...outlineFloat.arcHistory, [characterId]: history }
+    } catch (error) {
+      outlineFloat.arcHistoryErrors = {
+        ...outlineFloat.arcHistoryErrors,
+        [characterId]: error?.message || "版本记录读取失败。",
+      }
+    } finally {
+      outlineFloat.arcHistoryLoading = null
+    }
+  }
+
+  async function previewRestoreCharacterArcPlan(characterId, revisionId) {
+    const sceneId = currentScene.value?.id
+    const history = outlineFloat.arcHistory[characterId]
+    if (!sceneId || !history || publicDemo) return false
+    const operationId = newArcOperationId()
+    const expectedVersion = history.current_version || 0
+    outlineFloat.arcSavingCharacter = characterId
+    try {
+      const preview = await characterArcs.previewRestore(projectId, {
+        operation_id: operationId,
+        scene_id: sceneId,
+        character_id: characterId,
+        revision_id: revisionId,
+        expected_version: expectedVersion,
+      })
+      outlineFloat.arcRestorePreviews = {
+        ...outlineFloat.arcRestorePreviews,
+        [characterId]: { ...preview, operationId, revisionId, expectedVersion, action: "restore" },
+      }
+      return true
+    } catch (error) {
+      outlineFloat.arcHistoryErrors = {
+        ...outlineFloat.arcHistoryErrors,
+        [characterId]: error?.message || "历史版本预览失败。",
+      }
+      return false
+    } finally {
+      outlineFloat.arcSavingCharacter = null
+    }
+  }
+
+  async function confirmRestoreCharacterArcPlan(characterId) {
+    const preview = outlineFloat.arcRestorePreviews[characterId]
+    const sceneId = currentScene.value?.id
+    if (!preview || preview.action !== "restore" || !sceneId || publicDemo) return false
+    outlineFloat.arcSavingCharacter = characterId
+    try {
+      await characterArcs.confirmRestore(projectId, {
+        operation_id: preview.operationId,
+        scene_id: sceneId,
+        character_id: characterId,
+        revision_id: preview.revisionId,
+        expected_version: preview.expectedVersion,
+        preview_fingerprint: preview.fingerprint,
+      })
+      outlineArcEdits.delete(`${sceneId}:${characterId}`)
+      toast("人物弧计划已从历史版本恢复为新修订。", "success")
+      outlineFloat.arcLoadedKey = null
+      await loadOutlineArcComparisons({ force: true })
+      outlineFloat.arcHistory = {}
+      await toggleCharacterArcHistory(characterId)
+      return true
+    } catch (error) {
+      outlineFloat.arcHistoryErrors = {
+        ...outlineFloat.arcHistoryErrors,
+        [characterId]: error?.message || "恢复失败；当前计划未改变。",
+      }
+      return false
+    } finally {
+      outlineFloat.arcSavingCharacter = null
+      outlineFloat.arcRestorePreviews = { ...outlineFloat.arcRestorePreviews }
+      delete outlineFloat.arcRestorePreviews[characterId]
+    }
+  }
+
+  async function previewUnarchiveCharacterArcPlan(characterId) {
+    const sceneId = currentScene.value?.id
+    const history = outlineFloat.arcHistory[characterId]
+    if (!sceneId || !history?.deleted || publicDemo) return false
+    const operationId = newArcOperationId()
+    const expectedVersion = history.current_version || 0
+    outlineFloat.arcSavingCharacter = characterId
+    try {
+      const preview = await characterArcs.previewUnarchive(projectId, {
+        operation_id: operationId,
+        scene_id: sceneId,
+        character_id: characterId,
+        expected_version: expectedVersion,
+      })
+      outlineFloat.arcRestorePreviews = {
+        ...outlineFloat.arcRestorePreviews,
+        [characterId]: { ...preview, operationId, expectedVersion, action: "unarchive" },
+      }
+      return true
+    } catch (error) {
+      outlineFloat.arcHistoryErrors = {
+        ...outlineFloat.arcHistoryErrors,
+        [characterId]: error?.message || "恢复预览失败。",
+      }
+      return false
+    } finally {
+      outlineFloat.arcSavingCharacter = null
+    }
+  }
+
+  async function confirmUnarchiveCharacterArcPlan(characterId) {
+    const preview = outlineFloat.arcRestorePreviews[characterId]
+    const sceneId = currentScene.value?.id
+    if (!preview || preview.action !== "unarchive" || !sceneId || publicDemo) return false
+    outlineFloat.arcSavingCharacter = characterId
+    try {
+      await characterArcs.confirmUnarchive(projectId, {
+        operation_id: preview.operationId,
+        scene_id: sceneId,
+        character_id: characterId,
+        expected_version: preview.expectedVersion,
+        preview_fingerprint: preview.fingerprint,
+      })
+      outlineArcEdits.delete(`${sceneId}:${characterId}`)
+      toast("已恢复归档的人物弧计划。", "success")
+      outlineFloat.arcLoadedKey = null
+      await loadOutlineArcComparisons({ force: true })
+      outlineFloat.arcHistory = {}
+      return true
+    } catch (error) {
+      outlineFloat.arcHistoryErrors = {
+        ...outlineFloat.arcHistoryErrors,
+        [characterId]: error?.message || "恢复失败；计划仍保持归档。",
+      }
+      return false
+    } finally {
+      outlineFloat.arcSavingCharacter = null
+      outlineFloat.arcRestorePreviews = { ...outlineFloat.arcRestorePreviews }
+      delete outlineFloat.arcRestorePreviews[characterId]
+    }
+  }
+
+  async function previewArchiveCharacterArcPlan(characterId) {
+    const sceneId = currentScene.value?.id
+    const arc = arcTarget(characterId)
+    if (!sceneId || !arc?.comparison?.plan || publicDemo) return false
+    const operationId = newArcOperationId()
+    const expectedVersion = arc.comparison.plan.version
+    outlineFloat.arcSavingCharacter = characterId
+    try {
+      const preview = await characterArcs.previewArchive(projectId, {
+        operation_id: operationId,
+        scene_id: sceneId,
+        character_id: characterId,
+        expected_version: expectedVersion,
+      })
+      outlineFloat.arcRestorePreviews = {
+        ...outlineFloat.arcRestorePreviews,
+        [characterId]: { ...preview, operationId, expectedVersion, action: "archive" },
+      }
+      return true
+    } catch (error) {
+      outlineFloat.arcErrors = {
+        ...outlineFloat.arcErrors,
+        [characterId]: error?.message || "归档预览失败。",
+      }
+      return false
+    } finally {
+      outlineFloat.arcSavingCharacter = null
+    }
+  }
+
+  async function confirmArchiveCharacterArcPlan(characterId) {
+    const preview = outlineFloat.arcRestorePreviews[characterId]
+    const sceneId = currentScene.value?.id
+    if (!preview || preview.action !== "archive" || !sceneId || publicDemo) return false
+    outlineFloat.arcSavingCharacter = characterId
+    try {
+      await characterArcs.confirmArchive(projectId, {
+        operation_id: preview.operationId,
+        scene_id: sceneId,
+        character_id: characterId,
+        expected_version: preview.expectedVersion,
+        preview_fingerprint: preview.fingerprint,
+      })
+      outlineArcEdits.delete(`${sceneId}:${characterId}`)
+      toast("计划已归档，历史修订仍保留。", "success")
+      outlineFloat.arcLoadedKey = null
+      await loadOutlineArcComparisons({ force: true })
+      outlineFloat.arcHistory = {}
+      return true
+    } catch (error) {
+      outlineFloat.arcErrors = {
+        ...outlineFloat.arcErrors,
+        [characterId]: error?.message || "归档失败；计划未改变。",
+      }
+      return false
+    } finally {
+      outlineFloat.arcSavingCharacter = null
+      outlineFloat.arcRestorePreviews = { ...outlineFloat.arcRestorePreviews }
+      delete outlineFloat.arcRestorePreviews[characterId]
+    }
+  }
+
+  watch(
+    () => [outlineFloat.open, currentScene.value?.id || null],
+    ([open]) => {
+      if (open) void loadOutlineArcComparisons()
+    },
+  )
 
   async function deleteChapters(selected = []) {
     const targets = [...new Set(selected.map(Number).filter((chapter) => chapterList.value.includes(chapter)))]
@@ -1710,6 +2105,7 @@ export function useWritingWorkspace(props) {
     selectionGeneration += 1
     sceneGeneration += 1
     sceneLensGeneration += 1
+    outlineArcGeneration += 1
     publishGeneration += 1
     versionDiffGeneration += 1
     publishPoller?.stop()
@@ -1767,9 +2163,10 @@ export function useWritingWorkspace(props) {
     conflictOptions,
     conflictDialog,
     conflictTask,
-    sceneState,
     sceneLens,
     focusedSelection,
+    directorReferenceIds,
+    setDirectorReferenceIds,
     deepImportState,
     deepImportHasScenes,
     deepAuditOpen,
@@ -1784,6 +2181,8 @@ export function useWritingWorkspace(props) {
     candidateComparisonAvailable,
     saveStatus,
     selectChapter,
+    reloadChapters,
+    reloadScenes,
     retryChapterLoad,
     selectScene,
     loadSceneLens,
@@ -1848,6 +2247,19 @@ export function useWritingWorkspace(props) {
     setFocusMode,
     toggleFocusMode,
     toggleOutlineFloat,
+    loadOutlineArcComparisons: () => loadOutlineArcComparisons({ force: true }),
+    updateArcDraft,
+    previewCharacterArcPlan,
+    confirmCharacterArcPlan,
+    cancelCharacterArcPreview,
+    cancelCharacterArcManagementPreview,
+    toggleCharacterArcHistory,
+    previewRestoreCharacterArcPlan,
+    confirmRestoreCharacterArcPlan,
+    previewUnarchiveCharacterArcPlan,
+    confirmUnarchiveCharacterArcPlan,
+    previewArchiveCharacterArcPlan,
+    confirmArchiveCharacterArcPlan,
     navigateOutline: () => router?.navigate?.("outline", null),
     navigateSceneWorkbench,
   }

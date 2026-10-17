@@ -292,12 +292,74 @@ def rescan_request():
     )
 
 
+@pytest.mark.parametrize("post_commit_stage", [False, True, "unknown", "pending"])
 async def test_rescan_preview_confirm_replay_scope_coverage_and_old_receipts(
     read_project,
+    post_commit_stage,
 ):
     db, nid, run, calls = read_project
     store = PostgresAttemptStore(db, nid)
     pairs = await store.load_committed_pairs(run["run_key"])
+    if post_commit_stage:
+        origin = await store.load_frozen(run["run_key"], pairs[0][0].attempt_key)
+        await store.replace_frozen_payload(
+            origin.model_copy(
+                update={
+                    "payload": {
+                        **origin.payload,
+                        "optional_stage_version": 1,
+                        "optional_scene_stage": {
+                            "version": 1,
+                            "receipt_attempt_id": origin.attempt_id,
+                            "steps": {"details": {"status": "complete", "gaps": []}},
+                        },
+                    }
+                }
+            )
+        )
+        if post_commit_stage in {"unknown", "pending"}:
+            latest = await store.load_frozen(run["run_key"], origin.attempt_id)
+            payload = deepcopy(latest.payload)
+            payload["optional_scene_stage"]["steps"]["details"]["status"] = (
+                post_commit_stage
+            )
+            if post_commit_stage == "unknown":
+                payload["scene_discovery_0"] = {
+                    "stage": "failed",
+                    "paid_call_receipt": None,
+                }
+            await store.replace_frozen_payload(
+                latest.model_copy(update={"payload": payload})
+            )
+            row = await store.load_run(run["run_key"])
+            row.reading_plan_json = {**row.reading_plan_json, "optional_stage_version": 1}
+        await db.commit()
+        pairs = await store.load_committed_pairs(run["run_key"])
+    if post_commit_stage in {"unknown", "pending"}:
+        with pytest.raises(
+            ConflictError,
+            match="尚未核清" if post_commit_stage == "unknown" else "可选阶段",
+        ):
+            await preview_category_rescan(db, nid, run["run_key"], rescan_request())
+        if post_commit_stage == "pending":
+            from modules.evolution.spatial_rescan import (
+                SpatialRescanRequest,
+                preview_spatial_rescan,
+            )
+
+            with pytest.raises(ConflictError, match="可选阶段"):
+                await preview_spatial_rescan(
+                    db,
+                    nid,
+                    run["run_key"],
+                    SpatialRescanRequest(
+                        operation_id=uuid4(),
+                        from_scene_index=0,
+                        through_scene_index=0,
+                        request_limit=2,
+                    ),
+                )
+        return
     old = deepcopy(pairs[0][1].payload_json)
     from modules.evolution.workflow import reading_proposals
 

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from dataclasses import dataclass, field
 from datetime import datetime
 from typing import Any, Literal
@@ -75,6 +76,9 @@ class TaskDefinition:
     # generation attempt).  The callback runs in the worker's checkpoint
     # transaction and must only write its narrow private JSON projection.
     run_envelope_checkpoint: Any = None
+    # Opt-in for a bounded author R4 task. Legacy V1 task semantics stay intact.
+    unknown_charge_policy: str | None | Callable[[Any], str | None] = None
+    run_eighty_percent_stop: bool | Callable[[Any], bool] = False
 
 
 @dataclass(frozen=True)

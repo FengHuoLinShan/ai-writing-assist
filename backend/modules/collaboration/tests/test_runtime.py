@@ -19,6 +19,19 @@ from modules.collaboration.models import (
 from modules.collaboration.tests.test_workspaces import setup_trial
 
 
+def test_collaboration_budget_stops_new_provider_requests_after_unknown_usage():
+    from infrastructure.llm.agent_runtime import AgentBudgetError
+
+    budget = runtime._CollaborationRunBudget(
+        policy_version="collaboration_v2",
+        usage_complete=False,
+        usage_unknown=True,
+    )
+
+    with pytest.raises(AgentBudgetError, match="用量未知"):
+        budget.reserve(requests=1)
+
+
 async def test_blind_reading_freezes_prefix_before_revelation(
     db_session, test_project_id, account_llm_connection, monkeypatch
 ):

@@ -5,6 +5,9 @@ manifests. It must not contain the local novel source text.
 
 作者编辑台的原创冻结样本与单人 AI 评阅量表见 [editorial/README.md](editorial/README.md)。
 
+地图冷启动、类型涌现、写作对比和助手指令的五题材清单见
+[map_spatial/README.md](map_spatial/README.md)；当前仅为未物化、未评分的骨架。
+
 ## Local corpus
 
 - Pilot: `/Users/tywww/Desktop/项目/wirting skill/诡秘之主_第一部 小丑_前60章.txt`
@@ -488,3 +491,40 @@ is the story family; these are offline contract fixtures, not a new sealed model
 versioned fixed-K companion. Evidence groups require every range, unioning overlapping hits.
 The `experiments` extra contains BM25 and the stdio MCP SDK; production dependencies are unchanged.
 Commands, model/non-model boundaries and demonstrations: [technical coverage](../../../docs/testing/technical-coverage.md).
+
+## Authoring quality evaluation scope
+
+[`authoring_quality_guard.py`](../authoring_quality_guard.py) provides a separate,
+default-closed scope for dossier, forecast, director, notices, world progression,
+and Goal reference work. It never reuses Map, Ask World, or G7 authorization.
+Calls require both `execute=True` and `AUTHORING_QUALITY_EVAL_ALLOW_LIVE=1`.
+The executor remains pinned to Codex `gpt-6.1-sol/xhigh`, 300 seconds, and one
+attempt. Each frozen private run permits at most 12 requests and a 160,000-byte
+prompt; started, failed/unknown, and completed requests all consume admission.
+No unknown request is automatically repeated.
+The exact request/schema and successful or malformed raw output are retained as
+0600 private artifacts; repository logs contain no source text or model output.
+
+The manifest binds one active owner and dedicated `AUTHORING-QUALITY:` author
+Project, its unchanged verified Luna/max business snapshot, an isolated loopback
+`authoring_quality_eval_*` or `map_spatial_eval_*` database, private-root identity,
+and the product/evaluator pipeline. Each case binds its schema, input, rubric,
+source group and split by hash. Artifacts stay outside every checkout of this
+repository, with 0700 directories and 0600 regular files; symlinks are rejected.
+Database reads are released before teacher/judge model IO. Holdout calls remain
+closed.
+
+The fixed four-anchor seed checks evidence labels; it does not establish human
+agreement. Teachers receive frozen source-only inputs and cite their source IDs.
+A judge additionally requires the same-domain passing seed and same-case teacher
+receipt. Only director and world progression judges currently have product
+readers: [`authoring_quality_product.py`](../authoring_quality_product.py) rechecks
+the actual task/root/branch, fresh original Evidence confirmation, current source,
+and immutable input/output/parent hashes. The other four judges stay closed until
+equivalent readers exist. Caller-supplied success flags cannot replace receipts.
+These tools and their offline tests are evaluation preparation; they do not mark
+model quality, author acceptance, canon adoption, or feature rollout as passed.
+
+地图私有素材在 setup 前核验每例的 `writing_scene_instruction` 与 `assistant_request`
+均为非空文本；正常 Assistant 驱动直接读取后者。评测 fixture 与冻结素材保持同一结构，
+不得用测试专属嵌套字段替代真实资料协议。修正此驱动后使用新私有运行身份，保留旧回执。

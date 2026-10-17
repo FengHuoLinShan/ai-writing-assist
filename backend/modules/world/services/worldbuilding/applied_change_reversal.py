@@ -197,6 +197,17 @@ async def reverse_applied_changes(
             else:
                 for key, value in item["before"].items():
                     setattr(obj, key, copy.deepcopy(value))
+                if model is CoreEntity:
+                    from modules.world.dossier_service import (
+                        LEGACY_CORE_ENTITY_FACINGS,
+                        WorldObjectDossierService,
+                    )
+
+                    dossier_service = WorldObjectDossierService()
+                    for key in item["before"].keys() & LEGACY_CORE_ENTITY_FACINGS.keys():
+                        await dossier_service.sync_core_entity_legacy_field(
+                            db, obj, key, getattr(obj, key), force_create=True
+                        )
             item["rolled_back"] = True
         if model is EntityRelation and item.get("operation") in CREATE_OPERATIONS:
             reverting_relation_ids.add(str(obj.id))

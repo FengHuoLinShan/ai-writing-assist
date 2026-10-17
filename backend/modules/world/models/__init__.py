@@ -6,6 +6,12 @@ and preserves the historical ``modules.world.models`` import path.
 
 from __future__ import annotations
 
+from modules.world.map_auto_draft_models import MapAutoDraftBatchRecord
+from modules.world.project_vocabulary_models import (
+    ProjectVocabularyRevision,
+    ProjectVocabularyTerm,
+)
+
 from .authority import (
     EntityProfileTemplateRevision,
     WorldAssertion,
@@ -22,6 +28,7 @@ from .core import (
     TextArchive,
     WorldRevisionNote,
 )
+from .dossier import WorldObjectDossierEntry
 from .image_candidate import WorldObjectImageCandidate
 from .image_request_reuse import ImageRequestReuse
 from .library import (
@@ -113,6 +120,7 @@ __all__ = [
     "WorldBibleSynopsisRevision",
     "WorldCocreationMessage",
     "WorldCocreationSession",
+    "WorldObjectDossierEntry",
     "WorldValidationRun",
     "WorldValidationReviewItem",
     "WorldAssertion",
@@ -128,5 +136,8 @@ __all__ = [
     "WorldRevisionNote",
     "ImageRequestReuse",
     "WorldObjectImageCandidate",
+    "ProjectVocabularyRevision",
+    "MapAutoDraftBatchRecord",
+    "ProjectVocabularyTerm",
     "_ProfileMixin",
 ]

@@ -6,6 +6,10 @@ V4 长期计划（`docs/plans/novelcraft-v4/plans/01-EVOLUTION.md`）的演化�
 与生产 LLM 采样接线。默认导入仍使用 deep_import；显式启用演化的项目由共享
 owner 门禁封锁旧写入，入口替代和真实质量验收仍独立推进。
 
+Assistant v8 的 `evolution.prepare_reading` 只复用 `workflow.preview_reading` 计算阅读范围和
+额度；HTTP 仅记录预览，不调用 `start_reading`、模型或 worker。作者仍须在 Evolution 工作台
+独立授权启动；原空间阅读与补扫准备入口保持原语义。
+
 项目偏好中的“逐场景理解 · 试用”经 `/api/evolution`（`api.py` / `workflow.py`）提供范围预览、明确确认、
 bootstrap/append 顺序执行和状态/恢复。已有场景前缀可复用；尚无场景的正文末尾通过
 Imports 纯规划/切分/提交原语准备边界，不创建旧 workflow owner。计划持久化于
@@ -14,7 +18,8 @@ Imports 纯规划/切分/提交原语准备边界，不创建旧 workflow owner�
 恢复旗标，已冻结结果免采样恢复，费用未知不重发；作者停止或失去租约不可恢复。
 每次边界切分/纠偏与 Scene 理解共用根调用预算；冻结请求与结果供免费恢复，历史准备回执
 在追加时保留。额度用完后显式 `continue` 才追加，同一操作不重复加额度，旧队列终态前
-不得追加。来源按正文位置排序，未确认的整章 fallback、开放边界、未解左承接及低置信
+不得追加。空间补扫仍在等待或运行时，预览和启动也会拒绝追加；启动在作品排他锁内重验，避免
+同一 Scene 前缀被主阅读与补扫并行推进。来源按正文位置排序，未确认的整章 fallback、开放边界、未解左承接及低置信
 结果留作待审草稿；人工确认后沿原预算继续。相邻章尾仅作边界参考，固定来源并参加失效，
 不回流为当前 Scene 的观察正文。边界结果不冒充 Phase 1b 语义补全。
 `revise` 从正文/Scene 首个变化处重算；只有本次重读的每个 Scene 语义指纹与观察来源映射
@@ -33,6 +38,10 @@ Imports 纯规划/切分/提交原语准备边界，不创建旧 workflow owner�
 仍能按原 operation 重放。按消费者输入证明的选择性复用见下方 P4 离线续接；旧入口等价替代仍未完成。
 
 ## 职责边界
+
+观察模态的七种值由 `shared.observation.ObservationModality` 定义，Evolution contracts
+继续原名再出口。空间、档案等消费者复用同一 Literal，避免另建不兼容的置信度枚举；
+这次归属调整不改变既有观察值、稳定身份或回执版本。
 
 - 消费登记与影响评估（P2-C，2026-10-07）：`consumption.py` 契约（登记内嵌产物行
   `state_json["_consumption_registry"]`，不加表）+ `registration.py` 写入端 +
@@ -572,8 +581,54 @@ World 独立审查组与补审并行，普通理解、类别补扫、补审共�
 
 World v3 审查准备含冻结 `context_snapshot`，即使分组相同，上下文策略改变仍拒绝恢复/补审复用。类别补扫继承原运行的预算模式；原新 Luna 场景未开启发现时，首次新授权补扫也使用 Discovery v2，旧能力快照继续 v1。范围/有限预算、安全迁移及合成场景验收纳入 PostgreSQL critical 门禁。
 
+### 空间可选阅读步骤（ADR-0036）
+
+空间发现由 `optional_steps.py` 登记，抽取与独立复核分属 `spatial.py` 的两项 capability 和独立 journal。
+新空间阅读在正式预览及确认后持久保留 `optional_stage_version=1`；Scene attempt 请求前固定该值与计划授权的空间方法指纹，采样后重建仍保留。主 Scene/身份/World 先提交，同一持久任务再完成
+`optional_scene_stage` 中的 details/spatial 阶段；挂起期间主回执已可读，恢复已提交分支仍继续未收尾阶段。
+各步骤付费 journal 留在原 attempt，经 `optional_scene_stage.receipt_attempt_id` 关联主回执；
+后置结果不改写主回执的 `paid_call_receipts`。费用未知只记本步骤缺口且不重发；
+原阶段未收尾先恢复，补扫不复制其主阶段身份。
+主回执提交后仅 Scene 卡片变化时，后置步骤记为 stale 并收尾，可通过补扫补齐；未核清的请求仍记为 unknown，
+不重发，正文、owner 或父回执变化仍失败关闭。补扫规划与覆盖汇总共用同来源的最新已完成补扫结果，
+较新的未完成补扫不覆盖此前成功结果；已按当前方法完整检查的 Scene 不重复计划或计费。
+本场主回执后，空间端点可投影独立审查且已物化的 World 新候选，不依赖主 observation 是否列出该地点。World 按 owner/作品、原回执与当前来源前缀及同 run/Scene/index/attempt 的实体来源元数据重新验证，未物化、其他运行、未来场景或失效对象不进入输入。中文标准类型沿用正式类型归一化；真实地点端点可触发密度门，只有正文实际包含的名称才计数，不推测自定义对象类型。端点投影版本进入方法指纹，旧冻结保留原指纹并诚实报告 stale。
+旧冻结和 append/continue 不升级，shadow 可选阶段明确 not_run。精确阶段字段及覆盖见下述实施合同。
+授权固定空间方法指纹；append/continue 保留未核清补扫登记和草图游标。来源、端点、词表与严格更早的线索构成冻结 consumer read-set；候选只经 World stage 写入地图域，不写 World 关系或地图 head。旧运行通过独立空间补扫授权启动，不修改原阅读开关或方法版本；批次结束时只请求一个幂等 auto-draft build，候选仍待作者审核。覆盖四态、预算保留、来源核验和 World ports 见 [ADR-0036 实施合同](../../../docs/modules/22_evolution.md#adr-0036-空间可选阅读步骤m1)。
+
+## 对象简报的台账只读投影（ADR-0039）
+
+`evidence_read.read_evolution_object_patterns` 经组合根注册为
+`evidence.read_evolution_object_patterns`。它由服务端重读 Scene 顺序与作者时点视图，
+逐条核验依赖 Scene、正文来源范围、对象身份和复核/作者决定，只返回历史倾向与来源坐标，
+不返回引文或写入台账。截止点选择当时可用的主张与证据，作者当前的拒绝或更正始终优先，
+不会因读取较早 Scene 而恢复旧说法。`only_adopted` 默认关闭；未知、失效和截断显式反馈给 Evidence，
+角色视角不调用此端口。
+
 ## 已发布正文变化与地图核对（G8a）
 
-已发布正文变化的地图核对由 World 只读 DI port 推导，作为写作回执建议；不改变 Scene
+已发布正文的正式地图、以及工作稿/正式稿的自动草图来源核对由 World 只读 DI port 推导，作为写作回执建议；不改变 Scene
 登记、失效窗口或重算选项。来源身份、上限、降级与残余覆盖见
 [权威合同](../../../docs/modules/22_evolution.md#已发布正文变化与地图核对g8a)。
+
+`notice_sources.py` exposes the pure `world.map_source` provider spec for the unified author-notice
+registry. Each read compares the latest published chapter source with the current saved map revision
+through `WORLD_READ_MAP_CHAPTER_CONSUMERS`; a historical invalidation receipt is evidence only when
+its node and revision exactly match that current head. An old receipt alone cannot keep a resolved
+notice visible. Map/source read limits retain verified map rows and add an explicit coverage notice for
+unverified or truncated results. The composition registry now includes this spec so the unified API
+can return it.
+
+`reading_notice_sources.py` declares a separate pure `evolution.reading` notice provider. It derives
+unread chapters from the current published-source manifest minus the completed chapters proven by
+`read_completed_chapter_indices` (exact current source bindings and successful applied Scene receipts).
+Failed/incomplete run state and unresolved boundary/structure review come from the existing
+`workflow.reading_status` projection and its persisted run/task/review data. Scene and chapter scopes
+are bounded by the current selected cutoff; source and ordering fingerprints make changes reappear
+after a prior disposition. The provider only reads: it does not enqueue, resume, retry, call a provider,
+or manufacture failure state. Its `NOTICE_SOURCE_SPEC` is registered in the app notice registry;
+the read scans for the latest run relevant to the selected cutoff so a newer future run does not hide
+an earlier failed or unresolved read. Writing
+notice actions open the existing Evolution `ReadingFlow`; unresolved boundary confirmation routes to
+the Outline workbench. The legacy import/restore entry remains until Evolution meets the documented
+default-entry replacement gate.

@@ -1,0 +1,41 @@
+{
+  "code_commit": "d4feba9023f5ed1daceb72e663f7ed88f000c297",
+  "test_ci": {
+    "exit_code": 0,
+    "backend_passed": 9108,
+    "backend_skipped": 2,
+    "coverage_percent": 85.0,
+    "coverage_threshold": 85.0,
+    "coverage_statements": 145112,
+    "coverage_missing": 21765,
+    "frontend_passed": 3234,
+    "frontend_files": 257,
+    "deployment_passed": 324
+  },
+  "postgresql": {
+    "version": 17,
+    "passed": 10,
+    "provider": "synthetic transport",
+    "business_or_frozen_database_access": false,
+    "temporary_cluster_stopped": true
+  },
+  "real_model_author_browser_production_acceptance": false,
+  "logs": [
+    {
+      "path": "/private/tmp/map-old-branch-test-ci-final-20261016.log",
+      "sha256": "7aeb26e6f0a1dd8f4dd3757c10e35c208c6098a5fcd207e46f093edf309715bc"
+    },
+    {
+      "path": "/private/tmp/map-old-branch-director-pg-20261016.log",
+      "sha256": "154540d7bd2d18f7d7d30e4109bf9f70d0135b441b3fe4619959677d336f07e8"
+    },
+    {
+      "path": "/private/tmp/map-old-branch-docs-20261016.log",
+      "sha256": "8aede35ef1fdee9d62a7943b8e85851bf40c86da9151486d01af37e1270cac25"
+    },
+    {
+      "path": "/private/tmp/map-old-branch-repo-gates-20261016.log",
+      "sha256": "f2a98c2d1e8850236e98fe930261f2f43d3f29c35e3b93318433e6cf26a91cf6"
+    }
+  ]
+}

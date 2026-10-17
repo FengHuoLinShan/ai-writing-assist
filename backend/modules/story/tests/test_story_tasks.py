@@ -19,17 +19,77 @@ from modules.story.generation import (
 from modules.story.schemas import (
     CardPreview,
     CharacterCardContent,
-    ReactionPreview,
+    ReactionPreviewV2,
     ScriptPreview,
     StoryCardTaskRequest,
     StoryOneClickTaskRequest,
     StoryTaskRequest,
 )
-from modules.story.tasks import _character_card_source_hashes, _parse_task_request
+from modules.story.tasks import (
+    _card_reference_basis,
+    _character_card_source_hashes,
+    _parse_task_request,
+    _require_character_reveal,
+    _validate_accepted_reaction_choices,
+)
 
 NOVEL_ID = str(uuid.uuid4())
 SCENE_ID = str(uuid.uuid4())
 CHARACTER_ID = str(uuid.uuid4())
+
+
+def test_accepted_v2_reaction_choice_stays_inside_its_character_pov():
+    from modules.story.schemas import StoryTaskRequest
+
+    other_id = str(uuid.uuid4())
+    option = {
+        "option_id": "guard_first",
+        "motivation": "先保护同伴",
+        "source_fact_ids": ["story:known-goal"],
+        "action": "守住门口",
+        "facial_expression": "皱眉",
+        "body_language": "抬手拦门",
+        "voice_and_dialogue": "先别进",
+        "inner_response": "担心埋伏",
+        "attention": "门后的脚步",
+        "change": "由疑虑转为防御",
+    }
+    request = StoryTaskRequest(
+        novel_id=NOVEL_ID,
+        scene_id=SCENE_ID,
+        character_ids=[CHARACTER_ID, other_id],
+        context_confirmation_id="current-confirmation",
+        confirmed=True,
+        accepted_reactions=[
+            {
+                "schema_version": "story.reaction.choice.v1",
+                "character_id": CHARACTER_ID,
+                "internal_pressure": "没有退路",
+                "selected_performance": option,
+            }
+        ],
+    )
+    reveals = {
+        CHARACTER_ID: {
+            "markdown": "当前人物可见资料",
+            "deterministic_facts": [{"fact_id": "story:known-goal"}],
+            "reference_patterns": [],
+        },
+        other_id: {
+            "markdown": "另一人物资料",
+            "deterministic_facts": [{"fact_id": "story:other-goal"}],
+            "reference_patterns": [],
+        },
+    }
+    _validate_accepted_reaction_choices(request, [CHARACTER_ID, other_id], reveals)
+    with pytest.raises(ValueError, match="outside its POV"):
+        _validate_accepted_reaction_choices(
+            request,
+            [CHARACTER_ID, other_id],
+            {**reveals, CHARACTER_ID: reveals[other_id]},
+        )
+    with pytest.raises(ValueError, match="outside this Scene task"):
+        _validate_accepted_reaction_choices(request, [other_id], reveals)
 
 
 @pytest.mark.parametrize(
@@ -172,6 +232,68 @@ def test_character_card_source_hash_uses_stable_per_character_reveal() -> None:
     assert first[CHARACTER_ID] != changed[CHARACTER_ID]
 
 
+def test_story_generation_fails_closed_when_pov_scope_is_missing() -> None:
+    with pytest.raises(ValueError, match="缺少该人物的 POV 可见资料"):
+        _require_character_reveal({}, CHARACTER_ID)
+    with pytest.raises(ValueError, match="缺少该人物的 POV 可见资料"):
+        _require_character_reveal({CHARACTER_ID: {"markdown": "  "}}, CHARACTER_ID)
+
+
+def test_card_basis_keeps_profile_notes_out_of_scene_time_and_preserves_refs():
+    compiled = SimpleNamespace(
+        sections=[
+            SimpleNamespace(
+                key="role_profile",
+                excluded=False,
+                retrieval_metadata={
+                    "fact_basis": [
+                        {
+                            "fact_id": f"character_profile:{CHARACTER_ID}:personality",
+                            "kind": "character_profile",
+                            "value": "谨慎",
+                        }
+                    ]
+                },
+            ),
+            SimpleNamespace(
+                key="object_dossier",
+                excluded=False,
+                retrieval_metadata={
+                    "fact_basis": [
+                        {
+                            "fact_id": "story:checkpoint-fact",
+                            "kind": "story_state",
+                            "value": "北门关闭",
+                        }
+                    ],
+                    "reference_dimensions": ["object_dossier"],
+                },
+            ),
+            SimpleNamespace(
+                key="character_pattern",
+                excluded=False,
+                retrieval_metadata={
+                    "pattern_basis": [
+                        {
+                            "pattern_id": "pattern:entry:revision",
+                            "statement": "倾向先核对门闩",
+                        }
+                    ],
+                    "reference_dimensions": ["character_pattern"],
+                },
+            ),
+        ]
+    )
+
+    facts, patterns, dimensions = _card_reference_basis(compiled, scene_id=SCENE_ID)
+    profile = next(item for item in facts if item["kind"] == "character_profile")
+    state = next(item for item in facts if item["kind"] == "story_state")
+    assert "as_of_scene_id" not in profile
+    assert state["as_of_scene_id"] == SCENE_ID
+    assert patterns[0]["pattern_id"] == "pattern:entry:revision"
+    assert dimensions == ("character_pattern", "object_dossier")
+
+
 class _Compiled:
     budget_tokens = 6000
     total_tokens = 10
@@ -185,6 +307,7 @@ class _Compiled:
                 content="safe scene context",
                 status="ready",
                 token_count=10,
+                retrieval_metadata={},
                 sources=[],
             )
         ]
@@ -223,7 +346,43 @@ class _StoryGeneration:
         )
 
     async def reaction_preview(self, _client, *, scene_context, character_ids, **_kwargs):
-        return ReactionPreview(scene_id=scene_context["scene_id"], proposals=[])
+        character_id = character_ids[0]
+        option = {
+            "option_id": "protect_first",
+            "motivation": "先保护同伴",
+            "source_fact_ids": ["story:goal"],
+            "action": "把同伴拉到门后",
+            "facial_expression": "眉心收紧",
+            "body_language": "侧身挡住门口",
+            "voice_and_dialogue": "压低声音说：先退后",
+            "inner_response": "担心门后还有人",
+            "attention": "盯着门闩的松动处",
+            "change": "由观察转为保护同伴",
+        }
+        return ReactionPreviewV2(
+            scene_id=scene_context["scene_id"],
+            proposals=[
+                {
+                    "character_id": character_id,
+                    "internal_pressure": "来不及确认两侧",
+                    "performances": [
+                        option,
+                        {
+                            **option,
+                            "option_id": "control_risk",
+                            "motivation": "抢先控制风险",
+                            "action": "先压住门闩",
+                            "facial_expression": "目光紧盯锁舌",
+                            "body_language": "一手按门一手护住工具",
+                            "voice_and_dialogue": "短促地说：我来压门",
+                            "inner_response": "害怕门被推开",
+                            "attention": "留意门外脚步",
+                            "change": "由观察转为抢险",
+                        },
+                    ],
+                }
+            ],
+        )
 
     async def script_preview(self, _client, *, scene_context, **_kwargs):
         return ScriptPreview(
@@ -251,7 +410,10 @@ async def test_all_story_handlers_start_from_v1_envelope(monkeypatch) -> None:
     async def _compile(*_args, **_kwargs):
         return compiled
 
+    prepared_actions = []
+
     async def _prepare(_db, **_kwargs):
+        prepared_actions.append(_kwargs["action"])
         return SimpleNamespace(
             compiled=compiled,
             compile_options={"context_mode": "working", "reveal_mode": "author_safe"},
@@ -268,7 +430,12 @@ async def test_all_story_handlers_start_from_v1_envelope(monkeypatch) -> None:
 
     async def _reveals(*_args, **kwargs):
         return {
-            str(character_id): {"markdown": "character-safe", "hash": "r" * 64}
+            str(character_id): {
+                "markdown": "character-safe",
+                "hash": "r" * 64,
+                "deterministic_facts": [{"fact_id": "story:goal", "value": "先保护同伴"}],
+                "reference_patterns": [],
+            }
             for character_id in kwargs["character_ids"]
         }
 
@@ -343,9 +510,9 @@ async def test_all_story_handlers_start_from_v1_envelope(monkeypatch) -> None:
             {
                 "novel_id": NOVEL_ID,
                 "scene_id": SCENE_ID,
-                    "character_ids": [CHARACTER_ID],
-                    "context_confirmation_id": "one-click-confirmation",
-                    "submit_authorized": True,
+                "character_ids": [CHARACTER_ID],
+                "context_confirmation_id": "one-click-confirmation",
+                "submit_authorized": True,
             },
         ),
     ]
@@ -366,3 +533,4 @@ async def test_all_story_handlers_start_from_v1_envelope(monkeypatch) -> None:
         result = await handler(_Db(), task)
         assert result["context_snapshot_id"] == str(snapshot_id)
         assert task.progress[-1] == 1.0
+        assert prepared_actions[-1] == action

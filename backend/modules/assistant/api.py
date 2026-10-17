@@ -1,15 +1,18 @@
 """Thin authenticated assistant API; private execution state is never returned."""
 
+from typing import Literal
 from uuid import UUID
 
-from fastapi import APIRouter, Query
+from fastapi import APIRouter, Query, Response
+from fastapi.responses import JSONResponse
+from pydantic import BaseModel
 from sqlalchemy import select
 
 from core.config import get_settings
 from core.dependencies import DbSession
 from core.errors import NotFoundError
 from infrastructure.tasks.facade import cancel_exact_task
-from modules.account.facade import current_account_id
+from modules.account.facade import current_account_id, is_demo_readonly_principal
 from modules.assistant.editorial_contracts import (
     EditorialPolicyUpdate,
     IssueDecision,
@@ -18,6 +21,14 @@ from modules.assistant.editorial_contracts import (
     ReviewSubmit,
 )
 from modules.assistant.models import AssistantRun
+from modules.assistant.operation_trace_report import (
+    build_operation_trace_report,
+    operation_trace_report_csv,
+)
+from modules.assistant.operation_trace_service import (
+    operation_trace_enabled,
+    set_operation_trace_preference,
+)
 from modules.assistant.operations import catalog, decide_batch
 from modules.assistant.schemas import (
     CONTROLLED_DESTINATIONS,
@@ -34,7 +45,7 @@ from modules.assistant.schemas import (
 )
 from modules.assistant.service import AssistantService, record_run_event
 from modules.assistant.teams.contracts import BLUEPRINTS, TeamPlanSelection, TeamRunCreate
-from modules.project.facade import require_active_project
+from modules.project.facade import get_any_project_context, require_active_project
 
 router = APIRouter(prefix="/api/assistant", tags=["assistant"])
 service = AssistantService()
@@ -44,6 +55,124 @@ router.include_router(forecast_router)
 from modules.assistant.guided_flow.api import router as guided_flow_router  # noqa: E402
 
 router.include_router(guided_flow_router)
+from modules.assistant.goal_runs.api import router as goal_runs_router  # noqa: E402
+
+router.include_router(goal_runs_router)
+
+
+class OperationTracePreferenceUpdate(BaseModel):
+    enabled: bool
+
+
+@router.get("/operation-traces/preference")
+async def get_operation_trace_preference(db: DbSession):
+    owner_id = str(current_account_id())
+    from modules.assistant.operation_trace_models import AssistantOperationTracePreference
+
+    preference = await db.get(AssistantOperationTracePreference, UUID(owner_id))
+    return {
+        "enabled": await operation_trace_enabled(db, owner_id),
+        "explicit": preference is not None and preference.enabled is not None,
+    }
+
+
+@router.put(
+    "/operation-traces/preference",
+    openapi_extra={
+        "x-novelcraft-operation-exemption": (
+            "Account-level privacy switch; controls tracing and is outside "
+            "assistant domain operations."
+        )
+    },
+)
+async def update_operation_trace_preference(
+    db: DbSession, data: OperationTracePreferenceUpdate
+):
+    from fastapi import HTTPException
+
+    if is_demo_readonly_principal():
+        raise HTTPException(status_code=403, detail="演示账户不可更改留痕设置")
+    owner_id = str(current_account_id())
+    await set_operation_trace_preference(db, owner_id, data.enabled)
+    return {"enabled": await operation_trace_enabled(db, owner_id), "explicit": True}
+
+
+async def _operation_trace_aggregate(
+    db, novel_id: UUID, owner_id: str, *, period: str = "180d"
+) -> dict:
+    await require_active_project(db, str(novel_id), allow_demo_readonly=False)
+    if is_demo_readonly_principal():
+        raise NotFoundError("项目不可访问")
+    project = await get_any_project_context(db, str(novel_id))
+    if (
+        project is None
+        or str(project.owner_id) != owner_id
+        or project.project_kind != "author"
+    ):
+        raise NotFoundError("项目不可访问")
+    report = await build_operation_trace_report(
+        db,
+        str(novel_id),
+        period=period,
+        collection_enabled=await operation_trace_enabled(db, owner_id),
+    )
+    operations = catalog()
+    report["operation_labels"] = {
+        item["operation"]: operations[item["operation"]].label
+        for item in report["operation_candidates"]
+        if item["operation"] in operations
+    }
+    return report
+
+
+@router.get(
+    "/operation-traces/aggregate",
+    openapi_extra={
+        "x-novelcraft-operation-exemption": (
+            "Owner-only read of aggregate counts and current detail; no write."
+        )
+    },
+)
+async def operation_trace_aggregate(
+    db: DbSession,
+    novel_id: UUID,
+    period: Literal["30d", "90d", "180d", "all"] = Query("180d"),
+):
+    return await _operation_trace_aggregate(
+        db, novel_id, str(current_account_id()), period=period
+    )
+
+
+@router.get(
+    "/operation-traces/export",
+    openapi_extra={
+        "x-novelcraft-operation-exemption": (
+            "Owner-only aggregate export without run, session, target, "
+            "or content identifiers."
+        )
+    },
+)
+async def export_operation_trace_aggregate(
+    db: DbSession,
+    novel_id: UUID,
+    period: Literal["30d", "90d", "180d", "all"] = Query("180d"),
+    format: Literal["csv", "json"] = Query("csv"),
+):
+    data = await _operation_trace_aggregate(
+        db, novel_id, str(current_account_id()), period=period
+    )
+    headers = {
+        "Content-Disposition": f'attachment; filename="operation-trace-report.{format}"',
+        "Cache-Control": "no-store",
+        "X-Content-Type-Options": "nosniff",
+    }
+    if format == "json":
+        return JSONResponse(data, headers=headers)
+    return Response(
+        operation_trace_report_csv(data),
+        media_type="text/csv; charset=utf-8",
+        headers=headers,
+    )
 
 
 @router.get("/editorial/policy")

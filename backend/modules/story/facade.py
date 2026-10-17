@@ -8,7 +8,12 @@ from typing import Any
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from modules.story.contracts import scene_chapter_indices as scene_chapter_indices
+from modules.story.contracts import (
+    StoryDirectorReferencesForWritingContract,
+)
+from modules.story.contracts import (
+    scene_chapter_indices as scene_chapter_indices,
+)
 from modules.story.generation import (
     STORY_CARD_TASK,
     STORY_CHARACTER_CARD_ACTION,
@@ -19,14 +24,62 @@ from modules.story.generation import (
     STORY_SCRIPT_ACTION,
     STORY_SCRIPT_TASK,
 )
-from modules.story.schemas import CharacterCardContent, OneClickOutput
+from modules.story.schemas import OneClickOutput, VersionedCharacterCardContent
 from modules.story.service import (
     StoryConflictError,
     StoryNotFoundError,
     StoryService,
 )
+from modules.story.task_submission import (
+    enqueue_confirmed_story_task as _enqueue_confirmed_story_task,
+)
 
 _service = StoryService()
+
+
+async def read_object_dossier_state(
+    db: AsyncSession,
+    *,
+    novel_id: str,
+    scene_id: str,
+    viewpoint: dict[str, str],
+    include_checkpoints: bool,
+) -> dict[str, Any]:
+    """Read a Scene POV projection and optional author checkpoint set."""
+    state = await get_scene_state_view(db, novel_id, scene_id, viewpoint=viewpoint)
+    if viewpoint.get("kind") != "author" and include_checkpoints:
+        raise ValueError("author checkpoints require author viewpoint")
+    checkpoints = (
+        await get_scene_checkpoints(db, novel_id, scene_id)
+        if include_checkpoints
+        else None
+    )
+    return {"state": state, "checkpoints": checkpoints}
+
+
+async def read_scene_director_references_for_writing(
+    db: AsyncSession,
+    *,
+    novel_id: str,
+    scene_id: str | None,
+    reference_ids: list[str],
+    consumer_action: str,
+    max_chars: int,
+) -> StoryDirectorReferencesForWritingContract:
+    """Read bounded copied references only for the two authorized Writing actions."""
+    from modules.story.director_service import (
+        read_director_references_for_writing,
+    )
+
+    value = await read_director_references_for_writing(
+        db,
+        novel_id,
+        reference_ids,
+        consumer_action=consumer_action,
+        expected_scene_id=scene_id,
+        max_chars=max_chars,
+    )
+    return StoryDirectorReferencesForWritingContract.model_validate(value)
 
 
 def build_reading_structure_request(scene_cards, world_context):
@@ -82,6 +135,12 @@ async def read_world_dependency(
     return await read(db, novel_id, kind, source_id)
 
 
+async def read_temporal_anchor_scenes(db: AsyncSession, novel_id: str) -> list[dict]:
+    from modules.story.outline_state.temporal_anchors import read_temporal_anchor_scenes
+
+    return await read_temporal_anchor_scenes(db, novel_id)
+
+
 # Story is the physical owner of the authoring workflow.  The two internal
 # subdomains keep their own locality, while this root facade is the stable
 # cross-module seam during and after the compatibility release.
@@ -103,6 +162,7 @@ from modules.story.continuity.facade import (  # noqa: E402,F401
     supersede_scene_projections_from,
 )
 from modules.story.continuity.schemas import (  # noqa: E402,F401
+    RelationAttitude,
     validate_machine_event_snapshot,
 )
 from modules.story.outline_state.facade import *  # noqa: E402,F401,F403
@@ -117,6 +177,11 @@ async def get_character_card(
     card_id: str,
 ):
     return await _service.get_card(db, novel_id, card_id)
+
+
+async def enqueue_confirmed_story_task(db: AsyncSession, data, **options):
+    """Submit a fresh-confirmation-bound Story task from HTTP or Assistant."""
+    return await _enqueue_confirmed_story_task(db, data, **options)
 
 
 async def list_character_cards(
@@ -148,7 +213,7 @@ async def create_manual_character_card(
     novel_id: str,
     scene_id: str,
     character_id: str,
-    content: CharacterCardContent,
+    content: VersionedCharacterCardContent,
     expected_revision_id: uuid.UUID | None = None,
     source_manifest: dict[str, Any] | None = None,
     source_task_id: uuid.UUID | None = None,
@@ -391,6 +456,7 @@ async def persist_one_click_character_cards(
 
 
 __all__ = [
+    "read_object_dossier_state",
     "STORY_CARD_TASK",
     "STORY_CHARACTER_CARD_ACTION",
     "STORY_ONE_CLICK_ACTION",
@@ -401,6 +467,7 @@ __all__ = [
     "STORY_SCRIPT_TASK",
     "StoryConflictError",
     "StoryNotFoundError",
+    "RelationAttitude",
     "archive_character_card_revision",
     "archive_scene_script_revision",
     "unadopt_scene_script_file",
@@ -408,7 +475,9 @@ __all__ = [
     "create_manual_character_card",
     "create_scene_script_file",
     "create_scene_script_revision",
+    "enqueue_confirmed_story_task",
     "get_character_card",
+    "read_object_dossier_state",
     "get_scene_script_file",
     "get_scene_story_assets",
     "get_scene_story_basis_hash",
@@ -435,6 +504,7 @@ __all__ = [
     "replace_scene_memory_events",
     "supersede_scene_projections_from",
     "project_scene_presence",
+    "read_temporal_anchor_scenes",
     "invalidate_derived_state",
     "align_scene_event_indices",
     "get_scene_event_order_start",

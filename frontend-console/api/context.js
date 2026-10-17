@@ -61,6 +61,10 @@ export const context = {
       return contractJson("context.sceneLens", {}, {}, payload, options)
     },
 
+    async objectDossierBrief(payload, options = {}) {
+      return post("/evidence/compilation/object-dossier-brief", payload, options)
+    },
+
     async confirm(payload) {
       return contractJson("context.confirm", {}, {}, payload)
     },

@@ -3,22 +3,48 @@
 from typing import Literal
 from uuid import UUID
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, model_validator
+from sqlalchemy import select
 
 from core.container import get
-from core.errors import ConflictError
+from core.errors import ConflictError, ValidationError
 from core.service_keys import (
+    ASSISTANT_READ_MAP_AUTHOR_DECISION,
     ASSISTANT_REQUIRE_OPERATION_TARGETS,
 )
-from modules.assistant.contracts import AssistantOperation
+from infrastructure.stable_hash import stable_hash
+from modules.world.map_atlas_models import MapAtlasNode
+from modules.world.map_atlas_schemas import MapAtlasNodeUpdate
+from modules.world.map_atlas_service import MapAtlasService
+from modules.world.map_auto_draft_service import list_map_auto_drafts
+from modules.world.map_node_merge import (
+    MapNodeMergeApplyRequest,
+    MapNodeMergeService,
+)
+from modules.world.map_spatial_clue_schemas import (
+    MapSpatialClueDecisionRequest,
+)
+from modules.world.map_spatial_clue_service import (
+    list_spatial_clues,
+    review_spatial_clue,
+)
 from modules.world.map_structure_schemas import (
+    MapAuthorDecision,
     MapDocument,
     MapFeature,
     MapNodeCreate,
     MapRevisionReview,
     MapSaveRequest,
+    MapSpace,
+    SpatialAccessCondition,
+    SpatialConstraint,
+    SpatialJourney,
+    SpatialQuantityRange,
+    SpatialValidity,
 )
 from modules.world.map_structure_service import MapStructureService
+from modules.world.project_vocabulary_service import resolve_vocabulary_type_revisions
+from shared.observation import ObservationModality
 
 
 class ReviewMapRevision(BaseModel):
@@ -41,6 +67,177 @@ class EditFeatureLabel(BaseModel):
     feature_id: str = Field(min_length=1, max_length=120)
     label: str | None = Field(default=None, min_length=1, max_length=200)
     note: str | None = Field(default=None, max_length=1000)
+
+
+class SpatialClueDecisionSelector(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    quote: str = Field(min_length=1, max_length=2000)
+    scene_index: int | None = Field(default=None, ge=0)
+    action: Literal["adopt", "reject", "merge"]
+    target_quote: str | None = Field(default=None, min_length=1, max_length=2000)
+    target_scene_index: int | None = Field(default=None, ge=0)
+    reason: str = Field(default="", max_length=500)
+
+    @model_validator(mode="after")
+    def merge_target(self):
+        if (self.action == "merge") != (self.target_quote is not None):
+            raise ValueError("合并线索需要且仅能指定目标引文")
+        if self.target_quote is None and self.target_scene_index is not None:
+            raise ValueError("只有合并操作可以指定目标场景")
+        return self
+
+
+class ReviewSpatialClues(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    decisions: list[SpatialClueDecisionSelector] = Field(min_length=1, max_length=20)
+
+    @model_validator(mode="after")
+    def unique_sources(self):
+        keys = [(item.quote.strip(), item.scene_index) for item in self.decisions]
+        if len(keys) != len(set(keys)):
+            raise ValueError("同一批次不能重复处理同一条引文")
+        return self
+
+
+class ReviewAutoDraftGroup(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    scope_kind: Literal["hierarchy", "space"]
+    scope_id: str = Field(min_length=1, max_length=96)
+    action: Literal["adopt", "reject"]
+
+
+class AssistantSpaceArrangement(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    id: str = Field(min_length=1, max_length=96)
+    label: str = Field(min_length=1, max_length=200)
+    type_ref: UUID | None = None
+    type_revision_id: UUID | None = None
+
+
+class AssistantConstraintArrangement(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    id: str = Field(min_length=1, max_length=96)
+    subject: str = Field(min_length=1, max_length=96)
+    relation: str = Field(min_length=1, max_length=96)
+    target: str = Field(min_length=1, max_length=96)
+    via: list[str] = Field(default_factory=list, max_length=30)
+    path_kind: Literal["road", "river"] = "road"
+    path_label: str | None = Field(default=None, min_length=1, max_length=200)
+    path_type_ref: UUID | None = None
+    path_type_revision_id: UUID | None = None
+    type_ref: UUID | None = None
+    type_revision_id: UUID | None = None
+    modality: ObservationModality = "event_observed"
+    effective: SpatialValidity | None = None
+
+
+class AssistantJourneyArrangement(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    id: str = Field(min_length=1, max_length=96)
+    origin: str = Field(min_length=1, max_length=96)
+    destination: str = Field(min_length=1, max_length=96)
+    transport_label: str = Field(min_length=1, max_length=200)
+    transport_type_ref: UUID | None = None
+    transport_type_revision_id: UUID | None = None
+    traveler_type_ref: UUID | None = None
+    traveler_type_revision_id: UUID | None = None
+    connection_type_ref: UUID | None = None
+    connection_type_revision_id: UUID | None = None
+    duration: SpatialQuantityRange | None = None
+    distance: SpatialQuantityRange | None = None
+    access_conditions: list[SpatialAccessCondition] = Field(
+        default_factory=list, max_length=30
+    )
+    modality: ObservationModality = "event_observed"
+    effective: SpatialValidity | None = None
+
+
+class MapStructureEdit(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    kind: Literal[
+        "add_space",
+        "rename_space",
+        "remove_space",
+        "merge_space",
+        "move_feature_to_space",
+        "upsert_constraint",
+        "remove_constraint",
+        "upsert_journey",
+        "remove_journey",
+    ]
+    target_id: str | None = Field(default=None, min_length=1, max_length=96)
+    destination_space_id: str | None = Field(default=None, min_length=1, max_length=96)
+    space: AssistantSpaceArrangement | None = None
+    constraint: AssistantConstraintArrangement | None = None
+    journey: AssistantJourneyArrangement | None = None
+
+    @model_validator(mode="after")
+    def payload_matches_kind(self):
+        payloads = {
+            "space": self.space,
+            "constraint": self.constraint,
+            "journey": self.journey,
+        }
+        expected = (
+            "space"
+            if self.kind in {"add_space", "rename_space", "remove_space", "merge_space"}
+            else "constraint"
+            if self.kind in {"upsert_constraint", "remove_constraint"}
+            else "journey"
+        )
+        if any(value is not None for key, value in payloads.items() if key != expected):
+            raise ValueError("编辑参数与操作类型不匹配")
+        needs_payload = self.kind in {
+            "add_space",
+            "rename_space",
+            "upsert_constraint",
+            "upsert_journey",
+        }
+        if (payloads[expected] is not None) != needs_payload:
+            raise ValueError("该地图编辑缺少对应的结构数据")
+        if (
+            self.kind
+            in {
+                "rename_space",
+                "remove_space",
+                "remove_constraint",
+                "remove_journey",
+            }
+            and not self.target_id
+        ):
+            raise ValueError("该地图编辑需要指定现有项目")
+        if self.kind == "rename_space" and self.space and self.space.id != self.target_id:
+            raise ValueError("改名参数必须引用同一个空间")
+        if self.kind in {"add_space", "upsert_constraint", "upsert_journey"} and (
+            self.target_id
+        ):
+            raise ValueError("新增或更新数据请在结构对象中指定身份")
+        if self.kind == "merge_space":
+            if (
+                not self.target_id
+                or not self.destination_space_id
+                or self.target_id == self.destination_space_id
+            ):
+                raise ValueError("合并空间需要两个不同的现有空间")
+        elif self.kind == "move_feature_to_space":
+            if not self.target_id or not self.destination_space_id:
+                raise ValueError("移动图元需要现有图元和目标空间")
+        elif self.destination_space_id is not None:
+            raise ValueError("目标空间仅用于空间合并")
+        return self
+
+
+class EditMapStructure(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    node_id: UUID
+    base_revision_id: UUID | None
+    edits: list[MapStructureEdit] = Field(min_length=1, max_length=20)
+
+
+class UpdateMapNode(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    node_id: UUID
+    update: MapAtlasNodeUpdate
 
 
 async def _document(db, novel_id, node_id, context):
@@ -169,14 +366,37 @@ async def _node_preview(db, novel_id, args, *, context=None):
         await WorldEntityService().get(
             db, str(args.location_entity_id), novel_id=novel_id
         )
+    level_type = None
+    type_ref = getattr(args, "level_type_ref", None)
+    revision_id = getattr(args, "level_type_revision_id", None)
+    if type_ref is not None:
+        types = await resolve_vocabulary_type_revisions(
+            db, novel_id, {(type_ref, revision_id)}
+        )
+        pinned = types[(type_ref, revision_id)]
+        if pinned["kind"] != "level":
+            raise ValidationError("地图层级必须引用层级类型")
+        level_type = {
+            "type_ref": str(type_ref),
+            "type_revision_id": str(revision_id),
+            "name": pinned["name"],
+            "description": pinned["description"],
+            "status": pinned["status"],
+        }
     return {
         "title": args.title,
-        "after": {"title": args.title, "level": args.level},
+        "after": {
+            "title": args.title,
+            "level": args.level,
+            **({"level_type": level_type} if level_type else {}),
+        },
         "effect": "创建空白地图节点，不生成地形、坐标或世界事实",
     }
 
 
 async def _node_apply(db, novel_id, args, preview, *, context=None):
+    if await _node_preview(db, novel_id, args, context=context) != preview:
+        raise ConflictError("地图父节点或地点已变化，请重新查看方案")
     row = await MapStructureService().create_node(db, novel_id, args)
     return {"type": "map_atlas_node", "id": str(row["id"]), "label": "已创建空白地图"}
 
@@ -209,12 +429,30 @@ async def _review_preview(db, novel_id, args, *, context=None):
             )
         )
     )
+    from modules.world.map_structure_review import changed_items
+
+    baseline = (
+        MapDocument.model_validate(
+            (
+                await service.revision(
+                    db, novel_id, str(node.id), node.current_revision_id
+                )
+            ).document
+        )
+        if node.current_revision_id
+        else MapDocument()
+    )
     return {
         "target_key": f"map:{node.id}",
         "title": node.title,
         "base_revision_id": str(node.current_revision_id)
         if node.current_revision_id
         else None,
+        "affected_count": len(
+            set(result.applied_change_keys) | set(result.expanded_change_keys)
+        )
+        if args.action == "adopt"
+        else max(1, len(changed_items(baseline, result.document))),
         "changes": result.model_dump(mode="json")
         if hasattr(result, "model_dump")
         else result,
@@ -242,20 +480,775 @@ async def _review_apply(db, novel_id, args, preview, *, context=None):
     }
 
 
-OPERATIONS = {
-    "map.add_known_location": AssistantOperation(
-        "把已知地点加入地图（保留未知位置）",
-        AddKnownLocation,
-        _location_preview,
-        _save_document,
-    ),
-    "map.edit_feature_label": AssistantOperation(
-        "修改图元名称或备注", EditFeatureLabel, _feature_preview, _save_document
-    ),
-    "map.create_node": AssistantOperation(
-        "创建空白地图", MapNodeCreate, _node_preview, _node_apply
-    ),
-    "map.review_revision": AssistantOperation(
-        "处理已有地图版本", ReviewMapRevision, _review_preview, _review_apply
-    ),
+def _require_workbench_scope(context):
+    if (
+        context is not None
+        and context.work.scope == "current"
+        and (context.work.chapter_index or context.work.scene_id)
+    ):
+        raise ConflictError("请从地图工作台按完整空间范围审核")
+
+
+async def _require_aggregate_scope(db, novel_id, context):
+    require_targets = get(ASSISTANT_REQUIRE_OPERATION_TARGETS)
+    await require_targets(db, novel_id, context, [], aggregate=True)
+
+
+def _select_clue(clues, quote, scene_index):
+    matches = [
+        item
+        for item in clues
+        if item.quote == quote.strip()
+        and (scene_index is None or item.scene_index == scene_index)
+    ]
+    if len(matches) != 1:
+        raise ConflictError(
+            "引文无法唯一定位到一条空间线索，请补充场景位置或到审核队列选择"
+        )
+    return matches[0]
+
+
+async def _clue_review_preview(db, novel_id, args, *, context=None):
+    _require_workbench_scope(context)
+    await _require_aggregate_scope(db, novel_id, context)
+    page = await list_spatial_clues(
+        db,
+        novel_id,
+        statuses=["pending_review", "pending_verification", "adopted"],
+        limit=200,
+        offset=0,
+    )
+    if page.total_count > len(page.items):
+        raise ConflictError("待审空间线索过多，请先在地图审核工作台缩小范围")
+    decisions = []
+    selected_ids = set()
+    for selector in args.decisions:
+        source = _select_clue(page.items, selector.quote, selector.scene_index)
+        if selector.action == "adopt" and source.status != "pending_review":
+            raise ConflictError("待核线索不能直接采用，请先完成来源核查")
+        if source.id in selected_ids:
+            raise ConflictError("同一批次不能重复处理同一条空间线索")
+        selected_ids.add(source.id)
+        target = None
+        if selector.action == "merge":
+            target = _select_clue(
+                page.items, selector.target_quote, selector.target_scene_index
+            )
+            if target.id == source.id:
+                raise ConflictError("不能把空间线索合并到自身")
+        decisions.append(
+            {
+                "clue_id": str(source.id),
+                "quote": source.quote,
+                "scene_index": source.scene_index,
+                "status": source.status,
+                "fingerprint": source.fingerprint,
+                "action": selector.action,
+                "reason": selector.reason,
+                "target_clue_id": str(target.id) if target else None,
+                "target_quote": target.quote if target else None,
+                "target_scene_index": target.scene_index if target else None,
+                "target_fingerprint": target.fingerprint if target else None,
+            }
+        )
+    return {
+        "target_keys": [f"spatial-clue:{item['clue_id']}" for item in decisions],
+        "affected_count": len(decisions),
+        "decision_fingerprint": stable_hash(decisions),
+        "decisions": decisions,
+        "effect": "逐条核对引文并采用、拒绝或合并线索；不会直接修改正式地图",
+    }
+
+
+async def _clue_review_apply(db, novel_id, args, preview, *, context=None):
+    if await _clue_review_preview(db, novel_id, args, context=context) != preview:
+        raise ConflictError("空间线索或原文来源已变化，请重新准备审核")
+    results = []
+    for item in preview["decisions"]:
+        result = await review_spatial_clue(
+            db,
+            novel_id,
+            item["clue_id"],
+            MapSpatialClueDecisionRequest(
+                action=item["action"],
+                expected_fingerprint=item["fingerprint"],
+                confirmed=True,
+                target_clue_id=item["target_clue_id"],
+                target_fingerprint=item["target_fingerprint"],
+                reason=item["reason"],
+            ),
+            decided_by=context.owner_id if context else "author",
+        )
+        results.append(
+            {
+                "quote": result.quote,
+                "status": result.status,
+                "merged_into": str(result.merged_into_id)
+                if result.merged_into_id
+                else None,
+            }
+        )
+    return {"type": "map_spatial_clues", "results": results}
+
+
+def _item_space_ids(key, item, documents):
+    spaces_by_feature = {
+        feature.id: feature.space_id
+        for document in documents
+        for feature in document.features
+    }
+    if key.startswith("space:"):
+        return {key.removeprefix("space:")}
+    if key.startswith("feature:"):
+        return {item.space_id}
+    if key.startswith(("constraint:", "journey:")):
+        endpoints = (
+            {item.subject, item.target, *item.via}
+            if key.startswith("constraint:")
+            else {item.origin, item.destination}
+        )
+        return {
+            spaces_by_feature[name] for name in endpoints if name in spaces_by_feature
+        }
+    if key.startswith("image:"):
+        feature_ids = {anchor.feature_id for anchor in item.anchors}
+        if item.feature_id:
+            feature_ids.add(item.feature_id)
+        return {
+            spaces_by_feature[name] for name in feature_ids if name in spaces_by_feature
+        }
+    if key.startswith("binding:"):
+        return (
+            {spaces_by_feature[item.feature_id]}
+            if item.feature_id in spaces_by_feature
+            else set()
+        )
+    return set()
+
+
+async def _auto_draft_group_preview(db, novel_id, args, *, context=None):
+    _require_workbench_scope(context)
+    await _require_aggregate_scope(db, novel_id, context)
+    page = await list_map_auto_drafts(db, novel_id, limit=200, offset=0)
+    if page.truncated or page.batches_truncated:
+        raise ConflictError("自动草图过多，请先在地图工作台缩小审核范围")
+    nodes = list(
+        (
+            await db.scalars(
+                select(MapAtlasNode).where(
+                    MapAtlasNode.novel_id == UUID(novel_id),
+                    MapAtlasNode.status.in_(("adopted", "provisional")),
+                    MapAtlasNode.merged_into_node_id.is_(None),
+                )
+            )
+        ).all()
+    )
+    if args.scope_kind == "hierarchy":
+        root = await MapStructureService().node(db, novel_id, args.scope_id)
+        node_ids = {root.id}
+        changed = True
+        while changed:
+            descendants = {item.id for item in nodes if item.parent_id in node_ids}
+            changed = not descendants.issubset(node_ids)
+            node_ids.update(descendants)
+        scoped = [item for item in page.items if item.node_id in node_ids]
+    else:
+        scoped = [
+            item
+            for item in page.items
+            if any(
+                feature.space_id == args.scope_id for feature in item.document.features
+            )
+        ]
+    candidates = [item for item in scoped if item.status == "candidate"]
+    if not candidates:
+        raise ConflictError("这个空间或层级没有待审自动草图")
+    if any(item.stale or item.batch_status != "completed" for item in candidates):
+        raise ConflictError("草图有失效来源或未完成分片，请到地图工作台核对")
+    require_targets = get(ASSISTANT_REQUIRE_OPERATION_TARGETS)
+    await require_targets(
+        db,
+        novel_id,
+        context,
+        [("map_atlas_node", item.node_id) for item in candidates],
+        aggregate=True,
+    )
+    service = MapStructureService()
+    manifest = [
+        {
+            "node_id": str(item.node_id),
+            "revision_id": str(item.revision_id),
+            "review_base_revision_id": str(item.review_base_revision_id)
+            if item.review_base_revision_id
+            else None,
+            "batch_id": str(item.batch_id),
+            "batch_fingerprint": item.fingerprint,
+            "source_clue_ids": [str(value) for value in item.source_clue_ids],
+        }
+        for item in candidates
+    ]
+    decisions, affected = [], 0
+    for item in candidates:
+        node = await service.node(db, novel_id, str(item.node_id))
+        if node.current_revision_id != item.review_base_revision_id:
+            raise ConflictError("正式地图版本已变化，请重新比较草图")
+        baseline = (
+            MapDocument.model_validate(
+                (
+                    await service.revision(
+                        db, novel_id, str(node.id), node.current_revision_id
+                    )
+                ).document
+            )
+            if node.current_revision_id
+            else MapDocument()
+        )
+        candidate = MapDocument.model_validate(item.document)
+        from modules.world.map_structure_review import changed_items, document_items
+
+        old_items, new_items = document_items(baseline), document_items(candidate)
+        all_keys = changed_items(baseline, candidate)
+        selected_keys = (
+            sorted(all_keys)
+            if args.scope_kind == "hierarchy"
+            else sorted(
+                key
+                for key in all_keys
+                if args.scope_id
+                in _item_space_ids(
+                    key, new_items.get(key) or old_items.get(key), [baseline, candidate]
+                )
+            )
+        )
+        if not selected_keys:
+            continue
+        decision_preview = None
+        if args.action == "adopt":
+            decision_preview = await service.review_preview(
+                db,
+                novel_id,
+                str(node.id),
+                str(item.revision_id),
+                MapRevisionReview(
+                    base_revision_id=item.review_base_revision_id,
+                    action="adopt",
+                    change_keys=selected_keys,
+                ),
+            )
+            count = len(
+                set(decision_preview.applied_change_keys)
+                | set(decision_preview.expanded_change_keys)
+            )
+        else:
+            if set(selected_keys) != all_keys:
+                raise ConflictError(
+                    "这份草图还包含其他空间，请在草图工作台明确拒绝整个版本"
+                )
+            await service.preview_revision(
+                db, novel_id, str(node.id), str(item.revision_id)
+            )
+            count = len(all_keys)
+        affected += count
+        decisions.append(
+            {
+                "node_id": str(item.node_id),
+                "revision_id": str(item.revision_id),
+                "base_revision_id": str(item.review_base_revision_id)
+                if item.review_base_revision_id
+                else None,
+                "action": args.action,
+                "change_keys": selected_keys,
+                "expanded_change_keys": decision_preview.expanded_change_keys
+                if decision_preview
+                else [],
+                "affected_count": count,
+                "title": item.node_title,
+            }
+        )
+    if not decisions:
+        raise ConflictError("所选空间或层级没有可审核的实际地图项目")
+    if affected > 20:
+        raise ConflictError("本次会涉及超过 20 个地图项目，请拆分到更小范围")
+    return {
+        "target_keys": [f"map:{item['node_id']}" for item in decisions],
+        "affected_count": affected,
+        "group_fingerprint": stable_hash(manifest),
+        "revision_manifest": manifest,
+        "decisions": decisions,
+        "effect": "对完整版本基线做分批审核；地图正式版本仍按各节点 CAS 保存",
+    }
+
+
+async def _auto_draft_group_apply(db, novel_id, args, preview, *, context=None):
+    if await _auto_draft_group_preview(db, novel_id, args, context=context) != preview:
+        raise ConflictError("草图、线索或正式地图版本已变化，请重新准备审核")
+    service = MapStructureService()
+    results = []
+    for item in preview["decisions"]:
+        result = await service.review(
+            db,
+            novel_id,
+            item["node_id"],
+            item["revision_id"],
+            MapRevisionReview(
+                base_revision_id=item["base_revision_id"],
+                action=item["action"],
+                change_keys=item["change_keys"] if item["action"] == "adopt" else None,
+            ),
+        )
+        results.append(
+            {
+                "node_title": item["title"],
+                "status": result.status,
+                "revision_id": result.id,
+            }
+        )
+    return {"type": "map_auto_draft_group", "results": results}
+
+
+async def _read_author_decision(db, novel_id, context):
+    if context is None or not context.run_id:
+        raise ConflictError("作者安排需要绑定到本次助手运行")
+    frozen = (context.internal_meta or {}).get("prepared_preview") or {}
+    frozen_decision = frozen.get("author_decision") or {}
+    reader = get(ASSISTANT_READ_MAP_AUTHOR_DECISION)
+    reference = await reader(
+        db, novel_id, context.run_id, message_id=frozen_decision.get("message_id")
+    )
+    return MapAuthorDecision.model_validate(reference)
+
+
+async def _structure_edit_preview(db, novel_id, args, *, context=None):
+    service, node, document = await _document(db, novel_id, args.node_id, context)
+    if node.current_revision_id != args.base_revision_id:
+        raise ConflictError("地图版本已变化，请重新读取当前空间")
+    document = document.model_copy(deep=True)
+    author_decision = await _read_author_decision(db, novel_id, context)
+    before = document.model_dump(mode="json")
+    if document.schema_version == 1:
+        payload = document.model_dump(mode="json")
+        payload["schema_version"] = 2
+        document = MapDocument.model_validate(payload)
+    for edit in args.edits:
+        if edit.kind == "add_space":
+            if any(space.id == edit.space.id for space in document.spaces):
+                raise ConflictError("这个空间已经存在")
+            document.spaces.append(MapSpace(**edit.space.model_dump()))
+        elif edit.kind == "rename_space":
+            space = next(
+                (item for item in document.spaces if item.id == edit.target_id), None
+            )
+            if space is None:
+                raise ConflictError("没有找到要改名的空间")
+            space.label = edit.space.label if edit.space else space.label
+        elif edit.kind == "remove_space":
+            if edit.target_id == "main":
+                raise ConflictError("主空间不能移除")
+            if not any(space.id == edit.target_id for space in document.spaces):
+                raise ConflictError("没有找到要移除的空间")
+            if any(feature.space_id == edit.target_id for feature in document.features):
+                raise ConflictError("该空间仍包含地点，请先移动或处理地点")
+            document.spaces = [
+                item for item in document.spaces if item.id != edit.target_id
+            ]
+        elif edit.kind == "merge_space":
+            if edit.target_id == "main":
+                raise ConflictError("主空间不能被合并移除")
+            if not {edit.target_id, edit.destination_space_id}.issubset(
+                {item.id for item in document.spaces}
+            ):
+                raise ConflictError("请指定两个现有空间")
+            for feature in document.features:
+                if feature.space_id == edit.target_id:
+                    feature.space_id = edit.destination_space_id
+            document.spaces = [
+                item for item in document.spaces if item.id != edit.target_id
+            ]
+        elif edit.kind == "move_feature_to_space":
+            feature = next(
+                (item for item in document.features if item.id == edit.target_id), None
+            )
+            if feature is None or edit.destination_space_id not in {
+                "main",
+                *(item.id for item in document.spaces),
+            }:
+                raise ConflictError("请指定现有图元和目标空间")
+            feature.space_id = edit.destination_space_id
+        elif edit.kind == "upsert_constraint":
+            constraint = SpatialConstraint(**edit.constraint.model_dump())
+            document.constraints = [
+                item for item in document.constraints if item.id != constraint.id
+            ] + [constraint]
+        elif edit.kind == "remove_constraint":
+            if not any(item.id == edit.target_id for item in document.constraints):
+                raise ConflictError("没有找到要移除的空间关系")
+            document.constraints = [
+                item for item in document.constraints if item.id != edit.target_id
+            ]
+        elif edit.kind == "upsert_journey":
+            journey = SpatialJourney(
+                **edit.journey.model_dump(),
+                sources=[],
+                author_decision=author_decision,
+            )
+            document.journeys = [
+                item for item in document.journeys if item.id != journey.id
+            ] + [journey]
+        elif edit.kind == "remove_journey":
+            if not any(item.id == edit.target_id for item in document.journeys):
+                raise ConflictError("没有找到要移除的行程")
+            document.journeys = [
+                item for item in document.journeys if item.id != edit.target_id
+            ]
+    document.author_decision = author_decision
+    document = MapDocument.model_validate(document.model_dump(mode="json"))
+    layout_preview = await service.preview_layout(
+        db,
+        novel_id,
+        str(args.node_id),
+        MapSaveRequest(base_revision_id=args.base_revision_id, document=document),
+    )
+    from modules.world.map_structure_review import changed_items
+
+    affected_count = len(changed_items(MapDocument.model_validate(before), document))
+    if affected_count > 20:
+        raise ConflictError("本次空间整理涉及超过 20 项实际变更，请缩小范围")
+    return {
+        "target_key": f"map:{node.id}",
+        "title": f"修改{node.title}的空间结构",
+        "base_revision_id": str(node.current_revision_id)
+        if node.current_revision_id
+        else None,
+        "affected_count": affected_count,
+        "before": before,
+        "after": document.model_dump(mode="json"),
+        "author_decision": author_decision.model_dump(mode="json")
+        if author_decision
+        else None,
+        "problems": [item.model_dump(mode="json") for item in layout_preview.problems],
+        "effect": "只保存作者安排的空间、关系或行程；不生成坐标，也不伪装成正文引文",
+    }
+
+
+async def _structure_edit_apply(db, novel_id, args, preview, *, context=None):
+    if await _structure_edit_preview(db, novel_id, args, context=context) != preview:
+        raise ConflictError("地图、正文安排来源或空间类型已变化，请重新查看方案")
+    document = MapDocument.model_validate(preview["after"])
+    result = await MapStructureService().save(
+        db,
+        novel_id,
+        str(args.node_id),
+        MapSaveRequest(base_revision_id=preview["base_revision_id"], document=document),
+    )
+    return {
+        "type": "map_atlas_node",
+        "id": str(args.node_id),
+        "revision_id": result.id,
+        "label": "已保存新的空间版本",
+    }
+
+
+async def _node_update_preview(db, novel_id, args, *, context=None):
+    _require_workbench_scope(context)
+    require_targets = get(ASSISTANT_REQUIRE_OPERATION_TARGETS)
+    targets = [("map_atlas_node", args.node_id)]
+    if args.update.parent_id is not None:
+        targets.append(("map_atlas_node", args.update.parent_id))
+    await require_targets(db, novel_id, context, targets, aggregate=True)
+    before_node = await MapStructureService().node(db, novel_id, str(args.node_id))
+    before = MapAtlasService._node_dict(before_node, [], [])
+    savepoint = await db.begin_nested()
+    try:
+        after = await MapAtlasService().update_node(
+            db, novel_id, str(args.node_id), args.update
+        )
+    finally:
+        await savepoint.rollback()
+    fields = (
+        "title",
+        "parent_id",
+        "level",
+        "level_type_ref",
+        "level_type_revision_id",
+        "sort_order",
+    )
+    return {
+        "target_key": f"map-node:{args.node_id}",
+        "title": f"修改地图层级：{before['title']}",
+        "before": {key: before[key] for key in fields},
+        "after": {key: after[key] for key in fields},
+        "effect": "只移动或改名地图节点，不改动空间版本和图元坐标",
+    }
+
+
+async def _node_update_apply(db, novel_id, args, preview, *, context=None):
+    if await _node_update_preview(db, novel_id, args, context=context) != preview:
+        raise ConflictError("地图层级已变化，请重新查看方案")
+    result = await MapAtlasService().update_node(
+        db, novel_id, str(args.node_id), args.update
+    )
+    return {
+        "type": "map_atlas_node",
+        "id": str(args.node_id),
+        "label": f"已更新地图层级：{result['title']}",
+    }
+
+
+class PreviewMapNodeMerge(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    source_node_id: UUID
+    target_node_id: UUID
+
+
+class PrepareTrayPlacement(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    node_id: UUID
+    revision_id: UUID
+    item_ids: list[UUID] = Field(min_length=1, max_length=20)
+
+    @model_validator(mode="after")
+    def unique_items(self):
+        if len(self.item_ids) != len(set(self.item_ids)):
+            raise ValueError("同一托盘项目不能重复选择")
+        return self
+
+
+async def _tray_navigation_preview(db, novel_id, args, *, context=None):
+    _require_workbench_scope(context)
+    await get(ASSISTANT_REQUIRE_OPERATION_TARGETS)(
+        db, novel_id, context, [("map_atlas_node", args.node_id)], aggregate=True
+    )
+    page = await list_map_auto_drafts(
+        db,
+        novel_id,
+        node_id=str(args.node_id),
+        revision_id=str(args.revision_id),
+        limit=1,
+    )
+    draft = next(iter(page.items), None)
+    if (
+        draft is None
+        or draft.status != "candidate"
+        or draft.stale
+        or draft.batch_status != "completed"
+        or draft.node.current_revision_id != draft.review_base_revision_id
+    ):
+        raise ConflictError("目标草图不可放置，请到地图工作台重新核对")
+    pending = {item.item_id: item for item in draft.pending_tray}
+    if any(item_id not in pending for item_id in args.item_ids):
+        raise ConflictError("托盘项目不属于目标草图或已放置，请重新核对")
+    return {
+        "target_key": f"map:{args.node_id}",
+        "novel_id": str(UUID(novel_id)),
+        "node_id": str(args.node_id),
+        "revision_id": str(args.revision_id),
+        "batch_id": str(draft.batch_id),
+        "base_revision_id": str(draft.node.current_revision_id)
+        if draft.node.current_revision_id
+        else None,
+        "items": [
+            {
+                "item_id": str(item_id),
+                "fingerprint": pending[item_id].fingerprint,
+                "label": pending[item_id].endpoint.surface
+                or (
+                    "候选地点"
+                    if pending[item_id].endpoint.state == "candidate"
+                    else "已绑定地点"
+                ),
+            }
+            for item_id in args.item_ids
+        ],
+        "title": f"前往 {draft.node_title} 放置托盘地点",
+        "effect": "打开原地图托盘，由作者点选坐标、预览并独立确认；不自动放置",
+        "affected_count": len(args.item_ids),
+    }
+
+
+async def _tray_navigation_apply(db, novel_id, args, preview, *, context=None):
+    if await _tray_navigation_preview(db, novel_id, args, context=context) != preview:
+        raise ConflictError("草图或托盘已变化，请重新准备放置入口")
+    return {
+        "type": "map_tray_placement",
+        "id": str(args.node_id),
+        **preview,
+        "label": "打开地图托盘选择位置（尚未放置）",
+    }
+
+
+async def _node_merge_preview(db, novel_id, args, *, context=None):
+    if args.source_node_id == args.target_node_id:
+        raise ValidationError("不能将地图节点合并到自身")
+    _require_workbench_scope(context)
+    _, source, source_doc = await _document(db, novel_id, args.source_node_id, context)
+    _, target, target_doc = await _document(db, novel_id, args.target_node_id, context)
+    return {
+        "target_keys": [f"map:{source.id}", f"map:{target.id}"],
+        "affected_count": 2,
+        "source_node_id": str(source.id),
+        "target_node_id": str(target.id),
+        "source_revision_id": str(source.current_revision_id),
+        "target_revision_id": str(target.current_revision_id),
+        "source_document": source_doc.model_dump(mode="json"),
+        "target_document": target_doc.model_dump(mode="json"),
+        "effect": (
+            "生成节点合并候选预览；需在地图工作台逐项处理图元冲突，"
+            "并独立确认原节点处置，不把改父节点当作合并"
+        ),
+        "requires_workbench_review": True,
+        "can_execute_merge": False,
+    }
+
+
+async def _node_merge_candidate(db, novel_id, args, preview, *, context=None):
+    if await _node_merge_preview(db, novel_id, args, context=context) != preview:
+        raise ConflictError("节点或空间版本已变化，请重新准备合并候选")
+    return {
+        "type": "map_node_merge_candidate",
+        "page": "map",
+        **preview,
+        "label": "节点合并候选已保存在本次助手方案中，尚未改动节点",
+    }
+
+
+async def _merge_nodes_preview(db, novel_id, args, *, context=None):
+    if args.source_node_id == args.target_node_id:
+        raise ValidationError("不能将地图节点合并到自身")
+    _require_workbench_scope(context)
+    await get(ASSISTANT_REQUIRE_OPERATION_TARGETS)(
+        db,
+        novel_id,
+        context,
+        [
+            ("map_atlas_node", args.source_node_id),
+            ("map_atlas_node", args.target_node_id),
+        ],
+        aggregate=True,
+    )
+    preview = await MapNodeMergeService().preview(
+        db, novel_id, args.source_node_id, args.target_node_id
+    )
+    return {
+        **preview.model_dump(mode="json"),
+        "target_keys": [
+            f"map:{preview.source_node_id}",
+            f"map:{preview.target_node_id}",
+        ],
+        "effect": (
+            f"把“{preview.source_title}”的已保存空间资料追加到“{preview.target_title}”；"
+            "保留两个空间的独立坐标、来源与固定类型，来源节点保留为转向目标的历史身份"
+        ),
+        "can_execute_merge": preview.can_execute,
+        "requires_source_disposition_confirmation": True,
+        "label": f"预览将“{preview.source_title}”合并到“{preview.target_title}”",
+    }
+
+
+async def _merge_nodes_apply(db, novel_id, args, preview, *, context=None):
+    _require_workbench_scope(context)
+    await get(ASSISTANT_REQUIRE_OPERATION_TARGETS)(
+        db,
+        novel_id,
+        context,
+        [
+            ("map_atlas_node", args.source_node_id),
+            ("map_atlas_node", args.target_node_id),
+        ],
+        aggregate=True,
+    )
+    if not preview.get("can_execute_merge"):
+        raise ConflictError("合并预览未通过安全检查，请回到地图工作台核对")
+    if str(preview.get("source_node_id")) != str(args.source_node_id) or str(
+        preview.get("target_node_id")
+    ) != str(args.target_node_id):
+        raise ConflictError("合并预览与本次操作目标不一致")
+    result = await MapNodeMergeService().apply(
+        db,
+        novel_id,
+        MapNodeMergeApplyRequest(
+            source_node_id=args.source_node_id,
+            target_node_id=args.target_node_id,
+            preview_fingerprint=preview["fingerprint"],
+            confirmed_source_disposition=True,
+        ),
+    )
+    return {
+        **result,
+        "id": result["target_node_id"],
+        "target_keys": [
+            f"map:{result['source_node_id']}",
+            f"map:{result['target_node_id']}",
+        ],
+    }
+
+
+OPERATIONS_SPEC = {
+    "map.prepare_tray_placement": {
+        "label": "准备托盘地点放置入口（由作者选点）",
+        "schema": PrepareTrayPlacement,
+        "permission": "read",
+        "prepare": _tray_navigation_preview,
+        "apply": _tray_navigation_apply,
+    },
+    "map.preview_node_merge": {
+        "label": "准备地图节点合并候选",
+        "schema": PreviewMapNodeMerge,
+        "prepare": _node_merge_preview,
+        "apply": _node_merge_candidate,
+    },
+    "map.merge_nodes": {
+        "label": "合并两个已保存的地图节点",
+        "revision": "2",
+        "schema": PreviewMapNodeMerge,
+        "prepare": _merge_nodes_preview,
+        "apply": _merge_nodes_apply,
+    },
+    "map.add_known_location": {
+        "label": "把已知地点加入地图（保留未知位置）",
+        "schema": AddKnownLocation,
+        "prepare": _location_preview,
+        "apply": _save_document,
+    },
+    "map.edit_feature_label": {
+        "label": "修改图元名称或备注",
+        "schema": EditFeatureLabel,
+        "prepare": _feature_preview,
+        "apply": _save_document,
+    },
+    "map.create_node": {
+        "label": "创建空白地图",
+        "schema": MapNodeCreate,
+        "prepare": _node_preview,
+        "apply": _node_apply,
+    },
+    "map.review_revision": {
+        "label": "处理已有地图版本",
+        "schema": ReviewMapRevision,
+        "prepare": _review_preview,
+        "apply": _review_apply,
+    },
+    "map.review_spatial_clues": {
+        "label": "审核空间线索",
+        "schema": ReviewSpatialClues,
+        "prepare": _clue_review_preview,
+        "apply": _clue_review_apply,
+    },
+    "map.review_auto_draft_group": {
+        "label": "按空间或层级审核自动草图",
+        "schema": ReviewAutoDraftGroup,
+        "prepare": _auto_draft_group_preview,
+        "apply": _auto_draft_group_apply,
+    },
+    "map.edit_spatial_structure": {
+        "label": "编辑空间、关系或行程",
+        "schema": EditMapStructure,
+        "prepare": _structure_edit_preview,
+        "apply": _structure_edit_apply,
+    },
+    "map.update_node": {
+        "label": "移动或改名地图节点",
+        "schema": UpdateMapNode,
+        "prepare": _node_update_preview,
+        "apply": _node_update_apply,
+    },
 }

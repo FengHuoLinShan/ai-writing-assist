@@ -8,10 +8,14 @@ from modules.evidence.compilation.knowledge.group import (
     GroupSource,
     build_group_scope,
     govern_group_output,
+    materialize_group_audit,
 )
 from modules.evidence.compilation.knowledge.llm_schemas import (
     AuditDimensionCheck,
     AuditVerdictOutput,
+)
+from modules.evidence.compilation.knowledge.policies import (
+    require_capability_policy,
 )
 
 _SOURCES = [
@@ -59,7 +63,52 @@ def test_build_group_scope_freezes_stable_receipt() -> None:
         first[0].receipt.receipt_fingerprint()
         != other_group[0].receipt.receipt_fingerprint()
     )
+    assert first[0].receipt.policy_version == 1
     assert set(first[0].generator_keys) == {item.source_key for item in _SOURCES}
+
+
+def test_group_reference_omission_and_unchecked_audit_dimension_do_not_block() -> None:
+    policy = require_capability_policy("assistant.turn")
+    sources = [
+        GroupSource(
+            source_key=f"required:{dimension}",
+            source_type=dimension,
+            content_hash=dimension,
+            dimensions=(dimension,),
+        )
+        for dimension in policy.required_dimensions
+    ]
+    scope, _ = build_group_scope(
+        capability=policy.capability_id,
+        novel_id="n1",
+        group_key="assistant-turn:1",
+        sources=sources,
+    )
+    assert scope.receipt.policy_version == 2
+    assert [item.dimension for item in scope.receipt.advisory_omitted] == ["map_spatial"]
+
+    result = {
+        "verdict": "unverifiable",
+        "findings": [],
+        "dimensions": [
+            *[
+                {"dimension": dimension, "checked": True}
+                for dimension in policy.required_dimensions
+            ],
+            {"dimension": "map_spatial", "checked": False},
+        ],
+    }
+    response = materialize_group_audit(
+        capability=policy.capability_id,
+        novel_id="n1",
+        group_key="assistant-turn:1",
+        sources=sources,
+        output="回答",
+        result=result,
+    )
+    assert response["status"] == "passed"
+    assert response["coverage"][-1]["dimension"] == "map_spatial"
+    assert response["coverage"][-1]["omitted"] is True
 
 
 def test_durable_audit_request_keeps_full_source_and_requires_all_dimensions():

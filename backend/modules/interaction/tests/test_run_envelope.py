@@ -60,7 +60,7 @@ def test_interaction_tasks_declare_run_envelope_contracts() -> None:
     import modules.interaction.tasks  # noqa: F401  注册副作用
 
     registry = get_registry()
-    task = SimpleNamespace(task_type="interaction_story_generate")
+    task = SimpleNamespace(task_type="interaction_story_generate", meta={})
     expected = {
         "interaction_summary_refresh": (
             "interaction.summary_refresh",
@@ -79,6 +79,22 @@ def test_interaction_tasks_declare_run_envelope_contracts() -> None:
         assert registry.resolve_run_deadline_seconds(task_type, task) == deadline, (
             task_type
         )
+    author_task = SimpleNamespace(meta={"author_project_id": str(uuid.uuid4())})
+    assert registry.resolve_run_deadline_seconds(
+        "interaction_summary_refresh", author_task
+    ) == 1800
+    assert registry.resolve_unknown_charge_policy(
+        "interaction_summary_refresh", task
+    ) is None
+    assert registry.resolve_run_eighty_percent_stop(
+        "interaction_summary_refresh", task
+    ) is False
+    assert registry.resolve_unknown_charge_policy(
+        "interaction_summary_refresh", author_task
+    ) == "stop_before_replay"
+    assert registry.resolve_run_eighty_percent_stop(
+        "interaction_summary_refresh", author_task
+    ) is True
     assert registry.get_root_capability("interaction_story_generate") == (
         "interaction.story_generate"
     )
@@ -633,7 +649,7 @@ async def test_summary_refresh_chain_builds_envelope_and_keeps_wire_clean(
     task_id = await _enqueue(
         sessions,
         "interaction_summary_refresh",
-        meta={"novel_id": novel_id},
+        meta={"novel_id": novel_id, "author_project_id": str(uuid.uuid4())},
         novel_id=novel_id,
     )
     try:
@@ -656,7 +672,9 @@ async def test_summary_refresh_chain_builds_envelope_and_keeps_wire_clean(
             assert envelope.operation_id == str(task_id)
             assert envelope.root_capability_id == "interaction.summary_refresh"
             assert envelope.request_limit == 8
-            assert envelope.deadline_at is None
+            assert envelope.deadline_at is not None
+            duration = (envelope.deadline_at - envelope.started_at).total_seconds()
+            assert 1799 <= duration <= 1800
             assert envelope.requests_started == 1
             assert envelope.requests_settled == 1
             assert envelope.status.value == "succeeded"
@@ -833,12 +851,20 @@ async def test_agent_story_declares_run_root_and_single_ledger(
     assert snapshot.requests_started == budgets[-1].requests
 
 
+@pytest.mark.parametrize(
+    ("request_limit", "prior_requests", "author_task", "expected_calls"),
+    [(1, 1, False, 0), (8, 7, True, 0), (8, 7, False, 1)],
+)
 @pytest.mark.asyncio
-async def test_exhausted_budget_rejects_provider_io_and_fails_closed(
+async def test_exhausted_or_author_eighty_percent_budget_rejects_provider_io(
     test_engine,
     monkeypatch,
+    request_limit,
+    prior_requests,
+    author_task,
+    expected_calls,
 ) -> None:
-    """恢复已耗尽的 run：首个请求在 provider I/O 前被拒，失败关闭不重排。"""
+    """The author stop blocks request eight; an old RP task still has eight."""
     sessions = async_sessionmaker(test_engine, expire_on_commit=False, autoflush=False)
     novel_id = str(uuid.uuid4())
     provider = _JsonProvider(json.dumps(_SUMMARY_PAYLOAD, ensure_ascii=False))
@@ -852,7 +878,10 @@ async def test_exhausted_budget_rejects_provider_io_and_fails_closed(
     task_id = await _enqueue(
         sessions,
         "interaction_summary_refresh",
-        meta={"novel_id": novel_id},
+        meta={
+            "novel_id": novel_id,
+            **({"author_project_id": str(uuid.uuid4())} if author_task else {}),
+        },
         novel_id=novel_id,
     )
     # 预置一个已把 request_limit 用尽的持久化信封（上次 attempt 的收尾真相，
@@ -864,20 +893,23 @@ async def test_exhausted_budget_rejects_provider_io_and_fails_closed(
         run_id=str(task_id),
         root_capability_id="interaction.summary_refresh",
         novel_id=novel_id,
-        request_limit=1,
+        request_limit=request_limit,
+        deadline_at=(
+            datetime.now(UTC) + timedelta(seconds=1800) if author_task else None
+        ),
     ).snapshot()
     exhausted = exhausted.model_copy(
         update={
-            "requests_started": 1,
-            "requests_settled": 1,
+            "requests_started": prior_requests,
+            "requests_settled": prior_requests,
             "usage": LLMUsage(prompt_tokens=5, completion_tokens=5, total_tokens=10),
             "steps": [
                 AIStepReceiptV1(
                     step_name="interaction.summary.generate",
                     step_capability_id="interaction.summary_refresh",
                     call_kind=AIStepCallKind.structured,
-                    requests_started=1,
-                    requests_settled=1,
+                    requests_started=prior_requests,
+                    requests_settled=prior_requests,
                     usage=LLMUsage(prompt_tokens=5, completion_tokens=5, total_tokens=10),
                 )
             ],
@@ -895,16 +927,19 @@ async def test_exhausted_budget_rejects_provider_io_and_fails_closed(
             heartbeat_interval=60.0,
         ).run_once()
 
-        # 预算拒绝失败关闭：provider 0 调用，任务终态失败且不重排（max_attempts=2）。
-        assert provider.calls == 0
-        assert returned is not None and returned.status == "failed"
+        assert provider.calls == expected_calls
+        assert returned is not None
+        assert returned.status == ("done" if expected_calls else "failed")
         assert returned.attempt == 1
-        assert "AIRunBudgetExceededError" in (returned.error_message or "")
+        if not expected_calls:
+            assert "AIRunBudgetExceededError" in (returned.error_message or "")
         async with sessions() as db:
             stored = await db.get(AsyncTask, task_id)
             envelope = read_ai_run_envelope(stored.meta.get(AI_RUN_ENVELOPE_KEY))
             assert envelope is not None
-            assert envelope.status.value == "failed"
-            assert envelope.requests_started == 1
+            assert envelope.status.value == (
+                "succeeded" if expected_calls else "failed"
+            )
+            assert envelope.requests_started == prior_requests + expected_calls
     finally:
         await _cleanup(sessions, [task_id])

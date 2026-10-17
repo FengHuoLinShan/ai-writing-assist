@@ -69,6 +69,36 @@ describe("统一地图编辑器", () => {
     return wrapper
   }
 
+  it('确认移出期间锁住编辑与离开，取消保留已有草稿', async () => {
+    let finish
+    confirm.mockImplementation(() => new Promise(resolve => { finish = resolve }))
+    const wrapper = await render()
+    const label = wrapper.findAll('input').find(input => input.element.value === '临江城')
+    await label.setValue('保留的草稿名')
+    await button(wrapper, '移出地图').trigger('click'); await flushPromises()
+    expect(wrapper.emitted('state').at(-1)[0].busy).toBe(true)
+    expect(await wrapper.vm.canLeave()).toBe(false)
+    expect(wrapper.findComponent({ name: 'MapSpatialMetadataPanel' }).props('disabled')).toBe(true)
+    expect(button(wrapper, '保存地图').attributes('disabled')).toBeDefined()
+    finish(false); await flushPromises()
+    expect(wrapper.emitted('state').at(-1)[0].busy).toBe(false)
+    expect(wrapper.get('.map-feature.selected').text()).toContain('保留的草稿名')
+    expect(wrapper.vm.dirty).toBe(true)
+    expect(api.world.saveMapRevision).not.toHaveBeenCalled()
+  })
+
+  it('候选确认后若已离开组件，不再发送旧作品的决定', async () => {
+    let finish
+    confirm.mockImplementation(() => new Promise(resolve => { finish = resolve }))
+    const candidate = { ...record(document(), nextId), status: 'candidate', base_revision_id: revisionId }
+    api.world.getNodeMap.mockResolvedValue({ ...state(record()), candidates: [candidate] })
+    const wrapper = await render()
+    await button(wrapper, '不使用').trigger('click'); await flushPromises()
+    expect(wrapper.emitted('state').at(-1)[0].busy).toBe(true)
+    wrapper.unmount(); finish(true); await flushPromises()
+    expect(api.world.reviewMapRevision).not.toHaveBeenCalled()
+  })
+
   it('街道地点可创建室内子图并保存跳转关系', async () => {
     api.world.createMapNode.mockResolvedValue({ id: nextId })
     const wrapper = await render({ node: { id: nodeId, title: '街道', level: 'street' } })
@@ -77,6 +107,61 @@ describe("统一地图编辑器", () => {
     expect(api.world.createMapNode).toHaveBeenCalledWith(projectId, { title: '临江城', level: 'interior', parent_id: nodeId, location_entity_id: null })
     await button(wrapper, '进入子图').trigger('click')
     expect(wrapper.emitted('open-node')).toEqual([[nextId]])
+  })
+
+  it('独立空间分别绘图，切换和全图搜索不修改地图', async () => {
+    const data = document()
+    data.schema_version = 2
+    data.spaces = [{ id: 'main', label: '现世' }, { id: 'dream', label: '梦境' }]
+    data.features[1].space_id = 'dream'
+    api.world.getNodeMap.mockResolvedValue(state(record(data)))
+    const wrapper = await render({ browseOnly: true })
+    expect(wrapper.findAll('.map-feature').map(item => item.attributes('data-feature-id'))).toEqual(['a', 'c'])
+    await wrapper.get('[aria-label="当前地图空间"]').setValue('dream')
+    expect(wrapper.findAll('.map-feature').map(item => item.attributes('data-feature-id'))).toEqual(['b'])
+    await wrapper.get('.map-locator input').setValue('临江城')
+    await button(wrapper, '临江城').trigger('click'); await flushPromises()
+    expect(wrapper.get('[aria-label="当前地图空间"]').element.value).toBe('main')
+    expect(wrapper.findAll('.map-feature').map(item => item.attributes('data-feature-id'))).toEqual(['a', 'c'])
+    expect(wrapper.vm.dirty).toBe(false)
+  })
+
+  it('读者空间选择仅使用已公开图元，不泄露作者空间名称', async () => {
+    const data = document()
+    data.schema_version = 2
+    data.spaces = [{ id: 'main', label: '现世' }, { id: 'dream', label: '未揭示空间名称' }]
+    data.features[1].space_id = 'dream'
+    api.world.getNodeMap.mockResolvedValue(state(record(data)))
+    api.world.previewReaderMap.mockResolvedValue({ chapter: 1, features: [data.features[0], data.features[1]], images: [], journeys: [] })
+    const wrapper = await render({ browseOnly: true })
+    await button(wrapper, '预览读者所见').trigger('click'); await flushPromises()
+    const select = wrapper.get('[aria-label="当前地图空间"]')
+    expect(select.text()).not.toContain('未揭示空间名称')
+    expect(select.text()).not.toContain('现世')
+    await select.setValue('dream')
+    expect(wrapper.findAll('.map-feature').map(item => item.attributes('data-feature-id'))).toEqual(['b'])
+  })
+
+  it('B5-F4: 重开地图恢复非主空间的选中图元，切换空间不清掉刚恢复的选择', async () => {
+    const data = document()
+    data.schema_version = 2
+    data.spaces = [{ id: 'main', label: '现世' }, { id: 'dream', label: '梦境' }]
+    data.features[1].space_id = 'dream'
+    api.world.getNodeMap.mockResolvedValue(state(record(data)))
+    localStorage.setItem(`novel_map_view:test-account:${projectId}:${nodeId}`, JSON.stringify({ selectedId: 'b', spaceId: 'dream' }))
+    const wrapper = await render()
+    expect(wrapper.get('[aria-label="当前地图空间"]').element.value).toBe('dream')
+    expect(wrapper.findAll('.map-feature.selected').map(item => item.attributes('data-feature-id'))).toEqual(['b'])
+
+    const metadata = wrapper.findComponent({ name: 'MapSpatialMetadataPanel' })
+    const movedDocument = JSON.parse(JSON.stringify(data))
+    movedDocument.features[1].space_id = 'main'
+    movedDocument.features[1].points = []
+    metadata.vm.$emit('change', movedDocument)
+    await flushPromises()
+    expect(wrapper.get('[aria-label="当前地图空间"]').element.value).toBe('main')
+    const selectedFeature = wrapper.findAll('label').find(item => item.text().includes('选中内容')).get('select')
+    expect(selectedFeature.element.value).toBe('b')
   })
 
   it('默认先展示画布，详情按需打开，阅读预览只有一份', async () => {
@@ -117,7 +202,9 @@ describe("统一地图编辑器", () => {
   })
 
   it("成果链接打开指定历史版进行比较而不替换当前编辑", async () => {
-    api.world.previewMapRevision.mockResolvedValue({ document: { ...emptyMap(), features: [feature("old", "旧港口", 10, 10)] }, image_layers: [], problems: [] })
+    const historical = record({ ...emptyMap(), features: [feature("old", "旧港口", 10, 10)] }, nextId)
+    api.world.listMapRevisions.mockResolvedValue([historical])
+    api.world.previewMapRevision.mockResolvedValue({ document: historical.document, image_layers: [], problems: [] })
     const wrapper = await render({ initialRevisionId: nextId })
     await flushPromises()
     expect(api.world.previewMapRevision).toHaveBeenCalledWith(projectId, nodeId, nextId)
@@ -125,6 +212,33 @@ describe("统一地图编辑器", () => {
     expect(wrapper.text()).toContain("旧港口")
     expect(api.world.saveMapRevision).not.toHaveBeenCalled()
     expect(wrapper.vm.revision.id).toBe(revisionId)
+  })
+
+  it('草图成果链接保留真实候选状态，审核CAS与增量基础版本分开', async () => {
+    const candidate = { ...record({ ...document(), features: [...document().features, feature('new', '新港', 200, 200)] }, nextId), status: 'candidate', is_auto_draft: true, base_revision_id: 'superseded-candidate', review_base_revision_id: revisionId }
+    api.world.getNodeMap.mockResolvedValue({ ...state(record()), candidates: [candidate] })
+    const wrapper = await render({ initialRevisionId: nextId })
+    expect(wrapper.text()).toContain('正在查看空间候选')
+    expect(wrapper.text()).not.toContain('此候选基于较早地图')
+    expect(button(wrapper, '恢复为新版本')).toBeUndefined()
+    const preview = wrapper.findAll('button').find(item => item.text().startsWith('核对所选'))
+    expect(preview.attributes('disabled')).toBeUndefined()
+    await preview.trigger('click'); await flushPromises()
+    expect(api.world.previewMapReview).toHaveBeenCalledWith(projectId, nodeId, nextId, expect.objectContaining({ base_revision_id: revisionId }))
+  })
+
+  it('没有正式head的草图以null审核基线预览，未查明的版本不伪装历史', async () => {
+    const candidate = { ...record(document(), nextId), status: 'candidate', is_auto_draft: true, base_revision_id: 'earlier-candidate', review_base_revision_id: null }
+    api.world.getNodeMap.mockResolvedValue({ ...state(null), candidates: [candidate] })
+    const wrapper = await render({ initialRevisionId: nextId })
+    const preview = wrapper.findAll('button').find(item => item.text().startsWith('核对所选'))
+    await preview.trigger('click'); await flushPromises()
+    expect(api.world.previewMapReview).toHaveBeenCalledWith(projectId, nodeId, nextId, expect.objectContaining({ base_revision_id: null }))
+    wrapper.unmount()
+    api.world.getNodeMap.mockResolvedValue(state(record()))
+    const missing = await render({ initialRevisionId: nextId })
+    expect(missing.text()).toContain('此版本不在可访问记录中')
+    expect(missing.text()).not.toContain('正在查看历史地图')
   })
 
   it("无需图片连接即可编辑保存，文字使用安全的 SVG 文本", async () => {
@@ -606,6 +720,28 @@ describe("统一地图编辑器", () => {
     expect(api.world.saveMapRevision).not.toHaveBeenCalled()
   })
 
+  it('地图采用可勾选候选地点，先独立World确认，再重新核对地图并二次确认', async () => {
+    const changed = document(); changed.features[0].note = '新说明'
+    const proposed = { ...record(changed, nextId), status: 'candidate', base_revision_id: revisionId }
+    api.world.getNodeMap.mockResolvedValue({ ...state(record()), candidates: [proposed] })
+    api.world.previewMapRevision.mockResolvedValue({ ...proposed, image_layers: [], problems: [] })
+    const preview = payload => ({ candidate_revision_id: nextId, base_revision_id: revisionId, applied_change_keys: payload.change_keys, expanded_change_keys: [], candidate_locations: [{ entity_id: 'location-1', name: '临江城', status: 'candidate', source_hash: 'a'.repeat(64) }] })
+    api.world.previewMapReview.mockImplementation(async (_p, _n, _c, payload) => preview(payload))
+    api.world.promoteEntity = vi.fn(async () => ({}))
+    const wrapper = await render(); await flushPromises()
+    await wrapper.get('.map-candidates button').trigger('click'); await flushPromises()
+    await button(wrapper, '核对所选 1 项修改').trigger('click'); await flushPromises()
+    expect(button(wrapper, '确认采用共 1 项修改').element.disabled).toBe(false)
+    await wrapper.get('.map-candidate-locations input').setValue(true)
+    expect(button(wrapper, '确认采用共 1 项修改').element.disabled).toBe(true)
+    await button(wrapper, '先确认采用所选 1 个地点').trigger('click'); await flushPromises()
+    expect(api.world.promoteEntity).toHaveBeenCalledExactlyOnceWith('location-1', projectId, { expected_source_hash: 'a'.repeat(64) })
+    expect(api.world.previewMapReview).toHaveBeenCalledTimes(2)
+    expect(api.world.reviewMapRevision).not.toHaveBeenCalled()
+    expect(button(wrapper, '确认采用共 1 项修改').element.disabled).toBe(false)
+    expect(confirm).toHaveBeenCalledTimes(1)
+  })
+
   it('返回或刷新恢复选中地点、缩放与专注状态，地图文档不改变', async () => {
     const wrapper = await render({ initialFeatureId: 'b' }); await flushPromises()
     expect(wrapper.get('.map-feature.selected').attributes('data-feature-id')).toBe('b')
@@ -870,6 +1006,25 @@ describe("统一地图编辑器", () => {
     expect(api.world.saveMapRevision).not.toHaveBeenCalled()
   })
 
+  it("候选差异按地图固定的词条修订显示名称", async () => {
+    const current = document()
+    current.features[0].type_ref = "term-a"; current.features[0].type_revision_id = "revision-old"
+    const candidate = structuredClone(current)
+    candidate.features[0].type_revision_id = "revision-new"
+    api.world.getVocabularyTerm = vi.fn(async (_project, _typeRef, revision) => ({
+      name: revision === "revision-old" ? "旧地貌" : "新地貌",
+      revision_number: revision === "revision-old" ? 1 : 2,
+    }))
+    api.world.getNodeMap.mockResolvedValue({ ...state(record(current)), candidates: [{ ...record(candidate, nextId), status: "candidate", base_revision_id: revisionId }] })
+    const wrapper = await render(); await flushPromises()
+    await button(wrapper, "查看").trigger("click"); await flushPromises()
+
+    const change = wrapper.get('[aria-label="候选地图差异"]').text()
+    expect(change).toContain("旧地貌（第 1 版）")
+    expect(change).toContain("新地貌（第 2 版）")
+    expect(api.world.getVocabularyTerm).toHaveBeenCalledTimes(2)
+  })
+
   it("查证输入与完成结果在专注切换后保留，不重复查询", async () => {
     api.context = {
       startFocusedSearch: vi.fn(async () => ({ task_id: "lookup-1", status: "pending" })),
@@ -992,4 +1147,13 @@ it("移出依赖地点会使相关轮廓待定位，展示配置不改变空间�
   expect(geometrySignature(source)).toBe(signature)
   removeMapFeature(source, "a")
   expect(source.features.find(feature => feature.id === "area").points).toEqual([])
+})
+
+
+it("移出图元会一并移出引用它的行程声明，其他行程保持", () => {
+  const source = document()
+  source.schema_version = 2
+  source.journeys = [{ id: 'journey-a', origin: 'a', destination: 'b' }, { id: 'journey-c', origin: 'b', destination: 'c' }]
+  removeMapFeature(source, 'a')
+  expect(source.journeys.map(item => item.id)).toEqual(['journey-c'])
 })

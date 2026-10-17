@@ -7,6 +7,7 @@ from typing import Annotated, Any, Literal
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 from modules.world.schemas._common import AliasKind
+from modules.world.schemas.dossier import DossierValidity
 from modules.world.schemas.entities import (
     CoreEntityCreate,
     CoreEntityListResponse,
@@ -52,6 +53,7 @@ class EntityAliasCreate(BaseModel):
     source_chapter_index: int | None = Field(None, ge=0, description="首次出现的章节索引")
     confidence: float = Field(default=0.8, ge=0.0, le=1.0, description="确认置信度")
     status: str = Field(default="confirmed", max_length=32, description="状态")
+    validity: DossierValidity | None = None
 
 
 class EntityAliasUpdate(BaseModel):
@@ -63,6 +65,7 @@ class EntityAliasUpdate(BaseModel):
     reviewed_at: Annotated[str | None, Field(None, max_length=64)]
     reviewed_by: Annotated[str | None, Field(None, max_length=64)]
     reviewed_from: Annotated[str | None, Field(None, max_length=64)]
+    validity: DossierValidity | None = None
 
 
 class EntityAliasEditRequest(BaseModel):
@@ -72,6 +75,7 @@ class EntityAliasEditRequest(BaseModel):
     alias: Annotated[str | None, Field(None, min_length=1, max_length=255)] = None
     alias_type: Annotated[str | None, Field(None, min_length=1, max_length=20)] = None
     alias_kind: AliasKind | None = None
+    validity: DossierValidity | None = None
     confirm_review: bool = True
 
 
@@ -91,6 +95,7 @@ class EntityAliasReviewItem(BaseModel):
     needs_review: bool | None = None
     quote: str | None = None
     evidence_refs: list[dict[str, Any]] = Field(default_factory=list)
+    validity: DossierValidity | None = None
     suggested_alias_type: str | None = None
     type_kind: Literal["recommended", "custom"] = "custom"
     display_state: Literal["active", "review", "archived"] | None = None
@@ -127,6 +132,7 @@ class EntityAliasReviewBatchDecision(BaseModel):
     alias: str | None = Field(None, min_length=1, max_length=255)
     alias_type: str | None = Field(None, min_length=1, max_length=20)
     alias_kind: AliasKind | None = None
+    validity: DossierValidity | None = None
 
     @field_validator("alias_type")
     @classmethod
@@ -171,3 +177,4 @@ class EntityResolveAsAliasRequest(BaseModel):
         default="alias", min_length=1, max_length=20, description="别名类型"
     )
     alias_kind: AliasKind | None = None
+    validity: DossierValidity | None = None

@@ -108,6 +108,42 @@ export const interactions = {
         cache: "no-store",
       })
     },
+    authorJourneys(payload) {
+      return post("/interactions/author/journeys/list", payload, { cache: "no-store" })
+    },
+    prepareAuthorJourneySettings(payload) {
+      return post("/interactions/author/journeys/settings/prepare", payload, { cache: "no-store" })
+    },
+    confirmAuthorJourneySettings(payload) {
+      return post("/interactions/author/journeys/settings/confirm", payload)
+    },
+    prepareAuthorJourneyTitle(payload) {
+      return post("/interactions/author/journeys/title/prepare", payload, { cache: "no-store" })
+    },
+    confirmAuthorJourneyTitle(payload) {
+      return post("/interactions/author/journeys/title/confirm", payload)
+    },
+    prepareAuthorJourneyArchive(payload) {
+      return post("/interactions/author/journeys/archive/prepare", payload, { cache: "no-store" })
+    },
+    confirmAuthorJourneyArchive(payload) {
+      return post("/interactions/author/journeys/archive/confirm", payload)
+    },
+    prepareAuthorJourneyRestore(payload) {
+      return post("/interactions/author/journeys/restore/prepare", payload, { cache: "no-store" })
+    },
+    confirmAuthorJourneyRestore(payload) {
+      return post("/interactions/author/journeys/restore/confirm", payload)
+    },
+    prepareAuthorSummaryRefresh(payload) {
+      return post("/interactions/author/journeys/summary/prepare", payload, { cache: "no-store" })
+    },
+    confirmAuthorSummaryRefresh(payload) {
+      return post("/interactions/author/journeys/summary/confirm", payload)
+    },
+    authorSummaryRefreshResult(payload) {
+      return post("/interactions/author/journeys/summary/result", payload, { cache: "no-store" })
+    },
     createJourney(payload) {
       return contractJson("interactions.createJourney", {}, {}, payload)
     },

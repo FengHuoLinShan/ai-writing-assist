@@ -8,6 +8,10 @@ task 镜像同一信封，Prompt 确认、继续和图片重试只追加作者�
 
 world 模块管理小说世界中的核心对象及其关系，是结构化创作的事实底座。
 
+Assistant v8 首批把类型迁移、已选对象融合、修订备注和历史恢复登记为明确版本的操作。
+宽体对象编辑保持原路由语义；窄类型迁移经作者确认预览指纹后调用同一 World 服务。
+融合为 R3，已有正史对象仍经作者确认与领域二次门禁，不能由模型自动采用。
+
 imports 可通过 `world.facade.dedupe_deep_import_workflow_candidates` 调用限定 workflow candidate 的严格自动去重。该 seam 复用现有融合判定、指纹重验、candidate 软合并与项目 LLM snapshot，不改变项目级智能去重、canonical 确认、HTTP 或数据库契约。深度导入准入 manifest 只由 imports 生成并经该 facade 的窄 callback 交给 World checkpoint；普通 World 融合不携带 deep-import task 声明。末批 pair 数可小于 12；pair 全部落盘只记 `pairs_complete`，知识审查回执落盘后才记 `decided`。
 
 ## 核心原则
@@ -95,6 +99,34 @@ imports 可通过 `world.facade.dedupe_deep_import_workflow_candidates` 调用�
 - 作者可在新建、编辑后采用和已采用对象编辑中使用安全自定义 `entity_type`；AI 抽取和建议创建仍限系统目录。已有对象类型变化统一由 `EntityTypeTransitionService` 执行可逆 Profile snapshot 迁移，并在人物、事件等硬依赖存在时以结构化 409 阻止，详见 ADR-0005
 - `entity_type="character"` 的 CoreEntity 进入 canonical 时必须同步具备最小 `characters` 档案，保证人物、POV 与生成中心上下文可立即使用。作者显式创建人物档案会原位升级自动 scaffold；未被作者扩展的 scaffold 不视为类型纠正的硬依赖
 
+### 修订式对象档案（ADR-0039，C0 基础）
+
+`dossier_facade.py` 只拥有 World 稳定设定层。内核面向按对象类型定义，项目面向引用同项目
+`ProjectVocabularyTerm(kind='dossier_facing')`；模板复用 `EntityProfileTemplate` 的不可变修订。
+Scene 时点状态归 Story，演化理解归 Evolution；World 的读取结果显式披露尚未聚合的层，
+不能用当前设定或作者最新备注补出历史事实。统一三层读取与对象简报由 Evidence 聚合。
+
+`GET /api/world/entities/{id}/dossier` 支持当前设定或 `as_of_scene_id`，附条目来源、有效期、
+未知与省略、稳定指纹；分页空页不等于对象没有档案。`/dossier/history` 提供修订历史。
+有效期读取默认按作者区间；项目开关显式开启后，只有同对象、同登记字段且早于截止
+Scene 的可信 Story 确认来源可覆盖。关系使用稳定关系 ID，地图使用当前已采用节点的
+保存修订、声明种类及 FeatureKey；旧修订、删除/替换节点与同值错字段均保持缺口。
+`world.object_validity` 只读 NoticeSource 投影上述冲突和缺口，导演作者侧经 typed port
+读取并固定来源指纹；角色视角不借作者提醒取得秘密。新目录 v11 的 World 关系读取
+与 Story 状态确认不改变旧 v1–v10 冻结操作。
+新增、编辑、恢复分别使用 POST `/dossier/entries`、PATCH `/dossier/entries/{revision_id}`、
+POST `/dossier/groups/{entry_group_id}/restore`；编辑使用 `expected_revision_id`，恢复重新
+校验对象、面向与 Scene/章节锚点，追加修订而不覆盖旧内容。公开 demo 在服务入口拒写。
+模板 GET/PUT `/api/world/dossier-templates/{profile_type}` 使用版本 CAS；内容不变不增版本。
+
+同一面向或旧字段允许多个当前条目，每个条目组只有一个当前修订。旧 Character PUT 在值
+未变化时不增修订，改变时收拢该旧键下当前条目；显式 null 留下可恢复的清除修订。
+`desire` 与 `fear` 保留不同旧键，未标旧键的新条目不被猜测拼回字段。`current_goal`、
+`current_state`、`current_emotion` 仍是作者最新备注，不作为按章状态。字段映射与旧调用方
+边界见 [C0 映射表](../plans/2026-10-15-world-object-dossier-c0-mapping.md)。
+Generic profile 的修订桥接、旧消费方切换、三层聚合和完整界面仍按后续切片验收；这些基础
+API 不代表完整 C0/C2 产品闭环。目录插件声明三项 R0 读取和四项 R2 修订，组合根接线单独验证。
+
 ### 对象图片
 
 `core_entities.image_version` 与 `image_updated_at` 只标记可选图片的当前版本；列表和详情响应
@@ -129,6 +161,8 @@ CONFIRMED 数据（名称、类型、`summary` 与少量确认属性；未确认
 - `world_revision_notes` — 实体/页面/地图修订的事后补写备注（`(novel_id, target_kind, revision_id)` 唯一，无跨表外键，服务层校验归属；不进入快照/摘要/Canon receipt）
 - `world_object_image_candidates` — 本机 CLI 对象图片生成候选（ADR-0029）：冻结执行器、prompt、生成字节与采用/放弃状态；采用前不影响 `core_entities.image_version`
 - `characters` — 人物档案（entity_id PK+FK → core_entities.id）
+- `world_object_dossier_entries` — 稳定设定条目的修订历史；同项目对象、面向与前序修订关联，
+  保存内容、来源、可见性、有效期及旧字段结构化值，每组至多一个 active 修订
 - `character_knowledge` — 人物知识边界
 - `world_assertions` / `world_canon_revisions` / `world_canon_heads` — 封闭 Assert carrier、完整不可变 manifest/receipt 历史与每项目唯一 head
 - `species_profiles` / `faction_profiles` / `location_profiles` / `rule_profiles` / `item_profiles` / `secret_profiles` / `entity_profile_templates` / `entity_profile_template_revisions` / `generic_entity_profiles` — 世界对象的类型化 Profile、模板与可精确引用的模板修订
@@ -150,6 +184,9 @@ CONFIRMED 数据（名称、类型、`summary` 与少量确认属性；未确认
 - `knowledge_tags` / `character_knowledge_tags` / `asset_knowledge_tags` / `knowledge_tag_exclusions` / `knowledge_visibility_policies` / `reader_reveal_policies` / `creation_suggestion_queue` / `conflict_check_queue` — 知识标签、可见性和待处理工作队列
 - `map_atlas_nodes` / `map_atlas_revisions` / `map_atlas_runs` / `map_atlas_pages` / `map_atlas_annotations` — 统一地图目录、空间版本、图片与标注，详见 `docs/modules/15_map.md`
 - 地图册空间线索是 World Bible/RAG 的受限派生输入：服务端验证 source key、保留来源 hash，且不回写 World 事实。文本模型不生成坐标，程序从受限关系生成示意布局。
+- 演化自动草图按持久化游标分片，续跑重验来源、端点和层级；候选列表通过 `offset/limit` 与准确
+  `total_count` 提供完整审核入口，附真实 provisional 节点元数据。增量版本链与正式地图审核 CAS
+  分开；working 来源和未采用的地点不会经候选历史恢复进入正式地图，详见地图文档。
 
 作者主动发起的 World 模型入口统一消费 Evidence confirmation：生成中心、问世界、地图册、
 世界书人工语义操作和对象融合的 wire 均携带 action 精确匹配的 `context_confirmation_id`。
@@ -725,3 +762,19 @@ Evolution 世界候选的 `evolution_ref` 为不可通过普通元数据编辑�
 
 精确名称身份候选查询先使用既有作者类型归一，兼容已支持的类型别名而保留自定义类型；
 仍逐类型、逐项目筛选，保留同名歧义和别名历史限制，不因归一而扩大自动身份合并。
+
+
+## 统一项目词表
+
+地图增强 M0 新增按项目维护的开放类型，种类与计算特性内核分离；名称不会决定计算行为。
+`project_vocabulary_terms` 保存稳定身份和生命周期，`project_vocabulary_revisions` 追加不可变快照。
+作者可创建、改名、调整特性、合并、拆分、归档和恢复，变更携带期望修订；合并与归档须再次确认。
+归档墓碑阻止模型按等价名称重建，作者判断不会被后续涌现覆盖。五题材预设复制进项目后独立演进。
+
+入口 `/api/world/project-vocabulary/{novel_id}` 提供有界读取及实际省略数；其下 `terms`、
+`terms/{id}`、`terms/{id}/archive`、`terms/{id}/restore`、`merge`、`split` 和 `presets`
+提供作者维护。所有入口同时校验账户owner和novel_id。模型入口不作为浏览器写接口暴露，
+必须由核验过原文与独立复核的演化流程调用；两个Scene证据不足时保持涌现中。
+
+类型不是CoreEntity类型，不改变ADR-0005对World对象的限制，也不进入Canon。空间使用固定
+类型修订，后续词表变更不会静默改写旧地图。自动空间发现、草图、创作简报仍按地图后续批次接入。

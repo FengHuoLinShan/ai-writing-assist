@@ -22,6 +22,8 @@ class PlannedContextRetrievalService:
         self,
         db: AsyncSession,
         options: CompileOptions,
+        *,
+        include_map_spatial: bool = True,
     ) -> StructureContextBundle:
         bundle = StructureContextBundle(
             novel_id=options.novel_id,
@@ -31,4 +33,10 @@ class PlannedContextRetrievalService:
             budget_used={key: 0 for key in CONTEXT_BUDGET},
         )
         await self._loader.load(db, options, bundle)
+        from modules.evidence.compilation.services.loaders.map_spatial_loader import (
+            MapSpatialLoader,
+        )
+
+        if include_map_spatial:
+            await MapSpatialLoader().load(db, options, bundle)
         return bundle

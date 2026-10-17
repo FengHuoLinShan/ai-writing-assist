@@ -4,6 +4,18 @@ import { locateAssistantSource, openAssistantDestination } from "../../../vue/sh
 
 afterEach(resetBridgeOverrides)
 
+it('opens a bounded tray receipt without carrying model coordinates', () => {
+  const navigate = vi.fn()
+  setBridgeOverrides({ router: { navigate } })
+  const source = { type: 'map_tray_placement', novel_id: 'novel', node_id: 'node', revision_id: 'candidate', batch_id: 'batch', base_revision_id: null, items: [{ item_id: 'tray', fingerprint: 'fp' }], point: { x: 10, y: 20 }, human_selected: true }
+  locateAssistantSource(source)
+  const query = navigate.mock.calls[0][3]
+  expect(query.get('node_id')).toBe('node')
+  expect(JSON.parse(query.get('tray_placement'))).toEqual({ novel_id: 'novel', node_id: 'node', revision_id: 'candidate', batch_id: 'batch', base_revision_id: null, items: [{ item_id: 'tray', fingerprint: 'fp' }] })
+  expect(locateAssistantSource({ ...source, items: Array.from({ length: 21 }, (_, i) => ({ item_id: String(i), fingerprint: 'fp' })) })).toBe(false)
+  expect(navigate).toHaveBeenCalledTimes(1)
+})
+
 it("only opens registered workbenches and keeps the current writing location", () => {
   const navigate = vi.fn()
   setBridgeOverrides({ router: { navigate } })
@@ -29,6 +41,7 @@ it.each([
   [{ type: "world_validation", target: { type: "core_entity", id: "entity" }, location: { review_id: "review" } }, "world", "bible", { validation_run_id: "review" }],
   [{ type: "scene_story_assets", id: "scene" }, "scene", "scene", {}],
   [{ type: "map_atlas_node", id: "map" }, "map", null, { node_id: "map" }],
+  [{ type: "map_changes", page: "map", events: [{ scene_id: "private-scene" }], id: "internal-event" }, "map", null, {}],
   [{ type: "map_atlas_node", id: "map", revision_id: "saved" }, "map", null, { node_id: "map", revision_id: "saved" }],
   [{ type: "map_atlas_page", id: "image", run_id: "run", node_id: "map" }, "map", null, { node_id: "map", run_id: "run", page_id: "image", atlas_view: "review" }],
   [{ type: "world_suggestion", id: "candidate" }, "world", "bible", { suggestion_id: "candidate", open: "suggestions" }],

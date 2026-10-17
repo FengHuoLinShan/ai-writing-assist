@@ -30,7 +30,25 @@ from modules.world.schemas import (
 from shared.constants import DEFAULT_PAGE_SIZE, MAX_PAGE_SIZE
 
 
-@router.get("/relations", response_model=EntityRelationListResponse)
+@router.get(
+    "/relations",
+    response_model=EntityRelationListResponse,
+    openapi_extra={
+        "x-novelcraft-operation-id": "world.relations.read",
+        "x-novelcraft-operation-trace-fields": {
+            "status": "status",
+            "relation_type": "relation_type",
+            "relation_kind": "relation_kind",
+            "q": "q",
+            "source_chapter_id": "source_chapter_id",
+            "as_of_scene_id": "as_of_scene_id",
+            "strength_min": "strength_min",
+            "strength_max": "strength_max",
+            "skip": "skip",
+            "limit": "limit",
+        },
+    },
+)
 async def list_relations(
     db: DbSession,
     *,
@@ -40,6 +58,7 @@ async def list_relations(
     relation_kind: RelationKind | None = Query(None, description="最小语义类型过滤"),
     q: str | None = Query(None, description="关系/端点名称搜索"),
     source_chapter_id: str | None = Query(None, description="来源章节 ID"),
+    as_of_scene_id: str | None = Query(None, description="按稳定 Scene ID 核对有效期"),
     strength_min: float | None = Query(None, ge=0.0, le=1.0, description="最低强度"),
     strength_max: float | None = Query(None, ge=0.0, le=1.0, description="最高强度"),
     skip: int = Query(default=0, ge=0, description="跳过的记录数"),
@@ -58,6 +77,7 @@ async def list_relations(
         relation_kind=relation_kind,
         q=q,
         source_chapter_id=source_chapter_id,
+        as_of_scene_id=as_of_scene_id,
         strength_min=strength_min,
         strength_max=strength_max,
         skip=skip,
