@@ -10,19 +10,18 @@ updated: 2026-10-17T19:30:00+08:00
 
 ## 恢复快照
 
-- 实际完成：**第一批全部门禁通过**（82ca717e6 一系）；**第二批 M2 全部完成**（7 个小切片：
-  M2-a 反事实对照 8e1e1309c、M2-d 就地入口+教程 1024a1931、M2-e 对照 UI 6155fa7bb、
-  M2-b 事件信息差/导向 5ee812d44、M2-f 事件渲染 551200671、M2-c 场景多目标+空间诊断 c9169bd2b、
-  M2-g 场景渲染 9b0ce1fa4，全部合入 impl 至 fecbede89）。M2 收尾门禁：后端 1288、前端全量 3294、
-  docs-check（no-change-reason）+ git diff --check 通过。
-- M3 已交付：研究覆盖账本（702bab1c2）；M3-A1 锁定机制 + M3-A3 锁定展示并行实施中。
-- M5 离线准备已交付。真实模型/作者验证未启动（未授权）。
-- 下一步：合入 M3-A1/A3 → M3-A2 影响标记（compare counterfactual 增 affected_items）→
-  M3-B 临时完整排演（拆 2-3 切片）→ M4-A/B/C。
-- 阻塞：无。合并 main/推送/ADR 采纳/生产/真实验证均待用户授权。
-- 已知遗留（沿批记录）：M2 反事实/event hint 字段部分未暴露进助手操作目录（REST-only）；
-  goal 条目与多目标/诊断结果不支持 revise（失败关闭，M3-B 范围再评估）；scene_anchor 反事实 409；
-  exploration_tasks 一处死代码分支（scale==EVENT_OUTPUT_KIND）待单独清理提交。
+- 实际完成：第一、二批全部门禁通过（详见 git log 与各切片合并提交）。**第三批 M3 基本完成**：
+  M3-A 四切片（锁定后端 35a17dac3 / 影响标记 fd57a0619 / 锁定 UI b7497bd3d / 影响 UI 82b64dcee）、
+  M3-B 三切片（契约预览 503b334d5 / worker 执行器 7daf69782 / 前端渲染进行中）；研究覆盖账本、
+  M5 离线准备已交付。死代码清理已提交。M3 后端收尾回归 1346 passed。
+- 当前里程碑：M3-B3 前端渲染运行中；合入后做 M3 终门禁（全量+docs-check+diff-check）。
+- 下一步：第四批 M4 按 A→B→C 小切片推进（M4-A1 移交契约 → M4-A2 执行注入 → M4-A3 前端 →
+  M4-B goal_runs 自主选路 → M4-C 正式参考）；全部真实模型/作者验证/发布不启动。
+- 阻塞：无。合并 main/推送/ADR 采纳待用户授权。
+- 已知设计偏差（评审注意）：探索 worker 对推进链改为服务内直接落行（保留完整性校验，
+  不再复用 append_progression_step 线性不变量，35a17dac3 docstring 有记录）；排演结果
+  detail/revise/lock/save-edit 一律 409；探索链无作者侧 resume 端点（续跑按任务幂等重放）；
+  排演 action 沿用 scene_line.generate（独立 action 需 Evidence 注册另开切片）。
 
 ## 目标与授权
 
