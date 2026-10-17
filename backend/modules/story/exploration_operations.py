@@ -4,6 +4,11 @@ P0 §6：六项 OPERATIONS_SPEC（op_version "1"）。preview/compare/history �
 R0 只读；start/detail/revise 是 confirm R2、possible_model_charge、multi_stage。
 read 类操作必须是 R0 且 apply=None；非 read 必须有 apply（装配件校验）。
 history/compare 操作不挂执行 gate（关闭后仍可读）；其余 prepare/apply 挂 gate。
+
+M4-B goal runs 接入：start/detail/revise 声明 read_result 并支持受控内联
+执行（goal 冻结的稳定 operation_id + 父任务绑定）。实际 task 类型在 apply
+时按尺度（start）或父结果所在链（detail/revise）决定；goal_runs 侧映射只
+声明候选集合（progression/scene 两个任务同注册根能力 story.exploration）。
 """
 
 from __future__ import annotations
@@ -28,12 +33,79 @@ from modules.story.exploration_schemas import (
 EXPLORATION_TARGET_TYPE = "story_exploration"
 AUTHOR_EDIT_KIND = "story.exploration.author_edit"
 
+# 目标运行（goal runs）接入：start/detail/revise 的实际 task 类型在 apply 时
+# 按尺度或父结果所在链决定（沙盘/事件 → progression 任务；一句对白 → scene
+# 任务）。goal_runs 侧的映射只声明候选集合，实际绑定以 apply 返回的领域回执
+# 为准；此处保持与 exploration_api 的派生一致。
+_PROGRESSION_TASK = "story_exploration_progression_task"
+_SCENE_TASK = "story_exploration_scene_task"
+_TASK_TYPE_BY_SCALE = {
+    "sandbox": _PROGRESSION_TASK,
+    "event": _PROGRESSION_TASK,
+    "scene_line": _SCENE_TASK,
+}
+
 
 def _trace(model: type) -> dict:
     return {
         "parameter_fields": tuple(model.model_fields),
         "mode": "per_call",
         "parameter_policy": "schema_safe",
+    }
+
+
+def _goal_execution(context) -> bool:
+    """该次 apply 是否运行在目标运行的受控内联执行中。"""
+    internal = getattr(context, "internal_meta", None) or {}
+    return (
+        internal.get("_execution_mode") == "inline_only"
+        and bool(getattr(context, "operation_id", None))
+        and bool(internal.get("_parent_task_id"))
+    )
+
+
+def _task_type_for_scale(scale: str) -> str:
+    task_type = _TASK_TYPE_BY_SCALE.get(str(scale or ""))
+    if task_type is None:
+        raise ValueError(f"不支持的探索尺度：{scale}")
+    return task_type
+
+
+async def _task_type_for_result(db, novel_id: str, result_id: str) -> str:
+    from modules.story.exploration_api import _locate_exploration_result
+
+    _row, chain, _root = await _locate_exploration_result(
+        db, novel_id=novel_id, result_id=str(result_id)
+    )
+    return _PROGRESSION_TASK if chain == "progression" else _SCENE_TASK
+
+
+async def _bind_goal_parent_task(db, context, *, novel_id: str, receipt: dict) -> None:
+    """把领域任务绑定到目标运行的父任务回执，供恢复路径核对归属。"""
+    from infrastructure.tasks.facade import update_task_projection
+
+    internal = getattr(context, "internal_meta", None) or {}
+    parent_task_id = internal.get("_parent_task_id")
+    if not parent_task_id:
+        return
+    await update_task_projection(
+        db,
+        task_id=str(receipt.get("task_id")),
+        task_type=str(receipt.get("task_type")),
+        novel_id=novel_id,
+        meta_patch={"_parent_task_id": str(parent_task_id)},
+    )
+
+
+def _goal_receipt(context, receipt: dict, *, task_type: str) -> dict:
+    """目标运行冻结的稳定任务回执：task_id 即目标冻结的稳定操作标识。"""
+    return {
+        "task_id": str(receipt.get("task_id")),
+        "task_type": task_type,
+        "status": str(receipt.get("status") or "pending"),
+        "operation_id": str(context.operation_id),
+        "root_id": str(receipt.get("root_id") or ""),
+        "branch_id": str(receipt.get("branch_id") or ""),
     }
 
 
@@ -291,6 +363,7 @@ async def _apply_start(db, novel_id, args, preview, *, context=None):
         start_exploration_task,
     )
 
+    goal_mode = _goal_execution(context)
     payload = {
         "novel_id": args.novel_id,
         "scale": args.scale,
@@ -299,7 +372,9 @@ async def _apply_start(db, novel_id, args, preview, *, context=None):
         "action": args.action,
         "context_confirmation_id": args.context_confirmation_id,
         "budget_preview_hash": args.budget_preview_hash,
-        "operation_id": str(UUID(str(args.operation_id))),
+        "operation_id": str(
+            context.operation_id if goal_mode else UUID(str(args.operation_id))
+        ),
         "time_budget_seconds": args.time_budget_seconds,
     }
     if args.target_ref:
@@ -312,9 +387,15 @@ async def _apply_start(db, novel_id, args, preview, *, context=None):
         payload["diagnostic"] = args.diagnostic.model_dump(mode="json")
     if args.full_rehearsal is not None:
         payload["full_rehearsal"] = args.full_rehearsal.model_dump(mode="json")
-    return await start_exploration_task(
+    receipt = await start_exploration_task(
         db, data=ExplorationStartApiRequest.model_validate(payload)
     )
+    if not goal_mode:
+        return receipt
+    task_type = _task_type_for_scale(args.scale)
+    bound = _goal_receipt(context, receipt, task_type=task_type)
+    await _bind_goal_parent_task(db, context, novel_id=novel_id, receipt=bound)
+    return bound
 
 
 async def _prepare_detail(db, novel_id, args, *, context=None):
@@ -338,14 +419,23 @@ async def _apply_detail(db, novel_id, args, preview, *, context=None):
     await require_active_project(db, novel_id)
     from modules.story.exploration_api import submit_exploration_follow_up
 
-    return await submit_exploration_follow_up(
+    goal_mode = _goal_execution(context)
+    receipt = await submit_exploration_follow_up(
         db,
         novel_id=novel_id,
         result_id=str(args.result_id),
         mode="detail",
-        operation_id=str(args.operation_id),
+        operation_id=str(
+            context.operation_id if goal_mode else UUID(str(args.operation_id))
+        ),
         focus=args.focus,
     )
+    if not goal_mode:
+        return receipt
+    task_type = await _task_type_for_result(db, novel_id, str(args.result_id))
+    bound = _goal_receipt(context, receipt, task_type=task_type)
+    await _bind_goal_parent_task(db, context, novel_id=novel_id, receipt=bound)
+    return bound
 
 
 async def _prepare_revise(db, novel_id, args, *, context=None):
@@ -384,17 +474,178 @@ async def _apply_revise(db, novel_id, args, preview, *, context=None):
     await require_active_project(db, novel_id)
     from modules.story.exploration_api import submit_exploration_follow_up
 
-    return await submit_exploration_follow_up(
+    goal_mode = _goal_execution(context)
+    receipt = await submit_exploration_follow_up(
         db,
         novel_id=novel_id,
         result_id=str(args.result_id),
         mode="revise",
-        operation_id=str(args.operation_id),
+        operation_id=str(
+            context.operation_id if goal_mode else UUID(str(args.operation_id))
+        ),
         instruction=args.instruction,
         item_path=args.item_path,
         item_text=args.item_text,
         bridge_target=args.bridge_target,
     )
+    if not goal_mode:
+        return receipt
+    task_type = await _task_type_for_result(db, novel_id, str(args.result_id))
+    bound = _goal_receipt(context, receipt, task_type=task_type)
+    await _bind_goal_parent_task(db, context, novel_id=novel_id, receipt=bound)
+    return bound
+
+
+# ---------------------------------------------------------------------------
+# goal runs 回执读取：完成=applied；失败且根已失败=not_applied；其余未知
+# ---------------------------------------------------------------------------
+
+
+async def _cancelled_before_first_claim(
+    db, *, novel_id: str, task_id: str, task_type: str
+) -> bool:
+    """任务在首次领取前已取消：服务端确认没有执行任何领域操作。"""
+    from infrastructure.tasks.models import AsyncTask
+
+    try:
+        task_uuid = UUID(task_id)
+    except (TypeError, ValueError):
+        return False
+    task = await db.scalar(
+        select(AsyncTask).where(
+            AsyncTask.id == task_uuid,
+            AsyncTask.task_type == task_type,
+            AsyncTask.novel_id == UUID(novel_id),
+        )
+    )
+    return bool(
+        task is not None
+        and task.status == "cancelled"
+        and type(task.attempt) is int
+        and task.attempt == 0
+        and task.started_at is None
+        and task.result in (None, {})
+        and task.error_message is None
+    )
+
+
+async def _exploration_failed_without_result(db, novel_id: str, root_id: str) -> bool:
+    """任务失败且探索根已按失败收尾：本操作没有写出任何新结果。
+
+    worker 的失败路径先提交 root/branch 的 failed 状态再抛出；结果行只在成功
+    尾部写入。因此 root.status == "failed" 证明本次操作没有产生新探索结果。
+    """
+    from sqlalchemy import select
+
+    from modules.story.models import StorySceneDirectorRoot
+    from modules.story.world_progression_models import StoryWorldProgressionRoot
+
+    try:
+        root_uuid = UUID(root_id)
+    except (TypeError, ValueError):
+        return False
+    progression_root = await db.scalar(
+        select(StoryWorldProgressionRoot).where(
+            StoryWorldProgressionRoot.novel_id == UUID(novel_id),
+            StoryWorldProgressionRoot.id == root_uuid,
+        )
+    )
+    if progression_root is not None:
+        return str(progression_root.status or "") == "failed"
+    scene_root = await db.scalar(
+        select(StorySceneDirectorRoot).where(
+            StorySceneDirectorRoot.novel_id == UUID(novel_id),
+            StorySceneDirectorRoot.id == root_uuid,
+        )
+    )
+    if scene_root is not None:
+        return str(scene_root.status or "") == "failed"
+    return False
+
+
+async def _read_exploration_task_result(db, novel_id, reference):
+
+    from infrastructure.tasks.facade import get_completed_task_payload
+
+    task_type = str(reference.get("task_type") or "")
+    root_id = str(reference.get("root_id") or "")
+    task = await get_completed_task_payload(
+        db,
+        novel_id=novel_id,
+        task_id=str(reference.get("task_id")),
+        task_type=task_type,
+    )
+
+    if task is None:
+        cancelled_proof = await _cancelled_before_first_claim(
+            db,
+            novel_id=novel_id,
+            task_id=str(reference.get("task_id")),
+            task_type=task_type,
+        )
+        if cancelled_proof:
+            return {
+                "status": "not_applied",
+                "task_type": task_type,
+                "root_id": root_id,
+                "proof": {"kind": "task_cancelled_before_first_claim"},
+            }
+        if (
+            root_id
+            and await _exploration_failed_without_result(db, novel_id, root_id)
+        ):
+            return {
+                "status": "not_applied",
+                "task_type": task_type,
+                "root_id": root_id,
+                "proof": {"kind": "exploration_root_failed_without_result"},
+            }
+        return {
+            "status": "incomplete",
+            "task_type": task_type,
+            "omissions": ["探索任务尚未完成；请查看原任务进度"],
+        }
+    result = dict(task.result or {})
+    status = str(result.get("status") or "")
+    if status == "completed":
+        return {
+            "status": "completed",
+            "task_type": task_type,
+            "root_id": str(result.get("root_id") or root_id),
+            "branch_id": str(result.get("branch_id") or ""),
+            "result_id": str(result.get("result_id") or ""),
+            "output_kind": str(result.get("output_kind") or ""),
+            "payload": result.get("payload"),
+        }
+    if status in {"paused_budget", "paused_unknown"}:
+        return {
+            "status": "incomplete",
+            "task_type": task_type,
+            "root_id": str(result.get("root_id") or root_id),
+            "budget_stop": str(result.get("budget_stop") or status),
+            "needs_author_resume": True,
+            "omissions": [
+                "探索任务在预算或未知结果处暂停；请先在原工作台核对，目标不会重发任务"
+            ],
+        }
+    return {
+        "status": "incomplete",
+        "task_type": task_type,
+        "root_id": root_id,
+        "omissions": ["原领域回执没有明确证明已完成或未应用"],
+    }
+
+
+async def _read_start_result(db, novel_id, reference):
+    return await _read_exploration_task_result(db, novel_id, reference)
+
+
+async def _read_detail_result(db, novel_id, reference):
+    return await _read_exploration_task_result(db, novel_id, reference)
+
+
+async def _read_revise_result(db, novel_id, reference):
+    return await _read_exploration_task_result(db, novel_id, reference)
 
 
 async def _prepare_compare(db, novel_id, args, *, context=None):
@@ -448,6 +699,7 @@ OPERATIONS_SPEC = {
         "schema": ExplorationStartOperationRequest,
         "prepare": _prepare_start,
         "apply": _apply_start,
+        "read_result": _read_start_result,
         "permission": "confirm",
         **_metadata(
             description=(
@@ -473,6 +725,7 @@ OPERATIONS_SPEC = {
         "schema": ExplorationDetailOperationRequest,
         "prepare": _prepare_detail,
         "apply": _apply_detail,
+        "read_result": _read_detail_result,
         "permission": "confirm",
         **_metadata(
             description=(
@@ -496,6 +749,7 @@ OPERATIONS_SPEC = {
         "schema": ExplorationReviseOperationRequest,
         "prepare": _prepare_revise,
         "apply": _apply_revise,
+        "read_result": _read_revise_result,
         "permission": "confirm",
         **_metadata(
             description=(

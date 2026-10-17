@@ -134,8 +134,23 @@ class GoalSceneReceiptLocation(GoalModel):
     scene_id: UUID
 
 
+class GoalExplorationReceiptLocation(GoalModel):
+    """独立探索结果的位置：探索历史里的不可变结果行，未写入正史。"""
+
+    kind: Literal["exploration_result"]
+    root_id: UUID
+    result_id: UUID
+    scale: Literal["sandbox", "event", "scene_line"]
+    output_kind: str = Field(min_length=1, max_length=80)
+
+
 GoalReceiptLocation = Annotated[
-    GoalWritingReceiptLocation | GoalTaskReceiptLocation | GoalSceneReceiptLocation,
+    (
+        GoalWritingReceiptLocation
+        | GoalTaskReceiptLocation
+        | GoalSceneReceiptLocation
+        | GoalExplorationReceiptLocation
+    ),
     Field(discriminator="kind"),
 ]
 

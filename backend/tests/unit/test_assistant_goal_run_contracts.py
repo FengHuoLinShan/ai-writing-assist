@@ -87,7 +87,10 @@ def test_paid_story_goal_steps_use_registered_exact_child_capabilities():
             "story_character_card_generate",
             "story.character_card",
         ),
-        "story.reaction.generate": ("story_reaction_propose", "story.reaction"),
+        "story.reaction.generate": (
+            "story_reaction_propose",
+            "story.reaction",
+        ),
     }
     steps = []
     for index, (operation_id, (task_type, capability)) in enumerate(expected.items()):
@@ -108,6 +111,131 @@ def test_paid_story_goal_steps_use_registered_exact_child_capabilities():
         "story.character_card",
         "story.reaction",
     ]
+
+
+def test_exploration_goal_steps_share_one_registered_domain_capability(monkeypatch):
+    """探索任务类型由领域 apply 决定；映射声明候选并共同指向 story.exploration。"""
+    import modules.story.exploration_tasks  # noqa: F401
+    from app.assistant_operation_registry import story_exploration_operations
+    from core.config import get_settings
+    from infrastructure.tasks.registry import TaskRegistry
+    from modules.assistant.goal_runs.service import (
+        _assert_plan_operations_supported,
+        _scope_capabilities,
+        _task_types_for_operation,
+    )
+
+    monkeypatch.setenv("STORY_EXPLORATION_ENABLED", "true")
+    get_settings.cache_clear()
+    try:
+        assert _task_types_for_operation("story.exploration.start") == (
+            "story_exploration_progression_task",
+            "story_exploration_scene_task",
+        )
+        assert _task_types_for_operation("project.scan_duplicates") == (
+            "smart_dedup_scan",
+        )
+        for task_type in _task_types_for_operation("story.exploration.detail"):
+            assert TaskRegistry().get_root_capability(task_type) == "story.exploration"
+            assert TaskRegistry().get_handler(task_type) is not None
+
+        plan = GoalPlan.model_validate(
+            {
+                "title": "先沙盘再对白",
+                "steps": [
+                    {
+                        "step_id": "sandbox",
+                        "operation_id": "story.exploration.start",
+                        "parameters": {"scale": "sandbox"},
+                        "intent": "看规则影响",
+                    },
+                    {
+                        "step_id": "line",
+                        "operation_id": "story.exploration.start",
+                        "parameters": {"scale": "scene_line"},
+                        "intent": "要一句回应",
+                    },
+                ],
+            }
+        )
+        _assert_plan_operations_supported(plan, story_exploration_operations)
+        assert _scope_capabilities(plan, story_exploration_operations) == [
+            "assistant.goal.plan",
+            "story.exploration",
+        ]
+    finally:
+        monkeypatch.setenv("STORY_EXPLORATION_ENABLED", "false")
+        get_settings.cache_clear()
+
+
+def test_exploration_goal_catalog_follows_feature_gate(monkeypatch):
+    """gate 关闭时执行类探索操作不可用；历史/比较保持可读。"""
+    from app.bootstrap import _container_services
+    from app.task_runtime import register_task_handlers
+    from core.config import get_settings
+    from core.service_keys import ASSISTANT_OPERATIONS
+    from modules.assistant.goal_runs.service import _goal_planning_catalog
+
+    register_task_handlers()
+    operations = dict(_container_services())[ASSISTANT_OPERATIONS]
+    execution_ops = {
+        "story.exploration.preview",
+        "story.exploration.start",
+        "story.exploration.detail",
+        "story.exploration.revise",
+    }
+
+    def catalog_with_gate(enabled: str):
+        monkeypatch.setenv("STORY_EXPLORATION_ENABLED", enabled)
+        get_settings.cache_clear()
+        try:
+            return _goal_planning_catalog(operations)
+        finally:
+            monkeypatch.setenv("STORY_EXPLORATION_ENABLED", "false")
+            get_settings.cache_clear()
+
+    _available, unavailable = catalog_with_gate("false")
+    reasons = {item["operation_id"]: item["reason"] for item in unavailable}
+    assert execution_ops <= set(reasons)
+    assert all(reasons.values())
+    assert "story.exploration.history" not in reasons
+    assert "story.exploration.compare" not in reasons
+
+    available, unavailable = catalog_with_gate("true")
+    offered = {item["operation_id"] for item in available}
+    assert execution_ops <= offered
+    omitted = {item["operation_id"] for item in unavailable}
+    assert offered.isdisjoint(omitted)
+
+
+def test_exploration_receipt_location_contract_and_destination_projection():
+    from uuid import uuid4
+
+    from pydantic import TypeAdapter
+
+    from modules.assistant.goal_runs.contracts import GoalReceiptLocation
+
+    adapter = TypeAdapter(GoalReceiptLocation)
+    location = adapter.validate_python(
+        {
+            "kind": "exploration_result",
+            "root_id": str(uuid4()),
+            "result_id": str(uuid4()),
+            "scale": "sandbox",
+            "output_kind": "story.exploration.sandbox",
+        }
+    )
+    assert location.scale == "sandbox"
+    with pytest.raises(ValueError):
+        adapter.validate_python(
+            {
+                "kind": "exploration_result",
+                "root_id": str(uuid4()),
+                "result_id": str(uuid4()),
+                "scale": "galaxy",
+                "output_kind": "story.exploration.sandbox",
+            }
+        )
 
 
 def test_goal_planner_sees_only_operations_that_execution_can_authorize():
