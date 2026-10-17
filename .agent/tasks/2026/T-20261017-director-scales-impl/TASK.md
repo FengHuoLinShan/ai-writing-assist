@@ -10,16 +10,20 @@ updated: 2026-10-17T19:30:00+08:00
 
 ## 恢复快照
 
-- 实际完成：Wave1 全部合入 impl（P1-E 83e714cd3 / P1-S 730b5ade8 / P1-F 1f862313c → d8b63ba43）；
-  前端契约对齐补丁 + P0 §8.1 增量冻结；M5 离线准备 M5-EVAL-PREP.md（107a5cc34）。
-- 当前里程碑：Wave2 P2 后端执行路径已交付（分支 codex/director-scales-p2-backend，839 passed），
-  revise 契约按 P0 §8.1（item_path/item_text）修正中；修正后合入并进入 Wave4 集成。
-- 下一步：合并 P2 修正 → Wave4（docs 同步 + PG e2e 专用库 + 全量受影响测试 + docs-check
-  BASE_REF=origin/main + git diff --check）。
-- 阻塞：无。合并 main/推送仍待用户授权。
-- 专用库：`ai_novel_director_impl_e2e`（PG 5207，可丢弃）；P1-S 已用其实证迁移 up/down 保护。
-- 已知待 Wave4 处理：docs-check 要求 story 设计/代码文档补 /api/story/exploration 前缀、
-  infrastructure/tasks README 补两个 task handler、impact 文档清单复核。
+- 实际完成：**第一批全部门禁通过并合入 impl**（P0 契约 + P1×3 + P2 后端执行路径 + 前端闭环 +
+  docs 同步 2097f5ccd + P0 §8.1 增量）。验证：后端受影响 1243 passed、前端全量 vitest+eslint、
+  全仓 ruff、PG critical 108 passed（专用库 asyncpg URL）、探索 e2e 21/22（1 例为基线已有失败：
+  test_simulation_v3_references_postgres patch 的 `modules.story.api.require_fresh_confirmation`
+  在 origin/main 就不存在）、docs-check BASE_REF=origin/main（no-change-reason 通道）+ git diff --check。
+- 第二批进行中：M2-a 沙盘反事实对照后端已合入（8e1e1309c）；M2-d 就地入口+教程已合入
+  （1024a1931）；M2-b 事件信息差/导向、M2-e 对照前端展示并行实施中。
+- M3 研究覆盖账本已交付（M3-COVERAGE-LEDGER.md，702bab1c2：21 分支=8 工程支持/6 实施中/1 待验证/6 试验）。
+- M5 离线准备已交付（M5-EVAL-PREP.md）。真实模型/作者验证未启动（未授权）。
+- 下一步：合入 M2-b/e → M2-c 场景人物差异+空间诊断 → M2 回归收尾 → M3-A/M3-B → M4-A/B/C
+  （均小颗粒切片串行链；子代理已钉 GLM-5.3-FlashX）。
+- 阻塞：无。合并 main/推送/ADR 采纳/生产/真实验证均待用户授权。
+- 已知遗留：M2-a 反事实字段未暴露进助手操作目录 schema（REST-only，后续切片补）；
+  scene_anchor 基线反事实 409 失败关闭（设计如此）；docs-check 剩余 no-change 清单见 2097f5ccd 报告。
 
 ## 目标与授权
 
