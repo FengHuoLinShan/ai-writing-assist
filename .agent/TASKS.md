@@ -1,6 +1,5 @@
 # 开放任务
 
-- [T-20261017-completed-branch-delivery](tasks/2026/T-20261017-completed-branch-delivery/TASK.md) — 全部分支与工作树完成度对账及已完成成果合入
 
 - [T-20261015-character-world-progression](tasks/2026/T-20261015-character-world-progression/TASK.md) — 世界对象档案、场景导演、写作副驾驶与世界推进设计
 

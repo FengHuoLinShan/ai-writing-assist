@@ -39,3 +39,5 @@
 ## 验证与最终交付
 
 审读的规范/规格 review、最新 main 集成验证和两个 PR 的最终结果记录在 [TASK.md](TASK.md)。只有必需门禁通过才按固定 head 普通 merge；不管理员绕过，不部署、不删除工作树或分支。
+
+最终结果：审读实现 [#250](https://github.com/FengHuoLinShan/ai-writing-assist/pull/250) 与完成资料 [#251](https://github.com/FengHuoLinShan/ai-writing-assist/pull/251) 均已合入 main；三项本轮选择均已交付。原清单继续作为选择前时点快照保留，不将源分支 HEAD 改写成已被 main 逐提交包含。关闭证据及保留缺口见 TASK。
