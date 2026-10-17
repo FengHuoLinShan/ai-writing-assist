@@ -558,7 +558,7 @@ C6_EXPLORATION_SNAPSHOT = {
         "比较同起点探索结果",
         "read",
         "1",
-        "d8c79212578133aedfc033f0f04e5be8949609ca361869ce8587ad08a2e4f19a",
+        "3414905ca64099b65dd15f5e4cbe6445622dd10fc48a997d79efed3e79273c5d",
     ),
     "story.exploration.detail": (
         "对探索结果说详细点",
@@ -588,7 +588,7 @@ C6_EXPLORATION_SNAPSHOT = {
         "发起独立探索任务",
         "confirm",
         "1",
-        "2a471b7c1d8bc31986cabfff56671e6fffc5bc7299bd83f75b7395b6fe2a05fc",
+        "2f71fa8f28346609179232311b1bea2bee56d52f4d08be38f18fce6333dd7d0d",
     ),
 }
 C0_DOSSIER_INTERCHANGE_OPERATIONS = {

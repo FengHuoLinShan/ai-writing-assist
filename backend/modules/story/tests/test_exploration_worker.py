@@ -36,6 +36,7 @@ from modules.story.exploration_schemas import (
     SANDBOX_OUTPUT_KIND,
     SCENE_LINE_OUTPUT_KIND,
     ExplorationOutputEnvelope,
+    FullRehearsalRequest,
     SandboxOutputV1,
     SceneLineOutputV1,
     apply_changed_assumptions,
@@ -1374,3 +1375,69 @@ async def test_scene_diagnostic_fabricated_constraints_fail_closed(exploration_f
         ).all()
         assert rows == []
     assert flow.provider.calls == 1
+
+
+# ---------------------------------------------------------------------------
+# 临时起点完整排演（M3-B 切片 1）：契约冻结后、执行器接入前失败关闭
+# ---------------------------------------------------------------------------
+
+
+async def test_scene_full_rehearsal_fails_closed_before_executor_lands(
+    exploration_flow,
+):
+    """携带排演意图的任务到达现有 worker 即失败关闭：不调用模型、不落库。
+
+    本切片只交付请求/预算/预览契约；worker 读取同一冻结载荷的逐轮执行
+    由下一切片实现，在此之前不允许退化为聚焦表演卡链路。
+    """
+    flow = exploration_flow
+    start = _scene_pair_start()
+    spec, envelope = await flow.setup(chain="scene", scale="scene_line", start=start)
+    rehearsal = {"targets": ["c_franks", "c_evasive"], "rounds": 2, "author_goal": ""}
+    rehearsal_budget = preview_exploration_budget(
+        novel_id=str(spec.novel_id),
+        scale="scene_line",
+        start=start,
+        focus=spec.focus,
+        full_rehearsal=FullRehearsalRequest.model_validate(rehearsal),
+    )
+    async with flow.sessions.begin() as db:
+        task_id = uuid.UUID(
+            enqueue_task(
+                db,
+                exploration_tasks.EXPLORATION_SCENE_TASK,
+                novel_id=str(spec.novel_id),
+                meta={
+                    AI_RUN_ENVELOPE_KEY: envelope.snapshot().model_dump(mode="json"),
+                    "exploration_root_id": str(spec.root_id),
+                    "exploration_branch_id": str(spec.branch_id),
+                    "exploration_scale": spec.scale,
+                    "exploration_authorized_requests": rehearsal_budget.requests_max,
+                    "exploration_authorized_tokens": rehearsal_budget.tokens_max,
+                    "exploration_deadline_seconds": 3600,
+                    "llm_execution_snapshot": {"novel_id": str(spec.novel_id)},
+                    "action": "story.exploration.scene_line.generate",
+                    "request": {
+                        "mode": "start",
+                        "start": start.model_dump(mode="json"),
+                        "scale": spec.scale,
+                        "focus": spec.focus,
+                        "full_rehearsal": rehearsal,
+                    },
+                    "budget_preview_hash": rehearsal_budget.preview_hash,
+                    "context_confirmation_id": spec.confirmation_id,
+                },
+            )
+        )
+    task = await flow.run(task_id)
+    assert task.status == "failed"
+    async with flow.sessions() as db:
+        rows = (
+            await db.scalars(
+                select(StorySceneDirectorRound).where(
+                    StorySceneDirectorRound.root_id == spec.root_id
+                )
+            )
+        ).all()
+        assert rows == []
+    assert flow.provider.calls == 0

@@ -4,6 +4,8 @@ P0 §5：sandbox/event/scene_line 初始恰好 1 次模型请求；“说详细�
 修订每次 +1 且须重新 preview + 追加授权（reason 见
 ``AIRunAuthorizationReason.author_detail_expand`` / ``author_revise``）。
 场景多目标（M2）例外：预算 = 目标数（每人一次独立知识包请求）。
+临时起点完整排演（M3-B）例外：预算 = (目标数 + 1) × 轮次（每目标一张
+表演卡 + 每轮一次素材/状态统筹），与聚焦输出分开计量。
 token 区间按输入包字符长度估算，风格对齐 ``director_budget.py``。
 """
 
@@ -16,6 +18,7 @@ from modules.evidence.contracts import Assumption, ExplorationStart, Provisional
 from modules.story.exploration_schemas import (
     ExplorationBudgetPreview,
     ExplorationTokenEstimate,
+    FullRehearsalRequest,
 )
 
 # 每尺度一个有界生成步骤的输出字符估算区间：
@@ -45,6 +48,18 @@ def _start_input_chars(start: ExplorationStart) -> int:
     return len(json.dumps(packed, ensure_ascii=False))
 
 
+def _full_rehearsal_request_count(rehearsal: FullRehearsalRequest) -> int:
+    """完整排演（M3-B）的请求计量：每轮 = 每目标一张表演卡 + 一次素材/状态统筹。
+
+    与旧导演完整排演的 2N+2 预估（每参与者意图+表演卡两次、裁决一次、素材/
+    角度推荐一次，见 ``director_budget.preview_director_budget``）不同：探索
+    链每步是一次有界结构化生成，表演卡已含台词/动机/依据，裁决与素材推荐
+    合并为每轮一次统筹步骤，因此按 (N+1)×轮次 计量，不沿用 2N+2。
+    """
+
+    return (len(rehearsal.targets) + 1) * rehearsal.rounds
+
+
 def exploration_preview_identity(
     *,
     novel_id: str,
@@ -56,6 +71,7 @@ def exploration_preview_identity(
     event_mode_hint: str | None = None,
     multi_targets: list[str] | None = None,
     diagnostic_question: str | None = None,
+    full_rehearsal: FullRehearsalRequest | None = None,
 ) -> dict:
     """预算预览身份：起点、尺度与焦点任一变化都会改变 preview_hash。
 
@@ -64,6 +80,8 @@ def exploration_preview_identity(
     事件模式提示（M2）同样纳入身份：信息差与导向路径是不同的任务变体。
     场景多目标（M2）与空间诊断问题（M2）也纳入身份：目标列表决定请求次数，
     诊断问题是不同的任务内容。
+    完整排演（M3-B）把 targets/rounds/author_goal 长度纳入身份：目标集合、
+    轮次或作者目标变化都是不同的任务内容，budget hash 随之改变。
     """
 
     identity: dict = {
@@ -79,6 +97,12 @@ def exploration_preview_identity(
         identity["multi_targets"] = [str(item) for item in multi_targets]
     if diagnostic_question is not None:
         identity["diagnostic_question_chars"] = len(diagnostic_question)
+    if full_rehearsal is not None:
+        identity["full_rehearsal"] = {
+            "targets": [str(item) for item in full_rehearsal.targets],
+            "rounds": int(full_rehearsal.rounds),
+            "author_goal_chars": len(full_rehearsal.author_goal or ""),
+        }
     if counterfactual_of_result_id is not None:
         identity["counterfactual_of_result_id"] = str(counterfactual_of_result_id)
         identity["changed_assumptions"] = [
@@ -98,11 +122,16 @@ def preview_exploration_budget(
     event_mode_hint: str | None = None,
     multi_targets: list[str] | None = None,
     diagnostic_question: str | None = None,
+    full_rehearsal: FullRehearsalRequest | None = None,
 ) -> ExplorationBudgetPreview:
     if scale not in _OUTPUT_LOW_CHARS_BY_SCALE:
         raise ValueError(f"不支持的探索尺度：{scale}")
     # 场景人物差异（M2）：每个目标一次独立请求，预算 = 目标数。
-    request_count = len(multi_targets) if multi_targets else 1
+    # 完整排演（M3-B）：(目标数 + 1) × 轮次，min=max（有界、分开计量）。
+    if full_rehearsal is not None:
+        request_count = _full_rehearsal_request_count(full_rehearsal)
+    else:
+        request_count = len(multi_targets) if multi_targets else 1
     chars = _start_input_chars(start) + len(focus)
     input_low = max(1, int(chars / 4.0))
     input_high = max(input_low, int(chars / 2.5))
@@ -132,6 +161,7 @@ def preview_exploration_budget(
                 event_mode_hint=event_mode_hint,
                 multi_targets=multi_targets,
                 diagnostic_question=diagnostic_question,
+                full_rehearsal=full_rehearsal,
             )
         ),
     )

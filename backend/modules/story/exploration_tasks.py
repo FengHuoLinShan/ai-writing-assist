@@ -666,6 +666,19 @@ def _scene_multi_targets(request: dict, *, mode: str) -> list[str] | None:
     return targets
 
 
+def _scene_full_rehearsal(request: dict, *, mode: str) -> dict | None:
+    """读取根冻结请求里的完整排演意图（M3-B）。
+
+    本切片只交付契约与预览层：请求一旦携带 full_rehearsal 即失败关闭，
+    不落旧表演卡链路；逐轮表演卡/素材/观察统筹由下一个 worker 执行切片
+    读取同一冻结载荷实现（预算已按 (N+1)×轮次 冻结在任务 meta）。
+    """
+    raw = request.get("full_rehearsal")
+    if raw is None:
+        return None
+    raise ValueError("完整排演执行器尚未接入，任务失败关闭；请等待完整排演执行上线")
+
+
 def _scene_diagnostic_request(
     request: dict, *, mode: str
 ) -> tuple[str | None, str | None]:
@@ -1176,9 +1189,13 @@ async def handle_story_exploration_progression(db, task):
     if action == SCENE_LINE_ACTION:
         raise ValueError("场景一句对白任务应由场景执行器处理")
     if isinstance(meta.get("request"), dict) and (
-        meta["request"].get("multi_targets") or meta["request"].get("diagnostic")
+        meta["request"].get("multi_targets")
+        or meta["request"].get("diagnostic")
+        or meta["request"].get("full_rehearsal")
     ):
-        raise ValueError("multi_targets/diagnostic 仅支持场景一句对白，失败关闭")
+        raise ValueError(
+            "multi_targets/diagnostic/full_rehearsal 仅支持场景一句对白，失败关闭"
+        )
 
     root = await get_progression_root(db, novel_id, root_id, lock=True)
     branch = await get_progression_branch(db, novel_id, branch_id, lock=True)
@@ -1618,6 +1635,7 @@ async def handle_story_exploration_scene(db, task):
     )
     if multi_targets and diagnostic_question:
         raise ValueError("multi_targets 与 diagnostic 互斥，失败关闭")
+    _scene_full_rehearsal(scene_request, mode=mode)
     if mode == "start":
         _require_preview_hash(
             novel_id=novel_id,

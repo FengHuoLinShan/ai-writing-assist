@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import copy
 import uuid
 
 import pytest
@@ -15,6 +16,7 @@ from modules.story.exploration_budget import (
 from modules.story.exploration_schemas import (
     AUTHOR_EDIT_OUTPUT_KIND,
     EVENT_OUTPUT_KIND,
+    FULL_REHEARSAL_OUTPUT_KIND,
     LOCK_SET_OUTPUT_KIND,
     SANDBOX_OUTPUT_KIND,
     SCENE_LINE_OUTPUT_KIND,
@@ -29,6 +31,7 @@ from modules.story.exploration_schemas import (
     ExplorationReviseRequest,
     ExplorationSaveEditRequest,
     ExplorationStartTaskRequest,
+    FullRehearsalOutputV1,
     GapFinding,
     GoalPath,
     InfluenceLink,
@@ -1307,6 +1310,294 @@ def test_lock_set_payload_schema_forbids_extra_and_bounds_fields():
     with pytest.raises(ValidationError):
         ExplorationOutputEnvelope(
             output_kind="story.exploration.locked",
+            schema_version=1,
+            payload=payload,
+        )
+
+
+# ---------------------------------------------------------------------------
+# 临时起点完整排演（M3-B）：请求边界、互斥与 payload 形状
+# ---------------------------------------------------------------------------
+
+
+def _full_rehearsal_payload(**overrides):
+    payload = {
+        "targets": ["c_franks", "c_evasive"],
+        "rounds": 2,
+        "author_goal": "看两人对同一谣言的不同反应",
+    }
+    payload.update(overrides)
+    return payload
+
+
+def test_full_rehearsal_request_bounds_and_uniqueness():
+    base = _scene_start_task_base()
+    ok = ExplorationStartTaskRequest.model_validate(
+        {**base, "full_rehearsal": _full_rehearsal_payload()}
+    )
+    assert ok.full_rehearsal.targets == ["c_franks", "c_evasive"]
+    assert ok.full_rehearsal.rounds == 2
+    assert ok.full_rehearsal.author_goal == "看两人对同一谣言的不同反应"
+    # targets 1..6：空列表与 7 个目标都拒绝；重复目标拒绝
+    with pytest.raises(ValidationError):
+        ExplorationStartTaskRequest.model_validate(
+            {**base, "full_rehearsal": _full_rehearsal_payload(targets=[])}
+        )
+    with pytest.raises(ValidationError):
+        ExplorationStartTaskRequest.model_validate(
+            {
+                **base,
+                "full_rehearsal": _full_rehearsal_payload(
+                    targets=[f"c_t{i}" for i in range(7)]
+                ),
+            }
+        )
+    with pytest.raises(ValidationError):
+        ExplorationStartTaskRequest.model_validate(
+            {
+                **base,
+                "full_rehearsal": _full_rehearsal_payload(
+                    targets=["c_franks", "c_franks"]
+                ),
+            }
+        )
+    # rounds 1..3；author_goal 0..2000
+    with pytest.raises(ValidationError):
+        ExplorationStartTaskRequest.model_validate(
+            {**base, "full_rehearsal": _full_rehearsal_payload(rounds=0)}
+        )
+    with pytest.raises(ValidationError):
+        ExplorationStartTaskRequest.model_validate(
+            {**base, "full_rehearsal": _full_rehearsal_payload(rounds=4)}
+        )
+    with pytest.raises(ValidationError):
+        ExplorationStartTaskRequest.model_validate(
+            {**base, "full_rehearsal": _full_rehearsal_payload(author_goal="长" * 2001)}
+        )
+    single = ExplorationStartTaskRequest.model_validate(
+        {
+            **base,
+            "full_rehearsal": _full_rehearsal_payload(
+                targets=["c_franks"], rounds=3, author_goal=""
+            ),
+        }
+    )
+    assert single.full_rehearsal.rounds == 3
+
+
+def test_full_rehearsal_requires_scene_scale_and_excludes_focus_variants():
+    base = _scene_start_task_base()
+    # 仅场景一句对白尺度接受
+    with pytest.raises(ValidationError):
+        ExplorationStartTaskRequest.model_validate(
+            {
+                **base,
+                "scale": "sandbox",
+                "action": "story.exploration.sandbox.generate",
+                "full_rehearsal": _full_rehearsal_payload(),
+            }
+        )
+    with pytest.raises(ValidationError):
+        ExplorationStartTaskRequest.model_validate(
+            {
+                **base,
+                "scale": "event",
+                "action": "story.exploration.event.diagnose",
+                "full_rehearsal": _full_rehearsal_payload(),
+            }
+        )
+    # 与 multi_targets / diagnostic 互斥
+    with pytest.raises(ValidationError):
+        ExplorationStartTaskRequest.model_validate(
+            {
+                **base,
+                "full_rehearsal": _full_rehearsal_payload(),
+                "multi_targets": ["c_franks", "c_evasive"],
+            }
+        )
+    with pytest.raises(ValidationError):
+        ExplorationStartTaskRequest.model_validate(
+            {
+                **base,
+                "full_rehearsal": _full_rehearsal_payload(),
+                "diagnostic": {"question": "他能一步跨到桌边吗？"},
+            }
+        )
+    # 与反事实对照互斥
+    with pytest.raises(ValidationError):
+        ExplorationStartTaskRequest.model_validate(
+            {
+                **base,
+                "start": None,
+                "counterfactual_of_result_id": str(uuid.uuid4()),
+                "changed_assumptions": [
+                    {"kind": "world_rule", "text": "重力恢复正常"}
+                ],
+                "full_rehearsal": _full_rehearsal_payload(),
+            }
+        )
+
+
+def test_full_rehearsal_output_payload_shape():
+    payload = {
+        "targets": ["c_franks", "c_evasive"],
+        "rounds": [
+            {
+                "round_number": 1,
+                "performances": [
+                    {
+                        "target_ref": "c_franks",
+                        "line_or_beat": "这话我在城门口就听说了。",
+                        "rationale": "坦率者只依据已声明的见闻说话。",
+                        "basis_refs": ["observed:城门口人群"],
+                    },
+                    {
+                        "target_ref": "c_evasive",
+                        "line_or_beat": "先看看别人怎么说。",
+                        "rationale": "回避者误信消息已人尽皆知，选择跟随。",
+                        "basis_refs": ["misbelieves:消息已公开"],
+                    },
+                ],
+                "materials": [
+                    {
+                        "kind": "crowd",
+                        "text": "井台边三五个人压低声音议论。",
+                        "perceiver_refs": ["c_franks", "c_evasive"],
+                    }
+                ],
+                "observations": [
+                    {
+                        "target_ref": "c_evasive",
+                        "observed": "坦率者当众反驳了传言。",
+                    }
+                ],
+            },
+            {
+                "round_number": 2,
+                "performances": [
+                    {
+                        "target_ref": "c_franks",
+                        "line_or_beat": "我不重复第二遍。",
+                        "rationale": "上一轮被围观后态度更硬。",
+                        "basis_refs": [],
+                    },
+                    {
+                        "target_ref": "c_evasive",
+                        "line_or_beat": "好吧，就按你说的办。",
+                        "rationale": "观察到对方强硬后改口。",
+                        "basis_refs": [],
+                    },
+                ],
+                "materials": [],
+                "observations": [],
+            },
+        ],
+        "state_notes": ["回避者已改口，误信被部分纠正。"],
+        "unknowns": ["围观者是否会把冲突传出去"],
+        "warnings": [],
+    }
+    output = FullRehearsalOutputV1.model_validate(payload)
+    assert len(output.rounds) == 2
+    # extra=forbid：未知字段拒绝
+    with pytest.raises(ValidationError):
+        FullRehearsalOutputV1.model_validate({**payload, "nope": 1})
+    # 轮次编号必须从 1 起连续
+    broken_number = copy.deepcopy(payload)
+    broken_number["rounds"][1]["round_number"] = 3
+    with pytest.raises(ValidationError):
+        FullRehearsalOutputV1.model_validate(broken_number)
+    # 每轮表演卡必须恰好覆盖全部目标且不重复
+    missing_target = copy.deepcopy(payload)
+    missing_target["rounds"][1]["performances"] = missing_target["rounds"][1][
+        "performances"
+    ][:1]
+    with pytest.raises(ValidationError):
+        FullRehearsalOutputV1.model_validate(missing_target)
+    duplicated = copy.deepcopy(payload)
+    duplicated["rounds"][1]["performances"][1]["target_ref"] = "c_franks"
+    with pytest.raises(ValidationError):
+        FullRehearsalOutputV1.model_validate(duplicated)
+    # 观察回执与素材感知者只能引用本次目标
+    stray_observation = copy.deepcopy(payload)
+    stray_observation["rounds"][0]["observations"][0]["target_ref"] = "c_stranger"
+    with pytest.raises(ValidationError):
+        FullRehearsalOutputV1.model_validate(stray_observation)
+    stray_perceiver = copy.deepcopy(payload)
+    stray_perceiver["rounds"][0]["materials"][0]["perceiver_refs"] = ["c_stranger"]
+    with pytest.raises(ValidationError):
+        FullRehearsalOutputV1.model_validate(stray_perceiver)
+    # 字段长度受限：台词 1..500、依据 1..2000
+    with pytest.raises(ValidationError):
+        FullRehearsalOutputV1.model_validate(
+            {
+                **payload,
+                "rounds": [
+                    {
+                        **payload["rounds"][0],
+                        "performances": [
+                            {
+                                **payload["rounds"][0]["performances"][0],
+                                "line_or_beat": "长" * 501,
+                            },
+                            payload["rounds"][0]["performances"][1],
+                        ],
+                    }
+                ],
+            }
+        )
+
+
+def test_envelope_wraps_full_rehearsal_as_sixth_kind():
+    payload = FullRehearsalOutputV1(
+        targets=["c_franks"],
+        rounds=[
+            {
+                "round_number": 1,
+                "performances": [
+                    {
+                        "target_ref": "c_franks",
+                        "line_or_beat": "我先说。",
+                        "rationale": "唯一目标开场。",
+                        "basis_refs": [],
+                    }
+                ],
+            }
+        ],
+    )
+    envelope = ExplorationOutputEnvelope(
+        output_kind=FULL_REHEARSAL_OUTPUT_KIND, schema_version=1, payload=payload
+    )
+    restored = ExplorationOutputEnvelope.model_validate(envelope.model_dump(mode="json"))
+    assert restored.output_kind == FULL_REHEARSAL_OUTPUT_KIND
+    assert type(restored.payload) is FullRehearsalOutputV1
+    # 六类判别联合完整可用
+    cases = (
+        (SANDBOX_OUTPUT_KIND, SandboxOutputV1.model_validate(_sandbox_payload())),
+        (EVENT_OUTPUT_KIND, EventOutputV1.model_validate(_event_payload())),
+        (
+            SCENE_LINE_OUTPUT_KIND,
+            SceneLineOutputV1(target_ref="c_a", line="好。", rationale="按候选知识"),
+        ),
+        (
+            AUTHOR_EDIT_OUTPUT_KIND,
+            AuthorEditPayloadV1(
+                base_output_kind=SANDBOX_OUTPUT_KIND,
+                base_result_id=str(uuid.uuid4()),
+                edited_payload=SandboxOutputV1.model_validate(_sandbox_payload()),
+            ),
+        ),
+        (LOCK_SET_OUTPUT_KIND, LockSetPayloadV1(locked_items=[])),
+        (FULL_REHEARSAL_OUTPUT_KIND, payload),
+    )
+    assert len({kind for kind, _ in cases}) == 6
+    for kind, payload_item in cases:
+        wrapped = ExplorationOutputEnvelope(
+            output_kind=kind, schema_version=1, payload=payload_item
+        )
+        assert wrapped.output_kind == kind
+    with pytest.raises(ValidationError):
+        ExplorationOutputEnvelope(
+            output_kind="story.exploration.rehearsal",
             schema_version=1,
             payload=payload,
         )

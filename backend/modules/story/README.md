@@ -515,9 +515,18 @@ API、助手操作与两个 worker 共享此门禁，history/compare 端点与 h
 说详细点与局部修订，`item_path + item_text` 防漂移定位）、`/save-edit`（作者编辑新版本，零模型调用）、
 `POST /compare`（`start_fingerprint` 不同返回 409）与 `GET /history`（provisional 根与 Scene 根分开列出）。
 
-`exploration_schemas.py` 定义起点判别联合（`scene_anchor` / `provisional`）与四类
-`output_kind` 载荷（sandbox/event/scene_line/author_edit，`schema_version=1`、`extra="forbid"`、
-`unknowns` 一等字段）；story 侧从 `modules/evidence/contracts.py` 引用起点定义，不复刻。
+`exploration_schemas.py` 定义起点判别联合（`scene_anchor` / `provisional`）与六类
+`output_kind` 载荷（sandbox/event/scene_line/author_edit/lock_set/full_rehearsal，
+`schema_version=1`、`extra="forbid"`、`unknowns` 一等字段）；story 侧从
+`modules/evidence/contracts.py` 引用起点定义，不复刻。
+临时起点完整排演（M3-B 切片 1）：请求可选 `full_rehearsal`（targets 1..6、rounds 1..3、
+author_goal 0..2000），仅 provisional 起点 + 场景尺度接受，与 multi_targets/diagnostic
+互斥；预算按 (目标数+1)×轮次 分开计量并计入 preview_hash 身份；`/preview` 携带
+`preview_full_rehearsal` 时返回 `work_steps`（逐目标表演卡 ×N/轮、素材与观察统筹 ×1/轮，
+步骤数多于聚焦输出）。确认/启动前做资格校验：目标须落在起点内（409），正式角色经
+World 端口核验存在且属于本作品（404），候选无可知包且无身份假设 → 409 能力不足拒绝展开
+（聚焦紧凑路径保留）。action 沿用 `story.exploration.scene_line.generate`，模式由请求字段
+区分；携带排演意图的任务在现有 worker 处失败关闭，逐轮执行由后续切片接入。
 `exploration_service.py` 负责根/分支创建（provisional 强制无 scene_id，scene 强制有）与历史/比较读；
 `exploration_budget.py` 提供初始单请求预算与追加授权预览；`exploration_recommend.py` 是纯确定性
 推荐函数；`exploration_operations.py` 导出六项操作目录（op_version "1"：preview/compare/history R0，
