@@ -625,3 +625,138 @@ it("stops polling when the card unmounts", async () => {
   wrapper.unmount()
   expect(stop).toHaveBeenCalled()
 })
+
+const lockReceipt = paths => ({
+  result_id: "result-1",
+  output_kind: "story.exploration.lock_set",
+  payload: { locked_items: paths.map(item_path => ({ item_path, item_content_hash: `hash-${item_path}`, label: item_path })) },
+})
+
+it("sends the lock request from the item toggle and flips aria-pressed", async () => {
+  const explorationLock = vi.fn(async () => lockReceipt(["chain:0"]))
+  const wrapper = mountCard(sandboxSource, { explorationLock })
+  const lockButton = wrapper.get(".exploration-result-card__lock")
+  expect(lockButton.attributes("aria-pressed")).toBe("false")
+  expect(lockButton.text()).toContain("锁定")
+  expect(lockButton.text()).not.toContain("已锁定")
+
+  await lockButton.trigger("click")
+  await flushPromises()
+
+  expect(explorationLock).toHaveBeenCalledTimes(1)
+  expect(explorationLock).toHaveBeenCalledWith("result-1", expect.objectContaining({
+    novel_id: "p1",
+    operation_id: expect.any(String),
+    lock: true,
+    item_path: "chain:0",
+    item_text: "面包需要重新计时",
+  }))
+  expect(wrapper.get(".exploration-result-card__lock").attributes("aria-pressed")).toBe("true")
+  expect(wrapper.get(".exploration-result-card__lock").text()).toContain("已锁定")
+  expect(wrapper.get('[role="status"]').text()).toContain("已锁定该条目")
+})
+
+it("disables the revise entry with an unlock hint after locking the selected item", async () => {
+  const explorationLock = vi.fn(async () => lockReceipt(["chain:0"]))
+  const wrapper = mountCard(sandboxSource, { explorationLock })
+  await wrapper.get(".exploration-result-card__lock").trigger("click")
+  await flushPromises()
+
+  const revise = wrapper.get(".exploration-result-card__op:nth-of-type(1)")
+  const option = revise.get('option[value="chain:0"]')
+  expect(option.element.disabled).toBe(true)
+  expect(option.text()).toContain("已锁定，先解锁")
+  expect(revise.get(".exploration-result-card__hint").text()).toContain("已锁定，先解锁")
+  await revise.get("textarea").setValue("尝试修订被锁定的条目")
+  const reviseButton = revise.findAll("button").find(button => button.text() === "开始修订")
+  expect(reviseButton.element.disabled).toBe(true)
+})
+
+it("restores the revise entry after unlocking the item", async () => {
+  const explorationLock = vi.fn(async () => lockReceipt([]))
+  const wrapper = mountCard({ ...sandboxSource, locked_items: ["chain:0"] }, { explorationLock })
+  expect(wrapper.get(".exploration-result-card__lock").attributes("aria-pressed")).toBe("true")
+
+  await wrapper.get(".exploration-result-card__lock").trigger("click")
+  await flushPromises()
+
+  expect(explorationLock).toHaveBeenCalledWith("result-1", expect.objectContaining({ lock: false, item_path: "chain:0" }))
+  expect(wrapper.get(".exploration-result-card__lock").attributes("aria-pressed")).toBe("false")
+  const revise = wrapper.get(".exploration-result-card__op:nth-of-type(1)")
+  expect(revise.get('option[value="chain:0"]').element.disabled).toBe(false)
+  expect(revise.find(".exploration-result-card__hint").exists()).toBe(false)
+  await revise.get("textarea").setValue("解锁后继续修订")
+  expect(revise.findAll("button").find(button => button.text() === "开始修订").element.disabled).toBe(false)
+})
+
+it("shows the server reason and keeps the state when locking hits a drift 409", async () => {
+  const explorationLock = vi.fn(async () => { throw Object.assign(new Error("409：条目内容已与当前结果不一致，请刷新后重试"), { status: 409 }) })
+  const wrapper = mountCard(sandboxSource, { explorationLock })
+  await wrapper.get(".exploration-result-card__lock").trigger("click")
+  await flushPromises()
+
+  expect(wrapper.get('[role="alert"]').text()).toContain("条目内容已与当前结果不一致，请刷新后重试")
+  expect(wrapper.get(".exploration-result-card__lock").attributes("aria-pressed")).toBe("false")
+})
+
+it("marks items locked on mount from source.locked_items", () => {
+  const wrapper = mountCard({ ...sandboxSource, locked_items: ["chain:0"] }, {})
+  const lockButton = wrapper.get(".exploration-result-card__lock")
+  expect(lockButton.attributes("aria-pressed")).toBe("true")
+  expect(lockButton.text()).toContain("已锁定")
+  const revise = wrapper.get(".exploration-result-card__op:nth-of-type(1)")
+  expect(revise.get('option[value="chain:0"]').element.disabled).toBe(true)
+  expect(revise.get('option[value="chain:0"]').text()).toContain("已锁定，先解锁")
+  expect(revise.findAll("button").find(button => button.text() === "开始修订").element.disabled).toBe(true)
+})
+
+it("shows locked item counts in the compare column headers", async () => {
+  const explorationHistory = vi.fn(async () => ({
+    items: [
+      { result_id: "result-1", label: "当前" },
+      { result_id: "result-9", label: "重来分支", scale: "sandbox" },
+    ],
+  }))
+  const explorationCompare = vi.fn(async () => ({
+    mode: "same_start",
+    first: { output_kind: "story.exploration.sandbox", payload: sandboxSource.payload, locked_items: ["chain:0"] },
+    second: {
+      output_kind: "story.exploration.sandbox",
+      payload: { influence_chain: [{ condition: "减半在深夜", effect: "几乎无人察觉" }], unknowns: [] },
+      locked_items: ["chain:0", "line"],
+    },
+  }))
+  const wrapper = mountCard(sandboxSource, { explorationHistory, explorationCompare })
+  const compare = wrapper.get(".exploration-result-card__op:nth-of-type(3)")
+  compare.element.open = true
+  await compare.trigger("toggle")
+  await flushPromises()
+  await compare.get("select").setValue("result-9")
+  await compare.findAll("button").find(button => button.text() === "比较").trigger("click")
+  await flushPromises()
+
+  const compareText = wrapper.get(".exploration-result-card__compare").text()
+  expect(compareText).toContain("当前结果已锁定 1 项")
+  expect(compareText).toContain("对比结果已锁定 2 项")
+})
+
+it("shows the server 409 reason when saving an edit that targets a locked item", async () => {
+  const explorationSaveEdit = vi.fn(async () => { throw Object.assign(new Error("409：该条目已被锁定，请先解锁后再编辑"), { status: 409 }) })
+  const wrapper = mountCard({
+    ...sandboxSource,
+    scale: "scene_line",
+    output_kind: "story.exploration.scene_line",
+    locked_items: ["line"],
+    payload: { ...sandboxSource.payload, line: "原始对白" },
+  }, { explorationSaveEdit })
+  expect(wrapper.get(".exploration-result-card__lock").attributes("aria-pressed")).toBe("true")
+
+  const edit = wrapper.get(".exploration-result-card__op:nth-of-type(2)")
+  await edit.get("textarea").setValue("对锁定对白的修改")
+  await edit.findAll("button").find(button => button.text() === "保存编辑").trigger("click")
+  await flushPromises()
+
+  expect(explorationSaveEdit).toHaveBeenCalled()
+  expect(wrapper.get('[role="alert"]').text()).toContain("该条目已被锁定，请先解锁后再编辑")
+  expect(wrapper.find(".exploration-result-card__badge").exists()).toBe(false)
+})

@@ -16,6 +16,7 @@
           <p v-if="link.affected?.length" class="exploration-result-card__basis">受影响：{{ link.affected.join("、") }}</p>
           <p v-if="link.holds_when" class="exploration-result-card__basis">成立条件：{{ link.holds_when }}</p>
           <p v-if="link.unknown" class="exploration-result-card__unknown">未知：{{ link.unknown }}</p>
+          <button v-if="lockAvailable && revisableItem(`chain:${index}`)" type="button" class="exploration-result-card__lock" :class="{ 'exploration-result-card__lock--on': isItemLocked(`chain:${index}`) }" :aria-pressed="isItemLocked(`chain:${index}`)" :disabled="lockBusyKey === `chain:${index}`" @click="toggleLock(revisableItem(`chain:${index}`))">{{ lockLabel(`chain:${index}`) }}</button>
         </li>
       </ol>
       <p v-if="display.preconditions?.length" class="exploration-result-card__basis">前提条件：{{ display.preconditions.join("；") }}</p>
@@ -29,6 +30,7 @@
           <p>{{ gap.description }}</p>
           <p v-if="gap.why_needed" class="exploration-result-card__basis">为什么需要：{{ gap.why_needed }}</p>
           <p v-if="gap.possible_fix_hint" class="exploration-result-card__basis">可能的补法：{{ gap.possible_fix_hint }}</p>
+          <button v-if="lockAvailable && revisableItem(`gap:${index}`)" type="button" class="exploration-result-card__lock" :class="{ 'exploration-result-card__lock--on': isItemLocked(`gap:${index}`) }" :aria-pressed="isItemLocked(`gap:${index}`)" :disabled="lockBusyKey === `gap:${index}`" @click="toggleLock(revisableItem(`gap:${index}`))">{{ lockLabel(`gap:${index}`) }}</button>
         </li>
       </ul>
       <ul v-if="bridgePaths.length" class="exploration-result-card__list">
@@ -37,6 +39,7 @@
           <p v-if="path.required_conditions?.length" class="exploration-result-card__basis">所需条件：{{ path.required_conditions.join("；") }}</p>
           <p v-if="path.cost_or_risk" class="exploration-result-card__basis">代价或风险：{{ path.cost_or_risk }}</p>
           <p v-if="path.holds != null" class="exploration-result-card__basis">{{ path.holds ? "在不靠巧合的条件下成立" : "尚不能保证成立" }}</p>
+          <button v-if="lockAvailable && revisableItem(`bridge:${index}`)" type="button" class="exploration-result-card__lock" :class="{ 'exploration-result-card__lock--on': isItemLocked(`bridge:${index}`) }" :aria-pressed="isItemLocked(`bridge:${index}`)" :disabled="lockBusyKey === `bridge:${index}`" @click="toggleLock(revisableItem(`bridge:${index}`))">{{ lockLabel(`bridge:${index}`) }}</button>
         </li>
       </ul>
       <!-- 导向路径：目标 + 规则约束 + 行动—条件—响应—后果—代价，每步一个块 -->
@@ -88,7 +91,8 @@
       </template>
       <template v-else>
         <blockquote v-if="display.line" class="exploration-result-card__line">{{ display.line }}</blockquote>
-        <p v-else-if="!spatialAssessment" class="exploration-result-card__empty">这条结果没有给出对白内容。</p>
+        <button v-if="display.line && lockAvailable && revisableItem('line')" type="button" class="exploration-result-card__lock" :class="{ 'exploration-result-card__lock--on': isItemLocked('line') }" :aria-pressed="isItemLocked('line')" :disabled="lockBusyKey === 'line'" @click="toggleLock(revisableItem('line'))">{{ lockLabel('line') }}</button>
+        <p v-if="!display.line && !spatialAssessment" class="exploration-result-card__empty">这条结果没有给出对白内容。</p>
         <p v-if="display.action" class="exploration-result-card__basis">动作：{{ display.action }}</p>
         <p v-if="display.rationale" class="exploration-result-card__basis">依据：{{ display.rationale }}</p>
         <p v-if="display.knowledge_basis?.length" class="exploration-result-card__basis">知识来源：{{ display.knowledge_basis.join("；") }}</p>
@@ -124,11 +128,12 @@
         <summary>局部修订</summary>
         <label><span>选择条目</span>
           <select v-model="revisionItemKey" :disabled="busy">
-            <option v-for="item in revisionItems" :key="item.key" :value="item.key">{{ item.label }}</option>
+            <option v-for="item in revisionItems" :key="item.key" :value="item.key" :disabled="isItemLocked(item.key)">{{ item.label }}{{ isItemLocked(item.key) ? "（已锁定，先解锁）" : "" }}</option>
           </select>
         </label>
         <label><span>这条要怎么改</span><textarea v-model="revisionInstruction" rows="2" maxlength="2000" :disabled="busy"></textarea></label>
-        <button type="button" class="btn btn-sm" :disabled="busy || !revisionItemKey || !revisionInstruction.trim()" @click="requestRevise">{{ busy ? "正在修订…" : "开始修订" }}</button>
+        <p v-if="selectedItemLocked" class="exploration-result-card__hint">已锁定，先解锁</p>
+        <button type="button" class="btn btn-sm" :disabled="busy || selectedItemLocked || !revisionItemKey || !revisionInstruction.trim()" @click="requestRevise">{{ busy ? "正在修订…" : "开始修订" }}</button>
       </details>
       <details class="exploration-result-card__op">
         <summary>保存编辑</summary>
@@ -158,8 +163,8 @@
             <h4>变更条件</h4>
             <ul class="exploration-result-card__tags"><li v-for="cond in changedConditions" :key="cond">{{ cond }}</li></ul>
           </div>
-          <section><h4>当前结果</h4><p>{{ comparison.current }}</p></section>
-          <section><h4>对比结果</h4><p>{{ comparison.other }}</p></section>
+          <section><h4>当前结果<span v-if="comparison.currentLockedCount" class="exploration-result-card__lock-tag">已锁定 {{ comparison.currentLockedCount }} 项</span></h4><p>{{ comparison.current }}</p></section>
+          <section><h4>对比结果<span v-if="comparison.otherLockedCount" class="exploration-result-card__lock-tag">已锁定 {{ comparison.otherLockedCount }} 项</span></h4><p>{{ comparison.other }}</p></section>
         </div>
       </details>
     </div>
@@ -173,7 +178,8 @@
 // 探索结果卡（第一批）：按 output_kind 三态渲染紧凑结果，并提供
 // 说详细点 / 局部修订（模型追加，走 202 任务轮询）与保存编辑（零模型调用）、
 // 结果对照（只读；沙盘支持同起点与反事实两种模式，反事实回传变更条件）。
-// AI 结果不可变；编辑保存形成新版本。
+// M3-A3：可修订条目旁提供锁定开关；锁定条目禁止局部修订，修订/编辑冲突时
+// 原样展示服务端 409 中文原因。AI 结果不可变；编辑保存形成新版本。
 import { computed, onBeforeUnmount, ref, watch } from "vue"
 import { getApi } from "../../bridge/index.js"
 import { createOperationId, pollTaskProgress } from "../../../shared/workflowProgress.js"
@@ -298,6 +304,52 @@ const revisionItems = computed(() => {
 })
 const selectedItem = computed(() => revisionItems.value.find(item => item.key === revisionItemKey.value) || null)
 
+// 锁定集合：初始来自 source.locked_items（域引用可能携带，元素为 item_path，
+// 兼容对象形态），随后以 lock 接口返回的最新 locked_items 为准。
+// 锁定条目禁止局部修订；编辑冲突由服务端 409 兜底并原样展示原因。
+function normalizeLockedPaths(items) {
+  if (!Array.isArray(items)) return new Set()
+  return new Set(items.map(item => (typeof item === "string" ? item : item?.item_path)).filter(Boolean))
+}
+const lockedItemPaths = ref(normalizeLockedPaths(props.source?.locked_items))
+const lockBusyKey = ref("")
+const lockAvailable = computed(() => kind.value !== AUTHOR_EDIT && Boolean(current.value.resultId))
+const selectedItemLocked = computed(() => Boolean(selectedItem.value && lockedItemPaths.value.has(selectedItem.value.key)))
+
+function revisableItem(key) { return revisionItems.value.find(item => item.key === key) || null }
+function isItemLocked(key) { return lockedItemPaths.value.has(key) }
+function lockLabel(key) { return isItemLocked(key) ? "🔒 已锁定" : "🔒 锁定" }
+
+async function toggleLock(item) {
+  const projectId = props.projectId
+  if (!item || !lockAvailable.value || lockBusyKey.value) return
+  const lock = !isItemLocked(item.key)
+  lockBusyKey.value = item.key
+  errorMessage.value = ""
+  try {
+    const receipt = await getApi()?.story?.explorationLock(current.value.resultId, {
+      novel_id: projectId,
+      operation_id: createOperationId(),
+      lock,
+      item_path: item.key,
+      item_text: item.text,
+    })
+    // 服务端返回全量 locked_items 时以其为准；缺失时按本次操作本地推演。
+    const serverItems = receipt?.payload?.locked_items
+    if (Array.isArray(serverItems)) lockedItemPaths.value = normalizeLockedPaths(serverItems)
+    else {
+      const next = new Set(lockedItemPaths.value)
+      if (lock) next.add(item.key)
+      else next.delete(item.key)
+      lockedItemPaths.value = next
+    }
+    status.value = { tone: "ok", text: lock ? "已锁定该条目；修订前需先解锁。" : "已解锁该条目，可以继续修订。" }
+  } catch (error) {
+    // 409（item_text 漂移、并发锁定等）原样展示服务端中文原因。
+    errorMessage.value = error?.message || "锁定状态没有更新，请稍后重试。"
+  } finally { lockBusyKey.value = "" }
+}
+
 function draftKey() { return `${DRAFT_PREFIX}:${props.projectId || "local"}:${current.value.resultId}` }
 function readDraft() {
   try {
@@ -409,6 +461,8 @@ function pollFollowUp(taskId) {
       if (wrapper) {
         followUps.value = [...followUps.value, { output_kind: wrapper.output_kind, payload: wrapper.payload }]
         current.value = { resultId: wrapper.result_id || current.value.resultId, kind: wrapper.output_kind, payload: wrapper.payload }
+        // 新结果是独立版本，不继承父结果的锁定集合。
+        lockedItemPaths.value = new Set()
         revisionItemKey.value = ""
         revisionInstruction.value = ""
         status.value = { tone: "ok", text: "新结果已生成。" }
@@ -504,6 +558,9 @@ async function requestCompare() {
       other: second ? compactText(second.payload, second.output_kind) : "对比结果暂不可读。",
       mode: receipt?.mode || "same_start",
       changed_conditions: Array.isArray(receipt?.changed_conditions) ? receipt.changed_conditions : [],
+      // 比较响应带两侧 locked_items（item_path 数组）；列头展示锁定数标签。
+      currentLockedCount: Array.isArray(first.locked_items) ? first.locked_items.length : 0,
+      otherLockedCount: Array.isArray(second?.locked_items) ? second.locked_items.length : 0,
     }
   } catch (error) {
     // 409 等失败原样展示服务端中文原因；仅兜底文案按模式区分。
@@ -590,6 +647,10 @@ onBeforeUnmount(() => { poller?.stop?.(); poller = null })
 .exploration-result-card__boundary-list{padding-left:20px;margin:0;display:grid;gap:8px}
 .exploration-result-card__subject{margin:0;display:flex;flex-wrap:wrap;align-items:center;gap:6px}
 .exploration-result-card__missing-tag{padding:1px 8px;border-radius:999px;background:#f3e8d2;color:#8a6116;font-size:12px}
+.exploration-result-card__lock{align-self:flex-start;margin-top:4px;padding:2px 10px;border:1px solid var(--border-color,var(--border));border-radius:999px;background:var(--bg-muted);color:inherit;font:inherit;font-size:12px;cursor:pointer}
+.exploration-result-card__lock--on{background:#f3e8d2;border-color:#d8c19a;color:#8a6116}
+.exploration-result-card__lock:disabled{opacity:.6;cursor:default}
+.exploration-result-card__lock-tag{margin-left:8px;padding:1px 8px;border-radius:999px;background:#f3e8d2;color:#8a6116;font-size:12px;font-weight:400}
 .exploration-result-card__variant{border:1px solid var(--border-color,var(--border));border-radius:8px;padding:8px;margin:8px 0;min-width:0}
 .exploration-result-card__variant-target{font-weight:600;margin:0 0 4px;overflow-wrap:anywhere}
 .exploration-result-card__variant .exploration-result-card__line{margin:4px 0}

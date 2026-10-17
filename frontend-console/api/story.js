@@ -117,6 +117,10 @@ export const story = {
     explorationDetail: (resultId, payload) => post(`/story/exploration/results/${resultId}/detail`, payload),
     explorationRevise: (resultId, payload) => post(`/story/exploration/results/${resultId}/revise`, payload),
     explorationSaveEdit: (resultId, payload) => post(`/story/exploration/results/${resultId}/save-edit`, payload),
+    // M3-A3 锁定：payload 含 {novel_id, operation_id, lock, item_path, item_text?}；
+    // 202/200 返回 {result_id, output_kind:"story.exploration.lock_set", payload:{locked_items:[...]}}，
+    // 409 时 error.message 为服务端中文原因，调用方原样展示。
+    explorationLock: (resultId, payload) => post(`/story/exploration/results/${resultId}/lock`, payload),
     explorationCompare: (payload) => post("/story/exploration/compare", payload),
     explorationHistory: (params = {}) => request(withQuery("/story/exploration/history", params), { cache: "no-store" }),
     async startWorldProgression(novelId, payload = {}) {
