@@ -19,6 +19,7 @@ from sqlalchemy import func, or_, select
 from core.errors import ConflictError, DomainError, NotFoundError
 from infrastructure.llm.collaboration import content_hash
 from modules.evidence.contracts import (
+    Assumption,
     ExplorationStart,
     ProvisionalStart,
     SceneAnchorStart,
@@ -31,6 +32,7 @@ from modules.story.exploration_schemas import (
     SANDBOX_OUTPUT_KIND,
     AuthorEditPayloadV1,
     ExplorationOutputEnvelope,
+    apply_changed_assumptions,
     exploration_start_fingerprint,
 )
 from modules.story.models import (
@@ -128,12 +130,15 @@ async def create_exploration_root(
     llm_execution_snapshot_json: dict | None = None,
     status: str = "queued",
     branch_request_json: dict | None = None,
+    counterfactual_of: str | None = None,
+    changed_assumptions: list[Assumption] | None = None,
 ) -> tuple[Any, Any]:
     """为一次探索创建根与初始分支；返回 ``(root, branch)``。
 
     沙盘/事件写推进链，场景对白写导演链。``provisional`` 起点强制无场景，
     ``scene_anchor`` 起点强制携带场景；推进链一律要求非空确认（临时起点为
-    空资料集确认）。
+    空资料集确认）。反事实对照（M2）时把基线结果 id 与 changed_assumptions
+    一并冻结进根 request_json，worker 读取同一承载记录到结果 input_json。
     """
     chain = EXPLORATION_CHAIN_BY_SCALE.get(scale)
     if chain is None:
@@ -160,6 +165,11 @@ async def create_exploration_root(
         "exploration_start_fingerprint": fingerprint,
         "exploration_start": start.model_dump(mode="json"),
     }
+    if counterfactual_of is not None:
+        request_json["counterfactual_of"] = str(counterfactual_of)
+        request_json["changed_assumptions"] = [
+            item.model_dump(mode="json") for item in (changed_assumptions or [])
+        ]
     root_id, branch_id = uuid.uuid4(), uuid.uuid4()
     branch_request = {
         "mode": "start",
@@ -332,11 +342,102 @@ async def _result_start_fingerprint(
     return str(fingerprint)
 
 
-async def compare_exploration_results(
-    db, *, novel_id: str, owner_id: str, first_result_id: str, second_result_id: str
-) -> dict:
-    """同起点两结果比较：起点指纹不同或缺失时失败关闭（409）。"""
+async def _baseline_root_start_dump(db, novel_id: str, row: Any, chain: str) -> dict:
+    """基线结果根上冻结的完整起点（既有承载：根 request_json，不新造存储）。"""
+    root = await _root_for_chain(db, novel_id, row.root_id, chain)
+    return dict((root.request_json or {}).get("exploration_start") or {})
 
+
+async def resolve_counterfactual_start(
+    db,
+    *,
+    novel_id: str,
+    result_id: str,
+    scale: str,
+    changed_assumptions: list[Assumption],
+) -> tuple[ProvisionalStart, str]:
+    """反事实基线解析：定位基线结果行，校验沙盘同源后克隆并只改指定条件。
+
+    基线不存在/异作品 → NotFoundError；非沙盘 AI 结果或起点与指纹不符 →
+    ConflictError（失败关闭）。返回 ``(克隆起点, 基线结果 id)``。
+    """
+
+    row, chain = await _locate_result_row(db, novel_id, result_id)
+    envelope = unpack_exploration_output(row)
+    if envelope is None or envelope.output_kind != SANDBOX_OUTPUT_KIND:
+        raise ConflictError("反事实条件对照的基线必须是沙盘探索结果")
+    root = await _root_for_chain(db, novel_id, row.root_id, chain)
+    root_request = dict(root.request_json or {})
+    baseline_scale = str(root_request.get("exploration_scale") or "")
+    if baseline_scale != "sandbox" or scale != "sandbox":
+        raise ConflictError("反事实条件对照只支持沙盘尺度")
+    start_dump = await _baseline_root_start_dump(db, novel_id, row, chain)
+    if not start_dump or start_dump.get("kind") != "provisional":
+        raise ConflictError("反事实条件对照的基线必须是临时假设起点")
+    start = ProvisionalStart.model_validate(start_dump)
+    stored_fingerprint = root_request.get("exploration_start_fingerprint")
+    if (
+        not stored_fingerprint
+        or str(stored_fingerprint) != exploration_start_fingerprint(start, "sandbox")
+    ):
+        raise ConflictError("基线结果的冻结起点与指纹不一致，无法反事实克隆")
+    cloned = apply_changed_assumptions(start, list(changed_assumptions))
+    return cloned, str(row.id)
+
+
+def _changed_assumption_texts(row: Any) -> list[str]:
+    data = getattr(row, "input_json", None)
+    if not isinstance(data, dict):
+        return []
+    return [str(item) for item in (data.get("changed_assumption_texts") or [])]
+
+
+def _counterfactual_link_condition(first: Any, second: Any) -> list[str]:
+    """反事实链校验：互为衍生或共享基线，否则失败关闭；通过则回传差集。"""
+
+    def _cf(row: Any) -> str | None:
+        data = getattr(row, "input_json", None)
+        value = data.get("counterfactual_of") if isinstance(data, dict) else None
+        return str(value) if value else None
+
+    first_cf, second_cf = _cf(first), _cf(second)
+    first_id, second_id = str(first.id), str(second.id)
+    derives = first_cf == second_id or second_cf == first_id
+    shared_baseline = (
+        first_cf is not None and second_cf is not None and first_cf == second_cf
+    )
+    if not (derives or shared_baseline):
+        raise ConflictError("两个结果没有反事实衍生关系，不能做条件对照")
+    return _changed_conditions(
+        _changed_assumption_texts(first), _changed_assumption_texts(second)
+    )
+
+
+def _changed_conditions(first_texts: list[str], second_texts: list[str]) -> list[str]:
+    """两行 changed_assumption_texts 的对称差集，保持首现顺序并去重。"""
+
+    first_unique = list(dict.fromkeys(first_texts))
+    second_unique = list(dict.fromkeys(second_texts))
+    second_set, first_set = set(second_unique), set(first_unique)
+    return [text for text in first_unique if text not in second_set] + [
+        text for text in second_unique if text not in first_set
+    ]
+
+
+async def compare_exploration_results(
+    db,
+    *,
+    novel_id: str,
+    owner_id: str,
+    first_result_id: str,
+    second_result_id: str,
+    mode: str = "same_start",
+) -> dict:
+    """两结果比较：same_start 指纹不同或缺失即失败关闭（409）；
+    counterfactual 要求反事实衍生或共享基线，成功回传 changed_conditions。"""
+
+    if mode not in {"same_start", "counterfactual"}:
+        raise DomainError(f"不支持的比较模式：{mode}")
     await _require_project(db, novel_id, owner_id)
     located: list[tuple[Any, str]] = []
     for result_id in (first_result_id, second_result_id):
@@ -345,12 +446,22 @@ async def compare_exploration_results(
     envelopes = [unpack_exploration_output(row) for row, _chain in located]
     if any(envelope is None for envelope in envelopes):
         raise ConflictError("所选结果不是探索结果，无法比较")
-    fingerprints = [
-        await _result_start_fingerprint(db, novel_id, row, chain)
-        for row, chain in located
-    ]
-    if not fingerprints[0] or not fingerprints[1] or fingerprints[0] != fingerprints[1]:
-        raise ConflictError("两个结果的起点不同，不能直接比较")
+    changed_conditions: list[str] | None = None
+    if mode == "counterfactual":
+        changed_conditions = _counterfactual_link_condition(located[0][0], located[1][0])
+        start_fingerprint = None
+    else:
+        fingerprints = [
+            await _result_start_fingerprint(db, novel_id, row, chain)
+            for row, chain in located
+        ]
+        if (
+            not fingerprints[0]
+            or not fingerprints[1]
+            or fingerprints[0] != fingerprints[1]
+        ):
+            raise ConflictError("两个结果的起点不同，不能直接比较")
+        start_fingerprint = fingerprints[0]
     sides = []
     for (row, chain), envelope in zip(located, envelopes):
         sides.append(
@@ -365,11 +476,15 @@ async def compare_exploration_results(
                 "envelope": envelope,
             }
         )
-    return {
-        "start_fingerprint": fingerprints[0],
+    result: dict = {
+        "start_fingerprint": start_fingerprint,
         "left": sides[0],
         "right": sides[1],
     }
+    if changed_conditions is not None:
+        result["mode"] = "counterfactual"
+        result["changed_conditions"] = changed_conditions
+    return result
 
 
 # ---------------------------------------------------------------------------
