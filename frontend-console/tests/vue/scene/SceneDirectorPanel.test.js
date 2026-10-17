@@ -327,6 +327,35 @@ describe("SceneDirectorPanel", () => {
     expect(candidate.find("button").exists()).toBe(false)
   })
 
+  it("renders compact exploration rounds as placeholders pointing back to the assistant", async () => {
+    api.story.sceneDirectorHistory.mockResolvedValue({
+      ...history("scene-a"),
+      roots: [{ id: "root-a", character_ids: ["actor-a"] }],
+      branches: [{ id: "branch-a", root_id: "root-a", round_ids: ["round-exp", "round-a"] }],
+      rounds: [
+        {
+          id: "round-exp", branch_id: "branch-a", round_number: 1, basis_status: "current",
+          output_kind: "story.exploration.scene_line",
+          output_json: { output_kind: "story.exploration.scene_line", schema_version: 1, payload: { line: "紧凑结果" } },
+          performances: [], materials: [],
+        },
+        { id: "round-a", branch_id: "branch-a", round_number: 2, basis_status: "current", performances: [], materials: [] },
+      ],
+    })
+    const wrapper = mountPanel("scene-a")
+    await flushPromises()
+    const note = wrapper.get(".scene-director__exploration-note")
+    expect(note.text()).toContain("紧凑探索结果")
+    expect(note.text()).toContain("场景对白")
+    expect(note.text()).toContain("项目助手")
+    // 探索回合内不渲染旧操作入口与表演卡区块；普通回合保持原样。
+    const explorationArticle = note.element.closest("article")
+    expect(explorationArticle.textContent).not.toContain("从此回合继续")
+    expect(explorationArticle.textContent).not.toContain("保存为参考剧本")
+    expect(explorationArticle.querySelector(".scene-director__cards")).toBeNull()
+    expect(wrapper.findAll("button").some((button) => button.text() === "从此回合继续")).toBe(true)
+  })
+
   it("drops a late candidate transfer response after switching Scene", async () => {
     const round = {
       id: "round-old", branch_id: "branch-old", round_number: 1,
