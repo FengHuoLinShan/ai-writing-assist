@@ -164,6 +164,9 @@ class ProgressionTargetPath(ProgressionModel):
 class ProgressionBudgetPreviewRequest(ProgressionModel):
     novel_id: str
     scene_id: str | None = None
+    context_confirmation_id: str | None = Field(
+        default=None, min_length=1, max_length=128
+    )
     request_limit: int = Field(ge=1)
     token_limit: int = Field(ge=1)
     time_budget_seconds: int = Field(ge=1)

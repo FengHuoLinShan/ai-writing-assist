@@ -98,6 +98,17 @@ def _row_snapshot(row):
     }
 
 
+@pytest.fixture(autouse=True)
+def enable_scene_director(monkeypatch):
+    from core.config import get_settings
+
+    monkeypatch.setenv("STORY_SCENE_DIRECTOR_ENABLED", "true")
+    get_settings.cache_clear()
+    yield
+    monkeypatch.undo()
+    get_settings.cache_clear()
+
+
 @pytest_asyncio.fixture
 async def offline_account_settings(monkeypatch, isolated_global_database_manager):
     """Restore opaque account rows after the offline execution snapshot test."""
@@ -291,12 +302,10 @@ async def test_canonical_scene_preview_confirmation_start_and_offline_worker(
             "/api/story/world-progression/budget-preview", json=budget
         )
         assert preview.status_code == 200, preview.text
-        preview_data = preview.json()
-        assert preview_data["scene_id"] == str(scene_id)
-        assert preview_data["scene_index"] == 0
-        assert preview_data["scene_title"] == "门前标记"
-        assert preview_data["participants"] == 1
-        assert preview_data["request_budget"]["estimate_minimum"] == 2
+        assert preview.json() == {
+            "requires_context_confirmation": True,
+            "scene_id": str(scene_id),
+        }
         compiled = await client.post(
             "/api/evidence/compilation/compile",
             json={**selection, "action": "story.one_click.simulate"},
@@ -316,6 +325,17 @@ async def test_canonical_scene_preview_confirmation_start_and_offline_worker(
             confirmation.json()["context_fingerprint"]
             == compiled.json()["context_fingerprint"]
         )
+        preview = await client.post(
+            "/api/story/world-progression/budget-preview",
+            json={**budget, "context_confirmation_id": confirmation.json()["id"]},
+        )
+        assert preview.status_code == 200, preview.text
+        preview_data = preview.json()
+        assert preview_data["scene_id"] == str(scene_id)
+        assert preview_data["scene_index"] == 0
+        assert preview_data["scene_title"] == "门前标记"
+        assert preview_data["participants"] == 1
+        assert preview_data["request_budget"]["estimate_minimum"] == 2
         stale = await client.post(
             "/api/story/world-progression/roots",
             json={
@@ -419,7 +439,12 @@ async def test_canonical_scene_preview_confirmation_start_and_offline_worker(
         finally:
             await savepoint.rollback()
 
-        current_work = WorkContext(scope="current", scene_id=scene_id)
+        current_work = WorkContext(
+            scope="current",
+            scene_id=scene_id,
+            context_confirmation_id=UUID(confirmation.json()["id"]),
+            context_confirmation_action="story.one_click.simulate",
+        )
         other_scene = AssistantOperationContext(
             run_id=str(uuid4()),
             owner_id=str(LOCAL_OWNER_ID),

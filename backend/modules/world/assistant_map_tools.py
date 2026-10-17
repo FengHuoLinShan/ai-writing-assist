@@ -825,6 +825,10 @@ async def _structure_edit_preview(db, novel_id, args, *, context=None):
     document = document.model_copy(deep=True)
     author_decision = await _read_author_decision(db, novel_id, context)
     before = document.model_dump(mode="json")
+    if document.schema_version == 1:
+        payload = document.model_dump(mode="json")
+        payload["schema_version"] = 2
+        document = MapDocument.model_validate(payload)
     for edit in args.edits:
         if edit.kind == "add_space":
             if any(space.id == edit.space.id for space in document.spaces):

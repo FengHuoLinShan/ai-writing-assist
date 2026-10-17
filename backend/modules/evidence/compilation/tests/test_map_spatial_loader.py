@@ -391,3 +391,107 @@ async def test_map_budget_never_evicts_core_reference(
         item.source["type"] == "map_spatial" for item in compiled.omitted_items
     )
     assert "空间" not in render_compiled_context(compiled, include_map_spatial=False)
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("changed", [False, True])
+async def test_b4_confirmed_map_citation_reopens_only_its_original_scope(
+    monkeypatch, changed
+):
+    from types import SimpleNamespace
+
+    from core.errors import ConflictError
+    from modules.evidence.compilation.contracts import StructureContextBundle
+    from modules.world.schemas import AskWorldQuestionRequest
+    from modules.world.services.worldbuilding.ask_world_service import AskWorldService
+
+    novel_id, confirmation_id, excluded_entity = (str(uuid4()) for _ in range(3))
+    brief = _brief()
+    calls = []
+    settings = replace(get_settings(), map_spatial_enabled_capabilities=("world.ask",))
+    monkeypatch.setattr(map_spatial_loader, "get_settings", lambda: settings)
+
+    async def read(_db, request):
+        calls.append(request)
+        assert request["excluded_ids"] == [f"world_entity:{excluded_entity}"]
+        return brief
+
+    monkeypatch.setattr(map_spatial_loader, "get", lambda _key: read)
+    options = CompileOptions(
+        novel_id=novel_id,
+        task="海港区白潮港在哪里",
+        scope="full",
+        consumer_action="world.ask",
+        excluded_asset_ids={"world_entities": [excluded_entity]},
+    )
+
+    async def materialize():
+        bundle = StructureContextBundle(
+            novel_id=novel_id, task=options.task, scope=options.scope
+        )
+        await MapSpatialLoader().load(object(), options, bundle)
+        return CompiledContext(
+            sections=ContextCompiler._build_map_spatial_sections(bundle)
+        )
+
+    data = AskWorldQuestionRequest(
+        novel_id=novel_id,
+        question=options.task,
+        context_confirmation_id=confirmation_id,
+    )
+    citation = AskWorldService._map_candidates_from_compiled(await materialize(), data)[
+        0
+    ]["citation"]
+    assert citation.map_context_confirmation_id == confirmation_id
+
+    async def prepare(_db, **kwargs):
+        assert kwargs == {
+            "novel_id": novel_id,
+            "action": "world.ask",
+            "confirmation_id": confirmation_id,
+        }
+        if changed:
+            raise ConflictError("资料已经变化")
+        return SimpleNamespace(compiled=await materialize())
+
+    async def unrestricted(*_args, **_kwargs):
+        pytest.fail("a confirmed citation must not reload an unrestricted map brief")
+
+    monkeypatch.setattr("modules.evidence.facade.prepare_confirmed_ai_action", prepare)
+    monkeypatch.setattr("modules.world.facade.read_map_spatial_brief", unrestricted)
+    opened = await AskWorldService().open_citation(object(), novel_id, citation)
+    if changed:
+        assert opened.status == "unavailable"
+        assert opened.text == ""
+        assert len(calls) == 1
+    else:
+        assert opened.status == "current"
+        assert opened.text == brief.items[0].content
+        assert len(calls) == 2
+
+
+@pytest.mark.asyncio
+async def test_b4_legacy_map_citation_never_displays_a_widened_current_brief(monkeypatch):
+    from types import SimpleNamespace
+
+    from modules.world.schemas import AskWorldQuestionRequest
+    from modules.world.services.worldbuilding.ask_world_service import AskWorldService
+
+    brief = _brief()
+    service = AskWorldService()
+    data = AskWorldQuestionRequest(novel_id=str(uuid4()), question="白潮港在哪里")
+    citation = service._map_candidates_from_bundle(
+        SimpleNamespace(map_spatial_brief=brief.model_dump()), data
+    )[0]["citation"]
+    changed = brief.model_copy(deep=True)
+    changed.items[0].content = "白潮港；还有作者原本排除的秘密港口。"
+    changed.items[0].content_hash = "f" * 64
+
+    async def read(*_args, **_kwargs):
+        return changed
+
+    monkeypatch.setattr("modules.world.facade.read_map_spatial_brief", read)
+    result = await service.open_citation(object(), data.novel_id, citation)
+    assert result.status == "stale"
+    assert result.text == ""
+    assert result.warnings

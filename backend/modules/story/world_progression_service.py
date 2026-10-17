@@ -358,6 +358,8 @@ async def read_progression_history(
     views = [
         _root_history_view(root, branches_by_root.get(str(root.id), [])) for root in roots
     ]
+    from modules.evidence.facade import prepare_confirmed_ai_action
+    from modules.story.generation import STORY_ONE_CLICK_ACTION
     from modules.story.world_progression_context import read_progression_source
     from modules.story.world_progression_schemas import (
         ProgressionParticipant,
@@ -367,6 +369,12 @@ async def read_progression_history(
     for root, view in zip(roots, views, strict=True):
         request = root.request_json or {}
         try:
+            confirmed = await prepare_confirmed_ai_action(
+                db,
+                novel_id=novel_id,
+                action=STORY_ONE_CLICK_ACTION,
+                confirmation_id=root.context_confirmation_id,
+            )
             current = await read_progression_source(
                 db,
                 novel_id=novel_id,
@@ -379,6 +387,7 @@ async def read_progression_history(
                     ProgressionTarget.model_validate(item)
                     for item in request.get("targets") or []
                 ],
+                confirmed_context=confirmed,
             )
         except (ValueError, NotFoundError, ConflictError):
             view["basis_status"] = "unknown"

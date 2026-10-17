@@ -22,7 +22,7 @@ from infrastructure.tasks.facade import (
 from infrastructure.tasks.models import AsyncTask
 from modules.evidence.facade import (
     attach_result_ref,
-    require_fresh_confirmation,
+    prepare_confirmed_ai_action,
 )
 from modules.project.contracts import ProjectLLMConfigurationError
 from modules.project.facade import (
@@ -31,7 +31,11 @@ from modules.project.facade import (
 )
 from modules.story.generation import STORY_ONE_CLICK_ACTION
 from modules.story.world_progression_budget import preview_progression_budget
-from modules.story.world_progression_context import read_progression_source
+from modules.story.world_progression_context import (
+    _latest_written_scene,
+    read_progression_source,
+    scope_progression_source,
+)
 from modules.story.world_progression_continuous import (
     read_continuous_authorization,
     set_continuous_authorization,
@@ -123,17 +127,30 @@ def _model_name(snapshot: dict) -> str:
     return str((snapshot.get("profile") or {}).get("model") or "unknown")
 
 
-async def _source_for_request(db, data, *, snapshot=None) -> dict:
+async def _source_for_request(db, data, *, snapshot=None):
+    confirmation_id = str(getattr(data, "context_confirmation_id", "") or "")
+    if not confirmation_id:
+        raise ValueError("世界推进预算预览必须先确认本次资料范围")
+    confirmed = await prepare_confirmed_ai_action(
+        db,
+        novel_id=data.novel_id,
+        action=STORY_ONE_CLICK_ACTION,
+        confirmation_id=confirmation_id,
+    )
     source = await read_progression_source(
         db,
         novel_id=data.novel_id,
         scene_id=data.scene_id,
         participants=data.participants,
         targets=data.targets,
+        confirmed_context=confirmed,
+    )
+    _validate_confirmation_scope(
+        dict(confirmed.compile_options or {}), data, source["scene_id"]
     )
     if snapshot is not None:
         source["llm_execution_snapshot"] = snapshot
-    return source
+    return source, confirmed
 
 
 def _validate_confirmation_scope(options: dict, data, scene_id: str) -> None:
@@ -239,7 +256,15 @@ async def api_progression_budget_preview(
     _enabled()
     try:
         snapshot = await build_project_llm_execution_snapshot(db, data.novel_id)
-        source = await _source_for_request(db, data, snapshot=snapshot)
+        if not data.context_confirmation_id:
+            scene_id = data.scene_id
+            if scene_id is None:
+                scene_id = str((await _latest_written_scene(db, data.novel_id))["id"])
+            return {
+                "requires_context_confirmation": True,
+                "scene_id": scene_id,
+            }
+        source, _confirmed = await _source_for_request(db, data, snapshot=snapshot)
         metrics = await list_root_metrics(db, data.novel_id)
         result = preview_progression_budget(
             data,
@@ -281,7 +306,7 @@ async def api_start_progression(data: ProgressionStartRequest, db: DbSession):
             return _response(existing.task_id, existing.status, root_id, branch_id)
 
         snapshot = await build_project_llm_execution_snapshot(db, data.novel_id)
-        source = await _source_for_request(db, data, snapshot=snapshot)
+        source, _confirmed = await _source_for_request(db, data, snapshot=snapshot)
         preview = preview_progression_budget(
             data,
             source,
@@ -290,15 +315,6 @@ async def api_start_progression(data: ProgressionStartRequest, db: DbSession):
         )
         if preview["preview_hash"] != data.budget_preview_hash:
             raise ConflictError("世界、参与者或预算选择已变化，请重新预览")
-        confirmation = await require_fresh_confirmation(
-            db,
-            novel_id=data.novel_id,
-            action=STORY_ONE_CLICK_ACTION,
-            confirmation_id=data.context_confirmation_id,
-        )
-        _validate_confirmation_scope(
-            dict(confirmation.compile_options or {}), data, source["scene_id"]
-        )
         # Pin the resolved author cutoff, even when the UI requested "latest".
         root_request = data.model_dump(mode="json")
         root_request["scene_id"] = source["scene_id"]
@@ -425,12 +441,19 @@ async def api_advance_progression(
             ProgressionTarget.model_validate(item)
             for item in root_request.get("targets") or []
         ]
+        confirmed = await prepare_confirmed_ai_action(
+            db,
+            novel_id=data.novel_id,
+            action=STORY_ONE_CLICK_ACTION,
+            confirmation_id=data.context_confirmation_id,
+        )
         current_source = await read_progression_source(
             db,
             novel_id=data.novel_id,
             scene_id=root_request.get("scene_id"),
             participants=participant_models,
             targets=targets,
+            confirmed_context=confirmed,
         )
         selected_branch = await get_progression_branch(
             db, data.novel_id, str(data.branch_id), lock=True
@@ -442,17 +465,21 @@ async def api_advance_progression(
         frozen_source = dict(
             selected_branch.source_snapshot_json or root.source_snapshot_json or {}
         )
-        source = current_source if data.basis_choice == "current" else frozen_source
+        source = (
+            current_source
+            if data.basis_choice == "current"
+            else await scope_progression_source(
+                db,
+                frozen_source,
+                confirmed.compiled,
+                expected_novel_id=data.novel_id,
+                expected_scene_id=str(root.scene_id),
+            )
+        )
         if not source:
             raise ConflictError("所选历史没有可恢复的依据快照")
-        confirmation = await require_fresh_confirmation(
-            db,
-            novel_id=data.novel_id,
-            action=STORY_ONE_CLICK_ACTION,
-            confirmation_id=data.context_confirmation_id,
-        )
         _validate_confirmation_scope(
-            dict(confirmation.compile_options or {}),
+            dict(confirmed.compile_options or {}),
             type("Selection", (), {"participants": participant_models})(),
             source["scene_id"],
         )
@@ -605,31 +632,39 @@ async def api_resume_progression(
             ProgressionTarget.model_validate(item)
             for item in request.get("targets") or []
         ]
+        confirmed = await prepare_confirmed_ai_action(
+            db,
+            novel_id=data.novel_id,
+            action=STORY_ONE_CLICK_ACTION,
+            confirmation_id=data.context_confirmation_id,
+        )
         source = await read_progression_source(
             db,
             novel_id=data.novel_id,
             scene_id=request.get("scene_id"),
             participants=participants,
             targets=targets,
+            confirmed_context=confirmed,
         )
+        if branch.basis_choice == "frozen":
+            source = await scope_progression_source(
+                db,
+                dict(branch.source_snapshot_json or root.source_snapshot_json or {}),
+                confirmed.compiled,
+                expected_novel_id=data.novel_id,
+                expected_scene_id=str(root.scene_id),
+            )
         if (
             (
                 branch.basis_choice == "current"
                 and source["source_hash"] != pending["source_hash"]
             )
             or pending.get("parent_step_id") != str(branch.parent_step_id or "")
-            or (branch.source_snapshot_json or {}).get("source_hash")
-            != pending["source_hash"]
+            or source["source_hash"] != pending["source_hash"]
         ):
             raise ConflictError("半步来源或父步骤已失效，请从历史明确选择新依据")
-        confirmation = await require_fresh_confirmation(
-            db,
-            novel_id=data.novel_id,
-            action=STORY_ONE_CLICK_ACTION,
-            confirmation_id=data.context_confirmation_id,
-        )
         _validate_confirmation_scope(
-            dict(confirmation.compile_options or {}),
+            dict(confirmed.compile_options or {}),
             SimpleNamespace(participants=participants),
             source["scene_id"],
         )
@@ -842,10 +877,7 @@ async def api_read_continuous_authorization(
         branch = await get_progression_branch(db, novel_id, branch_id)
         if str(branch.root_id) != str(root.id):
             raise ConflictError("分支不属于当前推进根")
-        result = await read_continuous_authorization(db, novel_id)
-        if result.get("root_id") not in {None, str(root.id)}:
-            raise ConflictError("持续授权已绑定到另一条推进根")
-        return result
+        return await read_continuous_authorization(db, novel_id)
     except Exception as error:
         raise _raise_http(error) from error
 

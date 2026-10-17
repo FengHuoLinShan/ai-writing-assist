@@ -259,9 +259,21 @@ async def test_fact_timeline_projects_current_chapter_without_mutating_history(
         db_session, test_project_id, StoryFactTimelineQuery(limit=20)
     )
     assert [item.current_chapter_index for item in current.items] == [2, 2]
-    assert [item.time_status for item in current.items] == ["stale", "stale"]
+    assert [item.time_status for item in current.items] == ["stale", "current"]
     assert before.chapter_index == 1
     assert after.chapter_index == 2
+    stale = await service.list(
+        db_session,
+        test_project_id,
+        StoryFactTimelineQuery(limit=20, status="stale"),
+    )
+    assert [item.id for item in stale.items] == [str(before.id)]
+    current_only = await service.list(
+        db_session,
+        test_project_id,
+        StoryFactTimelineQuery(limit=20, status="current"),
+    )
+    assert [item.id for item in current_only.items] == [str(after.id)]
     receipt.status = "restored"
     receipt.restored_at = datetime(2026, 10, 16, 3, 0, tzinfo=UTC)
     scene.chapter_ids = ["1"]
@@ -340,6 +352,7 @@ async def test_reextraction_refreshes_event_chapter_order_projection_basis(
         db_session, test_project_id, StoryFactTimelineQuery(limit=20)
     )
     assert timeline.items[0].current_chapter_index == 2
+    assert timeline.items[0].time_status == "current"
 
 
 @pytest.mark.parametrize("event_key", [None, "stable-scene-event"])

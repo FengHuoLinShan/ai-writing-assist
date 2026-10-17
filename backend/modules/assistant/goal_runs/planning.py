@@ -133,6 +133,23 @@ def _assert_json_size(plan: GoalPlan) -> None:
         raise ValidationError("计划内容过大，请减少步骤或参数")
 
 
+def operation_plan_unavailable_reason(operation: AssistantOperation) -> str | None:
+    """Return the directory-level reason an operation cannot enter a plan."""
+    if operation.permission == "read" and operation.risk_level != "R0":
+        return "目录只读操作的风险声明已变化"
+    if operation.permission == "suggest" and operation.risk_level != "R1":
+        return "目录建议操作的风险声明已变化"
+    if operation.permission == "confirm" and operation.risk_level == "R0":
+        return "目录确认操作的风险声明已变化"
+    if operation.permission == "read" and operation.apply is not None:
+        return "目录只读操作不能声明写入回调"
+    if operation.permission != "read" and operation.apply is None:
+        return "目录操作缺少执行回调"
+    if operation.transaction_mode == "multi_stage" and operation.read_result is None:
+        return "多阶段操作缺少领域回执接口，不能进入目标计划"
+    return None
+
+
 def validate_plan(
     plan: GoalPlan,
     operations: Mapping[str, AssistantOperation],
@@ -147,12 +164,9 @@ def validate_plan(
         operation = operations.get(step.operation_id)
         if operation is None or not operation.ai_available:
             raise ConflictError("计划包含当前不可用的操作，请重新规划")
-        if operation.permission == "read" and operation.risk_level != "R0":
-            raise ConflictError("目录只读操作的风险声明已变化")
-        if operation.permission == "suggest" and operation.risk_level != "R1":
-            raise ConflictError("目录建议操作的风险声明已变化")
-        if operation.permission == "confirm" and operation.risk_level == "R0":
-            raise ConflictError("目录确认操作的风险声明已变化")
+        unavailable_reason = operation_plan_unavailable_reason(operation)
+        if unavailable_reason:
+            raise ConflictError(unavailable_reason)
         allowed_target_types = goal_target_types(step.operation_id, operation)
         if any(target.target_type not in allowed_target_types for target in step.targets):
             raise ValidationError("目标类型与操作目录不一致")
@@ -163,12 +177,6 @@ def validate_plan(
                 raise ValidationError(
                     f"「{operation.label}」的参数不符合操作要求"
                 ) from error
-        if operation.permission == "read" and operation.apply is not None:
-            raise ConflictError("目录只读操作不能声明写入回调")
-        if operation.permission != "read" and operation.apply is None:
-            raise ConflictError("目录操作缺少执行回调")
-        if operation.transaction_mode == "multi_stage" and operation.read_result is None:
-            raise ConflictError("多阶段操作缺少领域回执接口，不能进入目标计划")
     return plan
 
 

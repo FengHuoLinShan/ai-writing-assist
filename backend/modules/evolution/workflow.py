@@ -252,6 +252,13 @@ async def _plan(db, novel_id, request):
 
         if await load_pending_optional_stage(store, run):
             raise ConflictError("请先完成或恢复当前 Scene 的可选阶段")
+        from modules.evolution.spatial_rescan import spatial_rescan_states
+
+        if previous.get("spatial_rescans") and any(
+            item["status"] in {"pending", "running"}
+            for item in await spatial_rescan_states(db, novel_id, run)
+        ):
+            raise ConflictError("请先完成或恢复当前空间补扫，再追加阅读")
         if bool(previous.get("spatial_version", 0)) != request.discover_spatial:
             raise ConflictError("追加章节不能静默启用或关闭空间发现")
         if (
@@ -1300,12 +1307,25 @@ async def _optional_coverage_summary(store, run, pending):
     }
     if pending and pending.payload.get("scene_index") is not None:
         frozen_by_index[int(pending.payload["scene_index"])] = pending.payload
-    if spatial_visible:
-        for operation in plan.get("spatial_rescans", []):
-            for attempt_id in operation.get("attempt_ids", []):
-                frozen = await store.load_frozen(run.run_key, attempt_id)
-                if frozen and frozen.payload.get("scene_index") is not None:
-                    frozen_by_index[int(frozen.payload["scene_index"])] = frozen.payload
+    if plan.get("spatial_rescans"):
+        from modules.evolution.spatial_rescan import (
+            _latest_completed_spatial_rescans,
+        )
+
+        origin_by_index = {
+            int(receipt.committed_scene_index): {
+                "run_key": receipt.run_key,
+                "attempt_id": receipt.attempt_key,
+                "source_manifest_hash": frozen.source_manifest_hash,
+            }
+            for receipt, frozen in pairs
+        }
+        completed_rescans = await _latest_completed_spatial_rescans(
+            store, run.run_key, plan
+        )
+        for index, frozen in completed_rescans.items():
+            if frozen.payload.get("spatial_rescan_origin") == origin_by_index.get(index):
+                frozen_by_index[index] = frozen.payload
     first = int(plan.get("recompute_from_scene_index", 0))
     scenes = [step for step in plan.get("steps", []) if step["scene_index"] >= first]
     result = {}

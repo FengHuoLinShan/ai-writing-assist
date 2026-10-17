@@ -8,6 +8,56 @@ from infrastructure.llm.collaboration import content_hash
 from modules.story.director_context import actor_packet, director_only_packet
 
 
+def director_pending_checkpoint_hash(branch) -> str:
+    return content_hash(
+        {
+            "branch_id": str(branch.id),
+            "request": branch.request_json or {},
+            "pending_round": branch.pending_round_json or {},
+        }
+    )
+
+
+def preview_director_resume(root_id: str, branch, envelope) -> dict:
+    snapshot = envelope.snapshot()
+    ledger = {
+        "requests_started": snapshot.requests_started,
+        "requests_settled": snapshot.requests_settled,
+        "requests_unknown": snapshot.requests_unknown,
+        "recent_attempts_overflow": snapshot.recent_attempts_overflow,
+        "request_limit": snapshot.request_limit,
+        "token_limit": snapshot.token_limit,
+        "tokens_used": snapshot.usage.total_tokens,
+        "usage_complete": snapshot.usage_complete,
+        "deadline_at": snapshot.deadline_at.isoformat() if snapshot.deadline_at else None,
+        "authorization_revision": snapshot.authorization_revision,
+    }
+    checkpoint_hash = director_pending_checkpoint_hash(branch)
+    preview_identity = {
+        "root_id": str(root_id),
+        "branch_id": str(branch.id),
+        "checkpoint_hash": checkpoint_hash,
+        "ledger": ledger,
+    }
+    return {
+        "preview_hash": content_hash(preview_identity),
+        "pending_checkpoint_hash": checkpoint_hash,
+        "current_budget": {
+            "requests_used": snapshot.requests_started,
+            "requests_authorized": snapshot.request_limit,
+            "tokens_used": snapshot.usage.total_tokens,
+            "tokens_authorized": snapshot.token_limit,
+            "unknown_requests": snapshot.requests_unknown,
+            "usage_complete": snapshot.usage_complete,
+            "deadline_at": ledger["deadline_at"],
+        },
+        "possible_charge": (
+            "恢复会复用已保存检查点；未得到结果的请求仅在作者明确确认后重试。"
+        ),
+        "warnings": ["恢复沿用原资料快照、累计账本和时限；资料变化时需要重新开始排演。"],
+    }
+
+
 def preview_director_budget(request, source: dict) -> dict:
     ids = list(request.character_ids)
     round_count = int(request.rounds)
@@ -95,6 +145,7 @@ def budget_stop_reason(
     acknowledged_unknown: int = 0,
     baseline_requests_started: int | None = None,
     baseline_recent_attempts_overflow: int | None = None,
+    check_soft_thresholds: bool = True,
 ) -> str | None:
     snapshot = envelope.snapshot()
     if snapshot.requests_unknown > acknowledged_unknown:
@@ -128,6 +179,18 @@ def budget_stop_reason(
             or snapshot.requests_unknown > acknowledged_unknown
         ):
             return "usage_incomplete"
+    if not check_soft_thresholds:
+        if snapshot.request_limit and snapshot.requests_started >= snapshot.request_limit:
+            return "request_budget_exhausted"
+        if snapshot.token_limit and snapshot.usage.total_tokens >= snapshot.token_limit:
+            return "token_budget_exhausted"
+        if snapshot.deadline_at is not None:
+            deadline = snapshot.deadline_at
+            if deadline.tzinfo is None:
+                deadline = deadline.replace(tzinfo=UTC)
+            if datetime.now(UTC) >= deadline:
+                return "time_budget_exhausted"
+        return None
     if snapshot.request_limit:
         if snapshot.requests_started / snapshot.request_limit >= 0.8:
             return "request_budget_80_percent"

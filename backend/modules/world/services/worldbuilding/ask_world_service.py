@@ -18,6 +18,7 @@ from infrastructure.llm.client import LLMClient
 from infrastructure.llm.redaction import redact_diagnostic
 from infrastructure.llm.schemas import LLMCallRequest, LLMMessage
 from infrastructure.stable_hash import stable_hash
+from modules.evidence import facade as evidence_facade
 from modules.evidence.contracts import ContextSnapshotRequest, VisibilityContextContract
 from modules.world.llm_schemas import GeneratedAskWorldOutput
 from modules.world.schemas import (
@@ -83,9 +84,7 @@ class AskWorldService:
     ) -> AskWorldResponse:
         prepared = None
         if data.context_confirmation_id:
-            from modules.evidence.facade import prepare_confirmed_ai_action
-
-            prepared = await prepare_confirmed_ai_action(
+            prepared = await evidence_facade.prepare_confirmed_ai_action(
                 db,
                 novel_id=data.novel_id,
                 action="world.ask",
@@ -313,35 +312,67 @@ class AskWorldService:
                 from modules.world.contracts import MapSpatialBriefRequest
                 from modules.world.facade import read_map_spatial_brief
 
-                current = await read_map_spatial_brief(
-                    db,
-                    MapSpatialBriefRequest(
+                if citation.map_context_confirmation_id:
+                    prepared = await evidence_facade.prepare_confirmed_ai_action(
+                        db,
                         novel_id=novel_id,
-                        scene_id=citation.map_scene_id,
-                        chapter_index=citation.map_chapter_index,
-                        reveal_mode="author_safe",
-                        query_text=citation.map_query_text,
-                        limit=20,
-                    ),
-                )
+                        action="world.ask",
+                        confirmation_id=citation.map_context_confirmation_id,
+                    )
+                    candidates = self._map_candidates_from_compiled(
+                        prepared.compiled,
+                        AskWorldQuestionRequest(
+                            novel_id=novel_id,
+                            question=citation.map_query_text,
+                            context_confirmation_id=citation.map_context_confirmation_id,
+                        ),
+                    )
+                    current_by_id = {
+                        item["citation"].map_baseline[0]["node_id"]: {
+                            **item["citation"].map_baseline[0],
+                            "content": item["content"],
+                        }
+                        for item in candidates
+                    }
+                else:
+                    current = await read_map_spatial_brief(
+                        db,
+                        MapSpatialBriefRequest(
+                            novel_id=novel_id,
+                            scene_id=citation.map_scene_id,
+                            chapter_index=citation.map_chapter_index,
+                            reveal_mode="author_safe",
+                            query_text=citation.map_query_text,
+                            limit=20,
+                        ),
+                    )
+                    current_by_id = {
+                        item.node_id: item.model_dump() for item in current.items
+                    }
                 baseline = citation.map_baseline
                 baseline_by_id = {
                     str(item.get("node_id") or ""): item for item in baseline
                 }
-                current_by_id = {item.node_id: item for item in current.items}
                 unchanged = bool(baseline) and all(
                     (item := current_by_id.get(node_id)) is not None
-                    and item.title == str(expected.get("title") or "")
-                    and item.revision_id == str(expected.get("revision_id") or "")
-                    and item.revision_hash == str(expected.get("revision_hash") or "")
-                    and item.content_hash == str(expected.get("content_hash") or "")
+                    and item["title"] == str(expected.get("title") or "")
+                    and item["revision_id"] == str(expected.get("revision_id") or "")
+                    and item["revision_hash"] == str(expected.get("revision_hash") or "")
+                    and item["content_hash"] == str(expected.get("content_hash") or "")
                     for node_id, expected in baseline_by_id.items()
                 )
                 text = "\n".join(
-                    current_by_id[node_id].content
+                    current_by_id[node_id]["content"]
                     for node_id in baseline_by_id
                     if node_id in current_by_id
                 )
+                if not citation.map_context_confirmation_id and not unchanged:
+                    return AskWorldCitationOpenResponse(
+                        status="stale",
+                        kind=citation.kind,
+                        title=citation.title,
+                        warnings=["原地图引用缺少资料范围凭据，请重新确认资料后提问。"],
+                    )
                 return AskWorldCitationOpenResponse(
                     status="current" if unchanged else "stale",
                     kind=citation.kind,
@@ -351,7 +382,13 @@ class AskWorldService:
                         hashlib.sha256(text.encode("utf-8")).hexdigest() if text else None
                     ),
                 )
-        except (NotFoundError, ValidationError, PydanticValidationError, ValueError):
+        except (
+            ConflictError,
+            NotFoundError,
+            ValidationError,
+            PydanticValidationError,
+            ValueError,
+        ):
             return AskWorldCitationOpenResponse(
                 status="unavailable",
                 kind=citation.kind,
@@ -549,6 +586,7 @@ class AskWorldService:
                             map_scene_id=metadata.get("scene_id"),
                             map_chapter_index=metadata.get("chapter_index"),
                             map_query_text=data.question,
+                            map_context_confirmation_id=data.context_confirmation_id,
                         ),
                     }
                 )

@@ -120,7 +120,25 @@ def migrate(direction, revision):
     )
 
 
-async def test_migration_keeps_legacy_quota_and_refuses_null_downgrade():
+@pytest.fixture
+def scope_budget_migration_database(monkeypatch):
+    from tests.e2e.test_00_fresh_migrations import _disposable_database
+
+    # Retained dossier history from other tests must keep blocking downgrade.
+    with _disposable_database() as (url, _engine):
+        monkeypatch.setattr(
+            sys.modules[__name__],
+            "DATABASE_URL",
+            url.render_as_string(hide_password=False),
+        )
+        result = migrate("upgrade", "head")
+        assert result.returncode == 0, result.stderr
+        yield
+
+
+async def test_migration_keeps_legacy_quota_and_refuses_null_downgrade(
+    scope_budget_migration_database,
+):
     engine = create_async_engine(DATABASE_URL, pool_size=1, max_overflow=0)
     sessions = async_sessionmaker(engine, expire_on_commit=False)
     nid = uuid4()

@@ -124,6 +124,35 @@ async def _unresolved_rescan_scenes(store, run_key, plan):
     return unresolved
 
 
+async def _latest_completed_spatial_rescans(store, run_key, plan):
+    latest = {}
+    for operation in plan.get("spatial_rescans", []):
+        for attempt_id in operation.get("attempt_ids", []):
+            frozen = await store.load_frozen(run_key, attempt_id)
+            if frozen is None:
+                continue
+            payload = frozen.payload
+            index = payload.get("scene_index")
+            origin = payload.get("spatial_rescan_origin") or {}
+            if (
+                payload.get("spatial_rescan_status") != "completed"
+                or payload.get("spatial_rescan_operation_id")
+                != operation.get("operation_id")
+                or not isinstance(index, int)
+                or origin.get("run_key") is None
+                or origin.get("source_manifest_hash") != frozen.source_manifest_hash
+            ):
+                continue
+            receipt = await store.load_committed_scene_receipt(
+                origin["run_key"],
+                index,
+                source_manifest_hash=origin["source_manifest_hash"],
+            )
+            if receipt and receipt.attempt_id == origin.get("attempt_id"):
+                latest[index] = frozen
+    return latest
+
+
 async def spatial_rescan_states(db, novel_id, run):
     entries = (run.reading_plan_json or {}).get("spatial_rescans", [])
     lifecycles = await list_task_lifecycle_contracts(
@@ -218,6 +247,9 @@ async def _plan(db, novel_id, run_key, request):
     unresolved_scenes = await _unresolved_rescan_scenes(
         store, run_key, run.reading_plan_json
     )
+    completed_rescans = await _latest_completed_spatial_rescans(
+        store, run_key, run.reading_plan_json
+    )
     plans = []
     for receipt, _ in pairs:
         index = receipt.committed_scene_index
@@ -228,6 +260,17 @@ async def _plan(db, novel_id, run_key, request):
             raise ConflictError("已读 Scene 冻结来源缺失，不能补扫")
         await require_current_prefix(db, store, origin, run_key=run_key)
         payload = origin.payload or {}
+        rescanned = completed_rescans.get(index)
+        expected_origin = {
+            "run_key": origin.run_id,
+            "attempt_id": origin.attempt_id,
+            "source_manifest_hash": origin.source_manifest_hash,
+        }
+        if (
+            rescanned
+            and rescanned.payload.get("spatial_rescan_origin") == expected_origin
+        ):
+            payload = rescanned.payload
         if index in unresolved_scenes:
             raise ConflictError("该 Scene 的补扫请求结果尚未核清，不能再次发送")
         if _unknown_spatial_call(payload):

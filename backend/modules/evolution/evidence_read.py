@@ -168,7 +168,10 @@ async def read_evolution_object_patterns(
                 EvolutionLedgerEntry.id == EvolutionLedgerRevision.entry_id,
             )
             .join(ranked, ranked.c.id == EvolutionLedgerRevision.id)
-            .where(ranked.c.position == 1)
+            .where(
+                ranked.c.position == 1,
+                EvolutionLedgerEntry.novel_id == nid,
+            )
             .order_by(
                 EvolutionLedgerRevision.scene_index.desc(),
                 EvolutionLedgerRevision.id,
@@ -250,7 +253,11 @@ async def read_evolution_object_patterns(
             continue
 
         review = (revision.body_json or {}).get("review") or {}
-        decision = (revision.body_json or {}).get("author_decision") or {}
+        decision = getattr(entry, "author_decision_json", None)
+        if decision is None:
+            decision = (revision.body_json or {}).get("author_decision")
+        if not isinstance(decision, dict):
+            decision = {}
         decision_key = str(decision.get("decision") or "")
         adopted = decision_key in {"keep", "corrected"}
         if decision_key in {"reject", "unreviewed"} and not adopted:

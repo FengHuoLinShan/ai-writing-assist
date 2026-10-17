@@ -23,7 +23,10 @@ watch(() => [props.projectId, prepared.value?.arguments?.operation_id], () => {
   preparedRejected.value = false
 }, { immediate: true })
 async function authorizePrepared() {
-  if (!prepared.value || preparedAttempted.value || busy.value || props.authorizationDisabled) return
+  if (!prepared.value || preparedAttempted.value || busy.value || props.authorizationDisabled || !preparedCanProceed.value) {
+    if (prepared.value && !preparedCanProceed.value) error.value = '当前理解状态已变化或仍有空间补扫进行中，请重新核对范围。'
+    return
+  }
   const frozen = JSON.parse(JSON.stringify(prepared.value)), projectId = props.projectId, token = generation
   const { run_key: runKey, ...args } = frozen.arguments
   let authorizedRunKey = null
@@ -80,7 +83,16 @@ function sourceSceneLabel(sceneId) {
 const optionalCoverage = computed(() => Object.entries(run.value?.optional_step_coverage || {}).filter(([name]) => ['spatial', 'details'].includes(name)))
 const scopeBudget = computed(() => (recomputeCompleted.value || ["failed", "source_changed"].includes(run.value?.status) ? state.value?.default_budget_mode : run.value?.budget_mode || state.value?.default_budget_mode) === "confirmed_scope")
 const enabled = computed(() => state.value?.engine?.engine === "evolution")
-const canStart = computed(() => enabled.value && (!run.value || ["completed", "stopped", "source_changed", "needs_budget"].includes(run.value.status) || (run.value.status === "failed" && run.value.total_scenes > 0 && !run.value.preparing_scenes)))
+const canStart = computed(() => enabled.value && !spatialRescanActive.value && (!run.value || ["completed", "stopped", "source_changed", "needs_budget"].includes(run.value.status) || (run.value.status === "failed" && run.value.total_scenes > 0 && !run.value.preparing_scenes)))
+const preparedCanProceed = computed(() => {
+  const value = prepared.value, args = value?.arguments || {}, currentRun = run.value
+  if (!value || !state.value || !canStart.value) return false
+  if (value.capability === 'evolution.prepare_spatial_rescan') return currentRun?.status === 'completed' && args.run_key === currentRun.run_key && !spatialRescanActive.value
+  if (value.capability !== 'evolution.prepare_spatial_reading') return false
+  const mode = currentRun?.status === 'completed' ? 'append' : currentRun?.status === 'needs_budget' ? 'continue' : currentRun?.status === 'source_changed' ? 'revise' : currentRun?.status === 'failed' ? 'scoped_recompute' : 'bootstrap'
+  if (mode === 'append' && args.discover_spatial && currentRun?.spatial_discovery_enabled === false) return false
+  return args.mode === mode && args.run_key === (mode === 'bootstrap' ? null : currentRun?.run_key)
+})
 const statusText = computed(() => ({
   completed: "所选范围理解已更新", pending: "等待读取正文", running: "正在读取正文、整理变化",
   failed: "理解中断，已完成部分保留", interrupted: "理解中断，已完成部分保留",
@@ -176,7 +188,7 @@ async function changeEngine(engine) {
   })
 }
 async function prepare() {
-  if (authorizationLocked.value) return
+  if (authorizationLocked.value || !canStart.value) return
   await perform(async current => {
     const append = run.value?.status === "completed"
     const continuing = run.value?.status === "needs_budget"
@@ -197,7 +209,7 @@ async function prepare() {
   })
 }
 async function start() {
-  if (rescanPending.value || spatialRescanPending.value) return
+  if ((!pending.value && (!canStart.value || !preview.value)) || rescanPending.value || spatialRescanPending.value) return
   await perform(async current => {
     pending.value ||= {
       ...preview.value.request, expected_fingerprint: preview.value.fingerprint,
@@ -391,7 +403,7 @@ watch(() => props.projectId, () => {
   scopeKind.value = "scene"; targetId.value = ""; targets.value = []; targetQuery.value = ""; targetTotal.value = 0; targetOffset.value = 0
   if (opened.value || props.entry) void refresh()
 })
-onMounted(() => { if (props.entry && !prepared.value) void refresh() })
+onMounted(() => { if (props.entry || prepared.value) void refresh() })
 onBeforeUnmount(() => { generation++; clearTimeout(timer) })
 </script>
 
@@ -407,8 +419,9 @@ onBeforeUnmount(() => { generation++; clearTimeout(timer) })
     <p v-for="(item, name) in preparedPreview.optional_steps || {}" :key="name">{{ name === 'spatial' ? '空间发现' : '细节发现' }}：预计 {{ item.request_range?.minimum || 0 }}—{{ item.request_range?.maximum ?? item.quota }} 次调用，独立额度 {{ item.quota }} 次。</p>
     <p>冻结模型：{{ preparedPreview.model || '请先核对演化配置' }}。</p>
     <p v-if="error" role="alert">{{ error }}</p>
+    <p v-if="!preparedCanProceed && !busy" role="status">当前理解状态已变化或仍有空间补扫进行中，请重新核对范围。</p>
     <p v-if="preparedAttempted && !preparedRejected" role="status">已发送过原授权请求；这里只核对回执，不重新发送。结果未知不代表未计费。</p>
-    <button v-if="!preparedAttempted" type="button" class="btn btn-primary" :disabled="busy || authorizationDisabled" @click="authorizePrepared">确认此范围与费用并启动演化</button>
+    <button v-if="!preparedAttempted" type="button" class="btn btn-primary" :disabled="busy || authorizationDisabled || !preparedCanProceed" @click="authorizePrepared">确认此范围与费用并启动演化</button>
     <button v-else-if="!preparedRejected" type="button" class="btn" :disabled="busy || authorizationDisabled" @click="emit('authorized', preparedRunKey())">核对原授权结果</button>
     <p v-else>请结束当前引导，再准备新的冻结预览。</p>
   </section>
@@ -551,6 +564,7 @@ onBeforeUnmount(() => { generation++; clearTimeout(timer) })
           </div>
         </template>
       </section>
+      <p v-if="spatialRescanActive" role="status">空间补扫正在进行，结束前不能追加阅读；请等待补扫完成后再准备理解范围。</p>
       <form v-if="canStart || pending" @submit.prevent="prepare">
         <div class="reading-fields">
           <p v-if="['needs_budget', 'source_changed', 'failed'].includes(run?.status) || recomputeCompleted">沿已确认范围读到第 {{ run.end_chapter }} 章。</p>
@@ -591,7 +605,7 @@ onBeforeUnmount(() => { generation++; clearTimeout(timer) })
           </ul>
           <p v-if="preview.spatial_discovery_enabled">可选步骤额度用完会留下未检查缺口；不会自动追加额度，也不会因空间发现失败中断主阅读。</p>
           <p>本次使用模型：{{ preview.model }}</p>
-          <button class="btn btn-primary" type="button" :disabled="busy || !!rescanPending || !!spatialRescanPending" @click="start">{{ pending ? "确认启动结果" : "确认并开始理解" }}</button>
+          <button class="btn btn-primary" type="button" :disabled="busy || spatialRescanActive || !!rescanPending || !!spatialRescanPending" @click="start">{{ pending ? "确认启动结果" : "确认并开始理解" }}</button>
         </div>
       </form>
     </template>

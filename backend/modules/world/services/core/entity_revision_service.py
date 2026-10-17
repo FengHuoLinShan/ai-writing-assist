@@ -447,8 +447,31 @@ class EntityRevisionService:
                 restored_fields.append(field_name)
 
             if update_values:
+                text_fields = {"summary", "public_info", "hidden_truth"} & set(
+                    update_values
+                )
+                clear_fields = {
+                    field
+                    for field in text_fields
+                    if update_values[field] is None
+                    or (
+                        isinstance(update_values[field], str)
+                        and not update_values[field].strip()
+                    )
+                }
+                for field in clear_fields:
+                    setattr(entity, field, None)
+                if clear_fields:
+                    await db.flush()
                 update_data = CoreEntityUpdate(**update_values)
                 await self._entity_repo.update(db, entity, update_data)
+                from modules.world.dossier_service import WorldObjectDossierService
+
+                dossier_service = WorldObjectDossierService()
+                for field in sorted(text_fields):
+                    await dossier_service.sync_core_entity_legacy_field(
+                        db, entity, field, getattr(entity, field), force_create=True
+                    )
         else:
             revisions, _ = await self._repo.get_revisions(
                 db,
@@ -491,7 +514,22 @@ class EntityRevisionService:
                     changed_by="rollback",
                 )
                 await self._invalidate_type_change(db, novel_id, entity_id)
+            clear_fields = set()
+            for field in ("summary", "public_info", "hidden_truth"):
+                value = getattr(update_data, field)
+                if value is None or (isinstance(value, str) and not value.strip()):
+                    setattr(entity, field, None)
+                    clear_fields.add(field)
+            if clear_fields:
+                await db.flush()
             await self._entity_repo.update(db, entity, update_data)
+            from modules.world.dossier_service import WorldObjectDossierService
+
+            dossier_service = WorldObjectDossierService()
+            for field in ("summary", "public_info", "hidden_truth"):
+                await dossier_service.sync_core_entity_legacy_field(
+                    db, entity, field, getattr(entity, field), force_create=True
+                )
             restored_fields = [
                 "summary",
                 "public_info",

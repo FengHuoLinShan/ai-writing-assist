@@ -51,6 +51,12 @@ export const story = {
     async previewSceneDirectorContinuation(rootId, payload = {}) {
       return post(`/story/director/roots/${rootId}/budget-preview`, payload)
     },
+    async previewSceneDirectorResume(rootId, payload = {}) {
+      return post(`/story/director/roots/${rootId}/budget-preview`, payload)
+    },
+    async resumeSceneDirector(rootId, payload = {}) {
+      return post(`/story/director/roots/${rootId}/branches`, payload)
+    },
     async continueSceneDirector(rootId, payload = {}) {
       return post(`/story/director/roots/${rootId}/branches`, payload)
     },

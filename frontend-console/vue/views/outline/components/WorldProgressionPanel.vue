@@ -150,7 +150,7 @@
               {{ previewLoading ? "正在预览…" : "预览预算与资料" }}
             </button>
             <button type="button" class="btn btn-primary" :disabled="busy || !budgetPreview || !canStart" @click="startRun">
-              {{ submitting ? "正在提交…" : "确认资料并推进" }}
+              {{ submitting ? "正在提交…" : "按已确认资料推进" }}
             </button>
           </div>
           <p v-if="!canPreview" class="world-progression__help">请选择参与者；导向推进还需要作者方向或目标节点。连续到目标模式需要至少一个目标。</p>
@@ -358,9 +358,10 @@
                     </details>
                   </div>
 
-                  <section v-if="!branch.deleted_at && authorizationFor(root)?.branch_id === branch.id" class="world-progression__continuous" aria-labelledby="progression-continuous-title">
-                    <div class="world-progression__section-heading"><div><span class="world-progression__step">05</span><h3 id="progression-continuous-title">持续推进提醒</h3></div><span class="world-progression__tag">{{ authorizationFor(root)?.enabled ? "已开启" : "默认关闭" }}</span></div>
+                  <section v-if="continuousSectionAvailable(root, branch)" class="world-progression__continuous" aria-labelledby="progression-continuous-title">
+                    <div class="world-progression__section-heading"><div><span class="world-progression__step">05</span><h3 id="progression-continuous-title">持续推进提醒</h3></div><span class="world-progression__tag">{{ authorizationFor(root)?.enabled ? "已开启" : authorizationFor(root)?.stop_reason ? "已停止" : "默认关闭" }}</span></div>
                     <p>读入新章达到你设定的门槛后，只在原根剩余额度内为长期离场且目标未完成的人物生成一步自由候选。这里只保存候选并合并提醒，不扩大预算，也不写入正文。</p>
+                    <p v-if="continuousStopNotice(root)" class="world-progression__help" role="status">{{ continuousStopNotice(root) }}</p>
                     <div v-if="authorizationFor(root)?.enabled" class="world-progression__budget-line">原根剩余：{{ formatNumber(authorizationFor(root)?.budget?.requests_authorized - authorizationFor(root)?.budget?.requests_used) }} 请求 · {{ formatNumber(authorizationFor(root)?.budget?.tokens_authorized - authorizationFor(root)?.budget?.tokens_used) }} Token · {{ authorizationFor(root)?.budget?.unknown_requests || 0 }} 个未知结果</div>
                     <fieldset class="world-progression__participants" :disabled="busy || authorizationFor(root)?.enabled">
                       <legend>允许自动候选推进的参与者</legend>
@@ -368,8 +369,8 @@
                     </fieldset>
                     <label class="world-progression__interval"><span>每有多少章新正文时检查</span><input v-model.number="continuousDraft.everyNewChapters" type="number" min="1" :disabled="busy || authorizationFor(root)?.enabled"></label>
                     <div class="world-progression__actions">
-                      <button v-if="!authorizationFor(root)?.enabled" type="button" class="btn btn-primary" :disabled="busy || !continuousDraft.participantIds.length" @click="setContinuous(root, branch, true)">确认持续授权</button>
-                      <button v-else type="button" class="btn" :disabled="busy" @click="setContinuous(root, branch, false)">关闭持续授权</button>
+                      <button v-if="canEnableContinuous(root, branch)" type="button" class="btn btn-primary" :disabled="busy || !continuousDraft.participantIds.length" @click="setContinuous(root, branch, true)">确认持续授权</button>
+                      <button v-else-if="authorizationFor(root)?.enabled" type="button" class="btn" :disabled="busy" @click="setContinuous(root, branch, false)">关闭持续授权</button>
                     </div>
                   </section>
                 </article>
@@ -436,6 +437,7 @@ const targetSearch = ref("")
 const participants = ref([])
 const targetOptions = ref([])
 const budgetPreview = ref(null)
+const budgetConfirmationId = ref("")
 const history = ref({ roots: [] })
 const comparison = ref(null)
 const taskProgress = ref(null)
@@ -742,6 +744,7 @@ function resetForProject() {
   participants.value = []
   targetOptions.value = []
   budgetPreview.value = null
+  budgetConfirmationId.value = ""
   history.value = { roots: [] }
   comparison.value = null
   compareSteps.first = ""
@@ -835,6 +838,7 @@ function onRunPolicyChanged() {
 
 function invalidatePreview() {
   if (budgetPreview.value) budgetPreview.value = null
+  budgetConfirmationId.value = ""
 }
 
 async function loadInitial() {
@@ -957,6 +961,23 @@ function requestPayload() {
   return payload
 }
 
+function confirmProgressionContext(projectId, sceneId) {
+  const payload = requestPayload()
+  return confirmAiReference({
+    novel_id: projectId,
+    action: "story.one_click.simulate",
+    task: "按已选择的人物和群体资料做世界推进候选推演",
+    scope: "scene",
+    scene_id: sceneId,
+    visible_until_scene_id: sceneId,
+    character_ids: payload.participants.filter((item) => item.kind === "character").map((item) => item.id),
+    entity_ids: payload.participants.filter((item) => item.kind === "group").map((item) => item.id),
+    include_pending_objects: false,
+    budget_tokens: 0,
+    user_note: form.mode === "directed" ? form.instructions : "",
+  })
+}
+
 async function previewBudget() {
   if (!canPreview.value || previewLoading.value) return
   const projectId = String(props.projectId)
@@ -965,11 +986,27 @@ async function previewBudget() {
   busy.value = true
   error.value = ""
   notice.value = ""
+  budgetPreview.value = null
+  budgetConfirmationId.value = ""
   try {
-    const result = await getApi().story.previewWorldProgressionBudget(projectId, requestPayload())
+    const api = getApi()
+    const cutoff = await api.story.previewWorldProgressionBudget(projectId, requestPayload())
     if (!owns(token, projectId)) return
+    const sceneId = String(cutoff?.scene_id || "")
+    if (!cutoff?.requires_context_confirmation || !sceneId) {
+      throw new Error("无法确定本次推进的截止场景，请刷新后重试。")
+    }
+    const confirmation = await confirmProgressionContext(projectId, sceneId)
+    if (!owns(token, projectId) || !confirmation?.id) return
+    const result = await api.story.previewWorldProgressionBudget(projectId, {
+      ...requestPayload(),
+      scene_id: sceneId,
+      context_confirmation_id: confirmation.id,
+    })
+    if (!owns(token, projectId)) return
+    budgetConfirmationId.value = confirmation.id
     budgetPreview.value = result
-    notice.value = "预览只读取当前资料，没有调用模型或写入候选历史。"
+    notice.value = "预算已按本次确认的资料范围计算；没有调用模型或写入候选历史。"
   } catch (cause) {
     if (owns(token, projectId)) {
       error.value = Number(cause?.status) === 409
@@ -993,26 +1030,15 @@ async function startRun() {
   error.value = ""
   notice.value = ""
   try {
-    const payload = requestPayload()
-    const confirmation = await confirmAiReference({
-      novel_id: projectId,
-      action: "story.one_click.simulate",
-      task: "按人物各自可知的资料进行世界推进候选推演",
-      scope: "scene",
-      scene_id: budgetPreview.value.scene_id,
-      visible_until_scene_id: budgetPreview.value.scene_id,
-      character_ids: payload.participants.filter((item) => item.kind === "character").map((item) => item.id),
-      entity_ids: payload.participants.filter((item) => item.kind === "group").map((item) => item.id),
-      include_pending_objects: false,
-      budget_tokens: 0,
-      user_note: form.mode === "directed" ? form.instructions : "",
-    })
-    if (!owns(token, projectId)) return
+    const payload = {
+      ...requestPayload(),
+      context_confirmation_id: budgetConfirmationId.value,
+    }
+    if (!payload.context_confirmation_id) throw new Error("请先确认资料范围并重新预览预算。")
     const operationId = createOperationId()
     const result = await getApi().story.startWorldProgression(projectId, {
       ...payload,
       scene_id: budgetPreview.value.scene_id,
-      context_confirmation_id: confirmation.id,
       budget_preview_hash: budgetPreview.value.preview_hash,
       operation_id: operationId,
     })
@@ -1021,6 +1047,7 @@ async function startRun() {
     activeTaskId = result.task_id
     notice.value = "世界推进已提交；结果仍是候选，不会写入正史。"
     budgetPreview.value = null
+    budgetConfirmationId.value = ""
     startPolling(result.task_id, projectId, token)
   } catch (cause) {
     if (owns(token, projectId)) {
@@ -1116,12 +1143,15 @@ async function readAuthorizationForLatestRoot(token, projectId) {
     return
   }
   try {
-    const branch = root.branches[0]
+    const branch = root.branches.find((item) => !item.deleted_at) || root.branches[0]
     const auth = await getApi().story.readWorldProgressionContinuousAuthorization(projectId, root.id, branch.id)
     if (!owns(token, projectId)) return
     activeAuthorization.value = auth
-    activeAuthorizationRootId.value = root.id
-    continuousDraft.participantIds = [...(auth?.participant_ids || [])]
+    activeAuthorizationRootId.value = auth?.root_id || root.id
+    continuousDraft.participantIds = auth?.stop_reason === "confirmation_scope_changed"
+      && auth.root_id !== root.id
+      ? []
+      : [...(auth?.participant_ids || [])]
     continuousDraft.everyNewChapters = Number(auth?.every_new_chapters || 3)
   } catch (cause) {
     if (owns(token, projectId)) historyError.value = cause?.message || "持续授权状态读取失败。"
@@ -1453,7 +1483,68 @@ function participantsForRoot(root) {
 }
 
 function authorizationFor(root) {
-  return activeAuthorizationRootId.value === root.id ? activeAuthorization.value : null
+  if (activeAuthorizationRootId.value === root.id) return activeAuthorization.value
+  const authorization = activeAuthorization.value
+  const latestRoot = (history.value.roots || []).find((item) => latestCompletedBranch(item))
+  return authorization?.stop_reason === "confirmation_scope_changed"
+    && !authorization.enabled
+    && latestRoot?.id === root.id
+    ? authorization
+    : null
+}
+
+function latestCompletedBranch(root) {
+  return (root.branches || []).filter(
+    (item) => !item.deleted_at && item.status === "complete",
+  ).at(-1) || null
+}
+
+function latestCompletedBranchMatches(root, branch) {
+  const latestRoot = (history.value.roots || []).find((item) => latestCompletedBranch(item))
+  return latestRoot?.id === root.id && latestCompletedBranch(root)?.id === branch.id
+}
+
+function continuousSectionAvailable(root, branch) {
+  if (branch.deleted_at) return false
+  const authorization = authorizationFor(root)
+  if (authorization?.branch_id && authorization.root_id === root.id) {
+    return authorization.branch_id === branch.id
+  }
+  if (authorization?.stop_reason === "confirmation_scope_changed") {
+    return latestCompletedBranchMatches(root, branch)
+  }
+  return !authorization?.branch_id
+    && activeAuthorizationRootId.value === root.id
+    && latestCompletedBranchMatches(root, branch)
+}
+
+function canEnableContinuous(root, branch) {
+  const authorization = authorizationFor(root)
+  if (authorization?.enabled) return false
+  if (authorization?.stop_reason === "confirmation_scope_changed") {
+    return authorization.root_id !== root.id && latestCompletedBranchMatches(root, branch)
+  }
+  if (authorization?.branch_id) return authorization.branch_id === branch.id
+  return activeAuthorizationRootId.value === root.id
+    && latestCompletedBranchMatches(root, branch)
+}
+
+function continuousStopNotice(root) {
+  const authorization = authorizationFor(root)
+  const reason = authorization?.stop_reason
+  if (reason === "confirmation_scope_changed") {
+    if (authorization.root_id !== root.id) {
+      return "旧根授权因资料截止点变化已停止；确认后，新授权将绑定到当前推进根。"
+    }
+    return "资料截止点已变化，请从最新 Scene 新建推进并重新开启持续提醒。"
+  }
+  if (reason === "latest_scene_unavailable") {
+    return "当前没有可用的已写 Scene，请从最新 Scene 新建推进并重新开启持续提醒。"
+  }
+  if (reason) {
+    return "原资料确认无法继续使用，请重新确认资料后再开启持续提醒。"
+  }
+  return ""
 }
 
 async function setContinuous(root, branch, enabled) {
@@ -1490,7 +1581,13 @@ async function setContinuous(root, branch, enabled) {
     })
     if (!owns(token, projectId)) return
     activeAuthorization.value = result
-    activeAuthorizationRootId.value = root.id
+    activeAuthorizationRootId.value = enabled
+      ? root.id
+      : (history.value.roots || []).find((item) =>
+        (item.branches || []).some(
+          (candidate) => !candidate.deleted_at && candidate.status === "complete",
+        ),
+      )?.id || root.id
     continuousDraft.participantIds = [...(result.participant_ids || [])]
     notice.value = enabled ? "持续授权已开启；只使用原根剩余预算。" : "持续授权已关闭。"
   } catch (cause) {
@@ -1586,7 +1683,7 @@ async function startDirectorFromIntersection() {
       request_limit: Number(directorDraft.requestLimit),
       token_limit: Number(directorDraft.tokenLimit),
       time_budget_seconds: Number(directorDraft.timeBudgetMinutes) * 60,
-      instructions: "从作者明确选择的世界推进候选交汇起点进行排演。",
+      instructions: "从作者选择的世界推进交汇候选开始一轮场景导演排演。",
       divergence: "balanced",
       intervention: directorDraft.intervention,
       context_confirmation_id: confirmation.id,

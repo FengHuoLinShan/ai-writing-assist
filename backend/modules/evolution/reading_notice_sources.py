@@ -531,6 +531,8 @@ async def list_reading_notices(
         )
     ).all()
     for run in runs:
+        if run.status == "drained":
+            continue
         attention = await _run_attention(
             db,
             novel_id,

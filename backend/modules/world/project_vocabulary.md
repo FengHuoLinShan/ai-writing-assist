@@ -77,8 +77,9 @@ invalidate_model_vocabulary_evidence(db, novel_id, invalid_scene_ids)
 ```
 
 `resolve_vocabulary_type_revisions` 仅回传精确同项目 `(type_ref, type_revision_id)` 配对，traits 来自
-固定修订快照，状态来自词条当前生命周期；缺失或跨项目引用 fail-closed。作者、数据库迁移与 API 聚合之外，
-本模块不执行模型调用或正典写入。
+固定修订快照，状态来自词条当前生命周期；缺失或跨项目引用 fail-closed。地图空间解析启用
+`follow_merged_redirects` 时，合并身份的显示内容仍来自原固定修订，计算特性沿重定向链取最终目标当前修订；
+目标归档或涌现中时仍不可计算。作者、数据库迁移与 API 聚合之外，本模块不执行模型调用或正典写入。
 
 ## 存储集成
 

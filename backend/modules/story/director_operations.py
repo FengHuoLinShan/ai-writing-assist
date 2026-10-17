@@ -8,6 +8,7 @@ from modules.project.facade import require_active_project
 from modules.story.director_budget import (
     preview_director_budget,
     preview_director_continuation,
+    preview_director_resume,
 )
 from modules.story.director_candidate_transfer import (
     preview_director_candidate_transfer,
@@ -26,6 +27,7 @@ from modules.story.director_schemas import (
     DirectorStartRequest,
 )
 from modules.story.director_service import (
+    get_director_branch,
     get_director_root,
     get_director_round,
     read_director_history_view,
@@ -123,6 +125,26 @@ async def _apply_start(db, novel_id, args, preview, *, context=None):
 async def _continuation_preview(db, novel_id, args):
     _require_project(novel_id, args)
     await require_active_project(db, novel_id)
+    if getattr(args, "resume_branch_id", None) is not None:
+        from infrastructure.llm.schemas import read_ai_run_envelope
+        from infrastructure.llm.workflow_budget import AIRunEnvelope
+
+        branch = await get_director_branch(db, novel_id, str(args.resume_branch_id))
+        root = await get_director_root(db, novel_id, str(branch.root_id))
+        if branch.status not in {"paused_budget", "paused_unknown"}:
+            raise ValueError("只有预算或未知用量暂停的分支可以恢复")
+        envelope = read_ai_run_envelope(root.run_envelope_json)
+        if (
+            envelope is None
+            or envelope.run_id != str(root.id)
+            or envelope.root_capability_id != "story.scene_director"
+        ):
+            raise ValueError("累计预算账本不可恢复，已停止续算")
+        return (
+            root,
+            None,
+            preview_director_resume(str(root.id), branch, AIRunEnvelope(envelope)),
+        )
     parent, _ = await get_director_round(db, novel_id, str(args.parent_round_id))
     root = await get_director_root(db, novel_id, str(parent.root_id))
     current_source = await read_director_source(
@@ -188,7 +210,11 @@ async def _continuation_preview(db, novel_id, args):
 
 
 async def _prepare_continue(db, novel_id, args, *, context=None):
-    if not (args.additional_requests or args.additional_tokens) and args.rounds == 1:
+    if (
+        getattr(args, "resume_branch_id", None) is None
+        and not (args.additional_requests or args.additional_tokens)
+        and args.rounds == 1
+    ):
         raise ValueError("单轮且不追加额度请使用原预算推进入口")
     _root, _parent, preview = await _continuation_preview(db, novel_id, args)
     if preview["preview_hash"] != args.budget_preview_hash:
@@ -201,10 +227,15 @@ async def _apply_continue(db, novel_id, args, preview, *, context=None):
     from modules.story.director_api import continue_director_root
 
     await require_active_project(db, novel_id)
-    parent, _ = await get_director_round(db, novel_id, str(args.parent_round_id))
+    if getattr(args, "resume_branch_id", None) is not None:
+        branch = await get_director_branch(db, novel_id, str(args.resume_branch_id))
+        root_id = str(branch.root_id)
+    else:
+        parent, _ = await get_director_round(db, novel_id, str(args.parent_round_id))
+        root_id = str(parent.root_id)
     result = await continue_director_root(
         db,
-        root_id=str(parent.root_id),
+        root_id=root_id,
         data=args,
     )
     return result.model_dump(mode="json")
@@ -212,6 +243,8 @@ async def _apply_continue(db, novel_id, args, preview, *, context=None):
 
 async def _prepare_advance(db, novel_id, args, *, context=None):
     _require_project(novel_id, args)
+    if getattr(args, "resume_branch_id", None) is not None:
+        raise ValueError("暂停回合恢复请使用续算操作")
     root, _parent, preview = await _continuation_preview(db, novel_id, args)
     if context is not None:
         from core.container import get

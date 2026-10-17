@@ -175,6 +175,13 @@ class WorldEntityService(
                 else {}
             ),
         )
+        from modules.world.dossier_service import WorldObjectDossierService
+
+        dossier_service = WorldObjectDossierService()
+        for field in ("summary", "public_info", "hidden_truth"):
+            await dossier_service.sync_core_entity_legacy_field(
+                db, obj, field, getattr(obj, field), force_create=True
+            )
         if obj.status == "canonical":
             if obj.entity_type == "character":
                 from modules.world.services.core.character_service import (
@@ -652,6 +659,19 @@ class WorldEntityService(
 
         updated = await self.repo.update(db, existing, data)
         self._assert_found_in_novel(updated, id, nid)
+        dossier_fields = (_NULLABLE_CLEAR_FIELDS & changed.keys()) | clear_fields
+        if dossier_fields:
+            from modules.world.dossier_service import WorldObjectDossierService
+
+            dossier_service = WorldObjectDossierService()
+            for field in sorted(dossier_fields):
+                await dossier_service.sync_core_entity_legacy_field(
+                    db,
+                    updated,
+                    field,
+                    getattr(updated, field),
+                    force_create=True,
+                )
         await revision_service.record_change_summary(
             db,
             snapshot_result["revision_id"],
@@ -998,6 +1018,13 @@ class WorldEntityService(
         updated = await self.repo.update(db, entity, update_data)
         self._assert_found_in_novel(updated, entity_id, nid)
         assert updated is not None
+        from modules.world.dossier_service import WorldObjectDossierService
+
+        dossier_service = WorldObjectDossierService()
+        for field in ("summary", "public_info", "hidden_truth"):
+            await dossier_service.sync_core_entity_legacy_field(
+                db, updated, field, getattr(updated, field), force_create=True
+            )
         if updated.entity_type == "character":
             from modules.world.services.core.character_service import CharacterService
 

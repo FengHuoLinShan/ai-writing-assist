@@ -8,7 +8,7 @@ import uuid
 from dataclasses import asdict
 from typing import Any
 
-from sqlalchemy import func, or_, select
+from sqlalchemy import case, func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from core.errors import ConflictError, NotFoundError, ValidationError
@@ -186,6 +186,9 @@ async def _load_build_rows(
                     MapSpatialClueRecord.novel_id == parse_uuid(novel_id, "novel_id"),
                     MapSpatialClueRecord.run_id == request.run_id,
                     MapSpatialClueRecord.scene_index <= request.through_scene_index,
+                    MapSpatialClueRecord.status.in_(
+                        ["pending_review", "pending_verification", "adopted"]
+                    ),
                 )
                 .order_by(
                     MapSpatialClueRecord.scene_index,
@@ -320,6 +323,7 @@ async def _validated_clue_inputs(
                 row,
                 clue,
                 allow_identity_transitions=True,
+                allow_author_confirmed_transitions=True,
                 resolved_sources=resolved_sources,
             )
             _matching_source_hash(clue, resolved_sources)
@@ -587,7 +591,7 @@ async def _ensure_location_nodes(
                 MapAtlasNode.merged_into_node_id.is_(None),
             )
             .order_by(
-                MapAtlasNode.status.desc(),
+                case((MapAtlasNode.status == "adopted", 0), else_=1),
                 MapAtlasNode.updated_at.desc(),
                 MapAtlasNode.id,
             )
@@ -1428,22 +1432,32 @@ async def invalidate_auto_drafts_for_clue(
     ).all()
     changed = 0
     for batch in batches:
-        references = [
-            source_id
-            for ref in batch.result_refs or []
-            for source_id in ref.get("source_clue_ids", [])
-        ]
         plan = batch.plan_json or {}
         planned = [
             *plan.get("clue_ids", []),
             *plan.get("valid_clue_ids", []),
         ]
         tray_clues = [str(item.get("clue_id")) for item in batch.tray_items or []]
-        if clue_key not in {*references, *planned, *tray_clues}:
+        refs = [dict(item) for item in batch.result_refs or []]
+        if batch.status == "running":
+            references = [
+                source_id for ref in refs for source_id in ref.get("source_clue_ids", [])
+            ]
+            if clue_key in {*references, *planned, *tray_clues}:
+                batch.status = "stale"
+                batch.stale_reason = reason[:2000]
+                changed += 1
             continue
-        batch.status = "stale"
-        batch.stale_reason = reason[:2000]
-        changed += 1
+        affected = False
+        for ref in refs:
+            if ref.get("status") == "candidate" and clue_key in ref.get(
+                "source_clue_ids", []
+            ):
+                ref["status"] = "stale"
+                affected = True
+        if affected:
+            batch.result_refs = refs
+            changed += 1
     if changed:
         await db.flush()
     return changed
@@ -1592,7 +1606,10 @@ async def _auto_draft_document(
             if entity_id is None:
                 continue
             feature_modalities.setdefault(entity_id, set()).add(str(clue.modality))
-            feature_effective.setdefault(entity_id, []).append(clue.attributes.effective)
+            if clue.kind == "effective_change":
+                feature_effective.setdefault(entity_id, []).append(
+                    clue.attributes.effective
+                )
             source = item["source"]
             if source is not None:
                 sources = feature_sources.setdefault(entity_id, [])
@@ -2236,6 +2253,8 @@ async def list_map_auto_drafts(
                 dependency_stale = bool(invalid) or len(_valid) != len(dependency_rows)
         if dependency_stale:
             warnings.append("草图依赖的来源或线索已变化，请重新映射")
+        elif ref.get("status") == "stale":
+            warnings.append("草图所依赖的空间线索已结束，请重新生成")
         pending = [
             MapAutoDraftTrayItem.model_validate(item)
             for item in _tray_dicts_for_node(batch, node.id)
@@ -2270,7 +2289,11 @@ async def list_map_auto_drafts(
                     )
                 ],
                 redo_reason=(batch.plan_json or {}).get("redo_reason"),
-                stale=batch.status == "stale" or dependency_stale,
+                stale=(
+                    batch.status == "stale"
+                    or dependency_stale
+                    or ref.get("status") == "stale"
+                ),
                 warnings=list(dict.fromkeys(warnings)),
             )
         )
@@ -2313,14 +2336,27 @@ async def redo_map_auto_drafts(
         raise ConflictError("草图批次已经变化，请刷新后重做")
     redo_suffix = f":redo:{uuid.uuid4().hex[:12]}"
     redo_key = f"{batch.build_key[: 120 - len(redo_suffix)]}{redo_suffix}"
-    source_clue_ids = sorted(
-        {
-            clue_id
-            for ref in (batch.result_refs or [])
-            for clue_id in ref.get("source_clue_ids", [])
-        }
-        | {str(item) for item in (batch.plan_json or {}).get("clue_ids", [])}
-    )
+    source_clue_ids = {
+        clue_id
+        for ref in (batch.result_refs or [])
+        for clue_id in ref.get("source_clue_ids", [])
+    } | {str(item) for item in (batch.plan_json or {}).get("clue_ids", [])}
+    current_rows = (
+        await db.execute(
+            select(MapSpatialClueRecord.id, MapSpatialClueRecord.status).where(
+                MapSpatialClueRecord.novel_id == parse_uuid(novel_id, "novel_id"),
+                MapSpatialClueRecord.id.in_(
+                    [parse_uuid(item, "clue_id") for item in source_clue_ids]
+                ),
+            )
+        )
+    ).all()
+    ended_clue_ids = {
+        str(clue_id)
+        for clue_id, status in current_rows
+        if status in {"rejected", "superseded"}
+    }
+    source_clue_ids = sorted(source_clue_ids - ended_clue_ids)
     return await build_map_auto_drafts(
         db,
         novel_id,
@@ -2430,6 +2466,7 @@ async def _placement_document(
         clue_row,
         clue,
         allow_identity_transitions=True,
+        allow_author_confirmed_transitions=True,
     )
     resolved_sources = await _resolve_binding(
         db,
@@ -2489,7 +2526,9 @@ async def _placement_document(
             sources=[canonical_source] if canonical_source is not None else [],
             note="作者手动放置；地点身份仍按 World 门禁审核",
             modality=clue.modality,
-            effective=clue.attributes.effective,
+            effective=(
+                clue.attributes.effective if clue.kind == "effective_change" else None
+            ),
         )
         document.features.append(feature)
     else:

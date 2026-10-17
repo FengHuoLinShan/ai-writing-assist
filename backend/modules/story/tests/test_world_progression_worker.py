@@ -137,19 +137,25 @@ async def test_world_progression_worker_persists_offline_steps(
         "object_validity_notices": [],
     }
 
-    async def read_source(_db, **_kwargs):
+    source_read_kwargs = {}
+
+    async def read_source(_db, **kwargs):
+        source_read_kwargs.update(kwargs)
         return source
 
     async def validate_refs(_db, _novel_id, _context):
         return None
 
+    confirmed_context = SimpleNamespace(compiled=object())
+
     async def confirmed(_db, **_kwargs):
         return SimpleNamespace(
+            compiled=confirmed_context.compiled,
             compile_options={
                 "scene_id": str(scene_id),
                 "character_ids": [str(actor)],
                 "entity_ids": [],
-            }
+            },
         )
 
     provider = _Provider()
@@ -257,6 +263,7 @@ async def test_world_progression_worker_persists_offline_steps(
     await TaskWorker(db_manager=_Manager(isolated_worker_engine, sessions)).run_once(
         task_id=task_id, novel_id=novel_id
     )
+    assert source_read_kwargs["confirmed_context"].compiled is confirmed_context.compiled
     async with sessions() as db:
         task = await db.get(AsyncTask, task_id)
         root = await db.get(StoryWorldProgressionRoot, root_id)

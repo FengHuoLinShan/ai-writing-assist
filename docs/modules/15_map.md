@@ -609,8 +609,10 @@ canonical 变化继续检查已保存地图与相同模式草图；working 变�
 
 ## 写作参考空间简报（M3 v1）
 
-Evidence 通过 World `read_map_spatial_brief` 只读 facade 消费已采用节点的 saved head，绝不直接查询地图表。简报包含已知当前地点的上级链、明示的邻接/通路/方位、相关行程与条件，以及本场移动对象有精确来源和明确 `scene_index` 的最新位置；没有显式 Scene 地点时不推断，只能返回本场移动对象位置。来源引文/hash、World `check_knowledge_visibility`、ReaderReveal 与角色知识边界均在投影时重验；`author_full` 不跳过这些检查。类型仅使用固定修订的名称/描述作为文字，计算特性只读当前 active 类型。
+Evidence 通过 World `read_map_spatial_brief` 只读 facade 消费已采用节点的 saved head，绝不直接查询地图表。简报包含已知当前地点的上级链、明示的邻接/通路/方位、相关行程与条件，以及本场移动对象有精确来源和明确 `scene_index` 的最新位置；没有显式 Scene 地点时不推断，只能返回本场移动对象位置。来源引文/hash、World `check_knowledge_visibility`、ReaderReveal 与角色知识边界均在投影时重验；`author_full` 不跳过这些检查。类型仅使用固定修订的名称/描述作为文字；计算特性来自 active 类型，被合并类型沿重定向链读取最终目标的当前特性，归档或涌现中的目标仍不参与计算。
 作者排除的正文 draft、章节或原文范围同时约束地图来源与移动位置的投影来源；精确地图修订和项目类型修订的排除同样生效，不因通过地图间接读取而重新纳入已排除资料。
+
+自动草图的隐式范围不含已拒绝或被取代的线索；同一地点优先复用已采用节点。已完成批次的来源线索失效只影响依赖该线索的候选，不冻结其他候选。通路与行程的有效期不写到两端地点；只有地点有效期变更线索设置地点区间。读者预览中的行程必须有原文引文，作者安排本身不能作为读者已知事实。
 
 ## 空间提醒与地理前瞻（M4）
 
@@ -626,6 +628,8 @@ unknown。响应的 `map_revisions` 包含实际核对过但未触发提醒的�
 Ask World 没有明确 Scene 或截止章节时不猜范围，已有地图会在参考回执提示先选择范围，
 无地图则不添加提示。作者可在现有参考确认弹窗输入章节；已确认 Context 按冻结的
 Scene/章节、选择与排除范围取得地图参考，回答引用携带同一时点并在打开或保存前重新核对。
+已确认问答的地图引用同时保留原确认 ID，回开时重新物化同一确认，只显示仍保留的地图条目；
+确认失效时返回来源不可用，不回退为无排除范围的地图读取。
 
 七个 Evidence consumer 与 Assistant v5/v6 的只读地图工具各有独立 `MAP_SPATIAL_ENABLED_CAPABILITIES` 开关，默认空集合。简报最多 20 个地图节点、每节点 3000 字符；作者排除、失效来源、超出预算或范围的参考写入 advisory 省略信息，不使必查知识范围阻断。Context confirmation 保存节点 revision/hash；地图变化时沿用 G8b `read_map_node_heads` 读时提示，不回写核对状态。五题材 paired eval 尚未运行，`human_validated=false`，因此所有消费开关保持关闭。
 

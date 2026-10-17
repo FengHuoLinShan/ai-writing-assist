@@ -33,7 +33,10 @@ from tests.e2e.config import require_e2e_database_url
 pytestmark = pytest.mark.e2e
 
 
-async def test_tray_json_and_lineage_survive_reload_with_same_project_fk(db_session):
+@pytest.mark.parametrize("kind", ["connection", "effective_change"])
+async def test_tray_json_and_lineage_survive_reload_with_same_project_fk(
+    db_session, kind
+):
     novel_id, other_id = uuid4(), uuid4()
     db_session.add_all(
         [
@@ -51,6 +54,7 @@ async def test_tray_json_and_lineage_survive_reload_with_same_project_fk(db_sess
         str(novel_id),
         modality="character_statement",
         effective=True,
+        kind=kind,
     )
     built = await build_map_auto_drafts(
         db_session, str(novel_id), _build_request(scene, clue)
@@ -99,7 +103,9 @@ async def test_tray_json_and_lineage_survive_reload_with_same_project_fk(db_sess
     revision = await db_session.get(MapAtlasRevision, placed.revision_id)
     assert revision.base_revision_id == ref.revision_id
     assert revision.change_summary == {"auto_draft_review_base_revision_id": None}
-    assert revision.document["features"][0]["effective"] is not None
+    assert (revision.document["features"][0]["effective"] is not None) == (
+        kind == "effective_change"
+    )
     replay = await place_map_auto_draft_tray_item(*args, confirmed)
     assert replay.revision_id == placed.revision_id
     assert (

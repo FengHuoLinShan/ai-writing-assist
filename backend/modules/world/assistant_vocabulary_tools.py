@@ -157,7 +157,8 @@ def _ensure_unique(
     by_id: dict[str, dict], kind: str, fields: VocabularyTermFields, ignored: set[str]
 ) -> None:
     candidate = _keys(fields)
-    for item_id, item in by_id.items():
+    for item_id, original in by_id.items():
+        item = original
         resolved_id = item_id
         seen = set()
         while item["status"] == "merged":
@@ -168,10 +169,10 @@ def _ensure_unique(
             resolved_id = redirect
             item = by_id[redirect]
         if (
-            item["kind"] == kind
+            original["kind"] == kind
             and item_id not in ignored
             and resolved_id not in ignored
-            and candidate & _keys(item)
+            and candidate & _keys(original)
         ):
             raise ConflictError("同一词表种类中已存在同名或等价别名")
 

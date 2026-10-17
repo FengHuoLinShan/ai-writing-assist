@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from copy import deepcopy
+from uuid import UUID
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -270,6 +271,7 @@ async def test_borrowed_facets_csv_manifest_roundtrip_and_receipt_rollback(
         select(WorldObjectDossierEntry).where(
             WorldObjectDossierEntry.novel_id == custom_row.novel_id,
             WorldObjectDossierEntry.entity_id == xlsx_entity.id,
+            WorldObjectDossierEntry.vocabulary_term_id == UUID(source_term.json()["id"]),
             WorldObjectDossierEntry.status == "active",
         )
     )
@@ -337,6 +339,7 @@ async def test_borrowed_facets_csv_manifest_roundtrip_and_receipt_rollback(
         select(WorldObjectDossierEntry).where(
             WorldObjectDossierEntry.novel_id == custom_row.novel_id,
             WorldObjectDossierEntry.entity_id == source_entity.id,
+            WorldObjectDossierEntry.vocabulary_term_id == UUID(source_term.json()["id"]),
             WorldObjectDossierEntry.status == "active",
         )
     )
@@ -348,10 +351,17 @@ async def test_borrowed_facets_csv_manifest_roundtrip_and_receipt_rollback(
     )
     assert manifest_response.status_code == 200, manifest_response.text
     manifest = manifest_response.json()
-    assert manifest["entries"][0]["source"] == "spreadsheet_migration"
+    assert len(manifest["entries"]) == 2
+    project_index = next(
+        index
+        for index, entry in enumerate(manifest["entries"])
+        if entry["facing"]["kind"] == "project"
+    )
+    assert manifest["entries"][project_index]["source"] == "spreadsheet_migration"
+    assert any(entry["content"] == "沉着的剑修" for entry in manifest["entries"])
 
     forged = deepcopy(manifest)
-    forged["entries"][0]["content"] = "伪造来源内容"
+    forged["entries"][project_index]["content"] = "伪造来源内容"
     forged_preview = await async_client.post(
         f"/api/world/entities/{source_entity.id}/dossier/manifest/preview",
         params={"novel_id": novel_id},
@@ -373,7 +383,7 @@ async def test_borrowed_facets_csv_manifest_roundtrip_and_receipt_rollback(
         json=preview_request,
     )
     assert preview.status_code == 200, preview.text
-    assert preview.json()["create_count"] == 1
+    assert preview.json()["create_count"] == len(manifest["entries"])
     imported = await async_client.post(
         f"/api/world/entities/{copy_id}/dossier/manifest/apply",
         params={"novel_id": novel_id},
@@ -384,14 +394,14 @@ async def test_borrowed_facets_csv_manifest_roundtrip_and_receipt_rollback(
         },
     )
     assert imported.status_code == 200, imported.text
-    assert imported.json()["applied_count"] == 1
+    assert imported.json()["applied_count"] == len(manifest["entries"])
     replay_preview = await async_client.post(
         f"/api/world/entities/{copy_id}/dossier/manifest/preview",
         params={"novel_id": novel_id},
         json=preview_request,
     )
     assert replay_preview.status_code == 200, replay_preview.text
-    assert replay_preview.json()["already_imported_count"] == 1
+    assert replay_preview.json()["already_imported_count"] == len(manifest["entries"])
     stale_apply = await async_client.post(
         f"/api/world/entities/{copy_id}/dossier/manifest/apply",
         params={"novel_id": novel_id},
@@ -448,7 +458,13 @@ async def test_borrowed_facets_csv_manifest_roundtrip_and_receipt_rollback(
     imported_read = await async_client.get(
         f"/api/world/entities/{copy_id}/dossier", params={"novel_id": novel_id}
     )
-    assert imported_read.json()["entries"][0]["visibility"] == "secret"
+    imported_project = next(
+        entry
+        for entry in imported_read.json()["entries"]
+        if entry["facing"]["kind"] == "project"
+    )
+    assert imported_project["visibility"] == "secret"
+    assert imported_project["content"] == "已至金丹初期"
 
 
 async def test_manifest_apply_rechecks_source_revision_after_preview(

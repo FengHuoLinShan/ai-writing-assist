@@ -209,6 +209,47 @@ describe("SceneDirectorPanel", () => {
     expect(api.story[other]).not.toHaveBeenCalled()
   })
 
+  it("resumes a paused first-round branch with its preview identity and explicit allowance", async () => {
+    api.story.sceneDirectorHistory.mockResolvedValue({
+      ...history("scene-a"),
+      roots: [{ id: "root-a", character_ids: ["actor-a"] }],
+      branches: [{ id: "branch-a", root_id: "root-a", branch_kind: "start", status: "paused_budget", round_ids: [] }],
+      rounds: [],
+    })
+    api.story.previewSceneDirectorResume = vi.fn(async () => ({
+      preview_hash: "b".repeat(64),
+      current_budget: { requests_used: 2, requests_authorized: 2, tokens_used: 20, tokens_authorized: 1000, unknown_requests: 0 },
+      possible_charge: "复用检查点",
+    }))
+    api.story.resumeSceneDirector = vi.fn(async () => ({ task_id: "task-resume" }))
+    const wrapper = mountPanel("scene-a")
+    await flushPromises()
+    await wrapper.findAll("button").find((button) => button.text() === "恢复暂停回合").trigger("click")
+    const resumePanel = wrapper.get('section[aria-labelledby="director-resume-title"]')
+    await resumePanel.findAll("label").find((label) => label.text().includes("新增请求额度")).get("input").setValue(2)
+    await resumePanel.findAll("button").find((button) => button.text() === "预览恢复与累计预算").trigger("click")
+    await flushPromises()
+    expect(resumePanel.find("button.btn-primary").element.disabled).toBe(false)
+    await resumePanel.find("button.btn-primary").trigger("click")
+    await flushPromises()
+    expect(api.story.previewSceneDirectorResume).toHaveBeenCalledWith("root-a", {
+      operation_id: expect.any(String),
+      novel_id: "project-a",
+      parent_round_id: null,
+      resume_branch_id: "branch-a",
+      rounds: 1,
+      basis_choice: "current",
+    })
+    expect(api.story.resumeSceneDirector).toHaveBeenCalledWith("root-a", expect.objectContaining({
+      resume_branch_id: "branch-a",
+      parent_round_id: null,
+      additional_requests: 2,
+      additional_tokens: 0,
+      context_confirmation_id: "confirmation-a",
+      budget_preview_hash: "b".repeat(64),
+    }))
+  })
+
   it("keeps continuation input when refreshed history no longer contains its parent", async () => {
     api.story.sceneDirectorHistory.mockResolvedValueOnce({
       ...history("scene-a"),

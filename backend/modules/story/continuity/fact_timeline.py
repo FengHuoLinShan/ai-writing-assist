@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import re
 import uuid
+from datetime import UTC, datetime
 from typing import Any
 
 from sqlalchemy import and_, func, or_, select
@@ -83,13 +84,13 @@ class StoryFactTimelineService:
             ).all()
         )
         order_transitions = build_chapter_order_transitions(receipts)
-        pending_scene_ids = {
-            uuid.UUID(value)
+        pending_reorders = {
+            uuid.UUID(value): receipt.created_at
             for receipt in receipts
             if receipt.status == "applied"
             for value in (receipt.impact_json or {}).get("affected_scene_ids", [])
         }
-        visible_base = self._base_query(nid, query, cutoff, pending_scene_ids)
+        visible_base = self._base_query(nid, query, cutoff, pending_reorders)
         total = int(
             await db.scalar(select(func.count()).select_from(visible_base.subquery()))
             or 0
@@ -164,7 +165,7 @@ class StoryFactTimelineService:
 
         items: list[StoryFactTimelineItemResponse] = []
         for event, scene in page:
-            status = _event_status(event, pending_scene_ids)
+            status = _event_status(event, pending_reorders)
             chapter_index = project_current_chapter_index(
                 event.chapter_index, event.created_at, order_transitions
             )
@@ -196,7 +197,7 @@ class StoryFactTimelineService:
         source_options = list(
             (
                 await db.scalars(
-                    self._base_query(nid, source_options_scope, cutoff, pending_scene_ids)
+                    self._base_query(nid, source_options_scope, cutoff, pending_reorders)
                     .with_only_columns(MemoryEvent.source)
                     .distinct()
                     .order_by(MemoryEvent.source)
@@ -206,7 +207,7 @@ class StoryFactTimelineService:
         entity_options_scope = query.model_copy(update={"entity_id": None})
         entity_rows = (
             await db.execute(
-                self._base_query(nid, entity_options_scope, cutoff, pending_scene_ids)
+                self._base_query(nid, entity_options_scope, cutoff, pending_reorders)
                 .where(MemoryEvent.entity_id.is_not(None))
                 .with_only_columns(
                     MemoryEvent.entity_id,
@@ -283,7 +284,7 @@ class StoryFactTimelineService:
         novel_id: uuid.UUID,
         query: StoryFactTimelineQuery,
         cutoff: Scene | None,
-        pending_scene_ids: set[uuid.UUID],
+        pending_reorders: dict[uuid.UUID, datetime | None],
     ):
         statement = (
             select(MemoryEvent, Scene)
@@ -311,12 +312,10 @@ class StoryFactTimelineService:
             )
         elif query.status == "stale":
             statement = statement.where(Scene.id.is_not(None))
-            if pending_scene_ids:
+            pending = _pending_reorder_predicate(pending_reorders)
+            if pending is not None:
                 statement = statement.where(
-                    or_(
-                        MemoryEvent.source_stale.is_(True),
-                        MemoryEvent.scene_id.in_(pending_scene_ids),
-                    )
+                    or_(MemoryEvent.source_stale.is_(True), pending)
                 )
             else:
                 statement = statement.where(MemoryEvent.source_stale.is_(True))
@@ -326,8 +325,9 @@ class StoryFactTimelineService:
                 MemoryEvent.scene_id.is_not(None),
                 Scene.id.is_not(None),
             ]
-            if pending_scene_ids:
-                predicates.append(MemoryEvent.scene_id.not_in(pending_scene_ids))
+            pending = _pending_reorder_predicate(pending_reorders)
+            if pending is not None:
+                predicates.append(~pending)
             statement = statement.where(*predicates)
         return statement
 
@@ -345,10 +345,43 @@ def _scene_chunk_chapter_index(chunk: dict[str, Any]) -> int | None:
     return values[0] if values else None
 
 
-def _event_status(event: MemoryEvent, pending_scene_ids: set[uuid.UUID]) -> str:
+def _pending_reorder_predicate(pending_reorders: dict[uuid.UUID, datetime | None]):
+    predicates = []
+    for scene_id, applied_at in pending_reorders.items():
+        scene_match = MemoryEvent.scene_id == scene_id
+        if applied_at is None:
+            predicates.append(scene_match)
+        else:
+            predicates.append(
+                and_(
+                    scene_match,
+                    or_(
+                        MemoryEvent.created_at.is_(None),
+                        MemoryEvent.created_at < applied_at,
+                    ),
+                )
+            )
+    return or_(*predicates) if predicates else None
+
+
+def _as_utc(value: datetime | None) -> datetime | None:
+    if value is None:
+        return None
+    return value.replace(tzinfo=UTC) if value.tzinfo is None else value.astimezone(UTC)
+
+
+def _event_status(
+    event: MemoryEvent, pending_reorders: dict[uuid.UUID, datetime | None]
+) -> str:
     if event.scene_id is None:
         return "unknown"
-    if event.source_stale or event.scene_id in pending_scene_ids:
+    applied_at = pending_reorders.get(event.scene_id)
+    event_at = _as_utc(event.created_at)
+    applied_at = _as_utc(applied_at)
+    if event.source_stale or (
+        event.scene_id in pending_reorders
+        and (event_at is None or applied_at is None or event_at < applied_at)
+    ):
         return "stale"
     return "current"
 

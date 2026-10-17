@@ -321,7 +321,8 @@ it("retains an unsent replan reason when the server returns 409", async () => {
   await wrapper.get(".goal-runs-replan").trigger("submit")
   await flushPromises()
 
-  expect(wrapper.get(".goal-runs-error").text()).toContain("目标状态已更新")
+  expect(wrapper.get(".goal-runs-error").text()).toContain("conflict")
+  expect(wrapper.get(".goal-runs-error").text()).toContain("未提交的目标和计划草稿仍保留")
   expect(wrapper.get(".goal-runs-replan textarea").element.value).toBe("把依赖缩小到一个待办")
   expect(api.recentGoals).toHaveBeenCalledTimes(2)
 })
@@ -556,9 +557,7 @@ it("shows not-applied only after a matching terminal receipt is verified", async
   )
 })
 
-// Map-series review regressions (T-20261016-map-series-claude-review). it.fails
-// mirrors a strict xfail: once fixed it passes and fails this run, so drop .fails.
-it.fails("B9-F1: 启动目标被 409 拒绝时，显示服务端给出的具体原因", async () => {
+it("B9-F1: 启动目标被 409 拒绝时显示服务端原因并解锁表单修改", async () => {
   vi.stubGlobal("crypto", { randomUUID: () => "request-id-1" })
   // start_goal raises ConflictError (409) when the owner's model connection is
   // unavailable; _shared.js puts the server detail on message and detail.
@@ -577,4 +576,35 @@ it.fails("B9-F1: 启动目标被 409 拒绝时，显示服务端给出的具体�
 
   expect(api.startGoal).toHaveBeenCalledOnce()
   expect(wrapper.get(".goal-runs-error").text()).toContain("模型连接不可用")
+  expect(wrapper.get("#goal-run-prompt").element.disabled).toBe(false)
+  await wrapper.get("#goal-run-prompt").setValue("修正后的目标")
+  expect(wrapper.get("#goal-run-prompt").element.value).toBe("修正后的目标")
+})
+
+it("A3: 启动目标被 422 明确拒绝后保留输入并解锁预算修改", async () => {
+  vi.stubGlobal("crypto", { randomUUID: () => "request-id-1" })
+  const api = setupApi({
+    startGoal: vi.fn().mockRejectedValue(
+      Object.assign(new Error("可能产生费用的请求数不能超过总请求数"), { status: 422 }),
+    ),
+  })
+  const wrapper = await mountedPanel(api)
+
+  await wrapper.get("#goal-run-prompt").setValue("更新当前项目的作者待办")
+  const budgets = wrapper.findAll('.goal-runs-start input[type="number"]')
+  await budgets[0].setValue(2)
+  await budgets[1].setValue(8)
+  await wrapper.find(".goal-runs-consent input").setValue(true)
+  await wrapper.get("form.goal-runs-start").trigger("submit")
+  await flushPromises()
+
+  expect(api.startGoal).toHaveBeenCalledOnce()
+  expect(api.startGoal.mock.calls[0][0].budget).toMatchObject({
+    requests: 2,
+    possible_charge_requests: 8,
+  })
+  expect(wrapper.get(".goal-runs-error").text()).toContain("不能超过总请求数")
+  expect(wrapper.get("#goal-run-prompt").element.disabled).toBe(false)
+  expect(budgets[0].element.disabled).toBe(false)
+  expect(budgets[1].element.disabled).toBe(false)
 })

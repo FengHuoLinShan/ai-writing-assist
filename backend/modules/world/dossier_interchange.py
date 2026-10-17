@@ -22,6 +22,7 @@ from modules.world.dossier_service import (
     CORE_FACINGS,
     GENERIC_PROFILE_FIELD_PREFIX,
     GENERIC_UNKNOWN_FACING_KEY,
+    LEGACY_CORE_ENTITY_FACINGS,
     WorldObjectDossierService,
     _borrowed_core_facing_parts,
     _display_value,
@@ -874,6 +875,10 @@ class WorldDossierInterchangeService:
             return source
         borrowed = _borrowed_core_facing_parts(str(source.key))
         core_source_type, core_key = borrowed or (source_entity_type, str(source.key))
+        if borrowed is None and core_key in {
+            value[0] for value in LEGACY_CORE_ENTITY_FACINGS.values()
+        }:
+            return source
         if core_key not in CORE_FACINGS.get(core_source_type, {}):
             raise ValidationError("清单中的内核面向已失效，必须显式映射或停止导入")
         if borrowed is not None:

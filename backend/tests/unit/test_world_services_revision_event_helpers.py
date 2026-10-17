@@ -348,7 +348,14 @@ class TestEntityRevisionService:
         assert item.changed_fields == ["name"]
         assert item.changed_fields_exact is True
 
-    async def test_rollback_to_scene_index_archive_update_reuses_loaded_entity(self):
+    @patch(
+        "modules.world.dossier_service.WorldObjectDossierService."
+        "sync_core_entity_legacy_field",
+        autospec=True,
+    )
+    async def test_rollback_to_scene_index_archive_update_reuses_loaded_entity(
+        self, sync_dossier
+    ):
         """Performance: TextArchive rollback updates the entity already validated."""
         # Arrange
         svc, _repo, entity_repo = _make_revision_service()
@@ -380,8 +387,17 @@ class TestEntityRevisionService:
         assert entity_repo.update.await_args.args[1] is entity
         update_data = entity_repo.update.await_args.args[2]
         assert update_data.summary == "archived summary"
+        sync_dossier.assert_awaited()
+        assert sync_dossier.await_count == 1
 
-    async def test_rollback_to_scene_index_revision_fallback_reuses_loaded_entity(self):
+    @patch(
+        "modules.world.dossier_service.WorldObjectDossierService."
+        "sync_core_entity_legacy_field",
+        autospec=True,
+    )
+    async def test_rollback_to_scene_index_revision_fallback_reuses_loaded_entity(
+        self, sync_dossier
+    ):
         """Performance: revision fallback also updates the entity already validated."""
         # Arrange
         svc, repo, entity_repo = _make_revision_service()
@@ -427,6 +443,8 @@ class TestEntityRevisionService:
         assert entity_repo.update.await_args.args[1] is entity
         update_data = entity_repo.update.await_args.args[2]
         assert update_data.summary == "Old summary"
+        sync_dossier.assert_awaited()
+        assert sync_dossier.await_count == 3
 
 
 # ============================================================

@@ -627,13 +627,16 @@ async def test_optional_result_revalidates_after_main_commit(
         source_content_mode="working",
         budget_total=20,
     )
-    with pytest.raises(CommitConflictError):
+    if mutation == "scene":
         await handle_evolution_scene_step(db, task)
-    await db.rollback()
+    else:
+        with pytest.raises(CommitConflictError):
+            await handle_evolution_scene_step(db, task)
+        await db.rollback()
     receipt = await store.load_committed_scene_receipt("source-integrity", 0)
     assert receipt is not None and calls == ["provider"]
     frozen = await store.load_frozen(receipt.run_id, receipt.attempt_id)
     assert "spatial_stage_result" not in frozen.payload
-    assert (
-        frozen.payload["optional_scene_stage"]["steps"]["spatial"]["status"] == "running"
+    assert frozen.payload["optional_scene_stage"]["steps"]["spatial"]["status"] == (
+        "stale" if mutation == "scene" else "running"
     )

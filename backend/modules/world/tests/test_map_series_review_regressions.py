@@ -12,18 +12,30 @@ import uuid
 from unittest.mock import AsyncMock, patch
 
 import pytest
+from sqlalchemy import select
 
 from core.errors import ConflictError
 from modules.world.assistant_vocabulary_tools import _ensure_unique
 from modules.world.map_atlas_models import MapAtlasNode, MapAtlasRevision
-from modules.world.map_auto_draft_schemas import MapAutoDraftBuildRequest
-from modules.world.map_auto_draft_service import build_map_auto_drafts
+from modules.world.map_auto_draft_models import MapAutoDraftBatchRecord
+from modules.world.map_auto_draft_schemas import (
+    MapAutoDraftBuildRequest,
+    MapAutoDraftRedoRequest,
+)
+from modules.world.map_auto_draft_service import (
+    build_map_auto_drafts,
+    redo_map_auto_drafts,
+)
+from modules.world.map_spatial_clue_models import MapSpatialClueRecord
 from modules.world.map_spatial_clue_schemas import (
     MapSpatialClueDecisionRequest,
     MapSpatialClueTypeProposalDraft,
+    MapSpatialClueTypeRef,
 )
 from modules.world.map_spatial_clue_service import (
+    read_spatial_discovery_context,
     review_spatial_clue,
+    spatial_clue_review_hash,
     stage_spatial_discovery,
 )
 from modules.world.map_structure_schemas import (
@@ -34,14 +46,20 @@ from modules.world.map_structure_schemas import (
 )
 from modules.world.map_structure_service import MapStructureService
 from modules.world.models import CoreEntity, WorldObjectDossierEntry
+from modules.world.project_vocabulary_models import (
+    ProjectVocabularyRevision,
+    ProjectVocabularyTerm,
+)
 from modules.world.project_vocabulary_schemas import (
     VocabularyMergeRequest,
     VocabularyTermCreate,
     VocabularyTermFields,
     VocabularyTermUpdate,
     VocabularyTraits,
+    vocabulary_evidence_hash,
 )
 from modules.world.project_vocabulary_service import (
+    archive_project_vocabulary_term,
     create_project_vocabulary_term,
     merge_project_vocabulary_terms,
     update_project_vocabulary_term,
@@ -52,6 +70,7 @@ from modules.world.tests.test_map_auto_draft_service import (
     _stage_bound_clue,
     _stage_related_clue,
 )
+from modules.world.tests.test_map_spatial_clue_boundaries import _source
 from modules.world.tests.test_map_spatial_clues import (
     QUOTE_ONE,
     QUOTE_TWO,
@@ -100,11 +119,6 @@ def _typed_document(feature_type, relation_type):
     )
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason="F1: merged vocabulary types are treated as non-computable instead of "
-    "following redirect_to_id (ADR-0035 §4)",
-)
 async def test_f1_merging_a_type_keeps_pinned_map_geometry_computable(
     db_session, test_project_id
 ):
@@ -119,7 +133,9 @@ async def test_f1_merging_a_type_keeps_pinned_map_geometry_computable(
         db_session,
         test_project_id,
         VocabularyTermCreate(
-            kind="feature", name="地点", traits=VocabularyTraits(geometry=["point"])
+            kind="feature",
+            name="地点",
+            traits=VocabularyTraits(geometry=["point"], other=["movable"]),
         ),
     )
     relation = await create_project_vocabulary_term(
@@ -139,12 +155,24 @@ async def test_f1_merging_a_type_keeps_pinned_map_geometry_computable(
         base_revision_id=node["current_revision_id"],
         document=_typed_document(merged_away, relation),
     )
+    await update_project_vocabulary_term(
+        db_session,
+        test_project_id,
+        str(relation.id),
+        VocabularyTermUpdate(
+            expected_revision_id=relation.revision_id,
+            name="北向",
+            description="",
+            aliases=[],
+            traits=VocabularyTraits(),
+        ),
+    )
     before = await service.preview_layout(
         db_session, test_project_id, node["id"], request
     )
     assert [problem.code for problem in before.problems] == ["direction_conflict"]
 
-    await merge_project_vocabulary_terms(
+    merged_target = await merge_project_vocabulary_terms(
         db_session,
         test_project_id,
         VocabularyMergeRequest(
@@ -157,18 +185,65 @@ async def test_f1_merging_a_type_keeps_pinned_map_geometry_computable(
             },
         ),
     )
+    terminal = await create_project_vocabulary_term(
+        db_session,
+        test_project_id,
+        VocabularyTermCreate(
+            kind="feature", name="终点", traits=VocabularyTraits(geometry=["point"])
+        ),
+    )
+    merged_terminal = await merge_project_vocabulary_terms(
+        db_session,
+        test_project_id,
+        VocabularyMergeRequest(
+            confirmed=True,
+            target_id=terminal.id,
+            source_ids=[target.id],
+            expected_revision_ids={
+                target.id: merged_target.revision_id,
+                terminal.id: terminal.revision_id,
+            },
+        ),
+    )
+    terminal = await update_project_vocabulary_term(
+        db_session,
+        test_project_id,
+        str(terminal.id),
+        VocabularyTermUpdate(
+            expected_revision_id=merged_terminal.revision_id,
+            name="终点",
+            description="",
+            aliases=[],
+            traits=VocabularyTraits(geometry=["point"], other=["movable"]),
+        ),
+    )
     after = await service.preview_layout(db_session, test_project_id, node["id"], request)
 
     codes = [problem.code for problem in after.problems]
     assert "spatial_type_not_computable" not in codes
     assert "direction_conflict" in codes
+    from modules.world.map_structure_service import resolve_spatial_vocabulary_references
+
+    resolved = await resolve_spatial_vocabulary_references(
+        db_session,
+        test_project_id,
+        {(merged_away.id, merged_away.revision_id): "feature"},
+    )
+    assert resolved[(merged_away.id, merged_away.revision_id)]["traits"].other == [
+        "movable"
+    ]
+
+    await archive_project_vocabulary_term(
+        db_session, test_project_id, str(terminal.id), terminal.revision_id
+    )
+    archived = await service.preview_layout(
+        db_session, test_project_id, node["id"], request
+    )
+    assert "spatial_type_not_computable" in [
+        problem.code for problem in archived.problems
+    ]
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason="F2: assistant preview compares a tombstone through its merge target, "
-    "while the service rejects the tombstone's own name",
-)
 async def test_f2_assistant_uniqueness_preview_matches_service_after_merge(
     db_session, test_project_id
 ):
@@ -229,11 +304,6 @@ async def test_f2_assistant_uniqueness_preview_matches_service_after_merge(
         _ensure_unique(by_id, "feature", VocabularyTermFields(name="洞府"), set())
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason="B2-F4: an emerging model type omitted from bounded context makes the "
-    "whole clue invalid instead of dropping only the type proposal",
-)
 async def test_b2_reproposed_type_outside_context_keeps_the_spatial_clue(
     db_session, project_novel_id, monkeypatch
 ):
@@ -299,13 +369,88 @@ async def test_b2_reproposed_type_outside_context_keeps_the_spatial_clue(
 
     assert not second.rejected, second.diagnostics
     assert len(second.result_refs) == 1
+    row = await db_session.get(MapSpatialClueRecord, second.result_refs[0].clue_id)
+    stored_clue = service.MapSpatialClue.model_validate(row.clue_payload)
+    assert stored_clue.type_proposal is None
+    assert stored_clue.type_proposal_draft is None
+    adopted = await _adopt_clue(db_session, project_novel_id, row)
+    assert adopted.status == "adopted"
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason="B2-F5: adopting a clue revalidates endpoints without allowing the "
-    "candidate-to-canonical transition that World adoption performs",
-)
+async def test_b2_spatial_context_prioritizes_emerging_types_over_archived(
+    db_session, project_novel_id
+):
+    scene, _draft, _span, binding, evidence = await _source(
+        db_session, project_novel_id, index=1, chapter=1
+    )
+    proposal = MapSpatialClueTypeProposalDraft(
+        kind="relation",
+        proposal_run_id=uuid.uuid4(),
+        name="潮汐暗道",
+        description="只在潮水退去时可通行的连接关系。",
+    )
+    clue = _clue(
+        scene_id=str(scene.id),
+        clue_key="b" * 64,
+        quote=QUOTE_ONE,
+        type_proposal_draft=proposal,
+    )
+    clue.review.evidence_hash = vocabulary_evidence_hash([evidence])
+    batch = _batch(project_novel_id, str(scene.id), scene.scene_index, [clue])
+    batch.source_binding = binding
+    staged = await stage_spatial_discovery(db_session, project_novel_id, batch)
+    assert len(staged.accepted) == 1, staged.diagnostics
+
+    archived = await create_project_vocabulary_term(
+        db_session,
+        project_novel_id,
+        VocabularyTermCreate(kind="relation", name="旧驿道关系"),
+    )
+    archived = await archive_project_vocabulary_term(
+        db_session,
+        project_novel_id,
+        str(archived.id),
+        archived.revision_id,
+    )
+    terms = (
+        await db_session.scalars(
+            select(ProjectVocabularyTerm).where(
+                ProjectVocabularyTerm.novel_id == uuid.UUID(project_novel_id),
+                ProjectVocabularyTerm.source == "model",
+                ProjectVocabularyTerm.kind == "relation",
+            )
+        )
+    ).all()
+    emerging = None
+    for term in terms:
+        revision = await db_session.get(
+            ProjectVocabularyRevision, term.current_revision_id
+        )
+        if revision.snapshot_json["name"] == proposal.name:
+            emerging = term
+            break
+    assert emerging is not None
+    next_scene, _draft, _span, _binding, _evidence = await _source(
+        db_session, project_novel_id, index=2, chapter=2
+    )
+
+    context = await read_spatial_discovery_context(
+        db_session,
+        project_novel_id,
+        scene_id=str(next_scene.id),
+        scene_index=next_scene.scene_index,
+        endpoint_ids=[],
+        endpoint_surfaces=[],
+        type_limit=64,
+        clue_limit=0,
+    )
+
+    context_type_ids = [item.id for item in context.types]
+    assert emerging.id in context_type_ids
+    assert archived.id in context_type_ids
+    assert context_type_ids.index(emerging.id) < context_type_ids.index(archived.id)
+
+
 async def test_b2_clue_stays_adoptable_after_its_place_is_adopted(
     db_session, project_novel_id
 ):
@@ -322,15 +467,76 @@ async def test_b2_clue_stays_adoptable_after_its_place_is_adopted(
     assert adopted.status == "adopted"
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason="B3-F1: the implicit build scope loads every clue status, so a clue the "
-    "author rejected returns to the placement tray labelled source_stale",
-)
+async def test_b2_clue_keeps_its_pinned_type_after_author_revision(
+    db_session, project_novel_id, monkeypatch
+):
+    import modules.world.map_spatial_clue_service as service
+
+    monkeypatch.setattr(service, "_evidence_is_current", AsyncMock(return_value=True))
+    scene, _draft, _span, binding, evidence = await _source(
+        db_session, project_novel_id
+    )
+
+    original_type = await create_project_vocabulary_term(
+        db_session,
+        project_novel_id,
+        VocabularyTermCreate(kind="relation", name="潮汐通道"),
+    )
+    scene_id = str(scene.id)
+    clue = _clue(scene_id=scene_id, clue_key="a" * 64, quote=QUOTE_ONE)
+    clue.type_ref = original_type.id
+    clue.type_revision_id = original_type.revision_id
+    clue.type_kind = "relation"
+    clue.review.proposal_hash = spatial_clue_review_hash(clue)
+    clue.review.evidence_hash = vocabulary_evidence_hash([evidence])
+    batch = _batch(project_novel_id, scene_id, scene.scene_index, [clue])
+    batch.source_binding = binding
+    batch.allowed_type_revisions = [
+        MapSpatialClueTypeRef(
+            type_ref=original_type.id,
+            type_revision_id=original_type.revision_id,
+            kind="relation",
+        )
+    ]
+    staged = await stage_spatial_discovery(db_session, project_novel_id, batch)
+    assert len(staged.accepted) == 1, staged.diagnostics
+    row = await db_session.get(MapSpatialClueRecord, staged.accepted[0].clue_id)
+
+    revised_type = await update_project_vocabulary_term(
+        db_session,
+        project_novel_id,
+        str(original_type.id),
+        VocabularyTermUpdate(
+            expected_revision_id=original_type.revision_id,
+            name="退潮通道",
+        ),
+    )
+    assert revised_type.revision_id != original_type.revision_id
+
+    adopted = await _adopt_clue(db_session, project_novel_id, row)
+
+    assert adopted.status == "adopted"
+    assert row.clue_payload["type_revision_id"] == str(original_type.revision_id)
+
+    import modules.world.map_auto_draft_service as auto_draft
+
+    valid, invalid = await auto_draft._validated_clue_inputs(
+        db_session,
+        project_novel_id,
+        [row],
+        through_scene_index=scene.scene_index,
+    )
+    assert [item["row"].id for item in valid] == [row.id]
+    assert invalid == []
+
+
 async def test_b3_rejected_clue_has_no_tray_effect_in_implicit_build(
     db_session, project_novel_id
 ):
     scene, _start, _end, row = await _stage_bound_clue(db_session, project_novel_id)
+    first = await build_map_auto_drafts(
+        db_session, project_novel_id, _build_request(scene, row)
+    )
     rejected = await review_spatial_clue(
         db_session,
         project_novel_id,
@@ -350,13 +556,20 @@ async def test_b3_rejected_clue_has_no_tray_effect_in_implicit_build(
 
     assert [item.reason for item in result.tray_items] == []
     assert result.revisions == []
+    rebuilt = await redo_map_auto_drafts(
+        db_session,
+        project_novel_id,
+        str(first.batch_id),
+        MapAutoDraftRedoRequest(
+            expected_fingerprint=first.fingerprint,
+            reason="author_requested",
+            confirmed=True,
+        ),
+    )
+    assert rebuilt.revisions == []
+    assert rebuilt.tray_items == []
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason="B3-F2: _ensure_location_nodes orders status DESC, so a provisional node "
-    "outranks the author's adopted node for the same place and gets re-parented",
-)
 async def test_b3_auto_draft_targets_the_adopted_node_for_a_place(
     db_session, project_novel_id
 ):
@@ -389,11 +602,6 @@ async def test_b3_auto_draft_targets_the_adopted_node_for_a_place(
     assert atlas_node.level == "district"
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason="B3-F3: rejecting one clue marks the whole batch stale, so candidates for "
-    "unrelated nodes cannot be adopted until the author redoes every shard",
-)
 async def test_b3_rejecting_a_clue_only_blocks_the_shard_that_depends_on_it(
     db_session, project_novel_id
 ):
@@ -440,6 +648,20 @@ async def test_b3_rejecting_a_clue_only_blocks_the_shard_that_depends_on_it(
             action="reject", expected_fingerprint=second.fingerprint, confirmed=True
         ),
     )
+    batch = await db_session.get(MapAutoDraftBatchRecord, result.batch_id)
+    assert batch.status == "completed"
+    assert (
+        next(
+            ref for ref in batch.result_refs if ref["source_clue_ids"] == [str(second.id)]
+        )["status"]
+        == "stale"
+    )
+    assert (
+        next(
+            ref for ref in batch.result_refs if ref["source_clue_ids"] == [str(first.id)]
+        )["status"]
+        == "candidate"
+    )
 
     saved = await MapStructureService().review(
         db_session,
@@ -452,11 +674,6 @@ async def test_b3_rejecting_a_clue_only_blocks_the_shard_that_depends_on_it(
     assert saved.status == "saved"
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason="B3-F4: a time-bounded relation clue copies its validity onto both "
-    "places, which removes them from layout and sends them to the tray",
-)
 async def test_b3_bounded_relation_does_not_unplace_its_endpoints(
     db_session, project_novel_id
 ):
@@ -488,11 +705,6 @@ async def test_b3_bounded_relation_does_not_unplace_its_endpoints(
     assert "placement_failed" not in {item.reason for item in result.tray_items}
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason="B3-F5: assistant structure edits load a legacy v1 head without upgrading "
-    "it, so adding a space or journey fails v1 validation instead of saving v2",
-)
 async def test_b3_assistant_structure_edit_upgrades_a_legacy_v1_map(
     db_session, test_project_id
 ):
@@ -553,11 +765,6 @@ async def test_b3_assistant_structure_edit_upgrades_a_legacy_v1_map(
     assert {space["id"] for space in preview["after"]["spaces"]} == {"main", "dream"}
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason="B3-F6 (Q2): reader_preview checks journey sources with all([...]), so a "
-    "journey backed only by an author decision reaches readers without a quote",
-)
 async def test_b3_reader_preview_omits_journeys_without_verbatim_sources(
     db_session, test_project_id
 ):
@@ -620,11 +827,6 @@ async def test_b3_reader_preview_omits_journeys_without_verbatim_sources(
     assert [journey["id"] for journey in projection["journeys"]] == ["ferry-trip"]
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason="B4-F1: the advisory route graph links only entity-bound features, so a "
-    "declared route through a text-only waypoint reads as a disconnected network",
-)
 async def test_b4_route_through_text_only_waypoint_is_not_reported_disconnected(
     db_session, test_project_id
 ):
@@ -732,10 +934,14 @@ async def _location_with_backfilled_public_info(async_client, db_session, name):
             "entity_type": "location",
             "name": name,
             "status": "canonical",
-            "public_info": "城门日落关闭",
         },
     )
     assert created.status_code == 201, created.text
+    legacy_entity = await db_session.get(CoreEntity, uuid.UUID(created.json()["id"]))
+    assert legacy_entity is not None
+    legacy_entity.public_info = "城门日落关闭"
+    await db_session.flush()
+    await db_session.refresh(legacy_entity)
     entry = WorldObjectDossierEntry(
         id=uuid.uuid4(),
         novel_id=uuid.UUID(params["novel_id"]),
@@ -756,14 +962,12 @@ async def _location_with_backfilled_public_info(async_client, db_session, name):
     )
     db_session.add(entry)
     await db_session.flush()
-    return params, created.json(), entry
+    entity_response = created.json()
+    entity_response["updated_at"] = legacy_entity.updated_at.isoformat()
+    entity_response["public_info"] = legacy_entity.public_info
+    return params, entity_response, entry
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason="B6-F1: CoreEntity summary/public_info/hidden_truth edits bypass dossier "
-    "entries, so the backfilled entry stays active with the old value (ADR-0039 兼容)",
-)
 async def test_b6_entity_public_info_edit_keeps_its_dossier_entry_current(
     async_client, db_session
 ):
@@ -796,11 +1000,6 @@ async def test_b6_entity_public_info_edit_keeps_its_dossier_entry_current(
     assert contents == ["城门彻夜开放"], contents
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason="B6-F2: backfilled overview/public_info/truth facing keys are not in "
-    "CORE_FACINGS, so editing the entry is rejected by _validate_facing",
-)
 async def test_b6_backfilled_public_info_entry_is_editable_in_the_dossier(
     async_client, db_session
 ):
@@ -819,11 +1018,6 @@ async def test_b6_backfilled_public_info_entry_is_editable_in_the_dossier(
     assert edited.json()["content"] == "城门彻夜开放"
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason="B6-F2: a manifest exported from a backfilled public_info entry is "
-    "rejected on import (facing and legacy key validation)",
-)
 async def test_b6_manifest_with_backfilled_public_info_can_be_imported(
     async_client, db_session
 ):

@@ -240,3 +240,4 @@ Scene payload 的章节锚统一由 story.contracts.scene_chapter_indices 提供
 Story 将世界推进保存在独立根、分支和不可变步骤中；每步基于 `simulation_v3`，仅生成可比较、可恢复的候选状态与大纲钩子，不写 World、continuity、正文或 RP，也不接入 Writing 检索和 Evolution 阅读。`/api/story/world-progression` 是默认关闭的 C5 域路由；它提供预算预览、R4 独立根启动、原根内 R1 单步续算、R0 历史/比较、作者历史管理、R3 钩子预览/采用，以及持续授权设置。具体合同见 [Story 模块实现](../../backend/modules/story/README.md) 与 [正式计划 §8/§10](../plans/2026-10-15-world-object-dossier-and-scene-director.md)。
 
 `story_world_progression` handler、Story router、9 项纯操作、`NOTICE_SOURCE_SPEC` 与 `world_progression_review` 引导流程已在应用组合根登记。持续授权默认关闭；Evolution 成功阅读回执在原事务投递免费检查，提交后仅以当前 canonical 正文的整章完整覆盖计数，未读/失败/局部 Scene、跳序号和同章改版重读不冒充新章节。章节重排撤销原序号授权，作者需重确认；Notice GET 保持只读。长篇/题材质量、势力路线图阶段 1/2、真实模型表现和作者验收分别保留为外部门禁。
+持续提醒仍绑定根运行的资料确认截止 Scene；读入新章只触发门槛，不扩大确认范围。最新已写 Scene 超出该截止点时，系统持久化停止原因并关闭自动续跑。作者需从最新 Scene 新建并确认推进后再开启提醒。

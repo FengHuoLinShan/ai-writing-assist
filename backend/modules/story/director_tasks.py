@@ -23,6 +23,7 @@ from modules.evidence.facade import prepare_confirmed_ai_action
 from modules.project.facade import open_project_snapshot_llm_client
 from modules.story.director_budget import (
     budget_stop_reason,
+    director_pending_checkpoint_hash,
     preview_director_budget,
     preview_director_continuation,
 )
@@ -173,15 +174,36 @@ async def handle_scene_director(db, task):
     if str(branch.root_id) != root_id:
         raise ValueError("导演分支与运行根不匹配")
     request_payload = meta.get("request") or {}
-    is_start = request_payload.get("mode") == "start"
     schema_payload = {
         key: value for key, value in request_payload.items() if key != "mode"
     }
-    data = (
-        DirectorStartRequest.model_validate(schema_payload)
-        if is_start
-        else DirectorContinueRequest.model_validate(schema_payload)
-    )
+    is_resume = request_payload.get("mode") == "resume"
+    if is_resume:
+        resume_request = DirectorContinueRequest.model_validate(schema_payload)
+        if str(resume_request.resume_branch_id) != branch_id:
+            raise ValueError("恢复请求与待恢复分支不匹配")
+        if director_pending_checkpoint_hash(branch) != meta.get(
+            "director_resume_pending_hash"
+        ):
+            raise ValueError("暂停检查点在恢复前已变化，请重新预览预算")
+        original_request = dict(branch.request_json or {})
+        original_mode = original_request.pop("mode", None)
+        original_request["context_confirmation_id"] = (
+            resume_request.context_confirmation_id
+        )
+        is_start = branch.branch_kind == "start" or original_mode == "start"
+        data = (
+            DirectorStartRequest.model_validate(original_request)
+            if is_start
+            else DirectorContinueRequest.model_validate(original_request)
+        )
+    else:
+        is_start = request_payload.get("mode") == "start"
+        data = (
+            DirectorStartRequest.model_validate(schema_payload)
+            if is_start
+            else DirectorContinueRequest.model_validate(schema_payload)
+        )
     if data.novel_id != novel_id:
         raise ValueError("导演任务项目身份不匹配")
     envelope = current_ai_run_envelope()
@@ -203,12 +225,12 @@ async def handle_scene_director(db, task):
     if str(confirmed_options.get("scene_id") or "") != str(root.scene_id):
         raise ValueError("资料确认与当前 Scene 不匹配")
 
+    branch_request = data.model_dump(mode="json")
     if is_start:
         character_ids = list(data.character_ids)
         related_ids = list(data.related_object_ids)
         primary_ids = list(data.primary_character_ids)
         rounds_requested = data.rounds
-        branch_request = data.model_dump(mode="json")
         basis_choice = "current"
     else:
         root_input = root.request_json
@@ -216,10 +238,67 @@ async def handle_scene_director(db, task):
         related_ids = list(root_input.get("related_object_ids") or [])
         primary_ids = list(root_input.get("primary_character_ids") or [])
         rounds_requested = data.rounds
-        branch_request = data.model_dump(mode="json")
         basis_choice = data.basis_choice
         if not data.parent_round_id:
             raise ValueError("导演分支必须选择一个起始回合")
+
+    resume_pending = dict(branch.pending_round_json or {}) if is_resume else {}
+    resume_first_round = None
+    resume_source = None
+    resume_source_changed = False
+    if is_resume:
+        if resume_pending.get("round_number") is not None:
+            resume_first_round = int(resume_pending["round_number"])
+            parent_id = resume_pending.get("parent_round_id")
+            if parent_id:
+                parent_round, _ = await get_director_round(db, novel_id, parent_id)
+            else:
+                parent_round = None
+            resume_source = resume_pending.get("source_snapshot")
+            resume_source_changed = bool(resume_pending.get("source_changed"))
+        else:
+            latest = await db.scalar(
+                select(StorySceneDirectorRound)
+                .where(
+                    StorySceneDirectorRound.novel_id == UUID(novel_id),
+                    StorySceneDirectorRound.branch_id == branch.id,
+                )
+                .order_by(StorySceneDirectorRound.round_number.desc())
+                .limit(1)
+            )
+            if latest is not None:
+                parent_round = latest
+                resume_first_round = latest.round_number + 1
+                resume_source = (latest.input_json or {}).get("source_snapshot")
+                resume_source_changed = bool(
+                    (latest.input_json or {}).get("source_changed")
+                )
+            elif branch.parent_round_id is not None:
+                parent_round, _ = await get_director_round(
+                    db, novel_id, str(branch.parent_round_id)
+                )
+                resume_first_round = parent_round.round_number + 1
+                resume_source = (parent_round.input_json or {}).get("source_snapshot")
+            else:
+                parent_round = None
+                resume_first_round = 1
+                resume_source = resume_pending.get("source_snapshot")
+        if branch.parent_round_id is not None:
+            branch_parent, _ = await get_director_round(
+                db, novel_id, str(branch.parent_round_id)
+            )
+            branch_start_round = branch_parent.round_number + 1
+        else:
+            branch_start_round = 1
+        rounds_requested -= max(0, int(resume_first_round) - branch_start_round)
+        if rounds_requested < 1:
+            raise ValueError("暂停分支已没有未完成的已选回合")
+        if not isinstance(resume_source, dict):
+            resume_source = resume_pending.get("source_snapshot")
+        if not isinstance(resume_source, dict):
+            raise ValueError("暂停分支缺少可恢复的来源快照")
+        source_changed = resume_source_changed
+        branch_request = dict(branch.request_json or {})
 
     confirmed_characters = confirmed_options.get("character_ids")
     if not isinstance(confirmed_characters, list) or set(
@@ -240,7 +319,16 @@ async def handle_scene_director(db, task):
         character_ids=character_ids,
         related_object_ids=related_ids,
     )
-    if is_start:
+    if is_resume:
+        source = resume_source
+        require_director_confirmation_scope(
+            source, director_confirmation_scope(confirmed)
+        )
+        scoped_current = await scope_director_source(db, current_source, confirmed)
+        if scoped_current["source_hash"] != source.get("source_hash"):
+            raise ValueError("场景或已确认资料在暂停后发生变化，请重新开始排演")
+        source_changed = resume_source_changed
+    elif is_start:
         source = current_source
         parent_round = None
         source_changed = False
@@ -315,7 +403,9 @@ async def handle_scene_director(db, task):
         basis_choice=data.basis_choice if not is_start else "current",
         rewrite_character_id=data.rewrite_character_id if not is_start else None,
     )
-    if is_start:
+    if is_resume:
+        expected_preview = None
+    elif is_start:
         expected_preview = preview_director_budget(preview_request, source)[
             "preview_hash"
         ]
@@ -325,7 +415,7 @@ async def handle_scene_director(db, task):
             source,
             parent_round_id=str(data.parent_round_id),
         )["preview_hash"]
-    if data.budget_preview_hash != expected_preview:
+    if expected_preview is not None and data.budget_preview_hash != expected_preview:
         raise ValueError("场景、人物或档案依据已有变化，请重新预览预算")
     if confirmed_options.get("scene_id") and str(confirmed_options["scene_id"]) != str(
         source["scene_id"]
@@ -337,11 +427,12 @@ async def handle_scene_director(db, task):
         require_director_confirmation_scope(
             pending_source, director_confirmation_scope(confirmed)
         )
-    source = await scope_director_source(db, source, confirmed)
+    if not is_resume:
+        source = await scope_director_source(db, source, confirmed)
     state_context = SimulationV3Context.model_validate(source["simulation_context"])
     await validate_simulation_context_refs(db, novel_id, state_context)
     source_hash = source["source_hash"]
-    if is_start and root.source_hash != source_hash:
+    if is_start and not is_resume and root.source_hash != source_hash:
         raise ValueError("开始前场景或人物资料已变化，请重新预览")
     if not is_start and basis_choice == "current" and source_changed:
         branch.source_hash = source_hash
@@ -375,11 +466,19 @@ async def handle_scene_director(db, task):
         meta.get("director_baseline_recent_attempts_overflow") or 0
     )
     base_state = (
-        deepcopy(parent_round.state_json)
+        deepcopy(resume_pending["previous_state"])
+        if is_resume and resume_pending.get("round_number") is not None
+        else deepcopy(parent_round.state_json)
         if parent_round is not None
         else state_context.initial_state()
     )
-    first_round = (parent_round.round_number + 1) if parent_round is not None else 1
+    first_round = (
+        int(resume_first_round)
+        if is_resume
+        else (parent_round.round_number + 1)
+        if parent_round is not None
+        else 1
+    )
     if not is_start and data.branch_kind == "rewrite_character":
         result = await _rewrite_one_character(
             db,
@@ -903,6 +1002,7 @@ async def _run_one_round(
                 acknowledged_unknown=acknowledged_unknown,
                 baseline_requests_started=baseline_requests_started,
                 baseline_recent_attempts_overflow=baseline_attempts_overflow,
+                check_soft_thresholds=False,
             )
             if stop:
                 raise DirectorPauseError(stop)
@@ -1002,8 +1102,9 @@ async def _run_one_round(
             role_visible_map_node_ids[actor] = visible_map_nodes
         candidates = validate_intents(
             intents,
-            participant_ids=set(character_ids),
+            participant_ids=set(active_ids),
             known_participant_ids=known_participant_ids,
+            participant_locations=state.get("locations", {}),
             role_visible_object_ids=role_visible_object_ids,
             role_visible_map_node_ids=role_visible_map_node_ids,
             existing_object_ids=known_objects,
@@ -1016,6 +1117,7 @@ async def _run_one_round(
                 acknowledged_unknown=acknowledged_unknown,
                 baseline_requests_started=baseline_requests_started,
                 baseline_recent_attempts_overflow=baseline_attempts_overflow,
+                check_soft_thresholds=False,
             )
             if stop:
                 raise DirectorPauseError(stop)
@@ -1094,6 +1196,7 @@ async def _run_one_round(
                 acknowledged_unknown=acknowledged_unknown,
                 baseline_requests_started=baseline_requests_started,
                 baseline_recent_attempts_overflow=baseline_attempts_overflow,
+                check_soft_thresholds=False,
             )
             if stop:
                 raise DirectorPauseError(stop)
@@ -1200,6 +1303,7 @@ async def _run_one_round(
             acknowledged_unknown=acknowledged_unknown,
             baseline_requests_started=baseline_requests_started,
             baseline_recent_attempts_overflow=baseline_attempts_overflow,
+            check_soft_thresholds=False,
         )
         if stop:
             raise DirectorPauseError(stop)

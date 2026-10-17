@@ -115,7 +115,12 @@ async def resolve_spatial_vocabulary_references(
     )
 
     try:
-        resolved = await resolve_vocabulary_type_revisions(db, novel_id, set(references))
+        resolved = await resolve_vocabulary_type_revisions(
+            db,
+            novel_id,
+            set(references),
+            follow_merged_redirects=True,
+        )
     except NotFoundError as exc:
         raise ValidationError("空间类型引用无效或不属于当前作品") from exc
     result = {}
@@ -123,10 +128,14 @@ async def resolve_spatial_vocabulary_references(
         item = resolved[key]
         if item.get("kind") != expected_kind:
             raise ValidationError("空间类型引用的种类不匹配")
+        status = item.get("effective_status", item.get("status"))
         result[key] = {
             **item,
-            "traits": VocabularyTraits.model_validate(item.get("traits") or {}),
-            "computable": item.get("status") == "active",
+            "status": status,
+            "traits": VocabularyTraits.model_validate(
+                item.get("effective_traits", item.get("traits")) or {}
+            ),
+            "computable": status == "active",
         }
     return result
 
@@ -1406,6 +1415,7 @@ class MapStructureService:
             if (
                 journey.modality != "event_observed"
                 or journey.effective is not None
+                or not any(source.quote.strip() for source in journey.sources)
                 or journey.origin not in eligible
                 or journey.destination not in eligible
                 or any(

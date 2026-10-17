@@ -15,6 +15,8 @@ const scope = reactive({ kind: 'reading', endChapter: 1, from: 1, through: 1, li
 const step = computed(() => state.view?.stop?.step_id)
 const panel = computed(() => state.view?.panel || {})
 const run = computed(() => evolution.value?.run)
+const activeRescan = computed(() => [...(run.value?.category_rescans || []), ...(run.value?.spatial_rescans || [])].some(item => ['pending', 'running'].includes(item.status)))
+const canStartReading = computed(() => !activeRescan.value && (!run.value || ['completed', 'stopped', 'source_changed', 'needs_budget'].includes(run.value.status) || (run.value.status === 'failed' && run.value.total_scenes > 0 && !run.value.preparing_scenes)))
 const locked = computed(() => props.disabled || state.busy || authorizing.value || locationState.value.busy)
 const controller = { state, dismiss: () => { opened.value = false } }
 let epoch = 0, alive = true
@@ -36,7 +38,12 @@ async function toggle(event) {
   await perform(async projectId => {
     const token = epoch
     const [latest, status] = await Promise.all([getApi().assistant.guidedFlowLatest(projectId, 'map_cold_start'), getApi().evolution.status(projectId)])
-    if (alive && epoch === token) { evolution.value = status; ready.value = true; scope.through = Math.max(1, status.run?.completed_scenes || 1); scope.endChapter = (status.run?.end_chapter || 0) + 1 }
+    if (alive && epoch === token) {
+      evolution.value = status; ready.value = true
+      scope.through = Math.max(1, status.run?.completed_scenes || 1)
+      scope.endChapter = (status.run?.end_chapter || 0) + 1
+      scope.kind = status.run?.status === 'completed' && status.run.spatial_discovery_enabled === false ? 'rescan' : 'reading'
+    }
     return latest
   }, true)
 }
@@ -50,6 +57,7 @@ async function choose(action, payload = {}) {
 }
 async function refreshLocations(message) { await choose('refresh'); if (alive) state.error = message }
 async function prepare() {
+  if (!canStartReading.value || (scope.kind === 'rescan' && run.value?.status !== 'completed')) return
   const budgetMode = run.value?.budget_mode || evolution.value?.default_budget_mode
   const args = { operation_id: crypto.randomUUID(), request_limit: budgetMode === 'confirmed_scope' ? null : Number(scope.limit) }
   let capability
@@ -88,9 +96,11 @@ onBeforeUnmount(() => { alive = false; epoch++ })
     <WritingFlowHost v-else :controller="controller" custom-actions>
       <form v-if="step === 'scope'" class="map-cold-scope" @submit.prevent="prepare" @input="dirty = true" @change="dirty = true">
         <p v-if="evolution?.engine?.engine !== 'evolution'">请先在作品偏好中启用逐场景理解，再回来准备范围。</p>
-        <fieldset :disabled="locked || evolution?.engine?.engine !== 'evolution'">
+        <p v-if="run?.status === 'completed' && run?.spatial_discovery_enabled === false" role="status">当前已读范围未开启空间发现，已默认选择补扫。若要加入新章节，请先用普通理解追加，再回来补扫空间。</p>
+        <p v-if="run && !canStartReading" role="status">{{ activeRescan ? '补扫正在进行，结束前不能开始新的阅读。' : '当前阅读尚未结束或需要核对，完成处理后再准备地图范围。' }} <button type="button" class="btn btn-sm" :disabled="locked" @click="openEvolution">前往演化面板</button></p>
+        <fieldset :disabled="locked || evolution?.engine?.engine !== 'evolution' || !canStartReading">
           <legend>空间发现范围</legend>
-          <label>处理方式<select v-model="scope.kind"><option value="reading">读取正文并发现空间</option><option value="rescan" :disabled="run?.status !== 'completed'">已读范围补扫空间</option></select></label>
+          <label>处理方式<select v-model="scope.kind"><option value="reading" :disabled="run?.status === 'completed' && run?.spatial_discovery_enabled === false">读取正文并发现空间</option><option value="rescan" :disabled="run?.status !== 'completed'">已读范围补扫空间</option></select></label>
           <label v-if="scope.kind === 'reading'">读到第几章<input v-model.number="scope.endChapter" type="number" min="1" required></label>
           <template v-if="scope.kind === 'rescan' || run?.status === 'failed'"><label>从第几场<input v-model.number="scope.from" type="number" min="1" :max="run?.completed_scenes || run?.total_scenes" required></label><label v-if="scope.kind === 'rescan'">到第几场<input v-model.number="scope.through" type="number" :min="scope.from" :max="run?.completed_scenes" required></label></template>
           <label v-if="(run?.budget_mode || evolution?.default_budget_mode) !== 'confirmed_scope'">本次模型调用上限<input v-model.number="scope.limit" type="number" min="1" max="1000" required></label>

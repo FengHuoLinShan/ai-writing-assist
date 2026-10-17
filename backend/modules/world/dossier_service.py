@@ -399,9 +399,21 @@ class WorldObjectDossierService:
             key = str(facing.key)
             borrowed_facing = _borrowed_core_facing_parts(key)
             if borrowed_facing is None:
-                if key not in CORE_FACINGS.get(entity_type, {}):
+                label = CORE_FACINGS.get(entity_type, {}).get(key)
+                if label is None:
+                    label = next(
+                        (
+                            legacy_label
+                            for legacy_key, legacy_label, _visibility in (
+                                LEGACY_CORE_ENTITY_FACINGS.values()
+                            )
+                            if legacy_key == key
+                        ),
+                        None,
+                    )
+                if label is None:
                     raise ValidationError("该对象类型不支持此内核面向")
-                return key, CORE_FACINGS[entity_type][key]
+                return key, label
             source_type, core_key = borrowed_facing
             if (
                 core_key not in CORE_FACINGS.get(source_type, {})
@@ -503,6 +515,11 @@ class WorldObjectDossierService:
     ) -> None:
         if legacy_field_key is None:
             return
+        core_mapping = LEGACY_CORE_ENTITY_FACINGS.get(legacy_field_key)
+        if core_mapping is not None:
+            if facing.kind == "core" and facing.key == core_mapping[0]:
+                return
+            raise ValidationError("CoreEntity 旧字段只能映射到对应的内核面向")
         mapping = LEGACY_CHARACTER_FACINGS.get(legacy_field_key)
         if entity.entity_type == "character" and mapping is not None:
             if facing.kind == "core" and facing.key == mapping[0]:
@@ -530,6 +547,10 @@ class WorldObjectDossierService:
         *,
         supplied: bool,
     ) -> None:
+        if field in LEGACY_CORE_ENTITY_FACINGS:
+            if supplied and (not isinstance(value, str) or value != content):
+                raise ValidationError("CoreEntity 文本旧值必须与档案内容一致")
+            return
         binding = PROFILE_REGISTRY.get(entity.entity_type)
         if entity.entity_type == "character" and field in LEGACY_CHARACTER_FACINGS:
             if field == "behavior_rules":
@@ -600,6 +621,9 @@ class WorldObjectDossierService:
         field: str | None,
         visibility: str,
     ) -> None:
+        core_mapping = LEGACY_CORE_ENTITY_FACINGS.get(field or "")
+        if core_mapping is not None and core_mapping[2] != visibility:
+            raise ValidationError("CoreEntity 旧字段可见性不能偏离固定映射")
         strong = self._strong_legacy_binding(entity, field)
         if strong is not None and strong[2][1] != visibility:
             raise ValidationError("旧档案字段可见性不能偏离冻结映射")
@@ -890,13 +914,16 @@ class WorldObjectDossierService:
         self, db: AsyncSession, novel_id: str, entity_type: str
     ) -> DossierFacetCatalog:
         nid = parse_uuid(novel_id, "novel_id")
+        facings = dict(CORE_FACINGS.get(entity_type, {}))
+        for key, label, _visibility in LEGACY_CORE_ENTITY_FACINGS.values():
+            facings.setdefault(key, label)
         options = [
             DossierFacetOption(
                 facing=DossierFacingRef(kind="core", key=key),
                 label=label,
                 source="core",
             )
-            for key, label in CORE_FACINGS.get(entity_type, {}).items()
+            for key, label in facings.items()
         ]
         options.extend(
             DossierFacetOption(
@@ -2382,6 +2409,85 @@ class WorldObjectDossierService:
             legacy_value_json=value if isinstance(value, (list, dict)) else None,
         )
 
+    async def sync_core_entity_legacy_field(
+        self,
+        db: AsyncSession,
+        entity: CoreEntity,
+        field: str,
+        value: str | None,
+        *,
+        force_create: bool = False,
+    ) -> None:
+        mapping = LEGACY_CORE_ENTITY_FACINGS.get(field)
+        if mapping is None:
+            return
+        facing_key, _label, visibility = mapping
+        active_rows = await self.repo.list_active_legacy_field(
+            db, entity.novel_id, entity.id, field, for_update=True
+        )
+        latest = await self.repo.latest_legacy_field(
+            db, entity.novel_id, entity.id, field, for_update=True
+        )
+        if active_rows:
+            # Reuse an active unanchored group; never its superseded pre-anchor revision.
+            latest = active_rows[-1]
+        elif latest is not None and (
+            latest.start_anchor_id is not None or latest.end_anchor_id is not None
+        ):
+            latest = None
+        current_rows = active_rows or (
+            [latest] if latest is not None and latest.status == "needs_review" else []
+        )
+        current = (
+            self._legacy_value(field, current_rows)
+            if current_rows
+            else getattr(entity, field)
+        )
+        target_status = "active" if entity.status == "canonical" else "needs_review"
+        if (
+            current == value
+            and len(current_rows) == 1
+            and current_rows[0].status == target_status
+        ):
+            return
+        if current == value and not current_rows and not force_create:
+            return
+
+        cleared = value is None or value == ""
+        if cleared and latest is None and not current_rows:
+            return
+        if (
+            cleared
+            and not current_rows
+            and latest is not None
+            and latest.status == "cleared"
+        ):
+            return
+        for row in current_rows:
+            row.status = "superseded"
+        await self._make_revision(
+            db,
+            latest,
+            novel_id=entity.novel_id,
+            entity_id=entity.id,
+            entry_group_id=latest.entry_group_id if latest else uuid.uuid4(),
+            revision_number=latest.revision_number + 1 if latest else 1,
+            facing_kind="core",
+            facing_key=facing_key,
+            vocabulary_term_id=None,
+            legacy_field_key=field,
+            content="" if cleared else value or "",
+            tags=[],
+            evidence=[],
+            quote_text=None,
+            visibility=visibility,
+            validity=None,
+            source="author",
+            reason="legacy_core_entity_writeback",
+            status="cleared" if cleared else target_status,
+            legacy_value_json=None,
+        )
+
     @staticmethod
     def _legacy_value(field: str, rows: list[WorldObjectDossierEntry]) -> Any:
         values = [
@@ -2503,7 +2609,15 @@ class WorldObjectDossierService:
             None,
         )
         if entity_field:
-            setattr(entity, entity_field, value)
+            active_rows = await self.repo.list_active_legacy_field(
+                db,
+                entity.novel_id,
+                entity.id,
+                entity_field,
+                for_update=True,
+            )
+            projected = self._legacy_value(entity_field, active_rows)
+            setattr(entity, entity_field, projected if active_rows else None)
             entity.updated_at = datetime.now(UTC)
 
     async def upsert_template(

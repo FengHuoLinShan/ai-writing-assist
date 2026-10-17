@@ -8,6 +8,7 @@ from core.service_keys import (
     ASSISTANT_IS_AUTHOR_TURN_RUN,
     ASSISTANT_REQUIRE_OPERATION_TARGETS,
 )
+from modules.evidence.facade import prepare_confirmed_ai_action
 from modules.project.facade import (
     build_project_llm_execution_snapshot,
     require_active_project,
@@ -147,17 +148,32 @@ def _model_name(snapshot: dict) -> str:
     return str((snapshot.get("profile") or {}).get("model") or "unknown")
 
 
-async def _source(db, novel_id, args, *, snapshot=None):
+async def _source(db, novel_id, args, *, snapshot=None, context=None):
     participants = [
         ProgressionParticipant.model_validate(item) for item in args.participants
     ]
     targets = [ProgressionTarget.model_validate(item) for item in args.targets]
+    confirmation_id = str(getattr(args, "context_confirmation_id", "") or "")
+    if context is not None:
+        work_confirmation_id = str(context.work.context_confirmation_id or "")
+        if confirmation_id and confirmation_id != work_confirmation_id:
+            raise PermissionError("世界推进必须沿用助手当前工作的资料确认")
+        confirmation_id = work_confirmation_id
+    if not confirmation_id:
+        raise ValueError("世界推进预算预览必须先确认本次资料范围")
+    confirmed = await prepare_confirmed_ai_action(
+        db,
+        novel_id=novel_id,
+        action=STORY_ONE_CLICK_ACTION,
+        confirmation_id=confirmation_id,
+    )
     source = await read_progression_source(
         db,
         novel_id=novel_id,
         scene_id=args.scene_id,
         participants=participants,
         targets=targets,
+        confirmed_context=confirmed,
     )
     if snapshot is not None:
         source["llm_execution_snapshot"] = snapshot
@@ -169,7 +185,7 @@ async def _prepare_budget(db, novel_id, args, *, context=None):
     _require_project(novel_id, args)
     await require_active_project(db, novel_id)
     snapshot = await build_project_llm_execution_snapshot(db, novel_id)
-    source = await _source(db, novel_id, args, snapshot=snapshot)
+    source = await _source(db, novel_id, args, snapshot=snapshot, context=context)
     await _require_requested_scope(db, novel_id, args, context, source)
     # Historical recommendations are project-wide aggregates. A narrowed
     # Assistant work context may preview its own source without reading them.
@@ -188,7 +204,7 @@ async def _prepare_start(db, novel_id, args, *, context=None):
 
 async def _apply_start(db, novel_id, args, preview, *, context=None):
     _require_project(novel_id, args)
-    source = await _source(db, novel_id, args)
+    source = await _source(db, novel_id, args, context=context)
     await _require_requested_scope(db, novel_id, args, context, source)
     from modules.story.world_progression_api import api_start_progression
 

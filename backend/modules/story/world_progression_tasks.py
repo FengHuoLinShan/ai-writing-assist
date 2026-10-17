@@ -32,7 +32,10 @@ from modules.story.simulation_v3 import (
     replay_batch,
     resolve_simulation_v3,
 )
-from modules.story.world_progression_context import read_progression_source
+from modules.story.world_progression_context import (
+    read_progression_source,
+    scope_progression_source,
+)
 from modules.story.world_progression_engine import (
     derive_progression_metrics,
     detect_progression_intersections,
@@ -247,7 +250,6 @@ async def handle_world_progression(db, task):
         for item in root_request.get("participants") or []
     ]
     character_ids = [item.id for item in participants if item.kind == "character"]
-    options = {}
     if continuous_revision is not None:
         authorization = await db.scalar(
             select(StoryWorldProgressionAuthorization)
@@ -269,19 +271,25 @@ async def handle_world_progression(db, task):
         context_confirmation_id = str(authorization.context_confirmation_id or "")
     else:
         context_confirmation_id = str(payload.get("context_confirmation_id") or "")
-        confirmed = await prepare_confirmed_ai_action(
-            db,
-            novel_id=novel_id,
-            action=STORY_ONE_CLICK_ACTION,
-            confirmation_id=context_confirmation_id,
-        )
-        options = dict(confirmed.compile_options or {})
-        if set(map(str, options.get("character_ids") or [])) != set(character_ids):
+    if not context_confirmation_id:
+        raise ValueError("世界推进任务缺少原资料确认")
+    confirmed = await prepare_confirmed_ai_action(
+        db,
+        novel_id=novel_id,
+        action=STORY_ONE_CLICK_ACTION,
+        confirmation_id=context_confirmation_id,
+    )
+    options = dict(confirmed.compile_options or {})
+    confirmed_characters = set(map(str, options.get("character_ids") or []))
+    confirmed_entities = set(map(str, options.get("entity_ids") or []))
+    participant_ids = {item.id for item in participants}
+    if continuous_revision is None:
+        if confirmed_characters != set(character_ids):
             raise ValueError("资料确认人物范围与世界推进参与者不一致")
-        confirmed_entities = set(map(str, options.get("entity_ids") or []))
-        participant_ids = {item.id for item in participants}
-        if not participant_ids <= confirmed_entities | set(character_ids):
-            raise ValueError("资料确认对象范围与世界推进参与者不一致")
+    elif not set(character_ids) <= confirmed_characters:
+        raise ValueError("持续推进确认没有包含本次参与人物")
+    if not participant_ids <= confirmed_entities | confirmed_characters:
+        raise ValueError("资料确认对象范围与世界推进参与者不一致")
 
     selected_scene_id = root_request.get("scene_id") or str(root.scene_id)
     current_source = await read_progression_source(
@@ -293,6 +301,7 @@ async def handle_world_progression(db, task):
             ProgressionTarget.model_validate(item)
             for item in root_request.get("targets") or []
         ],
+        confirmed_context=confirmed,
     )
     frozen_source = dict(branch.source_snapshot_json or root.source_snapshot_json or {})
     if not frozen_source:
@@ -307,8 +316,14 @@ async def handle_world_progression(db, task):
             raise ValueError("已选当前来源在任务入队后变化；请刷新并明确选择新依据")
         basis_changed = current_source["source_hash"] != root.source_hash
     else:
-        source = frozen_source
-        basis_changed = current_source["source_hash"] != frozen_source["source_hash"]
+        source = await scope_progression_source(
+            db,
+            frozen_source,
+            confirmed.compiled,
+            expected_novel_id=novel_id,
+            expected_scene_id=str(root.scene_id),
+        )
+        basis_changed = current_source["source_hash"] != source["source_hash"]
     scene_id = str(source["scene_id"])
     if options.get("scene_id") and str(options["scene_id"]) != scene_id:
         raise ValueError("确认资料的 Scene 截止点已变化")

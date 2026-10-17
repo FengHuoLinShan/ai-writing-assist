@@ -262,6 +262,7 @@ def test_intent_cannot_reference_globally_known_but_role_private_object():
             [intent],
             participant_ids={actor_id},
             known_participant_ids={actor_id: set()},
+            participant_locations={},
             role_visible_object_ids={actor_id: {actor_id}},
             role_visible_map_node_ids={actor_id: set()},
             existing_object_ids={actor_id, secret_object_id},

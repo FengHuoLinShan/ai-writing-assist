@@ -437,6 +437,13 @@ class EntityDedupService:
                 target,
                 CoreEntityUpdate(status="canonical"),
             )
+        from modules.world.dossier_service import WorldObjectDossierService
+
+        dossier_service = WorldObjectDossierService()
+        for field in ("summary", "public_info", "hidden_truth"):
+            await dossier_service.sync_core_entity_legacy_field(
+                db, target, field, getattr(target, field), force_create=True
+            )
 
         for changed_id, reason in (
             (str(cid), "candidate_merged"),
@@ -526,6 +533,17 @@ class EntityDedupService:
                 candidate,
                 CoreEntityUpdate(status="canonical"),
             )
+            from modules.world.dossier_service import WorldObjectDossierService
+
+            dossier_service = WorldObjectDossierService()
+            for field in ("summary", "public_info", "hidden_truth"):
+                await dossier_service.sync_core_entity_legacy_field(
+                    db,
+                    candidate,
+                    field,
+                    getattr(candidate, field),
+                    force_create=True,
+                )
             await db.flush()
             from modules.world.services.core.entity_activity_invalidation import (
                 request_entity_activity_reannotation,

@@ -34,14 +34,17 @@ from modules.project.facade import (
 )
 from modules.story.director_budget import (
     budget_stop_reason,
+    director_pending_checkpoint_hash,
     preview_director_budget,
     preview_director_continuation,
+    preview_director_resume,
 )
 from modules.story.director_candidate_transfer import transfer_director_candidate
 from modules.story.director_context import (
     director_confirmation_scope,
     read_director_source,
     require_director_confirmation_scope,
+    scope_director_source,
 )
 from modules.story.director_feature import require_scene_director_enabled
 from modules.story.director_schemas import (
@@ -83,6 +86,7 @@ from modules.story.generation import STORY_ONE_CLICK_ACTION
 from modules.story.models import (
     StorySceneDirectorBranch,
     StorySceneDirectorRoot,
+    StorySceneDirectorRound,
 )
 
 router = APIRouter(
@@ -330,6 +334,8 @@ async def continue_director_root(
     root_id: str,
     data: DirectorContinueRequest,
 ) -> DirectorTaskAccepted:
+    if data.resume_branch_id is not None:
+        return await resume_director_branch(db, root_id=root_id, data=data)
     require_scene_director_enabled()
     novel_id = data.novel_id
     request_payload = {"mode": "continue", **data.model_dump(mode="json")}
@@ -516,6 +522,194 @@ async def continue_director_root(
     return _response_for_task(receipt.task_id, receipt.status, root_id)
 
 
+async def resume_director_branch(
+    db,
+    *,
+    root_id: str,
+    data: DirectorContinueRequest,
+) -> DirectorTaskAccepted:
+    """Resume a paused branch in place, retaining its durable round checkpoint."""
+    require_scene_director_enabled()
+    novel_id = data.novel_id
+    request_payload = {"mode": "resume", **data.model_dump(mode="json")}
+    fingerprint_payload = {
+        key: value for key, value in request_payload.items() if key != "operation_id"
+    }
+    existing = await _existing_director_task(
+        db,
+        novel_id=novel_id,
+        operation_id=str(data.operation_id),
+        task_type=STORY_SCENE_DIRECTOR_TASK,
+        payload=fingerprint_payload,
+    )
+    if existing is not None:
+        task = await db.get(AsyncTask, UUID(str(existing.task_id)))
+        if str((task.meta or {}).get("director_root_id") or "") != root_id:
+            raise ConflictError("相同操作 ID 对应另一个导演运行")
+        return _response_for_task(existing.task_id, existing.status, root_id)
+
+    root = await get_director_root(db, novel_id, root_id, lock=True)
+    existing = await _existing_director_task(
+        db,
+        novel_id=novel_id,
+        operation_id=str(data.operation_id),
+        task_type=STORY_SCENE_DIRECTOR_TASK,
+        payload=fingerprint_payload,
+    )
+    if existing is not None:
+        task = await db.get(AsyncTask, UUID(str(existing.task_id)))
+        if str((task.meta or {}).get("director_root_id") or "") != root_id:
+            raise ConflictError("相同操作 ID 对应另一个导演运行")
+        return _response_for_task(existing.task_id, existing.status, root_id)
+    await _require_root_idle(db, root)
+    branch = await get_director_branch(
+        db, novel_id, str(data.resume_branch_id), lock=True
+    )
+    if str(branch.root_id) != root_id:
+        raise ValueError("待恢复分支不属于这个导演运行")
+    if branch.status not in {"paused_budget", "paused_unknown"}:
+        raise ConflictError("只有预算或未知用量暂停的分支可以恢复")
+
+    raw = read_ai_run_envelope(root.run_envelope_json)
+    if (
+        raw is None
+        or raw.run_id != root_id
+        or raw.root_capability_id != DIRECTOR_CAPABILITY
+    ):
+        raise ConflictError("累计预算账本不可恢复，已停止续算")
+    envelope = AIRunEnvelope(raw)
+    preview = preview_director_resume(root_id, branch, envelope)
+    if preview["preview_hash"] != data.budget_preview_hash:
+        raise ConflictError("待恢复检查点或累计账本已变化，请重新预览预算")
+    if not (data.additional_requests or data.additional_tokens):
+        raise ConflictError("恢复前请明确追加请求或 Token 额度")
+    if raw.requests_unknown and not data.allow_possible_duplicate_charge:
+        raise ConflictError("之前的请求结果未知；恢复前需明确确认可能重复计费")
+    if raw.requests_unknown and data.additional_requests < 1:
+        raise ConflictError("结果未知的请求可能需要重试；请追加请求额度")
+
+    confirmation = await require_fresh_confirmation(
+        db,
+        novel_id=novel_id,
+        action=STORY_ONE_CLICK_ACTION,
+        confirmation_id=data.context_confirmation_id,
+    )
+    root_request = root.request_json or {}
+    confirmation_scope_request = SimpleNamespace(
+        scene_id=str(root.scene_id),
+        character_ids=list(root_request.get("character_ids") or []),
+        related_object_ids=list(root_request.get("related_object_ids") or []),
+    )
+    _validate_confirmation_scope(confirmation.compile_options, confirmation_scope_request)
+    confirmed = await prepare_confirmed_ai_action(
+        db,
+        novel_id=novel_id,
+        action=STORY_ONE_CLICK_ACTION,
+        confirmation_id=data.context_confirmation_id,
+    )
+    pending = branch.pending_round_json or {}
+    frozen_source = pending.get("source_snapshot")
+    if not isinstance(frozen_source, dict):
+        latest = await db.scalar(
+            select(StorySceneDirectorRound)
+            .where(
+                StorySceneDirectorRound.novel_id == UUID(novel_id),
+                StorySceneDirectorRound.branch_id == branch.id,
+            )
+            .order_by(StorySceneDirectorRound.round_number.desc())
+            .limit(1)
+        )
+        frozen_source = (
+            (latest.input_json or {}).get("source_snapshot") if latest else None
+        )
+    if not isinstance(frozen_source, dict):
+        raise ConflictError("暂停分支缺少可恢复的来源快照，请重新开始排演")
+    require_director_confirmation_scope(
+        frozen_source, director_confirmation_scope(confirmed)
+    )
+    current_source = await read_director_source(
+        db,
+        novel_id=novel_id,
+        scene_id=str(root.scene_id),
+        character_ids=confirmation_scope_request.character_ids,
+        related_object_ids=confirmation_scope_request.related_object_ids,
+    )
+    current_source = await scope_director_source(db, current_source, confirmed)
+    if current_source["source_hash"] != frozen_source.get("source_hash"):
+        raise ConflictError("场景或已确认资料在暂停后发生变化，请重新开始排演")
+
+    reason = (
+        AIRunAuthorizationReason.duplicate_charge_confirmed
+        if raw.requests_unknown
+        else AIRunAuthorizationReason.author_resume
+    )
+    await envelope.authorize_additional_requests(
+        data.additional_requests,
+        reason=reason,
+        additional_tokens=data.additional_tokens,
+    )
+    updated_snapshot = envelope.snapshot()
+    previous_envelope, previous_root_status = root.run_envelope_json, root.status
+    previous_branch_status = branch.status
+    root.run_envelope_json = updated_snapshot.model_dump(mode="json")
+    root.status = "queued"
+    branch.status = "queued"
+    await db.flush()
+    meta = {
+        "meta_version": 1,
+        "request": request_payload,
+        "action": STORY_ONE_CLICK_ACTION,
+        "director_root_id": root_id,
+        "director_branch_id": str(branch.id),
+        "director_resume_pending_hash": director_pending_checkpoint_hash(branch),
+        "director_authorized_requests": data.additional_requests,
+        "director_authorized_tokens": data.additional_tokens,
+        "director_deadline_seconds": max(
+            1,
+            int(
+                (
+                    updated_snapshot.deadline_at - updated_snapshot.started_at
+                ).total_seconds()
+            )
+            if updated_snapshot.deadline_at
+            else 3600,
+        ),
+        "director_acknowledged_unknown_requests": updated_snapshot.requests_unknown,
+        "director_baseline_requests_started": updated_snapshot.requests_started,
+        "director_baseline_recent_attempts_overflow": (
+            updated_snapshot.recent_attempts_overflow
+        ),
+        "llm_execution_snapshot": root.llm_execution_snapshot_json,
+        AI_RUN_ENVELOPE_KEY: updated_snapshot.model_dump(mode="json"),
+    }
+    receipt = await enqueue_task_with_optional_operation(
+        db,
+        operation_id=str(data.operation_id),
+        task_type=STORY_SCENE_DIRECTOR_TASK,
+        novel_id=novel_id,
+        request_payload=fingerprint_payload,
+        meta=meta,
+    )
+    if receipt.reused:
+        root.run_envelope_json = previous_envelope
+        root.status = previous_root_status
+        branch.status = previous_branch_status
+        await db.flush()
+        return _response_for_task(receipt.task_id, receipt.status, root_id)
+    root.current_task_id = UUID(str(receipt.task_id))
+    branch.current_task_id = UUID(str(receipt.task_id))
+    await attach_result_ref(
+        db,
+        novel_id=novel_id,
+        confirmation_id=data.context_confirmation_id,
+        result_type="task",
+        result_id=receipt.task_id,
+        status="running",
+    )
+    await db.flush()
+    return _response_for_task(receipt.task_id, receipt.status, root_id)
+
+
 @router.post(
     "/scenes/director/budget-preview",
     openapi_extra={
@@ -569,6 +763,13 @@ async def api_director_continue_preview(
 ):
     await require_active_project(db, data.novel_id)
     try:
+        if data.resume_branch_id is not None:
+            from modules.story.director_operations import _continuation_preview
+
+            _root, _parent, preview = await _continuation_preview(db, data.novel_id, data)
+            if str(_root.id) != root_id:
+                raise ValueError("待恢复分支不属于这个导演运行")
+            return preview
         root = await get_director_root(db, data.novel_id, root_id)
         parent, _ = await get_director_round(db, data.novel_id, str(data.parent_round_id))
         if str(parent.root_id) != str(root.id):
@@ -686,7 +887,11 @@ async def api_continue_director(
     db: DbSession,
 ):
     await require_active_project(db, data.novel_id)
-    if not (data.additional_requests or data.additional_tokens) and data.rounds == 1:
+    if (
+        data.resume_branch_id is None
+        and not (data.additional_requests or data.additional_tokens)
+        and data.rounds == 1
+    ):
         raise HTTPException(
             status_code=400, detail="单轮且不追加额度请使用原预算推进入口"
         )

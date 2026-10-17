@@ -1,9 +1,7 @@
 """Regression targets from the map-series review (T-20261016-map-series-claude-review).
 
-Each case encodes the specified behavior for a confirmed review finding. Cases are
-strict xfail while the defect is open: a fix turns them into an unexpected pass,
-which fails the run until the marker is removed and the case becomes a plain
-regression test.
+Each case encodes the specified behavior for a confirmed review finding. Cases
+remain strict xfail only while their corresponding defect is open.
 """
 
 from __future__ import annotations
@@ -14,7 +12,6 @@ from uuid import UUID, uuid4
 import pytest
 
 from core.errors import ConflictError
-from modules.evolution.commit import CommitConflictError
 from modules.evolution.optional_scene import load_pending_optional_stage
 from modules.evolution.sampler import register_scene_sampler
 from modules.evolution.spatial import (
@@ -37,13 +34,9 @@ from modules.evolution.tests.test_spatial import _frozen, _source
 from modules.world.contracts import MapSpatialClueContext, VocabularyEvidence
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason="B2-F1: a Scene card edit after the main receipt leaves the optional "
-    "stage running forever; resume, append and completion stay blocked",
-)
+@pytest.mark.parametrize("unknown", [False, True])
 async def test_b2_scene_card_edit_settles_optional_stage_as_gap(
-    db_session, evolution_project_id, monkeypatch
+    db_session, evolution_project_id, monkeypatch, unknown
 ):
     from modules.story.outline_state.models import Scene
 
@@ -51,12 +44,20 @@ async def test_b2_scene_card_edit_settles_optional_stage_as_gap(
     scene_id = await seed(db, nid, {1: "城门开启。"})
     store = await plan_run(db, nid)
     register_scene_sampler("source-integrity", lambda db, novel_id: Sample())
+    calls = []
 
     async def provider(**kwargs):
+        calls.append("provider")
         # The author edits the Scene card while optional work is in flight.
         scene = await db.get(Scene, UUID(scene_id))
         scene.title = "作者修订后的卡片"
         await db.commit()
+        if unknown:
+            from modules.evolution.pipeline import SamplePendingReconciliationError
+
+            raise SamplePendingReconciliationError(
+                "scene_spatial_discovery", "provider result requires reconciliation"
+            )
         return {"result": {}}
 
     monkeypatch.setattr(
@@ -72,23 +73,29 @@ async def test_b2_scene_card_edit_settles_optional_stage_as_gap(
         source_content_mode="working",
         budget_total=20,
     )
-    try:
-        await handle_evolution_scene_step(db, task)
-    except CommitConflictError:
-        await db.rollback()
+    await handle_evolution_scene_step(db, task)
 
     # The committed main receipt must not stay hostage to optional work: the
     # step settles as a stale gap that a later spatial rescan can fill.
     run = await store.load_run("source-integrity")
     assert await load_pending_optional_stage(store, run) is None
+    receipt = await store.load_committed_scene_receipt("source-integrity", 0)
+    frozen = await store.load_frozen(receipt.run_id, receipt.attempt_id)
+    assert frozen.payload["optional_scene_stage"]["steps"]["spatial"] == {
+        "status": "unknown" if unknown else "stale",
+        "gaps": [
+            {"reason": "request_requires_reconciliation"}
+            if unknown
+            else {"reason": "scene_card_changed"}
+        ],
+    }
+    assert frozen.payload["optional_step_coverage"]["spatial"]["status"] == (
+        "unknown" if unknown else "stale"
+    )
     await handle_evolution_scene_step(db, task)
+    assert calls == ["provider"]
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason="B2-F2: single-character density terms match ordinary words such as "
-    "东西, so the zero-hit skip almost never fires",
-)
 def test_b2_density_precheck_ignores_non_spatial_common_words():
     density = _density_hits(
         "他把东西放下，说了声谢谢，又低头喝茶。", [], MapSpatialClueContext()
@@ -97,11 +104,6 @@ def test_b2_density_precheck_ignores_non_spatial_common_words():
     assert density["count"] == 0, density
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason="B2-F3: the reviewer must cite the current quote's evidence index, but "
-    "its review context lists only prior evidence",
-)
 def test_b2_emerging_type_review_context_indexes_current_evidence():
     prior = VocabularyEvidence(
         scene_id=uuid4(), quote="旧城被高墙围住", source_hash="e" * 64
@@ -133,18 +135,13 @@ def test_b2_emerging_type_review_context_indexes_current_evidence():
         type=SpatialTypeProposal(kind="space", name="封闭街区"),
     )
 
-    review_context = _type_review_context(raw, context, str(uuid4()))
+    review_context = _type_review_context(raw, context, str(uuid4()), "f" * 64)
 
     # _make_clues requires reviewed_evidence_indices == range(len(prior) + 1).
     quotes = [item["quote"] for item in review_context["evidence"]]
     assert quotes == ["旧城被高墙围住", "门在东侧"]
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason="B2-F6: rescan planning reads only the original receipt, so a Scene "
-    "already rescanned with the current method is planned and billed again",
-)
 async def test_b2_completed_spatial_rescan_is_not_planned_again(monkeypatch):
     import modules.evolution.spatial_rescan as rescan
 
@@ -169,6 +166,11 @@ async def test_b2_completed_spatial_rescan_is_not_planned_again(monkeypatch):
                 "spatial_version": SPATIAL_VERSION,
                 "spatial_rescan_operation_id": operation_id,
                 "spatial_rescan_status": "completed",
+                "spatial_rescan_origin": {
+                    "run_key": origin.run_id,
+                    "attempt_id": origin.attempt_id,
+                    "source_manifest_hash": origin.source_manifest_hash,
+                },
                 "scene_spatial_discovery": {"stage": "sampled"},
                 "scene_spatial_review": {"stage": "sampled"},
                 "spatial_discovery_result": {
@@ -177,6 +179,17 @@ async def test_b2_completed_spatial_rescan_is_not_planned_again(monkeypatch):
                     "gaps": [],
                 },
                 "optional_step_coverage": {"spatial": {"status": "inspected"}},
+            },
+        }
+    )
+    incomplete_operation_id = str(uuid4())
+    incomplete = origin.model_copy(
+        update={
+            "attempt_id": str(uuid4()),
+            "payload": {
+                **origin.payload,
+                "spatial_rescan_operation_id": incomplete_operation_id,
+                "spatial_rescan_status": "pending",
             },
         }
     )
@@ -203,7 +216,14 @@ async def test_b2_completed_spatial_rescan_is_not_planned_again(monkeypatch):
                     "from_scene_index": 0,
                     "through_scene_index": 0,
                     "status": "completed",
-                }
+                },
+                {
+                    "operation_id": incomplete_operation_id,
+                    "attempt_ids": [incomplete.attempt_id],
+                    "from_scene_index": 0,
+                    "through_scene_index": 0,
+                    "status": "failed",
+                },
             ],
         },
     )
@@ -219,15 +239,36 @@ async def test_b2_completed_spatial_rescan_is_not_planned_again(monkeypatch):
             return None
 
         async def load_committed_pairs(self, run_key):
-            return [(receipt, None)]
+            return [
+                (
+                    receipt,
+                    SimpleNamespace(
+                        payload_json=origin.payload,
+                        source_manifest_hash=origin.source_manifest_hash,
+                    ),
+                )
+            ]
+
+        async def load_committed_scene_receipt(
+            self, run_key, scene_index, *, source_manifest_hash=None
+        ):
+            if (
+                run_key == receipt.run_key
+                and scene_index == receipt.committed_scene_index
+                and source_manifest_hash == origin.source_manifest_hash
+            ):
+                return SimpleNamespace(attempt_id=origin.attempt_id)
+            return None
 
         async def load_head_receipt(self, run_key):
             return SimpleNamespace(attempt_id=origin.attempt_id, committed_prefix="p")
 
         async def load_frozen(self, run_key, attempt_id):
-            return {origin.attempt_id: origin, rescanned.attempt_id: rescanned}[
-                attempt_id
-            ]
+            return {
+                origin.attempt_id: origin,
+                rescanned.attempt_id: rescanned,
+                incomplete.attempt_id: incomplete,
+            }.get(attempt_id)
 
     async def nothing(*_args, **_kwargs):
         return None
@@ -251,13 +292,12 @@ async def test_b2_completed_spatial_rescan_is_not_planned_again(monkeypatch):
                 operation_id=uuid4(), from_scene_index=0, through_scene_index=0
             ),
         )
+    from modules.evolution.workflow import _optional_coverage_summary
+
+    summary = await _optional_coverage_summary(Store(), run, None)
+    assert summary["spatial"]["counts"]["inspected"] == 1
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason="B4-F2: reading notices walk past a newer completed run to a drained run "
-    "it superseded and report the dead run as paused",
-)
 async def test_b4_superseded_drained_run_does_not_raise_a_reading_notice(
     db_session, evolution_project_id
 ):
@@ -311,13 +351,9 @@ async def test_b4_superseded_drained_run_does_not_raise_a_reading_notice(
     assert [item for item in notices if item["category"] == "reading_run"] == []
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason="B6-F3: the pattern read picks the newest revision at or before the "
-    "cutoff, so a later author reject/correct is ignored for earlier Scenes",
-)
+@pytest.mark.parametrize("decision_key", ["reject", "corrected"])
 async def test_b6_author_reject_after_extension_applies_at_earlier_cutoff(
-    db_session, evolution_project_id, monkeypatch
+    db_session, evolution_project_id, monkeypatch, decision_key
 ):
     from core.container import container_scope
     from core.service_keys import STORY_SCENE_SOURCE
@@ -353,21 +389,28 @@ async def test_b6_author_reject_after_extension_applies_at_earlier_cutoff(
             {**first["dependencies"][0], "scene_id": str(uuid4()), "scene_index": 5},
         ],
     }
-    reject = {"decision": "reject", "scene_index": 5, "basis_revision": 2}
+    decision = {
+        "decision": decision_key,
+        "scene_index": 5,
+        "basis_revision": 2,
+        **(
+            {"corrected_statement": "更正后的倾向"} if decision_key == "corrected" else {}
+        ),
+    }
     entry = EvolutionLedgerEntry(
         id=uuid4(),
         novel_id=nid,
         origin_key="b6-f3",
         category="conditional_behavior",
         head_revision=3,
-        author_decision_json=reject,
+        author_decision_json=decision,
     )
     db_session.add(entry)
     await db_session.flush()
     for revision, scene_index, claim, decision, kind in (
         (1, 2, first, {}, "create"),
         (2, 5, extended, {}, "update"),
-        (3, 5, extended, reject, "author_decision"),
+        (3, 5, extended, decision, "author_decision"),
     ):
         db_session.add(
             EvolutionLedgerRevision(
@@ -399,4 +442,59 @@ async def test_b6_author_reject_after_extension_applies_at_earlier_cutoff(
 
     # The author rejected this interpretation; a Scene-2 brief must not bring
     # the pre-decision revision back (README: 逐条核验复核/作者决定).
-    assert result["items"] == [], result["items"]
+    if decision_key == "reject":
+        assert result["items"] == [], result["items"]
+    else:
+        assert [item["statement"] for item in result["items"]] == ["更正后的倾向"]
+
+
+async def test_append_preview_rejects_active_spatial_rescan(monkeypatch):
+    import modules.evolution.optional_scene as optional_scene
+    import modules.evolution.spatial_rescan as spatial_rescan
+    import modules.evolution.workflow as workflow
+
+    run = SimpleNamespace(
+        run_key="reading-run",
+        status="active",
+        committed_scene_index=0,
+        llm_snapshot_json={"profile": {"model": "luna"}},
+        reading_plan_json={
+            "steps": [{"scene_index": 0}],
+            "spatial_version": 0,
+            "preparation": None,
+            "spatial_rescans": [{"task_id": "rescan-task", "status": "pending"}],
+        },
+    )
+
+    class Store:
+        async def load_run(self, _run_key):
+            return run
+
+        async def require_project_owner(self, _run_key):
+            return None
+
+    async def allow_writer(*_args, **_kwargs):
+        return "owner"
+
+    async def no_optional_stage(*_args, **_kwargs):
+        return None
+
+    async def pending_spatial_rescan(*_args, **_kwargs):
+        return [{"status": "pending"}]
+
+    monkeypatch.setattr(workflow, "require_understanding_writer", allow_writer)
+    monkeypatch.setattr(workflow, "PostgresAttemptStore", lambda *_args: Store())
+    monkeypatch.setattr(
+        optional_scene, "load_pending_optional_stage", no_optional_stage
+    )
+    monkeypatch.setattr(spatial_rescan, "spatial_rescan_states", pending_spatial_rescan)
+    request = workflow.ReadingRequest(
+        operation_id=uuid4(),
+        mode="append",
+        run_key=run.run_key,
+        end_chapter=2,
+        request_limit=10,
+    )
+
+    with pytest.raises(ConflictError, match="完成或恢复当前空间补扫"):
+        await workflow._plan(None, str(uuid4()), request)

@@ -80,6 +80,7 @@ from modules.assistant.goal_runs.planning import (
     goal_target_types,
     module_for,
     operation_catalog_fingerprint,
+    operation_plan_unavailable_reason,
     parameter_fingerprint,
     plan_scope,
     resolve_reference,
@@ -809,7 +810,7 @@ def _resolve_step_parameters(
 
 
 def _is_map_author_decision_operation(operation_id: str) -> bool:
-    return operation_id.startswith("world.map.")
+    return operation_id == "map.edit_spatial_structure"
 
 
 def _r2_restore_is_supported(
@@ -843,8 +844,11 @@ def _goal_operation_unavailable_reason(
         return "操作未开放给助手"
     if operation.risk_level == "R4" or operation.fee_category == "possible_image_charge":
         return "需在原工作台独立授权"
-    if _is_map_author_decision_operation(operation_id) and operation.permission != "read":
+    if _is_map_author_decision_operation(operation_id):
         return "需在地图工作台核对作者决定来源"
+    plan_reason = operation_plan_unavailable_reason(operation)
+    if plan_reason:
+        return plan_reason
     task_type = TASK_OPERATION_TYPES.get(operation_id)
     if task_type:
         if not (
@@ -3874,7 +3878,7 @@ async def approve_goal_step(
         record = _step_records(goal).get(step.step_id) or {}
         if operation is None or record.get("status") != "prepared":
             raise ConflictError("步骤预览已失效，请重新准备")
-        if step.operation_id.startswith("world.map.") and operation.permission != "read":
+        if _is_map_author_decision_operation(step.operation_id):
             raise ConflictError("地图作者决定必须在原地图工作台确认")
         if operation.risk_level not in {"R2", "R3"}:
             raise ConflictError("该步骤不属于目标内逐步确认范围")

@@ -58,7 +58,7 @@
 
         <div class="scene-director__budget-choice">
           <h4>本次累计预算上限</h4>
-          <p>额度由你明确选择。系统到 80%、可能计费结果未知或接近时限时暂停；金额不作估算。</p>
+          <p>额度由你明确选择。达到 80% 后会在本回合完成处暂停后续回合；未知结果或到达时限会在下一步前暂停。</p>
           <div class="scene-director__form-grid scene-director__form-grid--three">
             <label><span>最多请求</span><input v-model.number="draft.requestLimit" type="number" min="1" step="1" required :disabled="busy || readOnly" @input="onInputsChanged"></label>
             <label><span>Token 上限</span><input v-model.number="draft.tokenLimit" type="number" min="1" step="1" required :disabled="busy || readOnly" @input="onInputsChanged"></label>
@@ -97,7 +97,7 @@
         </div>
         <div v-if="historyError" class="scene-director__notice scene-director__notice--error" role="alert"><span>{{ historyError }}</span><button type="button" class="btn btn-sm" @click="loadHistory()">重试</button></div>
         <div v-else-if="historyLoading && !history" class="scene-director__empty" role="status">正在读取本场导演历史…</div>
-        <div v-else-if="!history?.rounds?.length && !history?.references?.length && !history?.recoverable_references?.length" class="scene-director__empty">
+        <div v-else-if="!history?.rounds?.length && !history?.branches?.length && !history?.references?.length && !history?.recoverable_references?.length" class="scene-director__empty">
           <strong>这里还没有导演回合</strong><p>预算预览不会发起模型请求；开始后，每轮都会保留输入、来源、结果和累计用量。</p>
         </div>
         <template v-else>
@@ -115,6 +115,7 @@
               <div class="scene-director__actions">
                 <button type="button" class="btn btn-sm" :aria-pressed="branch.starred" :disabled="readOnly || busy" @click="saveBranchMeta(branch, { starred: !branch.starred })">{{ branch.starred ? "★ 已星标" : "☆ 星标" }}</button>
                 <button type="button" class="btn btn-sm" :disabled="readOnly || busy" @click="editBranchMeta(branch)">命名 / 备注</button>
+                <button v-if="['paused_budget', 'paused_unknown'].includes(branch.status)" type="button" class="btn btn-sm" :disabled="readOnly || busy" @click="prepareResume(branch)">恢复暂停回合</button>
                 <button type="button" class="btn btn-sm btn-text" :disabled="readOnly || busy || branch.status === 'running' || branch.status === 'queued'" @click="deleteBranch(branch)">删除分支</button>
               </div>
               <div v-if="editingBranchId === branch.id" class="scene-director__metadata-editor">
@@ -123,6 +124,24 @@
                 <button type="button" class="btn btn-sm btn-primary" :disabled="busy" @click="saveBranchMeta(branch, branchMetadata)">保存</button>
               </div>
             </article>
+          </section>
+          <section v-if="resumeDraft.branchId" class="scene-director__continue" aria-labelledby="director-resume-title">
+            <div class="scene-director__section-heading"><div><span class="scene-director__step">03</span><h3 id="director-resume-title">恢复未完成回合</h3></div><button type="button" class="btn btn-sm btn-text" @click="clearResume">收起</button></div>
+            <p>恢复沿用原资料快照与累计时限；已保存的意图、裁决和表演卡检查点会复用。</p>
+            <div class="scene-director__form-grid scene-director__form-grid--two">
+              <label><span>新增请求额度</span><input v-model.number="resumeDraft.additionalRequests" type="number" min="0" :disabled="busy" @input="onResumeChanged"></label>
+              <label><span>新增 Token 额度</span><input v-model.number="resumeDraft.additionalTokens" type="number" min="0" :disabled="busy" @input="onResumeChanged"></label>
+            </div>
+            <label v-if="resumePreview?.current_budget?.unknown_requests" class="scene-director__duplicate-confirm"><input v-model="resumeDraft.allowPossibleDuplicateCharge" type="checkbox" @change="onResumeChanged"><span>我已核对累计账本，明确确认未知请求重试可能重复计费。</span></label>
+            <div class="scene-director__actions">
+              <button type="button" class="btn" :disabled="busy || !resumeDraft.branchId" @click="previewResume">{{ resumePreviewLoading ? "正在预览…" : "预览恢复与累计预算" }}</button>
+              <button type="button" class="btn btn-primary" :disabled="readOnly || busy || !resumePreview || !canSubmitResume" @click="submitResume">{{ submitting ? "正在提交…" : "确认恢复" }}</button>
+            </div>
+            <div v-if="resumePreview" class="scene-director__budget" aria-live="polite">
+              <div><strong>同一累计根账本</strong><span>已用 {{ resumePreview.current_budget?.requests_used ?? 0 }} / {{ resumePreview.current_budget?.requests_authorized ?? "—" }} 请求</span><span>已用 {{ number(resumePreview.current_budget?.tokens_used) }} / {{ resumePreview.current_budget?.tokens_authorized ?? "—" }} Token</span></div>
+              <p>{{ resumePreview.possible_charge }}</p>
+              <p v-if="resumePreview.current_budget?.deadline_at" class="scene-director__help">原运行截止时间：{{ dateLabel(resumePreview.current_budget.deadline_at) }}</p>
+            </div>
           </section>
           <div v-if="compareOpen && comparison" class="scene-director__comparison" aria-label="回合对比">
             <section v-for="item in comparison" :key="item.id"><h4>{{ roundLabel(item) }}</h4><p>{{ item.input?.instructions || "没有导演侧指示" }}</p><ul><li v-for="card in item.performances || []" :key="card.character_id"><strong>{{ actorName(card.character_id) }}：</strong>{{ card.change_from_previous }}</li></ul><p v-for="warning in item.warnings || []" :key="warning">{{ warning }}</p></section>
@@ -311,6 +330,8 @@ const startPreview = ref(null)
 const continuationPreview = ref(null)
 const startPreviewLoading = ref(false)
 const continuationPreviewLoading = ref(false)
+const resumePreviewLoading = ref(false)
+const resumePreview = ref(null)
 const submitting = ref(false)
 const taskProgress = ref(null)
 const activeTaskId = ref(null)
@@ -365,6 +386,13 @@ const continuation = reactive({
   selectedAlternative: "",
   rewriteCharacterId: "",
 })
+const resumeDraft = reactive({
+  branchId: "",
+  rootId: "",
+  additionalRequests: 0,
+  additionalTokens: 0,
+  allowPossibleDuplicateCharge: false,
+})
 
 const characters = computed(() => {
   const source = props.characters?.length ? props.characters : worldCharacters.value
@@ -381,7 +409,7 @@ const canPreview = computed(() => Boolean(
   props.projectId && props.scene?.id && draft.characterIds.length && Number.isInteger(Number(draft.rounds)) && Number(draft.rounds) >= 1,
 ))
 const canSubmitStart = computed(() => Number(draft.requestLimit) >= 1 && Number(draft.tokenLimit) >= 1 && Number(draft.timeBudgetMinutes) >= 1)
-const busy = computed(() => submitting.value || startPreviewLoading.value || continuationPreviewLoading.value || candidateTransferBusy.value || Boolean(taskProgress.value && !taskProgress.value.terminal))
+const busy = computed(() => submitting.value || startPreviewLoading.value || continuationPreviewLoading.value || resumePreviewLoading.value || candidateTransferBusy.value || Boolean(taskProgress.value && !taskProgress.value.terminal))
 const orderedRounds = computed(() => [...(history.value?.rounds || [])].sort((a, b) => String(a.created_at || "").localeCompare(String(b.created_at || "")) || Number(a.round_number) - Number(b.round_number)))
 const comparison = computed(() => {
   const left = history.value?.rounds?.find((item) => item.id === compareLeft.value)
@@ -403,6 +431,8 @@ const canSubmitContinuation = computed(() => Number(continuation.additionalReque
   && Number(continuation.additionalTokens) >= 0
   && (!continuationPreview.value?.current_budget?.unknown_requests || Number(continuation.additionalRequests) > 0)
   && (!continuationPreview.value?.current_budget?.unknown_requests || continuation.allowPossibleDuplicateCharge))
+const canSubmitResume = computed(() => (Number(resumeDraft.additionalRequests) > 0 || Number(resumeDraft.additionalTokens) > 0)
+  && (!resumePreview.value?.current_budget?.unknown_requests || (Number(resumeDraft.additionalRequests) > 0 && resumeDraft.allowPossibleDuplicateCharge)))
 
 function currentKey() { return `${props.projectId || ""}:${props.scene?.id || ""}` }
 function owns(token, key = currentKey()) { return token === requestGeneration && key === currentContextKey }
@@ -420,6 +450,7 @@ function saveCurrentDraft() {
   const saved = {
     draft: jsonClone(draft),
     continuation: jsonClone(continuation),
+    resume: jsonClone(resumeDraft),
   }
   localDrafts.set(currentContextKey, saved)
   try {
@@ -442,8 +473,13 @@ function restoreDraft(key) {
     additionalRequests: 0, additionalTokens: 0, allowPossibleDuplicateCharge: false,
     instructions: "", intervention: "", publicStimulus: "", selectedAlternative: "", rewriteCharacterId: "",
   })
+  Object.assign(resumeDraft, saved?.resume || {
+    branchId: "", rootId: "", additionalRequests: 0, additionalTokens: 0,
+    allowPossibleDuplicateCharge: false,
+  })
   startPreview.value = null
   continuationPreview.value = null
+  resumePreview.value = null
   error.value = ""
   message.value = ""
   taskProgress.value = contextProgress.get(key) || null
@@ -548,6 +584,10 @@ function onInputsChanged() {
 function onContinuationChanged() {
   continuationPreview.value = null
   message.value = ""
+  saveCurrentDraft()
+}
+function onResumeChanged() {
+  resumePreview.value = null
   saveCurrentDraft()
 }
 
@@ -662,6 +702,7 @@ function startPolling(taskId, key) {
       contextTasks.delete(key)
       activeTaskId.value = null
       message.value = "本次排演已结束；查看每轮结果或明确追加预算后继续。"
+      if (["complete", "failed"].includes(task?.result?.status)) clearResume()
       void loadHistory()
     },
     onFailed: (progress) => {
@@ -789,6 +830,96 @@ async function submitContinuation() {
         ? "资料或累计账本已变化；额度与输入已保留，请重新预览。"
         : cause?.message || "续算提交失败；请先刷新历史确认任务状态。"
       if (Number(cause?.status) === 409) continuationPreview.value = null
+    }
+  } finally {
+    if (owns(token, key)) submitting.value = false
+  }
+}
+
+function prepareResume(branch) {
+  Object.assign(resumeDraft, {
+    branchId: branch.id,
+    rootId: branch.root_id,
+    additionalRequests: 0,
+    additionalTokens: 0,
+    allowPossibleDuplicateCharge: false,
+  })
+  resumePreview.value = null
+  saveCurrentDraft()
+}
+
+function clearResume() {
+  Object.assign(resumeDraft, {
+    branchId: "",
+    rootId: "",
+    additionalRequests: 0,
+    additionalTokens: 0,
+    allowPossibleDuplicateCharge: false,
+  })
+  resumePreview.value = null
+  saveCurrentDraft()
+}
+
+async function previewResume() {
+  if (!resumeDraft.branchId || busy.value) return
+  const token = requestGeneration
+  const key = currentContextKey
+  resumePreviewLoading.value = true
+  error.value = ""
+  try {
+    const operationId = createOperationId()
+    const result = await getApi().story.previewSceneDirectorResume(resumeDraft.rootId, {
+      operation_id: operationId,
+      novel_id: props.projectId,
+      parent_round_id: null,
+      resume_branch_id: resumeDraft.branchId,
+      rounds: 1,
+      basis_choice: "current",
+    })
+    if (!owns(token, key)) return
+    resumePreview.value = { ...result, operationId, rootId: resumeDraft.rootId }
+    if (Number(result.current_budget?.unknown_requests || 0)) message.value = "累计账本存在结果未知的请求；恢复前需明确确认可能重复计费。"
+  } catch (cause) {
+    if (owns(token, key)) error.value = cause?.message || "恢复预算预览失败；追加额度仍保留。"
+  } finally {
+    if (owns(token, key)) resumePreviewLoading.value = false
+  }
+}
+
+async function submitResume() {
+  if (!resumePreview.value || !canSubmitResume.value || busy.value || props.readOnly) return
+  const token = requestGeneration
+  const key = currentContextKey
+  submitting.value = true
+  error.value = ""
+  try {
+    const root = history.value?.roots?.find((item) => item.id === resumeDraft.rootId)
+    const confirmation = await confirmScope(root?.character_ids?.length ? root.character_ids : draft.characterIds)
+    if (!owns(token, key)) return
+    const result = await getApi().story.resumeSceneDirector(resumeDraft.rootId, {
+      operation_id: resumePreview.value.operationId,
+      novel_id: props.projectId,
+      parent_round_id: null,
+      resume_branch_id: resumeDraft.branchId,
+      rounds: 1,
+      basis_choice: "current",
+      branch_kind: "continue",
+      context_confirmation_id: confirmation.id,
+      additional_requests: Number(resumeDraft.additionalRequests),
+      additional_tokens: Number(resumeDraft.additionalTokens || 0),
+      allow_possible_duplicate_charge: resumeDraft.allowPossibleDuplicateCharge,
+      budget_preview_hash: resumePreview.value.preview_hash,
+    })
+    if (!owns(token, key)) return
+    clearResume()
+    message.value = "已在原分支恢复；保存的检查点不会重复请求。"
+    startPolling(result.task_id, key)
+  } catch (cause) {
+    if (owns(token, key)) {
+      error.value = Number(cause?.status) === 409
+        ? "检查点、资料或累计账本已变化；额度仍保留，请重新预览。"
+        : cause?.message || "恢复提交状态不确定；请先刷新历史确认任务状态。"
+      if (Number(cause?.status) === 409) resumePreview.value = null
     }
   } finally {
     if (owns(token, key)) submitting.value = false

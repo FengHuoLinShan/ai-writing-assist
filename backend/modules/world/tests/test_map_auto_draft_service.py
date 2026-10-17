@@ -663,7 +663,7 @@ async def test_tray_place_requires_preview_and_is_idempotent(
 
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize("kind", ["connection", "journey", "tray"])
+@pytest.mark.parametrize("kind", ["connection", "journey", "effective_change", "tray"])
 async def test_drafts_keep_effective_range_and_exact_citation(
     db_session, project_novel_id, kind
 ):
@@ -711,13 +711,15 @@ async def test_drafts_keep_effective_range_and_exact_citation(
     features = [item for item in revision.document["features"] if item["entity_id"]]
     assert features
     for feature in features:
-        assert feature["effective"] == validity.model_dump(mode="json")
+        assert feature["effective"] == (
+            validity.model_dump(mode="json") if kind == "effective_change" else None
+        )
         assert feature["modality"] == (
             "character_statement" if kind == "tray" else "event_observed"
         )
         assert feature["sources"][0]["quote"] == QUOTE_ONE
         assert feature["sources"][0]["source_hash"] == draft.content_hash
-    if kind != "tray":
+    if kind in {"connection", "journey"}:
         relations = revision.document["journeys" if kind == "journey" else "constraints"]
         assert relations[0]["effective"] == validity.model_dump(mode="json")
 
@@ -835,7 +837,8 @@ async def test_rejecting_source_clue_stales_dependent_auto_draft(
 
     assert rejected.status == "rejected"
     batch = await db_session.get(MapAutoDraftBatchRecord, result.batch_id)
-    assert batch.status == "stale"
+    assert batch.status == "completed"
+    assert batch.result_refs[0]["status"] == "stale"
     listed = await list_map_auto_drafts(db_session, project_novel_id)
     assert listed.items[0].stale is True
 

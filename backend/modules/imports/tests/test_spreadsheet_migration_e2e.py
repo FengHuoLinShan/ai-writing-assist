@@ -349,6 +349,7 @@ async def test_xlsx_and_csv_dossier_mapping_conflict_and_rollback(
         select(WorldObjectDossierEntry).where(
             WorldObjectDossierEntry.novel_id == novel_uuid,
             WorldObjectDossierEntry.entity_id == imported_entity.id,
+            WorldObjectDossierEntry.vocabulary_term_id == uuid.UUID(term_id),
             WorldObjectDossierEntry.status == "active",
         )
     )
@@ -383,6 +384,7 @@ async def test_xlsx_and_csv_dossier_mapping_conflict_and_rollback(
                 select(WorldObjectDossierEntry).where(
                     WorldObjectDossierEntry.novel_id == novel_uuid,
                     WorldObjectDossierEntry.entity_id == imported_entity.id,
+                    WorldObjectDossierEntry.vocabulary_term_id == uuid.UUID(term_id),
                     WorldObjectDossierEntry.status == "active",
                 )
             )

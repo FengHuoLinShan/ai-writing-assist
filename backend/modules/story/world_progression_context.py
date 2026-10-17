@@ -9,7 +9,10 @@ from typing import Any
 from core.container import get
 from core.service_keys import WORLD_READ_OBJECT_VALIDITY_NOTICES
 from infrastructure.llm.collaboration import content_hash
-from modules.evidence.facade import read_object_dossier_brief
+from modules.evidence.facade import (
+    read_object_dossier_brief,
+    restrict_object_dossier_brief,
+)
 from modules.story.director_state import build_scene_simulation_context
 from modules.story.facade import get_scene_state_view, get_scene_story_context
 from modules.story.outline_state.facade import get_scenes_by_chapter
@@ -22,6 +25,7 @@ from modules.story.rehearsals import validate_simulation_context_refs
 from modules.story.simulation_v3 import (
     SimulationReference,
     SimulationRoute,
+    SimulationV3Context,
 )
 from modules.story.world_progression_schemas import (
     ProgressionParticipant,
@@ -113,6 +117,181 @@ def _source_ids(brief: dict) -> set[str]:
                 value = item.get(key)
                 if value:
                     result.add(str(value))
+    return result
+
+
+def _role_projection(
+    participant: ProgressionParticipant, brief: dict, participant_ids: list[str]
+) -> dict:
+    visible_ids = {participant.id}
+    for key in ("world_items", "continuity_items"):
+        visible_ids.update(
+            str(item.get("entity_id"))
+            for item in brief.get(key) or []
+            if item.get("entity_id")
+        )
+    return {
+        "viewpoint": (
+            {"kind": "character", "character_id": participant.id}
+            if participant.kind == "character"
+            else {"kind": "group", "basis": "reader_visible_only"}
+        ),
+        "brief": brief,
+        "known_participant_ids": sorted(set(participant_ids) & visible_ids),
+        "known_entity_ids": sorted(visible_ids),
+        # Canonical identity remains a valid basis when no dossier entry was selected.
+        "source_ids": sorted(_source_ids(brief) | {f"world:entity:{participant.id}"}),
+        "coverage": brief.get("coverage", "unknown"),
+    }
+
+
+async def _simulation_context(
+    db,
+    *,
+    novel_id: str,
+    scene_id: str,
+    participants: list[ProgressionParticipant],
+    author_brief: dict,
+    map_state: dict,
+) -> SimulationV3Context:
+    characters = [item.id for item in participants if item.kind == "character"]
+    context = await build_scene_simulation_context(
+        db,
+        novel_id=novel_id,
+        scene_id=scene_id,
+        character_ids=characters,
+        related_object_ids=[],
+        brief=author_brief,
+    )
+    references = {item.state_key: item for item in context.participants}
+    references.update(
+        {
+            SimulationReference(kind="object", id=item.id).state_key: SimulationReference(
+                kind="object", id=item.id
+            )
+            for item in participants
+            if item.kind == "group"
+        }
+    )
+    locations = {item.state_key: item for item in context.locations}
+    routes = {
+        (item.origin.state_key, item.destination.state_key): item
+        for item in context.routes
+    }
+    for item in map_state.get("routes") or []:
+        origin = SimulationReference(kind=item["origin_kind"], id=str(item["origin_id"]))
+        destination = SimulationReference(
+            kind=item["destination_kind"], id=str(item["destination_id"])
+        )
+        locations[origin.state_key] = origin
+        locations[destination.state_key] = destination
+        routes[(origin.state_key, destination.state_key)] = SimulationRoute(
+            origin=origin, destination=destination
+        )
+    context = context.model_copy(
+        update={
+            "participants": list(references.values()),
+            "locations": list(locations.values()),
+            "routes": list(routes.values()),
+        }
+    )
+    await validate_simulation_context_refs(db, novel_id, context)
+    return context
+
+
+def _progression_source_hash(source: dict) -> str:
+    return content_hash(
+        {
+            "scene_context": (source.get("scene_context") or {}).get("context_hash"),
+            "time_basis": source.get("time_basis"),
+            "scene_id": source.get("scene_id"),
+            "author_brief": (source.get("author_brief") or {}).get("fingerprint"),
+            "object_validity_notices": source.get("object_validity_notices"),
+            "life_state_checks": source.get("life_state_checks"),
+            "role_briefs": {
+                actor: (value.get("brief") or {}).get("fingerprint")
+                for actor, value in sorted((source.get("role_briefs") or {}).items())
+            },
+            "targets": source.get("target_hash"),
+            "map_state": (source.get("map_state") or {}).get("fingerprint"),
+            "simulation_context": source.get("simulation_context"),
+        }
+    )
+
+
+async def scope_progression_source(
+    db,
+    source: dict,
+    compiled_context,
+    *,
+    expected_novel_id: str,
+    expected_scene_id: str,
+) -> dict:
+    """Reapply confirmation to frozen source without restoring excluded dossier rows."""
+    if compiled_context is None:
+        raise ValueError("世界推进冻结来源必须重验原资料确认")
+    if not isinstance(source, dict):
+        raise ValueError("世界推进冻结来源快照无效")
+    novel_id = str(source.get("novel_id") or "")
+    scene_id = str(source.get("scene_id") or "")
+    scene_context = source.get("scene_context")
+    if not novel_id or not scene_id:
+        raise ValueError("世界推进冻结来源缺少作品或 Scene 身份")
+    if novel_id != str(expected_novel_id) or scene_id != str(expected_scene_id):
+        raise ValueError("世界推进冻结来源与当前作品或根 Scene 不匹配")
+    if not isinstance(scene_context, dict) or (
+        str(scene_context.get("novel_id") or "") != novel_id
+        or str(scene_context.get("scene_id") or "") != scene_id
+    ):
+        raise ValueError("世界推进冻结来源的 Scene 上下文身份不匹配")
+    result = dict(source)
+    participants = [
+        ProgressionParticipant(
+            id=actor_id,
+            kind="character"
+            if (role.get("viewpoint") or {}).get("kind") == "character"
+            else "group",
+        )
+        for actor_id, role in (source.get("role_briefs") or {}).items()
+    ]
+    participant_ids = [item.id for item in participants]
+    author_brief = restrict_object_dossier_brief(
+        {**(source.get("author_brief") or {}), "scene_id": scene_id}, compiled_context
+    )
+    role_briefs = {}
+    for participant in participants:
+        prior = (source.get("role_briefs") or {}).get(participant.id) or {}
+        brief = restrict_object_dossier_brief(
+            {**(prior.get("brief") or {}), "scene_id": scene_id}, compiled_context
+        )
+        role = _role_projection(participant, brief, participant_ids)
+        role["journey_routes"] = prior.get("journey_routes") or []
+        role["known_route_ids"] = prior.get("known_route_ids") or []
+        role_briefs[participant.id] = role
+    map_state = source.get("map_state") or {}
+    simulation_context = await _simulation_context(
+        db,
+        novel_id=novel_id,
+        scene_id=scene_id,
+        participants=participants,
+        author_brief=author_brief,
+        map_state=map_state,
+    )
+    result.update(
+        author_brief=author_brief,
+        author_source_ids=sorted(_source_ids(author_brief)),
+        role_briefs=role_briefs,
+        simulation_context=simulation_context.model_dump(mode="json"),
+        source_hash="",
+    )
+    result["coverage"] = {
+        **dict(source.get("coverage") or {}),
+        "author": author_brief.get("coverage", "unknown"),
+        "characters": {
+            actor: role.get("coverage", "unknown") for actor, role in role_briefs.items()
+        },
+    }
+    result["source_hash"] = _progression_source_hash(result)
     return result
 
 
@@ -257,9 +436,12 @@ async def read_progression_source(
     scene_id: str | None,
     participants: list[ProgressionParticipant],
     targets: list[ProgressionTarget],
+    confirmed_context=None,
     map_reader=None,
 ) -> dict:
     """Read only adopted World facts and POV-safe evidence at a real Story cutoff."""
+    if confirmed_context is None or getattr(confirmed_context, "compiled", None) is None:
+        raise ValueError("世界推进读取对象档案前必须重验原资料确认")
     if scene_id is None:
         latest = await _latest_written_scene(db, novel_id)
         scene_id = str(latest["id"])
@@ -362,7 +544,10 @@ async def read_progression_source(
                 )
             )
         )
-    author_brief = _merge_briefs(author_parts)
+    author_brief = restrict_object_dossier_brief(
+        {**_merge_briefs(author_parts), "scene_id": str(scene_id)},
+        confirmed_context.compiled,
+    )
     # A canonical World identity exists independently of optional dossier
     # entries. The dossier contributes time-scoped facts, not the identity gate.
     world_entities, _ = await get_hidden_guard_sources(
@@ -407,63 +592,13 @@ async def read_progression_source(
                 only_adopted_patterns=True,
             )
             parts.append(_dump(result))
-        brief = _merge_briefs(parts)
-        visible_ids = {participant.id}
-        visible_ids.update(
-            str(item.get("entity_id"))
-            for item in brief.get("world_items") or []
-            if item.get("entity_id")
+        brief = restrict_object_dossier_brief(
+            {**_merge_briefs(parts), "scene_id": str(scene_id)},
+            confirmed_context.compiled,
         )
-        visible_ids.update(
-            str(item.get("entity_id"))
-            for item in brief.get("continuity_items") or []
-            if item.get("entity_id")
+        role_briefs[participant.id] = _role_projection(
+            participant, brief, participant_ids
         )
-        role_briefs[participant.id] = {
-            "viewpoint": (
-                {"kind": "character", "character_id": participant.id}
-                if participant.kind == "character"
-                else {"kind": "group", "basis": "reader_visible_only"}
-            ),
-            "brief": brief,
-            "known_participant_ids": sorted(set(participant_ids) & visible_ids),
-            "known_entity_ids": sorted(visible_ids),
-            # The exact canonical World identity is a valid starting basis
-            # even when this actor has no time-scoped dossier entry yet.
-            "source_ids": sorted(_source_ids(brief) | {f"world:entity:{participant.id}"}),
-            "coverage": brief.get("coverage", "unknown"),
-        }
-
-    simulation_context = await build_scene_simulation_context(
-        db,
-        novel_id=novel_id,
-        scene_id=scene_id,
-        character_ids=character_ids,
-        related_object_ids=[],
-        brief=author_brief,
-    )
-    simulation_context = simulation_context.model_copy(
-        update={
-            "participants": list(
-                {
-                    item.state_key: item
-                    for item in [
-                        *simulation_context.participants,
-                        *[
-                            SimulationReference(kind="object", id=item.id)
-                            for item in participants
-                            if item.kind == "group"
-                        ],
-                    ]
-                }.values()
-            )
-        }
-    )
-    await validate_simulation_context_refs(
-        db,
-        novel_id,
-        simulation_context,
-    )
     map_state = {
         "routes": [],
         "actor_routes": {actor_id: [] for actor_id in participant_ids},
@@ -496,44 +631,16 @@ async def read_progression_source(
         for role in role_briefs.values():
             role["journey_routes"] = []
             role["known_route_ids"] = []
-    locations = {item.state_key: item for item in simulation_context.locations}
-    routes = {
-        (item.origin.state_key, item.destination.state_key): item
-        for item in simulation_context.routes
-    }
-    for item in map_state.get("routes") or []:
-        origin = SimulationReference(kind=item["origin_kind"], id=str(item["origin_id"]))
-        destination = SimulationReference(
-            kind=item["destination_kind"], id=str(item["destination_id"])
-        )
-        locations[origin.state_key] = origin
-        locations[destination.state_key] = destination
-        routes[(origin.state_key, destination.state_key)] = SimulationRoute(
-            origin=origin, destination=destination
-        )
-    simulation_context = simulation_context.model_copy(
-        update={"locations": list(locations.values()), "routes": list(routes.values())}
+    simulation_context = await _simulation_context(
+        db,
+        novel_id=novel_id,
+        scene_id=scene_id,
+        participants=participants,
+        author_brief=author_brief,
+        map_state=map_state,
     )
-    await validate_simulation_context_refs(db, novel_id, simulation_context)
     target_hash = content_hash(target_assets)
-    source_hash = content_hash(
-        {
-            "scene_context": scene_context.get("context_hash"),
-            "time_basis": time_basis,
-            "scene_id": scene_id,
-            "author_brief": author_brief.get("fingerprint"),
-            "object_validity_notices": validity_notice_packet,
-            "life_state_checks": life_state_checks,
-            "role_briefs": {
-                actor: value["brief"].get("fingerprint")
-                for actor, value in sorted(role_briefs.items())
-            },
-            "targets": target_hash,
-            "map_state": map_state.get("fingerprint"),
-            "simulation_context": simulation_context.model_dump(mode="json"),
-        }
-    )
-    return {
+    source = {
         "novel_id": novel_id,
         "scene_id": scene_id,
         "scene_index": scene_index,
@@ -567,5 +674,7 @@ async def read_progression_source(
                 "limit_reached" if len(object_validity_notices) >= 100 else "complete"
             ),
         },
-        "source_hash": source_hash,
+        "source_hash": "",
     }
+    source["source_hash"] = _progression_source_hash(source)
+    return source

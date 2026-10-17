@@ -55,6 +55,7 @@ def validate_intents(
     *,
     participant_ids: set[str],
     known_participant_ids: dict[str, set[str]],
+    participant_locations: dict[str, str | None],
     role_visible_object_ids: dict[str, set[str]],
     role_visible_map_node_ids: dict[str, set[str]],
     existing_object_ids: set[str],
@@ -70,6 +71,15 @@ def validate_intents(
             item.kind != "object" or item.id not in visible for item in intent.audience
         ):
             raise ValueError("人物意图收聽者超出该角色已知范围")
+        if any(item.id not in participant_ids for item in intent.audience):
+            raise ValueError("人物意图收聽者不在本轮仍在场参与者范围")
+        actor_location = participant_locations.get(intent.actor.state_key)
+        if any(
+            actor_location is None
+            or participant_locations.get(item.state_key) != actor_location
+            for item in intent.audience
+        ):
+            raise ValueError("人物意图收聽者与说话人缺少可核验的同场位置")
         for reference in (intent.resource, intent.recipient, intent.destination):
             _check_reference(
                 reference,

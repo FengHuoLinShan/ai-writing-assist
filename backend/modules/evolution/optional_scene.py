@@ -158,7 +158,9 @@ async def _record_step(db, store, frozen, key, status, gaps):
         current["status"] = (
             current.get("status", "inspected")
             if status == "complete"
-            else ("unknown" if status == "unknown" else "not_run")
+            else status
+            if status in {"unknown", "stale"}
+            else "not_run"
         )
         current["gaps"] = [
             *current.get("gaps", []),
@@ -170,6 +172,50 @@ async def _record_step(db, store, frozen, key, status, gaps):
         stage["completed_state_fingerprint"] = payload["state_fingerprint"]
     await store.replace_frozen_payload(latest.model_copy(update={"payload": payload}))
     await db.commit()
+
+
+async def _settle_stale_optional_steps(db, store, frozen):
+    await store.require_project_owner(frozen.run_id)
+    await store.load_run(frozen.run_id, for_update=True)
+    latest = await store.load_frozen(frozen.run_id, frozen.attempt_id)
+    await require_committed_optional_parent(store, latest)
+    for key, record in (
+        (latest.payload.get("optional_scene_stage") or {}).get("steps", {}).items()
+    ):
+        if record["status"] not in {"pending", "running"}:
+            continue
+        prefix = OPTIONAL_READING_STEPS[key].journal_prefix + "_"
+        unknown = any(
+            name.startswith(prefix)
+            and journal
+            and journal.get("stage") != "sampled"
+            and not settled_output_failure(journal)
+            for name, journal in latest.payload.items()
+        )
+        state = (latest.payload.get("optional_step_coverage") or {}).get(key, {})
+        unknown = unknown or state.get("status") == "unknown"
+        await _record_step(
+            db,
+            store,
+            latest,
+            key,
+            "unknown" if unknown else "stale",
+            [
+                {"reason": "request_requires_reconciliation"}
+                if unknown
+                else {"reason": "scene_card_changed"}
+            ],
+        )
+
+
+async def _guard_or_settle_stale_card(db, store, frozen, source):
+    try:
+        return await _guard(db, store, frozen, source)
+    except CommitConflictError as error:
+        if error.code != "scene_changed":
+            raise
+        await _settle_stale_optional_steps(db, store, frozen)
+        return None
 
 
 async def finish_committed_optional_steps(db, store, frozen, source, caller):
@@ -190,7 +236,9 @@ async def finish_committed_optional_steps(db, store, frozen, source, caller):
         ("details", finish_scene_discovery),
         ("spatial", finish_scene_spatial),
     ):
-        frozen = await _guard(db, store, frozen, source)
+        frozen = await _guard_or_settle_stale_card(db, store, frozen, source)
+        if frozen is None:
+            return
         record = frozen.payload["optional_scene_stage"]["steps"].get(key)
         await db.commit()
         if record is None or record["status"] not in {"pending", "running"}:
@@ -201,7 +249,10 @@ async def finish_committed_optional_steps(db, store, frozen, source, caller):
             frozen = await finish(db, store, frozen, source, caller)
         except LLMAdmissionStoppedError:
             raise
-        except CommitConflictError:
+        except CommitConflictError as error:
+            if error.code == "scene_changed":
+                await _settle_stale_optional_steps(db, store, frozen)
+                return
             raise
         except Exception as error:
             # Each provider journal was committed before I/O. A failed domain
@@ -209,7 +260,9 @@ async def finish_committed_optional_steps(db, store, frozen, source, caller):
             await db.rollback()
             failure = error
         await require_active_project_exclusive(db, frozen.novel_id)
-        frozen = await _guard(db, store, frozen, source)
+        frozen = await _guard_or_settle_stale_card(db, store, frozen, source)
+        if frozen is None:
+            return
         prefix = OPTIONAL_READING_STEPS[key].journal_prefix + "_"
         unknown = any(
             name.startswith(prefix)

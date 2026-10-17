@@ -52,18 +52,39 @@ SPATIAL_DENSITY_TERMS = (
     "城市",
     "村庄",
     "城镇",
-    "山",
-    "河",
-    "湖",
-    "桥",
-    "楼",
+    "山口",
+    "山脚",
+    "山顶",
+    "河边",
+    "河岸",
+    "湖边",
+    "桥头",
+    "桥上",
+    "楼上",
+    "楼下",
     "院子",
     "入口",
     "出口",
-    "东",
-    "西",
-    "南",
-    "北",
+    "东侧",
+    "东边",
+    "东面",
+    "东方",
+    "东部",
+    "西侧",
+    "西边",
+    "西面",
+    "西方",
+    "西部",
+    "南侧",
+    "南边",
+    "南面",
+    "南方",
+    "南部",
+    "北侧",
+    "北边",
+    "北面",
+    "北方",
+    "北部",
     "上方",
     "下方",
     "相邻",
@@ -409,7 +430,10 @@ def _find_type(proposal: SpatialTypeProposal, context: MapSpatialClueContext):
 
 
 def _type_review_context(
-    raw: SpatialClueProposal, context: MapSpatialClueContext, scene_id: str
+    raw: SpatialClueProposal,
+    context: MapSpatialClueContext,
+    scene_id: str,
+    source_hash: str | None = None,
 ):
     if raw.type is None:
         return None
@@ -422,6 +446,10 @@ def _type_review_context(
             return {"kind": "active", "type": item.model_dump(mode="json")}
         if item.status == "emerging" and item.source == "model" and item.proposal_run_id:
             evidence = [item.model_dump(mode="json") for item in item.evidence]
+            current = {"scene_id": scene_id, "quote": raw.quote}
+            if source_hash is not None:
+                current["source_hash"] = source_hash
+            evidence.append(current)
             return {
                 "kind": "emerging",
                 "type": item.model_dump(mode="json"),
@@ -483,7 +511,7 @@ def _make_clues(*, frozen, source, content_mode, context, discovery, review, pre
 
         type_ref = type_revision_id = type_kind = None
         draft = proposal = None
-        type_context = _type_review_context(raw, context, str(scene_id))
+        type_context = _type_review_context(raw, context, str(scene_id), source_hash)
         decision = decisions.get(index)
         if raw.type is not None and type_context:
             if type_context["kind"] == "active":
@@ -524,7 +552,7 @@ def _make_clues(*, frozen, source, content_mode, context, discovery, review, pre
                 type_item = type_context["type"]
                 prior = [
                     VocabularyEvidence.model_validate(item)
-                    for item in type_context["evidence"]
+                    for item in type_item["evidence"]
                 ]
                 current = VocabularyEvidence(
                     scene_id=scene_id, quote=raw.quote, source_hash=source_hash
@@ -1033,7 +1061,12 @@ async def finish_scene_spatial(db, store, frozen, source, caller):
         **discovery_inputs,
         "proposal": generated_output.model_dump(mode="json"),
         "type_review_context": [
-            _type_review_context(item, context, payload["scene_id"])
+            _type_review_context(
+                item,
+                context,
+                payload["scene_id"],
+                _exact_source_hash(payload["scene_text"], item.quote, source),
+            )
             for item in generated_output.clues
         ],
     }

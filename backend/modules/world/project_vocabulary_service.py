@@ -81,6 +81,7 @@ async def _current_records(
     novel_id: uuid.UUID,
     *,
     kind: str | None = None,
+    ids: set[uuid.UUID] | None = None,
     lock: bool = False,
 ) -> list[tuple[ProjectVocabularyTerm, ProjectVocabularyRevision]]:
     statement = (
@@ -97,6 +98,8 @@ async def _current_records(
     )
     if kind is not None:
         statement = statement.where(ProjectVocabularyTerm.kind == kind)
+    if ids is not None:
+        statement = statement.where(ProjectVocabularyTerm.id.in_(ids))
     if lock:
         statement = statement.with_for_update(of=ProjectVocabularyTerm)
     result = await db.execute(statement.execution_options(populate_existing=lock))
@@ -1133,6 +1136,8 @@ async def resolve_vocabulary_type_revisions(
     db: AsyncSession,
     novel_id: str,
     refs: set[tuple[uuid.UUID, uuid.UUID]],
+    *,
+    follow_merged_redirects: bool = False,
 ) -> dict[tuple[uuid.UUID, uuid.UUID], dict[str, object]]:
     """Resolve only exact same-project (stable type, pinned revision) pairs."""
     await require_active_project(db, novel_id)
@@ -1162,9 +1167,32 @@ async def resolve_vocabulary_type_revisions(
         )
     )
     result = await db.execute(statement)
+    rows = result.all()
+    current_records = {}
+    if follow_merged_redirects and any(term.status == "merged" for term, _ in rows):
+        pending_ids = {term.id for term, _ in rows if term.status == "merged"}
+        while pending_ids:
+            missing_ids = pending_ids - current_records.keys()
+            if not missing_ids:
+                break
+            fetched = await _current_records(
+                db,
+                novel_uuid,
+                ids=missing_ids,
+            )
+            current_records.update(
+                {term.id: (term, revision) for term, revision in fetched}
+            )
+            pending_ids = {
+                term.redirect_to_id
+                for term, _ in fetched
+                if term.status == "merged"
+                and term.redirect_to_id is not None
+                and term.redirect_to_id not in current_records
+            }
     resolved: dict[tuple[uuid.UUID, uuid.UUID], dict[str, object]] = {}
-    for term, revision in result.all():
-        resolved[(term.id, revision.id)] = {
+    for term, revision in rows:
+        item = {
             "kind": term.kind,
             "status": term.status,
             "revision_id": revision.id,
@@ -1172,6 +1200,21 @@ async def resolve_vocabulary_type_revisions(
             "description": revision.snapshot_json.get("description", ""),
             "traits": revision.snapshot_json.get("traits", {}),
         }
+        if follow_merged_redirects:
+            effective_term, effective_revision = (term, revision)
+            if term.status == "merged":
+                effective_term, effective_revision = _resolve_redirect(
+                    (term, revision), current_records
+                )
+            item.update(
+                {
+                    "effective_status": effective_term.status,
+                    "effective_traits": effective_revision.snapshot_json.get(
+                        "traits", {}
+                    ),
+                }
+            )
+        resolved[(term.id, revision.id)] = item
     if resolved.keys() != refs:
         raise NotFoundError("项目词条或固定修订不存在")
     return resolved

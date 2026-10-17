@@ -20,9 +20,15 @@ from infrastructure.tasks.facade import (
     get_operation_task,
 )
 from infrastructure.tasks.models import AsyncTask
-from modules.evidence.facade import require_fresh_confirmation
+from modules.evidence.facade import (
+    prepare_confirmed_ai_action,
+    require_fresh_confirmation,
+)
 from modules.story.generation import STORY_ONE_CLICK_ACTION
-from modules.story.world_progression_context import read_progression_source
+from modules.story.world_progression_context import (
+    _latest_written_scene,
+    read_progression_source,
+)
 from modules.story.world_progression_models import (
     StoryWorldProgressionAuthorization,
     StoryWorldProgressionBranch,
@@ -164,6 +170,12 @@ async def set_continuous_authorization(
             raise ConflictError("持续授权确认没有包含所选人物")
         if not selected_groups <= set(map(str, options.get("entity_ids") or [])):
             raise ConflictError("持续授权确认没有包含所选群体")
+        try:
+            latest_scene = await _latest_written_scene(db, data.novel_id)
+        except ValueError as error:
+            raise ConflictError("持续授权需要当前可用的已写 Scene；请重新确认") from error
+        if str(latest_scene["id"]) != str(root.scene_id):
+            raise ConflictError("原确认截止 Scene 已变化；请在当前 Scene 新建推进并确认")
     current = await db.scalar(
         select(StoryWorldProgressionAuthorization)
         .where(StoryWorldProgressionAuthorization.novel_id == UUID(data.novel_id))
@@ -206,6 +218,7 @@ async def set_continuous_authorization(
         )
         db.add(current)
     current.enabled = data.enabled
+    current.stop_reason = None
     current.revision = revision + 1
     current.participant_ids_json = sorted(selected) if data.enabled else []
     current.every_new_chapters = data.every_new_chapters
@@ -228,6 +241,7 @@ async def set_continuous_authorization(
         "trigger_count": current.trigger_count,
         "root_id": str(current.root_id) if current.root_id else None,
         "branch_id": str(current.branch_id) if current.branch_id else None,
+        "stop_reason": current.stop_reason,
         "budget": _budget_view(root),
         "last_seen_chapter": current.last_seen_chapter,
         "completed_read_chapter_count": len(current.counted_read_chapters_json),
@@ -250,6 +264,7 @@ async def read_continuous_authorization(db, novel_id: str) -> dict:
             "trigger_count": 0,
             "root_id": None,
             "branch_id": None,
+            "stop_reason": None,
             "budget": None,
             "completed_read_chapter_count": 0,
             "new_read_chapters_since_trigger": 0,
@@ -270,6 +285,7 @@ async def read_continuous_authorization(db, novel_id: str) -> dict:
         "trigger_count": row.trigger_count,
         "root_id": str(row.root_id) if row.root_id else None,
         "branch_id": str(row.branch_id) if row.branch_id else None,
+        "stop_reason": row.stop_reason,
         "last_seen_chapter": row.last_seen_chapter,
         "completed_read_chapter_count": len(row.counted_read_chapters_json or []),
         "new_read_chapters_since_trigger": max(
@@ -402,12 +418,50 @@ async def consider_progression_after_chapter_commit(
         for item in (root.request_json or {}).get("participants") or []
     ]
     selected_participants = [item for item in all_participants if item.id in eligible]
+    confirmation_id = str(authorization.context_confirmation_id or "")
+    if not confirmation_id:
+        return await _stop_continuous_authorization(
+            db, authorization, "confirmation_missing"
+        )
+    try:
+        latest_scene = await _latest_written_scene(db, novel_id)
+    except ValueError:
+        return await _stop_continuous_authorization(
+            db, authorization, "latest_scene_unavailable"
+        )
+    if str(latest_scene["id"]) != str(root.scene_id):
+        return await _stop_continuous_authorization(
+            db, authorization, "confirmation_scope_changed"
+        )
+    try:
+        confirmed = await prepare_confirmed_ai_action(
+            db,
+            novel_id=novel_id,
+            action=STORY_ONE_CLICK_ACTION,
+            confirmation_id=confirmation_id,
+        )
+    except (ConflictError, ValueError):
+        return await _stop_continuous_authorization(
+            db, authorization, "confirmation_unavailable"
+        )
+    options = dict(confirmed.compile_options or {})
+    if str(options.get("scene_id") or "") != str(root.scene_id):
+        return await _stop_continuous_authorization(
+            db, authorization, "confirmation_scope_invalid"
+        )
+    if not {item.id for item in selected_participants} <= set(
+        map(str, options.get("character_ids") or [])
+    ) | set(map(str, options.get("entity_ids") or [])):
+        return await _stop_continuous_authorization(
+            db, authorization, "confirmation_scope_invalid"
+        )
     source = await read_progression_source(
         db,
         novel_id=novel_id,
-        scene_id=None,
+        scene_id=str(latest_scene["id"]),
         participants=selected_participants,
         targets=[],
+        confirmed_context=confirmed,
     )
     operation_id = str(
         uuid5(
@@ -563,6 +617,14 @@ async def _long_absent_actor_ids(db, root, latest, actor_ids: set[str]) -> set[s
             else None
         )
     return found
+
+
+async def _stop_continuous_authorization(db, authorization, reason: str) -> dict:
+    authorization.enabled = False
+    authorization.revision += 1
+    authorization.stop_reason = reason
+    await db.flush()
+    return {"status": reason, "task_id": None, "stop_reason": reason}
 
 
 async def _lineage_goal_step(db, root, latest):

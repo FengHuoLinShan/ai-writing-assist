@@ -33,6 +33,9 @@ class AskWorldCitation(BaseModel):
     map_scene_id: str | None = None
     map_chapter_index: int | None = Field(default=None, ge=1)
     map_query_text: str = Field(default="", max_length=2000)
+    map_context_confirmation_id: str | None = Field(
+        default=None, min_length=1, max_length=128
+    )
 
 
 class AskWorldClaim(BaseModel):

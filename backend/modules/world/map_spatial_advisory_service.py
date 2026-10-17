@@ -934,9 +934,12 @@ class MapSpatialAdvisoryService:
                     for left_id, right_id in zip(path, path[1:], strict=False):
                         left_entity = valid_features[left_id].entity_id
                         right_entity = valid_features[right_id].entity_id
-                        if not left_entity or not right_entity:
-                            continue
-                        left_key, right_key = str(left_entity), str(right_entity)
+                        left_key = (
+                            str(left_entity) if left_entity else f"feature:{left_id}"
+                        )
+                        right_key = (
+                            str(right_entity) if right_entity else f"feature:{right_id}"
+                        )
                         graph_endpoints.update((left_key, right_key))
                         route_graph[left_key].add(right_key)
                         relation_type = resolved_types.get(

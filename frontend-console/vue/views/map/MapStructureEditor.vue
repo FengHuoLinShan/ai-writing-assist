@@ -524,7 +524,10 @@ function mutate(change) {
 function applySpatialDocument(value) {
   mutate(document => Object.assign(document, value))
   const selected = doc.value.features.find(feature => feature.id === selectedId.value)
-  if (selected) activeSpaceId.value = selected.space_id || 'main'
+  if (selected) {
+    activeSpaceId.value = selected.space_id || 'main'
+    selectedId.value = selected.id
+  }
 }
 function undo() { if (readOnly.value || !undoStack.value.length) return; redoStack.value.push(JSON.stringify(doc.value)); doc.value = JSON.parse(undoStack.value.pop()) }
 function redo() { if (readOnly.value || !redoStack.value.length) return; undoStack.value.push(JSON.stringify(doc.value)); doc.value = JSON.parse(redoStack.value.pop()) }
@@ -547,7 +550,10 @@ async function restoreView() {
     if (Number.isFinite(value.zoom)) zoom.value = Math.max(60, Math.min(200, value.zoom))
     focused.value = value.focused === true
     const id = props.initialFeatureId || value.selectedId
-    if (doc.value.features.some(feature => feature.id === id)) { selectedId.value = id; activeSpaceId.value = doc.value.features.find(feature => feature.id === id).space_id || 'main' }
+    if (doc.value.features.some(feature => feature.id === id)) {
+      activeSpaceId.value = doc.value.features.find(feature => feature.id === id).space_id || 'main'
+      selectedId.value = id
+    }
     else if (spaceChoices.value.some(space => space.id === value.spaceId)) activeSpaceId.value = value.spaceId
     rehearsalStops.value = Array.isArray(value.stops) ? value.stops.filter(id => typeof id === 'string').slice(0, 20) : []
     await nextTick()

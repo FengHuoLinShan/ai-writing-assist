@@ -68,6 +68,11 @@ _VISIBLE_CLUE_STATUSES = {
     "pending_verification",
     "adopted",
 }
+_TYPE_STATUS_PRIORITY = {"active": 0, "emerging": 1, "archived": 2, "merged": 3}
+
+
+class _ReproposedExistingTypeError(ValidationError):
+    """A duplicate type proposal must not invalidate its independently valid clue."""
 
 
 async def _lock_project_for_spatial_write(db: AsyncSession, novel_id: str) -> None:
@@ -487,6 +492,7 @@ async def _revalidate_stored_clue(
     clue: MapSpatialClue,
     *,
     allow_identity_transitions: bool = False,
+    allow_author_confirmed_transitions: bool = False,
     resolved_sources: list[dict[str, Any]] | None = None,
 ) -> dict[str, CoreEntity]:
     binding = MapSpatialClueSourceBinding.model_validate(row.source_binding)
@@ -560,37 +566,36 @@ async def _revalidate_stored_clue(
                 raise ValidationError("Clue endpoint identity changed")
             actual_state = "canonical" if entity.status == "canonical" else "candidate"
             if actual_state != expected_state and not (
-                allow_identity_transitions
+                (allow_identity_transitions or allow_author_confirmed_transitions)
                 and expected_state == "candidate"
                 and actual_state == "canonical"
             ):
                 raise ValidationError("Clue endpoint identity changed")
             current_endpoints[str(entity_id)] = entity
     for type_ref, revision_id, kind in _type_references(clue):
-        row_type = (
-            await db.execute(
-                select(ProjectVocabularyTerm.id)
-                .join(
-                    ProjectVocabularyRevision,
-                    and_(
-                        ProjectVocabularyRevision.novel_id
-                        == ProjectVocabularyTerm.novel_id,
-                        ProjectVocabularyRevision.term_id == ProjectVocabularyTerm.id,
-                        ProjectVocabularyRevision.id
-                        == ProjectVocabularyTerm.current_revision_id,
-                    ),
-                )
-                .where(
-                    ProjectVocabularyTerm.novel_id == parse_uuid(novel_id, "novel_id"),
-                    ProjectVocabularyTerm.id == type_ref,
-                    ProjectVocabularyTerm.current_revision_id == revision_id,
-                    ProjectVocabularyTerm.kind == kind,
-                    ProjectVocabularyTerm.status.in_(["active", "emerging"]),
-                )
+        row_type = await db.scalar(
+            select(ProjectVocabularyTerm).where(
+                ProjectVocabularyTerm.novel_id == parse_uuid(novel_id, "novel_id"),
+                ProjectVocabularyTerm.id == type_ref,
+                ProjectVocabularyTerm.kind == kind,
+                ProjectVocabularyTerm.status.in_(["active", "emerging"]),
             )
-        ).scalar_one_or_none()
+        )
         if row_type is None:
             raise ValidationError("Clue type identity or revision changed")
+        if row_type.current_revision_id != revision_id:
+            if not (allow_author_confirmed_transitions and row_type.author_confirmed):
+                raise ValidationError("Clue type identity or revision changed")
+            historical_revision = await db.scalar(
+                select(ProjectVocabularyRevision.id).where(
+                    ProjectVocabularyRevision.novel_id
+                    == parse_uuid(novel_id, "novel_id"),
+                    ProjectVocabularyRevision.term_id == type_ref,
+                    ProjectVocabularyRevision.id == revision_id,
+                )
+            )
+            if historical_revision is None:
+                raise ValidationError("Clue type identity or revision changed")
     if clue.type_proposal is not None:
         reviewed = await _validate_type_proposal(
             db,
@@ -670,7 +675,9 @@ async def _validate_type_proposal(
         if term.author_confirmed:
             continue
         if snapshot.get("proposal_run_id") != str(proposal.proposal_run_id):
-            raise ValidationError("Type proposal does not bind the original proposal run")
+            raise _ReproposedExistingTypeError(
+                "Type proposal does not bind the original proposal run"
+            )
         if not _type_fields_match(snapshot, proposal.kind, fields):
             raise ValidationError(
                 "Type proposal changed the original emerging type meaning"
@@ -790,15 +797,37 @@ async def stage_spatial_discovery(
                 )
 
             type_review_ok = True
-            if clue.type_proposal is not None:
-                type_review_ok = await _validate_type_proposal(
-                    db,
-                    novel_id,
-                    clue.type_proposal,
-                    current_scene_id=scene_uuid,
-                    current_scene_index=batch.scene_index,
-                    content_mode=batch.source_binding.content_mode,
+            proposal_to_validate = clue.type_proposal
+            if proposal_to_validate is None and clue.type_proposal_draft is not None:
+                draft = clue.type_proposal_draft
+                proposal_to_validate = ModelVocabularyProposal(
+                    kind=draft.kind,
+                    proposal_run_id=draft.proposal_run_id,
+                    name=draft.name,
+                    description=draft.description,
+                    aliases=draft.aliases,
+                    traits=draft.traits,
+                    evidence=clue_evidence,
                 )
+            if proposal_to_validate is not None:
+                try:
+                    reviewed = await _validate_type_proposal(
+                        db,
+                        novel_id,
+                        proposal_to_validate,
+                        current_scene_id=scene_uuid,
+                        current_scene_index=batch.scene_index,
+                        content_mode=batch.source_binding.content_mode,
+                    )
+                except _ReproposedExistingTypeError:
+                    clue = clue.model_copy(
+                        update={"type_proposal": None, "type_proposal_draft": None}
+                    )
+                    # Removing the optional type narrows the reviewed spatial claim.
+                    clue.review.proposal_hash = spatial_clue_review_hash(clue)
+                else:
+                    if clue.type_proposal is not None:
+                        type_review_ok = reviewed
 
             fingerprint = _digest(
                 {
@@ -1172,7 +1201,7 @@ async def read_spatial_discovery_context(
                 (
                     -clue_score,
                     -endpoint_score,
-                    item.status,
+                    _TYPE_STATUS_PRIORITY[item.status],
                     item.kind,
                     item.name.casefold(),
                     str(item.id),
@@ -1308,7 +1337,9 @@ async def review_spatial_clue(
         raise ConflictError("待核线索不能直接采用，请先完成来源或复核核查")
     clue = MapSpatialClue.model_validate(row.clue_payload)
     try:
-        await _revalidate_stored_clue(db, novel_id, row, clue)
+        await _revalidate_stored_clue(
+            db, novel_id, row, clue, allow_author_confirmed_transitions=True
+        )
     except (ConflictError, NotFoundError, ValidationError, ValueError, TypeError):
         row.status = "pending_verification"
         row.verification_note = "原文或场景边界已经变化，请重新提取并核查。"

@@ -96,7 +96,12 @@ async def read_map_notification_signals(db, novel_id, request):
                 continue
             try:
                 endpoints = await _revalidate_stored_clue(
-                    db, novel_id, row, clue, allow_identity_transitions=True
+                    db,
+                    novel_id,
+                    row,
+                    clue,
+                    allow_identity_transitions=True,
+                    allow_author_confirmed_transitions=True,
                 )
             except (ConflictError, NotFoundError, ValidationError):
                 continue

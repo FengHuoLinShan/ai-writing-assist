@@ -546,7 +546,10 @@ async function refresh({ preservePlan = true } = {}) {
 
 function readableError(cause) {
   if (Number(cause?.status) === 409) {
-    return "目标状态已更新。服务器进度已刷新；未提交的目标和计划草稿仍保留。"
+    const detail = typeof cause?.detail === "string" && cause.detail.trim()
+      ? cause.detail.trim()
+      : cause?.message || "目标状态已变化。"
+    return `${detail} 未提交的目标和计划草稿仍保留。`
   }
   return cause?.message || "目标暂时无法读取，请重试。"
 }
@@ -582,6 +585,7 @@ async function submitStart(payload) {
   } catch (cause) {
     if (!owned(token)) return
     const message = readableError(cause)
+    if ([404, 409, 422].includes(Number(cause?.status))) pendingStart.value = null
     if (Number(cause?.status) === 409) {
       await refresh({ preservePlan: true })
       if (owned(token)) error.value = message

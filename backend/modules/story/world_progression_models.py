@@ -207,6 +207,7 @@ class StoryWorldProgressionAuthorization(Base, UUIDMixin, TimestampMixin, NovelM
     read_count_initialized: Mapped[bool] = mapped_column(
         Boolean, nullable=False, default=False
     )
+    stop_reason: Mapped[str | None] = mapped_column(String(64), nullable=True)
     context_confirmation_id: Mapped[str | None] = mapped_column(
         String(128), nullable=True
     )

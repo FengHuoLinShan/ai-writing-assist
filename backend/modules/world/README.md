@@ -120,6 +120,9 @@ continuity、也不写档案。
   Character PUT 值不变时不新增条目；变更时收拢该旧字段下当前条目并保留完整历史，显式 `null`
   追加清除修订。`desire` 与 `fear` 共用内核面向但保留不同旧字段键；未标记旧键的新条目不会被猜测
   拼入任一字段。
+- `CoreEntity.summary/public_info/hidden_truth` 只聚合各自同名 `legacy_field_key` 的当前无锚条目，
+  经 `_legacy_value` 生成兼容列投影；其他相同 public/secret 可见性的档案不拼入。编辑 CoreEntity 列时
+  收拢该键的无锚当前条目为一条作者修订并保留历史；时点档案不被旧列覆盖。清除单组只移除该组贡献，列仅在没有剩余当前条目时为 `null`；迁移撤销恢复旧列时也追加同步修订，避免已撤销内容继续进入档案读取。
 - Character 的 `current_goal`、`current_state`、`current_emotion` 保留为作者最新状态备注并标注
   “不是按章状态”；按 Scene 的状态读取仍由 Story 提供。
 
@@ -1377,6 +1380,9 @@ Evidence 的 M3 `read_map_spatial_brief` 只读当前已采用节点的 saved re
 
 M4 `read_map_spatial_advisories(db, MapSpatialAdvisoryRequest)` 是写作与助手可复用的只读提醒出口。它只读当前 adopted node 的 saved revision，按 Scene 锚点解析有效期，要求 `event_observed`、当前有效来源和固定 revision 的 active 空间类型特性；图元、World Bible 页与原文来源沿用读者揭示边界。有效期范围可解析但未覆盖当前 Scene 的地点，仅在状态声明指向该地点时提醒；写作侧只把 ready 且系统生成或作者确认的位置 checkpoint 交作当前 Scene 行程输入。它在双向矛盾方位、同模式/旅行者/通行条件下耗时区间互不相交、已知通路网络断开或过期，或可移动对象跨空间且没有已声明连接时返回提醒，并带 node/revision/source hash、两种修订路径和可逐条静默标志。缺少地图证据不判断无路，缺少故事内时间明确返回 unknown，不从坐标推算距离或耗时。入口各自通过 `MAP_SPATIAL_ENABLED_CAPABILITIES` 的能力项开启，默认空集合。
 该出口注册为 typed DI port `world.read_map_spatial_advisories`，使用真实 Scene 契约及 canonical 可见投影；受检但无提醒的版本也返回 `map_revisions`，供 G8b 记录基线。空间简报缺少明确 Scene/截止章时返回空参考及范围提示，不默认选章；Ask 沿现有参考确认的章节输入取得冻结范围，引用仍需回读重验。
+Ask 的地图引用保留原资料确认 ID，回开和保存重验重新物化同一确认，沿用原选择、排除与预算裁剪；
+确认失效则来源不可用，不改用全量地图。通路连通检查保留未绑定对象的文字途经图元，按图元身份接续路径，
+不因途经点仅有标签而把已声明通路判为断开。
 
 
 ### 助手页面维护

@@ -73,7 +73,8 @@ class DirectorContinueRequest(DirectorModel):
     novel_id: str
     context_confirmation_id: str
     operation_id: uuid.UUID
-    parent_round_id: uuid.UUID
+    parent_round_id: uuid.UUID | None = None
+    resume_branch_id: uuid.UUID | None = None
     branch_kind: Literal["continue", "reroll", "intervene", "rewrite_character"] = (
         "continue"
     )
@@ -100,11 +101,18 @@ class DirectorContinueRequest(DirectorModel):
     def normalize_rewrite_character_id(cls, value: str | None) -> str | None:
         return _uuid(value) if value else None
 
+    @model_validator(mode="after")
+    def select_parent_or_resume_branch(self):
+        if bool(self.parent_round_id) == bool(self.resume_branch_id):
+            raise ValueError("续演须选择一个父回合，恢复须选择一个暂停分支")
+        return self
+
 
 class DirectorContinueBudgetPreviewRequest(DirectorModel):
     operation_id: uuid.UUID
     novel_id: str
-    parent_round_id: uuid.UUID
+    parent_round_id: uuid.UUID | None = None
+    resume_branch_id: uuid.UUID | None = None
     rounds: int = Field(default=1, ge=1)
     basis_choice: Literal["current", "frozen"]
     branch_kind: Literal["continue", "reroll", "intervene", "rewrite_character"] = (
@@ -125,6 +133,12 @@ class DirectorContinueBudgetPreviewRequest(DirectorModel):
     @classmethod
     def normalize_rewrite_character_id(cls, value: str | None) -> str | None:
         return _uuid(value) if value else None
+
+    @model_validator(mode="after")
+    def select_parent_or_resume_branch(self):
+        if bool(self.parent_round_id) == bool(self.resume_branch_id):
+            raise ValueError("续演须选择一个父回合，恢复须选择一个暂停分支")
+        return self
 
 
 class DirectorAdvanceRequest(DirectorContinueRequest):

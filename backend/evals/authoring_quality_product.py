@@ -11,7 +11,7 @@ from core.errors import DomainError
 from evals.authoring_quality_guard import AuthoringQualityError
 from infrastructure.llm.collaboration import content_hash
 from infrastructure.tasks.models import AsyncTask
-from modules.evidence.facade import require_fresh_confirmation
+from modules.evidence.facade import prepare_confirmed_ai_action
 from modules.project.facade import require_active_project
 from modules.story.generation import STORY_ONE_CLICK_ACTION
 
@@ -99,16 +99,20 @@ async def _read_product_evidence(db, manifest, reference) -> dict:
     confirmation_id = request.get("context_confirmation_id")
     if not confirmation_id:
         raise AuthoringQualityError("product task has no original Evidence confirmation")
-    confirmation = await require_fresh_confirmation(
+    confirmed = await prepare_confirmed_ai_action(
         db,
         novel_id=novel_id,
         action=STORY_ONE_CLICK_ACTION,
         confirmation_id=str(confirmation_id),
     )
-    if str((confirmation.compile_options or {}).get("scene_id")) != reference.scene_id:
+    confirmation = confirmed.confirmation
+    if str((confirmed.compile_options or {}).get("scene_id")) != reference.scene_id:
         raise AuthoringQualityError("Evidence confirmation uses another Scene cutoff")
     if reference.kind == "director":
-        from modules.story.director_context import read_director_source
+        from modules.story.director_context import (
+            read_director_source,
+            scope_director_source,
+        )
 
         source = await read_director_source(
             db,
@@ -117,6 +121,7 @@ async def _read_product_evidence(db, manifest, reference) -> dict:
             character_ids=list(request.get("character_ids") or []),
             related_object_ids=list(request.get("related_object_ids") or []),
         )
+        source = await scope_director_source(db, source, confirmed)
     else:
         from modules.story.world_progression_context import read_progression_source
         from modules.story.world_progression_schemas import (
@@ -134,6 +139,7 @@ async def _read_product_evidence(db, manifest, reference) -> dict:
             targets=[
                 ProgressionTarget.model_validate(x) for x in request.get("targets", [])
             ],
+            confirmed_context=confirmed,
         )
     if source["source_hash"] != reference.source_sha256:
         raise AuthoringQualityError("product source has changed since execution")
