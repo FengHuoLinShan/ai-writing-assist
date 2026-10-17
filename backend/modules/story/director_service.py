@@ -21,6 +21,19 @@ from modules.story.models import (
 
 DEFAULT_CLICHE_PHRASES = ["嘴角微微上扬", "眼中闪过一丝", "不由得攥紧了拳头"]
 
+# 保存探索参考副本要求作者对目标 Scene 重新确认资料与角色知识；该确认复用
+# 作者在目标 Scene 上开始写作前的 ``writing.generate`` 上下文确认（编译产物
+# 携带该 Scene 的 scene_id 与资料范围），是语义上覆盖“目标 Scene 资料”的
+# 现有动作；targeted_revision 是绑定草稿/审查任务的事后修订流，不作此用。
+EXPLORATION_REFERENCE_CONFIRM_ACTION = "writing.generate"
+
+# content_copy_json 里标识临时探索独立副本的 provenance 键；旧参考无此键。
+EXPLORATION_PROVENANCE_KEY = "provenance"
+
+EXPLORATION_COPY_WRITING_NOTICE = (
+    "该参考来自临时探索的独立副本，不随目标 Scene 资料变化重校验；仅供写作参考。"
+)
+
 
 def _uuid(value: str | UUID) -> UUID:
     try:
@@ -874,6 +887,142 @@ async def save_director_reference(
     }
 
 
+def _exploration_reference_summary(record: StorySceneDirectorReference) -> dict:
+    provenance = {}
+    if isinstance(record.content_copy_json, dict):
+        provenance = dict(record.content_copy_json.get(EXPLORATION_PROVENANCE_KEY) or {})
+    return {
+        "id": str(record.id),
+        "name": record.name,
+        "scene_id": str(record.scene_id),
+        "root_id": str(record.root_id),
+        "source_round_id": str(record.source_round_id)
+        if record.source_round_id
+        else None,
+        "source_output_hash": record.source_basis_hash,
+        "content_copy": record.content_copy_json,
+        "material_ids": list(record.material_ids_json or []),
+        "angle": record.angle_json,
+        "annotation": record.annotation,
+        "origin": record.origin,
+        "provenance": provenance,
+        "advisory_only": True,
+        "adoption_status": "not_adopted",
+    }
+
+
+async def save_exploration_scene_reference(
+    db, novel_id: str, owner_id: str, data
+) -> dict:
+    """Save an author-selected exploration copy as an advisory Scene reference.
+
+    源探索根与结果行只读不动；副本逐字校验防漂移；同 (源结果, 目标 Scene)
+    的未删除参考幂等返回既有行。保存须携带作者对目标 Scene 的
+    ``writing.generate`` 上下文确认，服务端核验其 Scene 一致。
+    """
+    if data.origin not in {"author_ui", "author_via_assistant"}:
+        raise ValueError("导演参考来源无效")
+    from modules.story.exploration_schemas import SCENE_LINE_OUTPUT_KIND
+    from modules.story.exploration_service import (
+        PROVISIONAL_SOURCE_KIND,
+        require_project_owner,
+        unpack_exploration_output,
+    )
+
+    await require_project_owner(db, novel_id, owner_id)
+    root = await get_director_root(db, novel_id, str(data.source_root_id), lock=True)
+    if getattr(root, "source_kind", None) != PROVISIONAL_SOURCE_KIND:
+        raise ConflictError("参考副本只能来自临时起点探索")
+    row = await db.scalar(
+        select(StorySceneDirectorRound).where(
+            StorySceneDirectorRound.novel_id == _uuid(novel_id),
+            StorySceneDirectorRound.id == _uuid(str(data.source_result_id)),
+            StorySceneDirectorRound.root_id == root.id,
+        )
+    )
+    if row is None:
+        raise NotFoundError("探索结果不存在")
+    envelope = unpack_exploration_output(row)
+    if envelope is None or envelope.output_kind != SCENE_LINE_OUTPUT_KIND:
+        raise ConflictError("该结果形态暂不支持作为参考副本")
+    payload = envelope.payload
+    # 仅支持单目标台词行；多目标 variants、空间诊断等形态失败关闭。
+    if payload.variants is not None or payload.spatial_assessment is not None:
+        raise ConflictError("该结果形态暂不支持作为参考副本")
+    if not payload.line or data.content_copy.line != payload.line:
+        raise ConflictError("参考副本台词与来源结果不一致，请重新复制")
+    if (
+        data.content_copy.action is not None
+        and (payload.action or None) != data.content_copy.action
+    ):
+        raise ConflictError("参考副本动作与来源结果不一致，请重新复制")
+    if str(row.output_hash) != str(data.expected_source_output_hash):
+        raise ConflictError("来源结果哈希不匹配，请刷新探索结果后重试")
+
+    from modules.story.facade import get_scene_story_context
+
+    scene_context = await get_scene_story_context(
+        db,
+        novel_id=novel_id,
+        scene_id=str(data.target_scene_id),
+    )
+    if scene_context is None:
+        raise NotFoundError("目标 Scene 不存在")
+
+    from modules.evidence.facade import prepare_confirmed_ai_action
+
+    confirmed = await prepare_confirmed_ai_action(
+        db,
+        novel_id=novel_id,
+        action=EXPLORATION_REFERENCE_CONFIRM_ACTION,
+        confirmation_id=data.context_confirmation_id,
+    )
+    confirmed_scene_id = str((confirmed.compile_options or {}).get("scene_id") or "")
+    if confirmed_scene_id != str(_uuid(str(data.target_scene_id))):
+        raise ConflictError("资料确认的 Scene 与目标 Scene 不一致，请重新确认目标资料")
+
+    target_scene_id = _uuid(str(data.target_scene_id))
+    existing = await db.scalar(
+        select(StorySceneDirectorReference).where(
+            StorySceneDirectorReference.novel_id == _uuid(novel_id),
+            StorySceneDirectorReference.scene_id == target_scene_id,
+            StorySceneDirectorReference.source_round_id == row.id,
+            StorySceneDirectorReference.deleted_at.is_(None),
+        )
+    )
+    if existing is not None:
+        return {**_exploration_reference_summary(existing), "repeated": True}
+
+    record = StorySceneDirectorReference(
+        novel_id=_uuid(novel_id),
+        root_id=root.id,
+        scene_id=target_scene_id,
+        source_round_id=row.id,
+        source_basis_hash=str(row.output_hash),
+        source_deleted=False,
+        name=(data.name or "").strip() or payload.line[:60],
+        content_copy_json={
+            "line": data.content_copy.line,
+            "action": data.content_copy.action,
+            "note": data.content_copy.note,
+            EXPLORATION_PROVENANCE_KEY: {
+                "source_kind": "exploration",
+                "output_kind": envelope.output_kind,
+                "source_result_id": str(row.id),
+                "source_scale": "scene_line",
+                "copied_at": datetime.now(UTC).isoformat(),
+            },
+        },
+        material_ids_json=[],
+        angle_json={},
+        annotation="",
+        origin=data.origin,
+    )
+    db.add(record)
+    await db.flush()
+    return {**_exploration_reference_summary(record), "repeated": False}
+
+
 def fit_director_references_for_writing(items: list[dict], max_chars: int | None) -> dict:
     """Keep references advisory: an over-budget copy is omitted with a warning."""
     if max_chars is None:
@@ -961,27 +1110,42 @@ async def read_director_references_for_writing(
     result_items = []
     from modules.story.director_context import read_director_source
 
+    def _is_exploration_copy(row) -> bool:
+        content = row.content_copy_json if isinstance(row.content_copy_json, dict) else {}
+        provenance = content.get(EXPLORATION_PROVENANCE_KEY)
+        return isinstance(provenance, dict) and provenance.get("source_kind") == (
+            "exploration"
+        )
+
     for row in rows:
         if expected_scene_id and str(row.scene_id) != str(_uuid(expected_scene_id)):
             warnings.append("部分已选导演参考不属于当前场景，未提供给正文任务。")
             omission_reasons[str(row.id)] = "所选副本不属于当前 Scene"
             continue
+        exploration_copy = _is_exploration_copy(row)
         source_changed = False
         current_basis_available = True
-        try:
-            root = await get_director_root(db, novel_id, str(row.root_id))
-            source = await read_director_source(
-                db,
-                novel_id=novel_id,
-                scene_id=str(row.scene_id),
-                character_ids=list((root.request_json or {}).get("character_ids") or []),
-                related_object_ids=list(
-                    (root.request_json or {}).get("related_object_ids") or []
-                ),
-            )
-            source_changed = source["source_hash"] != row.source_basis_hash
-        except (NotFoundError, ValueError):
+        if exploration_copy:
+            # 临时探索副本没有可重读的 Scene 依据：跳过 source_hash 重读校验，
+            # 副本自带 provenance 说明来源；advisory 属性不变。
             current_basis_available = False
+        else:
+            try:
+                root = await get_director_root(db, novel_id, str(row.root_id))
+                source = await read_director_source(
+                    db,
+                    novel_id=novel_id,
+                    scene_id=str(row.scene_id),
+                    character_ids=list(
+                        (root.request_json or {}).get("character_ids") or []
+                    ),
+                    related_object_ids=list(
+                        (root.request_json or {}).get("related_object_ids") or []
+                    ),
+                )
+                source_changed = source["source_hash"] != row.source_basis_hash
+            except (NotFoundError, ValueError):
+                current_basis_available = False
         item = {
             "reference_id": str(row.id),
             "scene_id": str(row.scene_id),
@@ -1007,7 +1171,12 @@ async def read_director_references_for_writing(
                 ),
                 *(
                     ["当前来源资料不可读取；参考副本仍为可选内容。"]
-                    if not current_basis_available
+                    if not current_basis_available and not exploration_copy
+                    else []
+                ),
+                *(
+                    [EXPLORATION_COPY_WRITING_NOTICE]
+                    if exploration_copy
                     else []
                 ),
             ],

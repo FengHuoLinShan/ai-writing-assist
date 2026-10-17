@@ -63,6 +63,7 @@ from modules.story.director_schemas import (
     DirectorStartRequest,
     DirectorTaskAccepted,
     DirectorUpdateMetadata,
+    ExplorationSceneReferenceRequest,
 )
 from modules.story.director_service import (
     delete_director_branch,
@@ -77,6 +78,7 @@ from modules.story.director_service import (
     restore_director_branch,
     restore_director_reference,
     save_director_reference,
+    save_exploration_scene_reference,
     save_round_metadata,
     set_director_preferences,
     update_reference_metadata,
@@ -139,6 +141,15 @@ def _preview_request(
         public_stimulus=public_stimulus,
         selected_alternative=selected_alternative,
     )
+
+
+async def _project_owner_id(db, novel_id: str) -> str:
+    from modules.project import facade as project_facade
+
+    context = await project_facade.get_any_project_context(db, novel_id)
+    if context is None or context.owner_id is None:
+        raise NotFoundError("项目不存在")
+    return str(context.owner_id)
 
 
 async def _source_for_start(db, data: DirectorBudgetPreviewRequest) -> dict:
@@ -1115,6 +1126,30 @@ async def api_save_director_reference(
     try:
         row, _branch = await get_director_round(db, data.novel_id, round_id)
         return await save_director_reference(db, data.novel_id, data)
+    except Exception as error:
+        raise _raise_http(error) from error
+
+
+@router.post(
+    "/director/references/from-exploration",
+    status_code=http_status.HTTP_201_CREATED,
+    openapi_extra={
+        "x-novelcraft-operation-exemption": (
+            "Author-side save of an advisory exploration copy for one chosen Scene; "
+            "it reuses the author's existing writing.generate target-scene "
+            "confirmation and is not yet a registered assistant operation."
+        )
+    },
+)
+async def api_save_exploration_scene_reference(
+    data: ExplorationSceneReferenceRequest, db: DbSession
+):
+    await require_active_project(db, data.novel_id)
+    try:
+        owner_id = await _project_owner_id(db, data.novel_id)
+        return await save_exploration_scene_reference(
+            db, data.novel_id, owner_id, data
+        )
     except Exception as error:
         raise _raise_http(error) from error
 

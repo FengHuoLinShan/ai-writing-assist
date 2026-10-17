@@ -412,6 +412,45 @@ class DirectorCandidateTransferRequest(DirectorModel):
         return _uuid(value)
 
 
+class ExplorationReferenceCopy(DirectorModel):
+    """作者从探索结果选中的结构化副本；与来源一致性由服务端逐字校验。"""
+
+    line: str | None = Field(default=None, min_length=1, max_length=500)
+    action: str | None = Field(default=None, min_length=1, max_length=300)
+    note: str | None = Field(default=None, max_length=2000)
+
+    @model_validator(mode="after")
+    def require_content(self):
+        if self.line is None and self.action is None:
+            raise ValueError("参考副本至少携带台词或动作之一")
+        return self
+
+
+class ExplorationSceneReferenceRequest(DirectorModel):
+    """把临时探索结果的选中内容保存为目标正式 Scene 的独立参考副本。
+
+    保存不是采用：副本 advisory_only、adoption_status 恒为 not_adopted；
+    原探索结果行不变。``context_confirmation_id`` 是作者对目标 Scene 的
+    ``writing.generate`` 确认，服务端核验其 Scene 与目标一致。
+    """
+
+    novel_id: str
+    source_root_id: uuid.UUID
+    source_result_id: uuid.UUID
+    target_scene_id: uuid.UUID
+    content_copy: ExplorationReferenceCopy
+    origin: Literal["author_ui", "author_via_assistant"]
+    expected_source_output_hash: str = Field(pattern=r"^[0-9a-f]{64}$")
+    context_confirmation_id: str = Field(min_length=1, max_length=128)
+    name: str | None = Field(default=None, max_length=180)
+    confirmed: Literal[True]
+
+    @field_validator("novel_id")
+    @classmethod
+    def normalize_project(cls, value: str) -> str:
+        return _uuid(value)
+
+
 class DirectorCandidateTransferOperationRequest(DirectorCandidateTransferRequest):
     round_id: uuid.UUID
 
