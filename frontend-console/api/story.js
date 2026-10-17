@@ -121,6 +121,10 @@ export const story = {
     // 202/200 返回 {result_id, output_kind:"story.exploration.lock_set", payload:{locked_items:[...]}}，
     // 409 时 error.message 为服务端中文原因，调用方原样展示。
     explorationLock: (resultId, payload) => post(`/story/exploration/results/${resultId}/lock`, payload),
+    // M4-A 跨尺度移交：payload 含 {novel_id, operation_id, target_scale, reason?}；
+    // 200 返回 {derived_start, source_fingerprint, requires_confirmation, preview_hint}，
+    // derived_start 作为后续 confirmation/preview、confirmation、start 请求的 start。
+    explorationHandoff: (resultId, payload) => post(`/story/exploration/results/${resultId}/handoff`, payload),
     explorationCompare: (payload) => post("/story/exploration/compare", payload),
     explorationHistory: (params = {}) => request(withQuery("/story/exploration/history", params), { cache: "no-store" }),
     async startWorldProgression(novelId, payload = {}) {
