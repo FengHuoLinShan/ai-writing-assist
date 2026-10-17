@@ -69,6 +69,7 @@
 <script setup>
 import { computed, nextTick, onBeforeUnmount, onMounted, reactive, ref, watch } from "vue"
 import { getApi, getAssistantWorkContext } from "../bridge/index.js"
+import { createOperationId } from "../../shared/workflowProgress.js"
 import { createProjectAssistant } from "../composables/useProjectAssistant.js"
 import { registerProjectAssistantOpener } from "../bridge/index.js"
 import { useModalDialog } from "../composables/useModalDialog.js"
@@ -153,6 +154,7 @@ async function previewExploration(recommendation) {
   try {
     const preview = await getApi()?.story?.explorationPreview({
       novel_id: props.projectId,
+      operation_id: createOperationId(),
       scale: explorationOverride.scale || recommendation?.scale || undefined,
       focus: explorationOverride.focus.trim() || recommendation?.focus || undefined,
     })

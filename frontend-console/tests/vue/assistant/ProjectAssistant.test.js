@@ -54,7 +54,8 @@ it("shows the exploration recommendation with a manual scale override and previe
   await recommendation.findAll("button").find(button => button.text().includes("按此设定查看预览")).trigger("click")
   await flushPromises()
 
-  expect(explorationPreview).toHaveBeenCalledWith({ novel_id: "p1", scale: "event", focus: "面包师的日常" })
+  expect(explorationPreview).toHaveBeenCalledWith(expect.objectContaining({ novel_id: "p1", scale: "event", focus: "面包师的日常" }))
+  expect(explorationPreview.mock.calls[0][0].operation_id).toBeTruthy()
   expect(recommendation.text()).toContain("预计模型请求 1 次")
 })
 

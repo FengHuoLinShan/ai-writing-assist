@@ -168,30 +168,14 @@ const eventGaps = computed(() => (isEvent.value && display.value.mode !== "bridg
 const bridgePaths = computed(() => (isEvent.value && display.value.mode === "bridge" ? display.value.bridge_candidates || [] : []))
 const missingItems = computed(() => (Array.isArray(display.value.unsolvable?.missing) ? display.value.unsolvable.missing : []))
 
-function stableStringify(value) {
-  if (value == null || typeof value !== "object") return JSON.stringify(value ?? null)
-  if (Array.isArray(value)) return `[${value.map(stableStringify).join(",")}]`
-  return `{${Object.keys(value).sort().map(key => `${JSON.stringify(key)}:${stableStringify(value[key])}`).join(",")}}`
-}
-
-// 与后端约定的条目指纹：对条目做键序稳定的序列化后取 FNV-1a。
-// 后端按相同输入校验 changed_item_hash；实现差异会在 revise 请求上显式失败，不静默错改。
-function itemHash(item) {
-  const text = stableStringify(item ?? null)
-  let hash = 0x811c9dc5
-  for (let index = 0; index < text.length; index += 1) {
-    hash ^= text.charCodeAt(index)
-    hash = Math.imul(hash, 0x01000193) >>> 0
-  }
-  return `fnv1a:${hash.toString(16).padStart(8, "0")}`
-}
-
+// 修订定位约定：item_path 是 `chain:0`/`gap:1`/`bridge:2`/`line` 形式的条目路径，
+// item_text 是当前展示文本；服务端以 item_text 与父结果比对防漂移，实现差异会在
+// revise 请求上显式失败，不静默错改。
 const revisionItems = computed(() => {
   const payload = display.value
   if (isSandbox.value) {
     return (payload.influence_chain || []).map((item, index) => ({
       key: `chain:${index}`,
-      hash: itemHash(item),
       label: item.condition || item.effect || `影响链 ${index + 1}`,
       text: item.effect || "",
     }))
@@ -200,13 +184,12 @@ const revisionItems = computed(() => {
     const bridge = payload.mode === "bridge"
     return (bridge ? payload.bridge_candidates : payload.gaps || []).map((item, index) => ({
       key: `${bridge ? "bridge" : "gap"}:${index}`,
-      hash: itemHash(item),
       label: bridge ? (item.steps || []).join("；") || `补桥路径 ${index + 1}` : item.description || `缺口 ${index + 1}`,
       text: bridge ? (item.steps || []).join("\n") : item.description || "",
     }))
   }
   if (isSceneLine.value) {
-    return [{ key: "line", hash: itemHash(payload), label: "这句对白", text: payload.line || "" }]
+    return [{ key: "line", label: "这句对白", text: payload.line || "" }]
   }
   return []
 })
@@ -365,7 +348,8 @@ async function requestRevise() {
       novel_id: projectId,
       operation_id: createOperationId(),
       revision_of: current.value.resultId,
-      changed_item_hash: item.hash,
+      item_path: item.key,
+      item_text: item.text,
       instruction: revisionInstruction.value.trim(),
     })
     if (!receipt?.task_id) throw new Error("服务端没有返回任务标识")

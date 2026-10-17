@@ -250,7 +250,9 @@ it("sends the selected item hash with a revise request", async () => {
     instruction: "只把这一环改得更保守",
   }))
   const payload = explorationRevise.mock.calls[0][1]
-  expect(payload.changed_item_hash).toMatch(/^fnv1a:[0-9a-f]{8}$/)
+  expect(payload.item_path).toBe("chain:0")
+  expect(typeof payload.item_text).toBe("string")
+  expect(payload.item_text.length).toBeGreaterThan(0)
   expect(progress.pollTaskProgress).toHaveBeenCalledWith(expect.objectContaining({ taskId: "task-revise-1" }))
 })
 
