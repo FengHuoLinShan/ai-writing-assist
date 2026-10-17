@@ -10,18 +10,19 @@ updated: 2026-10-17T19:30:00+08:00
 
 ## 恢复快照
 
-- 实际完成：第一、二批全部门禁通过（详见 git log 与各切片合并提交）。**第三批 M3 基本完成**：
-  M3-A 四切片（锁定后端 35a17dac3 / 影响标记 fd57a0619 / 锁定 UI b7497bd3d / 影响 UI 82b64dcee）、
-  M3-B 三切片（契约预览 503b334d5 / worker 执行器 7daf69782 / 前端渲染进行中）；研究覆盖账本、
-  M5 离线准备已交付。死代码清理已提交。M3 后端收尾回归 1346 passed。
-- 当前里程碑：M3-B3 前端渲染运行中；合入后做 M3 终门禁（全量+docs-check+diff-check）。
-- 下一步：第四批 M4 按 A→B→C 小切片推进（M4-A1 移交契约 → M4-A2 执行注入 → M4-A3 前端 →
-  M4-B goal_runs 自主选路 → M4-C 正式参考）；全部真实模型/作者验证/发布不启动。
-- 阻塞：无。合并 main/推送/ADR 采纳待用户授权。
-- 已知设计偏差（评审注意）：探索 worker 对推进链改为服务内直接落行（保留完整性校验，
-  不再复用 append_progression_step 线性不变量，35a17dac3 docstring 有记录）；排演结果
-  detail/revise/lock/save-edit 一律 409；探索链无作者侧 resume 端点（续跑按任务幂等重放）；
-  排演 action 沿用 scene_line.generate（独立 action 需 Evidence 注册另开切片）。
+- 实际完成：第一至三批全部完成并合入，M3 终门禁全绿（后端 1346、前端 3316、docs-check、
+  diff-check）；面板标签微切片 08694bffa。研究覆盖账本与 M5 离线准备已交付。
+  **第四批进行中**：M4-A1 六向移交契约/服务已合入（14f018bf8，含 evidence 起点模型
+  `ProvisionalStart.derived_from` 扩展，旧载荷字节兼容）；M4-C 正式 Scene 参考副本已合入
+  （b85630f8c，确认 action 用 writing.generate，Writing 消费 advisory 语义不变）。
+  运行中：M4-A2 移交端到端测试、M4-A3 前端移交入口、M4-B1 探索操作接入目标运行。
+- 当前里程碑：回收三个 M4 切片并合入 → M4 收尾全量回归 + docs + docs-check。
+- 下一步：全分支实施总结；合并 main/推送/ADR 采纳待用户授权；真实模型/作者验证不启动。
+- 阻塞：无。
+- 已知设计偏差（评审注意）：探索 worker 对推进链改为服务内直接落行（35a17dac3 docstring）；
+  排演/多目标/诊断结果 detail/revise/lock/save-edit 一律 409；探索链无作者侧 resume 端点；
+  排演 action 沿用 scene_line.generate；M4-C 端点用 operation-exemption 未入助手目录；
+  handoff 链仅一跳记录，端到端链式测试由 M4-A2 补。
 
 ## 目标与授权
 
