@@ -3,7 +3,7 @@ id: T-20261016-map-series-claude-review
 title: 地图增强系列实现的独立 review（分批）
 status: active
 created: 2026-10-16T21:30:00+08:00
-updated: 2026-10-16T23:59:00+08:00
+updated: 2026-10-17T01:00:00+08:00
 ---
 
 # 地图增强系列实现的独立 review（分批）
@@ -14,18 +14,18 @@ updated: 2026-10-16T23:59:00+08:00
   可选步骤与空间发现），报告见 [BATCH-2.md](BATCH-2.md)；第 3 批（M2 自动草图与地图编辑），报告见
   [BATCH-3.md](BATCH-3.md)；第 4 批（M3/M4 空间简报、提醒、声明与 Evidence 编译），报告见
   [BATCH-4.md](BATCH-4.md)；第 5 批（地图前端），报告见 [BATCH-5.md](BATCH-5.md)；第 6 批（对象档案），
-  报告见 [BATCH-6.md](BATCH-6.md)；第 7 批（Story），报告见 [BATCH-7.md](BATCH-7.md)。能复现的问题都有
-  回归测试：后端 strict xfail，前端 vitest `it.fails`。
-- 当前里程碑：第 8 批 Assistant。
-- 下一步：用 `git diff --stat 00d861283 a479e006b -- modules/assistant` 定范围，读 goal_runs、
-  operation_trace*、notice_service（含 disposition 指纹）、operations.py、guided_flow；对照
-  `backend/modules/assistant/README.md`、`docs/modules/20_assistant.md` 与 ADR-0023/0027，核对作者运行
-  范围、R 级确认、预览重验、防重与 `novel_id` 隔离。
+  报告见 [BATCH-6.md](BATCH-6.md)；第 7 批（Story），报告见 [BATCH-7.md](BATCH-7.md)；第 8 批（Assistant），
+  报告见 [BATCH-8.md](BATCH-8.md)。能复现的问题都有回归测试：后端 strict xfail，前端 vitest `it.fails`。
+- 当前里程碑：第 9 批评测驱动与其余前端。
+- 下一步：用 `git diff --stat 00d861283 a479e006b -- evals modules/evolution/map_evaluation_read_service.py
+  modules/assistant/map_evaluation_read_service.py` 定范围，先审两个 `map_evaluation_read_service.py` 的
+  owner/`novel_id` 隔离与只读边界，再审 `backend/evals` 的地图评测驱动（不运行真实模型、不碰封存评测与
+  holdout），最后补看第 5 批未覆盖的前端改动；随后写最终汇总并跑 `make docs-check BASE_REF=origin/main`。
 - 阻塞：无。
 - 工作区：`.worktrees/map-series-claude-review`，分支 `codex/map-series-claude-review`，基于
   `codex/map-enhancement-plan` @ `a479e006b`；只有本任务记录与回归测试的本地提交。前端依赖已在工作树内
   按 lock `npm ci`（node_modules 被 git 忽略），前端测试用 `npm --prefix ../frontend-console run test`。
-- 最后核实：2026-10-16T23:59:00+08:00。
+- 最后核实：2026-10-17T01:00:00+08:00。
 
 ## 目标与验收
 
@@ -46,7 +46,7 @@ updated: 2026-10-16T23:59:00+08:00
   真实/评测数据库。不委派子代理（用户未要求）。
 - 回归测试约定：每个确认的问题写一条 `pytest.mark.xfail(strict=True, reason="<编号>: …")`，按规格
   写正确行为；修复后意外通过会让测试失败，提醒移除标记。文件为
-  `backend/modules/{world,evolution,story}/tests/test_map_series_review_regressions.py`，后续批次按模块追加。
+  `backend/modules/{world,evolution,story,assistant}/tests/test_map_series_review_regressions.py`，后续批次按模块追加。
   前端用 vitest `it.fails`，名称以编号开头，追加到对应组件的既有测试文件以复用 fixture。
 - 依赖：无。
 - 已确认事实：规模为 374 个提交、805 个文件、约 17.6 万行；前次 Codex 集成审查完整 CI 绿
@@ -68,7 +68,7 @@ updated: 2026-10-16T23:59:00+08:00
 - [x] 6. 档案：`dossier_service.py`、`dossier_interchange.py`、evidence 档案简报、`assistant_dossier_tools.py`；
   另含 evolution 的 `evidence_read.py`、`completed_read_chapters.py`。
 - [x] 7. Story：director_*、world_progression_*、continuity、character_arcs、simulation。
-- [ ] 8. Assistant：goal_runs、operation_trace*、notice_service、operations.py、guided_flow。
+- [x] 8. Assistant：goal_runs、operation_trace*、notice_service、operations.py、guided_flow。
 - [ ] 9. 评测驱动 `backend/evals`、`evolution/map_evaluation_read_service.py` 与其余前端。
 
 ## 决策、发现与失败
@@ -99,6 +99,9 @@ updated: 2026-10-16T23:59:00+08:00
   B7-F2（P3，意图校验接受收听者而结算在无位置资料时抛错，已计费回合确定性失败）、B7-F3（P3，世界推进
   不按资料确认收窄对象档案）、B7-F4（P3，章节重排后受影响 Scene 的事实永久“待重验”）。B7-F3 依赖
   非默认开关且修法未定，B7-F4 与现有测试断言冲突需先定口径，均未写测试。详见 BATCH-7.md。
+- 2026-10-17：第 8 批发现 B8-F1（P3，目标规划器看到两个必然失败的地图操作：地图作者决定排除按
+  `world.map.` 前缀判断而操作实际为 `map.*`，结构编辑必在准备时失败；托盘入口被 `validate_plan` 拒绝，
+  规划请求已计费）。其他地图写入是否应排除出目标运行口径未定，记为观察。详见 BATCH-8.md。
 
 ## 验证证据
 
@@ -124,10 +127,14 @@ updated: 2026-10-16T23:59:00+08:00
 - 第 7 批后（2026-10-16，基线 `a479e006b`，命令加上 `modules/story/tests/test_map_series_review_regressions.py`）：
   `22 xfailed`；Story 文件 `--runxfail` 为 `2 failed`，B7-F1 返回 `paused_budget`（`request_budget_80_percent`，
   完成 1 回合），B7-F2 失败在 `simulation_v3.py:259` 的 ValueError。ruff format/check 通过。
+- 第 8 批后（2026-10-17，基线 `a479e006b`）：新文件 `modules/assistant/tests/test_map_series_review_regressions.py`
+  为 `2 xfailed`；`--runxfail` 为 `2 failed`，分别失败在 `map.edit_spatial_structure` 仍在可用列表和
+  `{'map.prepare_tray_placement': '目录只读操作不能声明写入回调'}`。临时探针确认 11 个地图操作全部提供给
+  规划器（已删除）。ruff format/check 通过。
 
 ## 交付结果
 
-- 已交付：第 1–7 批报告；22 条后端 strict xfail 与 5 条前端 `it.fails` 回归测试。
-- 未交付：第 8–9 批。
+- 已交付：第 1–8 批报告；24 条后端 strict xfail 与 5 条前端 `it.fails` 回归测试。
+- 未交付：第 9 批与最终汇总。
 - 交付边界：只有本地提交；未推送，无 PR、CI、部署。
 - 正式知识与后续任务：无。
