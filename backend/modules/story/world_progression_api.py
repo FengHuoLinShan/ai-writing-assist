@@ -45,6 +45,7 @@ from modules.story.world_progression_models import (
     StoryWorldProgressionAuthorization,
     StoryWorldProgressionBranch,
     StoryWorldProgressionRoot,
+    StoryWorldProgressionStep,
 )
 from modules.story.world_progression_schemas import (
     ProgressionAdvanceRequest,
@@ -412,9 +413,15 @@ async def api_advance_progression(
             return _response(existing.task_id, existing.status, root_id, branch_id)
 
         root = await get_progression_root(db, data.novel_id, root_id, lock=True)
+        from modules.story.exploration_service import (
+            require_legacy_progression_root,
+        )
+
+        require_legacy_progression_root(root)
         parent = await get_progression_step(db, data.novel_id, str(data.parent_step_id))
         if str(parent.root_id) != root_id:
             raise ConflictError("所选父步骤不属于该世界推进根")
+        require_legacy_progression_root(root, parent)
         if str(parent.branch_id) != str(data.branch_id):
             raise ConflictError("所选父步骤与请求分支身份不一致")
         if root.current_task_id is not None:
@@ -564,6 +571,25 @@ async def api_resume_progression(
         branch = await get_progression_branch(db, data.novel_id, branch_id, lock=True)
         if str(branch.root_id) != root_id:
             raise ConflictError("恢复分支不属于所选推进根")
+        from modules.story.exploration_service import (
+            require_legacy_progression_root,
+        )
+
+        require_legacy_progression_root(root)
+        latest_step_id = await db.scalar(
+            select(StoryWorldProgressionStep.id)
+            .where(
+                StoryWorldProgressionStep.novel_id == UUID(data.novel_id),
+                StoryWorldProgressionStep.branch_id == branch.id,
+            )
+            .order_by(StoryWorldProgressionStep.step_number.desc())
+            .limit(1)
+        )
+        if latest_step_id is not None:
+            latest_step = await get_progression_step(
+                db, data.novel_id, str(latest_step_id)
+            )
+            require_legacy_progression_root(root, latest_step)
         existing = await _existing_task(
             db,
             operation_id=data.operation_id,

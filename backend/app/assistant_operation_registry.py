@@ -51,6 +51,9 @@ from modules.story.character_arcs.operations import (
 )
 from modules.story.continuity.operations import OPERATIONS_SPEC as _STORY_FACT_TIMELINE
 from modules.story.director_operations import OPERATIONS_SPEC as _STORY_DIRECTOR
+from modules.story.exploration_operations import (
+    OPERATIONS_SPEC as _STORY_EXPLORATION,
+)
 from modules.story.world_progression_operations import (
     OPERATIONS_SPEC as _STORY_WORLD_PROGRESSION,
 )
@@ -372,6 +375,7 @@ story_scene_operations = _materialize(_STORY_SCENE)
 story_state_operations = _materialize(_STORY_STATE)
 story_director_operations = _materialize(_STORY_DIRECTOR)
 story_world_progression_operations = _materialize(_STORY_WORLD_PROGRESSION)
+story_exploration_operations = _materialize(_STORY_EXPLORATION)
 story_fact_timeline_operations = _materialize(_STORY_FACT_TIMELINE)
 story_character_arc_operations = _materialize(_STORY_CHARACTER_ARCS)
 story_generation_operations = _materialize(_STORY_GENERATION)

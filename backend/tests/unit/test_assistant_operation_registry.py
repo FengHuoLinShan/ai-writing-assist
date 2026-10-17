@@ -544,6 +544,53 @@ C5_WORLD_PROGRESSION_OPERATIONS = {
     "story.world_progression.adopt_hook",
     "story.world_progression.read_continuous_authorization",
 }
+C6_EXPLORATION_OPERATIONS = {
+    "story.exploration.preview",
+    "story.exploration.start",
+    "story.exploration.detail",
+    "story.exploration.revise",
+    "story.exploration.compare",
+    "story.exploration.history",
+}
+# P0 冻结契约 §6：六项探索操作随 runtime 18 进入目录；快照按当前实测钉死。
+C6_EXPLORATION_SNAPSHOT = {
+    "story.exploration.compare": (
+        "比较同起点探索结果",
+        "read",
+        "1",
+        "43ec3e56607bbb7607c58dab09ec633fa26a4a203ab1334670c1ae0995b33060",
+    ),
+    "story.exploration.detail": (
+        "对探索结果说详细点",
+        "confirm",
+        "1",
+        "250caffc4ab1ce63cd1d46b787b3f396be182ad4511e1a9ff1d82da92f5cf610",
+    ),
+    "story.exploration.history": (
+        "查看独立探索历史",
+        "read",
+        "1",
+        "641a44f779fbff55713819d5fbbd8e35d512928503498fd52f184258a8e2612a",
+    ),
+    "story.exploration.preview": (
+        "预览独立探索推荐与预算",
+        "read",
+        "1",
+        "af933aca9a20d12d601b429ce5870de7e7034135d30e233453f3bbee40232a6c",
+    ),
+    "story.exploration.revise": (
+        "局部修订探索结果",
+        "confirm",
+        "1",
+        "5f78b0b5501df770d594b2556e0a18217e8a02faf1f0744f353f7a922807ebaa",
+    ),
+    "story.exploration.start": (
+        "发起独立探索任务",
+        "confirm",
+        "1",
+        "b59b00bf03fc353a3e6873c9c1e92e70a9fc6cdaebe715a9edb0b3b972fcc52b",
+    ),
+}
 C0_DOSSIER_INTERCHANGE_OPERATIONS = {
     "world.dossier.template.borrowed.read",
     "world.dossier.template.borrowed.edit",
@@ -624,6 +671,7 @@ def _pre_c0c_manifest():
         | C0_DOSSIER_INTERCHANGE_OPERATIONS
         | C3_CHARACTER_ARC_OPERATIONS
         | A1_CHAPTER_TIMELINE_OPERATIONS
+        | C6_EXPLORATION_OPERATIONS
     )
     frozen = {
         name: value
@@ -654,6 +702,7 @@ def test_bootstrap_operation_catalog_matches_snapshot():
         | C0_DOSSIER_INTERCHANGE_OPERATIONS
         | C3_CHARACTER_ARC_OPERATIONS
         | A1_CHAPTER_TIMELINE_OPERATIONS
+        | C6_EXPLORATION_OPERATIONS
     )
     mismatches = {
         name: {
@@ -666,14 +715,16 @@ def test_bootstrap_operation_catalog_matches_snapshot():
             "expected": C0C_REVISED_SNAPSHOT.get(name, OPERATION_SNAPSHOT[name]),
         }
         for name, operation in catalog.items()
-        if name in OPERATION_SNAPSHOT
+        if name in OPERATION_SNAPSHOT or name in C6_EXPLORATION_SNAPSHOT
         if (
             operation.label,
             operation.permission,
             operation.revision,
             fingerprint(operation.schema.model_json_schema()),
         )
-        != C0C_REVISED_SNAPSHOT.get(name, OPERATION_SNAPSHOT[name])
+        != C0C_REVISED_SNAPSHOT.get(
+            name, OPERATION_SNAPSHOT.get(name) or C6_EXPLORATION_SNAPSHOT[name]
+        )
     }
     assert not mismatches, mismatches
 
@@ -722,6 +773,7 @@ def test_catalog_v2_metadata_and_trace_inventory_match_runtime_schemas():
         + len(C0_DOSSIER_INTERCHANGE_OPERATIONS)
         + len(C3_CHARACTER_ARC_OPERATIONS)
         + len(A1_CHAPTER_TIMELINE_OPERATIONS)
+        + len(C6_EXPLORATION_OPERATIONS)
     )
     assert set(operations) == set(manifest)
     for op_id, operation in operations.items():
@@ -827,6 +879,7 @@ def test_v12_author_operations_do_not_enter_a_frozen_v11_directory():
             | C0_DOSSIER_INTERCHANGE_OPERATIONS
             | C3_CHARACTER_ARC_OPERATIONS
             | A1_CHAPTER_TIMELINE_OPERATIONS
+            | C6_EXPLORATION_OPERATIONS
         )
     }
     assert not (set(resolve_operations(frozen_v11)) & A3_AUTHOR_OPERATIONS)
@@ -837,6 +890,7 @@ def test_v12_author_operations_do_not_enter_a_frozen_v11_directory():
         | C0_DOSSIER_INTERCHANGE_OPERATIONS
         | C3_CHARACTER_ARC_OPERATIONS
         | A1_CHAPTER_TIMELINE_OPERATIONS
+        | C6_EXPLORATION_OPERATIONS
     )
 
 
@@ -857,6 +911,7 @@ def test_v13_transfer_is_r3_and_absent_from_a_frozen_v12_directory():
             | C0_DOSSIER_INTERCHANGE_OPERATIONS
             | C3_CHARACTER_ARC_OPERATIONS
             | A1_CHAPTER_TIMELINE_OPERATIONS
+            | C6_EXPLORATION_OPERATIONS
         )
     }
     assert set(manifest) - set(frozen_v12) == (
@@ -865,6 +920,7 @@ def test_v13_transfer_is_r3_and_absent_from_a_frozen_v12_directory():
         | C0_DOSSIER_INTERCHANGE_OPERATIONS
         | C3_CHARACTER_ARC_OPERATIONS
         | A1_CHAPTER_TIMELINE_OPERATIONS
+        | C6_EXPLORATION_OPERATIONS
     )
     assert not (set(resolve_operations(frozen_v12)) & C4_TRANSFER_OPERATIONS)
     operation = get("assistant.operations")[
@@ -919,6 +975,22 @@ def test_v17_chapter_timeline_operations_leave_v16_directory_unchanged():
     }
     assert set(manifest) - set(frozen_v16) == A1_CHAPTER_TIMELINE_OPERATIONS
     assert set(resolve_operations(frozen_v16)) == set(frozen_v16)
+    assert set(resolve_operations(manifest)) == set(manifest)
+
+
+def test_v18_exploration_operations_leave_v17_directory_unchanged():
+    from app.bootstrap import register_container_services
+    from modules.assistant.operations import operation_manifest, resolve_operations
+
+    register_container_services()
+    manifest = operation_manifest()
+    frozen_v17 = {
+        name: value
+        for name, value in manifest.items()
+        if name not in C6_EXPLORATION_OPERATIONS
+    }
+    assert set(manifest) - set(frozen_v17) == C6_EXPLORATION_OPERATIONS
+    assert set(resolve_operations(frozen_v17)) == set(frozen_v17)
     assert set(resolve_operations(manifest)) == set(manifest)
 
 

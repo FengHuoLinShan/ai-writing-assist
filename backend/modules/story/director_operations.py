@@ -124,6 +124,8 @@ async def _apply_start(db, novel_id, args, preview, *, context=None):
 
 async def _continuation_preview(db, novel_id, args):
     _require_project(novel_id, args)
+    from modules.story.exploration_service import require_legacy_director_round
+
     await require_active_project(db, novel_id)
     if getattr(args, "resume_branch_id", None) is not None:
         from infrastructure.llm.schemas import read_ai_run_envelope
@@ -133,6 +135,11 @@ async def _continuation_preview(db, novel_id, args):
         root = await get_director_root(db, novel_id, str(branch.root_id))
         if branch.status not in {"paused_budget", "paused_unknown"}:
             raise ValueError("只有预算或未知用量暂停的分支可以恢复")
+        latest_round = await get_director_round(
+            db, novel_id, str(branch.parent_round_id)
+        ) if branch.parent_round_id else (None, None)
+        if latest_round[0] is not None:
+            require_legacy_director_round(latest_round[0])
         envelope = read_ai_run_envelope(root.run_envelope_json)
         if (
             envelope is None
@@ -147,6 +154,7 @@ async def _continuation_preview(db, novel_id, args):
         )
     parent, _ = await get_director_round(db, novel_id, str(args.parent_round_id))
     root = await get_director_root(db, novel_id, str(parent.root_id))
+    require_legacy_director_round(parent)
     current_source = await read_director_source(
         db,
         novel_id=novel_id,

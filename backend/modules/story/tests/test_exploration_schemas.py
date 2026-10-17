@@ -251,20 +251,31 @@ def test_detail_and_revise_requests_normalize_ids():
     revise = ExplorationReviseRequest.model_validate(
         {
             "novel_id": NOVEL_ID,
-            "result_id": result_id,
-            "revision_of_item_hash": "c" * 64,
+            "revision_of": result_id,
+            "item_path": "chain:0",
+            "item_text": "面包更松软",
             "instruction": "在不靠巧合的条件下补一个环节",
             "bridge_target": "信使当天必须知道地址",
             "operation_id": str(uuid.uuid4()),
         }
     )
     assert revise.bridge_target == "信使当天必须知道地址"
+    assert revise.item_path == "chain:0"
     with pytest.raises(ValidationError):
         ExplorationReviseRequest.model_validate(
             {
                 "novel_id": NOVEL_ID,
-                "result_id": result_id,
-                "revision_of_item_hash": "no-hash",
+                "item_path": "",
+                "instruction": "修订",
+                "operation_id": str(uuid.uuid4()),
+            }
+        )
+    with pytest.raises(ValidationError):
+        ExplorationReviseRequest.model_validate(
+            {
+                "novel_id": NOVEL_ID,
+                "item_path": "chain:0",
+                "item_text": "x" * 4001,
                 "instruction": "修订",
                 "operation_id": str(uuid.uuid4()),
             }
@@ -298,8 +309,8 @@ def test_compare_request_rejects_same_result():
         ExplorationCompareRequest.model_validate(
             {
                 "novel_id": NOVEL_ID,
-                "result_id_a": result_id,
-                "result_id_b": result_id,
+                "first_result_id": result_id,
+                "second_result_id": result_id,
             }
         )
 

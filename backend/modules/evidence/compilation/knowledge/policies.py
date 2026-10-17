@@ -660,6 +660,22 @@ CAPABILITY_REGISTRY: dict[str, CapabilityKnowledgePolicy] = {
             notes="逐角色知识包与导演层分离；根预算与来源冻结，候选不自动写入正史。",
         ),
         _policy(
+            "story.exploration",
+            DOMAIN_STORY,
+            "导演多尺度独立探索（根能力）",
+            subjects=("author",),
+            dimensions=("character_knowledge", "world_entities"),
+            advisory_dimensions=_OBJECT_REFERENCE_ADVISORY,
+            confirmation=CONFIRMATION_REQUIRED,
+            outputs=(OUTPUT_PROPOSAL,),
+            gate=ADOPTION_DISPLAY_ONLY,
+            notes=(
+                "run 根能力（task root_capability_id）；具体尺度按"
+                " story.exploration.sandbox/event/scene_line 声明。"
+                "feature gate STORY_EXPLORATION_ENABLED，结果不写正文或正史。"
+            ),
+        ),
+        _policy(
             "story.exploration.sandbox",
             DOMAIN_STORY,
             "沙盘独立探索",

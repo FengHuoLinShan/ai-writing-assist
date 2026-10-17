@@ -141,6 +141,12 @@ async def set_continuous_authorization(
         raise ValueError("持续授权作品或推进根不匹配")
     if branch.deleted_at is not None:
         raise ConflictError("已删除分支不能开启持续推进")
+    if data.enabled:
+        from modules.story.exploration_service import (
+            require_legacy_progression_root,
+        )
+
+        require_legacy_progression_root(root)
     if data.enabled and branch.status not in {"ready", "complete"}:
         raise ConflictError("持续推进只能绑定到已完成的一步历史")
     source_participants = {

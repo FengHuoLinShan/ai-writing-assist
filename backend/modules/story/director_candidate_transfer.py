@@ -69,6 +69,9 @@ async def preview_director_candidate_transfer(
     root = await get_director_root(db, data.novel_id, str(round_row.root_id))
     if root.scene_id != data.scene_id:
         raise NotFoundError("导演回合不属于当前 Scene")
+    from modules.story.exploration_service import require_legacy_transfer_source
+
+    require_legacy_transfer_source(round_row)
     if (
         round_row.source_hash != data.expected_source_hash
         or round_row.output_hash != data.expected_output_hash
