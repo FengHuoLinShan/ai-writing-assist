@@ -110,8 +110,9 @@ draft, check item, source checkpoint and Evidence confirmation. The append is Sc
 idempotent and invalidates only the affected downstream dimension.
 
 The existing public prefixes remain `/api/outline` and
-`/api/novels/{novel_id}/memories`, alongside `/api/story` and the isolated,
-default-off `/api/story/world-progression` router.
+`/api/novels/{novel_id}/memories`, alongside `/api/story`, the isolated,
+default-off `/api/story/world-progression` router and the default-off
+`/api/story/exploration` router.
 The character arc endpoint is `/api/story/character-arcs` once mounted by the
 composition root.
 
@@ -501,3 +502,36 @@ Evolution 成功回执经稳定 DI 端口投递免费检查，Story 只通过 Ev
 
 导演区分人物卡 active 状态与当前修订 accepted 状态；正常手工确认的有效修订可被识别为作者参考。
 卡片可用性不证明逐字段角色知识，未证明的自由文本仍只留在 director_only，不进入角色输入。
+
+## 导演多尺度独立探索（ADR-0042 第一批）
+
+`STORY_EXPLORATION_ENABLED` 默认关闭（`exploration_feature.py::require_story_exploration_enabled` 抛 503）；
+API、助手操作与两个 worker 共享此门禁，history/compare 端点与 history 操作不挂 gate，关闭后可读历史。
+
+`exploration_api.py` 声明 `/api/story/exploration` 九端点：`POST /preview`（确定性推荐与预算预览，
+无模型调用）、`POST /confirmation/preview`、`POST /confirmation`（经 Evidence facade 的探索确认，
+复用 `expected_context_fingerprint` 机制）、`POST /start`（幂等 + preview hash + 确认校验，202）、
+`POST /results/{result_id}/detail` 与 `/revise`（追加授权 `author_detail_expand`/`author_revise` 的
+说详细点与局部修订，`item_path + item_text` 防漂移定位）、`/save-edit`（作者编辑新版本，零模型调用）、
+`POST /compare`（`start_fingerprint` 不同返回 409）与 `GET /history`（provisional 根与 Scene 根分开列出）。
+
+`exploration_schemas.py` 定义起点判别联合（`scene_anchor` / `provisional`）与四类
+`output_kind` 载荷（sandbox/event/scene_line/author_edit，`schema_version=1`、`extra="forbid"`、
+`unknowns` 一等字段）；story 侧从 `modules/evidence/contracts.py` 引用起点定义，不复刻。
+`exploration_service.py` 负责根/分支创建（provisional 强制无 scene_id，scene 强制有）与历史/比较读；
+`exploration_budget.py` 提供初始单请求预算与追加授权预览；`exploration_recommend.py` 是纯确定性
+推荐函数；`exploration_operations.py` 导出六项操作目录（op_version "1"：preview/compare/history R0，
+start/detail/revise R2 confirm），runtime 版本随目录扩为 "18"。
+
+`exploration_tasks.py` 的 `story_exploration_progression_task`（B1 沙盘、B2 事件诊断/补桥，
+结果写 `story_world_progression_steps` 零参与者紧凑步骤）与 `story_exploration_scene_task`
+（B3 场景一句对白，结果写 `story_scene_director_rounds`）注册根能力 `story.exploration`，
+`never_retry`、单次模型请求、provider 前后检查点；worker 重算 preview hash、校验信封身份与冻结起点，
+canonical 目标生成后做 hidden guard 消费方校验。detail/revise 复用同一对 worker（meta.mode）。
+
+结果行带 `output_kind` 包装：旧导演/推进/参考/转入路径遇到探索结果或 provisional 根失败关闭
+（`continue/advance/resume`、`save_director_reference`、`transfer_world_candidate` 等，契约 §7）；
+Writing 参考读取不受影响。两根表由迁移 `20261017_exploration_start_kind` 增加 `source_kind`
+列（CHECK 限定仅 provisional 可空 scene_id）与 `(novel_id, source_kind, created_at)` 索引；
+downgrade 在存在 provisional 行时拒绝。临时起点确认经 Evidence：provisional 跳过 outline/scene
+指纹门、核心指纹保留，`author_private` 永不进入角色包；候选主体无 hidden_truth，知识包即边界。

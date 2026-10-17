@@ -64,6 +64,7 @@ Goal 的确定 ID 父任务也通过 enqueuer 创建为 `inline_only` / `manual_
 - story：`story_outline_generate`、`outline_analyze`、`outline_generate`、`scene_fusion_preview`、
   `story_character_card_generate`、`story_reaction_propose`、`story_scene_script_generate`、
   `story_one_click`、`story_scene_director`、`story_world_progression`、
+  `story_exploration_progression_task`、`story_exploration_scene_task`、
   `story_world_progression_read_commit_check`（Evolution 成功读入回执后的免费检查）。
   `plot_structure_generate`、`chapter_card_extraction`、`chapter_scene_generate` 仅为存量任务返回
   `unsupported` 的兼容注册，不是当前生产生成入口
@@ -87,6 +88,13 @@ app task manifest 注册。
 `story_world_progression_read_commit_check` 仅检查 Evolution 已成功读入的完整新章和作者 standing grant；
 它不调用模型、不新建根，只有原根剩余额度与授权仍有效时才可能排入前一个处理器。两者已由 app
 task manifest 注册；本地离线验证不代表真实模型输出质量或作者验收。
+
+`story_exploration_progression_task` 与 `story_exploration_scene_task` 是 ADR-0042 第一批探索的两个
+Story handler，同注册根能力 `story.exploration`，`never_retry`、单次模型请求。前者承担沙盘与事件
+（诊断/补桥），结果写 `story_world_progression_steps` 紧凑步骤；后者承担场景一句对白，写
+`story_scene_director_rounds`。worker 校验信封身份与冻结起点、重算 preview hash，provider 前后
+提交 pending_step_json / pending_round_json 检查点；"说详细点"与局部修订复用同一对 worker
+（meta.mode），每次须经追加授权。已由 app task manifest 注册。
 
 `deep_import` 完成时可把 post-import adoption package 的 compact receipt 写入既有
 `result.phase_artifacts`；这不是新任务类型或队列状态。包组装失败不得覆盖已完成的

@@ -151,7 +151,8 @@ Goal v3 仅接受作者冻结的 Goal 范围；Assistant 目录 v4 只接受服�
 v4 的未知扣费或 80% 请求阈值在下一次 provider 预留前拒绝；v1/v2 能力规则不变。
 一次权威领域运行只有一个 run：自动重试、恢复、requeue 与 manual resume 都累加同一账本，
 只有作者明确续算或确认可能重复扣费时才通过 `authorize_additional_requests()` 追加请求或 Token 额度，
-至少一项为正。只追加 Token 时请求上限不变；授权回执记录新增请求为 0 与实际追加 Token，
+至少一项为正。追加授权 reason 枚举为 `duplicate_charge_confirmed | author_resume | author_detail_expand | author_revise`，
+后两者由导演探索的"说详细点"与局部修订使用；不改旧值语义。只追加 Token 时请求上限不变；授权回执记录新增请求为 0 与实际追加 Token，
 原请求计数、起始时间、未知请求和 deadline 均保留。旧正请求追加回执仍可原样读取。
 
 所有变更与 `on_change` checkpoint 在同一临界区内串行，持久化顺序与变更顺序一致，旧快照

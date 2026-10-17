@@ -129,6 +129,7 @@ api_prefixes = [
   "/api/outline",
   "/api/story",
   "/api/story/character-arcs",
+  "/api/story/exploration",
   "/api/story/world-progression",
 ]
 

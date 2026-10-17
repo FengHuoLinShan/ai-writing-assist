@@ -1,6 +1,7 @@
 # ADR-0042：导演的多尺度独立探索与可选衔接
 
 - 状态：**Proposed（草案，待采纳；未实施）**
+- 2026-10-17：第一批工程实现已在 `codex/director-scales-impl` 分支交付（离线、gate 默认关）。
 - 日期：2026-10-17
 - 研究依据：[报告摘要与溯源](../../.agent/tasks/2026/T-20261017-director-layer-design/RESEARCH-BASIS.md)
 - 配套计划：[实施计划草案](../plans/2026-10-17-director-scales-independent-exploration.md)

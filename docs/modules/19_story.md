@@ -241,3 +241,11 @@ Story 将世界推进保存在独立根、分支和不可变步骤中；每步�
 
 `story_world_progression` handler、Story router、9 项纯操作、`NOTICE_SOURCE_SPEC` 与 `world_progression_review` 引导流程已在应用组合根登记。持续授权默认关闭；Evolution 成功阅读回执在原事务投递免费检查，提交后仅以当前 canonical 正文的整章完整覆盖计数，未读/失败/局部 Scene、跳序号和同章改版重读不冒充新章节。章节重排撤销原序号授权，作者需重确认；Notice GET 保持只读。长篇/题材质量、势力路线图阶段 1/2、真实模型表现和作者验收分别保留为外部门禁。
 持续提醒仍绑定根运行的资料确认截止 Scene；读入新章只触发门槛，不扩大确认范围。最新已写 Scene 超出该截止点时，系统持久化停止原因并关闭自动续跑。作者需从最新 Scene 新建并确认推进后再开启提醒。
+
+## 导演多尺度独立探索（ADR-0042 第一批）
+
+ADR-0042 的第一批在沙盘、事件、场景对白三档各交付一条紧凑任务：B1 沙盘回答"假设成立会怎样"的条件影响链（不读章节、不跑全城人物），B2 事件缺口诊断与显式请求后的补桥（不改原案、不自动建事件/Scene/正文），B3 场景一句对白（角色不得说出未知信息，一句即结束）。起点支持临时开局（`provisional`：作者问题 + 假设 + 候选主体，可不建 Scene）与已有 Scene 锚点（复用现有 Scene 截止与资料确认门禁）两条路径；每档一次模型请求，"说详细点"/局部修订每次追加授权，作者编辑保存零模型调用。结果全部为候选，落 `output_kind` 包装的既有推进步骤/导演回合，不写 World、continuity 或正文。
+
+`/api/story/exploration` 是默认关闭的域路由（gate `STORY_EXPLORATION_ENABLED`），九端点：`POST /preview`（确定性推荐 + 预算预览，无模型调用）、`POST /confirmation/preview` 与 `POST /confirmation`（经 Evidence facade 的探索确认）、`POST /start`（幂等入队，202）、`POST /results/{id}/detail` 与 `POST /results/{id}/revise`（追加授权的续写/补桥，202）、`POST /results/{id}/save-edit`（作者编辑新版本）、`POST /compare`（同 `start_fingerprint` 才可比，否则 409）与 `GET /history`。history/compare 不挂执行 gate，关闭后仍可读历史；provisional 根与 Scene 根在历史中分开列出。
+
+助手侧经六项操作接入：`story.exploration.preview`（R0）、`start`、`detail`、`revise`（R2 confirm）、`compare`、`history`（R0），作者自由提问时由 `exploration_recommend.py` 的确定性函数推荐档位与详略，确认后经既有批量确认流执行。两个 task handler `story_exploration_progression_task`（B1/B2，写推进步骤）与 `story_exploration_scene_task`（B3，写导演回合）注册根能力 `story.exploration`，`never_retry`；旧导演/推进路径遇探索结果行或 provisional 根失败关闭（契约 §7 清单）。两根表迁移为 `20261017_exploration_start_kind`（`source_kind` 列 + `scene_id` 可空 CHECK，仅 provisional 可空）。实现边界见 [Story 模块实现](../../backend/modules/story/README.md)。

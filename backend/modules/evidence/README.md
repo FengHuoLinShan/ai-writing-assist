@@ -184,6 +184,16 @@ v1 receipt 的字段和指纹保持不变。`map_spatial` 通过 World 只读地
 世界共创使用候选提案权限，资料问答 `world.ask` 仍为有据回答；共创中明确要求回答既有事实
 时同样不得补造。资源总量约束覆盖所有人物与段落，私人存量与替代渠道不能凭空绕过限制。
 
+## 导演探索确认（ADR-0042 第一批）
+
+`ExplorationContextRequest` 支持导演多尺度探索（`story.exploration.sandbox/event/scene_line`
+三条能力，均 `CONFIRMATION_REQUIRED`，gate `STORY_EXPLORATION_ENABLED` 默认关）。起点
+判别联合（`scene_anchor` / `provisional`）在 `compilation/schemas.py` 定义为 Evidence 侧权威，
+story 经 `modules.evidence.contracts` 再导出。`provisional` 临时起点确认可无 Scene/大纲：
+重物化时跳过 outline 与 scene_state 指纹门、保留核心资料指纹（`context_changed` 语义不变），
+空资料集合法；`author_private` 只进作者包，永不进入角色包；候选主体不进 hidden guard
+目标集，canonical 角色仍走资料投影 + hidden guard。请求体直传 `web_refs` 失败关闭。
+
 ## 协作成果投影
 
 `TeamProjection` 和 `project_team_artifact` 校验接收者的项目、scope hash 和完整来源依赖。
