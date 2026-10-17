@@ -1,0 +1,718 @@
+[
+  {
+    "claim_id": "L7-ROUTE-001",
+    "baseline_sha": "22bb499789cba89fea92e918fd853ab768688e07",
+    "domain": "frontend.route_host_and_islands",
+    "document_refs": [
+      {
+        "path": "frontend-console/README.md",
+        "line_start": 231,
+        "line_end": 275
+      },
+      {
+        "path": "docs/modules/14_frontend.md",
+        "line_start": 76,
+        "line_end": 121
+      },
+      {
+        "path": "docs/modules/14_frontend.md",
+        "line_start": 230,
+        "line_end": 239
+      }
+    ],
+    "conclusion": "Vue ShellApp 提供静态外壳和 #workspace-content route host；hash router 解析路由并按需加载注册表中的 island。mountIsland 负责异步预取、SFC 挂载/卸载及 canLeave 交接。两份架构文档对本次核对的稳定边界基本准确。",
+    "code_refs": [
+      {
+        "path": "frontend-console/app.js",
+        "symbol": "registerViewLoaders",
+        "line_start": 22,
+        "line_end": 27
+      },
+      {
+        "path": "frontend-console/vue/shell/mountShell.js",
+        "symbol": "mountShell",
+        "line_start": 5,
+        "line_end": 21
+      },
+      {
+        "path": "frontend-console/vue/shell/components/WorkspaceHost.vue",
+        "symbol": "#workspace-content",
+        "line_start": 1,
+        "line_end": 13
+      },
+      {
+        "path": "frontend-console/vue/viewLoaders.js",
+        "symbol": "viewLoaders/registerViewLoaders",
+        "line_start": 11,
+        "line_end": 35
+      },
+      {
+        "path": "frontend-console/vue/mountIsland.js",
+        "symbol": "mountIsland",
+        "line_start": 1,
+        "line_end": 95
+      },
+      {
+        "path": "frontend-console/router.js",
+        "symbol": "_loadViewRenderer",
+        "line_start": 83,
+        "line_end": 107
+      },
+      {
+        "path": "frontend-console/router.js",
+        "symbol": "_canLeaveMountedRoute",
+        "line_start": 623,
+        "line_end": 645
+      }
+    ],
+    "callers": [
+      {
+        "path": "frontend-console/vue/writingIsland.js",
+        "symbol": "registerWritingIsland",
+        "relationship": "registers WritingView through mountIsland"
+      },
+      {
+        "path": "frontend-console/vue/interactionIsland.js",
+        "symbol": "registerInteractionIslands",
+        "relationship": "registers home, journeys, interaction and demo-rp islands through mountIsland"
+      }
+    ],
+    "test_refs": [
+      {
+        "path": "frontend-console/tests/router.test.js",
+        "line_start": 119,
+        "line_end": 146,
+        "test_name": "does not mount a late loader after navigating from A to B",
+        "execution": "static_source_read_not_run"
+      },
+      {
+        "path": "frontend-console/tests/router.test.js",
+        "line_start": 148,
+        "line_end": 173,
+        "test_name": "shows a safe retry for a rejected loader",
+        "execution": "static_source_read_not_run"
+      },
+      {
+        "path": "frontend-console/tests/router.test.js",
+        "test_name": "keeps the mounted page until approval and serializes a second navigation",
+        "execution": "static_source_read_not_run"
+      },
+      {
+        "path": "frontend-console/tests/viewLoaders.test.js",
+        "test_name": "registers lazy view loaders without importing islands",
+        "execution": "static_source_read_not_run"
+      }
+    ],
+    "read_depth": "启动器到 route loader、真实 island 注册、挂载生命周期和 router 离开守卫的调用链；测试仅静态读取。",
+    "validation_identity": {
+      "baseline_sha": "22bb499789cba89fea92e918fd853ab768688e07",
+      "checkout": "/Users/tywww/.codex/worktrees/docs-refresh-luna/ai-writing-assist",
+      "method": "static source and test inspection; no test execution"
+    },
+    "unknowns": [
+      "未启动浏览器验证当前部署的页面入口、认证状态或视觉布局。"
+    ],
+    "proposed_action": "不做架构段落重写；保留 README 的代码入口导航与 14_frontend 的稳定路由生命周期说明。"
+  },
+  {
+    "claim_id": "L7-BRIDGE-002",
+    "baseline_sha": "22bb499789cba89fea92e918fd853ab768688e07",
+    "domain": "frontend.bridge_api_state",
+    "document_refs": [
+      {
+        "path": "docs/modules/14_frontend.md",
+        "line_start": 76,
+        "line_end": 95
+      },
+      {
+        "path": "docs/modules/14_frontend.md",
+        "line_start": 555,
+        "line_end": 568
+      },
+      {
+        "path": "frontend-console/README.md",
+        "line_start": 231,
+        "line_end": 260
+      }
+    ],
+    "conclusion": "Vanilla 基建仍通过 window.api/appState/router 等暴露；Vue SFC 通过 vue/bridge/index.js 的 getters 读取，并可在测试中 setBridgeOverrides 注入依赖。api.js 组装 api/<domain>.js 命名空间，state.js 用 Proxy 通知监听器。文档对此边界表述准确。",
+    "code_refs": [
+      {
+        "path": "frontend-console/vue/bridge/index.js",
+        "symbol": "bridge contract/getApi/getRouter/getAppState/setBridgeOverrides",
+        "line_start": 1,
+        "line_end": 15
+      },
+      {
+        "path": "frontend-console/vue/bridge/index.js",
+        "symbol": "setBridgeOverrides/getApi/getRouter/getAppState/getToast",
+        "line_start": 126,
+        "line_end": 174
+      },
+      {
+        "path": "frontend-console/api.js",
+        "symbol": "api namespace assembly and window.api",
+        "line_start": 1,
+        "line_end": 71
+      },
+      {
+        "path": "frontend-console/state.js",
+        "symbol": "Proxy state and listener notifications",
+        "line_start": 12,
+        "line_end": 94
+      }
+    ],
+    "callers": [
+      {
+        "path": "frontend-console/vue/views/writing/useWritingWorkspace.js",
+        "symbol": "useWritingWorkspace",
+        "relationship": "reads API, state, router, toast and confirmation through bridge getters"
+      },
+      {
+        "path": "frontend-console/vue/views/interaction/JourneyListView.vue",
+        "symbol": "JourneyListView setup",
+        "relationship": "uses bridge getters and test overrides"
+      }
+    ],
+    "test_refs": [
+      {
+        "path": "frontend-console/tests/vue/writing/WritingView.test.js",
+        "test_name": "WritingView tests inject bridge dependencies",
+        "execution": "static_source_read_not_run"
+      },
+      {
+        "path": "frontend-console/tests/vue/interaction/JourneyListView.test.js",
+        "line_start": 1,
+        "line_end": 10,
+        "test_name": "imports bridge override helpers",
+        "execution": "static_source_read_not_run"
+      }
+    ],
+    "read_depth": "读取 bridge contract、主要 getters、API 组装出口和 Proxy state；未枚举全部 Vue bridge 消费者。",
+    "validation_identity": {
+      "baseline_sha": "22bb499789cba89fea92e918fd853ab768688e07",
+      "checkout": "/Users/tywww/.codex/worktrees/docs-refresh-luna/ai-writing-assist",
+      "method": "static source and test inspection; no test execution"
+    },
+    "unknowns": [
+      "未对全部 Vue 文件做 bridge 消费者清点。"
+    ],
+    "proposed_action": "保留 bridge 单一入口说明；本轮没有证据支持新建或改变抽象。"
+  },
+  {
+    "claim_id": "L7-WRITING-003",
+    "baseline_sha": "22bb499789cba89fea92e918fd853ab768688e07",
+    "domain": "frontend.author_writing_save_and_leave",
+    "document_refs": [
+      {
+        "path": "docs/modules/14_frontend.md",
+        "line_start": 214,
+        "line_end": 216
+      },
+      {
+        "path": "docs/product/new-user-guide.md",
+        "line_start": 26,
+        "line_end": 30
+      },
+      {
+        "path": "docs/product/new-user-guide.md",
+        "line_start": 54,
+        "line_end": 61
+      },
+      {
+        "path": "docs/product/new-user-guide.md",
+        "line_start": 90,
+        "line_end": 100
+      },
+      {
+        "path": "docs/product/word-guide-source.md",
+        "line_start": 197,
+        "line_end": 209
+      }
+    ],
+    "conclusion": "输入后正文立即进入内存，会在 250ms 左右尝试本地备份并在约 3 秒后自动保存服务端工作稿。远端保存失败时不切章，原输入和本地备份保留且有重试；本地备份失败时页面明确警告，离开/刷新仍需确认并可能丢失。new-user-guide 对刷新恢复的描述没有提示这一失败条件，建议收窄为条件式说明。",
+    "code_refs": [
+      {
+        "path": "frontend-console/vue/views/writing/controllers/editorController.js",
+        "symbol": "saveBackup/flushLocalPersistence/scheduleLocalPersistence",
+        "line_start": 153,
+        "line_end": 197
+      },
+      {
+        "path": "frontend-console/vue/views/writing/controllers/editorController.js",
+        "symbol": "scheduleAutosave/handleInput/autosave",
+        "line_start": 434,
+        "line_end": 536
+      },
+      {
+        "path": "frontend-console/vue/views/writing/writingSession.js",
+        "symbol": "unsafe dirty snapshots are not evicted",
+        "line_start": 14,
+        "line_end": 36
+      },
+      {
+        "path": "frontend-console/vue/views/writing/useWritingWorkspace.js",
+        "symbol": "useLeaveGuard/beforeUnload/pageHide",
+        "line_start": 1622,
+        "line_end": 1641
+      }
+    ],
+    "callers": [
+      {
+        "path": "frontend-console/vue/views/writing/WritingView.vue",
+        "symbol": "WritingView",
+        "relationship": "binds editor controls, manual save, chapter switching and current-workspace states"
+      },
+      {
+        "path": "frontend-console/vue/mountIsland.js",
+        "symbol": "canLeave",
+        "relationship": "passes the component leave decision to router"
+      },
+      {
+        "path": "frontend-console/api/writing.js",
+        "symbol": "autosave/autosaveDraftOnly",
+        "relationship": "receives service-side working-draft save request"
+      }
+    ],
+    "test_refs": [
+      {
+        "path": "frontend-console/tests/vue/writing/WritingView.test.js",
+        "line_start": 575,
+        "line_end": 667,
+        "test_name": "保存失败留在原章、可重试；本地备份失败时离开守卫提示丢失风险",
+        "execution": "static_source_read_not_run"
+      },
+      {
+        "path": "frontend-console/e2e/responsive-core.spec.js",
+        "line_start": 52,
+        "line_end": 67,
+        "test_name": "手机保存失败保留正文，重试后实际保存并可刷新恢复",
+        "execution": "static_source_read_not_run"
+      },
+      {
+        "path": "frontend-console/e2e/writing-chaos.spec.js",
+        "test_name": "S4-REC-001 localStorage 恢复会保留未保存正文",
+        "execution": "static_source_read_not_run"
+      }
+    ],
+    "read_depth": "从编辑输入、两种保存和本地快照，到离开/卸载保护与相应测试断言；未读服务端 draft 存储实现。",
+    "validation_identity": {
+      "baseline_sha": "22bb499789cba89fea92e918fd853ab768688e07",
+      "checkout": "/Users/tywww/.codex/worktrees/docs-refresh-luna/ai-writing-assist",
+      "method": "static source and test inspection; tests not run"
+    },
+    "unknowns": [
+      "没有运行自动保存时序、QuotaExceeded 或跨设备浏览器流程。",
+      "服务端工作稿持久化语义未从后端实现交叉核验。"
+    ],
+    "proposed_action": "在 new-user-guide 的刷新 FAQ 增加保存失败/本机备份不可用时的警告与复制、留页、重试建议；不要无条件承诺所有输入均可恢复。"
+  },
+  {
+    "claim_id": "L7-RP-004",
+    "baseline_sha": "22bb499789cba89fea92e918fd853ab768688e07",
+    "domain": "frontend.rp_draft_stream_recovery",
+    "document_refs": [
+      {
+        "path": "docs/modules/14_frontend.md",
+        "line_start": 189,
+        "line_end": 211
+      },
+      {
+        "path": "docs/product/new-user-guide.md",
+        "line_start": 42,
+        "line_end": 50
+      },
+      {
+        "path": "docs/product/new-user-guide.md",
+        "line_start": 90,
+        "line_end": 100
+      },
+      {
+        "path": "docs/product/word-guide-source.md",
+        "line_start": 126,
+        "line_end": 145
+      },
+      {
+        "path": "docs/product/word-guide-source.md",
+        "line_start": 197,
+        "line_end": 209
+      }
+    ],
+    "conclusion": "RP input/options are stored per journey in browser localStorage, and failed writes trigger an alert plus leave confirmation. Active attempt UI starts from visible_text/visible_offset, merges persisted chunks, fetches the authoritative attempt snapshot on a gap/conflicting replay, and retries the stream after connection errors. The UI exposes a recoverable state if latest refresh fails. User-facing text should distinguish local unsent input from saved story text.",
+    "code_refs": [
+      {
+        "path": "frontend-console/vue/views/interaction/interactionSession.js",
+        "symbol": "read/writeJourneyDraft",
+        "line_start": 49,
+        "line_end": 78
+      },
+      {
+        "path": "frontend-console/vue/views/interaction/persistedStream.js",
+        "symbol": "mergePersistedChunk",
+        "line_start": 1,
+        "line_end": 22
+      },
+      {
+        "path": "frontend-console/vue/views/interaction/InteractionView.vue",
+        "symbol": "draft persistence watcher",
+        "line_start": 361,
+        "line_end": 368
+      },
+      {
+        "path": "frontend-console/vue/views/interaction/InteractionView.vue",
+        "symbol": "followAttempt",
+        "line_start": 616,
+        "line_end": 700
+      },
+      {
+        "path": "frontend-console/vue/views/interaction/InteractionView.vue",
+        "symbol": "leave guard and beforeUnload",
+        "line_start": 2056,
+        "line_end": 2073
+      },
+      {
+        "path": "frontend-console/vue/views/interaction/InteractionView.vue",
+        "symbol": "see sea feature button and quota prompt",
+        "line_start": 2505,
+        "line_end": 2514
+      }
+    ],
+    "callers": [
+      {
+        "path": "frontend-console/vue/interactionIsland.js",
+        "symbol": "loadInteraction/registerInteractionIslands",
+        "relationship": "loads current journey and mounts InteractionView"
+      },
+      {
+        "path": "frontend-console/api/interactions.js",
+        "symbol": "streamAttempt/getAttempt",
+        "relationship": "provides streaming and authoritative snapshot client methods"
+      }
+    ],
+    "test_refs": [
+      {
+        "path": "frontend-console/tests/vue/interaction/persistedStream.test.js",
+        "line_start": 4,
+        "line_end": 20,
+        "test_name": "deduplicates replay and requires authoritative snapshot for gaps/conflicts",
+        "execution": "static_source_read_not_run"
+      },
+      {
+        "path": "frontend-console/tests/vue/interaction/InteractionView.test.js",
+        "test_name": "私语与输入类型随草稿恢复，并在发送失败后保留",
+        "execution": "static_source_read_not_run"
+      },
+      {
+        "path": "frontend-console/tests/vue/interaction/InteractionView.test.js",
+        "test_name": "流结束后刷新失败时保留已显示正文并提供明确恢复路径",
+        "execution": "static_source_read_not_run"
+      },
+      {
+        "path": "frontend-console/e2e/interaction.spec.js",
+        "line_start": 128,
+        "line_end": 160,
+        "test_name": "390px persisted stream replay/gap recovery and refresh preservation",
+        "execution": "static_source_read_not_run"
+      },
+      {
+        "path": "frontend-console/e2e/responsive-core.spec.js",
+        "line_start": 195,
+        "line_end": 230,
+        "test_name": "RP cross-size and refresh preserve story, current development and input",
+        "execution": "static_source_read_not_run"
+      }
+    ],
+    "read_depth": "从 RP route loader 到 input local persistence、stream merge/snapshot fallback、error UI 和测试源码；未读后端 attempt writer/retention。",
+    "validation_identity": {
+      "baseline_sha": "22bb499789cba89fea92e918fd853ab768688e07",
+      "checkout": "/Users/tywww/.codex/worktrees/docs-refresh-luna/ai-writing-assist",
+      "method": "static source and test inspection; tests not run"
+    },
+    "unknowns": [
+      "服务端 attempt 的事务、持久化频率与保留期限未核验。",
+      "未验证当前线上网络中断恢复。"
+    ],
+    "proposed_action": "FAQ 将已保存故事段/流恢复与未发送本地草稿的备份失败提示分开陈述，并保留当前恢复入口说明。"
+  },
+  {
+    "claim_id": "L7-NAV-005",
+    "baseline_sha": "22bb499789cba89fea92e918fd853ab768688e07",
+    "domain": "frontend.author_rp_navigation_and_onboarding",
+    "document_refs": [
+      {
+        "path": "docs/modules/14_frontend.md",
+        "line_start": 143,
+        "line_end": 161
+      },
+      {
+        "path": "docs/modules/14_frontend.md",
+        "line_start": 172,
+        "line_end": 175
+      },
+      {
+        "path": "docs/product/new-user-guide.md",
+        "line_start": 11,
+        "line_end": 21
+      },
+      {
+        "path": "docs/product/word-guide-source.md",
+        "line_start": 40,
+        "line_end": 94
+      },
+      {
+        "path": "docs/product/word-guide-source.md",
+        "line_start": 101,
+        "line_end": 145
+      },
+      {
+        "path": "frontend-console/README.md",
+        "line_start": 14,
+        "line_end": 19,
+        "baseline_source": "fixed baseline B"
+      }
+    ],
+    "conclusion": "The normal public first page still presents the author/RP choice. The current desktop primary nav has five items; mobile has writing/world/structure plus the all-menu, while more items include project import, project preferences, advanced generation tools, RP journeys and account settings. The Word source documents six sidebar buttons and a three-item More menu, so its click paths are stale. The home wording is valid for the ordinary mode but public demo configuration adds demo CTAs.",
+    "code_refs": [
+      {
+        "path": "frontend-console/vue/views/interaction/HomeChoiceView.vue",
+        "symbol": "entry choice text",
+        "line_start": 75,
+        "line_end": 90
+      },
+      {
+        "path": "frontend-console/vue/shell/navigation.js",
+        "symbol": "SHELL_NAV_ITEMS/SHELL_MOBILE_NAV_ITEMS/SHELL_MORE_ITEMS",
+        "line_start": 1,
+        "line_end": 23
+      },
+      {
+        "path": "frontend-console/vue/views/interaction/JourneyListView.vue",
+        "symbol": "createJourney",
+        "line_start": 191,
+        "line_end": 228
+      },
+      {
+        "path": "frontend-console/vue/views/interaction/JourneyListView.vue",
+        "symbol": "journey list and opening text",
+        "line_start": 419,
+        "line_end": 487
+      },
+      {
+        "path": "frontend-console/vue/views/interaction/RpSourceSetup.vue",
+        "symbol": "visible source steps",
+        "line_start": 660,
+        "line_end": 680
+      }
+    ],
+    "callers": [
+      {
+        "path": "frontend-console/vue/interactionIsland.js",
+        "symbol": "registerInteractionIslands",
+        "relationship": "registers the author/RP home, journey list and interaction pages"
+      },
+      {
+        "path": "frontend-console/vue/shell/components/Sidebar.vue",
+        "symbol": "Sidebar",
+        "relationship": "renders desktop/mobile navigation and More entries from navigation.js"
+      }
+    ],
+    "test_refs": [
+      {
+        "path": "frontend-console/tests/vue/interaction/JourneyListView.test.js",
+        "line_start": 109,
+        "line_end": 140,
+        "test_name": "public auth entry choices do not fetch projects and RP choice wins over late author response",
+        "execution": "static_source_read_not_run"
+      },
+      {
+        "path": "frontend-console/tests/vue/interaction/JourneyListView.test.js",
+        "line_start": 143,
+        "line_end": 210,
+        "test_name": "journey catalog and empty-account opening",
+        "execution": "static_source_read_not_run"
+      },
+      {
+        "path": "frontend-console/tests/vue/interaction/RpSourceSetup.test.js",
+        "test_name": "四步新旅程、刷新恢复、候选确认和整理中离开提示",
+        "execution": "static_source_read_not_run"
+      },
+      {
+        "path": "frontend-console/e2e/interaction.spec.js",
+        "line_start": 651,
+        "line_end": 755,
+        "test_name": "source setup refresh recovery and 390px error focus",
+        "execution": "static_source_read_not_run"
+      }
+    ],
+    "read_depth": "读取静态菜单数据、入口组件、旅程列表/创建组件、source setup 的可见步骤与对应测试；没有实际浏览器走查。",
+    "validation_identity": {
+      "baseline_sha": "22bb499789cba89fea92e918fd853ab768688e07",
+      "checkout": "/Users/tywww/.codex/worktrees/docs-refresh-luna/ai-writing-assist",
+      "method": "static source and test inspection; tests not run"
+    },
+    "unknowns": [
+      "公开演示 CTA 是否在线上启用取决于运行时 auth config，本轮没有访问线上。",
+      "未对桌面、手机真实屏幕进行可视验收。"
+    ],
+    "proposed_action": "更新 Word 操作路径到当前五项桌面导航及“全部”菜单；新手文案以屏幕可见中文为准，公开演示入口按配置说明。"
+  },
+  {
+    "claim_id": "L7-RP-TOGGLE-006",
+    "baseline_sha": "22bb499789cba89fea92e918fd853ab768688e07",
+    "domain": "frontend.rp_autonomous_development_toggle",
+    "document_refs": [
+      {
+        "path": "docs/product/new-user-guide.md",
+        "line_start": 42,
+        "line_end": 50
+      },
+      {
+        "path": "docs/product/word-guide-source.md",
+        "line_start": 126,
+        "line_end": 137
+      },
+      {
+        "path": "docs/product/word-guide-source.md",
+        "line_start": 240,
+        "line_end": 245
+      },
+      {
+        "path": "docs/modules/14_frontend.md",
+        "line_start": 146,
+        "line_end": 146
+      }
+    ],
+    "conclusion": "Current UI calls the control “故事自主发展”; first activation prompts that it will use the user's model quota and waits for explicit confirmation. Internal/current engineering docs still use see-sea terminology. The user guides use “看海” alone, which does not match the button label.",
+    "code_refs": [
+      {
+        "path": "frontend-console/vue/views/interaction/InteractionView.vue",
+        "symbol": "requestModeToggle/confirmSeeSea",
+        "line_start": 1698,
+        "line_end": 1727
+      },
+      {
+        "path": "frontend-console/vue/views/interaction/InteractionView.vue",
+        "symbol": "visible mode button",
+        "line_start": 2505,
+        "line_end": 2514
+      },
+      {
+        "path": "frontend-console/vue/views/interaction/InteractionView.vue",
+        "symbol": "quota confirmation text",
+        "line_start": 2580,
+        "line_end": 2590
+      },
+      {
+        "path": "frontend-console/vue/views/interaction/interactionSession.js",
+        "symbol": "scheduleSeeSeaGrace",
+        "line_start": 141,
+        "line_end": 155
+      }
+    ],
+    "callers": [
+      {
+        "path": "frontend-console/vue/views/interaction/JourneyListView.vue",
+        "symbol": "new journey mode button",
+        "relationship": "uses the same visible label and confirmation before enabling mode"
+      }
+    ],
+    "test_refs": [
+      {
+        "path": "frontend-console/tests/vue/interaction/JourneyListView.test.js",
+        "test_name": "看海首次费用提示由账户接口确认，开关不会在确认前开启",
+        "execution": "static_source_read_not_run"
+      },
+      {
+        "path": "frontend-console/e2e/interaction.spec.js",
+        "line_start": 540,
+        "line_end": 559,
+        "test_name": "窄屏开启自主发展前说明额度并等待确认",
+        "execution": "static_source_read_not_run"
+      },
+      {
+        "path": "frontend-console/tests/vue/interaction/InteractionView.test.js",
+        "test_name": "显式离开故事页会立即撤销看海前台授权",
+        "execution": "static_source_read_not_run"
+      }
+    ],
+    "read_depth": "读取前端开关请求、确认文本、离页撤销和对应静态测试；未核验服务端授权/额度扣费实现。",
+    "validation_identity": {
+      "baseline_sha": "22bb499789cba89fea92e918fd853ab768688e07",
+      "checkout": "/Users/tywww/.codex/worktrees/docs-refresh-luna/ai-writing-assist",
+      "method": "static source and test inspection; tests not run"
+    },
+    "unknowns": [
+      "额度结算及真实持续运行行为不在本前端核查范围。"
+    ],
+    "proposed_action": "指南使用“故事自主发展”；如保留“看海”，仅作括号中的旧称，并明确首次启动的额度提示与确认。"
+  },
+  {
+    "claim_id": "L7-DOCX-007",
+    "baseline_sha": "22bb499789cba89fea92e918fd853ab768688e07",
+    "domain": "product_guide_source_and_docx_lineage",
+    "document_refs": [
+      {
+        "path": "docs/README.md",
+        "line_start": 140,
+        "line_end": 141,
+        "baseline_source": "git show B:docs/README.md"
+      },
+      {
+        "path": "docs/architecture/documentation-maintenance.md",
+        "line_start": 46,
+        "line_end": 48
+      },
+      {
+        "path": "docs/product/new-user-guide.md",
+        "line_start": 1,
+        "line_end": 120
+      },
+      {
+        "path": "docs/product/word-guide-source.md",
+        "line_start": 1,
+        "line_end": 251
+      },
+      {
+        "path": "docs/product/NovelCraft-新用户指南.docx",
+        "part": "word/document.xml",
+        "paragraph_index": 1,
+        "text": "NovelCraft 新用户指南（Word 版）"
+      },
+      {
+        "path": "docs/product/NovelCraft-新用户指南.docx",
+        "part": "word/document.xml",
+        "paragraph_index": 133,
+        "text": "故事页的 “看海”开关"
+      },
+      {
+        "path": "docs/product/NovelCraft-新用户指南.docx",
+        "part": "docProps/core.xml",
+        "field": "created/modified",
+        "value": "2026-08-17T05:07:19Z"
+      }
+    ],
+    "conclusion": "Baseline docs/README says new-user-guide.md is the source for the DOCX while also naming word-guide-source.md an editable Word source. Extracted DOCX body uses the Word-specific title and heading structure; its major sections, navigation lookup tables, page descriptions and see-sea text correspond to word-guide-source, and differ from the shorter numbered new-user-guide. Core properties record creation/modification on 2026-08-17. No deterministic export script/command or embedded provenance was found. This supports content correspondence with word-guide-source but does not prove which tool generated it.",
+    "code_refs": [],
+    "callers": [
+      {
+        "path": "docs/architecture/architecture-documents.toml",
+        "relationship": "registers new-user-guide.md in the architecture/link checker inventory",
+        "line_start": 29,
+        "line_end": 29
+      }
+    ],
+    "test_refs": [],
+    "read_depth": "完整读取两份 Markdown 用户指南；只读解析 DOCX OpenXML 段落和元数据，没有执行导出或渲染版面；查阅 B 的文档导航及维护规则。",
+    "validation_identity": {
+      "baseline_sha": "22bb499789cba89fea92e918fd853ab768688e07",
+      "checkout": "/Users/tywww/.codex/worktrees/docs-refresh-luna/ai-writing-assist",
+      "method": "static markdown read; read-only DOCX OpenXML extraction; no export or layout validation"
+    },
+    "unknowns": [
+      "没有确认 DOCX 的实际转换命令或作者工作流。",
+      "未比较 Word 页面版面、分页、字体和表格可读性。",
+      "word-guide-source 中仍有多少操作说明值得并入新用户指南需要主代理做 P2 裁定。"
+    ],
+    "proposed_action": "将 new-user-guide.md 作为唯一当前内容源。若当前没有要求交付 DOCX，则把现存 DOCX 与 word-guide-source.md 明确标为历史/旧版导出，解除双源歧义，无需为保留格式新生成文件；若产品仍将 DOCX 作为当前交付，则先把 word-guide-source 中仍有效且有读者价值的步骤合入唯一源稿，再按该源稿重新生成并渲染检查，随后退役旧 Word 源稿。当前证据只支持 DOCX 内容对应 word-guide-source，不支持声称其由 new-user-guide 生成。"
+  }
+]

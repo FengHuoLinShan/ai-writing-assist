@@ -1,6 +1,6 @@
 # 开放任务
 
-- [T-20261017-editorial-cross-chapter-evidence](tasks/2026/T-20261017-editorial-cross-chapter-evidence/TASK.md) — 编辑审读跨章证据、硬矛盾修正与第二轮盲评交接
+- [T-20261017-completed-branch-delivery](tasks/2026/T-20261017-completed-branch-delivery/TASK.md) — 全部分支与工作树完成度对账及已完成成果合入
 
 - [T-20261015-character-world-progression](tasks/2026/T-20261015-character-world-progression/TASK.md) — 世界对象档案、场景导演、写作副驾驶与世界推进设计
 
@@ -14,18 +14,14 @@
 
 - [T-20261010-evolution-209](tasks/2026/T-20261010-evolution-209/TASK.md) — Issue #209 世界演化账本缓存与发现容量专项优化
 
-- [T-20261010-pr206-integration](tasks/2026/T-20261010-pr206-integration/TASK.md) — 修复并合入世界演化 PR #206
 
 - [T-20261006-world-foundation-phase1-impl](tasks/2026/T-20261006-world-foundation-phase1-impl/TASK.md) — 远景第一阶段实施（M0–M7）：世界状态读取、隔离试改、RP 持久缓存与输入优化
 
 
 - [T-20261007-world-foundation-phase2](tasks/2026/T-20261007-world-foundation-phase2/TASK.md) — 世界演化第二阶段实施（P2-A/B/C）：可信历史与低成本改稿
 
-- [T-20261007-responsive-layout](tasks/2026/T-20261007-responsive-layout/TASK.md) — 全站屏幕自适应布局与回归测试深化
 
-- [T-20261006-event-soft-delete-merge](tasks/2026/T-20261006-event-soft-delete-merge/TASK.md) — 事件扩展软删修复并合入主干
 
-- [T-20261006-architecture-optimization](tasks/2026/T-20261006-architecture-optimization/TASK.md) — 架构优化与独立review整改、PR合并
 
 - [T-20261004-ring-worldbook-import](tasks/2026/T-20261004-ring-worldbook-import/TASK.md) — 本机理法之环 Wiki 导入与增量维护（M1–M4 实现与验证完成、契约 r7、权威文档已同步；PR #197 六项必需检查全绿待合并，含 P8 拆分与 perl-base 钉版整改；M5 本机资料验收待目标项目与范围指定）
 
@@ -44,7 +40,6 @@
 - [T-20260911-import-review-resolution](tasks/2026/T-20260911-import-review-resolution/TASK.md) — 深度导入智能整理与确认减负
 - [T-20260911-chrome-ux-audit](tasks/2026/T-20260911-chrome-ux-audit/TASK.md) — 诡秘之主测试项目 Chrome 持续体验走查
 - [T-20260911-promo-recording-readiness](tasks/2026/T-20260911-promo-recording-readiness/TASK.md) — 演示项目宣传视频剧本与产品录屏就绪计划
-- [T-20260911-full-codebase-optimization-implementation](tasks/2026/T-20260911-full-codebase-optimization-implementation/TASK.md) — 全代码库优化实施
 - [T-20260912-cognitive-seed-research](tasks/2026/T-20260912-cognitive-seed-research/TASK.md) — 逐章认知形成与可演化记忆结构研究
 - [T-20260917-review-remediation](tasks/2026/T-20260917-review-remediation/TASK.md) — 审计报告核查与全量修复（World 根因/LLM 边界/信封/配额）
 - [T-20260917-ai-generation-quality](tasks/2026/T-20260917-ai-generation-quality/TASK.md) — AI 生成可用性修复与真实质量验证
@@ -55,11 +50,9 @@
 - [T-20261002-storyforge-v6-review](tasks/2026/T-20261002-storyforge-v6-review/TASK.md) — StoryForge v6 实现核查与全部整改
 - [T-20261002-spreadsheet-migration](tasks/2026/T-20261002-spreadsheet-migration/TASK.md) — 表格（xlsx/csv）迁移作者在途项目资产
 - [T-20261002-world-relational-management](tasks/2026/T-20261002-world-relational-management/TASK.md) — 世界对象关系分组与关联管理（实现与评审整改完成，PR #190）
-- [T-20261004-pr-main-integration](tasks/2026/T-20261004-pr-main-integration/TASK.md) — 逐步审查合并全部 PR 并清理安全分支
 - [T-20261004-world-edit-history](tasks/2026/T-20261004-world-edit-history/TASK.md) — 世界编辑历史元数据（势力与世界版本路线图阶段 0，PR #195）
 
 - [T-20261013-capability-tail-fixes](tasks/2026/T-20261013-capability-tail-fixes/TASK.md) — 能力收尾PR #222的CI修复与合并
 
-- [T-20261014-evolution-model-pools](tasks/2026/T-20261014-evolution-model-pools/TASK.md) — 独立模型池、Luna范围授权与500k输入预算审查修复和合并
 
 - [T-20261015-audit-wave3](tasks/2026/T-20261015-audit-wave3/TASK.md) — 能力审计第三批执行

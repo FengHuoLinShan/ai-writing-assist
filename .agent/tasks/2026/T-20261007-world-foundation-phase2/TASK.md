@@ -5,9 +5,20 @@ id: T-20261007-world-foundation-phase2
 title: 世界演化第二阶段实施（P2-A/B/C）：可信历史与低成本改稿
 status: active
 created: 2026-10-07T00:00:00+08:00
-updated: 2026-10-08T19:06:21+09:00
+updated: 2026-10-12T23:43:51+08:00
 parent: T-20261006-world-foundation-phase1-impl
 ---
+
+## 当前恢复快照（2026-10-12 整理核实）
+
+- P2-A/B/C 工程及 2026-10-08 整改已通过 PR #206 合 main，合并提交 `aafcc86be8a70c0e0830cc80f6389e2587731d4a`；原“未提交/待取得 Git 交付指令”已过期。
+- 旧补丁不代表仍在开发，现有能力和 P4 补充以 main 与领域 README 为准；当前世界基础工作树没有未提交产品补丁。
+- 保留 active：父任务 R7/真实质量与作者验收仍未闭合；不以合入或离线验证替代这些验收，也不把 P4 的跳过作者验收扩展到父任务。
+- 下一步：按原验收范围及有效授权续接剩余质量验证，不再次提交已交付的整改，不自行启动 provider。
+
+- 唯一后续主笔记：主工作树本路径；最后核实 2026-10-12T23:43:51+08:00。以下原验证、授权与失败保留为历史，不代表当前 Git 交付状态。
+
+## 历史记录
 
 ## 修复恢复快照（2026-10-08）
 
@@ -29,8 +40,8 @@ parent: T-20261006-world-foundation-phase1-impl
 
 ## 目标与授权
 
-实施 [第二阶段主计划](../../../docs/plans/2026-10-07-world-foundation-phase2.md)，按
-[并行执行规划](../../../docs/plans/2026-10-07-world-foundation-phase2-parallel-execution.md)
+实施 [第二阶段主计划](../../../../docs/plans/2026-10-07-world-foundation-phase2.md)，按
+[并行执行规划](../../../../docs/plans/2026-10-07-world-foundation-phase2-parallel-execution.md)
 以子代理批次推进三顺序包：P2-A 历史字段与来源 → P2-B 知识值与揭示边界 → P2-C 实际依赖与局部重做。
 
 授权边界：全部批次离线执行，零 LLM 调用、零真实数据写入、不延伸 USD 20 授权；

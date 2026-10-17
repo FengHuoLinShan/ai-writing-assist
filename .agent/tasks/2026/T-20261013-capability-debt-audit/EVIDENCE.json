@@ -1,0 +1,630 @@
+{
+  "baseline": {
+    "created": "2026-10-13T17:57:27.716942+08:00",
+    "head": "4116b657d38f8b7b45c2e18e091274a9c5fbc773",
+    "branch": "codex/guided-flow-borrowing",
+    "origin_main": "974f0f5080d43472bc599d1d74782913c725057b"
+  },
+  "tracked_paths": 3994,
+  "coverage_levels": {
+    "inventory_only": 604,
+    "reference_inventory": 1708,
+    "static_inventory": 1591,
+    "targeted_read": 91
+  },
+  "historical_header_rows": 356,
+  "historical_unique_ids": 301,
+  "historical_status_counts": {
+    "changed_rechecked": 1,
+    "changed_retained_evidence": 1,
+    "current_compatibility": 1,
+    "current_conditional_candidate": 2,
+    "current_deferred_topology": 1,
+    "current_perf_unmeasured": 1,
+    "historical_not_revalidated": 329,
+    "resolved_rechecked": 19,
+    "retained_historical_evidence": 1
+  },
+  "css_duplicate_groups": 55,
+  "css_duplicate_line_upper_bound": 290,
+  "source_metrics": [
+    {
+      "area": ".agent/tasks",
+      "kind": "other",
+      "lines": 3328
+    },
+    {
+      "area": "backend/alembic",
+      "kind": "other",
+      "lines": 13169
+    },
+    {
+      "area": "backend/app",
+      "kind": "production",
+      "lines": 1841
+    },
+    {
+      "area": "backend/conftest.py",
+      "kind": "other",
+      "lines": 320
+    },
+    {
+      "area": "backend/core",
+      "kind": "production",
+      "lines": 1979
+    },
+    {
+      "area": "backend/evals",
+      "kind": "other",
+      "lines": 27715
+    },
+    {
+      "area": "backend/infrastructure",
+      "kind": "production",
+      "lines": 16850
+    },
+    {
+      "area": "backend/infrastructure",
+      "kind": "other",
+      "lines": 15265
+    },
+    {
+      "area": "backend/modules/account",
+      "kind": "production",
+      "lines": 4093
+    },
+    {
+      "area": "backend/modules/account",
+      "kind": "other",
+      "lines": 1500
+    },
+    {
+      "area": "backend/modules/assistant",
+      "kind": "production",
+      "lines": 17826
+    },
+    {
+      "area": "backend/modules/assistant",
+      "kind": "other",
+      "lines": 7849
+    },
+    {
+      "area": "backend/modules/collaboration",
+      "kind": "production",
+      "lines": 5631
+    },
+    {
+      "area": "backend/modules/collaboration",
+      "kind": "other",
+      "lines": 2100
+    },
+    {
+      "area": "backend/modules/evidence",
+      "kind": "production",
+      "lines": 37117
+    },
+    {
+      "area": "backend/modules/evidence",
+      "kind": "other",
+      "lines": 25992
+    },
+    {
+      "area": "backend/modules/evolution",
+      "kind": "production",
+      "lines": 17267
+    },
+    {
+      "area": "backend/modules/evolution",
+      "kind": "other",
+      "lines": 17902
+    },
+    {
+      "area": "backend/modules/imports",
+      "kind": "production",
+      "lines": 41717
+    },
+    {
+      "area": "backend/modules/imports",
+      "kind": "other",
+      "lines": 28642
+    },
+    {
+      "area": "backend/modules/interaction",
+      "kind": "production",
+      "lines": 14252
+    },
+    {
+      "area": "backend/modules/interaction",
+      "kind": "other",
+      "lines": 11058
+    },
+    {
+      "area": "backend/modules/local_agent",
+      "kind": "production",
+      "lines": 2267
+    },
+    {
+      "area": "backend/modules/local_agent",
+      "kind": "other",
+      "lines": 1259
+    },
+    {
+      "area": "backend/modules/project",
+      "kind": "production",
+      "lines": 8727
+    },
+    {
+      "area": "backend/modules/project",
+      "kind": "other",
+      "lines": 6100
+    },
+    {
+      "area": "backend/modules/story",
+      "kind": "production",
+      "lines": 44879
+    },
+    {
+      "area": "backend/modules/story",
+      "kind": "other",
+      "lines": 33304
+    },
+    {
+      "area": "backend/modules/world",
+      "kind": "production",
+      "lines": 81781
+    },
+    {
+      "area": "backend/modules/world",
+      "kind": "other",
+      "lines": 55585
+    },
+    {
+      "area": "backend/modules/writing",
+      "kind": "production",
+      "lines": 16961
+    },
+    {
+      "area": "backend/modules/writing",
+      "kind": "other",
+      "lines": 15471
+    },
+    {
+      "area": "backend/run_worker.py",
+      "kind": "other",
+      "lines": 224
+    },
+    {
+      "area": "backend/scripts",
+      "kind": "other",
+      "lines": 2225
+    },
+    {
+      "area": "backend/shared",
+      "kind": "production",
+      "lines": 693
+    },
+    {
+      "area": "backend/tests",
+      "kind": "other",
+      "lines": 61500
+    },
+    {
+      "area": "backend/tools",
+      "kind": "other",
+      "lines": 4428
+    },
+    {
+      "area": "deploy/scripts",
+      "kind": "other",
+      "lines": 2708
+    },
+    {
+      "area": "deploy/tests",
+      "kind": "other",
+      "lines": 6211
+    },
+    {
+      "area": "docs/plans",
+      "kind": "other",
+      "lines": 766
+    },
+    {
+      "area": "frontend-console/api.js",
+      "kind": "production",
+      "lines": 71
+    },
+    {
+      "area": "frontend-console/api",
+      "kind": "production",
+      "lines": 3463
+    },
+    {
+      "area": "frontend-console/apiContracts.js",
+      "kind": "production",
+      "lines": 788
+    },
+    {
+      "area": "frontend-console/app.js",
+      "kind": "production",
+      "lines": 372
+    },
+    {
+      "area": "frontend-console/commands.js",
+      "kind": "production",
+      "lines": 155
+    },
+    {
+      "area": "frontend-console/e2e",
+      "kind": "other",
+      "lines": 19655
+    },
+    {
+      "area": "frontend-console/editorial-theme.css",
+      "kind": "production",
+      "lines": 1297
+    },
+    {
+      "area": "frontend-console/errorLogger.js",
+      "kind": "production",
+      "lines": 454
+    },
+    {
+      "area": "frontend-console/eslint.config.js",
+      "kind": "production",
+      "lines": 148
+    },
+    {
+      "area": "frontend-console/playwright.assistant.config.js",
+      "kind": "production",
+      "lines": 7
+    },
+    {
+      "area": "frontend-console/playwright.base.config.js",
+      "kind": "production",
+      "lines": 65
+    },
+    {
+      "area": "frontend-console/playwright.config.js",
+      "kind": "production",
+      "lines": 1
+    },
+    {
+      "area": "frontend-console/playwright.creative.config.js",
+      "kind": "production",
+      "lines": 13
+    },
+    {
+      "area": "frontend-console/playwright.editorial.config.js",
+      "kind": "production",
+      "lines": 12
+    },
+    {
+      "area": "frontend-console/playwright.functional.config.js",
+      "kind": "production",
+      "lines": 16
+    },
+    {
+      "area": "frontend-console/playwright.real-llm.config.js",
+      "kind": "production",
+      "lines": 13
+    },
+    {
+      "area": "frontend-console/playwright.webkit.config.js",
+      "kind": "production",
+      "lines": 12
+    },
+    {
+      "area": "frontend-console/playwright.worker.config.js",
+      "kind": "production",
+      "lines": 25
+    },
+    {
+      "area": "frontend-console/prototypes",
+      "kind": "other",
+      "lines": 2452
+    },
+    {
+      "area": "frontend-console/router.js",
+      "kind": "production",
+      "lines": 1336
+    },
+    {
+      "area": "frontend-console/shared",
+      "kind": "production",
+      "lines": 4884
+    },
+    {
+      "area": "frontend-console/state.js",
+      "kind": "production",
+      "lines": 158
+    },
+    {
+      "area": "frontend-console/stateSlices.js",
+      "kind": "production",
+      "lines": 67
+    },
+    {
+      "area": "frontend-console/styles.css",
+      "kind": "production",
+      "lines": 17191
+    },
+    {
+      "area": "frontend-console/tests",
+      "kind": "other",
+      "lines": 63983
+    },
+    {
+      "area": "frontend-console/theme-preload.js",
+      "kind": "production",
+      "lines": 15
+    },
+    {
+      "area": "frontend-console/ui",
+      "kind": "production",
+      "lines": 560
+    },
+    {
+      "area": "frontend-console/vite.config.js",
+      "kind": "production",
+      "lines": 131
+    },
+    {
+      "area": "frontend-console/vitest.config.js",
+      "kind": "production",
+      "lines": 11
+    },
+    {
+      "area": "frontend-console/vue",
+      "kind": "production",
+      "lines": 78877
+    },
+    {
+      "area": "scripts/aggregate_browser_gate.py",
+      "kind": "other",
+      "lines": 80
+    },
+    {
+      "area": "scripts/check_architecture_docs.py",
+      "kind": "other",
+      "lines": 697
+    },
+    {
+      "area": "scripts/check_binary_growth.py",
+      "kind": "other",
+      "lines": 219
+    },
+    {
+      "area": "scripts/check_file_sizes.py",
+      "kind": "other",
+      "lines": 170
+    },
+    {
+      "area": "scripts/check_module_imports.py",
+      "kind": "other",
+      "lines": 702
+    },
+    {
+      "area": "scripts/check_release_evidence.py",
+      "kind": "other",
+      "lines": 263
+    },
+    {
+      "area": "scripts/classify_ci_changes.py",
+      "kind": "other",
+      "lines": 92
+    },
+    {
+      "area": "scripts/dev_stack.py",
+      "kind": "other",
+      "lines": 624
+    },
+    {
+      "area": "tools/deepseek_scene_probe",
+      "kind": "other",
+      "lines": 5554
+    }
+  ],
+  "largest_source_files": [
+    [
+      17191,
+      "frontend-console/styles.css"
+    ],
+    [
+      4554,
+      "backend/modules/writing/services.py"
+    ],
+    [
+      3287,
+      "backend/modules/interaction/services.py"
+    ],
+    [
+      3081,
+      "backend/modules/story/outline_state/scene_workbench.py"
+    ],
+    [
+      2922,
+      "frontend-console/vue/views/world/bible/useWorldBible.js"
+    ],
+    [
+      2890,
+      "frontend-console/vue/views/interaction/InteractionView.vue"
+    ],
+    [
+      2736,
+      "backend/modules/evidence/compilation/services/context_compiler.py"
+    ],
+    [
+      2698,
+      "backend/modules/world/repositories.py"
+    ],
+    [
+      2640,
+      "backend/modules/world/map_atlas_workflow.py"
+    ],
+    [
+      2614,
+      "frontend-console/vue/views/writing/writing-desk.css"
+    ],
+    [
+      2505,
+      "backend/modules/imports/scene_slicing.py"
+    ],
+    [
+      2483,
+      "backend/modules/world/services/worldbuilding/world_validation_service.py"
+    ],
+    [
+      2360,
+      "backend/modules/world/entity_fusion.py"
+    ],
+    [
+      2293,
+      "backend/modules/imports/orchestrator.py"
+    ],
+    [
+      2201,
+      "backend/modules/evidence/compilation/novel_evidence.py"
+    ],
+    [
+      2199,
+      "backend/modules/assistant/guided_flow/flows.py"
+    ],
+    [
+      2130,
+      "backend/modules/interaction/generation.py"
+    ],
+    [
+      2112,
+      "backend/modules/story/outline_state/repositories.py"
+    ],
+    [
+      2063,
+      "backend/modules/world/services/worldbuilding/world_bible_lifecycle_service.py"
+    ],
+    [
+      2008,
+      "frontend-console/vue/views/world/bible/WorldBibleTab.vue"
+    ],
+    [
+      1990,
+      "backend/modules/writing/semantic_review.py"
+    ],
+    [
+      1975,
+      "backend/modules/world/services/worldbuilding/world_library_service.py"
+    ],
+    [
+      1960,
+      "backend/modules/world/map_atlas_service.py"
+    ],
+    [
+      1899,
+      "backend/modules/world/services/core/entity_relation_service.py"
+    ],
+    [
+      1861,
+      "backend/modules/world/services/worldbuilding/adoption_package_service.py"
+    ],
+    [
+      1854,
+      "frontend-console/vue/views/writing/useWritingWorkspace.js"
+    ],
+    [
+      1840,
+      "backend/modules/imports/entity_extraction/scene_entity_extraction.py"
+    ],
+    [
+      1766,
+      "backend/modules/story/outline_state/p20_service.py"
+    ],
+    [
+      1743,
+      "backend/modules/evidence/indexing/repositories.py"
+    ],
+    [
+      1736,
+      "backend/modules/evolution/discovery.py"
+    ],
+    [
+      1726,
+      "backend/infrastructure/tasks/lifecycle.py"
+    ],
+    [
+      1713,
+      "backend/modules/imports/review_resolution.py"
+    ],
+    [
+      1690,
+      "backend/modules/evidence/compilation/services/focused_evidence.py"
+    ],
+    [
+      1661,
+      "backend/modules/writing/repositories.py"
+    ],
+    [
+      1628,
+      "backend/infrastructure/llm/client.py"
+    ]
+  ],
+  "checks": {
+    "test_ci": {
+      "deploy_passed": 272,
+      "backend_passed": 7736,
+      "backend_skipped": 2,
+      "backend_warnings": 13,
+      "coverage_percent": 86.76,
+      "frontend_files_passed": 237,
+      "frontend_tests_passed": 2968,
+      "ruff": "passed",
+      "repository_secret_hygiene": "passed",
+      "backend_audit_packages": 146,
+      "backend_audit_vulnerabilities": 0,
+      "frontend_audit_vulnerabilities": 0
+    },
+    "postgresql_critical": {
+      "passed": 95,
+      "seconds": 92.89,
+      "alembic_head": "20261010_evolution_source_epoch"
+    },
+    "nightly_reproduction": {
+      "failed": 2,
+      "passed": 21,
+      "seconds": 13.95
+    },
+    "technical_coverage": {
+      "passed": 14,
+      "seconds": 2.26,
+      "real_model_io": false
+    },
+    "frontend_build": {
+      "lint": "passed",
+      "production_resource_verification": "passed",
+      "modules_transformed": 444,
+      "javascript_bundles": 59,
+      "published_assets": 96
+    },
+    "docs_final": "passed BASE_REF=origin/main",
+    "diff_check": "passed"
+  },
+  "private_evidence_directory": "/tmp/novelcraft-capability-audit-20261013",
+  "limitations": [
+    "No real models, production, full browser matrix, load p95/p99, or author acceptance",
+    "Historical rows without current evidence remain unvalidated",
+    "Only branch/main code baseline; other worktrees only WIP inventory"
+  ],
+  "checked_at": "2026-10-13T18:47:43+08:00",
+  "old_simplification_reference_ids": 67,
+  "workspace_protection": {
+    "initial_tracked_paths": 3994,
+    "unexpected_modified_paths": 0,
+    "other_task_wip_preserved": true,
+    "own_index_entry_removed": true,
+    "root_python": "3.14.7",
+    "temporary_services_stopped": [
+      18472,
+      18474,
+      18475
+    ],
+    "temporary_data_retained": true
+  }
+}

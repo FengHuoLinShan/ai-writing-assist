@@ -1,6 +1,6 @@
 # AGENTS.md
 
-本文件是仓库编码 Agent 的共享规则；局部 `AGENTS.md` 仅补充，`CLAUDE.md` 仅导入。遵守宿主指令层级、权限与沙箱。
+仓库编码 Agent 共享规则；遵守宿主指令层级、权限与沙箱。
 仓库决策顺序：用户指令 → 本文件 → 已采纳 ADR → 模块稳定接口 → Spec → 工程判断。实现事实以当前代码、ORM、migration 和测试为准；安全、`novel_id` 隔离、真实数据保护及危险操作确认不得绕过。
 
 ## 自主决策
@@ -14,7 +14,6 @@
 ## 调查与记录
 
 - 编辑前核对工作目录、最近的适用 `AGENTS.md`、已有改动和目标模块 README；先追踪真实入口、共享实现、调用方、稳定接口、ORM 和测试。跨模块再查 DI，架构、数据库或安全任务补读 `CONTEXT.md`、ADR、设计文档和 migration。
-- 仅当任务跨模块、长周期或高不确定性且上下文丢失会影响继续执行时，复用 `.agent/TASKS.md` 和匹配的 `.agent/tasks/` 记录，并按 `.agent/PLANS.md` 更新；简单问答和小修不建记录。记录目标、关键决定与证据、进展、验证、阻塞和一个可执行下一步，不复制对话，也不构成新增授权。
 - 命令/测试门禁见 `development-guide.md`、`testing-guide.md`；Issue、triage 及领域文档消费规则见 `docs/agents/`。
 
 ## 执行与验证
@@ -28,22 +27,21 @@
 
 ## 持久任务记忆
 
-- 上下文丢失可能影响复杂任务的正确性或连续性时，按 [任务协议](.agent/PLANS.md) 工作；
-  先查 [开放任务索引](.agent/TASKS.md) 和任务目录，恢复匹配任务，避免重复创建。
-- 一个可验收结果保留一份主任务笔记；重要变化及交接、暂停、结束前更新恢复快照。
-  只在需要时读取协议和对应任务，不把它们全量导入启动上下文。
-- 笔记记录任务意图与执行状态，不构成新增授权或永久架构事实。恢复前核对当前指令、工作树
-  和证据；业务事实仍以代码、测试、稳定接口、正式文档与实时系统为准。
+- 仅当任务跨模块、长周期或高不确定性且上下文丢失会影响继续执行时，按 [任务协议](.agent/PLANS.md)
+  工作；先查 [开放任务索引](.agent/TASKS.md) 和任务目录，恢复匹配任务，避免重复创建。简单问答和小修不建记录。
+- 一个可验收结果保留一份主任务笔记，记录目标、关键决定与证据、进展、验证、阻塞和一个可执行下一步；
+  重要变化及交接、暂停、结束前更新恢复快照。只在需要时读取协议和对应任务，不复制对话。
+- 笔记不构成新增授权或永久架构事实。恢复前核对当前指令、工作树和证据；业务事实仍以代码、测试、
+  稳定接口、正式文档与实时系统为准。
 
 ## 运行时 LLM
 
-- AI 小说程序在开发阶段的大量业务 LLM 调用统一使用 Codex `gpt-6-luna/max`，覆盖深度导入、世界演化、生成/抽取/补全及批量业务复核与实测；调用前经 owner 已验证的 Codex 连接和 Project facade/snapshot 核验。配置不符时停止对应业务调用，不自动回退 DeepSeek 或其他付费 API，供应商专项调用须用户另行明确授权。代码开发、代码审查和已获授权的工程子代理继续使用 Sol 或其他高级模型，不受业务 Luna 约定限制。启动、续跑和后台任务核验见 [开发阶段模型约定](development-guide.md#开发阶段模型约定)；本规则不新增子代理、周期任务、数据外发或生产发布授权，不改变真实账户连接和冻结任务。
+- AI 小说程序开发阶段的业务 LLM 调用（深度导入、世界演化、生成/抽取/补全、批量复核与实测）统一用 Codex `gpt-6-luna/max`，调用前经 owner 已验证的 Codex 连接和 Project facade/snapshot 核验；配置不符即停止，不自动回退 DeepSeek 或其他付费 API，供应商专项须用户另行明确授权。代码开发、审查和已获授权的工程子代理仍用 Sol 或其他高级模型。启动、续跑和后台任务核验见 [开发阶段模型约定](development-guide.md#开发阶段模型约定)；本规则不新增子代理、周期任务、数据外发或生产发布授权。
 - 普通 LLM step 用确定性工作流；ADR-0023 授权项目助手/RP 的有界单 Agent，ADR-0027 授权已注册业务蓝图的有限协作：单宿主、最多三名并发成员、独立资料与历史、共享根预算和租约。仅在服务端注册、授权及可见范围内选择查证/提案工具；不开放任意自治团队或成员互发自由文本。各路径须有 schema、预算、超时、日志和权限；业务写入须领域确认、来源重验和事务，禁任意工具、跨项目访问及绕过确认。
 - 新增带 `novel_id` 的业务 LLM 服务仅经 `modules.project.facade.open_project_llm_client()` 获取配置；provider/model/Key 来自项目 owner 当前已验证的账户连接，项目仅提供非 secret 工作流设置。可恢复任务用 secret-free project snapshot seam 固定 provider，读取当前轮换后的账户 Key。业务模块禁绕过上述入口创建 LLM 客户端或自行拼装 provider/profile；独立 embedding 仅保留静态门禁已有窄例外，新增例外须说明配置边界和迁移决定。
 - Prompt 清单/契约见 `docs/prompts/Prompt体系设计.md`，此处不复制。
 - 普通输出仅作待处理建议/临时预览；持久化用户授权的自动流水线才可写允许的派生/已采用资产，须留存授权范围、来源、workflow、可编辑/可回滚标记并配套测试。冲突、低置信或无法消歧仍待处理。
-- 已确认 Context 须经 Evidence facade 重新物化同一 confirmation，保留 selected/excluded 资产、可见性和指纹语义。领域 overlay 可追加本域执行资料，不带回排除资产或 Scene-local 截止后事实；确需后序 Scene 的边界/融合任务须隔离，证据不得回流当前 Scene 的生成、抽取或角色知识判断。
-- AI candidate 独立审查/定向返修须绑定并重验原生成 confirmation、Context/hidden guard 指纹和正文来源，缺失/stale 则失败关闭。无 confirmation 的人工正文默认 prose-only；本次或持续授权的世界约束审查可追加 Evidence 回读设定，保存来源指纹、排除项及实际覆盖，不得宣称检查了角色知识边界或替代 AI candidate 原 confirmation。
+- 已确认 Context 须经 Evidence facade 重新物化同一 confirmation；领域 overlay 不得带回排除资产或 Scene-local 截止后事实，后序 Scene 证据不得回流当前 Scene 的生成、抽取或角色知识判断。AI candidate 的审查/返修须绑定并重验原 confirmation、Context/hidden guard 指纹和正文来源，缺失或 stale 则失败关闭；无 confirmation 的人工正文默认 prose-only，世界约束审查不得宣称检查了角色知识边界。细则见 [Evidence README](backend/modules/evidence/README.md)。
 
 ## 项目边界
 
@@ -68,9 +66,9 @@
 
 - 业务读写隔离 `novel_id`；API、LLM 输出和入库须经 Pydantic/调用方 schema 校验。唯一跨项目例外为 ADR-0018：同 owner、显式版本化的 author source revision → interaction consumer 只读引用；来源查询用 source `novel_id`，RP 写入用 consumer `novel_id`。
 - 公开浏览器路径同时校验当前 account principal 与项目 `owner_id`；不接受调用方指定 owner，不用 worker/system 绕过 owner 校验，且仍过滤 `novel_id`。
-- 表格迁移只走 `/api/imports/migrations`（ADR-0030），仅收 `.xlsx/.csv`，不扩文稿白名单、不执行公式/宏；作者确认预览后经 world/story 窄 facade 落为已采用资产并带 `spreadsheet_migration` 来源与可撤销回执，同名只补空字段，冲突不落地；AI 整理仅预览。
-- 已采用对象默认保留历史、不硬删，项目永久删除除外。文稿仅接受 `.txt .epub .html .htm .mobi .azw3`，≤50MB；锁定运行时仅验证前四种，补齐 MOBI/AZW3 依赖及真实文件验收前不得宣称支持后两种。
-- 世界对象图片仅经 owner + `novel_id` 门禁的专用接口上传真实 PNG/JPEG，<6MiB、最大 4096×4096；服务端去元数据并转 WebP，不扩展为通用上传。
+- 表格迁移只走 `/api/imports/migrations`，仅收 `.xlsx/.csv`，不执行公式/宏，确认预览后才落为已采用资产（[ADR-0030](docs/adr/0030-spreadsheet-migration.md)）。
+- 已采用对象默认保留历史、不硬删，项目永久删除除外。文稿格式白名单与 MOBI/AZW3 支持边界见 [imports README](backend/modules/imports/README.md)，补齐依赖及真实文件验收前不得宣称支持。
+- 世界对象图片仅经 owner + `novel_id` 门禁的专用接口上传，限制见 [world README](backend/modules/world/README.md)，不扩展为通用上传。
 - 实体抽取仅留长期创作资产；别名附着已有对象，不重复建实体。
 - demo 可重建本任务专用且已确认数据可丢弃的开发库，无需保留 schema 迁移数据兼容；仍同步 ORM、schema、调用方、测试和文档。共享库、真实数据或归属不明不适用，安全边界不变。
 
@@ -85,7 +83,7 @@
 - 本节委派仅指开发工具子代理。仅当用户或适用上层指令明确要求且宿主支持时，才委派可独立执行的调查、实现、测试或审查；主 Agent 明确目标、读写范围、依赖及验收证据并审查集成。小修直接完成。
 - 并行写入默认独立 worktree/分支，按文件、接口或隔离变更分工；同模块独立文件可并行，共享接口、migration、生成文件各设单一写入者，只读无需 worktree。不覆盖他人未提交工作；协作时查本地改动及相关远端分支/Issue，网络受限不阻断独立工作。
 - 不直接提交 `main`；可续用任务主题分支，新任务从尽可能新的 `origin/main` 建 `codex/<slug>`，远端不可用时可用已核实本地基线并记录限制。合入 `main` 前更新基线，完成受影响测试、lint、文档同步和评审，取得合并授权；`main` 为唯一发布主干，不设与部署漂移的长期生产分支。
-- 生产须明确授权，仅用 `deploy/scripts/release.sh <full-40-character-sha>` 发布 `origin/main` 可达固定 commit；服务器 checkout 保持 detached，以 `deploy/.state/current-commit` 为准。禁用主题分支、脏工作树、未推送 commit 或分支名部署。
+- 生产须明确授权，仅用 `deploy/scripts/release.sh <full-40-character-sha>` 发布 `origin/main` 可达的固定 commit，禁用主题分支、脏工作树、未推送 commit 或分支名部署；细节见 [deploy/README.md](deploy/README.md)。
 - Issue/PR 用 `gh`，标签见 `docs/agents/triage-labels.md`；关联任务记录，交接不写代码注释。本地实现无需先建 Issue/PR。
 - Spec 不足/文档冲突先查代码、测试、历史和上下文；能依证据裁定且在授权内则修正继续，不把既有实现或 bug 当正确契约。仅无法裁定且实质影响目标、契约或风险时标记 `needs-triage`，暂停受影响部分。
 
@@ -95,4 +93,4 @@
 - 有可验证的新假设或替代路径且成本合理时继续；同一外部依赖连续 3 次不可用，或同一测试修复 3 次仍无新证据时暂停对应部分。必需授权缺失、关键歧义无法查证或无有效验证路径时也仅暂停受阻部分，交付其余成果。
 - 发现真实数据丢失风险、跨 `novel_id` 泄漏、安全绕过或未确认的破坏性 Git 操作，立即停止相关危险操作并报告；可继续只读诊断和隔离修复，不扩大影响。
 
-本文件仅留权限、边界及导航，其余另存相关文档。过时流程凭证据修订，不得改规则、ADR 或测试追认越权。
+过时流程凭证据修订，不得改规则、ADR 或测试追认越权。

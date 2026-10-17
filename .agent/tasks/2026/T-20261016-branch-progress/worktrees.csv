@@ -1,0 +1,223 @@
+worktree,branch,head_sha,ahead_of_origin_main,behind_origin_main,changed_paths_at_snapshot,status_at_snapshot
+/Users/tywww/项目/ai-writing-assist,codex/guided-flow-borrowing,92ee66957114544889eca47956f9e9d22d2cf5b6,7,48,5,"?? .agent/tasks/2026/T-20261016-literary-craft-research/RESEARCH.md
+?? .agent/tasks/2026/T-20261016-literary-craft-research/TASK.md
+?? .agent/tasks/2026/T-20261016-literary-writing-errors/RESEARCH.md
+?? .agent/tasks/2026/T-20261016-literary-writing-errors/TASK.md
+?? out/map-enhancement-review-20261016.md"
+/Users/tywww/.codex/worktrees/architecture-review/ai-writing-assist,detached,974f0f5080d43472bc599d1d74782913c725057b,0,48,0,
+/Users/tywww/.codex/worktrees/codex-luna-model-rules/ai-writing-assist,codex/luna-business-model-rules,deaa45ee7369123eb6b3e1bce04a7d65d80c09be,1,47,0,
+/Users/tywww/.codex/worktrees/docs-refresh-luna/ai-writing-assist,codex/docs-refresh-luna,22bb499789cba89fea92e918fd853ab768688e07,0,47,67,"M CONTEXT.md
+ M README.md
+ M backend/modules/account/README.md
+ M backend/modules/imports/README.md
+ M backend/modules/local_agent/README.md
+ M development-guide.md
+ M ""docs/00_\346\225\264\344\275\223\350\256\276\350\256\241.md""
+ M ""docs/01_\346\225\260\346\215\256\345\272\223\350\256\276\350\256\241.md""
+ M docs/README.md
+ M docs/adr/README.md
+ M docs/architecture/README.md
+ M docs/architecture/architecture-documents.toml
+ M docs/architecture/documentation-maintenance.md
+ M docs/architecture/module-architecture.drawio
+ M docs/architecture/module-architecture.html
+ M docs/modules/01_project.md
+ M docs/modules/02_world.md
+ M docs/modules/07_outline.md
+ M docs/modules/08_evidence.md
+ M docs/modules/11_writing.md
+ M docs/modules/15_map.md
+ M docs/modules/17_account.md
+ M docs/modules/18_interaction.md
+ M docs/modules/22_evolution.md
+ M docs/modules/23_local_agent.md
+ M docs/product/new-user-guide.md
+ M docs/product/word-guide-source.md
+ M ""docs/\346\240\270\345\277\203\344\270\232\345\212\241\345\234\272\346\231\257\344\270\216\351\242\204\346\234\237\350\241\214\344\270\272.md""
+ M testing-guide.md
+?? .agent/tasks/2026/T-20261014-codebase-docs-plan/RESULT.md
+?? .agent/tasks/2026/T-20261014-codebase-docs-plan/VISUAL-ACCEPTANCE.md
+?? .agent/tasks/2026/T-20261014-codebase-docs-plan/build-inventory.py
+?? .agent/tasks/2026/T-20261014-codebase-docs-plan/build-ledgers.py
+?? .agent/tasks/2026/T-20261014-codebase-docs-plan/claims.csv
+?? .agent/tasks/2026/T-20261014-codebase-docs-plan/doc-disposition.csv
+?? .agent/tasks/2026/T-20261014-codebase-docs-plan/doc-inventory.csv
+?? .agent/tasks/2026/T-20261014-codebase-docs-plan/document-snapshot.json
+?? .agent/tasks/2026/T-20261014-codebase-docs-plan/inventory-summary.json
+?? .agent/tasks/2026/T-20261014-codebase-docs-plan/ledger-summary.json
+?? .agent/tasks/2026/T-20261014-codebase-docs-plan/prepare-visual-qa.py
+?? .agent/tasks/2026/T-20261014-codebase-docs-plan/research/L1-claims.json
+?? .agent/tasks/2026/T-20261014-codebase-docs-plan/research/L1.md
+?? .agent/tasks/2026/T-20261014-codebase-docs-plan/research/L2-claims.json
+?? .agent/tasks/2026/T-20261014-codebase-docs-plan/research/L2.md
+?? .agent/tasks/2026/T-20261014-codebase-docs-plan/research/L3-claims.json
+?? .agent/tasks/2026/T-20261014-codebase-docs-plan/research/L3.md
+?? .agent/tasks/2026/T-20261014-codebase-docs-plan/research/L4-claims.json
+?? .agent/tasks/2026/T-20261014-codebase-docs-plan/research/L4.md
+?? .agent/tasks/2026/T-20261014-codebase-docs-plan/research/L5-claims.json
+?? .agent/tasks/2026/T-20261014-codebase-docs-plan/research/L5.md
+?? .agent/tasks/2026/T-20261014-codebase-docs-plan/research/L6-claims.json
+?? .agent/tasks/2026/T-20261014-codebase-docs-plan/research/L6.md
+?? .agent/tasks/2026/T-20261014-codebase-docs-plan/research/L7-claims.json
+?? .agent/tasks/2026/T-20261014-codebase-docs-plan/research/L7.md
+?? .agent/tasks/2026/T-20261014-codebase-docs-plan/research/MAIN.md
+?? .agent/tasks/2026/T-20261014-codebase-docs-plan/research/R1-REVIEW.md
+?? .agent/tasks/2026/T-20261014-codebase-docs-plan/research/R2-REVIEW.md
+?? .agent/tasks/2026/T-20261014-codebase-docs-plan/research/SOL-CONTRACT-REVIEW.md
+?? .agent/tasks/2026/T-20261014-codebase-docs-plan/research/SOL-VISUAL-REVIEW.md
+?? .agent/tasks/2026/T-20261014-codebase-docs-plan/source-coverage.csv
+?? .agent/tasks/2026/T-20261014-codebase-docs-plan/verification-final.json
+?? .agent/tasks/2026/T-20261014-codebase-docs-plan/verify-diagram-pairs.py
+?? .agent/tasks/2026/T-20261014-codebase-docs-plan/visual-verification.json
+?? docs/architecture/codebase-reading-guide.md
+?? docs/architecture/runtime-boundaries.drawio
+?? docs/architecture/runtime-boundaries.html
+?? docs/plans/2026-10-14-codebase-documentation-refresh.md"
+/Users/tywww/.codex/worktrees/event-soft-delete-merge/ai-writing-assist,detached,974f0f5080d43472bc599d1d74782913c725057b,0,48,0,
+/Users/tywww/.codex/worktrees/evolution-model-pools/ai-writing-assist,detached,fd9e7279047ae6681893749e1d454e994dbea2b7,0,28,4,"M .agent/TASKS.md
+ M .agent/tasks/2026/T-20261014-evolution-model-pools/REPORT.md
+ M .agent/tasks/2026/T-20261014-evolution-model-pools/REVIEW.md
+ M .agent/tasks/2026/T-20261014-evolution-model-pools/TASK.md"
+/Users/tywww/.codex/worktrees/g6b-recalibration/ai-writing-assist,codex/g6b-recalibration,d2ab2dbf3c78785a24d3f419002fbb13b36bc99c,0,9,28,"M backend/evals/codex_executor.py
+ M backend/modules/world/services/worldbuilding/ask_world_service.py
+ M ""docs/prompts/Prompt\344\275\223\347\263\273\350\256\276\350\256\241.md""
+ M testing-guide.md
+?? .agent/tasks/2026/T-20261015-g6b-recalibration/ACCEPTANCE.md
+?? .agent/tasks/2026/T-20261015-g6b-recalibration/REFUSAL-COMPARISON.md
+?? .agent/tasks/2026/T-20261015-g6b-recalibration/RESUME.md
+?? .agent/tasks/2026/T-20261015-g6b-recalibration/TASK.md
+?? .agent/tasks/2026/T-20261015-g6b-recalibration/artifacts/live-ledger.json
+?? .agent/tasks/2026/T-20261015-g6b-recalibration/artifacts/offline-manifest.json
+?? .agent/tasks/2026/T-20261015-g6b-recalibration/artifacts/preflight-ledger.json
+?? .agent/tasks/2026/T-20261015-g6b-recalibration/artifacts/refusal-comparison-v1.json
+?? .agent/tasks/2026/T-20261015-g6b-recalibration/artifacts/refusal-freeze-v1.json
+?? .agent/tasks/2026/T-20261015-g6b-recalibration/artifacts/refusal-validation-v1.json
+?? .agent/tasks/2026/T-20261015-g6b-recalibration/compare-refusal.py
+?? .agent/tasks/2026/T-20261015-g6b-recalibration/native-capture.py
+?? .agent/tasks/2026/T-20261015-g6b-recalibration/run-calibration.py
+?? .agent/tasks/2026/T-20261015-g6b-recalibration/setup-isolated.py
+?? .agent/tasks/2026/T-20261015-g6c-holdout/ACCEPTANCE.md
+?? .agent/tasks/2026/T-20261015-g6c-holdout/RESUME.md
+?? .agent/tasks/2026/T-20261015-g6c-holdout/TASK.md
+?? .agent/tasks/2026/T-20261015-g6c-holdout/artifacts/FREEZE_CONFIG.json
+?? .agent/tasks/2026/T-20261015-g6c-holdout/artifacts/final-validation-v1.json
+?? .agent/tasks/2026/T-20261015-g6c-holdout/artifacts/holdout-audit-v1.json
+?? .agent/tasks/2026/T-20261015-g6c-holdout/artifacts/holdout-ledger-v1.json
+?? .agent/tasks/2026/T-20261015-g6c-holdout/report-g6c.py
+?? .agent/tasks/2026/T-20261015-g6c-holdout/run-g6c.py
+?? backend/evals/tests/test_g6b_calibration.py"
+/Users/tywww/.codex/worktrees/guided-flow-integration/ai-writing-assist,codex/guided-flow-integration,974f0f5080d43472bc599d1d74782913c725057b,0,48,0,
+/Users/tywww/.codex/worktrees/thin-snap/ai-writing-assist,detached,974f0f5080d43472bc599d1d74782913c725057b,0,48,0,
+/Users/tywww/.codex/worktrees/world-evolution-phase4-consolidation/ai-writing-assist,codex/architecture-diagrams-refresh,9dd03eb7725f9521e4d1b4855b9beea94bce2404,0,49,0,
+/Users/tywww/.codex/worktrees/world-evolution-phase4/ai-writing-assist,codex/world-evolution-phase4-plan,974f0f5080d43472bc599d1d74782913c725057b,0,48,0,
+/Users/tywww/.codex/worktrees/world-foundation-plan/ai-writing-assist,codex/world-foundation-phase1-plan,2a9d05f6fbae584de52b9374054cbf998ecf9c1e,0,151,0,
+/Users/tywww/项目/ai-writing-assist/.worktrees/audit-followup,codex/audit-followup-plan,ab22fce43797fa8d1b5b8b2663c0defa055aa053,6,47,0,
+/Users/tywww/项目/ai-writing-assist/.worktrees/author-operations-review,codex/author-operations-review,64a99091272e133d4df4ec3a5e2e50c4ad82d104,231,0,0,
+/Users/tywww/项目/ai-writing-assist/.worktrees/editorial-diagnosis-v1,codex/editorial-diagnosis-v1,2e3b4eb69f0bbea5a8f73c8c50b8572e464de073,6,0,1,?? .agent/tasks/2026/T-20261016-editorial-diagnosis-v1/TEST-COVERAGE.md
+/Users/tywww/项目/ai-writing-assist/.worktrees/map-advisory-policy,codex/map-advisory-policy,1a7b6b438fbb3280be6da153e64f994973634b8c,7,0,0,
+/Users/tywww/项目/ai-writing-assist/.worktrees/map-advisory-review,codex/map-operation-trace-impl,203018dfd13ba213ff80a1bba5b6868a625f504a,122,0,0,
+/Users/tywww/项目/ai-writing-assist/.worktrees/map-assistant-operations,codex/c2-ui-acceptance,2c8c11c263da612af6a9b7ad8d40582d156871b1,188,0,0,
+/Users/tywww/项目/ai-writing-assist/.worktrees/map-assistant-review,codex/author-interaction-operations-impl,e68e35308dc71078060390cbb60365e78ed1bf82,192,0,0,
+/Users/tywww/项目/ai-writing-assist/.worktrees/map-assistant-structure,codex/scene-director-impl,1628717107a158b09f8f683c7223fbc65906e9ae,163,0,0,
+/Users/tywww/项目/ai-writing-assist/.worktrees/map-assistant-vocab-review,codex/chapter-order-timeline-impl,e50d46733dae0eeef1a583f6e38941dbcb2801fc,259,0,0,
+/Users/tywww/项目/ai-writing-assist/.worktrees/map-auto-draft-review,codex/map-node-merge-review,f446d799ea01093047aa0a30678ffd507d5033df,84,0,0,
+/Users/tywww/项目/ai-writing-assist/.worktrees/map-auto-drafts,codex/map-auto-drafts,f35e9988634c92d503a0ef3a8632c8867daba416,42,0,0,
+/Users/tywww/项目/ai-writing-assist/.worktrees/map-clue-review,codex/copilot-alignment-review,954e029f9adda77f2f9525c411572d7b2477e41d,270,0,0,
+/Users/tywww/项目/ai-writing-assist/.worktrees/map-clues-drafts,codex/map-clues-drafts,a58027bedfca8f28bf6c14c71262d2e65848fe2a,21,0,0,
+/Users/tywww/项目/ai-writing-assist/.worktrees/map-enhancement-plan,codex/map-enhancement-plan,59537b4cb376da20b67cd8152f4cca3ba6f286d0,314,0,48,"M .agent/tasks/2026/T-20261015-agent-operation-surface/TASK.md
+ M .agent/tasks/2026/T-20261015-character-world-progression/TASK.md
+ M .agent/tasks/2026/T-20261015-character-world-progression/artifacts/REVIEW-REMEDIATION-20261016.md
+ M .agent/tasks/2026/T-20261015-map-enhancement-design/TASK.md
+ M backend/modules/assistant/README.md
+ M backend/modules/assistant/goal_runs/service.py
+ M backend/modules/assistant/tests/test_goal_runs.py
+ M backend/modules/project/assistant_dedup_tool.py
+ M backend/modules/project/tests/test_smart_dedup.py
+ M backend/modules/story/README.md
+ M backend/modules/story/assistant_generation_tools.py
+ M backend/modules/story/continuity/chapter_order_projection.py
+ M backend/modules/story/continuity/repositories.py
+ M backend/modules/story/continuity/tests/test_fact_timeline.py
+ M backend/modules/story/tests/test_assistant_generation_tools.py
+ M backend/modules/world/README.md
+ M backend/modules/world/assistant_dossier_tools.py
+ M backend/modules/world/dossier_interchange.py
+ M backend/modules/world/dossier_service.py
+ M backend/modules/world/project_vocabulary_api.py
+ M backend/modules/world/project_vocabulary_service.py
+ M backend/modules/world/services/worldbuilding/profile_service.py
+ M backend/modules/world/tests/test_assistant_dossier_tools.py
+ M backend/modules/world/tests/test_object_dossier.py
+ M backend/modules/world/tests/test_project_vocabulary.py
+ M backend/modules/writing/assistant_candidate_tools.py
+ M backend/modules/writing/assistant_generation_tool.py
+ M backend/modules/writing/tests/test_assistant_candidate_tools.py
+ M backend/modules/writing/tests/test_assistant_generation_tool.py
+ M backend/tests/e2e/test_dossier_template_interchange_postgres.py
+ M backend/tests/e2e/test_world_dossier_postgres.py
+ M backend/tests/unit/test_assistant_operation_registry.py
+ M backend/tests/unit/test_memory_extra.py
+ M docs/modules/05_memory.md
+ M frontend-console/api/world.js
+ M frontend-console/apiContracts.js
+ M frontend-console/e2e/world-dossier-responsive.spec.js
+ M frontend-console/tests/vue/assistant/GoalRunsPanel.test.js
+ M frontend-console/tests/vue/map/MapStructureEditor.test.js
+ M frontend-console/tests/vue/map/mapEvolution.test.js
+ M frontend-console/tests/vue/world/WorldDossierManifestImport.test.js
+ M frontend-console/tests/vue/world/WorldObjectDossierEditor.test.js
+ M frontend-console/vue/components/GoalRunsPanel.vue
+ M frontend-console/vue/views/map/MapStructureEditor.vue
+ M frontend-console/vue/views/map/mapStructureEditor.js
+ M frontend-console/vue/views/world/library/WorldDossierManifestImport.vue
+ M frontend-console/vue/views/world/library/WorldObjectDossierEditor.vue
+?? .agent/tasks/2026/T-20261015-character-world-progression/artifacts/REVIEW-HANDOFF-20261016.md"
+/Users/tywww/项目/ai-writing-assist/.worktrees/map-evolution-review,codex/map-cold-start-world-final,7edb42a14b9441e47925fdf234944377d9eb2c3c,95,0,0,
+/Users/tywww/项目/ai-writing-assist/.worktrees/map-evolution-spatial,codex/map-evolution-spatial,8a2aec71d974aa4915b065cc537eb5d5c30be2a1,30,0,0,
+/Users/tywww/项目/ai-writing-assist/.worktrees/map-foundation-review,codex/map-foundation-review,4fb9f1d78aba8e0e6ca266732e78bc4d5b570c38,14,0,0,
+/Users/tywww/项目/ai-writing-assist/.worktrees/map-interface-review,codex/map-final-integration-review,2188c6fccc0d4838564a84b66074111a511bd214,83,0,0,
+/Users/tywww/项目/ai-writing-assist/.worktrees/map-m0-spatial,codex/map-m0-spatial,bb928c2ee23d66568fd5f2bea00cd6933c533532,11,0,0,
+/Users/tywww/项目/ai-writing-assist/.worktrees/map-m0-vocabulary,codex/map-m0-vocabulary,141a098ccdbbe7f69f30f9b44e2f6881187f77f7,7,0,0,
+/Users/tywww/项目/ai-writing-assist/.worktrees/map-node-merge,codex/map-node-merge,2e1f1475c4a43fb570ce2c261bd9bc7e97393156,76,0,0,
+/Users/tywww/项目/ai-writing-assist/.worktrees/map-operation-catalog-impl,codex/map-operation-catalog-impl,f7ba93e8bc5e428a8aef76b6d483ef4236049220,112,0,9,"M backend/alembic/env.py
+ M backend/app/bootstrap.py
+ M backend/core/config.py
+ M backend/core/service_keys.py
+ M backend/modules/assistant/evidence_tools.py
+ M backend/modules/assistant/service.py
+?? backend/alembic/versions/20261015_operation_trace_v2.py
+?? backend/modules/assistant/operation_trace_models.py
+?? backend/modules/assistant/operation_trace_service.py"
+/Users/tywww/项目/ai-writing-assist/.worktrees/map-review17-evolution,codex/map-review17-evolution,eaf15e13657c391e8bcad71659cb95d8050ae9ee,305,0,0,
+/Users/tywww/项目/ai-writing-assist/.worktrees/map-review17-frontend,codex/map-review17-frontend,92b3d5a2fd20b5784e829e6035e4ea7cbad4cf83,305,0,0,
+/Users/tywww/项目/ai-writing-assist/.worktrees/map-review17-goal-runs,codex/map-review17-goal-runs,7bde01f62ff136d6af1593896b8cda6baf7a49e0,306,0,0,
+/Users/tywww/项目/ai-writing-assist/.worktrees/map-review17-story-arcs,codex/map-review17-story-arcs,1ebc4a723e24ef862753c209691bea95a5dcebc9,305,0,0,
+/Users/tywww/项目/ai-writing-assist/.worktrees/map-review17-story-continuity,codex/map-review17-story-continuity,42e95fce0dd1406734017f894baae3eebf103cf5,305,0,0,
+/Users/tywww/项目/ai-writing-assist/.worktrees/map-review17-trace-adapter,codex/map-review17-trace-adapter,1e38530e1e8803a1e0d30ffe5d6b48a156306eb7,305,0,0,
+/Users/tywww/项目/ai-writing-assist/.worktrees/map-review17-world-dossier,codex/map-review17-world-dossier,77d0a9b4dac6f4826912634d7dd9b377665a591f,306,0,0,
+/Users/tywww/项目/ai-writing-assist/.worktrees/map-review17-world-relations,codex/map-review17-world-relations,c15c79f67dfdcf456282fbc560a396c952a9fc09,305,0,0,
+/Users/tywww/项目/ai-writing-assist/.worktrees/map-spatial-advisories,codex/map-spatial-advisories,0369360723a7b48c3b7c1ba173f48becf54ee424,59,0,0,
+/Users/tywww/项目/ai-writing-assist/.worktrees/map-spatial-brief,codex/map-spatial-brief,4a39dd7524e3b7212a2eed785da757984e36cff7,42,0,0,
+/Users/tywww/项目/ai-writing-assist/.worktrees/map-spatial-brief-review,codex/map-spatial-brief-review,f62659dcdbae8ac9dae7818dc5c7b6c926cbc351,59,0,0,
+/Users/tywww/项目/ai-writing-assist/.worktrees/map-spatial-eval-driver,codex/map-spatial-eval-driver,465a7e509f713ade38e0c8610d7fda501a2dc021,84,0,0,
+/Users/tywww/项目/ai-writing-assist/.worktrees/map-spatial-eval-review,codex/chapter-order-timeline-review,ebff5e2628cc81f49871629962c539b02caac0b2,284,0,0,
+/Users/tywww/项目/ai-writing-assist/.worktrees/map-spatial-evaluation,codex/map-spatial-evaluation,4ea7300ffed9f7be74468ff9fc2c1b419ce22599,70,0,0,
+/Users/tywww/项目/ai-writing-assist/.worktrees/map-spatial-review,codex/map-spatial-review,1c1e9a14f361b04bcf9e1e839375346d702f058e,19,0,0,
+/Users/tywww/项目/ai-writing-assist/.worktrees/operation-trace-report-impl,codex/operation-trace-report-impl,b55497379b377dc8a5f12d6aa57c687d0c879598,216,0,0,
+/Users/tywww/项目/ai-writing-assist/.worktrees/simulation-v3-director-impl,codex/copilot-mechanism-alignment-impl,f1d90e416b6cd77421df2067c236288e4e0daf72,252,0,0,
+/Users/tywww/项目/ai-writing-assist/.worktrees/wave3-evidence,codex/audit-wave3-evidence,cbe345504560400dbd2dd01668120156fcafb5f2,3,7,0,
+/Users/tywww/项目/ai-writing-assist/.worktrees/wave3-g7-review,codex/audit-wave3-g7-review,1c2840154ff6352f2a1560b70c733da691d55f6d,1,8,0,
+/Users/tywww/项目/ai-writing-assist/.worktrees/wave3-g8c,codex/audit-wave3-canon-baseline,20da12570442eab8d6fad29ccfc3d514a9f7bcc6,2,7,0,
+/Users/tywww/项目/ai-writing-assist/.worktrees/wave3-guimi-v3,codex/audit-wave3-guimi-v3,4efe7f21a08646e7051923a40df989608f40a8ee,0,8,6,"?? .agent/tasks/2026/T-20261015-audit-wave3/V3-BUSINESS-FREEZE.json
+?? .agent/tasks/2026/T-20261015-audit-wave3/V3-FREEZE.json
+?? .agent/tasks/2026/T-20261015-audit-wave3/v3-continue.py
+?? .agent/tasks/2026/T-20261015-audit-wave3/v3-native-capture.py
+?? .agent/tasks/2026/T-20261015-audit-wave3/v3-run.py
+?? .agent/tasks/2026/T-20261015-audit-wave3/v3-setup.py"
+/Users/tywww/项目/ai-writing-assist/.worktrees/wave3-http,codex/audit-wave3-httpx2,bb762f04e655b6925ff864eedbbc29fab41477ba,2,9,0,
+/Users/tywww/项目/ai-writing-assist/.worktrees/wave3-r1,codex/audit-wave3-r1,21816b9722848f51e38116f81a61220204aa31bc,1,9,3,"M .agent/tasks/2026/T-20261015-audit-wave3/TASK.md
+?? .agent/tasks/2026/T-20261015-audit-wave3/PROGRESS-HISTORY.md
+?? .agent/tasks/2026/T-20261015-audit-wave3/X-CLEANUP.md"
+/Users/tywww/项目/ai-writing-assist/.worktrees/wave3-r2,codex/audit-wave3-images,3d586697fdf6c64e57b613d57cb9a246fb0aec0f,0,7,0,
+/Users/tywww/项目/ai-writing-assist/.worktrees/world-object-dossier-impl,codex/authoring-quality-eval-guard,f9ef3d2d61eb4f5a1c04f36d211605e70a4ed83a,295,0,0,
+/Users/tywww/项目/ai-writing-assist/.worktrees/world-progression-impl,codex/world-progression-impl,ac4e08a4abce923210372a0adbd24aac779b9557,217,0,0,

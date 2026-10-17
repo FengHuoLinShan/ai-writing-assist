@@ -1,15 +1,24 @@
 ---
 id: T-20261017-editorial-cross-chapter-evidence
 title: 编辑审读跨章证据、硬矛盾修正与第二轮盲评交接
-status: active
+status: completed
 created: 2026-10-17T09:15:19+08:00
-updated: 2026-10-17T14:14:09+08:00
+updated: 2026-10-17T17:27:14+08:00
 parent: T-20261016-editorial-diagnosis-v1
 ---
 
 # 编辑审读跨章证据、硬矛盾修正与第二轮盲评交接
 
-## 恢复快照
+## 当前恢复快照（交付核实）
+
+- 本轮用户已授权整理已完成工作并提交、PR、合并；原不推送边界仅在本次交付范围内被替代。
+- PR [#250](https://github.com/FengHuoLinShan/ai-writing-assist/pull/250) 已于 2026-10-17T09:26:28Z 合并，main 提交 `2cf4bbd5f01792b5fb06f7d5b7f380e6447fb004`；源 22 个提交完整保留。
+- 稳定 head `64e547d70`：本地后端 9204 passed / 2 skipped、85.27% coverage；前端 3253 passed、部署 324 passed；定向执行钩子/A-B 34 passed、Prompt 26、lint/build/docs/repo-gates 通过。远端六项必需检查、CodeQL、secret 检查全部成功，后端 9204 passed、85.28%，PG 108 passed。
+- Standards/Spec 均无阻断；新增同章长文分片实际 worker 回归，结果与评测版本边界见 DELIVERY-REVIEW.md。
+- 本任务工程与既定实验交付完成；不重跑冻结模型，不把旧 B 实测扩展到当前集成版，不声称真人作者或生产验收。S15 unchecked 两组 0/1 继续为已披露遗留，本次不扩大范围。
+- 下一步：本任务无必需实现；若另行处理外部事实、人工质量或生产，以新授权和证据启动。未部署。
+
+## 历史恢复快照（原阶段记录）
 
 - 实际完成：恢复上一轮盲评/揭盲结果；核对目标 worktree 干净，位于 `codex/editorial-diagnosis-v1`，HEAD `6338736cfe2f11a53dc0f7a918afd2a49dac4e85`，较 `origin/main` ahead 12；开放任务索引已切换到本任务，旧任务已关闭并指向本任务。
 - 当前里程碑：第二轮盲评（Sonnet 5.5、Kimi Code k3 各一轮）已审计、揭盲并逐评阅者套用冻结门槛；两位评阅者下 B 均满足全部三条门槛，结论为采纳跨章证据账本。

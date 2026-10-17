@@ -2,9 +2,21 @@
 
 - id: T-20261006-architecture-optimization
 - title: 架构优化计划实施（AO-1~AO-14、AO-17，coder 子代理批）
-- status: active
+- status: completed
 - created: 2026-10-06T00:00:00+08:00
-- updated: 2026-10-06T21:56:32+09:00
+- updated: 2026-10-12T23:36:26+08:00
+
+## 当前恢复快照（2026-10-12 整理核实）
+
+- 实际交付：[PR #201](https://github.com/FengHuoLinShan/ai-writing-assist/pull/201) 已合入 main，合并提交 `9e98128775fc53d5672e8f47eccb5a325522fcf1`，当前 main 可达。
+- 状态：架构实施、八项复审修复、工程门禁与 PR 合并已完成；补回旧审查工作树独有的合并后记录，历史证据完整保留。
+- 主干检查：原合并提交的检查已结束且成功；最新 main `974f0f5080d43472bc599d1d74782913c725057b` 的检查也成功。不再等待当时的运行。
+- 下一步：本任务关闭；延后架构项、真实质量或部署须按各自任务另行处理，不据本记录自动启动。
+
+- 唯一后续主笔记：主工作树本路径 `/Users/tywww/Desktop/项目/ai-writing-assist/.agent/tasks/2026/T-20261006-architecture-optimization/TASK.md`；旧工作树副本只读。
+- 最后核实：2026-10-12T23:36:26+08:00。以下各节保留原验收、失败和授权的历史证据，不代表当前交付状态。
+
+## 历史记录
 
 ## 目标
 
@@ -106,3 +118,15 @@ review）。本记录即计划 §7 要求的主任务记录。
 - 门禁：main实时规则要求Architecture docs、Backend quality、PostgreSQL critical、Frontend unit quality、Frontend functional browser、Production image contract六项必需检查及CodeQL；按固定提交验证并以match-head-commit合并，不使用管理员绕过。
 - 下一步：提交8项review修复与文档记录，复跑固定head的repo/docs门，推送并创建PR；等待必需CI全绿后合并。
 - 阻塞：无；上轮本地验证证据保留，真实模型/作者验收和生产发布不在本次范围。
+
+- PR阶段检查点：修复已提交dd04e7e9409bb47e5187f946d9c5642c735da119并推送；PR https://github.com/FengHuoLinShan/ai-writing-assist/pull/201 已创建并附加到本chat。提交后的repo-gates（244个生产文件、65依赖边、0新增二进制）和正式本地docs影响核对通过；远端CI已触发，尚未合并。下一步核对固定head的六项必需检查和CodeQL，全部成功后match-head-commit合并。
+
+## PR合并交付结果
+
+- 已交付：PR [#201](https://github.com/FengHuoLinShan/ai-writing-assist/pull/201) 于2026-10-06T13:09:13Z合入main；合并提交9e98128775fc53d5672e8f47eccb5a325522fcf1，父提交为77620459d与修复head dd04e7e9409bb47e5187f946d9c5642c735da119。origin/main已核实包含修复head，Git tree与已验证PR head完全一致。
+- PR固定head验证：六项必需检查全绿，CodeQL各语言/最终扫描、GitGuardian和repo-gates也全绿；后端7129 passed/3 skipped，86.30%覆盖，部署272 passed；PG CI 58 passed且alembic check零漂移（本地额外harness冷启动总59）。浏览器两片及助手/创意/编辑员全部适用步骤通过，汇总门成功；两个blob报告已上传。
+- 合并后main CI已触发：Architecture docs与repo-gates通过；Backend CI 37468573661、Frontend CI 37468573645、Production Image CI 37468573673、CodeQL 37468573707仍运行中。本轮未宣称合并后main CI已全绿。
+- 保留：原主工作区仍在codex/event-soft-delete，用户WIP、其它分支/worktree、受保护数据库未动；未删除主题分支、未发布生产、未执行真实模型或人工文学/视觉验收。
+- 交付边界：目标分支已提交、推送并完成PR合并；本段合并后结案记录仅保存在当前worktree，未制造额外提交/PR。
+- 当前恢复下一步：只有用户要求继续验证主干或发布时才扩展任务；查询上述main CI须绑定9e98128775fc53d5672e8f47eccb5a325522fcf1，不能引用旧主干run。发布仍需独立明确授权。
+- 阻塞：无；本次用户要求的PR合并完成，任务关闭。

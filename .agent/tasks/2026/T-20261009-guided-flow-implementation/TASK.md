@@ -3,10 +3,22 @@ id: T-20261009-guided-flow-implementation
 title: 成果导向创作流程借鉴计划实施（BR-0 至 BR-7）
 status: active
 created: 2026-10-09T13:30:00+09:00
-updated: 2026-10-12T14:38:39+08:00
+updated: 2026-10-12T23:36:26+08:00
 ---
 
 # 成果导向创作流程借鉴计划实施（BR-0 至 BR-7）
+
+## 当前恢复快照（2026-10-12 整理核实）
+
+- 工程交付：BR-0/1/2/7 经 PR #212–#218 集成；BR-3/4/5/6、tails、九项 P1/P2 整改与 Issue 修复通过 [PR #220](https://github.com/FengHuoLinShan/ai-writing-assist/pull/220) 已合入 main，合并提交 `2dce04f42a7d7eb41eaf0c025033c1eb4a051e50`，当前 main 可达。
+- 旧“等待 BR 分支/尚未推送/尚未合 main”均已过期。当前没有未交付的引导业务补丁；报告与记录已在 main，旧树的重复副本已清理。
+- 作者验收按用户明确要求跳过，`human_validated=false`；真实模型对照、质量/费用验收未执行，保留 active，不能把跳过当作通过。
+- 后续主笔记迁回当前主树；P4 树只保留版本化历史。下一步：在已明确目标、资料范围和费用授权后执行剩余模型验收；本次不启动模型或部署。
+
+- 唯一后续主笔记：主工作树本路径 `/Users/tywww/Desktop/项目/ai-writing-assist/.agent/tasks/2026/T-20261009-guided-flow-implementation/TASK.md`；旧工作树副本只读。
+- 最后核实：2026-10-12T23:36:26+08:00。以下各节保留原验收、失败和授权的历史证据，不代表当前交付状态。
+
+## 历史记录
 
 ## 当前交付续接（2026-10-12 PR合并授权）
 

@@ -1,0 +1,166 @@
+{
+  "checked_at": "2026-10-14T11:21:30+08:00",
+  "source_files": {
+    "runtime-boundaries.html": "7809955b00b7211d1c539a9faa1d5cf62f2bc5e1132a3c38c55a567cd27a317e",
+    "runtime-boundaries.drawio": "d61a4e444176c4cd4f32dd9ace26fd9be554077560c2e7d498f7fab78ca037d1",
+    "module-architecture.html": "9a7ba85bb61808ebf387cb7a1f808b402412fb7fbb76cff3965e21e5ed21a1d8",
+    "module-architecture.drawio": "2545fea4be87f422cd3fbdaf12ed16c1e31908dd5c76b66cb35ce254d7e5655a",
+    "codebase-reading-guide.md": "df5dee377a27f4498f68abf28061376051d25ff5ad081e44a437c7f81e304d68",
+    "README.md": "366ba274d6609517e91f6fed96f0099d64e40834fd98488e859a119e51470376"
+  },
+  "screenshots": {
+    "module-1440-final.jpg": "33f60e6f9d31e762a8a523df1d3f70a455d39dbe1de53f17de8a1679b6c722da",
+    "runtime-1440-final.jpg": "10a9d6eccb1d895566621af2834f429b7febbf2cf396c5c9778c15ac2d4fd0ec",
+    "runtime-source-final.jpg": "3300f045843c3501efe1a23dc5e084680fb73d753f56a213f47b696c44056516",
+    "runtime-768-final.jpg": "aae06cd26edefa0a88fcb7c9b1c54461390c46b716c10ad4622af24cc973a287",
+    "module-source-final.jpg": "1a36341ce903dd56787ec8254d3711eb64b6425f980f081983efc685fbc50cf9",
+    "module-390-collapsed-final.jpg": "0355d608f127537d3ed1e695050ef4a7be06dfe3474e973e6ba73b155baec5ec",
+    "runtime-390-final.jpg": "e46b3a60ff78e4d7067a103534451cd83e6a1d4c92f119186b80594bd6dbd093",
+    "module-768-final.jpg": "b98f9dbf9aff32161d45e39cf5168ae844a0c7af7bd10909ba4a36f18ebecf4a",
+    "module-390-final.jpg": "98a2f11fa6648fe3a1f2813aee621016546ece2f7c38dae122736dbc9e91875e"
+  },
+  "browser": "CUA Codex In-app Browser; supported localhost HTTP; no protocol/security overrides",
+  "checks": [
+    {
+      "file": "runtime-boundaries.html",
+      "viewport": 1440,
+      "height": 1000,
+      "labels": [
+        "Writing 已确认请求",
+        "Evidence 同一确认回读",
+        "Project snapshot / worker",
+        "冻结候选与来源复验",
+        "作者采用 / 同键回执",
+        "Scene 来源 / owner epoch",
+        "观察、身份与候选",
+        "独立审查 / 冻结调用",
+        "短事务候选 + 游标",
+        "World 回读并采用",
+        "授权固定作品版本",
+        "Interaction 自有 attempt",
+        "选中路径 / epoch / guard",
+        "私人节点 + SSE buffer",
+        "不回写作者正史",
+        "World 图片候选任务",
+        "设备 / 双租约 / 确认",
+        "image mode 与重解码",
+        "可审阅的图片候选",
+        "作者采用 → 私有图片桶"
+      ],
+      "scrollWidth": 1440,
+      "sections": 4,
+      "width": 1440,
+      "textBoundsOutside": []
+    },
+    {
+      "file": "runtime-boundaries.html",
+      "viewport": 768,
+      "scrollWidth": 768,
+      "sections": 4,
+      "textBoundsOutside": [],
+      "width": 768
+    },
+    {
+      "file": "runtime-boundaries.html",
+      "viewport": 390,
+      "arrow": "\"↓\"",
+      "layout": "318px",
+      "scrollWidth": 390,
+      "sections": 4,
+      "textBoundsOutside": [],
+      "width": 390
+    },
+    {
+      "file": "module-architecture.html",
+      "viewport": 390,
+      "toolbar": "expanded",
+      "diagramScrollWidth": 932,
+      "diagramWidth": 356,
+      "expanded": "true",
+      "pageWidth": 390,
+      "width": 390
+    },
+    {
+      "check": "narrow diagram keyboard pan",
+      "focused": "模块架构图，可左右滚动",
+      "outline": "solid",
+      "scrollLeft": 40
+    },
+    {
+      "file": "module-architecture.html",
+      "viewport": 1440,
+      "toolbar": "expanded",
+      "diagramScrollWidth": 1198,
+      "diagramWidth": 1198,
+      "expanded": "true",
+      "pageWidth": 1440,
+      "svgTextsOutside": [],
+      "width": 1440
+    },
+    {
+      "file": "module-architecture.html",
+      "viewport": 768,
+      "toolbar": "expanded",
+      "diagramScrollWidth": 948,
+      "diagramWidth": 702,
+      "expanded": "true",
+      "pageWidth": 768,
+      "width": 768
+    },
+    {
+      "check": "runtime XML geometry",
+      "clipped": [],
+      "nodeLabels": [
+        "Writing 已确认请求",
+        "Evidence 同一确认回读",
+        "Project snapshot / worker",
+        "冻结候选与来源复验",
+        "作者采用 / 同键回执",
+        "Scene 来源 / owner epoch",
+        "观察、身份与候选",
+        "独立审查 / 冻结调用",
+        "短事务候选 + 游标",
+        "World 回读并采用",
+        "授权固定作品版本",
+        "Interaction 自有 attempt",
+        "选中路径 / epoch / guard",
+        "私人节点 + SSE buffer",
+        "不回写作者正史",
+        "World 图片候选任务",
+        "设备 / 双租约 / 确认",
+        "image mode 与重解码",
+        "可审阅的图片候选",
+        "作者采用 → 私有图片桶"
+      ]
+    },
+    {
+      "check": "module XML geometry",
+      "clipped": [],
+      "labels": [
+        {
+          "id": "local_agent",
+          "text": "local_agent 本机图片设备\n项目/双租约 · 逐任务授权\n文字 snapshot 拒绝；旧 job 兼容仍在\ncwd 非沙箱"
+        },
+        {
+          "id": "rt_mac",
+          "text": "作者 Mac 图片 CLI 出站租约：Codex / Claude / Kimi / DSH / Pi"
+        }
+      ]
+    },
+    {
+      "file": "module-architecture.html",
+      "viewport": 390,
+      "toolbar": "collapsed",
+      "expanded": "false",
+      "pageWidth": 390,
+      "width": 390
+    }
+  ],
+  "source_geometry_limit": "Direct XML geometry/labels/waypoints, not a native Draw.io export",
+  "unexercised": "Optional PNG/PDF/clipboard export operations; live business model/DB/production",
+  "final_review_models": {
+    "contract": "gpt-6.1-sol/high",
+    "visual": "gpt-6.1-sol/high"
+  },
+  "console_errors_on_tested_pages": []
+}

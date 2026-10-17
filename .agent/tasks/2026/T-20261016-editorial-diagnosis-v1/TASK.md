@@ -121,3 +121,7 @@ updated: 2026-10-17T09:15:19+08:00
 ## 最终交付状态与下一步
 
 attempt-4 全量 304 次 Luna 请求、58 份盲评、导入校验与揭盲汇总均已完成，本地提交，未推送、未开 PR。结果见“盲评与揭盲汇总”。后续已按作者授权启动 [T-20261017-editorial-cross-chapter-evidence](../T-20261017-editorial-cross-chapter-evidence/TASK.md)，补跨章证据与硬矛盾规则，完成 v4 两组对照并交付第二轮盲评包；评分与揭盲待后续独立授权/任务。
+
+## 2026-10-17 工程合入
+
+当前用户已授权完成成果交付。源分支全部 22 个提交已通过 PR [#250](https://github.com/FengHuoLinShan/ai-writing-assist/pull/250) 合入 main `2cf4bbd5f01792b5fb06f7d5b7f380e6447fb004`，固定 head 六项必需 CI、CodeQL 和敏感信息检查均通过；详细交付/验证见后继跨章任务当前恢复快照。历史模型输出、盲映射和账本未改写或重放；S15 遗留不宣称解决，未部署。

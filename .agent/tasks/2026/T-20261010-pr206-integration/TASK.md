@@ -1,13 +1,25 @@
 ---
 id: T-20261010-pr206-integration
 title: 修复并合入世界演化 PR #206
-status: active
+status: completed
 created: 2026-10-10T00:20:05+09:00
-updated: 2026-10-10T00:56:50+09:00
+updated: 2026-10-12T23:36:26+08:00
 external_ref: https://github.com/FengHuoLinShan/ai-writing-assist/pull/206
 ---
 
 # 修复并合入世界演化 PR #206
+
+## 当前恢复快照（2026-10-12 整理核实）
+
+- 实际交付：[PR #206](https://github.com/FengHuoLinShan/ai-writing-assist/pull/206) 已合入 main，合并提交 `aafcc86be8a70c0e0830cc80f6389e2587731d4a`，当前 main 可达。最终固定 head `2a9d05f6fbae584de52b9374054cbf998ecf9c1e`；旧 tiff 修复未推送、必需检查失败和待合并描述均为历史。
+- 合并提交的 main 检查已结束且成功，本次通过 GitHub check-runs 核实；原目标所需工程交付与主干终态核查完成。
+- 不关闭第一/二阶段 R7 与真实质量验收，不改写 v29 失败与封存未运行结论；未部署。
+- 下一步：本 PR 集成任务关闭，具体业务质量仍由各阶段任务管理。
+
+- 唯一后续主笔记：主工作树本路径 `/Users/tywww/Desktop/项目/ai-writing-assist/.agent/tasks/2026/T-20261010-pr206-integration/TASK.md`；旧工作树副本只读。
+- 最后核实：2026-10-12T23:36:26+08:00。以下各节保留原验收、失败和授权的历史证据，不代表当前交付状态。
+
+## 历史记录
 
 ## 恢复快照
 

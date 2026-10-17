@@ -1,0 +1,374 @@
+[
+  {
+    "claim_id": "L5-A-01",
+    "baseline_sha": "22bb499789cba89fea92e918fd853ab768688e07",
+    "domain": "assistant",
+    "doc_path": "docs/modules/20_assistant.md",
+    "doc_section": "所有权 (9-21); 运行原则 (23-39)",
+    "conclusion": "Assistant public submit path mounts at /api/assistant. Submit validates assistant gate, active project and owner, active session, idempotency and confirmed work context, then freezes Project LLM snapshot, operation/read-tool manifests and budget into AssistantRun before enqueueing assistant_turn. Worker execution requires a task lease/checkpoint session, rechecks owner/task/run state, restores the frozen Project snapshot and rejects incompatible runtime/tool manifests.",
+    "code_refs": [
+      {"path": "backend/app/main.py", "symbol": "router mounts for assistant/collaboration/interaction", "lines": "783-798"},
+      {"path": "backend/modules/assistant/api.py", "symbol": "submit_turn / submit_team_run / decision routes", "lines": "314-425"},
+      {"path": "backend/modules/assistant/service.py", "symbol": "AssistantService.submit", "lines": "367-594"},
+      {"path": "backend/modules/assistant/service.py", "symbol": "AssistantService.execute", "lines": "908-1005"},
+      {"path": "backend/modules/assistant/tasks.py", "symbol": "handle_assistant_turn task contract", "lines": "7-20"}
+    ],
+    "callers": [
+      {"path": "backend/modules/assistant/api.py", "symbol": "submit_turn", "lines": "314-317"},
+      {"path": "backend/modules/assistant/api.py", "symbol": "submit_team_run", "lines": "326-331"}
+    ],
+    "test_refs": [
+      {"path": "backend/modules/assistant/tests/test_assistant.py", "symbol": "test_renew_budget_preserves_search_consent_and_replay"},
+      {"path": "backend/modules/assistant/tests/test_assistant.py", "symbol": "test_resume_expired_budget_returns_conflict"},
+      {"path": "backend/modules/assistant/tests/test_run_envelope.py", "symbol": "run envelope protocol tests"}
+    ],
+    "proof_scope": "Static source and doc comparison only; test symbols were located but not run. No claim about live project configuration or provider behavior.",
+    "read_depth": "Deep: router mount, API/service submit, task registration, worker execution and frozen protocol checks.",
+    "validation_identity": "P1 read-only; source worktree HEAD 22bb499789cba89fea92e918fd853ab768688e07; report files only are writable outputs.",
+    "unknowns": ["No runtime feature flags or account connections were inspected.", "No task worker or provider was run."],
+    "proposed_action": "Keep current ownership and run-envelope sections. Do not duplicate the module README's internal task contract unless the documentation refresh needs a concise cross-reference."
+  },
+  {
+    "claim_id": "L5-A-02",
+    "baseline_sha": "22bb499789cba89fea92e918fd853ab768688e07",
+    "domain": "assistant",
+    "doc_path": "docs/modules/20_assistant.md",
+    "doc_section": "成组执行与恢复 (54-79); 领域提案与受控恢复 (86-96)",
+    "conclusion": "Assistant distinguishes registered read/suggestion capabilities from confirm-only writes. Evidence findings must be backed by current-run references and domain finding IDs. Suggestions reuse existing domain task/read-result seams and the Assistant budget. Actions are prepared as fingerprinted previews; confirmation revalidates all selected inputs first, then each operation applies in its own nested transaction. Failed actions block dependents while successful actions remain recorded; retry ids are idempotent and retry only unfinished actions in the original confirmed selection.",
+    "code_refs": [
+      {"path": "backend/modules/assistant/operations.py", "symbol": "validate_agent_answer", "lines": "114-161"},
+      {"path": "backend/modules/assistant/operations.py", "symbol": "execute_suggestion", "lines": "209-293"},
+      {"path": "backend/modules/assistant/operations.py", "symbol": "prepare_actions", "lines": "331-360"},
+      {"path": "backend/modules/assistant/operations.py", "symbol": "decide_batch preflight/apply/retry", "lines": "363-560"}
+    ],
+    "callers": [
+      {"path": "backend/modules/assistant/service.py", "symbol": "AssistantService.execute answer validation and action batch creation", "lines": "920-1005"},
+      {"path": "backend/modules/assistant/api.py", "symbol": "batch decision and recheck routes", "lines": "375-425"}
+    ],
+    "test_refs": [
+      {"path": "backend/modules/assistant/tests/test_domain_operations.py", "symbol": "test_partial_batch_retry_preserves_success_and_rejects_replay"},
+      {"path": "backend/modules/assistant/tests/test_assistant.py", "symbol": "test_batch_invalid_selection_never_writes"}
+    ],
+    "proof_scope": "Static code supports per-operation atomicity and partial adoption; tests were not executed. This does not imply a whole batch rolls back atomically.",
+    "read_depth": "Deep: validation, suggestion, preview, decision preflight, savepoint writes and retry receipt logic.",
+    "validation_identity": "P1 static audit at baseline 22bb499789cba89fea92e918fd853ab768688e07.",
+    "unknowns": ["No database transaction behavior was exercised against PostgreSQL.", "No author UI/browser confirmation flow was run."],
+    "proposed_action": "Keep the wording that describes per-domain atomic groups and partial success. Avoid describing the complete Assistant batch as one all-or-nothing transaction."
+  },
+  {
+    "claim_id": "L5-A-03",
+    "baseline_sha": "22bb499789cba89fea92e918fd853ab768688e07",
+    "domain": "assistant-collaboration",
+    "doc_path": "docs/modules/20_assistant.md",
+    "doc_section": "深度审稿 (73-84); 有限协作 (122-148)",
+    "conclusion": "Assistant team-runs are finite server-registered blueprints inside one Assistant run/task, not an arbitrary team runtime. A submission freezes blueprint, protocol hash, context and allowed tools. Deep review has three registered investigator roles; each has a separate history/evidence-reference state, while the host owns the shared lease and root budget. Domain review and final evidence/knowledge validation precede any returned plan. Selecting a plan is a separate step before preparing an ordinary author-confirmed action batch. These code facts do not establish real-model review quality.",
+    "code_refs": [
+      {"path": "backend/modules/assistant/api.py", "symbol": "submit_team_run and select_team_plan", "lines": "326-361"},
+      {"path": "backend/modules/assistant/teams/contracts.py", "symbol": "TeamRunCreate and registered BLUEPRINTS", "lines": "20-73; 138-190"},
+      {"path": "backend/modules/assistant/teams/runner.py", "symbol": "run_team frozen scope and checkpoint fence", "lines": "183-263"},
+      {"path": "backend/modules/assistant/teams/runner.py", "symbol": "member isolation and work-item execution", "lines": "292-430"},
+      {"path": "backend/modules/assistant/teams/runner.py", "symbol": "domain review and completion projection", "lines": "432-535"},
+      {"path": "backend/modules/assistant/teams/plans.py", "symbol": "select_plan", "lines": "18-100"}
+    ],
+    "callers": [
+      {"path": "backend/modules/assistant/service.py", "symbol": "AssistantService.submit blueprint snapshot freeze", "lines": "383-390; 525-552"},
+      {"path": "backend/modules/assistant/service.py", "symbol": "AssistantService.execute final team answer validation", "lines": "920-946"}
+    ],
+    "test_refs": [
+      {"path": "backend/modules/assistant/tests/test_teams.py", "symbol": "test_team_start_idempotency_scope_and_switch"},
+      {"path": "backend/modules/assistant/tests/test_teams.py", "symbol": "blueprint/tool permission validation tests"},
+      {"path": "backend/modules/assistant/tests/test_team_plans.py", "symbol": "plan selection then author-confirmed batch flow"}
+    ],
+    "proof_scope": "Static architecture only. No model quality, independent human review, cost or product acceptance was tested.",
+    "read_depth": "Deep: blueprint schemas, submit/freeze path, member runner, projections and plan selection.",
+    "validation_identity": "P1 static audit at baseline 22bb499789cba89fea92e918fd853ab768688e07.",
+    "unknowns": ["No real model calls or blind reviews were made.", "Deployment-specific blueprint switches are unknown."],
+    "proposed_action": "Retain the current finite-blueprint, same-root-budget and quality-boundary language."
+  },
+  {
+    "claim_id": "L5-C-01",
+    "baseline_sha": "22bb499789cba89fea92e918fd853ab768688e07",
+    "domain": "collaboration",
+    "doc_path": "docs/modules/21_collaboration.md",
+    "doc_section": "数据与执行 (7-18); 资料、配方与共用试验 (41-56)",
+    "conclusion": "A Collaboration case freezes owner-owned goal, Grant, Recipe and a versioned InputManifest. submit_run checks expected goal version, idempotency, cumulative request budget and active sibling, freezes Project snapshots per role, and enqueues one collaboration_run. The worker contract is root capability collaboration.run, 30 requests, 1800-second deadline and manual resume. Before/after external calls, fences revalidate task/generation, active case/grant, goal, manifests and existing artifact manifests. Recipe capability narrowing and work-item graph bounds constrain planner output; planned work may end partial with omissions or author questions.",
+    "code_refs": [
+      {"path": "backend/modules/collaboration/cases.py", "symbol": "create_case and grant/recipe validation", "lines": "130-199"},
+      {"path": "backend/modules/collaboration/cases.py", "symbol": "submit_run", "lines": "342-421"},
+      {"path": "backend/modules/collaboration/tasks.py", "symbol": "collaboration_run task contract", "lines": "13-22"},
+      {"path": "backend/modules/collaboration/runtime.py", "symbol": "execute startup and task/grant/manifest fence", "lines": "209-278"},
+      {"path": "backend/modules/collaboration/runtime.py", "symbol": "planner bounded questions and recipe capabilities", "lines": "640-690"}
+    ],
+    "callers": [
+      {"path": "backend/modules/collaboration/api.py", "symbol": "case creation and run submit endpoints", "lines": "35-46"},
+      {"path": "backend/modules/collaboration/tasks.py", "symbol": "handle_collaboration_run", "lines": "13-22"}
+    ],
+    "test_refs": [
+      {"path": "backend/modules/collaboration/tests/test_runtime.py", "symbol": "test_adaptive_run_adds_countercheck_and_preserves_root_budget"},
+      {"path": "backend/modules/collaboration/tests/test_runtime.py", "symbol": "test_two_verified_connections_share_one_case_budget"}
+    ],
+    "proof_scope": "Static source/doc proof; cited tests were not run. No evidence of actual LLM quality, spend or production behavior.",
+    "read_depth": "Deep: API guard, case submit, task contract, runtime fence, planner schema and partial completion.",
+    "validation_identity": "P1 static audit at baseline 22bb499789cba89fea92e918fd853ab768688e07.",
+    "unknowns": ["Live feature flags, provider connections, and actual grant data were not inspected."],
+    "proposed_action": "Keep data/execution and recipe sections. The detailed numeric task envelope may remain in the module README if the architecture doc avoids more volatile implementation constants."
+  },
+  {
+    "claim_id": "L5-C-02",
+    "baseline_sha": "22bb499789cba89fea92e918fd853ab768688e07",
+    "domain": "collaboration",
+    "doc_path": "docs/modules/21_collaboration.md",
+    "doc_section": "自动跟进与恢复 (58-67)",
+    "conclusion": "Manual resume is not a budget reset. It requires an active case/grant, known usage, enough remaining time and both run/case request budgets, unchanged goal and revalidated manifest, no active sibling and queue lifecycle permission. Successful immutable outputs are kept; only failed, blocked, cancelled or interrupted items are reset and generation increments. Grant expiry/revocation or feature/recipe shutdown cancels unfinished work and fences stale workers, while prior receipts/adoption remain. If requirements fail, the action is a new run, not an implicit replay with unknown usage.",
+    "code_refs": [
+      {"path": "backend/modules/collaboration/cases.py", "symbol": "resume_run eligibility and preservation", "lines": "247-320"},
+      {"path": "backend/modules/collaboration/maintenance.py", "symbol": "stop_unavailable_runs", "lines": "19-114"},
+      {"path": "backend/modules/collaboration/runtime.py", "symbol": "lease/generation/grant fence", "lines": "251-278"}
+    ],
+    "callers": [
+      {"path": "backend/modules/collaboration/api.py", "symbol": "resume/stop operations", "lines": "API routes in collaboration router"},
+      {"path": "backend/modules/collaboration/tasks.py", "symbol": "handle_collaboration_run", "lines": "13-22"}
+    ],
+    "test_refs": [
+      {"path": "backend/modules/collaboration/tests/test_maintenance.py", "symbol": "test_maintenance_cancels_execution_and_retains_trial_budget"},
+      {"path": "backend/modules/collaboration/tests/test_workspaces.py", "symbol": "test_grant_renewal_keeps_spend"}
+    ],
+    "proof_scope": "Static implementation supports recovery and revocation semantics; no worker race or PostgreSQL lease path was executed.",
+    "read_depth": "Deep: resume gates, task lifecycle contract, cancellation/generation invalidation.",
+    "validation_identity": "P1 static audit at baseline 22bb499789cba89fea92e918fd853ab768688e07.",
+    "unknowns": ["No concurrent worker or authorization-change scenario was run."],
+    "proposed_action": "Keep the existing recovery paragraph; do not claim revoked grants reverse already committed writes."
+  },
+  {
+    "claim_id": "L5-C-03",
+    "baseline_sha": "22bb499789cba89fea92e918fd853ab768688e07",
+    "domain": "collaboration",
+    "doc_path": "docs/modules/21_collaboration.md",
+    "doc_section": "采用与恢复 (20-28)",
+    "conclusion": "A workspace trial is isolated baseline plus overlay/tombstones; it does not write domain canon. Adoption requires exact current workspace revision/digest, sealed checked state, valid grant, explicit confirmation (except the bounded whitespace-only grant), source/manifest revalidation and port validation. All domain applies plus receipt/outbox are inside one database transaction and duplicate confirmation returns the existing receipt. Rebase is a three-way merge that leaves overlapping fields for author choice; revert creates a compensating workspace that must be checked and adopted, preserving the original receipt. A partial run is therefore distinct from a partial domain commit.",
+    "code_refs": [
+      {"path": "backend/modules/collaboration/merge.py", "symbol": "merge_workspace preflight and exact confirmation", "lines": "78-140"},
+      {"path": "backend/modules/collaboration/merge.py", "symbol": "domain apply, receipt/outbox and commit", "lines": "141-182"},
+      {"path": "backend/modules/collaboration/recovery.py", "symbol": "rebase/revert three-way conflict and compensating workspace", "lines": "55-227"},
+      {"path": "backend/modules/collaboration/README.md", "symbol": "workspace/merge/recovery contract", "lines": "15-27"}
+    ],
+    "callers": [
+      {"path": "backend/modules/collaboration/api.py", "symbol": "workspace merge/rebase routes", "lines": "API routes in collaboration router"},
+      {"path": "backend/modules/collaboration/merge.py", "symbol": "merge_workspace", "lines": "78-182"}
+    ],
+    "test_refs": [
+      {"path": "backend/modules/collaboration/tests/test_workspaces.py", "symbol": "test_trial_does_not_write_and_merge_is_exact_and_idempotent"},
+      {"path": "backend/modules/collaboration/tests/test_workspaces.py", "symbol": "test_failed_second_write_rolls_back_every_domain_write"},
+      {"path": "backend/modules/collaboration/tests/test_workspaces.py", "symbol": "test_rebase_preserves_author_edits_requires_exact_conflict_resolution"},
+      {"path": "backend/modules/collaboration/tests/test_workspaces.py", "symbol": "test_revert_creates_checked_compensation_without_erasing_merge"}
+    ],
+    "proof_scope": "Source-level transaction and test-symbol evidence only; database semantics were not executed in this audit.",
+    "read_depth": "Deep: merge preflight, port validation/apply, receipt/outbox, rebase/revert.",
+    "validation_identity": "P1 static audit at baseline 22bb499789cba89fea92e918fd853ab768688e07.",
+    "unknowns": ["No PostgreSQL transaction/failure injection was run."],
+    "proposed_action": "Keep the existing adoption/recovery sections; make explicit that partial execution does not mean partial domain adoption."
+  },
+  {
+    "claim_id": "L5-C-04",
+    "baseline_sha": "22bb499789cba89fea92e918fd853ab768688e07",
+    "domain": "collaboration",
+    "doc_path": "docs/modules/21_collaboration.md",
+    "doc_section": "持久理解的保留与复用 (69-90)",
+    "conclusion": "Persistent cognition is opt-in via Grant.retain_understanding. Only successful run outputs that pass the required review may be retained, with the complete actual read set, source revisions, upstream cognition and Evolution receipts attached. New consumers rematerialize through Evidence; exclusions, source changes, author correction or withdrawal invalidate old refs. Author corrections are append-only and cannot be overwritten by machine output. The retained interpretation is author-retrospective context and must not be represented as what a character knew at the time.",
+    "code_refs": [
+      {"path": "backend/modules/collaboration/cognition.py", "symbol": "retain_run_understanding", "lines": "277-449"},
+      {"path": "backend/modules/collaboration/cognition.py", "symbol": "correct_record", "lines": "452-495"},
+      {"path": "backend/modules/collaboration/creative_manifest.py", "symbol": "materialize cognition references and validate dependencies", "lines": "75-120"},
+      {"path": "backend/modules/collaboration/README.md", "symbol": "持久理解 and consumption boundary", "lines": "32-42"}
+    ],
+    "callers": [
+      {"path": "backend/modules/collaboration/runtime.py", "symbol": "retain_run_understanding after full run completion", "lines": "1048-1073"},
+      {"path": "backend/modules/collaboration/creative_manifest.py", "symbol": "creative manifest materialization", "lines": "module provider seam"}
+    ],
+    "test_refs": [
+      {"path": "backend/modules/collaboration/tests/test_cognition.py", "symbol": "test_two_independent_cases_really_consume_durable_understanding"},
+      {"path": "backend/modules/collaboration/tests/test_cognition.py", "symbol": "test_exclusions_cutoffs_source_changes_and_unrelated_commits"}
+    ],
+    "proof_scope": "Static source/doc comparison only; no new model quality or long-term author acceptance evidence.",
+    "read_depth": "Deep: retention, provenance, correction/withdrawal, manifest rematerialization and run completion caller.",
+    "validation_identity": "P1 static audit at baseline 22bb499789cba89fea92e918fd853ab768688e07.",
+    "unknowns": ["No database immutability triggers or actual future consumer were exercised."],
+    "proposed_action": "Retain this section; it accurately states the consumer boundary and the limits of retained interpretation."
+  },
+  {
+    "claim_id": "L5-I-01",
+    "baseline_sha": "22bb499789cba89fea92e918fd853ab768688e07",
+    "domain": "interaction",
+    "doc_path": "docs/modules/18_interaction.md",
+    "doc_section": "定位 (15-31); 稳定边界 (29-50); 匿名公开演示 (73-90)",
+    "conclusion": "Each RP journey owns a hidden interaction project. The browser supplies business IDs, while server-side principal resolves owner and consumer novel_id. The source revision must belong to the same current owner and an active author project; only Evidence reads the author source, using its source novel_id, while RP writes remain scoped to the hidden consumer novel_id. The sole anonymous exception is an explicitly configured ready revision whose fingerprint/manifest are revalidated.",
+    "code_refs": [
+      {"path": "backend/modules/interaction/services.py", "symbol": "create journey and hidden project binding", "lines": "180-217"},
+      {"path": "backend/modules/interaction/source_service.py", "symbol": "require_ready_revision and author project check", "lines": "567-583; 784-794"},
+      {"path": "backend/modules/interaction/source_service.py", "symbol": "fixed public demo revision validation", "lines": "158-205"},
+      {"path": "backend/modules/interaction/generation.py", "symbol": "source/consumer Evidence inputs", "lines": "437-480"},
+      {"path": "docs/adr/0018-versioned-author-source-context-for-rp.md", "symbol": "same-owner read-only source exception", "lines": "ADR source section"}
+    ],
+    "callers": [
+      {"path": "backend/modules/interaction/api.py", "symbol": "interaction router endpoints", "lines": "router prefix and journey mutation routes"},
+      {"path": "backend/modules/interaction/services.py", "symbol": "send_message and attempt creation", "lines": "454-521; 1573-1625"}
+    ],
+    "test_refs": [
+      {"path": "backend/modules/interaction/tests/test_sources.py", "symbol": "test_other_owner_cannot_bind_source_revision"},
+      {"path": "backend/modules/interaction/tests/test_sources.py", "symbol": "test_source_bound_journey_freezes_revision_anchor_and_epoch"}
+    ],
+    "proof_scope": "Static source-boundary review; tests were not run. Does not prove deployment auth configuration.",
+    "read_depth": "Deep: source owner checks, hidden project creation, public demo pin, generation Evidence inputs.",
+    "validation_identity": "P1 static audit at baseline 22bb499789cba89fea92e918fd853ab768688e07.",
+    "unknowns": ["No live user principal, project or ready revision was accessed."],
+    "proposed_action": "Keep the ownership and frozen-source sections; do not broaden the cross-project exception."
+  },
+  {
+    "claim_id": "L5-I-02",
+    "baseline_sha": "22bb499789cba89fea92e918fd853ab768688e07",
+    "domain": "interaction",
+    "doc_path": "docs/modules/18_interaction.md",
+    "doc_section": "核心模型 (33-48); 上下文与回顾 (92-123); 有界单 Agent (163-177)",
+    "conclusion": "Every ordinary generation is bound to the server-selected ancestry, frozen source revision and source-context epoch, selection epoch, path hash and Project LLM snapshot. Mutations with stale expected selection/source epochs fail; preparation and finalization revalidate source and selection. Evidence compilation uses the frozen author revision, chapter and same-chapter offset, player knowledge and fixed/excluded references within a bounded reference budget. Missing required source evidence fails closed; a late result may be kept as an unselected variant but cannot become selected after the epoch changes.",
+    "code_refs": [
+      {"path": "backend/modules/interaction/services.py", "symbol": "send_message selected path and selection epoch", "lines": "454-521"},
+      {"path": "backend/modules/interaction/services.py", "symbol": "select_branch and epoch check", "lines": "838-864; 1431-1449"},
+      {"path": "backend/modules/interaction/services.py", "symbol": "attempt freezes source/selection epochs and path hash", "lines": "1573-1615"},
+      {"path": "backend/modules/interaction/generation.py", "symbol": "prepare current path, task and source validation", "lines": "297-398"},
+      {"path": "backend/modules/interaction/generation.py", "symbol": "Evidence interaction context compilation", "lines": "437-488"},
+      {"path": "backend/modules/interaction/generation.py", "symbol": "source/selection epoch finalization and late result handling", "lines": "1023-1036; 1182-1190"},
+      {"path": "backend/modules/interaction/source_service.py", "symbol": "same-chapter offset visibility", "lines": "605-630"}
+    ],
+    "callers": [
+      {"path": "backend/modules/interaction/api.py", "symbol": "send_message/select_branch routes", "lines": "554-575; 646-661"},
+      {"path": "backend/modules/interaction/tasks.py", "symbol": "story task preparation and finalization", "lines": "188-342"}
+    ],
+    "test_refs": [
+      {"path": "backend/modules/interaction/tests/test_sources.py", "symbol": "test_source_bound_empty_context_packet_fails_before_provider"},
+      {"path": "backend/modules/interaction/tests/test_sources.py", "symbol": "test_reference_control_uses_source_epoch_and_blocks_stale_writer"},
+      {"path": "backend/modules/interaction/tests/test_sources.py", "symbol": "test_late_result_revalidates_source_context_epoch"},
+      {"path": "backend/modules/interaction/tests/test_services.py", "symbol": "selected-branch race and late-result tests"}
+    ],
+    "proof_scope": "Static code and test symbol review; no provider call or test execution.",
+    "read_depth": "Deep: API mutation, epoch checks, attempt snapshots, Evidence compile, finalize and stale output.",
+    "validation_identity": "P1 static audit at baseline 22bb499789cba89fea92e918fd853ab768688e07.",
+    "unknowns": ["No real manuscript text or protected source content was opened.", "No model compliance was measured."],
+    "proposed_action": "Keep the selected-path, source-manifest, cutoff and epoch details as the central RP context contract."
+  },
+  {
+    "claim_id": "L5-I-03",
+    "baseline_sha": "22bb499789cba89fea92e918fd853ab768688e07",
+    "domain": "interaction",
+    "doc_path": "docs/modules/18_interaction.md",
+    "doc_section": "核心模型 (33-48); 生成与恢复 (50-61); 有界单 Agent (163-177)",
+    "conclusion": "SSE is a database-backed projection of attempt.visible_text and visible_offset, filtered by owner/journey/attempt. Clients reconnect from a persisted offset; an offset ahead of the persisted buffer receives reset and replay. During story generation, the new body is checkpointed to private knowledge_hold rather than visible_text. Only after knowledge review passes is the complete body copied to visible_text and exposed; blocked output remains private after at most one repair attempt.",
+    "code_refs": [
+      {"path": "backend/modules/interaction/api.py", "symbol": "authenticated SSE endpoint offset/Last-Event-ID", "lines": "721-753"},
+      {"path": "backend/modules/interaction/streaming.py", "symbol": "stream_attempt_events database poll/replay", "lines": "71-160"},
+      {"path": "backend/modules/interaction/tasks.py", "symbol": "stream checkpoint and held-review gate", "lines": "282-342"},
+      {"path": "backend/modules/interaction/generation.py", "symbol": "checkpoint_story_task private hold", "lines": "614-628"},
+      {"path": "backend/modules/interaction/generation.py", "symbol": "release_story_task and fail_knowledge_hold", "lines": "730-815"},
+      {"path": "backend/modules/interaction/generation.py", "symbol": "govern_held_story one repair/review policy", "lines": "817-843"}
+    ],
+    "callers": [
+      {"path": "backend/modules/interaction/tasks.py", "symbol": "handle_interaction_story_generate", "lines": "188-342"},
+      {"path": "backend/modules/interaction/api.py", "symbol": "stream_attempt", "lines": "721-753"}
+    ],
+    "test_refs": [
+      {"path": "backend/modules/interaction/tests/test_streaming.py", "symbol": "test_stream_offset_ahead_resets_then_replays"},
+      {"path": "backend/modules/interaction/tests/test_knowledge_hold.py", "symbol": "test_hold_writes_stay_private"},
+      {"path": "backend/modules/interaction/tests/test_knowledge_hold.py", "symbol": "test_govern_held_story_pass_and_block_paths"}
+    ],
+    "proof_scope": "Static code and test-symbol evidence only; no SSE client or real model was run.",
+    "read_depth": "Deep: API, DB-backed event generator, task checkpoint, hold, review, release and block paths.",
+    "validation_identity": "P1 static audit at baseline 22bb499789cba89fea92e918fd853ab768688e07.",
+    "unknowns": ["No browser reconnect was exercised.", "No real-model knowledge audit quality was measured."],
+    "proposed_action": "Keep the held-release description and clarify it alongside all failure/stop recovery claims."
+  },
+  {
+    "claim_id": "L5-I-04",
+    "baseline_sha": "22bb499789cba89fea92e918fd853ab768688e07",
+    "domain": "interaction",
+    "doc_path": "docs/modules/18_interaction.md",
+    "doc_section": "生成与恢复 (50-61); 有界单 Agent (163-177)",
+    "conclusion": "There is a material documentation inconsistency. Section 50-61 says technical-failure remnants remain in the attempt and users may keep them, while section 163-177 states unreviewed body text remains in a private hold until PASS. Current checkpoint/failure code writes held text to agent_checkpoint_json.knowledge_hold and leaves visible_text empty; keep_partial and stop formalize only visible_text. Therefore no current path was found that exposes a newly held, failed/blocked fragment through keep_partial. The existing stop test preloads visible_text, so it does not prove held-text recovery.",
+    "code_refs": [
+      {"path": "backend/modules/interaction/generation.py", "symbol": "checkpoint_story_task held text path", "lines": "614-628"},
+      {"path": "backend/modules/interaction/generation.py", "symbol": "fail_knowledge_hold keeps hold and fails attempt", "lines": "772-815"},
+      {"path": "backend/modules/interaction/generation.py", "symbol": "fail_story_task saves unfinished delta into hold", "lines": "1288-1314"},
+      {"path": "backend/modules/interaction/services.py", "symbol": "keep_partial only accepts awaiting_continue/failed then formalizes visible buffer", "lines": "971-1024"},
+      {"path": "backend/modules/interaction/services.py", "symbol": "_stop_locked_attempt and _formalize_partial_attempt use visible_text", "lines": "1815-1917"}
+    ],
+    "callers": [
+      {"path": "backend/modules/interaction/api.py", "symbol": "stop and keep endpoints", "lines": "795-829"},
+      {"path": "backend/modules/interaction/tasks.py", "symbol": "provider error to fail_story_task", "lines": "343-353"}
+    ],
+    "test_refs": [
+      {"path": "backend/modules/interaction/tests/test_knowledge_hold.py", "symbol": "test_hold_writes_stay_private"},
+      {"path": "backend/modules/interaction/tests/test_services.py", "symbol": "test_stop_attempt_formalizes_visible_text_once_as_partial"}
+    ],
+    "proof_scope": "Static contract mismatch found; tests were read by symbol/fixtures and not executed. This report does not decide whether private hold or user recovery is the desired product behavior.",
+    "read_depth": "Deep: checkpoint, provider failure, explicit stop/keep, partial formalization and relevant test fixtures.",
+    "validation_identity": "P1 static audit at baseline 22bb499789cba89fea92e918fd853ab768688e07.",
+    "unknowns": ["Whether product intent is to keep unreviewed held content or intentionally withhold it is not inferable from code alone.", "No explicit test was found for stop/keep while new content remains in held state."],
+    "proposed_action": "For documentation-only refresh, change the promise to describe private held residue and state that current keep_partial formalizes only visible_text. If product expects a keep path for held content, open a separate implementation/spec follow-up with explicit safety semantics."
+  },
+  {
+    "claim_id": "L5-I-05",
+    "baseline_sha": "22bb499789cba89fea92e918fd853ab768688e07",
+    "domain": "interaction",
+    "doc_path": "docs/modules/18_interaction.md",
+    "doc_section": "回顾与上下文 (92-111); 核心模型 (33-44)",
+    "conclusion": "Summary refresh is a separate auto_requeue task with max_attempts=2, eight root requests and no total task deadline. Automatic summary creates immutable segment/overview revisions; manual changes also create immutable revisions. The consumer chooses a revision only after validating current selected branch, coverage and authority lineage, preserving manual corrections against later automatic descendants. These are implementation/recovery guarantees, not evidence that generated summaries are semantically accurate.",
+    "code_refs": [
+      {"path": "backend/modules/interaction/tasks.py", "symbol": "handle_interaction_summary_refresh task contract", "lines": "359-390"},
+      {"path": "backend/modules/interaction/generation.py", "symbol": "prepare/finalize summary task", "lines": "1319-1320; 1740-1783"},
+      {"path": "backend/modules/interaction/services.py", "symbol": "overview selection and lineage checks", "lines": "journey overview/revision selection methods"}
+    ],
+    "callers": [
+      {"path": "backend/modules/interaction/services.py", "symbol": "enqueue overview refresh after selected path formalization", "lines": "stop/partial completion callers"},
+      {"path": "backend/modules/interaction/tasks.py", "symbol": "handle_interaction_summary_refresh", "lines": "369-390"}
+    ],
+    "test_refs": [
+      {"path": "backend/modules/interaction/tests/test_services.py", "symbol": "overview lineage, manual authority and recovery tests"},
+      {"path": "backend/modules/interaction/tests/test_tasks.py", "symbol": "summary retries and bounded passes"}
+    ],
+    "proof_scope": "Static source/doc comparison only; summary accuracy and author experience were not tested.",
+    "read_depth": "Focused: summary task envelope, finalize path, revision lineage docs and caller references.",
+    "validation_identity": "P1 static audit at baseline 22bb499789cba89fea92e918fd853ab768688e07.",
+    "unknowns": ["Summary behavior with real providers and long user journeys was not exercised."],
+    "proposed_action": "Keep summary lineage and recovery details; continue to label semantic quality as unverified."
+  },
+  {
+    "claim_id": "L5-G-01",
+    "baseline_sha": "22bb499789cba89fea92e918fd853ab768688e07",
+    "domain": "feature-gates-and-revocation",
+    "doc_path": "docs/modules/20_assistant.md; docs/modules/21_collaboration.md; docs/modules/18_interaction.md",
+    "doc_section": "Assistant 主动检查与提醒/有限协作; Collaboration 自动跟进与恢复; Interaction 看海/Agent/ensemble",
+    "conclusion": "The inspected configuration defaults ASSISTANT_ENABLED, COLLABORATION_V2_ENABLED, each Assistant team blueprint switch, INTERACTION_AGENT_ENABLED, INTERACTION_TEAM_ENABLED and INTERACTION_FORECAST_ENABLED to false. Collaboration grant expiry/revocation or disabled features cancel unfinished work and generation-fence stale workers. Assistant watch policy is owner/project scoped and generation-versioned; disabling policy removes its due time, and jobs validate current policy/scope. RP source/reference mutations increment source_context_epoch; current attempts recheck it, while leaving the story page revokes future sea-loop authorization without cancelling the current step.",
+    "code_refs": [
+      {"path": "backend/core/config.py", "symbol": "assistant/collaboration/interaction feature defaults", "lines": "293-365"},
+      {"path": "backend/modules/collaboration/maintenance.py", "symbol": "stop_unavailable_runs", "lines": "19-114"},
+      {"path": "backend/modules/assistant/proactive.py", "symbol": "save_policy and watch generation", "lines": "93-170"},
+      {"path": "backend/modules/assistant/proactive.py", "symbol": "schedule_due active policy/owner validation", "lines": "290-355"},
+      {"path": "backend/modules/interaction/services.py", "symbol": "source/reference epoch increment", "lines": "270-404"},
+      {"path": "backend/modules/interaction/services.py", "symbol": "leave_story_page revokes future loop", "lines": "1219-1235"},
+      {"path": "backend/modules/interaction/generation.py", "symbol": "source/selection epoch check before finalize", "lines": "1023-1036"}
+    ],
+    "callers": [
+      {"path": "backend/modules/assistant/api.py", "symbol": "watch policy routes", "lines": "proactive policy API group"},
+      {"path": "backend/modules/interaction/api.py", "symbol": "journey source and leave-story-page routes", "lines": "source mutation and see-sea route groups"}
+    ],
+    "test_refs": [
+      {"path": "backend/modules/assistant/tests/test_proactive.py", "symbol": "test_failed_notice_recheck_keeps_old_budget_and_rejects_replay_or_revoked_scope"},
+      {"path": "backend/modules/assistant/tests/test_proactive.py", "symbol": "test_changes_are_authorized_coalesced_transactional"},
+      {"path": "backend/modules/collaboration/tests/test_maintenance.py", "symbol": "test_maintenance_cancels_execution_and_retains_trial_budget"},
+      {"path": "backend/modules/interaction/tests/test_sources.py", "symbol": "test_reference_control_uses_source_epoch_and_blocks_stale_writer"}
+    ],
+    "proof_scope": "Static config and source review only. Defaults are not live deployment settings; no revocation race was executed.",
+    "read_depth": "Focused: setting defaults, watch policy mutation/scheduling, collaboration maintenance and interaction source/loop revocation.",
+    "validation_identity": "P1 static audit at baseline 22bb499789cba89fea92e918fd853ab768688e07.",
+    "unknowns": ["Runtime environment overrides are unknown.", "No live watch or task was queried."],
+    "proposed_action": "Keep explicit default-off and revocation sections; phrase them as code/config defaults, not claims about deployed enablement."
+  }
+]

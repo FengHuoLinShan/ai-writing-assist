@@ -1,0 +1,196 @@
+{
+  "baseline": "22bb499789cba89fea92e918fd853ab768688e07",
+  "checked_at": "2026-10-14T10:16:22+08:00",
+  "registered_current_paths": 54,
+  "tracked_document_paths": 679,
+  "categories": {
+    "current_repository_governance": 7,
+    "task_record": 226,
+    "test_fixture": 5,
+    "current_registered": 54,
+    "restricted_runtime_evidence": 66,
+    "current_adjacent_or_guidance": 32,
+    "runtime_prompt_template": 18,
+    "dated_evidence_or_reference": 30,
+    "adr": 40,
+    "archive_or_legacy_reference": 147,
+    "historical_diagram_or_review": 6,
+    "plan": 41,
+    "derived_export": 2,
+    "adjacent_workflow_or_tool_reference": 5
+  },
+  "components": [
+    {
+      "name": "assistant",
+      "owner": "L5",
+      "source_roots": [
+        "backend/modules/assistant"
+      ],
+      "docs": [
+        "docs/modules/20_assistant.md",
+        "backend/modules/assistant/README.md"
+      ]
+    },
+    {
+      "name": "local_agent",
+      "owner": "L1",
+      "source_roots": [
+        "backend/modules/local_agent"
+      ],
+      "docs": [
+        "docs/modules/23_local_agent.md",
+        "backend/modules/local_agent/README.md"
+      ]
+    },
+    {
+      "name": "collaboration",
+      "owner": "L5",
+      "source_roots": [
+        "backend/modules/collaboration"
+      ],
+      "docs": [
+        "docs/modules/21_collaboration.md",
+        "backend/modules/collaboration/README.md"
+      ]
+    },
+    {
+      "name": "account",
+      "owner": "L1",
+      "source_roots": [
+        "backend/modules/account"
+      ],
+      "docs": [
+        "docs/modules/17_account.md",
+        "backend/modules/account/README.md"
+      ]
+    },
+    {
+      "name": "project",
+      "owner": "L1",
+      "source_roots": [
+        "backend/modules/project"
+      ],
+      "docs": [
+        "docs/modules/01_project.md",
+        "backend/modules/project/README.md"
+      ]
+    },
+    {
+      "name": "imports",
+      "owner": "L4",
+      "source_roots": [
+        "backend/modules/imports"
+      ],
+      "docs": [
+        "docs/modules/13_imports.md",
+        "backend/modules/imports/README.md"
+      ]
+    },
+    {
+      "name": "world",
+      "owner": "L3",
+      "source_roots": [
+        "backend/modules/world"
+      ],
+      "docs": [
+        "docs/modules/02_world.md",
+        "docs/modules/15_map.md",
+        "backend/modules/world/README.md"
+      ]
+    },
+    {
+      "name": "story",
+      "owner": "L2",
+      "source_roots": [
+        "backend/modules/story"
+      ],
+      "docs": [
+        "docs/modules/05_memory.md",
+        "docs/modules/07_outline.md",
+        "docs/modules/19_story.md",
+        "backend/modules/story/README.md"
+      ]
+    },
+    {
+      "name": "evidence",
+      "owner": "L4",
+      "source_roots": [
+        "backend/modules/evidence"
+      ],
+      "docs": [
+        "docs/modules/08_evidence.md",
+        "backend/modules/evidence/README.md",
+        "backend/modules/evidence/indexing/README.md",
+        "backend/modules/evidence/compilation/README.md"
+      ]
+    },
+    {
+      "name": "writing",
+      "owner": "L2",
+      "source_roots": [
+        "backend/modules/writing"
+      ],
+      "docs": [
+        "docs/modules/11_writing.md",
+        "backend/modules/writing/README.md"
+      ]
+    },
+    {
+      "name": "interaction",
+      "owner": "L5",
+      "source_roots": [
+        "backend/modules/interaction"
+      ],
+      "docs": [
+        "docs/modules/18_interaction.md",
+        "backend/modules/interaction/README.md"
+      ]
+    },
+    {
+      "name": "evolution",
+      "owner": "L3",
+      "source_roots": [
+        "backend/modules/evolution"
+      ],
+      "docs": [
+        "docs/modules/22_evolution.md",
+        "backend/modules/evolution/README.md"
+      ]
+    },
+    {
+      "name": "infrastructure",
+      "owner": "L6",
+      "source_roots": [
+        "backend/infrastructure"
+      ],
+      "docs": [
+        "docs/modules/12_infrastructure.md",
+        "backend/infrastructure/llm/README.md",
+        "backend/infrastructure/tasks/README.md"
+      ]
+    },
+    {
+      "name": "frontend",
+      "owner": "L7",
+      "source_roots": [
+        "frontend-console"
+      ],
+      "docs": [
+        "docs/modules/14_frontend.md",
+        "frontend-console/README.md"
+      ]
+    },
+    {
+      "name": "prompts",
+      "owner": "main",
+      "source_roots": [
+        "backend/prompts"
+      ],
+      "docs": [
+        "docs/prompts/Prompt体系设计.md"
+      ]
+    }
+  ],
+  "read_scope": "path inventory; not whole-file semantic audit",
+  "registered_docs_not_in_tree": []
+}

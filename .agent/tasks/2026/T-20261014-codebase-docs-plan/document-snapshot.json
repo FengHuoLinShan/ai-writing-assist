@@ -1,0 +1,141 @@
+{
+  "baseline_sha": "22bb499789cba89fea92e918fd853ab768688e07",
+  "tracked_documents_changed": 29,
+  "new_formal_documents": 4,
+  "new_current_registered": 3,
+  "business_source_config_tests_changed": false,
+  "files": [
+    {
+      "path": "CONTEXT.md",
+      "sha256": "caacd14596e1eb6973d62a91f57aeb0dc7a78c490f3dc98bf855991f37561884"
+    },
+    {
+      "path": "README.md",
+      "sha256": "c56cbacca6db2a875e598a73058069875eab68da3d5c28b5570a985574b95217"
+    },
+    {
+      "path": "backend/modules/account/README.md",
+      "sha256": "8410671c980e91aa54d4c3163506edf362df9bcea8f162cf2e2e8d21327eabe6"
+    },
+    {
+      "path": "backend/modules/imports/README.md",
+      "sha256": "73881040d8e66077e045b91171137f72f9fb26d7499a342279998f8dddbab048"
+    },
+    {
+      "path": "backend/modules/local_agent/README.md",
+      "sha256": "d96e6ceaf294539492ea8baa25e85e0ddd01aba156803387a6d03e27cd1b43c9"
+    },
+    {
+      "path": "development-guide.md",
+      "sha256": "0ec325fb2398dda2dbe9deec7d0552c5d5e76f92524c7f8be524d533b2cf0c31"
+    },
+    {
+      "path": "docs/00_整体设计.md",
+      "sha256": "e6a984ecffcf25e52e3ced08659e10246d840a50925ab497a827563db02fdc0d"
+    },
+    {
+      "path": "docs/01_数据库设计.md",
+      "sha256": "25b79dfc3aa131d72e00ab3a069ee3b2b721f60ffe611168669d9d699a6f98ef"
+    },
+    {
+      "path": "docs/README.md",
+      "sha256": "453be8a9beb3b6b0d940cbd0d6d40c675d531bac963420e2e2bf6c29d5c7b74a"
+    },
+    {
+      "path": "docs/adr/README.md",
+      "sha256": "198a67e95aaef02f9d0b834342d0b9e6383a8953dc877965a025c11a346fd5a6"
+    },
+    {
+      "path": "docs/architecture/README.md",
+      "sha256": "366ba274d6609517e91f6fed96f0099d64e40834fd98488e859a119e51470376"
+    },
+    {
+      "path": "docs/architecture/architecture-documents.toml",
+      "sha256": "edaef8aedfb7198f5eb5b699760d9d3d77b90de24ae79a921aa45a204cd2a1be"
+    },
+    {
+      "path": "docs/architecture/codebase-reading-guide.md",
+      "sha256": "df5dee377a27f4498f68abf28061376051d25ff5ad081e44a437c7f81e304d68"
+    },
+    {
+      "path": "docs/architecture/documentation-maintenance.md",
+      "sha256": "6d9e513bb019bb25fa071e1c9fe1df43c4c390e2df73266fbb2083a1ddbed6f2"
+    },
+    {
+      "path": "docs/architecture/module-architecture.drawio",
+      "sha256": "2545fea4be87f422cd3fbdaf12ed16c1e31908dd5c76b66cb35ce254d7e5655a"
+    },
+    {
+      "path": "docs/architecture/module-architecture.html",
+      "sha256": "9a7ba85bb61808ebf387cb7a1f808b402412fb7fbb76cff3965e21e5ed21a1d8"
+    },
+    {
+      "path": "docs/architecture/runtime-boundaries.drawio",
+      "sha256": "d61a4e444176c4cd4f32dd9ace26fd9be554077560c2e7d498f7fab78ca037d1"
+    },
+    {
+      "path": "docs/architecture/runtime-boundaries.html",
+      "sha256": "7809955b00b7211d1c539a9faa1d5cf62f2bc5e1132a3c38c55a567cd27a317e"
+    },
+    {
+      "path": "docs/modules/01_project.md",
+      "sha256": "d67ceb2cff1bc046f565d8f81bae4a8a9a9b5ded564c80a0efbd72e51fdd5ba3"
+    },
+    {
+      "path": "docs/modules/02_world.md",
+      "sha256": "5ad7a6a726e9439997df7624bda3d9cf3a4c0b7406fc1d0cd202303749179aab"
+    },
+    {
+      "path": "docs/modules/07_outline.md",
+      "sha256": "819a1048f92fe08c09c03b907f585fd69a4260ae067d30421ac676db9d7fbfc6"
+    },
+    {
+      "path": "docs/modules/08_evidence.md",
+      "sha256": "36a9e02b0b61922cf8a174b12182c75bea8d947c85328386e4e65302ea2ff0c9"
+    },
+    {
+      "path": "docs/modules/11_writing.md",
+      "sha256": "123b41216c94719f501856c309a5b1ff8998f4d2880fe5019e1e70d284d30c88"
+    },
+    {
+      "path": "docs/modules/15_map.md",
+      "sha256": "b13c41ce1c8378c212ba601e4d6ff6a46f97d5c78165540ac37f0061f473f6d8"
+    },
+    {
+      "path": "docs/modules/17_account.md",
+      "sha256": "aaf269e31191949cfb742352443107c19e2c1f60452843b78fcceba304ceaa1b"
+    },
+    {
+      "path": "docs/modules/18_interaction.md",
+      "sha256": "bcfc15794c676db492b3285f80582810ceb7c6acc2741309d757568345bd1b70"
+    },
+    {
+      "path": "docs/modules/22_evolution.md",
+      "sha256": "bfad46e458872da3239ad48aad1a8943e1855047ca3cc48889434a01c3a17fd9"
+    },
+    {
+      "path": "docs/modules/23_local_agent.md",
+      "sha256": "c8186a0c32426b6e20c69d3c87d3ebfe3c634fa060ee1cb8f9fab40a8972da2d"
+    },
+    {
+      "path": "docs/plans/2026-10-14-codebase-documentation-refresh.md",
+      "sha256": "04d8658443190673ee3767d0f0457c735ad6815fc3b8dcd9b3adfadb17f58170"
+    },
+    {
+      "path": "docs/product/new-user-guide.md",
+      "sha256": "4b6228cd41b1103f0ec8689c0428100fd4222b411950042e538848230e614ecb"
+    },
+    {
+      "path": "docs/product/word-guide-source.md",
+      "sha256": "f36b4a2a443e838a2d5aaf6f12837d0b30db3c061985882c1d8e2c2b7f29c43a"
+    },
+    {
+      "path": "docs/核心业务场景与预期行为.md",
+      "sha256": "d918512a46b0de4312391dc36e48c3f2eb907e204804540bf558debb1f12a18d"
+    },
+    {
+      "path": "testing-guide.md",
+      "sha256": "0df261d1b31cb4779771ce61ae1bfa5694a58e4349ed6d648fc3d672ac8a8b81"
+    }
+  ]
+}

@@ -1,0 +1,29 @@
+{
+  "baseline_sha": "22bb499789cba89fea92e918fd853ab768688e07",
+  "claims": 72,
+  "role_claims": {
+    "L1": 8,
+    "L2": 13,
+    "L3": 12,
+    "L4": 11,
+    "L5": 13,
+    "L6": 8,
+    "L7": 7
+  },
+  "claim_decisions": {
+    "retained_with_limits": 43,
+    "updated": 26,
+    "unknown_runtime_connection_no_call": 1,
+    "coverage_gap_recorded_no_test_added": 2
+  },
+  "baseline_document_paths": 679,
+  "new_registered_documents": 3,
+  "registered_documents_now": 57,
+  "source_paths": 1381,
+  "source_grades": {
+    "inventory_only": 1229,
+    "targeted_sections": 152
+  },
+  "read_scope": "L1-L7 claim-linked key workflows; excludes extra main/R1/R2 reads; not whole codebase line-by-line audit",
+  "checks": "tests are source references unless role validation explicitly records a command"
+}

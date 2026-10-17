@@ -1,0 +1,203 @@
+{
+  "baseline_sha": "22bb499789cba89fea92e918fd853ab768688e07",
+  "validation_identity": "固定基线源码静态核对；本轮仅执行 make prompt-contracts（26 contracts）；其它测试、CI、数据库、模型、备份、恢复与部署均未运行。未读取 env/secrets、真实稿件、原始模型 I/O 或私有数据库。",
+  "claims": [
+    {
+      "claim_id": "L6-DI-COMPOSITION-ROOT",
+      "baseline_sha": "22bb499789cba89fea92e918fd853ab768688e07",
+      "domain": "DI composition root and typed service keys",
+      "doc_path": "development-guide.md",
+      "doc_section": "Module Boundary Rules / DI port registration",
+      "conclusion": "API app.main 与 worker startup 都调用 app.bootstrap.register_container_services 装配模块服务；worker 随后注册 task handlers。生产消费路径使用 core.service_keys 的 ServiceKey 常量，容器运行期以稳定的 key.name 字符串索引，裸字符串只保留兼容入口。当前文档把装配归于 app.main / worker startup，方向正确但可以指向统一组合根函数。ADR-0031 称注册字符串键只描述运行期存储，若补充类型化常量与稳定字符串名的区别即可，依赖方向决定不变。",
+      "code_refs": [
+        {"path": "backend/app/bootstrap.py", "symbol": "register_container_services", "line": 567},
+        {"path": "backend/app/main.py", "symbol": "app startup calls register_container_services", "line": 53},
+        {"path": "backend/run_worker.py", "symbol": "_configure_worker_process", "line": 57},
+        {"path": "backend/core/container.py", "symbol": "ServiceKey/_key_name/register/get", "line": 28},
+        {"path": "backend/core/service_keys.py", "symbol": "typed DI key registry", "line": 1}
+      ],
+      "callers": ["FastAPI application startup", "worker process startup", "production modules consuming typed ServiceKey constants"],
+      "test_refs/proof_scope": [
+        {"path": "backend/core/tests/", "scope": "DI tests were located/read as repository context only; not run in this research."}
+      ],
+      "read_depth": "Read composition root, API startup, worker startup, container and typed service-key registry; did not enumerate every registration or consumer.",
+      "validation_identity": "Static source inspection at baseline B; no tests run.",
+      "unknowns": ["No running API or worker process inspected; runtime registration was inferred from startup source."],
+      "proposed_action": "Make only a precise development-guide clarification naming app.bootstrap.register_container_services and ServiceKey/key.name. Clarify ADR-0031 wording if editing that ADR is in scope; preserve its dependency-direction decision."
+    },
+    {
+      "claim_id": "L6-TASK-IDENTITY-AND-LEASE-RECOVERY",
+      "baseline_sha": "22bb499789cba89fea92e918fd853ab768688e07",
+      "domain": "task API identity, worker revalidation, lease fencing, and recovery policy",
+      "doc_path": "backend/infrastructure/tasks/README.md",
+      "doc_section": "task submission, worker execution, stale recovery and manual resume",
+      "conclusion": "公开任务提交先按 task definition 的 schema 校验 meta；project task 必须带 novel_id，并经 PROJECT_REQUIRE_ACTIVE 检查。状态、取消和 retry 查询同时约束 task_id 与 novel_id；入队时将 novel_id 固化到权威列，更新时拒绝改变该身份。worker 在显式 system_execution_scope 中工作，但每个 task 仍经过 project preflight；handler checkpoint/finalize 经项目 guard 和 lease_id fencing。领取新 attempt 会建立租约身份；旧 lease 的心跳、checkpoint 或 finalize 不能提交。stale 任务按声明的 auto_requeue/manual_resume/restart_origin/never_retry policy 分流，manual resume 保留原 workflow run 与预算语义。现有 task README 与 docs/modules/12_infrastructure.md 对这些边界总体准确。",
+      "code_refs": [
+        {"path": "backend/infrastructure/tasks/api.py", "symbol": "submit_task", "line": 236},
+        {"path": "backend/infrastructure/tasks/api.py", "symbol": "get_task_status novel_id filter", "line": 357},
+        {"path": "backend/infrastructure/tasks/api.py", "symbol": "retry_task novel_id filter", "line": 447},
+        {"path": "backend/infrastructure/tasks/models.py", "symbol": "_freeze_task_identity/_reject_task_identity_change", "line": 207},
+        {"path": "backend/run_worker.py", "symbol": "_require_active_task_project/_guard_active_task_project_finalize", "line": 45},
+        {"path": "backend/infrastructure/tasks/worker.py", "symbol": "run_once/run_forever system scope", "line": 620},
+        {"path": "backend/infrastructure/tasks/worker.py", "symbol": "_checkpoint_handler_commit", "line": 775},
+        {"path": "backend/infrastructure/tasks/worker.py", "symbol": "task preflight and run-envelope lease fence", "line": 911},
+        {"path": "backend/infrastructure/tasks/lifecycle.py", "symbol": "claim_next", "line": 1047},
+        {"path": "backend/infrastructure/tasks/lifecycle.py", "symbol": "recover_stale/_transition_stale", "line": 1433},
+        {"path": "backend/infrastructure/tasks/lifecycle.py", "symbol": "resume/retry", "line": 262}
+      ],
+      "callers": ["public task submit/status/cancel/retry API", "run_worker task composition", "TaskWorker claim/handler/checkpoint/finalize", "task lifecycle recovery operations"],
+      "test_refs/proof_scope": [
+        {"path": "backend/infrastructure/tasks/tests/", "scope": "Task API, lease, stale recovery and lifecycle tests were inspected as source references only; no tests executed."},
+        {"path": "backend/modules/project/tests/test_require_active_project_owner_gate.py", "scope": "Owner/system execution boundary test location; not run."}
+      ],
+      "read_depth": "Targeted API, model identity hooks, worker scope/preflight/checkpoint, worker composition and lifecycle claim/recovery/resume paths; not a full concurrency or transaction audit.",
+      "validation_identity": "Fixed baseline B source inspection; tests not run.",
+      "unknowns": ["No live account, task row, worker lease, database, or deployed process was inspected.", "This inspection does not prove production worker count or that current records satisfy the invariant."],
+      "proposed_action": "Keep the existing task identity, preflight and recovery documentation. Avoid describing system worker scope as an owner bypass; state that it is an explicit execution principal with task project preflight and commit fencing if this boundary is summarized centrally."
+    },
+    {
+      "claim_id": "L6-UNKNOWN-USAGE-ENVELOPE",
+      "baseline_sha": "22bb499789cba89fea92e918fd853ab768688e07",
+      "domain": "LLM request accounting and recoverable unknown usage",
+      "doc_path": "infrastructure/llm/README.md",
+      "doc_section": "workflow budget, run envelope and unknown request usage",
+      "conclusion": "受控任务在 provider I/O 前 reserve AI run envelope，完整 usage receipt 才 settle 为 recorded。请求发出后若响应或 usage 证据不完整，状态归入 requests_unknown / charge_state=possible / usage_complete=false，而不是按零费用结算。取消、崩溃、超时、stale attempt 与恢复路径会合并未 settle 请求；run envelope 按 lease fencing 存在 task 私有 meta，不公开投影。普通 retry、manual resume 与 inline child 共用累计预算，只有作者显式续算可增加预算。L6 对 infrastructure/llm 与 tasks README 的当前描述未发现需要改正的漂移。",
+      "code_refs": [
+        {"path": "backend/infrastructure/llm/workflow_budget.py", "symbol": "reserve", "line": 354},
+        {"path": "backend/infrastructure/llm/workflow_budget.py", "symbol": "settle", "line": 449},
+        {"path": "backend/infrastructure/llm/workflow_budget.py", "symbol": "unknown usage states", "line": 469},
+        {"path": "backend/infrastructure/llm/client.py", "symbol": "provider request and usage receipt handling", "line": 579},
+        {"path": "backend/infrastructure/tasks/worker.py", "symbol": "TaskRunEnvelopeKeeper", "line": 314},
+        {"path": "backend/infrastructure/tasks/worker.py", "symbol": "lease-fenced envelope persistence before handler", "line": 921}
+      ],
+      "callers": ["workflow budget reservation and settlement", "LLM client provider-call wrapper", "TaskWorker run envelope keeper", "task retry/resume lifecycle"],
+      "test_refs/proof_scope": [
+        {"path": "backend/infrastructure/llm/tests/", "scope": "Budget/client tests were identified as source context only; not executed."},
+        {"path": "backend/infrastructure/tasks/tests/", "scope": "Task attempt/recovery tests were not executed."}
+      ],
+      "read_depth": "Targeted budget reserve/settle, client accounting, worker run-envelope persistence and lifecycle summaries; not all providers or every handler call site.",
+      "validation_identity": "Static inspection at B; no provider or database calls. No tests run.",
+      "unknowns": ["No real request, charge ledger, account usage, or provider receipt inspected.", "No live recovery attempt was exercised."],
+      "proposed_action": "Retain the explicit unknown/possible accounting state and recovery rules in the current infra and task docs; do not simplify unknown usage to zero or duplicate the envelope contract in a second document."
+    },
+    {
+      "claim_id": "L6-PROJECT-LLM-SNAPSHOT",
+      "baseline_sha": "22bb499789cba89fea92e918fd853ab768688e07",
+      "domain": "Project owner configuration and secret-free resumable LLM snapshot",
+      "doc_path": "infrastructure/llm/README.md",
+      "doc_section": "Project LLM client and execution snapshot",
+      "conclusion": "project.facade.open_project_llm_client 是 novel_id 业务 LLM 路径；Project runtime 根据项目 owner 从当前已验证账户连接解析 provider profile。可恢复任务的 execution snapshot 冻结 provider/model、非 secret 参数、endpoint/extra hash、capability、cost routing 与项目 workflow 设置，不保存 API Key、完整 endpoint 或 arbitrary extra。恢复校验快照版本、novel_id、hash、原 provider 连接以及 endpoint/extra 指纹；Key 轮换后使用当前 Key，连接清除或配置指纹改变会失败关闭。旧 capability 缺失只可走明确的 legacy fallback，不能声称原预算能力已验证。既有 infrastructure/llm 文档主体准确。",
+      "code_refs": [
+        {"path": "backend/modules/project/llm_runtime.py", "symbol": "build_project_llm_execution_snapshot", "line": 94},
+        {"path": "backend/modules/project/llm_runtime.py", "symbol": "restore_project_llm_execution_settings", "line": 188},
+        {"path": "backend/modules/project/llm_runtime.py", "symbol": "open_project_llm_client", "line": 368},
+        {"path": "backend/modules/project/facade.py", "symbol": "Project LLM public facade exports", "line": 116},
+        {"path": "backend/modules/project/services.py", "symbol": "get_project_context/require_active_project", "line": 595}
+      ],
+      "callers": ["Writing task handlers", "Assistant task handlers", "World task handlers", "registered Collaboration workflow handlers", "recovery code restoring project execution settings"],
+      "test_refs/proof_scope": [
+        {"path": "backend/modules/project/tests/test_llm_runtime.py", "symbol": "snapshot restoration, provider/profile and cross-owner assertions", "scope": "Test source inspected; not run. Includes test_browser_runtime_cannot_open_another_owners_project."}
+      ],
+      "read_depth": "Read runtime profile resolution, snapshot create/restore/client paths, facade exports and representative call families; not every task handler.",
+      "validation_identity": "Fixed B static source inspection; no account connection, key, env or model call inspected/executed.",
+      "unknowns": ["No current provider connection or key rotation state inspected.", "No task was resumed against a live account."],
+      "proposed_action": "Keep the existing Project facade and secret-free snapshot contract. Do not migrate business calls to environment-selected clients or imply that a stored snapshot contains credentials."
+    },
+    {
+      "claim_id": "L6-EVAL-PAUSE-PREFLIGHT",
+      "baseline_sha": "22bb499789cba89fea92e918fd853ab768688e07",
+      "domain": "live model evaluation pause and isolated environment",
+      "doc_path": "testing-guide.md",
+      "doc_section": "评测环境与模型调用门禁",
+      "conclusion": "Makefile eval targets isolate UV_PROJECT_ENVIRONMENT under backend/.venv-eval and use locked dependencies, separate from the backend development/CI environment. require_live_eval_calibration raises before Codex CLI spawn. Ask World teacher calls the guard before creating a holdout run marker; the DeepSeek reviewer branch guards before database initialization. ProjectStructuredExecutor exists and its unit tests cover the Project facade seam, but the fixed-B production CLI does not call it; this does not prove the reviewer has been migrated. Deterministic QC/report/cache-only replay remain separate. testing-guide already accurately pauses live standalone evaluation and requires migration through verified owner/Project runtime plus recalibration. A concise optional doc note may identify the preflight locations and explicitly distinguish unit coverage from CLI wiring. No eval command was run.",
+      "code_refs": [
+        {"path": "Makefile", "symbol": "BACKEND_EVAL_ENV and eval environment", "line": 16},
+        {"path": "backend/evals/codex_executor.py", "symbol": "require_live_eval_calibration", "line": 29},
+        {"path": "backend/evals/codex_executor.py", "symbol": "CodexStructuredExecutor.generate_structured guard", "line": 110},
+        {"path": "backend/evals/ask_world.py", "symbol": "teacher calibration guard before holdout marker", "line": 868},
+        {"path": "backend/evals/cli.py", "symbol": "DeepSeek reviewer calibration guard", "line": 1837},
+        {"path": "backend/evals/project_executor.py", "symbol": "ProjectStructuredExecutor", "line": 22}
+      ],
+      "callers": ["Makefile eval targets", "standalone Codex executor", "Ask World teacher evaluation", "CLI model-review evaluator branch", "ProjectStructuredExecutor test seam"],
+      "test_refs/proof_scope": [
+        {"path": "backend/evals/tests/", "scope": "Eval pause and executor tests were inspected as source references only; not run."}
+      ],
+      "read_depth": "Read Makefile eval environment, guard, Ask World/CLI call sites and Project executor presence; static search found no production CLI call to ProjectStructuredExecutor.",
+      "validation_identity": "Fixed B static source inspection; no eval/provider/database/holdout run performed.",
+      "unknowns": ["No independent eval venv was created or validated at runtime.", "No live evaluation was started; quality/cost recalibration remains unverified."],
+      "proposed_action": "Keep the existing pause and migration requirement. Optionally state that CLI preflight occurs before provider/database/holdout side effects and that ProjectStructuredExecutor tests do not establish production CLI wiring."
+    },
+    {
+      "claim_id": "L6-PROMPT-STATIC-CONTRACTS",
+      "baseline_sha": "22bb499789cba89fea92e918fd853ab768688e07",
+      "domain": "registered prompt-contract and capability-binding static validation",
+      "doc_path": "docs/prompts/Prompt体系设计.md",
+      "doc_section": "合约校验、覆盖范围与限制",
+      "conclusion": "Prompt contract check reads the registered JSON contract set, validates its Pydantic schemas, critical persistence mappings/target columns and deterministic probes, then checks production-module capability bindings via AST. `make prompt-contracts` was actually run in this task and returned exit code 0 with `Prompt contracts passed (26 contracts)`. The result covers those registered contracts and static mappings only: it does not call a model or database, and it does not prove semantic prompt quality or exhaustive correctness of arbitrary inline prompt text. No template or contract was edited. The Prompt design document accurately describes the validation scope and limits.",
+      "code_refs": [
+        {"path": "backend/tools/prompt_contracts/__main__.py", "symbol": "_check", "line": 39},
+        {"path": "backend/tools/prompt_contracts/validators.py", "symbol": "validate_contracts", "line": 37},
+        {"path": "backend/tools/prompt_contracts/capability_bindings.py", "symbol": "validate_capability_bindings", "line": 230},
+        {"path": "Makefile", "symbol": "prompt-contracts target", "line": 62}
+      ],
+      "callers": ["make prompt-contracts", "python -m tools.prompt_contracts check", "registered contract JSON/schema/probe validation", "production module capability binding scan"],
+      "test_refs/proof_scope": [
+        {"path": "backend/tools/prompt_contracts/", "scope": "Static registry/schema/mapping/probe/AST check executed; 26 contracts passed. No model, DB or semantic quality validation."}
+      ],
+      "read_depth": "Read command entry point, contract validator, capability binding validator and Prompt system documentation; did not audit every prompt call site or template semantically.",
+      "validation_identity": "At fixed B, ran `make prompt-contracts`; exit code 0, output `Prompt contracts passed (26 contracts)`. This is the only executable validation run for L6.",
+      "unknowns": ["Semantic quality, real-model behavior and database persistence are untested.", "The 26 registered contracts are not an exhaustive inventory of all inline prompt text."],
+      "proposed_action": "Preserve the current contract coverage and its limits in Prompt docs. Do not translate this static pass into a claim of model or author acceptance."
+    },
+    {
+      "claim_id": "L6-RELEASE-AND-BACKUP-BOUNDARY",
+      "baseline_sha": "22bb499789cba89fea92e918fd853ab768688e07",
+      "domain": "fixed-SHA release and differentiated PostgreSQL/MinIO recovery",
+      "doc_path": "deploy/README.md",
+      "doc_section": "发布、PostgreSQL 备份与 MinIO 图片存储",
+      "conclusion": "release.sh accepts only a lowercase 40-character commit SHA, resolves it exactly and requires reachability from origin/main; the release build context is tied to the selected tracked commit and script gates include environment/migration preflight, service drain, database backup/restore drill and health checks. backup.sh creates a custom-format PostgreSQL dump and checksum pair, validates the archive, then requires a configured restic repository and stores the pair in B2 with retention of 7 daily, 4 weekly and 6 monthly snapshots. Production MinIO is single-node with one named data volume; deployment docs explicitly say no external image backup exists and disk loss can destroy map/object images. Database backup cannot restore these images. Deploy/backup docs accurately preserve this risk boundary. These are repository script contracts only; no script or live host was inspected at runtime.",
+      "code_refs": [
+        {"path": "deploy/scripts/release.sh", "symbol": "release SHA validation and origin/main reachability", "line": 9},
+        {"path": "deploy/scripts/release.sh", "symbol": "release preflight and migration compatibility", "line": 29},
+        {"path": "deploy/scripts/backup.sh", "symbol": "PostgreSQL custom dump and archive verification", "line": 77},
+        {"path": "deploy/scripts/backup.sh", "symbol": "restic B2 backup and retention", "line": 103},
+        {"path": "deploy/compose.production.yml", "symbol": "single MinIO service and minio-data volume", "line": 169},
+        {"path": "deploy/README.md", "symbol": "MinIO image backup boundary", "line": 80},
+        {"path": "deploy/README.md", "symbol": "PostgreSQL/B2 backup procedure and retention", "line": 318}
+      ],
+      "callers": ["operator invoking deploy/scripts/release.sh with a fixed SHA", "scheduled/manual PostgreSQL backup script", "production MinIO object storage service"],
+      "test_refs/proof_scope": [
+        {"path": "deploy/tests/", "scope": "Deployment contract tests were not executed. Source scripts and README were read only."}
+      ],
+      "read_depth": "Read release and backup scripts, production Compose MinIO service, and deploy README backup/storage sections; no server or backup artifact inspected.",
+      "validation_identity": "Static inspection at fixed B; no deployment, PostgreSQL, restic, MinIO, backup or restore execution.",
+      "unknowns": ["Current deployment SHA, service state, backup freshness, B2 reachability and restore success are unknown.", "MinIO data durability and actual disks are not verified from source configuration."],
+      "proposed_action": "Retain the fixed-SHA release rule and explicit PostgreSQL versus MinIO recovery distinction. Label any future operational status as unverified until live evidence is collected; do not describe the single-disk image store as backed up."
+    },
+    {
+      "claim_id": "L6-PROXY-TOPOLOGY-AND-CAPACITY",
+      "baseline_sha": "22bb499789cba89fea92e918fd853ab768688e07",
+      "domain": "declared ingress topology, outbound proxy settings and process-local capacity",
+      "doc_path": "docs/modules/12_infrastructure.md",
+      "doc_section": "任务 worker 与 LLM 并发/进程级配额",
+      "conclusion": "deploy/README records the target ingress path Cloudflare Tunnel → 1Panel OpenResty → loopback API/frontend and private data services on the internal network; this is repository-declared topology, not a live host observation. LLM_TRUST_ENV defaults false and LLM_PROXY_URL defaults empty; production Compose explicitly sets trust-env false and allows an explicit proxy URL. LLM request concurrency and worker task concurrency are process-local settings: core defaults are 8 and 2, production Compose defaults are 4 and 1, while RPM is required in the production environment. These settings may be overridden, and Compose service declarations do not establish actual instance count, account-wide aggregate throughput, current provider quota, or effective egress route. Existing docs/modules/12_infrastructure.md already calls out process-local limits and multi-process amplification; preserve that limit. Actual proxy configuration and total worker capacity remain unknown because env and live runtime were not read.",
+      "code_refs": [
+        {"path": "deploy/README.md", "symbol": "declared public ingress topology", "line": 6},
+        {"path": "backend/core/config.py", "symbol": "LLM_TRUST_ENV and LLM_PROXY_URL defaults", "line": 374},
+        {"path": "backend/core/config.py", "symbol": "LLM concurrency and RPM defaults", "line": 391},
+        {"path": "backend/core/config.py", "symbol": "TASK_WORKER_MAX_CONCURRENT_TASKS default", "line": 488},
+        {"path": "deploy/compose.production.yml", "symbol": "production LLM and worker concurrency/RPM settings", "line": 23},
+        {"path": "deploy/compose.production.yml", "symbol": "MinIO internal data network", "line": 169}
+      ],
+      "callers": ["deployment Compose configuration", "LLM client HTTP transport configuration", "per-process LLM concurrency limiter", "per-process TaskWorker concurrency limiter"],
+      "test_refs/proof_scope": [
+        {"path": "backend/core/tests/", "scope": "Config and concurrency tests were not executed; source defaults only."},
+        {"path": "docs/modules/12_infrastructure.md", "scope": "Existing process-local capacity and multiprocess amplification documentation read; no live-capacity proof."}
+      ],
+      "read_depth": "Read relevant config fields, production Compose overrides and deployment topology documentation. Did not read env files or inspect live containers/network.",
+      "validation_identity": "Fixed B static inspection; deliberately no env/secrets or production system access.",
+      "unknowns": ["Actual deployment overrides, effective proxy path, running process count and provider quota are unknown.", "Account-wide aggregate worker concurrency/RPM cannot be inferred from repository defaults."],
+      "proposed_action": "Keep documented capacity as per-process defaults/limits and preserve the explicit unknown on total account capacity. Do not turn config defaults or the declared proxy topology into claims about live production."
+    }
+  ]
+}

@@ -1,0 +1,153 @@
+kind,branch,head,ahead,behind,unmatched_patches,equivalent_patches,classification,basis,worktrees,dirty_files,remote_state
+local,archive/apple-style-redesign,a6c0b9ac122e,3,1219,3,0,保留归档,历史方案/检查点，不直接合并,,0,local
+local,archive/m4-dsh-plugin-rewrite,8ce7d0f7ba29,29,1550,29,0,保留归档,历史方案/检查点，不直接合并,,0,local
+local,archive/repo-formatting-wip-20260915,6cba0f4cc918,1,1023,1,0,保留归档,历史方案/检查点，不直接合并,,0,local
+local,archive/world-model-evolution-research,9a7e3fe22c09,1,1451,1,0,保留归档,历史方案/检查点，不直接合并,,0,local
+local,codex/architecture-diagrams-refresh,9dd03eb7725f,0,444,0,0,已交付（祖先）,HEAD已由origin/main包含；不核销未提交WIP,/Users/tywww/.codex/worktrees/world-evolution-phase4-consolidation/ai-writing-assist,0,local
+local,codex/assistant-goal-run-impl,90c4d077e013,0,227,0,0,已交付（祖先）,HEAD已由origin/main包含；不核销未提交WIP,,0,local
+local,codex/assistant-goal-run-review,605a29858716,0,211,0,0,已交付（祖先）,HEAD已由origin/main包含；不核销未提交WIP,,0,local
+local,codex/audit-followup-plan,ab22fce43797,6,442,6,0,完成记录待交付,计划/历史合并记录可交付；第三批实测未完成，保持active,/Users/tywww/项目/ai-writing-assist/.worktrees/audit-followup,0,local
+local,codex/audit-review-fixes,d065c54607f9,16,405,8,0,已交付（PR合并）,PR #241固定head已合入,,0,local
+local,codex/audit-wave3-canon-baseline,20da12570442,2,402,2,0,已交付（PR后继）,PR #248重基/修正后合入；旧HEAD非逐补丁相同，保留不回灌,/Users/tywww/项目/ai-writing-assist/.worktrees/wave3-g8c,0,local
+local,codex/audit-wave3-evidence,cbe345504560,3,402,3,0,未完成保留,A2/G7b/P4-E终验未签收；三个新补丁与运行记录不纳入本轮,/Users/tywww/项目/ai-writing-assist/.worktrees/wave3-evidence,0,local
+local,codex/audit-wave3-g7-review,1c2840154ff6,1,403,0,1,已交付（补丁等价）,git cherry origin/main全部为-，不重复合并,/Users/tywww/项目/ai-writing-assist/.worktrees/wave3-g7-review,0,local
+local,codex/audit-wave3-guimi-v3,4efe7f21a086,0,403,0,0,已交付（祖先）,HEAD已由origin/main包含；不核销未提交WIP,/Users/tywww/项目/ai-writing-assist/.worktrees/wave3-guimi-v3,6,local
+local,codex/audit-wave3-httpx2,bb762f04e655,2,404,2,0,已交付（PR后继）,PR #246重基/修正后合入；旧HEAD非逐补丁相同，保留不回灌,/Users/tywww/项目/ai-writing-assist/.worktrees/wave3-http,0,local
+local,codex/audit-wave3-images,3d586697fdf6,0,402,0,0,已交付（祖先）,HEAD已由origin/main包含；不核销未提交WIP,/Users/tywww/项目/ai-writing-assist/.worktrees/wave3-r2,0,local
+local,codex/audit-wave3-r1,21816b972284,1,404,0,1,已交付（补丁等价）,git cherry origin/main全部为-，不重复合并,/Users/tywww/项目/ai-writing-assist/.worktrees/wave3-r1,3,local
+local,codex/author-interaction-operations-impl,e68e35308dc7,1,204,0,1,已交付（补丁等价）,git cherry origin/main全部为-，不重复合并,/Users/tywww/项目/ai-writing-assist/.worktrees/map-assistant-review,0,local
+local,codex/author-operations-review,64a99091272e,0,164,0,0,已交付（祖先）,HEAD已由origin/main包含；不核销未提交WIP,/Users/tywww/项目/ai-writing-assist/.worktrees/author-operations-review,0,local
+local,codex/authoring-quality-eval-guard,f9ef3d2d61eb,0,100,0,0,已交付（祖先）,HEAD已由origin/main包含；不核销未提交WIP,/Users/tywww/项目/ai-writing-assist/.worktrees/world-object-dossier-impl,0,local
+local,codex/borrow-br3,12afee213039,0,566,0,0,已交付（祖先）,HEAD已由origin/main包含；不核销未提交WIP,,0,local
+local,codex/borrow-br4,3297f2a9b3a3,0,566,0,0,已交付（祖先）,HEAD已由origin/main包含；不核销未提交WIP,,0,local
+local,codex/borrow-br5,6e3275c884b2,0,563,0,0,已交付（祖先）,HEAD已由origin/main包含；不核销未提交WIP,,0,local
+local,codex/borrow-br6,f421618ec2a1,0,566,0,0,已交付（祖先）,HEAD已由origin/main包含；不核销未提交WIP,,0,local
+local,codex/borrow-tails,1bb24d46cec2,0,548,0,0,已交付（祖先）,HEAD已由origin/main包含；不核销未提交WIP,,0,local
+local,codex/capability-tail-fixes,7903bd03186b,3,443,3,0,已交付（PR合并）,PR #222固定head已合入,,0,local
+local,codex/chapter-order-timeline-impl,e50d46733dae,0,136,0,0,已交付（祖先）,HEAD已由origin/main包含；不核销未提交WIP,/Users/tywww/项目/ai-writing-assist/.worktrees/map-assistant-vocab-review,0,local
+local,codex/chapter-order-timeline-review,ebff5e2628cc,0,111,0,0,已交付（祖先）,HEAD已由origin/main包含；不核销未提交WIP,/Users/tywww/项目/ai-writing-assist/.worktrees/map-spatial-eval-review,0,local
+local,codex/codex-luna-runtime,974f0f5080d4,0,443,0,0,已交付（祖先）,HEAD已由origin/main包含；不核销未提交WIP,,0,local
+local,codex/copilot-alignment-review,954e029f9add,0,125,0,0,已交付（祖先）,HEAD已由origin/main包含；不核销未提交WIP,/Users/tywww/项目/ai-writing-assist/.worktrees/map-clue-review,0,local
+local,codex/copilot-mechanism-alignment-impl,f1d90e416b6c,0,143,0,0,已交付（祖先）,HEAD已由origin/main包含；不核销未提交WIP,/Users/tywww/项目/ai-writing-assist/.worktrees/simulation-v3-director-impl,0,local
+local,codex/copilot-ui-integration-review,55306b885559,9,247,1,7,已交付（后继修正）,同主题完整实现由main提交 32e63b630 收敛，旧补丁不重复,,0,local
+local,codex/copilot-unified-ui,a212d9faa4aa,2,275,0,2,已交付（补丁等价）,git cherry origin/main全部为-，不重复合并,,0,local
+local,codex/director-scales-plan,a479e006bc33,0,21,0,0,已交付（祖先）,HEAD已由origin/main包含；不核销未提交WIP,/Users/tywww/项目/ai-writing-assist/.worktrees/director-scales-plan,6,local
+local,codex/docs-refresh-l1,22bb499789cb,0,442,0,0,已交付（祖先）,HEAD已由origin/main包含；不核销未提交WIP,,0,local
+local,codex/docs-refresh-l2,22bb499789cb,0,442,0,0,已交付（祖先）,HEAD已由origin/main包含；不核销未提交WIP,,0,local
+local,codex/docs-refresh-l3,22bb499789cb,0,442,0,0,已交付（祖先）,HEAD已由origin/main包含；不核销未提交WIP,,0,local
+local,codex/docs-refresh-l4,22bb499789cb,0,442,0,0,已交付（祖先）,HEAD已由origin/main包含；不核销未提交WIP,,0,local
+local,codex/docs-refresh-l5,22bb499789cb,0,442,0,0,已交付（祖先）,HEAD已由origin/main包含；不核销未提交WIP,,0,local
+local,codex/docs-refresh-l6,22bb499789cb,0,442,0,0,已交付（祖先）,HEAD已由origin/main包含；不核销未提交WIP,,0,local
+local,codex/docs-refresh-l7,22bb499789cb,0,442,0,0,已交付（祖先）,HEAD已由origin/main包含；不核销未提交WIP,,0,local
+local,codex/docs-refresh-luna,22bb499789cb,0,442,0,0,已交付（祖先）,HEAD已由origin/main包含；不核销未提交WIP,/Users/tywww/.codex/worktrees/docs-refresh-luna/ai-writing-assist,67,local
+local,codex/dossier-template-interchange-impl,b4381119fc03,0,169,0,0,已交付（祖先）,HEAD已由origin/main包含；不核销未提交WIP,,0,local
+local,codex/dossier-template-interchange-review,008d515a07aa,0,157,0,0,已交付（祖先）,HEAD已由origin/main包含；不核销未提交WIP,,0,local
+local,codex/editorial-diagnosis-v1,dc0966c2f218,22,395,22,0,已完成待交付,v1/v4实现、冻结门槛与回归已完成；本轮新main集成验证,/Users/tywww/项目/ai-writing-assist/.worktrees/editorial-diagnosis-v1,0,local
+local,codex/g2-codex-luna-convergence,32677275de37,8,441,7,0,已交付（PR后继）,PR #226重基/修正后合入；旧HEAD非逐补丁相同，保留不回灌,,0,local
+local,codex/g6b-recalibration,d2ab2dbf3c78,0,404,0,0,已交付（祖先）,HEAD已由origin/main包含；不核销未提交WIP,/Users/tywww/.codex/worktrees/g6b-recalibration/ai-writing-assist,28,local
+local,codex/guided-flow-borrowing,cd4bf9705f42,8,443,8,0,完成记录待交付,选择任务/审查资料；规则去重可交付；旧运行时文档由main后继覆盖,/Users/tywww/项目/ai-writing-assist,22,local
+local,codex/guided-flow-integration,974f0f5080d4,0,443,0,0,已交付（祖先）,HEAD已由origin/main包含；不核销未提交WIP,/Users/tywww/.codex/worktrees/guided-flow-integration/ai-writing-assist,0,local
+local,codex/guimi60-resume-checkpoints,974f0f5080d4,0,443,0,0,已交付（祖先）,HEAD已由origin/main包含；不核销未提交WIP,,0,local
+local,codex/high-frequency-operations-impl,335349f08c8d,1,246,0,1,已交付（补丁等价）,git cherry origin/main全部为-，不重复合并,,0,local
+local,codex/high-frequency-operations-review,ac06fe5343f1,2,234,0,2,已交付（补丁等价）,git cherry origin/main全部为-，不重复合并,,0,local
+local,codex/luna-business-model-rules,deaa45ee7369,1,442,0,1,已交付（补丁等价）,git cherry origin/main全部为-，不重复合并,/Users/tywww/.codex/worktrees/codex-luna-model-rules/ai-writing-assist,0,local
+local,codex/map-advisory-policy,1a7b6b438fbb,2,390,0,2,已交付（补丁等价）,git cherry origin/main全部为-，不重复合并,/Users/tywww/项目/ai-writing-assist/.worktrees/map-advisory-policy,0,local
+local,codex/map-advisory-review,87149b2276a4,2,332,0,2,已交付（补丁等价）,git cherry origin/main全部为-，不重复合并,,0,local
+local,codex/map-assistant-operations,74839de509e9,1,373,0,1,已交付（补丁等价）,git cherry origin/main全部为-，不重复合并,,0,local
+local,codex/map-assistant-review,f13b0410d0ae,11,332,0,11,已交付（补丁等价）,git cherry origin/main全部为-，不重复合并,,0,local
+local,codex/map-assistant-structure,562eb63f2d3d,2,336,1,1,已交付（后继修正）,同主题完整实现由main提交 416d44b39 收敛，旧补丁不重复,,0,local
+local,codex/map-assistant-vocab-review,12e728bfcd1f,2,368,1,1,已交付（后继修正）,同主题完整实现由main提交 8f27d3596 收敛，旧补丁不重复,,0,local
+local,codex/map-auto-draft-review,786614e18c42,1,340,0,1,已交付（补丁等价）,git cherry origin/main全部为-，不重复合并,,0,local
+local,codex/map-auto-drafts,f35e9988634c,3,356,0,3,已交付（补丁等价）,git cherry origin/main全部为-，不重复合并,/Users/tywww/项目/ai-writing-assist/.worktrees/map-auto-drafts,0,local
+local,codex/map-clue-review,bec204c80992,1,365,0,1,已交付（补丁等价）,git cherry origin/main全部为-，不重复合并,,0,local
+local,codex/map-cold-start-interface-review,776817cda52f,3,324,0,3,已交付（补丁等价）,git cherry origin/main全部为-，不重复合并,,0,local
+local,codex/map-cold-start-world-final,7edb42a14b94,2,302,0,2,已交付（补丁等价）,git cherry origin/main全部为-，不重复合并,/Users/tywww/项目/ai-writing-assist/.worktrees/map-evolution-review,0,local
+local,codex/map-combined-critical-review,9bad54b65f30,1,310,0,1,已交付（补丁等价）,git cherry origin/main全部为-，不重复合并,,0,local
+local,codex/map-consumption-final,99f285460c1f,2,302,0,2,已交付（补丁等价）,git cherry origin/main全部为-，不重复合并,,0,local
+local,codex/map-enhancement-plan,a479e006bc33,0,21,0,0,已交付（祖先）,HEAD已由origin/main包含；不核销未提交WIP,/Users/tywww/项目/ai-writing-assist/.worktrees/map-enhancement-plan,0,local
+local,codex/map-eval-author-review,60426064bf1b,9,293,0,9,已交付（补丁等价）,git cherry origin/main全部为-，不重复合并,,0,local
+local,codex/map-eval-drivers-sol-review,7ff39f35698e,14,309,0,14,已交付（补丁等价）,git cherry origin/main全部为-，不重复合并,,0,local
+local,codex/map-eval-final-joint,574f692594c3,11,295,0,11,已交付（补丁等价）,git cherry origin/main全部为-，不重复合并,,0,local
+local,codex/map-evolution-review,19a28cc99b2e,3,345,0,3,已交付（补丁等价）,git cherry origin/main全部为-，不重复合并,,0,local
+local,codex/map-final-integration-review,2188c6fccc0d,5,317,0,5,已交付（补丁等价）,git cherry origin/main全部为-，不重复合并,/Users/tywww/项目/ai-writing-assist/.worktrees/map-interface-review,0,local
+local,codex/map-final-scope-repair,c07f90a4e274,4,309,0,4,已交付（补丁等价）,git cherry origin/main全部为-，不重复合并,,0,local
+local,codex/map-fix-assistant,3b2ac9441c0d,0,7,0,0,已交付（祖先）,HEAD已由origin/main包含；不核销未提交WIP,/Users/tywww/项目/ai-writing-assist/.worktrees/map-fix-assistant,3,local
+local,codex/map-fix-clues,3b2ac9441c0d,0,7,0,0,已交付（祖先）,HEAD已由origin/main包含；不核销未提交WIP,/Users/tywww/项目/ai-writing-assist/.worktrees/map-fix-clues,2,local
+local,codex/map-fix-director,3b2ac9441c0d,0,7,0,0,已交付（祖先）,HEAD已由origin/main包含；不核销未提交WIP,/Users/tywww/项目/ai-writing-assist/.worktrees/map-fix-director,12,local
+local,codex/map-fix-dossier,3b2ac9441c0d,0,7,0,0,已交付（祖先）,HEAD已由origin/main包含；不核销未提交WIP,/Users/tywww/项目/ai-writing-assist/.worktrees/map-fix-dossier,11,local
+local,codex/map-fix-draft,3b2ac9441c0d,0,7,0,0,已交付（祖先）,HEAD已由origin/main包含；不核销未提交WIP,/Users/tywww/项目/ai-writing-assist/.worktrees/map-fix-draft,5,local
+local,codex/map-fix-evolution,3b2ac9441c0d,0,7,0,0,已交付（祖先）,HEAD已由origin/main包含；不核销未提交WIP,/Users/tywww/项目/ai-writing-assist/.worktrees/map-fix-evolution,7,local
+local,codex/map-fix-frontend,3b2ac9441c0d,0,7,0,0,已交付（祖先）,HEAD已由origin/main包含；不核销未提交WIP,/Users/tywww/项目/ai-writing-assist/.worktrees/map-fix-frontend,10,local
+local,codex/map-fix-story,3b2ac9441c0d,0,7,0,0,已交付（祖先）,HEAD已由origin/main包含；不核销未提交WIP,/Users/tywww/项目/ai-writing-assist/.worktrees/map-fix-story,19,local
+local,codex/map-fix-vocab,3b2ac9441c0d,0,7,0,0,已交付（祖先）,HEAD已由origin/main包含；不核销未提交WIP,/Users/tywww/项目/ai-writing-assist/.worktrees/map-fix-vocab,5,local
+local,codex/map-foundation-review,4fb9f1d78aba,1,382,0,1,已交付（补丁等价）,git cherry origin/main全部为-，不重复合并,/Users/tywww/项目/ai-writing-assist/.worktrees/map-foundation-review,0,local
+local,codex/map-full-plan-integration-review,83308f74e375,4,284,0,4,已交付（补丁等价）,git cherry origin/main全部为-，不重复合并,,0,local
+local,codex/map-interface-review,b7f9c3f1ddc0,2,333,0,2,已交付（补丁等价）,git cherry origin/main全部为-，不重复合并,,0,local
+local,codex/map-m0-spatial,bb928c2ee23d,6,390,0,6,已交付（补丁等价）,git cherry origin/main全部为-，不重复合并,/Users/tywww/项目/ai-writing-assist/.worktrees/map-m0-spatial,0,local
+local,codex/map-m0-vocabulary,141a098ccdbb,2,390,0,2,已交付（补丁等价）,git cherry origin/main全部为-，不重复合并,/Users/tywww/项目/ai-writing-assist/.worktrees/map-m0-vocabulary,0,local
+local,codex/map-node-merge,2e1f1475c4a4,2,321,0,2,已交付（补丁等价）,git cherry origin/main全部为-，不重复合并,/Users/tywww/项目/ai-writing-assist/.worktrees/map-node-merge,0,local
+local,codex/map-node-merge-review,f446d799ea01,3,314,0,3,已交付（补丁等价）,git cherry origin/main全部为-，不重复合并,/Users/tywww/项目/ai-writing-assist/.worktrees/map-auto-draft-review,0,local
+local,codex/map-operation-trace-impl,203018dfd13b,11,284,0,11,已交付（补丁等价）,git cherry origin/main全部为-，不重复合并,/Users/tywww/项目/ai-writing-assist/.worktrees/map-advisory-review,0,local
+local,codex/map-review17-evolution,eaf15e13657c,1,91,0,1,已交付（补丁等价）,git cherry origin/main全部为-，不重复合并,/Users/tywww/项目/ai-writing-assist/.worktrees/map-review17-evolution,0,local
+local,codex/map-review17-frontend,92b3d5a2fd20,1,91,0,1,已交付（补丁等价）,git cherry origin/main全部为-，不重复合并,/Users/tywww/项目/ai-writing-assist/.worktrees/map-review17-frontend,0,local
+local,codex/map-review17-goal-runs,7bde01f62ff1,2,91,0,2,已交付（补丁等价）,git cherry origin/main全部为-，不重复合并,/Users/tywww/项目/ai-writing-assist/.worktrees/map-review17-goal-runs,0,local
+local,codex/map-review17-story-arcs,1ebc4a723e24,1,91,0,1,已交付（补丁等价）,git cherry origin/main全部为-，不重复合并,/Users/tywww/项目/ai-writing-assist/.worktrees/map-review17-story-arcs,0,local
+local,codex/map-review17-story-continuity,42e95fce0dd1,1,91,0,1,已交付（补丁等价）,git cherry origin/main全部为-，不重复合并,/Users/tywww/项目/ai-writing-assist/.worktrees/map-review17-story-continuity,0,local
+local,codex/map-review17-trace-adapter,1e38530e1e88,1,91,0,1,已交付（补丁等价）,git cherry origin/main全部为-，不重复合并,/Users/tywww/项目/ai-writing-assist/.worktrees/map-review17-trace-adapter,0,local
+local,codex/map-review17-world-dossier,77d0a9b4dac6,2,91,0,2,已交付（补丁等价）,git cherry origin/main全部为-，不重复合并,/Users/tywww/项目/ai-writing-assist/.worktrees/map-review17-world-dossier,0,local
+local,codex/map-review17-world-relations,c15c79f67dfd,1,91,0,1,已交付（补丁等价）,git cherry origin/main全部为-，不重复合并,/Users/tywww/项目/ai-writing-assist/.worktrees/map-review17-world-relations,0,local
+local,codex/map-series-claude-review,3b2ac9441c0d,0,7,0,0,已交付（祖先）,HEAD已由origin/main包含；不核销未提交WIP,/Users/tywww/项目/ai-writing-assist/.worktrees/map-series-claude-review,0,local
+local,codex/map-series-review-fixes,083625bec281,0,1,0,0,已交付（祖先）,HEAD已由origin/main包含；不核销未提交WIP,/Users/tywww/项目/ai-writing-assist/.worktrees/map-series-review-fixes,0,local
+local,codex/map-spatial-brief-review,f62659dcdbae,1,337,0,1,已交付（补丁等价）,git cherry origin/main全部为-，不重复合并,/Users/tywww/项目/ai-writing-assist/.worktrees/map-spatial-brief-review,0,local
+local,codex/map-spatial-eval-review,280942b54b54,2,324,0,2,已交付（补丁等价）,git cherry origin/main全部为-，不重复合并,,0,local
+local,codex/map-spatial-evaluation,4ea7300ffed9,1,326,0,1,已交付（补丁等价）,git cherry origin/main全部为-，不重复合并,/Users/tywww/项目/ai-writing-assist/.worktrees/map-spatial-evaluation,0,local
+local,codex/map-spatial-review,1c1e9a14f361,3,379,0,3,已交付（补丁等价）,git cherry origin/main全部为-，不重复合并,/Users/tywww/项目/ai-writing-assist/.worktrees/map-spatial-review,0,local
+local,codex/object-dossier-consumer-review,c482b7ed9878,0,208,0,0,已交付（祖先）,HEAD已由origin/main包含；不核销未提交WIP,,0,local
+local,codex/object-dossier-evidence-impl,f6c3790ccb3b,0,232,0,0,已交付（祖先）,HEAD已由origin/main包含；不核销未提交WIP,,0,local
+local,codex/object-dossier-evidence-review,35937082bd1d,6,259,0,6,已交付（补丁等价）,git cherry origin/main全部为-，不重复合并,,0,local
+local,codex/operation-catalog-v2-review,8d936b5177cf,2,284,0,2,已交付（补丁等价）,git cherry origin/main全部为-，不重复合并,,0,local
+local,codex/operation-trace-regression-repair,6962d51c1d41,1,259,0,1,已交付（补丁等价）,git cherry origin/main全部为-，不重复合并,,0,local
+local,codex/operation-trace-review,df668fb72c83,4,270,0,4,已交付（补丁等价）,git cherry origin/main全部为-，不重复合并,,0,local
+local,codex/scene-director-review,616e9d4747f2,0,200,0,0,已交付（祖先）,HEAD已由origin/main包含；不核销未提交WIP,,0,local
+local,codex/simulation-v3-director-impl,69b77838298e,1,284,0,1,已交付（补丁等价）,git cherry origin/main全部为-，不重复合并,,0,local
+local,codex/simulation-v3-protocol-impl,4cbc97e35dcf,1,258,0,1,已交付（补丁等价）,git cherry origin/main全部为-，不重复合并,,0,local
+local,codex/simulation-v3-protocol-review,d96fcf5b3e26,3,239,0,3,已交付（补丁等价）,git cherry origin/main全部为-，不重复合并,,0,local
+local,codex/unified-notices-ui-review,da21d3f05699,1,265,0,1,已交付（补丁等价）,git cherry origin/main全部为-，不重复合并,,0,local
+local,codex/world-evolution-phase3,974f0f5080d4,0,443,0,0,已交付（祖先）,HEAD已由origin/main包含；不核销未提交WIP,,0,local
+local,codex/world-evolution-phase4-consolidated,8aec33461241,0,446,0,0,已交付（祖先）,HEAD已由origin/main包含；不核销未提交WIP,,0,local
+local,codex/world-evolution-phase4-impl,974f0f5080d4,0,443,0,0,已交付（祖先）,HEAD已由origin/main包含；不核销未提交WIP,,0,local
+local,codex/world-evolution-phase4-plan,974f0f5080d4,0,443,0,0,已交付（祖先）,HEAD已由origin/main包含；不核销未提交WIP,/Users/tywww/.codex/worktrees/world-evolution-phase4/ai-writing-assist,0,local
+local,codex/world-foundation-phase1-plan,2a9d05f6fbae,0,546,0,0,已交付（祖先）,HEAD已由origin/main包含；不核销未提交WIP,/Users/tywww/.codex/worktrees/world-foundation-plan/ai-writing-assist,0,local
+local,codex/world-object-dossier-impl,23e322e01c40,0,283,0,0,已交付（祖先）,HEAD已由origin/main包含；不核销未提交WIP,,0,local
+local,codex/world-object-dossier-review,c99a702ae6be,2,277,0,2,已交付（补丁等价）,git cherry origin/main全部为-，不重复合并,,0,local
+local,codex/world-object-validity-impl,ee51f869a181,3,223,0,3,已交付（补丁等价）,git cherry origin/main全部为-，不重复合并,,0,local
+local,codex/world-object-validity-review,7b91006d41f3,0,190,0,0,已交付（祖先）,HEAD已由origin/main包含；不核销未提交WIP,,0,local
+local,codex/world-progression-impl,ac4e08a4abce,0,178,0,0,已交付（祖先）,HEAD已由origin/main包含；不核销未提交WIP,/Users/tywww/项目/ai-writing-assist/.worktrees/world-progression-impl,0,local
+local,codex/world-progression-review,339d43eded2e,0,143,0,0,已交付（祖先）,HEAD已由origin/main包含；不核销未提交WIP,,0,local
+local,main,00d861283e34,0,395,0,0,已交付（祖先）,HEAD已由origin/main包含；不核销未提交WIP,,0,local
+origin,archive/main-legacy,61e5804a0527,3,2088,0,1,保留归档,历史方案/检查点，不直接合并,,0,远端存在且缓存一致
+origin,codex/audit-review-fixes,d065c54607f9,16,405,8,0,已交付（PR合并）,PR #241固定head已合入,,0,远端已删除，仅缓存
+origin,codex/audit-wave3-canon-baseline,20da12570442,2,402,2,0,已交付（PR后继）,PR #248重基/修正后合入；旧HEAD非逐补丁相同，保留不回灌,,0,远端已删除，仅缓存
+origin,codex/audit-wave3-g7-review,1c2840154ff6,1,403,0,1,已交付（补丁等价）,git cherry origin/main全部为-，不重复合并,,0,远端已删除，仅缓存
+origin,codex/audit-wave3-httpx2,bb762f04e655,2,404,2,0,已交付（PR后继）,PR #246重基/修正后合入；旧HEAD非逐补丁相同，保留不回灌,,0,远端已删除，仅缓存
+origin,codex/audit-wave3-r1,21816b972284,1,404,0,1,已交付（补丁等价）,git cherry origin/main全部为-，不重复合并,,0,远端已删除，仅缓存
+origin,codex/g3-local-agent-ui-retire,ecd9dbae4e8c,5,420,4,0,已交付（PR合并）,PR #236固定head已合入,,0,远端已删除，仅缓存
+origin,codex/g3d-local-client-retire,7d6c6028d7f8,5,407,3,0,已交付（PR合并）,PR #237固定head已合入,,0,远端已删除，仅缓存
+origin,codex/g4b-image-export-package,3d482b2acb69,5,420,4,0,已交付（PR合并）,PR #235固定head已合入,,0,远端已删除，仅缓存
+origin,codex/g5a-editorial-closed-loop,60cbf00b1302,0,410,0,0,已交付（祖先）,HEAD已由origin/main包含；不核销未提交WIP,,0,远端已删除，仅缓存
+origin,codex/g5b-editorial-gap-fixes,b1cd93df54eb,2,419,1,0,已交付（PR合并）,PR #239固定head已合入,,0,远端已删除，仅缓存
+origin,codex/g5c-editorial-switch-passthrough,f4be2450c54d,1,406,0,1,已交付（补丁等价）,git cherry origin/main全部为-，不重复合并,,0,远端已删除，仅缓存
+origin,codex/g7a-import-scan-baseline,6fb3c754c6b4,3,420,2,0,已交付（PR合并）,PR #232固定head已合入,,0,远端已删除，仅缓存
+origin,codex/g8b-map-continuity-check,37027dc1daec,2,416,2,0,已交付（PR合并）,PR #240固定head已合入,,0,远端已删除，仅缓存
+origin,codex/map-series-review-fixes,083625bec281,0,1,0,0,已交付（祖先）,HEAD已由origin/main包含；不核销未提交WIP,,0,远端已删除，仅缓存
+origin,dependabot/docker/backend/minor-and-patch-f36e526992,3d586697fdf6,0,402,0,0,已交付（祖先）,HEAD已由origin/main包含；不核销未提交WIP,,0,远端已删除，仅缓存
+origin,dependabot/github_actions/minor-and-patch-bbce659f0c,294936653fbc,1,424,0,1,已交付（补丁等价）,git cherry origin/main全部为-，不重复合并,,0,远端已删除，仅缓存
+origin,dependabot/npm_and_yarn/frontend-console/minor-and-patch-8f5d12521e,5ea3db23cfe8,1,405,0,1,已交付（补丁等价）,git cherry origin/main全部为-，不重复合并,,0,远端已删除，仅缓存
+origin,dependabot/uv/backend/minor-and-patch-202ea0ff51,fccefc4bf10b,1,443,0,1,已交付（补丁等价）,git cherry origin/main全部为-，不重复合并,,0,远端已删除，仅缓存
+origin,dependabot/uv/backend/openai-3.28.0,d87d818ed7a8,1,414,0,1,已交付（补丁等价）,git cherry origin/main全部为-，不重复合并,,0,远端已删除，仅缓存
+origin,main,a1b1053662d7,0,0,0,0,已交付（祖先）,HEAD已由origin/main包含；不核销未提交WIP,,0,远端存在且缓存一致
+upstream,archive/main-legacy,61e5804a0527,3,2088,0,1,保留归档,同一GitHub仓库的upstream别名历史归档,,0,远端存在且缓存一致
+upstream,codex/world-foundation-phase1-plan,312c68a6449f,0,561,0,0,已交付（祖先）,缓存HEAD已由origin/main包含,,0,远端已删除，仅缓存
+upstream,dependabot/npm_and_yarn/frontend-console/minor-and-patch-a49fcb5ae5,30093e2dfe7e,0,582,0,0,已交付（祖先）,缓存HEAD已由origin/main包含,,0,远端已删除，仅缓存
+upstream,dependabot/uv/backend/minor-and-patch-62199caa04,2ef42f978b02,1,611,1,0,已交付（PR后继）,PR #200重基后合入；旧依赖补丁不回灌,,0,远端已删除，仅缓存
+upstream,main,f35c2bb0f119,0,579,0,0,已交付（祖先）,缓存HEAD已由origin/main包含,,0,远端存在，缓存落后

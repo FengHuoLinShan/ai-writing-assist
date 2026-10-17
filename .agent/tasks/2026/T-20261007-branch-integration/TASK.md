@@ -3,10 +3,22 @@ id: T-20261007-branch-integration
 title: 快照瘦身分支合并与世界基础分支同步
 status: completed
 created: 2026-10-07T19:04:00+09:00
-updated: 2026-10-07T19:24:37+09:00
+updated: 2026-10-12T23:36:26+08:00
 ---
 
 # 快照瘦身分支合并与世界基础分支同步
+
+## 当前恢复快照（2026-10-12 整理核实）
+
+- 实际交付：[PR #205](https://github.com/FengHuoLinShan/ai-writing-assist/pull/205) 已合入 main，合并提交 `f35c2bb0f119b7ebf557a9a3bbcf119f23dd91a8`，当前 main 可达。世界基础工程随后经 PR #206 集成。
+- 原分片等待记录已被 main 的最终合并记录覆盖；未保留为新的开发补丁。
+- 原 main 合并提交的工程检查成功；另有历史 Dependabot 检查失败，不把所有历史 check 改报绿色。当前 main 检查成功。
+- 下一步：本任务关闭；世界基础 R7、模型与用户质量边界继续由父实施任务管理。
+
+- 唯一后续主笔记：主工作树本路径 `/Users/tywww/Desktop/项目/ai-writing-assist/.agent/tasks/2026/T-20261007-branch-integration/TASK.md`；旧工作树副本只读。
+- 最后核实：2026-10-12T23:36:26+08:00。以下各节保留原验收、失败和授权的历史证据，不代表当前交付状态。
+
+## 历史记录
 
 ## 恢复快照
 

@@ -1,0 +1,72 @@
+id,selector,scope,occurrence_ranges,duplicate_line_upper_bound,status
+CSS-01,".world-bible-template-actions,
+.world-bible-sections__header,
+.world-bible-section-editor__toolbar,
+.world-bible-inspector__header,
+.world-bible-inspector__actions",[],11853-11863;12536-12546,11,same_rule_and_scope_cascade_not_proved
+CSS-02,".world-bible-section-editor,
+.world-bible-profile-summary,
+.world-bible-trace-rule,
+.world-bible-trace-item",[],11904-11913;12567-12576,10,same_rule_and_scope_cascade_not_proved
+CSS-03,.world-hot-overview,[],11601-11609;12239-12247,9,same_rule_and_scope_cascade_not_proved
+CSS-04,.world-hot-type,[],11623-11631;12261-12269,9,same_rule_and_scope_cascade_not_proved
+CSS-05,.world-bulk-resolution-option,[],11727-11735;12482-12490,9,same_rule_and_scope_cascade_not_proved
+CSS-06,.world-bible-source-notice,[],11843-11851;12526-12534,9,same_rule_and_scope_cascade_not_proved
+CSS-07,.world-extract-panel__input,[],9708-9715;11311-11318,8,same_rule_and_scope_cascade_not_proved
+CSS-08,.world-batch-fresh-dot,[],11693-11700;12448-12455,8,same_rule_and_scope_cascade_not_proved
+CSS-09,.world-bible-suggestion-selector,[],12314-12321;12805-12812,8,same_rule_and_scope_cascade_not_proved
+CSS-10,.world-extract-panel,[],9686-9692;11289-11295,7,same_rule_and_scope_cascade_not_proved
+CSS-11,.world-extract-panel__controls,[],9700-9706;11303-11309,7,same_rule_and_scope_cascade_not_proved
+CSS-12,.world-extract-panel__suggestion,[],9727-9733;11330-11336,7,same_rule_and_scope_cascade_not_proved
+CSS-13,.world-batch-group__summary,[],11675-11681;12430-12436,7,same_rule_and_scope_cascade_not_proved
+CSS-14,.world-bulk-resolution-option span,[],11742-11748;12497-12503,7,same_rule_and_scope_cascade_not_proved
+CSS-15,".world-bible-section-list,
+.world-bible-inspector,
+.world-bible-activation-trace,
+.world-bible-trace-group",[],11896-11902;12559-12565,7,same_rule_and_scope_cascade_not_proved
+CSS-16,.world-bible-panel,[],11959-11965;12613-12619,7,same_rule_and_scope_cascade_not_proved
+CSS-17,".world-hot-type:hover,
+.world-hot-type.active",[],11633-11638;12271-12276,6,same_rule_and_scope_cascade_not_proved
+CSS-18,.world-fusion-suggestion-card,[],11714-11719;12469-12474,6,same_rule_and_scope_cascade_not_proved
+CSS-19,".world-bible-trace-item div,
+.world-bible-trace-rule div",[],11943-11948;12587-12592,6,same_rule_and_scope_cascade_not_proved
+CSS-20,.world-extract-panel__label,[],9694-9698;11297-11301,5,same_rule_and_scope_cascade_not_proved
+CSS-21,.world-extract-panel__status,[],9717-9721;11320-11324,5,same_rule_and_scope_cascade_not_proved
+CSS-22,.world-list-description,[],9743-9747;11346-11350,5,same_rule_and_scope_cascade_not_proved
+CSS-23,.world-hot-overview__facets,[],11611-11615;12249-12253,5,same_rule_and_scope_cascade_not_proved
+CSS-24,.world-hot-overview__types,[],11617-11621;12255-12259,5,same_rule_and_scope_cascade_not_proved
+CSS-25,.world-batch-time,[],11687-11691;12442-12446,5,same_rule_and_scope_cascade_not_proved
+CSS-26,.world-bulk-resolution-list,[],11721-11725;12476-12480,5,same_rule_and_scope_cascade_not_proved
+CSS-27,.world-bible-layout,[],11755-11759;12510-12514,5,same_rule_and_scope_cascade_not_proved
+CSS-28,".world-bible-content-column,
+.world-bible-editor-panel,
+.world-bible-inspector",[],11765-11769;12520-12524,5,same_rule_and_scope_cascade_not_proved
+CSS-29,.world-bible-sections,[],11890-11894;12553-12557,5,same_rule_and_scope_cascade_not_proved
+CSS-30,.world-bible-panel__header h3,[],11976-11980;12629-12633,5,same_rule_and_scope_cascade_not_proved
+CSS-31,.world-list-actions,[],9675-9678;11278-11281,4,same_rule_and_scope_cascade_not_proved
+CSS-32,.world-list-actions__secondary,[],9680-9683;11283-11286,4,same_rule_and_scope_cascade_not_proved
+CSS-33,".world-hot-overview__status[data-status=""partial""],
+.world-hot-overview__status[data-status=""unavailable""]",[],11646-11649;12323-12326,4,same_rule_and_scope_cascade_not_proved
+CSS-34,.scene-progress-panel__heading,"[""media (max-width: 760px)""]",11664-11667;12419-12422,4,same_rule_and_scope_cascade_not_proved
+CSS-35,.world-batch-group__details,[],11670-11673;12425-12428,4,same_rule_and_scope_cascade_not_proved
+CSS-36,.world-bulk-resolution-option:has(input:checked),[],11737-11740;12492-12495,4,same_rule_and_scope_cascade_not_proved
+CSS-37,.world-bible-template-actions,[],11865-11868;12548-12551,4,same_rule_and_scope_cascade_not_proved
+CSS-38,.world-bible-section-editor__actions,[],11915-11918;12578-12581,4,same_rule_and_scope_cascade_not_proved
+CSS-39,.generate-quality-toggle--stacked,[],11950-11953;12594-12597,4,same_rule_and_scope_cascade_not_proved
+CSS-40,.world-bible-conflict-item,[],12384-12387;12821-12824,4,same_rule_and_scope_cascade_not_proved
+CSS-41,".world-bible-layout,
+  .world-bible-layout:has(.world-bible-nav-rail:not([open]))","[""media (max-width: 760px)""]",12394-12397;12827-12830,4,same_rule_and_scope_cascade_not_proved
+CSS-42,.world-bible-panel__header,"[""media (max-width: 760px)""]",12399-12402;12832-12835,4,same_rule_and_scope_cascade_not_proved
+CSS-43,.world-table--no-top-border,[],9670-9672;11273-11275,3,same_rule_and_scope_cascade_not_proved
+CSS-44,.world-extract-panel__progress,[],9723-9725;11326-11328,3,same_rule_and_scope_cascade_not_proved
+CSS-45,.world-extract-drawer,[],9735-9737;11338-11340,3,same_rule_and_scope_cascade_not_proved
+CSS-46,.world-extract-drawer .world-extract-panel,[],9739-9741;11342-11344,3,same_rule_and_scope_cascade_not_proved
+CSS-47,.world-batch-group,[],11597-11599;12235-12237,3,same_rule_and_scope_cascade_not_proved
+CSS-48,.world-batch-group__star,[],11683-11685;12438-12440,3,same_rule_and_scope_cascade_not_proved
+CSS-49,0%,"[""keyframes world-batch-fresh-pulse""]",11703-11705;12458-12460,3,same_rule_and_scope_cascade_not_proved
+CSS-50,70%,"[""keyframes world-batch-fresh-pulse""]",11706-11708;12461-12463,3,same_rule_and_scope_cascade_not_proved
+CSS-51,100%,"[""keyframes world-batch-fresh-pulse""]",11709-11711;12464-12466,3,same_rule_and_scope_cascade_not_proved
+CSS-52,.world-bulk-resolution-option small,[],11750-11752;12505-12507,3,same_rule_and_scope_cascade_not_proved
+CSS-53,.world-bible-layout:has(.world-bible-nav-rail:not([open])),[],11761-11763;12516-12518,3,same_rule_and_scope_cascade_not_proved
+CSS-54,.world-bible-trace-rule.is-matched,[],11939-11941;12583-12585,3,same_rule_and_scope_cascade_not_proved
+CSS-55,.world-bible-nav-rail .world-bible-page-nav,[],11955-11957;12609-12611,3,same_rule_and_scope_cascade_not_proved
