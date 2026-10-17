@@ -85,15 +85,24 @@
         </div>
       </details>
       <details v-if="projectId" class="exploration-result-card__op" @toggle="onCompareToggle">
-        <summary>同起点比较</summary>
+        <summary>结果对照</summary>
         <label><span>选择同一 root 下的另一结果</span>
           <select v-model="compareTargetId" :disabled="comparing">
             <option value="">选择结果</option>
             <option v-for="item in compareCandidates" :key="item.result_id" :value="item.result_id">{{ item.label }}</option>
           </select>
         </label>
+        <fieldset v-if="sandboxCompareAvailable" class="exploration-result-card__modes">
+          <legend>对照方式</legend>
+          <label><input v-model="compareMode" type="radio" value="same_start" :disabled="comparing" />同起点</label>
+          <label><input v-model="compareMode" type="radio" value="counterfactual" :disabled="comparing" />反事实对照</label>
+        </fieldset>
         <button type="button" class="btn btn-sm" :disabled="comparing || !compareTargetId" @click="requestCompare">{{ comparing ? "正在比较…" : "比较" }}</button>
         <div v-if="comparison" class="exploration-result-card__compare">
+          <div v-if="changedConditions.length" class="exploration-result-card__changed">
+            <h4>变更条件</h4>
+            <ul class="exploration-result-card__tags"><li v-for="cond in changedConditions" :key="cond">{{ cond }}</li></ul>
+          </div>
           <section><h4>当前结果</h4><p>{{ comparison.current }}</p></section>
           <section><h4>对比结果</h4><p>{{ comparison.other }}</p></section>
         </div>
@@ -108,7 +117,8 @@
 <script setup>
 // 探索结果卡（第一批）：按 output_kind 三态渲染紧凑结果，并提供
 // 说详细点 / 局部修订（模型追加，走 202 任务轮询）与保存编辑（零模型调用）、
-// 同起点比较（只读）。AI 结果不可变；编辑保存形成新版本。
+// 结果对照（只读；沙盘支持同起点与反事实两种模式，反事实回传变更条件）。
+// AI 结果不可变；编辑保存形成新版本。
 import { computed, onBeforeUnmount, ref, watch } from "vue"
 import { getApi } from "../../bridge/index.js"
 import { createOperationId, pollTaskProgress } from "../../../shared/workflowProgress.js"
@@ -142,6 +152,7 @@ const compareTargetId = ref("")
 const compareCandidates = ref([])
 const comparing = ref(false)
 const comparison = ref(null)
+const compareMode = ref("same_start")
 let poller = null
 
 const current = ref({ resultId: props.source?.result_id || "", kind: props.source?.output_kind || "", payload: props.source?.payload || {} })
@@ -164,6 +175,15 @@ const question = computed(() => props.source?.label || display.value.question ||
 const modelFollowUpAvailable = computed(() => kind.value !== AUTHOR_EDIT && Boolean(current.value.resultId))
 
 const sandboxLinks = computed(() => (isSandbox.value ? display.value.influence_chain || [] : []))
+
+// 反事实对照入口仅对沙盘结果开放（后端 same_start/counterfactual 也只在
+// sandbox 分支上提供条件对照）；切回同起点不保留上一轮的变更条件标签。
+const sandboxCompareAvailable = computed(() => props.source?.scale === "sandbox")
+const changedConditions = computed(() => (
+  comparison.value?.mode === "counterfactual" && Array.isArray(comparison.value?.changed_conditions)
+    ? comparison.value.changed_conditions
+    : []
+))
 const eventGaps = computed(() => (isEvent.value && display.value.mode !== "bridge" ? display.value.gaps || [] : []))
 const bridgePaths = computed(() => (isEvent.value && display.value.mode === "bridge" ? display.value.bridge_candidates || [] : []))
 const missingItems = computed(() => (Array.isArray(display.value.unsolvable?.missing) ? display.value.unsolvable.missing : []))
@@ -217,6 +237,9 @@ watch(revisionItemKey, () => {
 watch(revisionItems, items => {
   if (!items.some(item => item.key === revisionItemKey.value)) revisionItemKey.value = items[0]?.key || ""
 }, { immediate: true })
+
+// 切换对照方式后，上一轮比较视图（含变更条件标签）立即失效，避免与新请求混淆。
+watch(compareMode, () => { comparison.value = null })
 
 // 未保存的编辑草稿逐次暂存 localStorage；服务端保存成功后才清除。
 watch(editDraft, value => {
@@ -389,15 +412,21 @@ async function requestCompare() {
       novel_id: owner,
       first_result_id: current.value.resultId,
       second_result_id: compareTargetId.value,
+      mode: compareMode.value,
     })
     const first = receipt?.first?.payload ? receipt.first : { output_kind: kind.value, payload: display.value }
     const second = receipt?.second || null
     comparison.value = {
       current: compactText(first.payload, first.output_kind),
       other: second ? compactText(second.payload, second.output_kind) : "对比结果暂不可读。",
+      mode: receipt?.mode || "same_start",
+      changed_conditions: Array.isArray(receipt?.changed_conditions) ? receipt.changed_conditions : [],
     }
   } catch (error) {
-    errorMessage.value = error?.message || "比较没有完成；两行结果必须来自同一起点。"
+    // 409 等失败原样展示服务端中文原因；仅兜底文案按模式区分。
+    errorMessage.value = error?.message || (compareMode.value === "counterfactual"
+      ? "比较没有完成；反事实对照要求两行互为衍生或共享同一基线。"
+      : "比较没有完成；两行结果必须来自同一起点。")
   } finally { comparing.value = false }
 }
 
@@ -442,7 +471,14 @@ onBeforeUnmount(() => { poller?.stop?.(); poller = null })
 .exploration-result-card__op textarea{resize:vertical}
 .exploration-result-card__hint{font-size:12px;color:var(--text-secondary);margin:4px 0}
 .exploration-result-card__save-row{display:flex;flex-wrap:wrap;gap:8px}
+.exploration-result-card__modes{display:flex;flex-wrap:wrap;align-items:center;gap:12px;margin:8px 0;padding:0;border:0}
+.exploration-result-card__modes legend{padding:0;font-size:12px;color:var(--text-secondary)}
+.exploration-result-card__modes label{display:inline-flex;align-items:center;gap:4px;margin:0;font-size:13px;cursor:pointer}
 .exploration-result-card__compare{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px;margin-top:8px}
+.exploration-result-card__changed{grid-column:1/-1;min-width:0}
+.exploration-result-card__changed h4{margin:0 0 6px;font-size:13px}
+.exploration-result-card__tags{display:flex;flex-wrap:wrap;gap:6px;margin:0;padding:0;list-style:none}
+.exploration-result-card__tags li{padding:2px 8px;border-radius:999px;background:#e6efeb;color:#36594e;font-size:12px;overflow-wrap:anywhere}
 .exploration-result-card__compare section{padding:8px;border-radius:8px;background:var(--bg-muted);min-width:0}
 .exploration-result-card__compare h4{margin:0 0 6px;font-size:13px}
 .exploration-result-card__compare p{white-space:pre-wrap;overflow-wrap:anywhere;margin:0;font-size:13px}

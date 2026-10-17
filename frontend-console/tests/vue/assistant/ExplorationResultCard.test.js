@@ -278,10 +278,84 @@ it("compares against another result from the same start", async () => {
   await compare.findAll("button").find(button => button.text() === "比较").trigger("click")
   await flushPromises()
 
-  expect(explorationCompare).toHaveBeenCalledWith({ novel_id: "p1", first_result_id: "result-1", second_result_id: "result-9" })
+  expect(explorationCompare).toHaveBeenCalledWith({ novel_id: "p1", first_result_id: "result-1", second_result_id: "result-9", mode: "same_start" })
   const compareText = wrapper.get(".exploration-result-card__compare").text()
   expect(compareText).toContain("面包需要重新计时")
   expect(compareText).toContain("几乎无人察觉")
+  expect(compareText).not.toContain("变更条件")
+})
+
+it("runs a counterfactual comparison and renders the changed conditions", async () => {
+  const explorationHistory = vi.fn(async () => ({
+    items: [
+      { result_id: "result-1", label: "当前" },
+      { result_id: "result-9", label: "衍生分支", scale: "sandbox" },
+    ],
+  }))
+  const explorationCompare = vi.fn(async () => ({
+    mode: "counterfactual",
+    changed_conditions: ["重力减半窗口从清晨改为深夜", "城镇居民尚未适应节律"],
+    first: { output_kind: "story.exploration.sandbox", payload: sandboxSource.payload },
+    second: { output_kind: "story.exploration.sandbox", payload: { influence_chain: [{ condition: "减半在深夜", effect: "几乎无人察觉" }], unknowns: [] } },
+  }))
+  const wrapper = mountCard(sandboxSource, { explorationHistory, explorationCompare })
+  const compare = wrapper.get(".exploration-result-card__op:nth-of-type(3)")
+  compare.element.open = true
+  await compare.trigger("toggle")
+  await flushPromises()
+
+  expect(compare.find('input[value="counterfactual"]').exists()).toBe(true)
+  await compare.get("select").setValue("result-9")
+  await compare.get('input[value="counterfactual"]').setValue()
+  await compare.findAll("button").find(button => button.text() === "比较").trigger("click")
+  await flushPromises()
+
+  expect(explorationCompare).toHaveBeenCalledWith({ novel_id: "p1", first_result_id: "result-1", second_result_id: "result-9", mode: "counterfactual" })
+  const compareText = wrapper.get(".exploration-result-card__compare").text()
+  expect(compareText).toContain("变更条件")
+  expect(compareText).toContain("重力减半窗口从清晨改为深夜")
+  expect(compareText).toContain("城镇居民尚未适应节律")
+})
+
+it("shows the server reason when the counterfactual pair is unrelated", async () => {
+  const explorationHistory = vi.fn(async () => ({
+    items: [
+      { result_id: "result-1", label: "当前" },
+      { result_id: "result-8", label: "无关结果", scale: "sandbox" },
+    ],
+  }))
+  const explorationCompare = vi.fn(async () => {
+    throw Object.assign(new Error("409：两条结果既不互为反事实衍生，也不共享同一基线，无法做条件对照"), { status: 409 })
+  })
+  const wrapper = mountCard(sandboxSource, { explorationHistory, explorationCompare })
+  const compare = wrapper.get(".exploration-result-card__op:nth-of-type(3)")
+  compare.element.open = true
+  await compare.trigger("toggle")
+  await flushPromises()
+  await compare.get("select").setValue("result-8")
+  await compare.get('input[value="counterfactual"]').setValue()
+  await compare.findAll("button").find(button => button.text() === "比较").trigger("click")
+  await flushPromises()
+
+  expect(wrapper.get('[role="alert"]').text()).toContain("两条结果既不互为反事实衍生，也不共享同一基线，无法做条件对照")
+  expect(wrapper.find(".exploration-result-card__compare").exists()).toBe(false)
+})
+
+it("hides the counterfactual mode for non-sandbox results", async () => {
+  const explorationHistory = vi.fn(async () => ({ items: [{ result_id: "result-5", label: "另一事件结果" }] }))
+  const wrapper = mountCard({
+    ...sandboxSource,
+    scale: "event",
+    output_kind: "story.exploration.event",
+    payload: { mode: "diagnose", gaps: [{ description: "缺地址来源" }], unknowns: [], warnings: [] },
+  }, { explorationHistory })
+  const compare = wrapper.get(".exploration-result-card__op:nth-of-type(3)")
+  compare.element.open = true
+  await compare.trigger("toggle")
+  await flushPromises()
+
+  expect(compare.find(".exploration-result-card__modes").exists()).toBe(false)
+  expect(compare.find('input[value="counterfactual"]').exists()).toBe(false)
 })
 
 it("keeps compare usable when history lists nested roots instead of flat items", async () => {
