@@ -12,11 +12,11 @@ parent: T-20261016-editorial-diagnosis-v1
 ## 恢复快照
 
 - 实际完成：恢复上一轮盲评/揭盲结果；核对目标 worktree 干净，位于 `codex/editorial-diagnosis-v1`，HEAD `6338736cfe2f11a53dc0f7a918afd2a49dac4e85`，较 `origin/main` ahead 12；开放任务索引已切换到本任务，旧任务已关闭并指向本任务。
-- 当前里程碑：B 固定提交 `346ac97e6af8167a5f23f766dc25d4a927b93676`；并行 runner、预算偏移、进程锁、README 与离线测试已完成，最终门禁通过，待本地提交和新的 Luna 运行。
-- 下一步：本地提交后，重验专用库与 owner/Luna/max profile；新建私有并行运行目录并传入旧 state 路径，使旧 20 次 reservation 计入 490 上限；先 unique-key 冒烟，确认后同目录全量。
+- 当前里程碑：B 固定提交 `346ac97e6af8167a5f23f766dc25d4a927b93676`；有界并行 runner、预算偏移、进程锁、README 与离线测试已通过最终门禁并提交为 `b53adddad42823ef78de4a0bb13706742e8c26e3`。
+- 下一步：重新核验专用库与 owner/Luna/max profile；在 `/Users/tywww/novelcraft-private/editorial-cross-chapter-parallel-run-20261017/` 新建私有运行目录，传入旧 state `/Users/tywww/novelcraft-private/editorial-cross-chapter-run-20261017/state.json`，使旧 20 次 reservation 计入 490 上限；先 unique-key 并行冒烟，确认后在同目录跑全量。
 - 阻塞：无；真实模型连接和专用库需在离线门禁通过后重新实时核验，不合格即停止模型调用。
-- 工作区：`/Users/tywww/项目/ai-writing-assist/.worktrees/editorial-diagnosis-v1`，分支 `codex/editorial-diagnosis-v1`；初始工作树干净，HEAD 为 `6338736cfe2f11a53dc0f7a918afd2a49dac4e85`。
-- 最后核实：2026-10-17T09:15:19+08:00。
+- 工作区：`/Users/tywww/项目/ai-writing-assist/.worktrees/editorial-diagnosis-v1`，分支 `codex/editorial-diagnosis-v1`；当前代码提交为 `b53adddad42823ef78de4a0bb13706742e8c26e3`，较 `origin/main` ahead 16。
+- 最后核实：2026-10-17T09:57:41+08:00。
 
 ## 目标与验收
 
@@ -62,11 +62,11 @@ parent: T-20261016-editorial-diagnosis-v1
 - 2026-10-17：`npm run lint`（frontend-console）通过；`npm run test:e2e:editorial -- editorial-revision-bridge.spec.js` 在专用本机 `codex_luna_runtime_test` 上 2 passed，无真实模型调用。
 - 2026-10-17：`make lint`、`make prompt-contracts`（26 contracts）通过；`make docs-check BASE_REF=origin/main` 在补齐 `docs/modules/12_infrastructure.md` 以后通过；`git diff --check` 通过。
 - 2026-10-17：最终组合验证：Assistant 与相关 eval 共 181 passed；`make lint`、前端 `npm run lint`、`make prompt-contracts`、`make docs-check BASE_REF=origin/main`、`git diff --check` 均通过。前端编辑台/桥接 E2E 为 2/2 passed。
-- 2026-10-17：并行 runner 变更后，`UV_CACHE_DIR=/private/tmp/uv-editorial-cross-chapter uv run pytest evals/tests/test_editorial_dataset.py evals/tests/test_editorial_prompt_ab.py -q`：16 passed；覆盖并行度上限、旧账本哈希/预算 offset、同目录进程锁及累计 490 上限。旧私有 state 通过新校验，累计 reservation=20。`make lint`（指定临时 UV cache）、`make prompt-contracts`（26）、`make docs-check BASE_REF=origin/main`、`git diff --check` 均通过；初次 `make lint` 使用默认 cache 被 sandbox 拒绝，指定临时 cache 后通过。
+- 2026-10-17：并行 runner 变更后，`UV_CACHE_DIR=/private/tmp/uv-editorial-cross-chapter uv run pytest evals/tests/test_editorial_dataset.py evals/tests/test_editorial_prompt_ab.py -q`：16 passed；覆盖并行度上限、旧账本哈希/预算 offset、同目录进程锁及累计 490 上限。旧私有 state 通过新校验，累计 reservation=20。`make lint`（指定临时 UV cache）、`make prompt-contracts`（26）、`make docs-check BASE_REF=origin/main`、`git diff --check` 均通过；初次 `make lint` 使用默认 cache 被 sandbox 拒绝，指定临时 cache 后通过。并行 runner 本地提交 `b53adddad42823ef78de4a0bb13706742e8c26e3`。
 
 ## 交付结果
 
 - 已交付：本任务笔记；开放索引已登记本任务；旧任务记录已完成并链接本任务。
-- 未交付：代码、v4、对照运行与盲评交接均待执行。
-- 交付边界：仅本地 worktree 修改；尚未提交，未推送、未开 PR、未合并或部署。
+- 未交付：新的 Luna 对照、盲评包和隔离工作区待执行。
+- 交付边界：代码、v4 与 runner 均已本地提交；未推送、未开 PR、未合并或部署；尚未评分或揭盲。
 - 正式知识与后续任务：按用户要求更新 Assistant README、Prompt 体系与 eval README；盲评之后由开发 agent 揭盲汇总。
