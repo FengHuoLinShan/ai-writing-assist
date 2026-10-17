@@ -299,9 +299,28 @@ class StorySceneDirectorRoot(Base, UUIDMixin, TimestampMixin, NovelMixin):
     __table_args__ = (
         UniqueConstraint("novel_id", "id", name="uq_story_scene_director_root_novel"),
         Index("ix_story_scene_director_root_scene", "novel_id", "scene_id", "created_at"),
+        CheckConstraint(
+            "source_kind IN ('scene', 'provisional')",
+            name="ck_story_scene_director_root_source_kind",
+        ),
+        CheckConstraint(
+            "(source_kind = 'scene') = (scene_id IS NOT NULL)",
+            name="ck_story_scene_director_root_start_kind_valid",
+        ),
+        Index(
+            "ix_story_scene_director_roots_novel_source_created",
+            "novel_id",
+            "source_kind",
+            "created_at",
+        ),
     )
 
-    scene_id: Mapped[uuid.UUID] = mapped_column(UUIDType, nullable=False)
+    # 探索根可来自临时假设起点：source_kind='provisional' 时 scene_id 必须为空，
+    # 'scene' 时必须携带场景锚点；服务层显式校验，不依赖默认值侥幸。
+    source_kind: Mapped[str] = mapped_column(
+        String(16), nullable=False, default="scene", server_default="scene"
+    )
+    scene_id: Mapped[uuid.UUID | None] = mapped_column(UUIDType, nullable=True)
     source_hash: Mapped[str] = mapped_column(String(64), nullable=False)
     request_json: Mapped[dict] = mapped_column(JSON, nullable=False, default=dict)
     llm_execution_snapshot_json: Mapped[dict] = mapped_column(

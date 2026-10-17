@@ -546,6 +546,9 @@ class TestRunLedger:
         assert [reason.value for reason in AIRunAuthorizationReason] == [
             "author_resume",
             "duplicate_charge_confirmed",
+            # P0-CONTRACTS §5：探索“说详细点”/局部修订的追加授权原因码。
+            "author_detail_expand",
+            "author_revise",
         ]
 
     async def test_distinct_step_names_all_stay_counted(self) -> None:
