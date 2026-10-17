@@ -41,6 +41,7 @@ SANDBOX_OUTPUT_KIND = "story.exploration.sandbox"
 EVENT_OUTPUT_KIND = "story.exploration.event"
 SCENE_LINE_OUTPUT_KIND = "story.exploration.scene_line"
 AUTHOR_EDIT_OUTPUT_KIND = "story.exploration.author_edit"
+LOCK_SET_OUTPUT_KIND = "story.exploration.lock_set"
 
 # 场景人物差异（M2）：同一情境对 2..4 个目标各生成一句；每人独立知识包。
 MULTI_TARGETS_MIN = 2
@@ -363,11 +364,35 @@ class AuthorEditPayloadV1(ExplorationModel):
         return self
 
 
+class LockedItem(ExplorationModel):
+    """一条锁定项：复用 revise 的 chain:N/gap:N/bridge:N/line 路径语法。
+
+    ``item_content_hash`` 由服务端在锁定时按该结果行对应条目内容计算；
+    ``label`` 为条目展示文本截选（0..200），供前端不解锁即可显示锁定内容。
+    """
+
+    item_path: str = Field(min_length=1, max_length=120)
+    item_content_hash: str = Field(pattern="^[a-f0-9]{64}$")
+    label: str = Field(default="", max_length=200)
+
+
+class LockSetPayloadV1(ExplorationModel):
+    """锁定集结果行（M3-A）：内容 = 该分支当前全部锁定项。
+
+    零模型调用、无预算；author_edit 与 lock_set 都不算 AI 结果——lock_set
+    不参与比较与历史 AI 列表，也不改变“分支最新 AI 结果”指针。
+    """
+
+    locked_items: list[LockedItem] = Field(default_factory=list, max_length=50)
+    note: str | None = Field(default=None, max_length=500)
+
+
 ExplorationOutputKind = Literal[
     "story.exploration.sandbox",
     "story.exploration.event",
     "story.exploration.scene_line",
     "story.exploration.author_edit",
+    "story.exploration.lock_set",
 ]
 
 
@@ -376,7 +401,13 @@ class ExplorationOutputEnvelope(ExplorationModel):
 
     output_kind: ExplorationOutputKind
     schema_version: Literal[1] = EXPLORATION_OUTPUT_SCHEMA_VERSION
-    payload: SandboxOutputV1 | EventOutputV1 | SceneLineOutputV1 | AuthorEditPayloadV1
+    payload: (
+        SandboxOutputV1
+        | EventOutputV1
+        | SceneLineOutputV1
+        | AuthorEditPayloadV1
+        | LockSetPayloadV1
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -724,6 +755,7 @@ __all__ = [
     "EVENT_OUTPUT_KIND",
     "EXPLORATION_ACTIONS",
     "EXPLORATION_OUTPUT_SCHEMA_VERSION",
+    "LOCK_SET_OUTPUT_KIND",
     "MULTI_TARGETS_MAX",
     "MULTI_TARGETS_MIN",
     "SANDBOX_OUTPUT_KIND",
@@ -753,6 +785,8 @@ __all__ = [
     "GoalPathStep",
     "InfluenceLink",
     "InfoGap",
+    "LockedItem",
+    "LockSetPayloadV1",
     "ProvisionalStart",
     "PAYLOAD_MODELS_BY_BASE_KIND",
     "SandboxOutputV1",

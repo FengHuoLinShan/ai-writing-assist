@@ -15,6 +15,7 @@ from modules.story.exploration_budget import (
 from modules.story.exploration_schemas import (
     AUTHOR_EDIT_OUTPUT_KIND,
     EVENT_OUTPUT_KIND,
+    LOCK_SET_OUTPUT_KIND,
     SANDBOX_OUTPUT_KIND,
     SCENE_LINE_OUTPUT_KIND,
     AuthorEditPayloadV1,
@@ -32,6 +33,8 @@ from modules.story.exploration_schemas import (
     GoalPath,
     InfluenceLink,
     InfoGap,
+    LockedItem,
+    LockSetPayloadV1,
     SandboxOutputV1,
     SceneLineOutputV1,
     apply_changed_assumptions,
@@ -1250,3 +1253,60 @@ def test_validate_scene_targets_membership():
     validate_scene_targets(start, ["c_franks", "c_evasive", start.canonical_refs[0]])
     with pytest.raises(ValueError):
         validate_scene_targets(start, ["c_stranger"])
+
+
+# ---------------------------------------------------------------------------
+# 锁定集载荷（M3-A）：extra=forbid、哈希与标签边界、信封五类判别
+# ---------------------------------------------------------------------------
+
+
+def test_lock_set_payload_schema_forbids_extra_and_bounds_fields():
+    payload = LockSetPayloadV1(
+        locked_items=[
+            LockedItem(
+                item_path="chain:0",
+                item_content_hash="a" * 64,
+                label="面包更松软",
+            )
+        ],
+        note="结局满意，后续修订保留",
+    )
+    assert payload.locked_items[0].item_path == "chain:0"
+    assert payload.note.endswith("保留")
+
+    # extra=forbid：未知字段拒绝
+    with pytest.raises(ValidationError):
+        LockSetPayloadV1.model_validate(
+            {
+                "locked_items": [],
+                "note": None,
+                "unexpected": True,
+            }
+        )
+    with pytest.raises(ValidationError):
+        LockedItem.model_validate(
+            {"item_path": "chain:0", "item_content_hash": "a" * 64, "oops": 1}
+        )
+    # item_content_hash 必须 64hex
+    with pytest.raises(ValidationError):
+        LockedItem(item_path="chain:0", item_content_hash="zz" * 32)
+    # item_path 1..120、label 0..200
+    with pytest.raises(ValidationError):
+        LockedItem(item_path="", item_content_hash="a" * 64)
+    with pytest.raises(ValidationError):
+        LockedItem(item_path="x" * 121, item_content_hash="a" * 64)
+    with pytest.raises(ValidationError):
+        LockedItem(item_path="line", item_content_hash="a" * 64, label="长" * 201)
+
+    envelope = ExplorationOutputEnvelope(
+        output_kind=LOCK_SET_OUTPUT_KIND, schema_version=1, payload=payload
+    )
+    restored = ExplorationOutputEnvelope.model_validate(envelope.model_dump(mode="json"))
+    assert restored.output_kind == LOCK_SET_OUTPUT_KIND
+    assert type(restored.payload) is LockSetPayloadV1
+    with pytest.raises(ValidationError):
+        ExplorationOutputEnvelope(
+            output_kind="story.exploration.locked",
+            schema_version=1,
+            payload=payload,
+        )
