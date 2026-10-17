@@ -5,6 +5,7 @@ import pytest
 
 from app.assistant_operation_registry import project_operations
 from core.container import container_scope
+from core.errors import ConflictError
 from infrastructure.llm.agent_runtime import AgentRunBudget, run_project_agent
 from infrastructure.llm.schemas import (
     LLMCallRequest,
@@ -79,6 +80,20 @@ def test_frozen_operation_scope_rejects_new_tools_and_changed_revisions():
     with container_scope({"assistant.operations": changed}):
         with pytest.raises(ConflictError):
             resolve_operations(manifest)
+
+
+def test_runtime_v18_accepts_current_and_legacy_v17_directories():
+    current = {
+        "runtime_version": "18",
+        "operations": operation_manifest(),
+        "read_tools": {},
+    }
+    assert runtime_protocol(current) == current
+    legacy = {"runtime_version": "17", "operations": {}, "read_tools": {}}
+    assert runtime_protocol(legacy) == legacy
+    with pytest.raises(ConflictError) as exc:
+        runtime_protocol({"runtime_version": "19", "operations": {}, "read_tools": {}})
+    assert exc.value.code == "assistant_runtime_changed"
 
 
 def test_runtime_v6_is_a_fresh_frozen_operation_directory():
