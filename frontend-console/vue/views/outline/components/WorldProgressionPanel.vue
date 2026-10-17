@@ -1876,9 +1876,11 @@ function stepLengthLabel(value) {
 // 本页只渲染占位并指回助手；“从这一步继续”等旧操作对这类行被后端 fail-closed 拒绝。
 const EXPLORATION_KIND_LABELS = {
   "story.exploration.sandbox": "沙盘推演",
-  "story.exploration.event": "事件诊断",
-  "story.exploration.scene_line": "场景对白",
-  "story.exploration.author_edit": "作者编辑版",
+  "story.exploration.event": "事件推演",
+  "story.exploration.scene_line": "场景一句对白",
+  "story.exploration.full_rehearsal": "完整排演",
+  "story.exploration.author_edit": "作者编辑",
+  "story.exploration.lock_set": "锁定记录",
 }
 
 function explorationMarker(row) {
