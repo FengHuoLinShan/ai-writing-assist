@@ -32,6 +32,7 @@ from modules.story.exploration_schemas import (
     SCENE_LINE_OUTPUT_KIND,
     ExplorationOutputEnvelope,
     SandboxOutputV1,
+    SceneLineOutputV1,
 )
 from modules.story.exploration_service import (
     create_exploration_root,
@@ -483,7 +484,6 @@ async def test_revise_locks_one_item_and_copies_the_rest(exploration_flow):
     spec, envelope = await flow.setup(chain="progression", scale="sandbox")
     parent_row, parent_envelope = await _seed_sandbox_result(flow, spec)
     items = parent_envelope.payload.model_dump(mode="json")["influence_chain"]
-    target_hash = exploration_tasks._fnv1a_hash(items[0])
 
     task_id = await flow.enqueue(
         spec,
@@ -491,7 +491,8 @@ async def test_revise_locks_one_item_and_copies_the_rest(exploration_flow):
         action="story.exploration.sandbox.generate",
         mode="revise",
         parent_result_id=str(parent_row.id),
-        changed_item_hash=target_hash,
+        item_path="chain:0",
+        item_text=items[0]["effect"],
         instruction="把第一环改保守",
     )
     task = await flow.run(task_id)
@@ -510,11 +511,14 @@ async def test_revise_locks_one_item_and_copies_the_rest(exploration_flow):
         assert len(chain) == 2
         assert chain[0]["effect"] != items[0]["effect"]
         assert chain[1] == items[1]
-        assert rows[1].input_json["changed_item_hash"] == target_hash
+        assert rows[1].input_json["item_path"] == "chain:0"
+        assert rows[1].input_json["item_content_hash"] == exploration_tasks.content_hash(
+            items[0]
+        )
         assert rows[1].input_json["mode"] == "revise"
 
 
-async def test_revise_rejects_stale_item_hash(exploration_flow):
+async def test_revise_rejects_unknown_item_path(exploration_flow):
     flow = exploration_flow
     spec, envelope = await flow.setup(chain="progression", scale="sandbox")
     parent_row, _parent_envelope = await _seed_sandbox_result(flow, spec)
@@ -524,7 +528,7 @@ async def test_revise_rejects_stale_item_hash(exploration_flow):
         action="story.exploration.sandbox.generate",
         mode="revise",
         parent_result_id=str(parent_row.id),
-        changed_item_hash="fnv1a:deadbeef",
+        item_path="chain:9",
         instruction="改第一条",
     )
     task = await flow.run(task_id)
@@ -539,6 +543,103 @@ async def test_revise_rejects_stale_item_hash(exploration_flow):
         ).all()
         assert len(rows) == 1
     assert flow.provider.calls == 0
+
+
+async def test_revise_rejects_drifted_item_text(exploration_flow):
+    flow = exploration_flow
+    spec, envelope = await flow.setup(chain="progression", scale="sandbox")
+    parent_row, parent_envelope = await _seed_sandbox_result(flow, spec)
+    items = parent_envelope.payload.model_dump(mode="json")["influence_chain"]
+    task_id = await flow.enqueue(
+        spec,
+        envelope,
+        action="story.exploration.sandbox.generate",
+        mode="revise",
+        parent_result_id=str(parent_row.id),
+        item_path="chain:0",
+        item_text="作者看到的是旧文案，已经对不上",
+        instruction="把第一环改保守",
+    )
+    task = await flow.run(task_id)
+    assert task.status == "failed"
+    async with flow.sessions() as db:
+        rows = (
+            await db.scalars(
+                select(StoryWorldProgressionStep).where(
+                    StoryWorldProgressionStep.root_id == spec.root_id
+                )
+            )
+        ).all()
+        assert len(rows) == 1
+    assert flow.provider.calls == 0
+    assert items  # 父条目未被改动
+
+
+async def _seed_scene_line_result(flow, spec):
+    row_envelope = ExplorationOutputEnvelope(
+        output_kind=SCENE_LINE_OUTPUT_KIND,
+        schema_version=1,
+        payload=SceneLineOutputV1.model_validate(
+            scene_line_payload(target_ref="c_baker")
+        ),
+    )
+    async with flow.sessions.begin() as db:
+        branch = await db.get(StorySceneDirectorBranch, spec.branch_id)
+        row = StorySceneDirectorRound(
+            novel_id=branch.novel_id,
+            root_id=branch.root_id,
+            branch_id=branch.id,
+            round_number=1,
+            parent_round_id=None,
+            source_hash=branch.source_hash,
+            input_hash="c" * 64,
+            output_hash="d" * 64,
+            input_json={"mode": "start"},
+            output_json=pack_exploration_output(row_envelope),
+            state_json={},
+            run_envelope_json={},
+        )
+        db.add(row)
+        await db.flush()
+    return row, row_envelope
+
+
+async def test_scene_line_revise_replaces_line_entry(exploration_flow):
+    flow = exploration_flow
+    spec, envelope = await flow.setup(chain="scene", scale="scene_line")
+    parent_row, parent_envelope = await _seed_scene_line_result(flow, spec)
+    parent_payload = parent_envelope.payload.model_dump(mode="json")
+
+    task_id = await flow.enqueue(
+        spec,
+        envelope,
+        action="story.exploration.scene_line.generate",
+        mode="revise",
+        parent_result_id=str(parent_row.id),
+        item_path="line",
+        item_text=parent_payload["line"],
+        instruction="这句收着一点",
+    )
+    task = await flow.run(task_id)
+    assert task.status == "done", task.error_message
+    async with flow.sessions() as db:
+        rounds = (
+            await db.scalars(
+                select(StorySceneDirectorRound)
+                .where(StorySceneDirectorRound.root_id == spec.root_id)
+                .order_by(StorySceneDirectorRound.round_number)
+            )
+        ).all()
+        assert len(rounds) == 2
+        assert rounds[1].parent_round_id == parent_row.id
+        assert rounds[1].input_json["item_path"] == "line"
+        assert rounds[1].input_json["item_content_hash"] == (
+            exploration_tasks.content_hash(parent_payload["line"])
+        )
+        revised = unpack_exploration_output(rounds[1])
+        assert revised.payload.line != parent_payload["line"]
+        assert revised.payload.target_ref == parent_payload["target_ref"]
+    assert flow.provider.calls == 1
 
 
 async def test_canonical_scene_line_guard_fails_closed_without_persist(exploration_flow):

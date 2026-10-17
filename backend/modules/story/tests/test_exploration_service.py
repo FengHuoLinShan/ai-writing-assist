@@ -430,8 +430,8 @@ async def test_compare_same_start_results(db_session, project_factory):
         db_session,
         novel_id=str(project_id),
         owner_id=OWNER_ID,
-        result_id_a=str(step_a.id),
-        result_id_b=str(step_b.id),
+        first_result_id=str(step_a.id),
+        second_result_id=str(step_b.id),
     )
     assert result["left"]["result_id"] == str(step_a.id)
     assert result["right"]["result_id"] == str(step_b.id)
@@ -457,8 +457,8 @@ async def test_compare_rejects_different_start(db_session, project_factory):
             db_session,
             novel_id=str(project_id),
             owner_id=OWNER_ID,
-            result_id_a=str(step_a.id),
-            result_id_b=str(step_b.id),
+            first_result_id=str(step_a.id),
+            second_result_id=str(step_b.id),
         )
 
 
@@ -488,8 +488,8 @@ async def test_compare_rejects_non_exploration_rows(db_session, project_factory)
             db_session,
             novel_id=str(project_id),
             owner_id=OWNER_ID,
-            result_id_a=str(legacy.id),
-            result_id_b=str(legacy.id),
+            first_result_id=str(legacy.id),
+            second_result_id=str(legacy.id),
         )
 
 

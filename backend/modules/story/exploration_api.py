@@ -134,10 +134,13 @@ class ExplorationDetailApiRequest(_ApiModel):
 
 
 class ExplorationReviseApiRequest(_ApiModel):
+    """局部修订/补桥：item_path 定位父条目，item_text 防漂移（P0 §8.1）。"""
+
     novel_id: str
     operation_id: UUID
     revision_of: str | None = Field(default=None, max_length=64)
-    changed_item_hash: str = Field(pattern=r"^fnv1a:[0-9a-f]{8}$")
+    item_path: str = Field(min_length=1, max_length=120)
+    item_text: str | None = Field(default=None, max_length=4000)
     instruction: str = Field(min_length=1, max_length=2000)
     bridge_target: str | None = Field(default=None, max_length=500)
 
@@ -669,7 +672,8 @@ async def submit_exploration_follow_up(
     owner_id: str | None = None,
     focus: str = "",
     instruction: str = "",
-    changed_item_hash: str | None = None,
+    item_path: str = "",
+    item_text: str | None = None,
     bridge_target: str | None = None,
     revision_of: str | None = None,
 ) -> dict:
@@ -683,6 +687,16 @@ async def submit_exploration_follow_up(
     if envelope.output_kind == AUTHOR_EDIT_OUTPUT_KIND:
         raise ConflictError("作者编辑版本不能继续详略或修订；请回到原始 AI 结果")
     base_kind = _effective_output_kind(envelope)
+    if mode == "revise":
+        # 入队前先按 item_path 定位并做防漂移比对，失败立即 409（worker 内再权威校验）。
+        from modules.story.exploration_tasks import check_revision_target
+
+        try:
+            check_revision_target(
+                envelope.payload.model_dump(mode="json"), item_path, item_text, base_kind
+            )
+        except ValueError as error:
+            raise ConflictError(str(error)) from error
     branch = await _branch_for(db, novel_id, chain, row.branch_id, lock=True)
     confirmation_id, confirmation_action = _branch_confirmation(branch)
     if not confirmation_id or not confirmation_action:
@@ -743,7 +757,8 @@ async def submit_exploration_follow_up(
             "scale": scale,
             "focus": focus,
             "instruction": instruction,
-            **({"changed_item_hash": changed_item_hash} if changed_item_hash else {}),
+            **({"item_path": item_path} if mode == "revise" else {}),
+            **({"item_text": item_text} if mode == "revise" and item_text else {}),
             **({"bridge_target": bridge_target} if bridge_target else {}),
         },
         root=root,
@@ -759,7 +774,8 @@ async def submit_exploration_follow_up(
             "start": _root_start_dump(root),
             "focus": focus,
             "instruction": instruction,
-            **({"changed_item_hash": changed_item_hash} if changed_item_hash else {}),
+            **({"item_path": item_path} if mode == "revise" else {}),
+            **({"item_text": item_text} if mode == "revise" and item_text else {}),
             **({"bridge_target": bridge_target} if bridge_target else {}),
             **(
                 {"target_ref": _scene_target(envelope)}
@@ -773,7 +789,8 @@ async def submit_exploration_follow_up(
         "result_id": str(row.id),
         "focus": focus,
         "instruction": instruction,
-        **({"changed_item_hash": changed_item_hash} if changed_item_hash else {}),
+        **({"item_path": item_path} if mode == "revise" else {}),
+        **({"item_text": item_text} if mode == "revise" and item_text else {}),
         **({"bridge_target": bridge_target} if bridge_target else {}),
     }
     receipt = await enqueue_task_with_optional_operation(
@@ -870,8 +887,8 @@ async def compare_exploration(db, data: ExplorationCompareRequest) -> dict:
         db,
         novel_id=data.novel_id,
         owner_id=await _project_owner_id(db, data.novel_id),
-        result_id_a=data.result_id_a,
-        result_id_b=data.result_id_b,
+        first_result_id=data.first_result_id,
+        second_result_id=data.second_result_id,
     )
 
     def _side(side: dict) -> dict:
@@ -882,6 +899,7 @@ async def compare_exploration(db, data: ExplorationCompareRequest) -> dict:
             "branch_id": side["branch_id"],
             "output_kind": envelope.output_kind,
             "payload": envelope.payload.model_dump(mode="json"),
+            "created_at": side["created_at"],
         }
 
     return {
@@ -980,7 +998,8 @@ async def api_revise(result_id: str, data: ExplorationReviseApiRequest, db: DbSe
             mode="revise",
             operation_id=str(data.operation_id),
             instruction=data.instruction,
-            changed_item_hash=data.changed_item_hash,
+            item_path=data.item_path,
+            item_text=data.item_text,
             bridge_target=data.bridge_target,
             revision_of=data.revision_of,
         )

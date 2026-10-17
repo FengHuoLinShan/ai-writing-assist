@@ -252,8 +252,8 @@ async def test_gate_blocks_execution_but_keeps_history_and_compare_readable(
         "/api/story/exploration/compare",
         json={
             "novel_id": test_project_id,
-            "result_id_a": str(step.id),
-            "result_id_b": str(step2.id),
+            "first_result_id": str(step.id),
+            "second_result_id": str(step2.id),
         },
     )
     assert compare.status_code == 200
@@ -470,7 +470,7 @@ async def test_start_rejects_stale_preview_hash_and_confirmation_mismatch(
 
 
 @pytest.mark.asyncio
-async def test_revise_rejects_bad_hash_format_and_stale_result(
+async def test_revise_rejects_bad_path_and_unknown_entry(
     async_client, db_session, test_project_id, monkeypatch
 ):
     _enable_exploration(monkeypatch)
@@ -483,23 +483,36 @@ async def test_revise_rejects_bad_hash_format_and_stale_result(
         json={
             "novel_id": test_project_id,
             "operation_id": str(uuid.uuid4()),
-            "changed_item_hash": "deadbeef",
+            "item_path": "",
             "instruction": "改第一条",
         },
     )
     assert bad_format.status_code == 422
 
-    _stub_confirmation(monkeypatch, _provisional_start())
-    missing_ledger = await async_client.post(
+    unknown_entry = await async_client.post(
         f"/api/story/exploration/results/{step.id}/revise",
         json={
             "novel_id": test_project_id,
             "operation_id": str(uuid.uuid4()),
-            "changed_item_hash": "fnv1a:deadbeef",
+            "item_path": "chain:9",
             "instruction": "改第一条",
         },
     )
-    assert missing_ledger.status_code == 409
+    assert unknown_entry.status_code == 409
+    assert "可修订条目" in unknown_entry.json()["detail"]
+
+    drifted = await async_client.post(
+        f"/api/story/exploration/results/{step.id}/revise",
+        json={
+            "novel_id": test_project_id,
+            "operation_id": str(uuid.uuid4()),
+            "item_path": "chain:0",
+            "item_text": "作者看到的是旧文案，已经对不上",
+            "instruction": "改第一条",
+        },
+    )
+    assert drifted.status_code == 409
+    assert "内容已变化" in drifted.json()["detail"]
 
 
 # ---------------------------------------------------------------------------

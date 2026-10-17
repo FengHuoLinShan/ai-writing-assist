@@ -558,7 +558,7 @@ C6_EXPLORATION_SNAPSHOT = {
         "比较同起点探索结果",
         "read",
         "1",
-        "99ee13cc9b1bc1ebc46727761795959bed6304f12768dfb1b852518f59f89b90",
+        "43ec3e56607bbb7607c58dab09ec633fa26a4a203ab1334670c1ae0995b33060",
     ),
     "story.exploration.detail": (
         "对探索结果说详细点",
@@ -582,7 +582,7 @@ C6_EXPLORATION_SNAPSHOT = {
         "局部修订探索结果",
         "confirm",
         "1",
-        "b0b079b85702db344850bc5bee855101328233903df1654c86669b8c5b73306f",
+        "5f78b0b5501df770d594b2556e0a18217e8a02faf1f0744f353f7a922807ebaa",
     ),
     "story.exploration.start": (
         "发起独立探索任务",

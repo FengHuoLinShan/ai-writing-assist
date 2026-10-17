@@ -333,13 +333,13 @@ async def _result_start_fingerprint(
 
 
 async def compare_exploration_results(
-    db, *, novel_id: str, owner_id: str, result_id_a: str, result_id_b: str
+    db, *, novel_id: str, owner_id: str, first_result_id: str, second_result_id: str
 ) -> dict:
     """同起点两结果比较：起点指纹不同或缺失时失败关闭（409）。"""
 
     await _require_project(db, novel_id, owner_id)
     located: list[tuple[Any, str]] = []
-    for result_id in (result_id_a, result_id_b):
+    for result_id in (first_result_id, second_result_id):
         row, chain = await _locate_result_row(db, novel_id, result_id)
         located.append((row, chain))
     envelopes = [unpack_exploration_output(row) for row, _chain in located]
@@ -359,6 +359,9 @@ async def compare_exploration_results(
                 "chain": chain,
                 "root_id": str(row.root_id),
                 "branch_id": str(row.branch_id),
+                "created_at": (
+                    row.created_at.isoformat() if row.created_at else None
+                ),
                 "envelope": envelope,
             }
         )

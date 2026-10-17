@@ -111,7 +111,8 @@ class ExplorationReviseOperationRequest(BaseModel):
 
     novel_id: str
     result_id: str
-    changed_item_hash: str = Field(pattern=r"^fnv1a:[0-9a-f]{8}$")
+    item_path: str = Field(min_length=1, max_length=120)
+    item_text: str | None = Field(default=None, max_length=4000)
     instruction: str = Field(min_length=1, max_length=2000)
     bridge_target: str | None = Field(default=None, max_length=500)
     operation_id: str = Field(min_length=1, max_length=64)
@@ -290,7 +291,7 @@ async def _prepare_revise(db, novel_id, args, *, context=None):
     await require_active_project(db, novel_id)
     from modules.story.exploration_api import _locate_exploration_result
     from modules.story.exploration_service import unpack_exploration_output
-    from modules.story.exploration_tasks import _locate_revision_target
+    from modules.story.exploration_tasks import check_revision_target
 
     row, _chain, _root = await _locate_exploration_result(
         db, novel_id=novel_id, result_id=str(args.result_id)
@@ -298,14 +299,18 @@ async def _prepare_revise(db, novel_id, args, *, context=None):
     envelope = unpack_exploration_output(row)
     if envelope is None or envelope.output_kind == AUTHOR_EDIT_KIND:
         raise ValueError("作者编辑版本不能继续修订；请回到原始 AI 结果")
-    _locate_revision_target(
-        envelope.payload.model_dump(mode="json"),
-        args.changed_item_hash,
-        envelope.output_kind,
-    )
+    try:
+        check_revision_target(
+            envelope.payload.model_dump(mode="json"),
+            args.item_path,
+            args.item_text,
+            envelope.output_kind,
+        )
+    except ValueError as error:
+        raise ValueError(str(error)) from error
     return {
         "result_id": str(row.id),
-        "locked_item_hash": args.changed_item_hash,
+        "locked_item_path": args.item_path,
         "effect": "只重生成选中条目，其余内容服务端原样保留；同根追加授权 1 次",
     }
 
@@ -323,7 +328,8 @@ async def _apply_revise(db, novel_id, args, preview, *, context=None):
         mode="revise",
         operation_id=str(args.operation_id),
         instruction=args.instruction,
-        changed_item_hash=args.changed_item_hash,
+        item_path=args.item_path,
+        item_text=args.item_text,
         bridge_target=args.bridge_target,
     )
 
@@ -428,14 +434,15 @@ OPERATIONS_SPEC = {
         "permission": "confirm",
         **_metadata(
             description=(
-                "按条目指纹锁定父结果中的一个条目（影响链环、缺口、补桥路径或"
-                "一句对白）重生成；其余内容服务端原样保留，新结果行指向父行。"
+                "按条目路径（chain:N/gap:N/bridge:N/line）锁定父结果中的一个条目"
+                "重生成，item_text 与父内容比对防漂移；其余内容服务端原样保留，"
+                "新结果行指向父行。"
             ),
             risk="R2",
             fee="possible_model_charge",
             produces=("story_exploration_task",),
             preconditions=(
-                "条目指纹与父结果内容一致",
+                "item_path 在父结果可修订条目中且 item_text 与其内容一致",
                 "所选结果是分支最新探索结果",
             ),
             transaction="multi_stage",

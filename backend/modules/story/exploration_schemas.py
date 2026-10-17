@@ -353,19 +353,20 @@ class ExplorationDetailRequest(ExplorationModel):
 
 
 class ExplorationReviseRequest(ExplorationModel):
-    """局部修订/补桥：只改选中的一条影响、一个因果环节或一句对白。"""
+    """局部修订/补桥：item_path 定位父条目，item_text 防漂移（P0 §8.1）。"""
 
     novel_id: str
-    result_id: str
-    revision_of_item_hash: str = Field(pattern="^[a-f0-9]{64}$")
+    revision_of: str | None = Field(default=None, max_length=64)
+    item_path: str = Field(min_length=1, max_length=120)
+    item_text: str | None = Field(default=None, max_length=4000)
     instruction: str = Field(min_length=1, max_length=2000)
     bridge_target: str | None = Field(default=None, max_length=500)
     operation_id: uuid.UUID
 
-    @field_validator("novel_id", "result_id")
+    @field_validator("novel_id", "revision_of")
     @classmethod
-    def normalize_ids(cls, value: str) -> str:
-        return _uuid(value)
+    def normalize_ids(cls, value: str | None) -> str | None:
+        return _uuid_or_none(value)
 
 
 class ExplorationSaveEditRequest(ExplorationModel):
@@ -386,17 +387,17 @@ class ExplorationCompareRequest(ExplorationModel):
     """同起点两结果比较（read）；起点不同在服务层失败关闭。"""
 
     novel_id: str
-    result_id_a: str
-    result_id_b: str
+    first_result_id: str
+    second_result_id: str
 
-    @field_validator("novel_id", "result_id_a", "result_id_b")
+    @field_validator("novel_id", "first_result_id", "second_result_id")
     @classmethod
     def normalize_ids(cls, value: str) -> str:
         return _uuid(value)
 
     @model_validator(mode="after")
     def validate_distinct(self):
-        if self.result_id_a == self.result_id_b:
+        if self.first_result_id == self.second_result_id:
             raise ValueError("比较需要两个不同的结果")
         return self
 

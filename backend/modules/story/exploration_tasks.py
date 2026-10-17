@@ -430,32 +430,8 @@ def _scene_line_user_data(
 
 
 # ---------------------------------------------------------------------------
-# 修订目标定位（与前端卡片相同的键序稳定 FNV-1a 条目指纹）
+# 修订目标定位（P0 §8.1：item_path + item_text，不用客户端摘要做定位键）
 # ---------------------------------------------------------------------------
-
-
-def _stable_stringify(value) -> str:
-    if value is None or isinstance(value, str):
-        return json.dumps(value, ensure_ascii=False)
-    if isinstance(value, list):
-        return "[" + ",".join(_stable_stringify(item) for item in value) + "]"
-    if isinstance(value, dict):
-        parts = []
-        for key in sorted(value):
-            key_json = json.dumps(str(key), ensure_ascii=False)
-            parts.append(f"{key_json}:{_stable_stringify(value[key])}")
-        return "{" + ",".join(parts) + "}"
-    return json.dumps(value, ensure_ascii=False)
-
-
-def _fnv1a_hash(item) -> str:
-    text = _stable_stringify(item)
-    digest = 0x811C9DC5
-    for character in text:
-        digest ^= ord(character)
-        digest = (digest * 0x01000193) & 0xFFFFFFFF
-    return f"fnv1a:{digest:08x}"
-
 
 _BASE_KIND_BY_SCALE = {
     "sandbox": SANDBOX_OUTPUT_KIND,
@@ -486,29 +462,63 @@ def _revision_items(payload: dict, base_kind: str) -> list[dict]:
             {"key": f"{prefix}:{index}", "item": item}
             for index, item in enumerate(rows)
         ]
-    return [{"key": "line", "item": payload}]
+    return [{"key": "line", "item": payload.get("line")}]
 
 
-def _locate_revision_target(parent_payload: dict, item_hash: str, base_kind: str) -> dict:
-    """修订锁：指纹必须恰好命中父载荷中的一个条目，否则 409 风格失败。"""
+def _revision_entry_text(key: str, item) -> str:
+    """条目当前展示文本；与前端卡片渲染口径一致，用于防漂移比对。"""
+    kind = str(key or "").partition(":")[0]
+    if kind == "line":
+        return str(item or "")
+    if kind == "chain":
+        return str((item or {}).get("effect") or "")
+    if kind == "gap":
+        return str((item or {}).get("description") or "")
+    return "\n".join(str(step) for step in (item or {}).get("steps") or [])
+
+
+def check_revision_target(
+    parent_payload: dict, item_path: str, item_text: str | None, base_kind: str
+) -> dict:
+    """按冻结路径语法（chain:N/gap:N/bridge:N/line）定位父条目并做防漂移比对。
+
+    解析不到、路径越界或 item_text 与父内容不一致即失败关闭；返回
+    ``{"key", "item", "item_content_hash"}``，内容哈希由服务端计算。
+    """
+
+    path = str(item_path or "").strip()
     matches = [
-        row
-        for row in _revision_items(parent_payload, base_kind)
-        if _fnv1a_hash(row["item"]) == item_hash
+        row for row in _revision_items(parent_payload, base_kind) if row["key"] == path
     ]
     if len(matches) != 1:
         raise ValueError(
-            "所选条目与父结果内容不一致或已变化，无法锁定修订；请刷新结果后重选"
+            f"修订路径 {path or '(空)'} 不在父结果的可修订条目中；请刷新结果后重选"
         )
-    return matches[0]
+    target = matches[0]
+    if item_text is not None and str(item_text) != _revision_entry_text(
+        target["key"], target["item"]
+    ):
+        raise ValueError("所选条目内容已变化，请刷新结果后再提交修订")
+    return {
+        "key": target["key"],
+        "item": target["item"],
+        "item_content_hash": content_hash(target["item"]),
+    }
 
 
-def _merge_revision(parent_payload: dict, output, base_kind: str, item_hash: str):
+def _merge_revision(parent_payload: dict, output, base_kind: str, item_path: str):
     """只把被修订条目替换进父载荷；其余内容服务端原样拷贝。"""
-    target = _locate_revision_target(parent_payload, item_hash, base_kind)
+    matches = [
+        row
+        for row in _revision_items(parent_payload, base_kind)
+        if row["key"] == item_path
+    ]
+    if len(matches) != 1:
+        raise ValueError(f"修订路径 {item_path} 不在父结果的可修订条目中")
+    target = matches[0]
     merged = deepcopy(parent_payload)
     kind, _, raw_index = target["key"].partition(":")
-    index = int(raw_index)
+    index = int(raw_index) if raw_index else 0
     if kind == "chain":
         if not output.influence_chain:
             raise ValueError("修订结果缺少被修订的影响链环节")
@@ -748,7 +758,8 @@ async def handle_story_exploration_progression(db, task):
     parent_payload = None
     parent_id: str | None = None
     parent_output_hash: str | None = None
-    revision_hash = ""
+    item_path = ""
+    item_content_hash: str | None = None
     if mode in {"detail", "revise"}:
         parent_row, parent_payload = await _load_parent_result(
             db,
@@ -761,8 +772,15 @@ async def handle_story_exploration_progression(db, task):
         parent_id = str(parent_row.id)
         parent_output_hash = str(parent_row.output_hash or "")
         if mode == "revise":
-            revision_hash = str(meta.get("changed_item_hash") or "")
-            _locate_revision_target(parent_payload, revision_hash, scale)
+            raw_item_text = meta.get("item_text")
+            target = check_revision_target(
+                parent_payload,
+                str(meta.get("item_path") or ""),
+                None if raw_item_text is None else str(raw_item_text),
+                scale,
+            )
+            item_path = target["key"]
+            item_content_hash = target["item_content_hash"]
         elif mode == "detail" and scale == EVENT_OUTPUT_KIND:
             # 详略保持原模式：诊断仍诊断，补桥仍补桥。
             action = (
@@ -816,7 +834,7 @@ async def handle_story_exploration_progression(db, task):
             output_kind=OUTPUT_KIND_BY_ACTION[action],
             schema_version=EXPLORATION_OUTPUT_SCHEMA_VERSION,
             payload=(
-                _merge_revision(parent_payload, output, scale, revision_hash)
+                _merge_revision(parent_payload, output, scale, item_path)
                 if mode == "revise"
                 else output
             ),
@@ -830,7 +848,8 @@ async def handle_story_exploration_progression(db, task):
             envelope=envelope_out,
             mode=mode,
             envelope_run=envelope,
-            revision_hash=revision_hash or None,
+            item_path=item_path or None,
+            item_content_hash=item_content_hash,
         )
     except ExplorationPauseError as pause:
         return await _pause_progression(
@@ -888,7 +907,8 @@ async def _write_progression_result(
     envelope: ExplorationOutputEnvelope,
     mode: str,
     envelope_run,
-    revision_hash: str | None,
+    item_path: str | None,
+    item_content_hash: str | None,
 ):
     """写入结果步骤；parent 标识须在检查点前捕获，避免检查点 expire 后懒加载。"""
     root_request = root.request_json or {}
@@ -900,7 +920,8 @@ async def _write_progression_result(
         },
         "parent_result_id": parent_id,
         "parent_output_hash": parent_output_hash,
-        "changed_item_hash": revision_hash,
+        "item_path": item_path,
+        "item_content_hash": item_content_hash,
     }
     return await append_progression_step(
         db,
@@ -992,7 +1013,8 @@ async def handle_story_exploration_scene(db, task):
     parent_row = None
     parent_payload = None
     parent_id: str | None = None
-    revision_hash = ""
+    item_path = ""
+    item_content_hash: str | None = None
     if mode in {"detail", "revise"}:
         parent_row, parent_payload = await _load_parent_result(
             db,
@@ -1004,8 +1026,15 @@ async def handle_story_exploration_scene(db, task):
         # 检查点会 expire 全部 ORM 对象；父结果标识须在首个检查点前取成纯值。
         parent_id = str(parent_row.id)
         if mode == "revise":
-            revision_hash = str(meta.get("changed_item_hash") or "")
-            _locate_revision_target(parent_payload, revision_hash, SCENE_LINE_OUTPUT_KIND)
+            raw_item_text = meta.get("item_text")
+            target = check_revision_target(
+                parent_payload,
+                str(meta.get("item_path") or ""),
+                None if raw_item_text is None else str(raw_item_text),
+                SCENE_LINE_OUTPUT_KIND,
+            )
+            item_path = target["key"]
+            item_content_hash = target["item_content_hash"]
 
     target_ref = str(
         meta.get("target_ref") or (parent_payload or {}).get("target_ref") or ""
@@ -1057,7 +1086,7 @@ async def handle_story_exploration_scene(db, task):
             # canonical 目标：生成后 hidden guard 消费方校验，违规即失败不落库。
             await _validate_canonical_scene_line(db, confirmed, output)
         payload = (
-            _merge_revision(parent_payload, output, SCENE_LINE_OUTPUT_KIND, revision_hash)
+            _merge_revision(parent_payload, output, SCENE_LINE_OUTPUT_KIND, item_path)
             if mode == "revise"
             else output
         )
@@ -1074,7 +1103,8 @@ async def handle_story_exploration_scene(db, task):
             envelope=envelope_out,
             mode=mode,
             envelope_run=envelope,
-            revision_hash=revision_hash or None,
+            item_path=item_path or None,
+            item_content_hash=item_content_hash,
         )
     except ExplorationPauseError as pause:
         return await _pause_scene(db, root, branch, envelope, pause.reason)
@@ -1126,7 +1156,8 @@ async def _write_scene_result(
     envelope: ExplorationOutputEnvelope,
     mode: str,
     envelope_run,
-    revision_hash: str | None,
+    item_path: str | None,
+    item_content_hash: str | None,
 ):
     next_number = (
         await db.scalar(
@@ -1145,7 +1176,8 @@ async def _write_scene_result(
             "fingerprint": root_request.get("exploration_start_fingerprint"),
         },
         "parent_result_id": parent_id,
-        "changed_item_hash": revision_hash,
+        "item_path": item_path,
+        "item_content_hash": item_content_hash,
     }
     row = StorySceneDirectorRound(
         novel_id=root.novel_id,
