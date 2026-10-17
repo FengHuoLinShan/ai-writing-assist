@@ -1,0 +1,702 @@
+{
+  "baseline_sha": "22bb499789cba89fea92e918fd853ab768688e07",
+  "claims": [
+    {
+      "claim_id": "WS-01",
+      "baseline_sha": "22bb499789cba89fea92e918fd853ab768688e07",
+      "domain": "writing architecture",
+      "doc_path": "backend/modules/writing/README.md",
+      "doc_section": "按职责划分的实现",
+      "conclusion": "模块 README 与当前代码一致：services.py 是稳定导入 shim，draft/conflict/generation 服务已按职责拆分，service_support 承载共享函数。",
+      "code_refs": [
+        {
+          "path": "backend/modules/writing/services.py",
+          "symbol": "Writing*Service re-exports",
+          "line": "1-9"
+        },
+        {
+          "path": "backend/modules/writing/README.md",
+          "symbol": "按职责划分的实现",
+          "line": "491-497"
+        }
+      ],
+      "callers": [
+        {
+          "path": "backend/modules/writing/tasks.py",
+          "symbol": "handle_writing_generate imports WritingGenerationService from modules.writing.services",
+          "line": "231-257"
+        }
+      ],
+      "test_refs": [
+        "backend/modules/writing/tests/test_writing_generate_task_transactions.py"
+      ],
+      "proof_scope": "静态导入和职责定位核对；测试源码未执行。",
+      "read_depth": "implementation-and-caller",
+      "validation_identity": "source HEAD 22bb499789cba89fea92e918fd853ab768688e07; read-only",
+      "unknowns": [
+        "未运行回归测试；README 对外稳定接口是否完整由根任务整体评估。"
+      ],
+      "proposed_action": "不改 Writing README；无需为内部拆分新建文档。"
+    },
+    {
+      "claim_id": "WS-02",
+      "baseline_sha": "22bb499789cba89fea92e918fd853ab768688e07",
+      "domain": "writing generation facade",
+      "doc_path": "docs/modules/11_writing.md",
+      "doc_section": "生成存在 Scene 的正文",
+      "conclusion": "文档将 Scene execution bundle 消费者写成 outline.facade，实际 generation service 直接从 modules.story.facade 获取；Story facade 再暴露 outline_state 实现。",
+      "code_refs": [
+        {
+          "path": "docs/modules/11_writing.md",
+          "symbol": "Scene execution bundle consumer",
+          "line": "203-206"
+        },
+        {
+          "path": "backend/modules/writing/generation_service.py",
+          "symbol": "WritingGenerationService._execution_bundle",
+          "line": "511-524"
+        },
+        {
+          "path": "backend/modules/story/facade.py",
+          "symbol": "get_scene_execution_bundle re-export",
+          "line": "108-111"
+        }
+      ],
+      "callers": [
+        {
+          "path": "backend/modules/writing/generation_service.py",
+          "symbol": "_prepare_generation_task / _finalize_generation_task",
+          "line": "526-575;978-1045"
+        }
+      ],
+      "test_refs": [
+        "backend/modules/writing/tests/test_writing_generate_task_transactions.py::test_generation_discards_context_and_evidence_drift"
+      ],
+      "proof_scope": "实现导入与调用目标静态核对；测试未运行。",
+      "read_depth": "implementation-and-facade",
+      "validation_identity": "source HEAD 22bb499789cba89fea92e918fd853ab768688e07; read-only",
+      "unknowns": [
+        "未执行 import/runtime check。"
+      ],
+      "proposed_action": "在 docs/modules/11_writing.md §生成存在 Scene 的正文改为 modules.story.facade.get_scene_execution_bundle。"
+    },
+    {
+      "claim_id": "WS-03",
+      "baseline_sha": "22bb499789cba89fea92e918fd853ab768688e07",
+      "domain": "writing public lock seam",
+      "doc_path": "docs/modules/11_writing.md",
+      "doc_section": "Facade",
+      "conclusion": "docs/modules/11_writing.md facade 清单漏列公开的 lock_chapter_versions_for_revalidation；Writing README 和 facade 定义均已包含。Scene fusion task 依赖该 seam 在最终来源复验时序列化章节写入。",
+      "code_refs": [
+        {
+          "path": "docs/modules/11_writing.md",
+          "symbol": "Facade list",
+          "line": "62-79"
+        },
+        {
+          "path": "backend/modules/writing/facade.py",
+          "symbol": "lock_chapter_versions_for_revalidation",
+          "line": "205-215"
+        },
+        {
+          "path": "backend/modules/writing/draft_service.py",
+          "symbol": "WritingDraftService.lock_chapter_versions_for_revalidation",
+          "line": "1452-1464"
+        },
+        {
+          "path": "backend/modules/writing/README.md",
+          "symbol": "Facade 入口",
+          "line": "104-128"
+        },
+        {
+          "path": "backend/modules/story/outline_state/scene_workbench_fusion.py",
+          "symbol": "preview_llm_fusion task-mode chapter lock and source recheck",
+          "line": "489-512"
+        }
+      ],
+      "callers": [
+        {
+          "path": "backend/modules/story/outline_state/scene_workbench_fusion.py",
+          "symbol": "preview_llm_fusion",
+          "line": "433-512"
+        }
+      ],
+      "test_refs": [
+        "backend/modules/story/outline_state/tests/test_scene_workbench.py::test_fusion_preview_task_locks_evidence_and_rejects_drift"
+      ],
+      "proof_scope": "公开 seam、直接调用者与测试源码定位；未执行。",
+      "read_depth": "cross-module-call-chain",
+      "validation_identity": "source HEAD 22bb499789cba89fea92e918fd853ab768688e07; read-only",
+      "unknowns": [
+        "未运行并发集成测试；只确认代码声明和调用关系。"
+      ],
+      "proposed_action": "在 docs/modules/11_writing.md facade 清单补列该函数，并简述其锁住指定章节版本/内容写入以供外部最终复验。"
+    },
+    {
+      "claim_id": "WS-04",
+      "baseline_sha": "22bb499789cba89fea92e918fd853ab768688e07",
+      "domain": "writing generation lifecycle and recovery",
+      "doc_path": "docs/modules/11_writing.md",
+      "doc_section": "AI 正文建议与采用 / 生成任务",
+      "conclusion": "文档关于 operation receipt、confirmation 重物化、task owner/租约、冻结付费候选、finalize 复验及漂移时不落 candidate 的主要描述与源码一致。",
+      "code_refs": [
+        {
+          "path": "backend/modules/writing/api.py",
+          "symbol": "generate endpoint",
+          "line": "416-445"
+        },
+        {
+          "path": "backend/modules/writing/generation_service.py",
+          "symbol": "submit_generation",
+          "line": "62-183"
+        },
+        {
+          "path": "backend/modules/writing/tasks.py",
+          "symbol": "handle_writing_generate",
+          "line": "220-280"
+        },
+        {
+          "path": "backend/modules/writing/generation_service.py",
+          "symbol": "_prepare_generation_task",
+          "line": "526-682"
+        },
+        {
+          "path": "backend/modules/writing/generation_service.py",
+          "symbol": "generate_candidate_for_task and paid-output checkpoint",
+          "line": "784-977"
+        },
+        {
+          "path": "backend/modules/writing/generation_service.py",
+          "symbol": "_finalize_generation_task",
+          "line": "978-1084"
+        },
+        {
+          "path": "backend/modules/writing/service_support.py",
+          "symbol": "_generation_task_source_fingerprint / _frozen_candidate_for_plan",
+          "line": "320-387"
+        },
+        {
+          "path": "docs/modules/11_writing.md",
+          "symbol": "generation lifecycle",
+          "line": "179-190"
+        }
+      ],
+      "callers": [
+        {
+          "path": "backend/modules/writing/api.py",
+          "symbol": "generate endpoint delegates to WritingGenerationService.submit_generation",
+          "line": "416-445"
+        }
+      ],
+      "test_refs": [
+        "backend/modules/writing/tests/test_writing_generate_task_transactions.py::test_generation_discards_context_and_evidence_drift",
+        "backend/modules/writing/tests/test_writing_generate_task_transactions.py::test_generation_lease_loss_at_checkpoint_writes_no_candidate",
+        "backend/modules/writing/tests/test_writing_generate_task_transactions.py::test_project_delete_before_finalize_writes_no_candidate",
+        "backend/modules/writing/tests/test_writing_generate_task_transactions.py::test_project_profile_drift_before_finalize_writes_no_candidate",
+        "backend/modules/writing/tests/test_writing_generate_recovery.py::test_frozen_candidate_reused_only_on_fingerprint_match",
+        "backend/modules/writing/tests/test_writing_generate_recovery.py::test_requeued_generation_reuses_frozen_paid_output"
+      ],
+      "proof_scope": "完整源码调用链和代表性测试断言位置已读；没有运行测试，也没有 provider/DB 调用。",
+      "read_depth": "end-to-end-source-trace",
+      "validation_identity": "source HEAD 22bb499789cba89fea92e918fd853ab768688e07; tests cited as source assertions only",
+      "unknowns": [
+        "真实队列 lease、事务隔离和 provider 重试行为未在运行时验证。"
+      ],
+      "proposed_action": "保留现有生命周期说明；修正 WS-02 的 Story facade 名称即可。"
+    },
+    {
+      "claim_id": "WS-05",
+      "baseline_sha": "22bb499789cba89fea92e918fd853ab768688e07",
+      "domain": "writing adoption idempotency",
+      "doc_path": "docs/modules/11_writing.md",
+      "doc_section": "AI 正文建议与采用",
+      "conclusion": "当前文档称重复采用同一候选一概拒绝，遗漏相同 idempotency_key 的回执重放。无键或异键仍被拒绝，因此需要限定措辞。",
+      "code_refs": [
+        {
+          "path": "docs/modules/11_writing.md",
+          "symbol": "copy-on-adopt replay wording",
+          "line": "245-254"
+        },
+        {
+          "path": "backend/modules/writing/api.py",
+          "symbol": "adopt endpoint idempotency_key parameter",
+          "line": "686-708"
+        },
+        {
+          "path": "backend/modules/writing/draft_service.py",
+          "symbol": "WritingDraftService.adopt_candidate_to_working",
+          "line": "526-563"
+        },
+        {
+          "path": "backend/modules/writing/service_support.py",
+          "symbol": "_adoption_replay_result",
+          "line": "390-413"
+        },
+        {
+          "path": "backend/modules/writing/draft_service.py",
+          "symbol": "copy-on-adopt and provenance receipt",
+          "line": "576-629"
+        }
+      ],
+      "callers": [
+        {
+          "path": "backend/modules/writing/api.py",
+          "symbol": "adopt route delegates to facade/service",
+          "line": "686-708"
+        }
+      ],
+      "test_refs": [
+        "backend/modules/writing/tests/test_adoption_idempotency.py::test_adopt_replay_with_same_key_returns_original_receipt",
+        "backend/modules/writing/tests/test_adoption_idempotency.py::test_adopt_replay_without_key_or_with_other_key_still_rejected",
+        "backend/modules/writing/tests/test_adoption_idempotency.py::test_adopt_route_replay_with_idempotency_key"
+      ],
+      "proof_scope": "Service/API 分支和对应测试源码断言已读；测试未执行。",
+      "read_depth": "implementation-and-route-tests",
+      "validation_identity": "source HEAD 22bb499789cba89fea92e918fd853ab768688e07; read-only",
+      "unknowns": [
+        "网络回包丢失为代码注释和 idempotent replay 场景；未进行真实客户端故障注入。"
+      ],
+      "proposed_action": "改成“同键重放返回原采用稿回执；无键或异键不能重放已采用候选”。"
+    },
+    {
+      "claim_id": "WS-06",
+      "baseline_sha": "22bb499789cba89fea92e918fd853ab768688e07",
+      "domain": "candidate source drift and partial adoption",
+      "doc_path": "docs/modules/11_writing.md",
+      "doc_section": "AI 正文建议与采用 / 知识治理",
+      "conclusion": "采用门禁会重验原 writing.generate confirmation、Scene bundle、候选正文 hash、context-aware 独立 review 与知识 review；blocker 阻止采用，非阻断 findings 可作为 adopted_with_open_issues 随整份候选记录。partial/incomplete coverage 不可被误认为通过。",
+      "code_refs": [
+        {
+          "path": "backend/modules/writing/semantic_review.py",
+          "symbol": "validate_candidate_upstream",
+          "line": "363-500"
+        },
+        {
+          "path": "backend/modules/writing/draft_service.py",
+          "symbol": "adopt_candidate_to_working review gate and open findings receipt",
+          "line": "565-595"
+        },
+        {
+          "path": "backend/modules/writing/tests/test_semantic_review.py",
+          "symbol": "unknown contract item becomes incomplete and adoption fails",
+          "line": "1318-1355"
+        },
+        {
+          "path": "docs/modules/11_writing.md",
+          "symbol": "independent review and adopted_with_open_issues",
+          "line": "208-215;245-254"
+        }
+      ],
+      "callers": [
+        {
+          "path": "backend/modules/writing/draft_service.py",
+          "symbol": "adopt_candidate_to_working",
+          "line": "565-567"
+        }
+      ],
+      "test_refs": [
+        "backend/modules/writing/tests/test_semantic_review.py::test_generated_candidate_without_confirmation_fails_closed",
+        "backend/modules/writing/tests/test_semantic_review.py::test_unmet_contract_item_without_excerpt_goes_incomplete",
+        "backend/modules/writing/tests/test_semantic_review.py::test_met_contract_items_pass_and_allow_adoption",
+        "backend/modules/writing/tests/test_writing_knowledge_governance.py"
+      ],
+      "proof_scope": "门禁分支和对应源码断言已读；未运行 reviewer/model；不代表文学质量通过。",
+      "read_depth": "adoption-guard-and-coverage",
+      "validation_identity": "source HEAD 22bb499789cba89fea92e918fd853ab768688e07; source-only review",
+      "unknowns": [
+        "AI 语义结论的真实质量和作者接受度无法从代码测试推出。"
+      ],
+      "proposed_action": "保留现有知识/独立审查与开放问题说明；在修正 idempotency 句时明确采用的是整份 candidate。"
+    },
+    {
+      "claim_id": "WS-07",
+      "baseline_sha": "22bb499789cba89fea92e918fd853ab768688e07",
+      "domain": "writing draft CAS and persistence",
+      "doc_path": "docs/modules/11_writing.md",
+      "doc_section": "版本管理 / API / Facade",
+      "conclusion": "草稿保存经 chapter lock、draft row lock 和 latest/expected snapshot 校验后写入；文档已列 expected_version API，但 facade 清单缺少供 Story 外部最终复验使用的 chapter-write lock。",
+      "code_refs": [
+        {
+          "path": "backend/modules/writing/draft_service.py",
+          "symbol": "WritingDraftService._load_scoped_latest",
+          "line": "1060-1081"
+        },
+        {
+          "path": "backend/modules/writing/draft_service.py",
+          "symbol": "WritingDraftService._ensure_latest_and_expected",
+          "line": "1083-1110"
+        },
+        {
+          "path": "backend/modules/writing/draft_service.py",
+          "symbol": "WritingDraftService.lock_chapter_versions_for_revalidation",
+          "line": "1452-1464"
+        },
+        {
+          "path": "backend/modules/writing/README.md",
+          "symbol": "advisory lock and transaction seam",
+          "line": "71-79;120-128"
+        },
+        {
+          "path": "docs/modules/11_writing.md",
+          "symbol": "expected-version behavior and API list",
+          "line": "32-36;94-103"
+        }
+      ],
+      "callers": [
+        {
+          "path": "backend/modules/story/outline_state/scene_workbench_fusion.py",
+          "symbol": "task-mode final source revalidation",
+          "line": "489-512"
+        }
+      ],
+      "test_refs": [
+        "backend/modules/writing/tests/test_writing_api.py::test_stale_expected_updated_at_is_rejected",
+        "backend/modules/writing/tests/test_writing.py::test_update_draft_no_conflict_when_expected_version_matches",
+        "backend/modules/writing/tests/test_writing.py::test_update_old_draft_conflicts_without_expected_version"
+      ],
+      "proof_scope": "Service locking/CAS implementation plus tests source names inspected; no DB concurrency tests run.",
+      "read_depth": "persistence-and-cas",
+      "validation_identity": "source HEAD 22bb499789cba89fea92e918fd853ab768688e07; read-only",
+      "unknowns": [
+        "未观察运行时 PostgreSQL advisory lock contention。"
+      ],
+      "proposed_action": "在 docs/modules/11_writing.md facade 清单补该锁 seam；现有 CAS/API 描述可保留。"
+    },
+    {
+      "claim_id": "WS-08",
+      "baseline_sha": "22bb499789cba89fea92e918fd853ab768688e07",
+      "domain": "conflict check recovery and continuity confirmation",
+      "doc_path": "docs/modules/11_writing.md",
+      "doc_section": "冲突检查与作者连续性确认",
+      "conclusion": "文档关于缺源时 degraded/not_checked、作者确认重验正文与 checkpoint、事件幂等，以及 AI review task/failure保留规则项的语义与源码相符。",
+      "code_refs": [
+        {
+          "path": "backend/modules/writing/conflict_check_service.py",
+          "symbol": "create_check records degraded source coverage and omissions",
+          "line": "203-324"
+        },
+        {
+          "path": "backend/modules/writing/conflict_check_service.py",
+          "symbol": "confirm_continuity_item request hash/content/version/confirmation guard",
+          "line": "395-500"
+        },
+        {
+          "path": "backend/modules/writing/api.py",
+          "symbol": "enqueue_conflict_check_ai_review",
+          "line": "216-275"
+        },
+        {
+          "path": "backend/modules/writing/conflict_ai.py",
+          "symbol": "_prepare_task_review and task owner/source fingerprint",
+          "line": "169-249"
+        },
+        {
+          "path": "backend/modules/writing/conflict_ai.py",
+          "symbol": "_finalize_task_success stale check and Evidence result bind",
+          "line": "306-419"
+        },
+        {
+          "path": "backend/modules/writing/conflict_ai.py",
+          "symbol": "_finalize_task_failure preserves existing items",
+          "line": "421-493"
+        }
+      ],
+      "callers": [
+        {
+          "path": "backend/modules/writing/tasks.py",
+          "symbol": "conflict review task handler",
+          "line": "380-460"
+        }
+      ],
+      "test_refs": [
+        "backend/modules/writing/tests/test_conflict_checks.py::test_author_confirms_continuity_fact_idempotently",
+        "backend/modules/writing/tests/test_conflict_checks.py::test_conflict_check_marks_missing_continuity_as_not_checked",
+        "backend/modules/writing/tests/test_conflict_checks.py::test_ai_review_partial_invalid_output_records_discard_count",
+        "backend/modules/writing/tests/test_conflict_checks.py::test_ai_review_failure_keeps_rule_items_and_marks_check_failed"
+      ],
+      "proof_scope": "API/service/task/finalize源码与测试源断言定位已读；未运行 provider、数据库或测试。",
+      "read_depth": "cross-module-task-lifecycle",
+      "validation_identity": "source HEAD 22bb499789cba89fea92e918fd853ab768688e07; source-only",
+      "unknowns": [
+        "AI review 的实际语义准确率未验证。"
+      ],
+      "proposed_action": "不改 docs/modules/11_writing.md 冲突段。"
+    },
+    {
+      "claim_id": "ST-01",
+      "baseline_sha": "22bb499789cba89fea92e918fd853ab768688e07",
+      "domain": "Story Scene Workbench implementation layout",
+      "doc_path": "docs/modules/07_outline.md",
+      "doc_section": "架构现状 / 关键服务",
+      "conclusion": "当前段落笼统写“业务逻辑在 services.py”，未提 SceneWorkbenchService 已由 core service 加 health/fusion mixins 实现；Story README 的职责拆分描述准确。",
+      "code_refs": [
+        {
+          "path": "docs/modules/07_outline.md",
+          "symbol": "architecture statement",
+          "line": "34-64"
+        },
+        {
+          "path": "backend/modules/story/outline_state/scene_workbench.py",
+          "symbol": "SceneWorkbenchService composition",
+          "line": "88-100"
+        },
+        {
+          "path": "backend/modules/story/outline_state/scene_workbench_health.py",
+          "symbol": "SceneWorkbenchHealthMixin",
+          "line": "55-80"
+        },
+        {
+          "path": "backend/modules/story/outline_state/scene_workbench_fusion.py",
+          "symbol": "SceneWorkbenchFusionMixin",
+          "line": "77-95"
+        },
+        {
+          "path": "backend/modules/story/README.md",
+          "symbol": "Scene Workbench implementation responsibilities",
+          "line": "275-280"
+        }
+      ],
+      "callers": [
+        {
+          "path": "backend/modules/story/outline_state/api.py",
+          "symbol": "outline API instantiates SceneWorkbenchService",
+          "line": "27-30;111"
+        }
+      ],
+      "test_refs": [
+        "backend/modules/story/outline_state/tests/test_scene_workbench.py"
+      ],
+      "proof_scope": "service composition、API import/instantiation 和模块 README 静态核对；tests not run。",
+      "read_depth": "implementation-layout-and-api",
+      "validation_identity": "source HEAD 22bb499789cba89fea92e918fd853ab768688e07; read-only",
+      "unknowns": [
+        "未检视整个 Outline service tree 的每个实现文件；建议只修正文档对 Scene Workbench 的概括。"
+      ],
+      "proposed_action": "限定说明当前 SceneWorkbenchService 的拆分文件与共享边界；不要声称全 Outline 业务都在该 service 或都完成拆分。"
+    },
+    {
+      "claim_id": "ST-02",
+      "baseline_sha": "22bb499789cba89fea92e918fd853ab768688e07",
+      "domain": "Scene chapter binding and manuscript cutoff",
+      "doc_path": "docs/modules/07_outline.md",
+      "doc_section": "Scene 工作台章节快速关联；docs/modules/05_memory.md Scene cutoff",
+      "conclusion": "快速关联只合并 chapter_ids 并保留 scene_chunks，先校验章节和 novel，再锁 Scene 行；快速创建按项目顺序锁分配尾 index。continuity basis 仅纳入目标 Scene 及其前缀结构与关联章节 working manuscript source，state view cutoff 是当前 Scene 的最大关联章。",
+      "code_refs": [
+        {
+          "path": "backend/modules/story/outline_state/scene_workbench.py",
+          "symbol": "link_scene_to_chapter",
+          "line": "110-148"
+        },
+        {
+          "path": "backend/modules/story/outline_state/scene_workbench.py",
+          "symbol": "create_scene_for_chapter",
+          "line": "150-170"
+        },
+        {
+          "path": "backend/modules/story/continuity/basis.py",
+          "symbol": "compute_scene_basis",
+          "line": "26-62"
+        },
+        {
+          "path": "backend/modules/story/continuity/scene_state_view.py",
+          "symbol": "get_view cutoff from linked chapters",
+          "line": "280-295"
+        },
+        {
+          "path": "docs/modules/07_outline.md",
+          "symbol": "quick chapter link semantics",
+          "line": "264-268"
+        },
+        {
+          "path": "docs/modules/05_memory.md",
+          "symbol": "inherited prefix cutoff and exclusion boundaries",
+          "line": "73-78;138-141"
+        }
+      ],
+      "callers": [
+        {
+          "path": "backend/modules/story/outline_state/api.py",
+          "symbol": "chapter quick-link routes",
+          "line": "635-704"
+        }
+      ],
+      "test_refs": [
+        "backend/modules/story/outline_state/tests/test_scene_workbench.py::test_chapter_scene_link_is_idempotent_and_preserves_chunks",
+        "backend/modules/story/outline_state/tests/test_scene_workbench.py::test_chapter_scene_link_locks_row_for_concurrent_merges",
+        "backend/tests/e2e/test_scene_chapter_link_concurrency.py::test_concurrent_chapter_links_merge_without_lost_update"
+      ],
+      "proof_scope": "Code and documentation agree on chapter linkage/cutoff semantics; concurrency test source not run.",
+      "read_depth": "scene-write-and-cutoff",
+      "validation_identity": "source HEAD 22bb499789cba89fea92e918fd853ab768688e07; read-only",
+      "unknowns": [
+        "当前实时章节关联及实际 checkpoint freshness 未查询。"
+      ],
+      "proposed_action": "保留 docs/modules/07_outline.md 与 docs/modules/05_memory.md 这部分说明。"
+    },
+    {
+      "claim_id": "ST-03",
+      "baseline_sha": "22bb499789cba89fea92e918fd853ab768688e07",
+      "domain": "Scene fusion source revalidation and partial decisions",
+      "doc_path": "docs/modules/07_outline.md",
+      "doc_section": "Scene 工作台 / 融合预览和建议处理",
+      "conclusion": "Fusion preview task mode 在 provider 后复验来源 Scene 与 evidence 指纹并锁住证据章节；save 锁建议后锁 Scenes，discard/save/deprecate originals/adopt suggestion 在单事务决策。文档正确拒绝“全部接受”，并区分保留或废弃原 Scene。",
+      "code_refs": [
+        {
+          "path": "backend/modules/story/outline_state/scene_workbench_fusion.py",
+          "symbol": "preview_llm_fusion source fingerprint and evidence revalidation",
+          "line": "433-512"
+        },
+        {
+          "path": "backend/modules/story/outline_state/scene_workbench_fusion.py",
+          "symbol": "save_llm_fusion lock order and persistence",
+          "line": "585-668"
+        },
+        {
+          "path": "docs/modules/07_outline.md",
+          "symbol": "fusion author choices and suggestion lifecycle",
+          "line": "306-318"
+        }
+      ],
+      "callers": [
+        {
+          "path": "backend/modules/story/outline_state/api.py",
+          "symbol": "scene fusion preview/task/save routes",
+          "line": "861-959"
+        }
+      ],
+      "test_refs": [
+        "backend/modules/story/outline_state/tests/test_scene_workbench.py::test_fusion_preview_task_locks_evidence_and_rejects_drift"
+      ],
+      "proof_scope": "融合 preview/save 实现与模块文档相互核对；测试未执行。",
+      "read_depth": "fusion-revalidation-and-persistence",
+      "validation_identity": "source HEAD 22bb499789cba89fea92e918fd853ab768688e07; source-only",
+      "unknowns": [
+        "provider 返回时序和真实数据库锁等待未验证。"
+      ],
+      "proposed_action": "保留现有融合流程说明。"
+    },
+    {
+      "claim_id": "ST-04",
+      "baseline_sha": "22bb499789cba89fea92e918fd853ab768688e07",
+      "domain": "Story continuity six dimensions and coverage",
+      "doc_path": "docs/modules/05_memory.md",
+      "doc_section": "跨模块 facade / Scene state view / M4 basis",
+      "conclusion": "六维说明正确：V1 entities/relations/locations/knowledge；V2 再含 timeline/causality。ensure_scene 按 scene_index 前缀逐维构建，缺维度和 retry/manual/gap 都保留显式 coverage；view 会标出 missing、degraded、unsupported 和 omissions，不以空列表宣称不存在。",
+      "code_refs": [
+        {
+          "path": "backend/modules/story/continuity/contracts.py",
+          "symbol": "V1/V2 dimensions and current version",
+          "line": "12-49"
+        },
+        {
+          "path": "backend/modules/story/continuity/scene_projection.py",
+          "symbol": "ensure_scene through target prefix and each dimension",
+          "line": "96-150"
+        },
+        {
+          "path": "backend/modules/story/continuity/scene_projection.py",
+          "symbol": "get_scene coverage_status and missing_dimensions",
+          "line": "214-259"
+        },
+        {
+          "path": "backend/modules/story/continuity/scene_state_view.py",
+          "symbol": "cutoff, gaps, unsupported timeline, basis mismatch",
+          "line": "280-446"
+        },
+        {
+          "path": "backend/modules/story/continuity/repositories.py",
+          "symbol": "lock_current / advisory dimension lock",
+          "line": "1113-1128;1287-1299"
+        },
+        {
+          "path": "docs/modules/05_memory.md",
+          "symbol": "six-dimension and view coverage documentation",
+          "line": "50-78;138-141"
+        },
+        {
+          "path": "docs/modules/19_story.md",
+          "symbol": "Story continuity cross-module view",
+          "line": "43-49;270-273"
+        }
+      ],
+      "callers": [
+        {
+          "path": "backend/modules/story/continuity/facade.py",
+          "symbol": "ensure_scene_checkpoints/get_scene_state_view public facade",
+          "line": ""
+        }
+      ],
+      "test_refs": [
+        "backend/modules/story/continuity/tests/test_scene_projection.py::test_scene_checkpoint_keeps_unproven_v2_dimensions_missing",
+        "backend/modules/story/continuity/tests/test_scene_state_view.py::test_missing_dimensions_are_explicit_gaps",
+        "backend/modules/story/continuity/tests/test_scene_state_view.py::test_same_state_same_viewpoint_same_fingerprint"
+      ],
+      "proof_scope": "Projection, persistence locking, view schema/source, and docs inspected; tests not run.",
+      "read_depth": "continuity-projection-and-view",
+      "validation_identity": "source HEAD 22bb499789cba89fea92e918fd853ab768688e07; source-only",
+      "unknowns": [
+        "读时真实缺失/漂移状态未从运行数据库验证。"
+      ],
+      "proposed_action": "保留 docs/modules/05_memory.md 与 docs/modules/19_story.md 的现有六维/coverage说明。"
+    },
+    {
+      "claim_id": "ST-05",
+      "baseline_sha": "22bb499789cba89fea92e918fd853ab768688e07",
+      "domain": "continuity unknown and character-knowledge coverage",
+      "doc_path": "docs/modules/05_memory.md",
+      "doc_section": "Scene-state view: character knowledge, missing/unsupported coverage",
+      "conclusion": "unknown 只保留文本知识，不构成角色事实授权；只有 holder 匹配且绑定当前事实值的 known 条目授予知识。machine observation 恒为 unknown。当前文档说明 known/false-belief 和缺口语义总体准确，未发现需要新增文档。",
+      "code_refs": [
+        {
+          "path": "backend/modules/story/continuity/knowledge_contract.py",
+          "symbol": "KnowledgeClass and KnowledgeStatement binding validator",
+          "line": "57-62;137-191"
+        },
+        {
+          "path": "backend/modules/story/continuity/knowledge_contract.py",
+          "symbol": "classify_knowledge machine observation always unknown",
+          "line": "228-261"
+        },
+        {
+          "path": "backend/modules/story/continuity/knowledge_contract.py",
+          "symbol": "build_knowledge_grants only known holder match",
+          "line": "449-472"
+        },
+        {
+          "path": "backend/modules/story/continuity/tests/test_p2b_machine_knowledge.py",
+          "symbol": "machine bindings rejected and knowledge unbound",
+          "line": "190-245;324-350"
+        },
+        {
+          "path": "backend/modules/story/continuity/tests/test_p2b_knowledge_contract.py",
+          "symbol": "unknown/known/reveal contract tests",
+          "line": "108-175;631-642"
+        },
+        {
+          "path": "docs/modules/05_memory.md",
+          "symbol": "knowledge classification, gaps, and non-inference",
+          "line": "58-78"
+        }
+      ],
+      "callers": [
+        {
+          "path": "backend/modules/story/continuity/scene_state_view.py",
+          "symbol": "get_view builds knowledge grants",
+          "line": "297-307"
+        }
+      ],
+      "test_refs": [
+        "backend/modules/story/continuity/tests/test_p2b_machine_knowledge.py::test_machine_knowledge_lands_as_unbound_text_knowledge",
+        "backend/modules/story/continuity/tests/test_p2b_knowledge_contract.py::test_p2b_unbound_event_payload_reads_as_unknown",
+        "backend/modules/story/continuity/tests/test_p2b_knowledge_contract.py::test_p2b_reader_reveal_requires_both_cutoff_and_proof"
+      ],
+      "proof_scope": "知识 schema、分类、授予及 test source assertions inspected; not executed.",
+      "read_depth": "knowledge-projection-and-contract",
+      "validation_identity": "source HEAD 22bb499789cba89fea92e918fd853ab768688e07; read-only",
+      "unknowns": [
+        "测试断言不能证明上游事件语义/来源质量或读者体验。"
+      ],
+      "proposed_action": "保留当前说明；不要将 unknown 统计或空集合改写为已知不存在。"
+    }
+  ]
+}

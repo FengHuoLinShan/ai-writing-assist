@@ -3,11 +3,23 @@ id: T-20261010-evolution-209
 title: Issue 209 世界演化账本缓存与发现容量专项优化
 status: active
 created: 2026-10-10T23:18:06+09:00
-updated: 2026-10-11T00:37:04+09:00
+updated: 2026-10-12T23:36:26+08:00
 external_ref: https://github.com/FengHuoLinShan/ai-writing-assist/issues/209
 ---
 
 # Issue 209 专项优化
+
+## 当前恢复快照（2026-10-12 整理核实）
+
+- 工程交付：[PR #211](https://github.com/FengHuoLinShan/ai-writing-assist/pull/211) 已合入 main，合并提交 `2fe44251629f61bae937acfeca1cda518af70811`，当前 main 可达。缓存、确定性分片及独立复核容量/身份补正已有实现，不再是未合并草稿。
+- GitHub Issue #209 当前仍 OPEN（本次只核对，不变更外部状态）；保留 active 作为未结案项，明确这不代表还有本地代码补丁未交付。
+- 原 main 浏览器分片取消/汇总失败是历史检查状态；当前 main 检查成功。原生基准和未测争用边界保留，不据状态更新制造新的性能结论。
+- 下一步：核对并同步 Issue 的结案状态；有新的规模/并发要求时再按新证据补测，不重复实现已合入代码。
+
+- 唯一后续主笔记：主工作树本路径 `/Users/tywww/Desktop/项目/ai-writing-assist/.agent/tasks/2026/T-20261010-evolution-209/TASK.md`；旧工作树副本只读。
+- 最后核实：2026-10-12T23:36:26+08:00。以下各节保留原验收、失败和授权的历史证据，不代表当前交付状态。
+
+## 历史记录
 
 ## 恢复快照
 

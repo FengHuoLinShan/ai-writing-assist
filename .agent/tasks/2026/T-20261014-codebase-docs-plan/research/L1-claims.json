@@ -1,0 +1,219 @@
+{
+  "baseline_sha": "22bb499789cba89fea92e918fd853ab768688e07",
+  "validation_identity": "固定基线源码静态核对；对应测试只读未运行；未访问数据库、secrets、真实稿件或原始模型 I/O；未调用业务模型。",
+  "claims": [
+    {
+      "claim_id": "L1-ACCOUNT-PRINCIPAL-OWNER",
+      "baseline_sha": "22bb499789cba89fea92e918fd853ab768688e07",
+      "domain": "account/project identity boundary",
+      "doc_path": "docs/modules/17_account.md",
+      "doc_section": "数据与隔离；HTTP入口；连接 contract",
+      "conclusion": "公开浏览器请求经 AccountAuthMiddleware 验证 session、pending-deletion/anonymous 访问限制及写请求 origin/CSRF 后，绑定请求 principal 并在响应结束时 reset；account facade 从 principal 解析 account owner。Project 的 public gate 对缺失 principal 失败关闭，无主 worker/system 访问仅在显式 system_execution_scope 中允许。Project context/repo 仍以 novel_id 查询并按 owner 过滤。文档已有 owner/novel_id 隔离主张正确。",
+      "code_refs": [
+        {"path": "backend/modules/account/middleware.py", "symbol": "AccountAuthMiddleware.__call__", "line": 218},
+        {"path": "backend/modules/account/context.py", "symbol": "bind_principal/reset_principal", "line": 9},
+        {"path": "backend/modules/account/facade.py", "symbol": "current_owner_id_or_system_none", "line": 61},
+        {"path": "backend/modules/project/services.py", "symbol": "get_project_context", "line": 595},
+        {"path": "backend/modules/project/services.py", "symbol": "require_active_project/_require_request_owner_id", "line": 666},
+        {"path": "backend/modules/project/facade.py", "symbol": "require_active_project", "line": 268}
+      ],
+      "callers": ["public FastAPI request middleware", "Project facade consumers", "TaskWorker system execution scope"],
+      "test_refs/proof_scope": [
+        {"path": "backend/modules/project/tests/test_require_active_project_owner_gate.py", "scope": "public no-principal rejection, worker scope and scope reset; source read only"},
+        {"path": "backend/modules/project/tests/test_llm_runtime.py", "symbol": "test_browser_runtime_cannot_open_another_owners_project", "scope": "cross-owner project access; source read only"}
+      ],
+      "read_depth": "Targeted owning middleware, context, facade, project gate and tests; not full auth or task-worker audit.",
+      "validation_identity": "Static inspection at fixed B; no tests run.",
+      "unknowns": ["No live account/session, database row, or deployed auth configuration inspected."],
+      "proposed_action": "Keep existing owner/novel_id statements; if expanding the page, state the explicit distinction between bound browser principal and worker/system scope. No code or document correction is required for the current core claim."
+    },
+    {
+      "claim_id": "L1-ACCOUNT-CONNECTION-VERIFICATION",
+      "baseline_sha": "22bb499789cba89fea92e918fd853ab768688e07",
+      "domain": "account provider credential verification",
+      "doc_path": "docs/modules/17_account.md",
+      "doc_section": "account_llm_credentials; /api/account/settings; secret-free contract",
+      "conclusion": "Account text LLM connection service attributes credentials to the current owner, locks owner/provider, minimally verifies a changed key through a real generation check, then encrypts and persists it with fingerprint and verified_at. The unchanged same fingerprint with verified_at can bypass revalidation. Image credentials use a separate OpenAI image verify_connection path, and response schema reports verification_scope=credential_only. Existing account docs say connections are verified but omit this text/image verification-scope distinction.",
+      "code_refs": [
+        {"path": "backend/modules/account/settings_service.py", "symbol": "_validate_account_llm_connection", "line": 67},
+        {"path": "backend/modules/account/settings_service.py", "symbol": "SettingsService.connect_account_llm_provider", "line": 251},
+        {"path": "backend/modules/account/settings_service.py", "symbol": "image connection verify_connection", "line": 138},
+        {"path": "backend/modules/account/settings_schemas.py", "symbol": "AccountImageConnectionResponse.verification_scope", "line": 131},
+        {"path": "backend/modules/account/settings_service.py", "symbol": "resolve_account_image_runtime_profile", "line": 185}
+      ],
+      "callers": ["account settings API routes", "project text runtime profile resolver", "project image runtime profile resolver"],
+      "test_refs/proof_scope": [
+        {"path": "backend/modules/account/tests", "scope": "No dedicated test reference was used for the distinction; behavior verified from owning service/schema source only."}
+      ],
+      "read_depth": "Targeted settings service, schema and account README/module page; API route inspected at interface level.",
+      "validation_identity": "Static inspection at fixed B; no tests or provider checks executed.",
+      "unknowns": ["No live account credential state or provider behavior inspected.", "Development-guide policy requires Codex gpt-6-luna/max via verified owner connection, while account provider catalog in this baseline exposes DeepSeek/Kimi; the intended code/config resolution is unknown and requires owner adjudication."],
+      "proposed_action": "Add a short distinction to docs/modules/17_account.md and backend/modules/account/README.md: changed text Key gets minimal generation verification; image connection is credential-only verification. Separately ask the main agent to reconcile the Luna/max runtime policy with the current account-provider catalog before claiming provider support."
+    },
+    {
+      "claim_id": "L1-PROJECT-TEXT-SNAPSHOT-RESTORE",
+      "baseline_sha": "22bb499789cba89fea92e918fd853ab768688e07",
+      "domain": "project text runtime and resumable task recovery",
+      "doc_path": "docs/modules/01_project.md",
+      "doc_section": "settings 字段；Facade",
+      "conclusion": "Project resolves ProjectContext by novel_id and its owner, then obtains a secret-free account runtime profile. Text execution snapshots omit API Key and full Base URL/extra values while recording hashes, provider/model, effective settings and capability/cost-routing snapshots. Restore validates version, novel_id and snapshot hash, rejects a legacy local_agent field, resolves the original provider for the same project owner, requires its current key, and rejects base_url or extra hash drift. Same owner/provider key rotation is supported; switching the active provider does not redirect an old snapshot. The module page documents the high-level rotation behavior but not the exact failure conditions or complete facade seam list.",
+      "code_refs": [
+        {"path": "backend/modules/project/llm_runtime.py", "symbol": "_resolve_project_runtime_profile", "line": 43},
+        {"path": "backend/modules/project/llm_runtime.py", "symbol": "build_project_llm_execution_snapshot", "line": 94},
+        {"path": "backend/modules/project/llm_runtime.py", "symbol": "restore_project_llm_execution_settings", "line": 188},
+        {"path": "backend/modules/project/llm_runtime.py", "symbol": "open_project_llm_client", "line": 368},
+        {"path": "backend/modules/project/facade.py", "symbol": "LLM snapshot/client exports", "line": 115}
+      ],
+      "callers": [
+        {"path": "backend/modules/project/tasks.py", "symbol": "task snapshot submission and restore", "line": 54},
+        {"path": "backend/modules/interaction/services.py", "symbol": "interaction attempt snapshot construction", "line": 1548},
+        {"path": "backend/modules/interaction/generation.py", "symbol": "prepare_story_task restore", "line": 526},
+        {"path": "backend/modules/world/tasks.py", "symbol": "world task snapshot/restore", "line": 425}
+      ],
+      "test_refs/proof_scope": [
+        {"path": "backend/modules/project/tests/test_llm_runtime.py", "symbol": "test_execution_snapshot_is_secret_free_and_uses_rotated_provider_key", "scope": "secret-free snapshot and same-provider current-key recovery; source read only"},
+        {"path": "backend/modules/project/tests/test_llm_runtime.py", "symbol": "test_snapshot_provider_survives_active_template_hot_switch", "scope": "original provider stays bound after active-provider switch; source read only"},
+        {"path": "backend/modules/project/tests/test_llm_runtime.py", "symbol": "test_snapshot_fails_when_original_provider_connection_was_cleared", "scope": "missing original provider fails; source read only"},
+        {"path": "backend/modules/local_agent/tests/test_local_agent.py", "symbol": "test_legacy_local_text_snapshot_fails_closed", "scope": "legacy local_agent snapshot rejected; source read only"}
+      ],
+      "read_depth": "Targeted Project facade/runtime/service, worker and Interaction/World callers, matching tests and both Project docs; no complete consumer inventory.",
+      "validation_identity": "Static inspection at fixed B; tests read but not run.",
+      "unknowns": ["No persisted task snapshots or current account profile were inspected."],
+      "proposed_action": "Update docs/modules/01_project.md Facade section to list the actual text client/snapshot seams and summarize restore requirements. Use backend/modules/project/README.md as the more detailed local reference; no new document needed."
+    },
+    {
+      "claim_id": "L1-PROJECT-IMAGE-SNAPSHOT",
+      "baseline_sha": "22bb499789cba89fea92e918fd853ab768688e07",
+      "domain": "project image runtime recovery",
+      "doc_path": "docs/modules/01_project.md",
+      "doc_section": "settings 字段; map image runtime",
+      "conclusion": "Image runtime is separate from text provider. Its snapshot contains version, novel_id, owner_id, provider_id, model and base_url plus a snapshot hash, no API Key. Restore validates snapshot/project identity and requires owner/provider/model/base_url to still match before returning the current account image profile. Image tasks use a separate fixed OpenAI image connection. Existing Project docs identify the separate seam and fixed gpt-image-2 but do not explain its restore identity conditions.",
+      "code_refs": [
+        {"path": "backend/modules/project/image_runtime.py", "symbol": "_resolve_profile", "line": 38},
+        {"path": "backend/modules/project/image_runtime.py", "symbol": "build_project_image_execution_snapshot", "line": 50},
+        {"path": "backend/modules/project/image_runtime.py", "symbol": "restore_project_image_runtime_profile", "line": 68},
+        {"path": "backend/modules/project/facade.py", "symbol": "image runtime exports", "line": 110}
+      ],
+      "callers": [
+        {"path": "backend/modules/world/map_atlas_service.py", "symbol": "map atlas image snapshot construction", "line": 220},
+        {"path": "backend/modules/world/map_atlas_workflow.py", "symbol": "map atlas image execution", "line": 1868},
+        {"path": "backend/modules/world/world_object_image_generation.py", "symbol": "object image execution", "line": 672}
+      ],
+      "test_refs/proof_scope": [
+        {"path": "backend/modules/world/tests/test_map_atlas_local_backend.py", "scope": "local image backend caller behavior; image snapshot builder is mocked in relevant paths, not restore semantics"},
+        {"path": "backend/modules/world/tests/test_world_object_image_generation.py", "scope": "object image task/caller behavior; no direct Project image snapshot restore proof"}
+      ],
+      "read_depth": "Image runtime and stable facade plus World consumers and test call sites; targeted, not full image pipeline audit.",
+      "validation_identity": "Static inspection at fixed B; tests read but not run.",
+      "unknowns": ["No direct Project image snapshot restore/key-rotation test was located in project tests.", "No live image credential or provider verification inspected."],
+      "proposed_action": "Add the image restore connection-identity condition beside the existing Project image seam summary. Do not claim snapshot restoration was test-verified."
+    },
+    {
+      "claim_id": "L1-LOCAL-IMAGE-AUTHORIZATION-LEASE",
+      "baseline_sha": "22bb499789cba89fea92e918fd853ab768688e07",
+      "domain": "local_agent image execution and device authorization",
+      "doc_path": "docs/modules/23_local_agent.md",
+      "doc_section": "设备、每任务授权、图片端点与文件清理",
+      "conclusion": "Pairing is scoped to an active project and records the current account owner; activation turns a one-time pair code into a bearer whose digest is stored. Device validation checks active account, revocation, token digest and device/project owner match. Each task requires explicit acknowledgement of full current macOS host permissions. Image execution checks task lease and executor/device owner+novel_id+revocation before creating an image-mode invocation; companion events/download/output/finish revalidate device, owner/project, invocation lease and original task lease. Image inputs/outputs are transient and cleaned after the server-side run; output is constrained and reviewed before use.",
+      "code_refs": [
+        {"path": "backend/modules/local_agent/api.py", "symbol": "start_pair", "line": 156},
+        {"path": "backend/modules/local_agent/api.py", "symbol": "_device/_invocation", "line": 102},
+        {"path": "backend/modules/local_agent/api.py", "symbol": "approve_task", "line": 407},
+        {"path": "backend/modules/local_agent/image_runtime.py", "symbol": "run_local_image", "line": 60},
+        {"path": "backend/modules/local_agent/api.py", "symbol": "download_input/upload_output", "line": 641},
+        {"path": "backend/modules/local_agent/image_runtime.py", "symbol": "transient file cleanup", "line": 207}
+      ],
+      "callers": [
+        {"path": "backend/modules/world/world_object_image_generation.py", "symbol": "run_local_image", "line": 672},
+        {"path": "backend/modules/world/map_atlas_workflow.py", "symbol": "run_local_image", "line": 1868},
+        {"path": "backend/modules/world/map_atlas_service.py", "symbol": "image snapshot selection", "line": 220}
+      ],
+      "test_refs/proof_scope": [
+        {"path": "backend/modules/local_agent/tests/test_image_jobs.py", "scope": "image invocation failure, revocation/lease and output pipeline cases exist; source inspected, not run"},
+        {"path": "backend/modules/local_agent/tests/test_local_agent.py", "symbol": "test_companion_lease_tool_limit_and_receipt", "scope": "device bearer, task receipt, tool budget and stale lease; source inspected, not run"}
+      ],
+      "read_depth": "Pairing/device/approval and local image producer plus HTTP protocol/World callers; not a full host-process security audit.",
+      "validation_identity": "Static inspection at fixed B; tests read but not run.",
+      "unknowns": ["Work directory cleanup does not sandbox CLI host access; actual host permissions depend on the author's Mac and CLI."],
+      "proposed_action": "Keep the image-only current product-path and full host-access warning. Retain the separation that World owns candidate adoption."
+    },
+    {
+      "claim_id": "L1-LOCAL-TEXT-RETIREMENT-MISMATCH",
+      "baseline_sha": "22bb499789cba89fea92e918fd853ab768688e07",
+      "domain": "local_agent legacy text execution and retirement boundary",
+      "doc_path": "backend/modules/local_agent/README.md",
+      "doc_section": "当前范围；历史文字路径失败关闭",
+      "conclusion": "The current public assistant text submission path does not route from local device selection and fails when the project account model is absent; Project snapshot restoration and task_snapshot_client reject old local_agent settings. But source still implements a general text invocation producer, LocalCLIClient, mode-agnostic pending invocation claim, companion non-image dispatch to _run_text_job, and text finish/receipt routes. A synthetic source test calls companion._job with a request lacking mode and asserts completed text answer. Therefore documentation that all historical text paths are disconnected or server-fail-closed is broader than the implementation. No DB was inspected, so presence of any live/claimable historical invocation is unknown.",
+      "code_refs": [
+        {"path": "backend/modules/project/llm_runtime.py", "symbol": "restore_project_llm_execution_settings local_agent reject", "line": 208},
+        {"path": "backend/modules/local_agent/executor_service.py", "symbol": "task_snapshot_client", "line": 69},
+        {"path": "backend/modules/local_agent/runtime.py", "symbol": "run_local_agent", "line": 66},
+        {"path": "backend/modules/local_agent/client.py", "symbol": "LocalCLIClient", "line": 17},
+        {"path": "backend/modules/local_agent/api.py", "symbol": "claim_invocation", "line": 444},
+        {"path": "backend/modules/local_agent/companion.py", "symbol": "_run_text_job/_job", "line": 222},
+        {"path": "backend/modules/interaction/tasks.py", "symbol": "_story_client legacy local settings branch", "line": 50},
+        {"path": "backend/modules/interaction/generation.py", "symbol": "prepare_story_task snapshot restore", "line": 526}
+      ],
+      "callers": [
+        {"path": "backend/modules/interaction/services.py", "symbol": "new interaction attempt builds Project snapshot", "line": 1548},
+        {"path": "backend/modules/interaction/tasks.py", "symbol": "story task client dispatch", "line": 50},
+        {"path": "backend/modules/local_agent/tests/test_local_agent.py", "symbol": "test_local_cli_selection_does_not_route_assistant_turns", "line": 276}
+      ],
+      "test_refs/proof_scope": [
+        {"path": "backend/modules/local_agent/tests/test_text_retirement.py", "symbol": "test_legacy_text_settings_fail_before_project_or_device_access", "scope": "task snapshot client rejects legacy text settings; source read only"},
+        {"path": "backend/modules/local_agent/tests/test_local_agent.py", "symbol": "test_local_cli_selection_does_not_route_assistant_turns", "scope": "assistant text path does not use local CLI; source read only"},
+        {"path": "backend/modules/local_agent/tests/test_local_agent.py", "symbol": "test_legacy_local_text_snapshot_fails_closed", "scope": "Project snapshot rejects legacy local_agent field; source read only"},
+        {"path": "backend/modules/local_agent/tests/test_companion_image_job.py", "symbol": "test_text_job_still_removes_its_workspace", "scope": "synthetic non-image companion job completes text and removes workspace; source read only, contradicts blanket text-disconnected wording"}
+      ],
+      "read_depth": "Targeted current submission path, historical text runtime/client, companion claim/dispatch, tests and local_agent docs; current database state deliberately not inspected.",
+      "validation_identity": "Static inspection at fixed B; tests read but not run; no database access.",
+      "unknowns": ["Whether any pending/running legacy text invocation exists in a real database is unknown and was not queried.", "No end-to-end invocation was executed."],
+      "proposed_action": "Do not describe all text routes as disconnected. First have the main agent decide whether to add a server-side mode=image claim guard/retire legacy text producer and relay. Documentation can then state the actual boundary; absent that code change, narrow the guarantee to current submission and snapshot restoration fail-closed behavior and disclose the retained compatibility branch."
+    },
+    {
+      "claim_id": "L1-LOCAL-RECEIPT-UNKNOWN-RESULTS",
+      "baseline_sha": "22bb499789cba89fea92e918fd853ab768688e07",
+      "domain": "local_agent history, receipts and usage uncertainty",
+      "doc_path": "docs/modules/23_local_agent.md",
+      "doc_section": "运行回执与历史结果",
+      "conclusion": "Task receipts are read through a current active-project gate and are filtered by task novel_id plus current_account_id owner; they expose visible_text, attempts, usage and error, mapping pending/running invocation rows to interrupted when the task failed/cancelled. Local CLI usage remains unknown when token fields are absent or incomplete. This local receipt is distinct from Project AI usage, whose business model usage aggregation separately preserves requests_unknown, charge_unconfirmed and usage_complete rather than turning unknown into zero. Existing Local Agent docs mention receipt access but do not explain null usage semantics.",
+      "code_refs": [
+        {"path": "backend/modules/local_agent/api.py", "symbol": "task_receipts", "line": 301},
+        {"path": "backend/modules/local_agent/runtime.py", "symbol": "usage normalization", "line": 48},
+        {"path": "backend/modules/local_agent/client.py", "symbol": "LocalCLIClient.generate unknown usage metadata", "line": 71},
+        {"path": "backend/modules/project/ai_usage.py", "symbol": "get_project_ai_usage", "line": 104}
+      ],
+      "callers": ["Local Agent receipt UI/API callers", "Project settings AI usage diagnostic endpoint"],
+      "test_refs/proof_scope": [
+        {"path": "backend/modules/local_agent/tests/test_local_agent.py", "symbol": "test_companion_lease_tool_limit_and_receipt", "scope": "receipt filters/omits prompt and returns error; source read only"},
+        {"path": "backend/modules/local_agent/tests/test_local_agent.py", "symbol": "test_unreported_tokens_remain_unknown", "scope": "missing/incomplete usage parses to None; source read only"},
+        {"path": "backend/modules/project/tests/test_ai_usage.py", "scope": "project paid usage preserves unknown/unconfirmed totals; source read only"}
+      ],
+      "read_depth": "Receipt route, local usage parser/client, Project usage aggregator, docs and targeted test sources.",
+      "validation_identity": "Static inspection at fixed B; tests read but not run.",
+      "unknowns": ["No stored receipt rows were inspected.", "No real local CLI reported usage was observed."],
+      "proposed_action": "Add one sentence to docs/modules/23_local_agent.md and backend/modules/local_agent/README.md that local receipt usage may be null/unknown and must not be read as zero or conflated with Project model usage."
+    },
+    {
+      "claim_id": "L1-RUNTIME-POLICY-CATALOG-UNRESOLVED",
+      "baseline_sha": "22bb499789cba89fea92e918fd853ab768688e07",
+      "domain": "runtime model policy versus account provider catalog",
+      "doc_path": "docs/modules/17_account.md",
+      "doc_section": "account provider runtime sources",
+      "conclusion": "The repository instructions require development-phase business model calls to use the owner's verified Codex gpt-6-luna/max Project connection and facade/snapshot path. The account provider catalog in this baseline is restricted to DeepSeek and Kimi. This read-only research made no business call, so it cannot establish that the configured owner connection exists or resolve the code/policy mismatch.",
+      "code_refs": [
+        {"path": "backend/infrastructure/llm/profiles.py", "symbol": "_ACCOUNT_PROVIDER_IDS/list_account_provider_templates", "line": 281},
+        {"path": "backend/modules/account/settings_service.py", "symbol": "_require_account_provider", "line": 208},
+        {"path": "backend/modules/account/settings_constants.py", "symbol": "ACCOUNT_LLM_PROVIDER_TEMPLATES", "line": 44}
+      ],
+      "callers": ["account connection settings service", "project LLM runtime profile resolution"],
+      "test_refs/proof_scope": [
+        {"path": "backend/modules/account/tests", "scope": "No test was used to resolve the policy mismatch; code/template sources only."}
+      ],
+      "read_depth": "Targeted provider catalog, account service and applicable repository instruction; no live configuration check.",
+      "validation_identity": "Static inspection at fixed B; no business model call and no credential inspection.",
+      "unknowns": ["Whether this mismatch reflects stale instructions, incomplete implementation, or a separate verified Codex connection path is unresolved."],
+      "proposed_action": "P2 main-agent adjudication before formal docs claim current runtime supports Codex/Luna. Do not change code, configuration or invoke a provider during P1."
+    }
+  ]
+}

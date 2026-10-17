@@ -3,10 +3,22 @@ id: T-20261012-open-issues-plan-audit
 title: 开放 Issue 修复与当前计划完整性核查
 status: completed
 created: 2026-10-12T16:34:31+08:00
-updated: 2026-10-12T17:04:22+08:00
+updated: 2026-10-12T23:36:26+08:00
 ---
 
 # 开放 Issue 修复与当前计划完整性核查
+
+## 当前恢复快照（2026-10-12 整理核实）
+
+- 修复已通过 [PR #220](https://github.com/FengHuoLinShan/ai-writing-assist/pull/220) 已合入 main，合并提交 `2dce04f42a7d7eb41eaf0c025033c1eb4a051e50`，当前 main 可达。GitHub #111/#208/#210 当前 CLOSED；#209 的实现经 PR #211 集成，但 Issue 本身仍 OPEN。
+- 本轮核查结果完成；原报告中的 P4-C 补扫/P4-D 消费者证明和未集成判断已过期，最新完整性状态见 [PLAN-COMPLETENESS.md](PLAN-COMPLETENESS.md)。
+- P4 真实长篇质量/费用、剩余依赖与类别裁定仍开放，第一阶段 R7 历史 FAIL 保留；作者验收已跳过而非通过。
+- 下一步：本审查任务关闭；后续由 P4、引导模型验收与 #209 结案记录续接，不把历史缺口重新当作未写代码。
+
+- 唯一后续主笔记：主工作树本路径 `/Users/tywww/Desktop/项目/ai-writing-assist/.agent/tasks/2026/T-20261012-open-issues-plan-audit/TASK.md`；旧工作树副本只读。
+- 最后核实：2026-10-12T23:36:26+08:00。以下各节保留原验收、失败和授权的历史证据，不代表当前交付状态。
+
+## 历史记录
 
 ## 恢复快照
 

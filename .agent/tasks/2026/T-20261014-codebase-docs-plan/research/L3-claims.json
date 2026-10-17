@@ -1,0 +1,349 @@
+{
+  "baseline_sha": "22bb499789cba89fea92e918fd853ab768688e07",
+  "source_checkout": "/Users/tywww/.codex/worktrees/docs-refresh-luna/ai-writing-assist",
+  "claims": [
+    {
+      "claim_id": "L3-WE-001",
+      "baseline_sha": "22bb499789cba89fea92e918fd853ab768688e07",
+      "domain": "evolution/public-entry",
+      "doc_path": "docs/modules/22_evolution.md",
+      "doc_section": "逐场景理解入口、项目状态与恢复",
+      "conclusion": "The /api/evolution router separates read access from exclusive write access; it exposes reading preview/start/resume, panorama/ledger, proposals, World audit supplements, and category rescans. Default Evolution activation and replacement of older entry paths remain separate acceptance questions.",
+      "code_refs": [
+        {"path": "backend/modules/evolution/api.py", "symbol": "_guard_project, router, reading and proposal routes", "line": 19, "line_end": 215},
+        {"path": "backend/modules/evolution/reading.py", "symbol": "ReadingRequest", "line": 38, "line_end": 70},
+        {"path": "backend/modules/evolution/workflow.py", "symbol": "preview_reading, start_reading, advance_reading, reading_status, resume_reading", "line": 515, "line_end": 1070},
+        {"path": "backend/modules/evolution/tasks.py", "symbol": "handle_evolution_scene_step", "line": 75, "line_end": 184}
+      ],
+      "callers": [
+        "HTTP routes under /api/evolution",
+        "evolution_scene_step_v2 task handler"
+      ],
+      "test_refs": [
+        {"path": "backend/modules/evolution/tests/test_workflow.py", "symbol": "workflow route/service contract tests", "proof_scope": "source read only; no test execution"}
+      ],
+      "proof_scope": "Static implementation/caller trace for routes and task handler; does not establish the Evolution engine is default or has replaced the legacy flow.",
+      "read_depth": "Route, workflow, request contract, and task handler inspected.",
+      "validation_identity": "Source checkout HEAD equals baseline_sha; static review only.",
+      "unknowns": [
+        "No runtime route/authorization execution was performed.",
+        "Real model quality, author acceptance, and product-level replacement status were not validated."
+      ],
+      "proposed_action": "Retain explicit trial/canary wording and keep entry replacement and quality acceptance separately stated."
+    },
+    {
+      "claim_id": "L3-WE-002",
+      "baseline_sha": "22bb499789cba89fea92e918fd853ab768688e07",
+      "domain": "evolution/source-observation-identity",
+      "doc_path": "docs/modules/22_evolution.md",
+      "doc_section": "来源身份、观察 envelope、确定性身份",
+      "conclusion": "Every Scene source range is reloaded through the Writing facade and checked against the latest draft, hash, range, and exact text slice. Evidence quotes bind to source ranges. Observation and mention IDs are host-derived; only a unique exact name/alias match is automatically reused, while ambiguity remains unresolved for author adjudication.",
+      "code_refs": [
+        {"path": "backend/modules/evolution/pipeline.py", "symbol": "load_current_source, _load_current_range, compute_scene_manifest_hash, _observation_evidence", "line": 357, "line_end": 504},
+        {"path": "backend/modules/evolution/contracts.py", "symbol": "ObservationEnvelope, EvidenceQuote, ObservationModality", "line": 106, "line_end": 203},
+        {"path": "backend/modules/evolution/observations.py", "symbol": "observation_semantic_fingerprint, derive_observation_id, derive_mention_id", "line": 26, "line_end": 92},
+        {"path": "backend/modules/evolution/identity.py", "symbol": "AUTO_REUSE_EVIDENCE_KINDS, resolve_mention", "line": 33, "line_end": 137}
+      ],
+      "callers": [
+        "evolution pipeline Scene execution",
+        "world identity candidate facade via pipeline identity lookup"
+      ],
+      "test_refs": [
+        {"path": "backend/modules/evolution/tests/test_world.py", "symbol": "identity and source evidence tests", "proof_scope": "test names/assertions inspected only; no execution"}
+      ],
+      "proof_scope": "Code establishes source revalidation and deterministic binding rules; it does not establish that extracted interpretations are semantically correct.",
+      "read_depth": "Source resolver, evidence builder, contracts, ID derivation, identity resolver inspected.",
+      "validation_identity": "Source checkout HEAD equals baseline_sha; no model or database call.",
+      "unknowns": [
+        "No real prose set or author review was inspected.",
+        "Static inspection does not estimate false-positive/false-negative rates."
+      ],
+      "proposed_action": "Keep the source-binding, observation, identity, and semantic-quality claims as separate statements in documentation."
+    },
+    {
+      "claim_id": "L3-WE-003",
+      "baseline_sha": "22bb499789cba89fea92e918fd853ab768688e07",
+      "domain": "evolution-world-candidates",
+      "doc_path": "backend/modules/evolution/README.md",
+      "doc_section": "Scene 世界资料候选",
+      "conclusion": "The world_version=2 flow constructs World proposals from the current Scene and committed prefix, then performs independent grouped audit. Non-passed or dependency-pending groups are not accepted as passed candidates. The applier delegates to Imports candidate persistence; candidate creation carries an evolution_ref and is not Canon assertion admission or author adoption.",
+      "code_refs": [
+        {"path": "backend/modules/evolution/world.py", "symbol": "prepare_world_audit_groups, finish_scene_world, relation preparation and grouped review", "line": 646, "line_end": 1255},
+        {"path": "backend/modules/evolution/pipeline.py", "symbol": "_finish_scene_results, bind_scene_identities, exact identity lookup", "line": 1308, "line_end": 1415},
+        {"path": "backend/modules/evolution/tasks.py", "symbol": "applier invokes apply_scene_world_candidates and stores world_materialization", "line": 277, "line_end": 383},
+        {"path": "backend/modules/imports/scene_world.py", "symbol": "apply_world_candidates", "line": 130, "line_end": 250}
+      ],
+      "callers": [
+        "evolution_scene_step_v2",
+        "Imports facade apply_scene_world_candidates"
+      ],
+      "test_refs": [
+        {"path": "backend/modules/evolution/tests/test_world.py", "symbol": "group review, pending candidates, and relation history tests", "proof_scope": "synthetic/fake-provider test assertions inspected only"},
+        {"path": "backend/modules/evolution/tests/test_p4_completion.py", "symbol": "test_world_group_exact_read_set_reuses_only_unaffected_group", "proof_scope": "changed audit-group input case inspected only"}
+      ],
+      "proof_scope": "Shows implementation boundary and engineering test intent; no real provider correctness, literary quality, or author adoption was established.",
+      "read_depth": "World preparation/review, task applier, Imports persistence, and selected test bodies inspected.",
+      "validation_identity": "Source checkout HEAD equals baseline_sha; tests not run.",
+      "unknowns": [
+        "No author-facing adoption was exercised.",
+        "No real-model evaluation was performed."
+      ],
+      "proposed_action": "Keep separate diagram nodes for audited candidate, author adoption, and formal Canon state."
+    },
+    {
+      "claim_id": "L3-WE-004",
+      "baseline_sha": "22bb499789cba89fea92e918fd853ab768688e07",
+      "domain": "evolution-transaction-recovery",
+      "doc_path": "backend/modules/evolution/README.md",
+      "doc_section": "回执提交与恢复",
+      "conclusion": "apply_frozen replays an existing receipt, rejects stale owner/source/parent state and incomplete review, then runs domain writes and saves the receipt/cursor in one caller-controlled transaction. A rollback leaves the frozen attempt recoverable without provider calls; a lost response after commit returns the existing receipt. The task handler only marks a stage recoverable when frozen/paid-call state is safe; unknown provider billing is not automatically resent.",
+      "code_refs": [
+        {"path": "backend/modules/evolution/commit.py", "symbol": "apply_frozen, recover_attempt", "line": 165, "line_end": 312},
+        {"path": "backend/modules/evolution/tasks.py", "symbol": "handle_evolution_scene_step failure classification", "line": 94, "line_end": 184},
+        {"path": "backend/modules/evolution/tasks.py", "symbol": "applier candidate and receipt materialization", "line": 277, "line_end": 383}
+      ],
+      "callers": [
+        "Scene pipeline apply_frozen call",
+        "manual-resume evolution_scene_step_v2 handler",
+        "resume_reading workflow"
+      ],
+      "test_refs": [
+        {"path": "backend/modules/evolution/tests/test_commit.py", "symbol": "commit/replay transaction tests", "proof_scope": "source tests inspected only; no execution"},
+        {"path": "backend/modules/evolution/tests/test_recovery.py", "symbol": "frozen attempt recovery tests", "proof_scope": "source tests inspected only; no execution"}
+      ],
+      "proof_scope": "Static control-flow evidence for idempotent receipt replay and frozen recovery; does not certify runtime database transaction behavior in this turn.",
+      "read_depth": "Commit protocol, recovery helper, and worker failure window inspected.",
+      "validation_identity": "Source checkout HEAD equals baseline_sha; no DB or worker execution.",
+      "unknowns": [
+        "No failure injection or real PostgreSQL recovery was run.",
+        "Deployment task-queue liveness is outside this review."
+      ],
+      "proposed_action": "Explain recovery as frozen-result reuse with revalidation, and explicitly distinguish transport task status from domain receipt."
+    },
+    {
+      "claim_id": "L3-WE-005",
+      "baseline_sha": "22bb499789cba89fea92e918fd853ab768688e07",
+      "domain": "world-author-adoption",
+      "doc_path": "backend/modules/world/README.md",
+      "doc_section": "Evolution candidate adoption",
+      "conclusion": "World adoption detects evolution_ref, obtains a NOWAIT exclusive project lock, and calls the Evolution freshness port. Freshness requires a live receipt/frozen World result, a current latest Scene attempt, source verifier success, and a valid current/inheriting committed prefix. Entity promotion and relation canonicalization invoke the same source freshness check.",
+      "code_refs": [
+        {"path": "backend/modules/world/services/common.py", "symbol": "require_fresh_understanding_source", "line": 147, "line_end": 180},
+        {"path": "backend/modules/evolution/reading.py", "symbol": "require_current_world_candidate, require_current_prefix", "line": 358, "line_end": 415},
+        {"path": "backend/modules/world/services/core/entity_service.py", "symbol": "promote entity source freshness check", "line": 908, "line_end": 935},
+        {"path": "backend/modules/world/services/core/entity_relation_service.py", "symbol": "relation canonicalization source freshness check", "line": 448, "line_end": 461}
+      ],
+      "callers": [
+        "World entity/alias/relation adoption and merge paths using require_fresh_understanding_source",
+        "Evolution DI port EVOLUTION_REQUIRE_CURRENT_WORLD_CANDIDATE"
+      ],
+      "test_refs": [
+        {"path": "backend/modules/evolution/tests/test_world.py", "symbol": "candidate freshness and provenance coverage", "proof_scope": "source assertions inspected only"}
+      ],
+      "proof_scope": "Shows current-source gate and integration seam; does not mean every World write is Evolution-owned or bypasses the normal World confirmation flow.",
+      "read_depth": "DI caller, Evolution validator, entity promotion and relation canonicalization call sites inspected.",
+      "validation_identity": "Source checkout HEAD equals baseline_sha; no write path executed.",
+      "unknowns": [
+        "No concurrent writer race was exercised.",
+        "No author accepted candidate was submitted during this research."
+      ],
+      "proposed_action": "Preserve the World-owned explicit adoption step and mention retryable conflict on concurrent project activity."
+    },
+    {
+      "claim_id": "L3-WE-006",
+      "baseline_sha": "22bb499789cba89fea92e918fd853ab768688e07",
+      "domain": "evolution-relation-history",
+      "doc_path": "backend/modules/evolution/README.md",
+      "doc_section": "关系历史与 scoped recompute",
+      "conclusion": "relation_history loads up to 64 earlier committed rows for relevant relation endpoints and materializes history from receipt-authorized frozen world_materialization snapshots, not mutable current World relation fields. Missing rows are explicitly not proof that the relation began for the first time.",
+      "code_refs": [
+        {"path": "backend/modules/evolution/world.py", "symbol": "relation_history", "line": 1258, "line_end": 1326},
+        {"path": "backend/modules/evolution/store.py", "symbol": "load_committed_pairs and frozen relation materialization lookup", "line": 520, "line_end": 595}
+      ],
+      "callers": [
+        "Evolution relation preparation before Scene relation extraction",
+        "World relation prompt context builder"
+      ],
+      "test_refs": [
+        {"path": "backend/modules/evolution/tests/test_world.py", "symbol": "test_relation_history_uses_real_prefix_and_not_mutated_world_rows", "proof_scope": "synthetic DB/provider-stub assertions inspected only; confirms mutable-row mutation is not consumed"}
+      ],
+      "proof_scope": "The test shows unchanged consumed history remains reusable after an unrelated mutable World row edit. It does not show that changing the actual frozen relation-history input invalidates scene_relations.",
+      "read_depth": "History reader, persistent committed-pair reader, and relevant scoped recompute test inspected.",
+      "validation_identity": "Source checkout HEAD equals baseline_sha; test not run.",
+      "unknowns": [
+        "No dedicated test was found that changes the actual relation_history read-set and expects scene_relations to re-run.",
+        "Relation-history quality on real long-form prose is unmeasured."
+      ],
+      "proposed_action": "Do not characterize the existing eight-call reuse assertion as a changed-history counterexample; consider a focused offline regression only in a later authorized test-writing phase."
+    },
+    {
+      "claim_id": "L3-WE-007",
+      "baseline_sha": "22bb499789cba89fea92e918fd853ab768688e07",
+      "domain": "world-canon-phase0",
+      "doc_path": "docs/modules/02_world.md",
+      "doc_section": "Canon / Phase 0",
+      "conclusion": "The closed Canon manifest requires exactly five family keys and empty_canon_manifest sets all to formal-disabled: name, typed_scalar, binary_relation, event_time, belief. AssertBatch admission and FamilyCutover remain rejected in Phase 0; this is not formal assertion reasoning.",
+      "code_refs": [
+        {"path": "backend/modules/world/authority.py", "symbol": "CanonManifestV1.validate_closed_manifest, empty_canon_manifest", "line": 603, "line_end": 666},
+        {"path": "backend/modules/world/services/worldbuilding/world_authority_service.py", "symbol": "WorldAuthorityService.admit", "line": 333, "line_end": 422},
+        {"path": "docs/adr/0017-world-fact-authority-and-canon-revisions.md", "symbol": "Phase 0 family authority", "line": 73, "line_end": 98}
+      ],
+      "callers": [
+        "Canon manifest construction and validation",
+        "WorldAuthorityService.admit for assertion/family-cutover inputs"
+      ],
+      "test_refs": [
+        {"path": "backend/modules/world/tests/test_world_authority.py", "symbol": "closed manifest and Phase 0 authority tests", "proof_scope": "test source inspected only"},
+        {"path": "backend/modules/world/tests/fixtures/world-authority-canonical-fixtures-v1.json", "symbol": "empty manifest fixture", "proof_scope": "fixture source inspected only"}
+      ],
+      "proof_scope": "Code and ADR establish all five disabled family values. The module doc says all formal families are disabled but omits the names inline.",
+      "read_depth": "Manifest contract, admission implementation, ADR, module documentation and relevant fixtures/tests inspected.",
+      "validation_identity": "Source checkout HEAD equals baseline_sha; tests not run.",
+      "unknowns": [
+        "No runtime Canon endpoint request was performed."
+      ],
+      "proposed_action": "Add the five family names to the World module Canon Phase 0 paragraph and link ADR-0017."
+    },
+    {
+      "claim_id": "L3-WE-008",
+      "baseline_sha": "22bb499789cba89fea92e918fd853ab768688e07",
+      "domain": "evolution-invalidation-consumers",
+      "doc_path": "docs/modules/22_evolution.md",
+      "doc_section": "失效边界 and P4 read-set",
+      "conclusion": "The explicit unsupported consumer list contains map_atlas and world_canon_revision only. Nearby documentation says world_knowledge is re-evaluated through ReaderRevealPolicy on each Story read, so P4's grouped phrase can blur a dynamic read-time policy check with the two unregistered consumers. The precise wording should retain that distinction.",
+      "code_refs": [
+        {"path": "backend/modules/evolution/invalidation.py", "symbol": "UNSUPPORTED_CONSUMERS", "line": 47, "line_end": 59},
+        {"path": "backend/modules/evolution/consumption.py", "symbol": "ConsumerKind and unregistered consumer explanation", "line": 67, "line_end": 83},
+        {"path": "backend/modules/evolution/consumption.py", "symbol": "UnknownScope unregistered_consumers semantics", "line": 306, "line_end": 315},
+        {"path": "backend/modules/story/continuity/scene_state_view.py", "symbol": "UNSUPPORTED_DEPENDENCIES", "line": 87, "line_end": 92},
+        {"path": "docs/modules/22_evolution.md", "symbol": "ReaderRevealPolicy and P4 gap wording", "line": 76, "line_end": 79}
+      ],
+      "callers": [
+        "Evolution invalidation receipt and consumer registry",
+        "Story Scene state view dependency contract"
+      ],
+      "test_refs": [
+        {"path": "backend/modules/evolution/tests/test_p4_completion.py", "symbol": "consumer read-set tests", "proof_scope": "source tests inspected only"}
+      ],
+      "proof_scope": "This is a documentation precision issue: world_knowledge policy is re-evaluated at read time; map and canon revision remain explicit unsupported receipt consumers. It does not prove complete world knowledge coverage.",
+      "read_depth": "Unsupported consumer constants, consumer registry, state view, and both documentation statements inspected.",
+      "validation_identity": "Source checkout HEAD equals baseline_sha; no runtime policy evaluation.",
+      "unknowns": [
+        "The complete set of all World knowledge consumers was not audited in this bounded task."
+      ],
+      "proposed_action": "Split the P4 sentence into per-read world_knowledge policy re-evaluation and the two unsupported invalidation consumers."
+    },
+    {
+      "claim_id": "L3-WE-009",
+      "baseline_sha": "22bb499789cba89fea92e918fd853ab768688e07",
+      "domain": "map-canon-consumption",
+      "doc_path": "docs/modules/15_map.md",
+      "doc_section": "World Bible and Canon consumer boundary",
+      "conclusion": "Map Atlas is not a World CanonRevision consumer; current Map docs explicitly state it still reads confirmed Context/RAG/World Bible sources and hashes, and it does not double-read world_assertions or the Canon manifest. Evolution invalidation receipts also list map_atlas and world_canon_revision as unsupported, so Canon publication must not be described as automatic map invalidation or recomputation.",
+      "code_refs": [
+        {"path": "backend/modules/evolution/invalidation.py", "symbol": "UNSUPPORTED_CONSUMERS", "line": 47, "line_end": 59},
+        {"path": "backend/modules/world/map_atlas_api.py", "symbol": "Map Atlas public routes and run creation", "line": 50, "line_end": 124},
+        {"path": "backend/modules/world/map_atlas_tasks.py", "symbol": "Map Atlas worker", "line": 101, "line_end": 110},
+        {"path": "docs/modules/15_map.md", "symbol": "ADR-0017 consumer boundary", "line": 31, "line_end": 36}
+      ],
+      "callers": [
+        "World Map Atlas API and queued worker",
+        "Map source/Context confirmation"
+      ],
+      "test_refs": [],
+      "proof_scope": "Source and docs show a separate Map Atlas input/confirmation path and the explicit gap; no Map job was executed.",
+      "read_depth": "Map API/task route and doc boundary inspected; no full Map Atlas semantic freshness audit.",
+      "validation_identity": "Source checkout HEAD equals baseline_sha; no Map runtime request.",
+      "unknowns": [
+        "Map Atlas behavior after a real Canon revision was not exercised."
+      ],
+      "proposed_action": "Retain the explicit non-consumer statement and ensure the new diagram marks Map Atlas/Canon invalidation as unsupported."
+    },
+    {
+      "claim_id": "L3-WE-010",
+      "baseline_sha": "22bb499789cba89fea92e918fd853ab768688e07",
+      "domain": "world-map-image-storage",
+      "doc_path": "docs/modules/15_map.md",
+      "doc_section": "私有对象存储与永久删除",
+      "conclusion": "Map and World object images use separate private buckets and a shared MinIO connection/client implementation. Current production quotas are 8 GiB for Map Atlas and 24 GiB for World objects on a single minio-data named-volume disk, 32 GiB combined; there is no offsite image backup and PostgreSQL/restic backup is not image recovery. ADR-0014 treats the first-version backup gap as an accepted risk.",
+      "code_refs": [
+        {"path": "backend/modules/world/map_atlas_storage.py", "symbol": "MapAtlasStorage bucket/client configuration", "line": 281, "line_end": 314},
+        {"path": "backend/modules/world/world_object_images.py", "symbol": "WorldObjectImageStorage uses separate configured bucket and inherited client", "line": 130, "line_end": 142},
+        {"path": "backend/core/config.py", "symbol": "map_atlas_s3_bucket, world_object_s3_bucket", "line": 405, "line_end": 410},
+        {"path": "deploy/README.md", "symbol": "Private MinIO quotas, single-disk volume and backup boundary", "line": 80, "line_end": 97},
+        {"path": "docs/modules/15_map.md", "symbol": "Private object storage section", "line": 193, "line_end": 201}
+      ],
+      "callers": [
+        "Map Atlas image finalization and cleanup",
+        "World object image upload/read/delete"
+      ],
+      "test_refs": [],
+      "proof_scope": "Deployment documentation and storage configuration establish separate logical buckets but one disk capacity/failure domain. This is an accepted existing boundary, not a newly discovered production defect.",
+      "read_depth": "S3 client wrappers, configuration keys, deployment topology, Map doc, and ADR-0014 inspected.",
+      "validation_identity": "Source checkout HEAD equals baseline_sha; no storage access or production validation.",
+      "unknowns": [
+        "Live disk consumption and actual backup state were not inspected.",
+        "No object was uploaded or deleted."
+      ],
+      "proposed_action": "Add World quota, combined cap and single-disk/no-backup note with a deploy/README link to the existing Map storage section."
+    },
+    {
+      "claim_id": "L3-WE-011",
+      "baseline_sha": "22bb499789cba89fea92e918fd853ab768688e07",
+      "domain": "evolution-selective-reuse-evidence",
+      "doc_path": "docs/modules/22_evolution.md",
+      "doc_section": "P4 consumer read-set reuse",
+      "conclusion": "The relation-history test changes a mutable World EntityRelation row that the history reader does not consume, then verifies the frozen prefix remains authoritative; scoped recompute reuses sample, World, relation and audit stages with no additional provider calls (8 total calls in the fixture). A different test changes one actual World audit group's source_read_set and confirms only that group re-runs while an unaffected group is reused. This is not a changed relation-history input test.",
+      "code_refs": [
+        {"path": "backend/modules/evolution/world.py", "symbol": "relation_history reads committed frozen materialization", "line": 1258, "line_end": 1326},
+        {"path": "backend/modules/evolution/tests/test_world.py", "symbol": "test_relation_history_uses_real_prefix_and_not_mutated_world_rows", "line": 1564, "line_end": 1690},
+        {"path": "backend/modules/evolution/tests/test_p4_completion.py", "symbol": "test_world_group_exact_read_set_reuses_only_unaffected_group", "line": 862, "line_end": 1032},
+        {"path": "backend/modules/evolution/consumer_reuse.py", "symbol": "read_set, find_reusable", "line": 1, "line_end": 150}
+      ],
+      "callers": [
+        "relation_history during World relation preparation",
+        "_run_scene_call consumer reuse during group audit"
+      ],
+      "test_refs": [
+        {"path": "backend/modules/evolution/tests/test_world.py", "symbol": "test_relation_history_uses_real_prefix_and_not_mutated_world_rows", "proof_scope": "all eight calls are fixture/provider-stub calls; test says reused_from for all unchanged stages"},
+        {"path": "backend/modules/evolution/tests/test_p4_completion.py", "symbol": "test_world_group_exact_read_set_reuses_only_unaffected_group", "proof_scope": "synthetic group/read-set mutation; one group re-dispatched and one reused"}
+      ],
+      "proof_scope": "Static inspection of regression test assertions only. The altered DB World row is not consumed by relation_history; changed-input evidence applies to the World audit group only.",
+      "read_depth": "Full relevant relation-history and changed-group test bodies inspected.",
+      "validation_identity": "Source checkout HEAD equals baseline_sha; tests not executed.",
+      "unknowns": [
+        "No dedicated changed-frozen-relation-history test was identified.",
+        "No real model or long-form literary consistency was assessed."
+      ],
+      "proposed_action": "Describe the existing tests narrowly; if later authorized, add a focused offline regression for changed frozen relation-history input."
+    },
+    {
+      "claim_id": "L3-WE-012",
+      "baseline_sha": "22bb499789cba89fea92e918fd853ab768688e07",
+      "domain": "documentation-refresh",
+      "doc_path": "docs/modules/02_world.md",
+      "doc_section": "Canon Phase 0",
+      "conclusion": "Three bounded documentation refinements are supported by current source: enumerate the five disabled family keys; expand Map image storage notes to include both bucket quotas and the one-disk/no-backup boundary; and separate per-read world_knowledge policy re-evaluation from map/canon unsupported invalidation consumers. Evolution's P4 explanation is duplicated across the code README and design doc, but ownership metadata lists both as active documentation, so do not delete/reassign detail in P1.",
+      "code_refs": [
+        {"path": "docs/architecture/architecture-documents.toml", "symbol": "World, Map, Evolution document ownership", "line": 104, "line_end": 108},
+        {"path": "docs/architecture/architecture-documents.toml", "symbol": "Evolution design doc mapping", "line": 160, "line_end": 165},
+        {"path": "docs/architecture/documentation-maintenance.md", "symbol": "source-to-doc mappings and infra boundary guidance", "line": 76, "line_end": 82},
+        {"path": "docs/modules/02_world.md", "symbol": "Canon Phase 0 wording", "line": 20, "line_end": 25},
+        {"path": "docs/modules/15_map.md", "symbol": "private storage wording", "line": 193, "line_end": 201},
+        {"path": "docs/modules/22_evolution.md", "symbol": "P4 read-set wording", "line": 450, "line_end": 456}
+      ],
+      "callers": [
+        "World/Map/Evolution source documentation ownership registry",
+        "Documentation refresh plan and gated follow-up"
+      ],
+      "test_refs": [],
+      "proof_scope": "Static comparison of registered documentation owners with source and deployed documentation. P1 changed no formal docs.",
+      "read_depth": "Target module docs, component READMEs, architecture doc registry, maintenance guide, ADRs, and source inspected.",
+      "validation_identity": "Source checkout HEAD equals baseline_sha; documentation gates not run.",
+      "unknowns": [
+        "Whether the parent will approve these exact follow-up edits is pending the later whitelist."
+      ],
+      "proposed_action": "Apply only the listed narrow edits after explicit write whitelist; add one Mermaid workflow diagram to docs/modules/22_evolution.md, without creating a new standalone document."
+    }
+  ]
+}

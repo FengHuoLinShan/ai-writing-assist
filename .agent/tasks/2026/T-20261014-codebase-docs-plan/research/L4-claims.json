@@ -1,0 +1,309 @@
+[
+  {
+    "claim_id": "L4-IMP-01",
+    "baseline_sha": "22bb499789cba89fea92e918fd853ab768688e07",
+    "domain": "imports/formats",
+    "doc_path": "docs/modules/13_imports.md",
+    "doc_section": "文件解析器；安全约束；API",
+    "conclusion": "正文 parser 的内部 ALLOWED_EXTENSIONS 含 txt/epub/html/htm/mobi/azw3，但代码注释和模块文档限定已验证对外格式为前四种。mobi/azw3 共用可选 mobi 包解析器，锁定 backend/pyproject.toml 未声明该依赖，故只是内部白名单，不是已验证支持。上传 API 的 OpenAPI File 描述另有源码漂移：写 txt/epub/html/mobi，漏 htm 且暴露未验收 mobi。",
+    "code_refs": [
+      {"path": "backend/modules/imports/parsers.py", "symbol": "module_docstring/ALLOWED_EXTENSIONS/parse_file", "line": 4},
+      {"path": "backend/modules/imports/parsers.py", "symbol": "parse_mobi/parse_file", "line": 544},
+      {"path": "backend/pyproject.toml", "symbol": "dependencies", "line": 33},
+      {"path": "backend/modules/imports/api.py", "symbol": "upload_file File description", "line": 229}
+    ],
+    "callers": [
+      {"path": "backend/modules/imports/services.py", "symbol": "ImportService.upload_and_import", "line": 43},
+      {"path": "backend/modules/interaction/api.py", "symbol": "preview_source_import/import_source", "line": 220}
+    ],
+    "test_refs": [
+      {"path": "backend/modules/imports/tests/test_real_file_import.py", "symbol": "TestSyntheticFileParser", "line": 37, "proof_scope": "仓库内合成 TXT 的章节解析断言；非真实外部小说或 MOBI/AZW3 验收；未运行"}
+    ],
+    "proof_scope": "静态解析分派、依赖清单及 API 描述核对；未运行解析器或上传链。",
+    "read_depth": "parser 实现、依赖清单、upload/source-update callers、格式文档与测试源码",
+    "validation_identity": "static-only; checkout=/Users/tywww/.codex/worktrees/docs-refresh-luna/ai-writing-assist; HEAD=22bb499789cba89fea92e918fd853ab768688e07; tests_not_run",
+    "unknowns": ["未执行安装环境检查或格式测试", "未取得 MOBI/AZW3 真实文件验收样本", "未查生产 OpenAPI 展示"],
+    "proposed_action": "保留 docs/modules/13_imports.md 的四种对外格式和 MOBI/AZW3 边界；可将 backend/modules/imports/README.md 开头补上 htm。上传 API File 描述漂移另交代码 owner 校准，本 P1 不改源码。"
+  },
+  {
+    "claim_id": "L4-IMP-02",
+    "baseline_sha": "22bb499789cba89fea92e918fd853ab768688e07",
+    "domain": "imports/manuscript-upload",
+    "doc_path": "docs/modules/13_imports.md",
+    "doc_section": "定位；服务；跨模块依赖",
+    "conclusion": "普通正文上传由 ImportService 解析后经 Writing facade 批量创建 published drafts，并为章节投递 publish_chapter；ImportRecord 记录元数据，上传主路径不以 ImportedChapter 作为第二正文入口。解析空、参数/格式错误和内部错误分别写失败状态；内部异常对外使用通用错误文案。",
+    "code_refs": [
+      {"path": "backend/modules/imports/services.py", "symbol": "ImportService.upload_and_import", "line": 43},
+      {"path": "backend/modules/imports/services.py", "symbol": "exception paths/update_status", "line": 120},
+      {"path": "backend/modules/imports/models.py", "symbol": "ImportRecord/ImportedChapter", "line": 32},
+      {"path": "backend/modules/imports/api.py", "symbol": "upload_file", "line": 229}
+    ],
+    "callers": [
+      {"path": "backend/modules/imports/api.py", "symbol": "upload_file", "line": 229},
+      {"path": "backend/modules/writing/facade.py", "symbol": "create_published_drafts_only", "line": 90}
+    ],
+    "test_refs": [
+      {"path": "backend/modules/imports/tests/test_real_file_import.py", "symbol": "test_import_creates_done_record/test_imported_chapters_written_to_drafts/test_publish_tasks_enqueued_without_duplicate_rag_index_tasks", "line": 124, "proof_scope": "合成 TXT + 测试 DB 对 done 状态、published WritingDraft 与 publish_chapter enqueue 的断言；未运行"}
+    ],
+    "proof_scope": "代码证明当前写入路径和失败处理；测试源码覆盖合成链，不证明实际作者上传或索引任务完成。",
+    "read_depth": "upload API→ImportService→Writing facade/task enqueue、ORM 与 targeted test source",
+    "validation_identity": "static-only; checkout=/Users/tywww/.codex/worktrees/docs-refresh-luna/ai-writing-assist; HEAD=22bb499789cba89fea92e918fd853ab768688e07; tests_not_run",
+    "unknowns": ["未执行数据库事务/上传测试", "未检查任何项目上传记录或 worker 状态"],
+    "proposed_action": "保留 docs/modules/13_imports.md 当前主路径描述；无需新增正文上传文档。"
+  },
+  {
+    "claim_id": "L4-IMP-03",
+    "baseline_sha": "22bb499789cba89fea92e918fd853ab768688e07",
+    "domain": "imports/deep-import-source",
+    "doc_path": "docs/modules/13_imports.md",
+    "doc_section": "深度导入流水线；Phase 1a/1b/1c；Scene commit",
+    "conclusion": "Deep Import 必须显式授权并冻结项目执行配置；Phase 0–1 生成 Scene 候选，最终 commit 才写正式 Scene。每个候选 span 绑定 source draft ID/hash/offset；提交前 fail closed 校验跨候选无重叠、同 draft hash、章号及从正文开头到末尾的完整覆盖。Scene 通过 Story facade 按 workflow provenance key 幂等写入。",
+    "code_refs": [
+      {"path": "backend/modules/imports/api.py", "symbol": "DeepImportRequest authorization validator", "line": 75},
+      {"path": "backend/modules/imports/scene_commit.py", "symbol": "SceneCommitter.commit", "line": 62},
+      {"path": "backend/modules/imports/scene_commit.py", "symbol": "_assert_complete_frozen_source_coverage/_assert_complete_frozen_intervals", "line": 326},
+      {"path": "backend/modules/imports/workflow_scene_phase.py", "symbol": "Scene commit call", "line": 611}
+    ],
+    "callers": [
+      {"path": "backend/modules/imports/orchestrator.py", "symbol": "DeepImportOrchestrator.run_task/run_stage_task", "line": 500},
+      {"path": "backend/modules/imports/workflow_scene_phase.py", "symbol": "run scene phases and invoke commit", "line": 605},
+      {"path": "backend/modules/story/outline_state/facade.py", "symbol": "commit_deep_import_scene_candidates/batch_create_scenes", "line": 126}
+    ],
+    "test_refs": [
+      {"path": "backend/modules/imports/tests/test_scene_commit.py", "symbol": "test_scene_commit_writes_provenance_and_skips_existing_key", "line": 72, "proof_scope": "静态测试源码断言重复 workflow provenance 被复用"},
+      {"path": "backend/modules/imports/tests/test_scene_commit.py", "symbol": "test_scene_commit_preserves_materialized_exact_source_span", "line": 408, "proof_scope": "静态测试源码断言 SceneSpan 保留精确 draft/hash/offset"}
+    ],
+    "proof_scope": "主 source ownership 和提交 gate 来自 owner 实现；测试源码已读但未执行。",
+    "read_depth": "request authorization、scene phase caller、SceneCommitter、Story facade seam、targeted tests",
+    "validation_identity": "static-only; checkout=/Users/tywww/.codex/worktrees/docs-refresh-luna/ai-writing-assist; HEAD=22bb499789cba89fea92e918fd853ab768688e07; tests_not_run",
+    "unknowns": ["未调用真实 provider 或数据库", "未验证真实 Scene 语义质量或作者验收", "Stage-specific scope beyond cited phase only partially inspected"],
+    "proposed_action": "保留 docs/modules/13_imports.md 对 Phase 1 来源绑定与最终 commit 的描述；文档中应清楚区分中间 candidates 与正式 Scene。"
+  },
+  {
+    "claim_id": "L4-IMP-04",
+    "baseline_sha": "22bb499789cba89fea92e918fd853ab768688e07",
+    "domain": "imports/adoption-review",
+    "doc_path": "docs/modules/13_imports.md",
+    "doc_section": "流水线授权与资产结果；Phase 2/3",
+    "conclusion": "授权策略是有范围的流水线授权，不等于所有抽取资产自动成为正史。Scene 无 review flags 时按授权快照计作 adopted，有 review flags 则留待复核；Phase 2 新实体、关系、别名写为 candidate/needs_review，post-import package 是预览建议，候选实体/关系及 World Bible revision 仍须作者显式 preview/apply。",
+    "code_refs": [
+      {"path": "backend/modules/imports/adoption_policy.py", "symbol": "build_authorization_snapshot/build_asset_summary", "line": 15},
+      {"path": "backend/modules/imports/scene_commit.py", "symbol": "SceneCommitter.commit review/adopted counts", "line": 221},
+      {"path": "backend/modules/imports/entity_extraction/scene_entity_persistence.py", "symbol": "_persist_entities candidate payload", "line": 886},
+      {"path": "backend/modules/imports/orchestrator.py", "symbol": "_assemble_post_import_package", "line": 1911}
+    ],
+    "callers": [
+      {"path": "backend/modules/imports/orchestrator.py", "symbol": "run_task and post-import package", "line": 500},
+      {"path": "backend/modules/world/facade.py", "symbol": "assemble_post_import_adoption_package", "line": 23}
+    ],
+    "test_refs": [
+      {"path": "backend/modules/imports/tests/test_adoption_policy.py", "symbol": "test_asset_summary_uses_phase_stats_without_double_counting_temporary", "line": 20, "proof_scope": "静态摘要计数断言，非作者采用行为验收"},
+      {"path": "backend/modules/imports/tests/test_post_import_adoption.py", "symbol": "test_smart_resolution_does_not_reintroduce_blanket_adoption_queue", "line": 60, "proof_scope": "静态测试断言建议包只在获授权时组装，候选仍单独采用"}
+    ],
+    "proof_scope": "当前状态写入与授权快照已静态核对；摘要测试只验证分类，不代表作者接受。",
+    "read_depth": "adoption policy、Scene commit、entity persistence、orchestrator package seam、related tests/docs",
+    "validation_identity": "static-only; checkout=/Users/tywww/.codex/worktrees/docs-refresh-luna/ai-writing-assist; HEAD=22bb499789cba89fea92e918fd853ab768688e07; tests_not_run",
+    "unknowns": ["未触发真实采用/撤销操作", "未验证每个 Phase 3 结构资产在所有分支的作者 UI 呈现"],
+    "proposed_action": "保留 docs/modules/13_imports.md 及 imports README 对 adopted/review/not_adopted 的分层，不将统计标签写成文学或事实正确性结论。"
+  },
+  {
+    "claim_id": "L4-IMP-05",
+    "baseline_sha": "22bb499789cba89fea92e918fd853ab768688e07",
+    "domain": "imports/source-revision",
+    "doc_path": "docs/modules/13_imports.md",
+    "doc_section": "SourceUpdateService / Interaction source import",
+    "conclusion": "RP source preview 不写正文；preview hash 绑定项目、文件 hash、模式、文件名、base draft/version/hash 清单及差异。apply 在 project exclusive lock 内重新解析和重算 preview，变化时冲突退出；完整稿变更或移除需二次确认，append 从末章后续接，删除历史章节软废弃；写入失败回滚 drafts 并保留失败导入记录。",
+    "code_refs": [
+      {"path": "backend/modules/imports/source_update.py", "symbol": "SourceUpdateService.preview", "line": 40},
+      {"path": "backend/modules/imports/source_update.py", "symbol": "preview_hash construction", "line": 131},
+      {"path": "backend/modules/imports/source_update.py", "symbol": "SourceUpdateService.apply", "line": 170},
+      {"path": "backend/modules/interaction/api.py", "symbol": "preview_source_import/import_source", "line": 220}
+    ],
+    "callers": [
+      {"path": "backend/modules/interaction/api.py", "symbol": "preview_source_import/import_source", "line": 220},
+      {"path": "backend/modules/imports/facade.py", "symbol": "preview_source_update/apply_source_update", "line": 219}
+    ],
+    "test_refs": [
+      {"path": "backend/modules/imports/tests/test_source_update.py", "symbol": "test_preview_is_read_only_and_apply_revalidates_same_file", "line": 24, "proof_scope": "靜態 source fixture 測試斷言 preview 無寫入及 apply 寫入"},
+      {"path": "backend/modules/imports/tests/test_source_update.py", "symbol": "test_source_update_preview_hash_is_a_version_cas", "line": 65, "proof_scope": "靜態 CAS 失效斷言"},
+      {"path": "backend/modules/imports/tests/test_source_update.py", "symbol": "test_apply_failure_rolls_back_drafts_and_keeps_failed_import_record", "line": 185, "proof_scope": "靜態失敗回滾/回執斷言"}
+    ],
+    "proof_scope": "只依實現與測試源確認 CAS/回滾契約；未運行 DB 或 RP 流程。",
+    "read_depth": "imports service+facade、interaction API caller、source-update tests、module docs",
+    "validation_identity": "static-only; checkout=/Users/tywww/.codex/worktrees/docs-refresh-luna/ai-writing-assist; HEAD=22bb499789cba89fea92e918fd853ab768688e07; tests_not_run",
+    "unknowns": ["未检查 source revision consumer 的全套运行流程", "未创建或修改真实 RP 项目/稿件"],
+    "proposed_action": "当前 docs/modules/13_imports.md 的 preview/hash/CAS 说明可保留；不需要新增 source revision 文档。"
+  },
+  {
+    "claim_id": "L4-IMP-06",
+    "baseline_sha": "22bb499789cba89fea92e918fd853ab768688e07",
+    "domain": "imports/spreadsheet-migration",
+    "doc_path": "docs/modules/13_imports.md",
+    "doc_section": "表格迁移 ADR-0030 / 会话与回滚",
+    "conclusion": "表格迁移是独立 xlsx/csv 接口，不扩展正文白名单；会话绑定 account owner + novel，草稿暂存有界 rows，mapping/decisions 使用 revision CAS，AI 仅给预览。apply 校验 draft 状态与 expected preview hash，在项目排他锁内按 world 后 story facade 应用并保存回执、清空 rows_json；回滚先可 dry-run，再按 story→world 逆序撤销并保留被后续修改/引用的冲突项。",
+    "code_refs": [
+      {"path": "backend/modules/imports/spreadsheet_migration/api.py", "symbol": "create_migration/_load_session", "line": 223},
+      {"path": "backend/modules/imports/spreadsheet_migration/service.py", "symbol": "SpreadsheetMigrationService.create_session", "line": 180},
+      {"path": "backend/modules/imports/spreadsheet_migration/service.py", "symbol": "apply_session", "line": 970},
+      {"path": "backend/modules/imports/spreadsheet_migration/service.py", "symbol": "rollback_session", "line": 1041},
+      {"path": "backend/modules/imports/spreadsheet_migration/repository.py", "symbol": "save_mapping/save_decisions/mark_applied", "line": 108}
+    ],
+    "callers": [
+      {"path": "backend/modules/imports/spreadsheet_migration/api.py", "symbol": "apply_migration/rollback_migration", "line": 379},
+      {"path": "backend/modules/world/facade.py", "symbol": "apply_author_migration_world", "line": 998},
+      {"path": "backend/modules/story/outline_state/facade.py", "symbol": "apply_author_migration_structures", "line": 1005}
+    ],
+    "test_refs": [
+      {"path": "backend/modules/imports/tests/test_spreadsheet_migration_e2e.py", "symbol": "test_full_migration_apply_and_rollback", "line": 106, "proof_scope": "静态端到端测试使用仓库 xlsx fixture 核对解析/映射/采用/来源/撤销；未运行"},
+      {"path": "backend/modules/imports/tests/test_spreadsheet_migration_service.py", "symbol": "test_apply_rejects_stale_preview_hash/test_apply_persists_receipt_and_clears_rows/test_apply_rolls_back_everything_when_story_fails", "line": 344, "proof_scope": "静态服务层测试源码断言 stale/回执/清理/事务失败行为；未运行"},
+      {"path": "backend/modules/imports/tests/test_spreadsheet_real_files.py", "symbol": "test_real_xlsx_multi_sheet_parses_and_classifies/test_real_gbk_csv_parses", "line": 19, "proof_scope": "仓库 fixtures 的 parser 断言；测试文件注明真实来源导出样本尚缺"}
+    ],
+    "proof_scope": "业务契约有 ADR、owner source 和本地 fixture tests 的静态互证；真实第三方导出、真实模型及本任务运行结果均未覆盖。",
+    "read_depth": "migration API、service、repository、domain facades、ADR-0030、relevant tests/docs",
+    "validation_identity": "static-only; checkout=/Users/tywww/.codex/worktrees/docs-refresh-luna/ai-writing-assist; HEAD=22bb499789cba89fea92e918fd853ab768688e07; tests_not_run",
+    "unknowns": ["Excel/WPS/飞书/腾讯文档/Google Sheets 等真实导出样本未在本任务验证", "真实模型额度与作者体验未验证", "未执行 SQLite/PG migration 测试"],
+    "proposed_action": "保留 docs/modules/13_imports.md 和 ADR-0030 现有的独立入口/采用/回滚边界；无需新文档。"
+  },
+  {
+    "claim_id": "L4-EVD-07",
+    "baseline_sha": "22bb499789cba89fea92e918fd853ab768688e07",
+    "domain": "evidence/indexing",
+    "doc_path": "docs/modules/08_evidence.md",
+    "doc_section": "索引来源版本；API；B8 summary/freshness",
+    "conclusion": "正文索引按 content_mode + source draft ID/hash 分流；历史 drafts 的 chunk 可以共存，replace 只清理同一 source ID 的过期 chunk，无独立历史 GC。manifest 在候选召回时绑定 draft/hash。Index state summary/freshness 由 SQL 聚合实现，fresh 需 succeeded 且 requested/indexed hash 和 source ID nullable-safe 相等。",
+    "code_refs": [
+      {"path": "backend/modules/evidence/indexing/repositories.py", "symbol": "replace_chapter_chunks", "line": 123},
+      {"path": "backend/modules/evidence/indexing/index_state.py", "symbol": "_fresh_state_predicate/summary/freshness", "line": 21},
+      {"path": "backend/modules/evidence/indexing/index_state.py", "symbol": "summary/freshness SQL GROUP BY", "line": 734},
+      {"path": "backend/modules/evidence/compilation/tests/test_interaction_story_context.py", "symbol": "test_exact_draft_chunks_coexist_and_filter_before_retrieval", "line": 152}
+    ],
+    "callers": [
+      {"path": "backend/modules/evidence/indexing/index_status.py", "symbol": "IndexStatusService.status", "line": 22},
+      {"path": "backend/modules/evidence/indexing/api.py", "symbol": "metrics/retrieve handlers", "line": 85}
+    ],
+    "test_refs": [
+      {"path": "backend/modules/evidence/indexing/tests/test_index_state_metrics.py", "symbol": "test_metrics_preserve_nulls_ranges_without_hydration", "line": 11, "proof_scope": "静态测试构造 600 synthetic states，断言 range/status/null count 与零 ORM hydration；未执行"},
+      {"path": "backend/modules/evidence/compilation/tests/test_interaction_story_context.py", "symbol": "test_historical_candidate_rehydrates_from_frozen_manifest_not_latest_draft", "line": 188, "proof_scope": "静态测试断言 frozen manifest 回读历史 draft；未执行"}
+    ],
+    "proof_scope": "SQL 聚合与保留历史 source chunk 的实现和静态断言已核对；不报告基准性能或当前线上规模。",
+    "read_depth": "index state SQL/repository、index status caller、compilation consumer/test、README 与 docs module",
+    "validation_identity": "static-only; checkout=/Users/tywww/.codex/worktrees/docs-refresh-luna/ai-writing-assist; HEAD=22bb499789cba89fea92e918fd853ab768688e07; tests_not_run",
+    "unknowns": ["本任务未在 SQLite/PostgreSQL 运行测试", "未测真实数据量下响应时延或内存", "未检查历史 chunk 的线上数量"],
+    "proposed_action": "保留 backend/modules/evidence/indexing/README.md 与 docs/modules/08_evidence.md 的历史 chunk / SQL aggregate 描述；标明这是实现和测试覆盖，不是运行性能结论。"
+  },
+  {
+    "claim_id": "L4-EVD-08",
+    "baseline_sha": "22bb499789cba89fea92e918fd853ab768688e07",
+    "domain": "evidence/read-visibility",
+    "doc_path": "docs/modules/08_evidence.md",
+    "doc_section": "NovelEvidenceService 与可见性 / Scene 截止",
+    "conclusion": "RAG、smart search、inspect 返回的是候选与证据投影，不是 chunk cache 正文事实。compiler 自动构造 current source manifest；NovelEvidenceService 批量核对 novel/content mode/source draft/hash/offset，再经 Writing facade 按精确 SourceRangeRef 回读，并以章/Scene/offset 和 reader/character visibility 过滤。过期或不匹配候选剔除并告警；范围不能证明时 fail closed。",
+    "code_refs": [
+      {"path": "backend/modules/evidence/compilation/services/context_compiler.py", "symbol": "ContextCompiler.compile current source_manifest", "line": 213},
+      {"path": "backend/modules/evidence/compilation/services/loaders/rag_chunks_loader.py", "symbol": "RagChunksLoader._rehydrate_chunks", "line": 438},
+      {"path": "backend/modules/evidence/compilation/novel_evidence.py", "symbol": "rehydrate_manuscript_candidates", "line": 495},
+      {"path": "backend/modules/evidence/compilation/novel_evidence.py", "symbol": "_read_visible_source_ref", "line": 638},
+      {"path": "backend/modules/evidence/compilation/novel_evidence.py", "symbol": "grep/search/read/inspect", "line": 223}
+    ],
+    "callers": [
+      {"path": "backend/modules/evidence/compilation/services/loaders/rag_chunks_loader.py", "symbol": "RagChunksLoader.load", "line": 229},
+      {"path": "backend/modules/evidence/compilation/api.py", "symbol": "evidence grep/search/read/inspect routes", "line": 478},
+      {"path": "backend/modules/writing/facade.py", "symbol": "grep_manuscript/read_manuscript_range", "line": 239}
+    ],
+    "test_refs": [
+      {"path": "backend/modules/evidence/compilation/tests/test_novel_evidence.py", "symbol": "test_reader_cutoff_filters_grep_and_read/test_same_chapter_offset_filters_grep_read_and_paragraph_expansion", "line": 276, "proof_scope": "静态测试源码覆盖 reader 与同章 offset 截止；未运行"},
+      {"path": "backend/modules/evidence/compilation/tests/test_interaction_story_context.py", "symbol": "test_historical_candidate_rehydrates_from_frozen_manifest_not_latest_draft", "line": 188, "proof_scope": "静态测试源码覆盖历史 manifest 精确回读；未运行"}
+    ],
+    "proof_scope": "source/version/reveal gate 从代码与测试源码核对；不代表任何作者搜索相关性或读者体验已验收。",
+    "read_depth": "compiler manifest creation、RagChunksLoader、NovelEvidenceService and Writing facade calls、targeted tests/docs",
+    "validation_identity": "static-only; checkout=/Users/tywww/.codex/worktrees/docs-refresh-luna/ai-writing-assist; HEAD=22bb499789cba89fea92e918fd853ab768688e07; tests_not_run",
+    "unknowns": ["未执行 query/retrieval/read 流程", "未评估真实语料检索召回率或可读性"],
+    "proposed_action": "保留 docs/modules/08_evidence.md 对候选过滤、Writing 原文回读及 visibility/cutoff 的分层描述。"
+  },
+  {
+    "claim_id": "L4-EVD-09",
+    "baseline_sha": "22bb499789cba89fea92e918fd853ab768688e07",
+    "domain": "evidence/confirmation",
+    "doc_path": "docs/modules/08_evidence.md",
+    "doc_section": "confirmation/create/read/freshness; exclusion/cutoff; API",
+    "conclusion": "Confirmation 将请求中的 cutoff、selected/excluded asset IDs、pinned/excluded refs 等编译选项与实际 selected IDs、fingerprint 一并持久化。执行准备会要求 freshness 并从已存 options 重新编译比较 fingerprint；变化则拒绝继续。GET confirmation 是按 confirmation_id+novel_id 的只读投影，不重编译/不泄露 compile_options。docs/modules/08_evidence.md 正文已描述 GET，但 API 表遗漏此路由。",
+    "code_refs": [
+      {"path": "backend/modules/evidence/compilation/services/confirmation_service.py", "symbol": "confirm_context", "line": 92},
+      {"path": "backend/modules/evidence/compilation/services/confirmation_service.py", "symbol": "require_fresh_confirmation/compile_from_confirmation", "line": 257},
+      {"path": "backend/modules/evidence/compilation/services/confirmation_service.py", "symbol": "_compile_options_json", "line": 560},
+      {"path": "backend/modules/evidence/compilation/api.py", "symbol": "get_context_confirmation", "line": 358},
+      {"path": "backend/modules/evidence/compilation/services/confirmed_ai_action.py", "symbol": "ConfirmedAIActionService.prepare", "line": 28}
+    ],
+    "callers": [
+      {"path": "backend/modules/evidence/compilation/api.py", "symbol": "confirm_context/render/compile routes", "line": 197},
+      {"path": "backend/modules/evidence/compilation/services/confirmed_ai_action.py", "symbol": "prepare confirmed action", "line": 44}
+    ],
+    "test_refs": [
+      {"path": "backend/modules/evidence/compilation/tests/test_confirmation_api.py", "symbol": "test_get_confirmation_is_project_scoped_and_private", "line": 10, "proof_scope": "静态 API 测试源码断言 project scope、404、private fields；未运行"},
+      {"path": "backend/modules/evidence/compilation/tests/test_result_invalidation.py", "symbol": "test_stale_reasons_remain_authoritative_after_status_changes", "line": 18, "proof_scope": "静态测试源码断言 stale reason 仍阻断 fresh action；未运行"},
+      {"path": "backend/modules/evidence/compilation/tests/test_context_selection.py", "symbol": "test_item_exclusion_changes_exact_rendered_section/test_selected_manifest_comes_from_actual_kept_items", "line": 42, "proof_scope": "静态 selection/exclusion/fingerprint 投影断言；未运行"}
+    ],
+    "proof_scope": "confirmation 读写、重物化和 exclusions 的实现/静态断言已核对；线上 API 与本次测试未执行。",
+    "read_depth": "confirmation service/API/facade action materialization、targeted API/invalidation/context-selection tests/docs",
+    "validation_identity": "static-only; checkout=/Users/tywww/.codex/worktrees/docs-refresh-luna/ai-writing-assist; HEAD=22bb499789cba89fea92e918fd853ab768688e07; tests_not_run",
+    "unknowns": ["未执行确认/重物化数据库事务", "未检查生产当前可用路由或账户 owner 状态"],
+    "proposed_action": "在 docs/modules/08_evidence.md 的现有 API 表补 GET confirmations 与 focused-search 路由；正文现有 confirmation 语义可保留。"
+  },
+  {
+    "claim_id": "L4-EVD-10",
+    "baseline_sha": "22bb499789cba89fea92e918fd853ab768688e07",
+    "domain": "evidence/compatibility-routes",
+    "doc_path": "docs/modules/08_evidence.md",
+    "doc_section": "定位；API；renderer and compatibility",
+    "conclusion": "当前 evidence router mount 为 /api/evidence/indexing 与 /api/evidence/compilation；compilation render API 是 POST /render，没有 GET render。GET /confirmations/{id} 独立提供只读确认记录；GET/POST activation-preview 仍保留。Python facade 的 render_context_markdown/render_compiled_context 和历史 bundle 字段仍在，属于内部 renderer/wire compatibility，不代表旧 /api/context 路由或 GET render 仍存在。当前文档 API 表省略 GET confirmation 和 focused-search submit/read/resume。",
+    "code_refs": [
+      {"path": "backend/modules/evidence/api.py", "symbol": "canonical router prefixes", "line": 8},
+      {"path": "backend/modules/evidence/compilation/api.py", "symbol": "POST render/get confirmation/GET+POST activation-preview/focused-search routes", "line": 247},
+      {"path": "backend/modules/evidence/compilation/facade.py", "symbol": "render_context_markdown/render_compiled_context", "line": 139},
+      {"path": "backend/modules/evidence/compilation/__init__.py", "symbol": "renderer facade exports", "line": 8},
+      {"path": "backend/app/main.py", "symbol": "include evidence router", "line": 802}
+    ],
+    "callers": [
+      {"path": "backend/modules/evidence/compilation/services/confirmed_ai_action.py", "symbol": "render_compiled_context consumer", "line": 54},
+      {"path": "backend/modules/evidence/compilation/api.py", "symbol": "context render and focused-search routes", "line": 247}
+    ],
+    "test_refs": [
+      {"path": "backend/modules/evidence/compilation/tests/test_context.py", "symbol": "test_render_endpoint_returns_markdown", "line": 3535, "proof_scope": "静态 API test uses POST /render; no conclusion about GET alias beyond router source inspection"},
+      {"path": "backend/modules/evidence/compilation/tests/test_confirmation_api.py", "symbol": "test_get_confirmation_is_project_scoped_and_private", "line": 10, "proof_scope": "static source asserts current GET confirmation path; not run"},
+      {"path": "backend/tests/unit/test_evidence_fusion_contract.py", "symbol": "test_business_consumers_use_only_evidence_facade_or_contracts", "line": 10, "proof_scope": "static AST guard forbids modules.rag/modules.context and deep Evidence imports; not run"}
+    ],
+    "proof_scope": "Current code route/facade distinction verified statically. Static app mount cannot prove current production release state.",
+    "read_depth": "canonical router, app mount, compilation routes/facade, current callers/tests/docs; no runtime OpenAPI or production check",
+    "validation_identity": "static-only; checkout=/Users/tywww/.codex/worktrees/docs-refresh-luna/ai-writing-assist; HEAD=22bb499789cba89fea92e918fd853ab768688e07; tests_not_run",
+    "unknowns": ["生产环境部署 SHA/路由状态未查询", "没有运行 FastAPI OpenAPI 导出", "未审计所有历史 frontend/API consumers"],
+    "proposed_action": "在既有 docs/modules/08_evidence.md route table 补缺路由，明确区分 Python renderer compatibility、GET confirmation、GET activation-preview 与无 GET render；不新增专题文件。"
+  },
+  {
+    "claim_id": "L4-RUN-11",
+    "baseline_sha": "22bb499789cba89fea92e918fd853ab768688e07",
+    "domain": "imports/recovery-and-usage",
+    "doc_path": "docs/modules/13_imports.md",
+    "doc_section": "深度导入恢复语义；取消后清理；额度与计量",
+    "conclusion": "ImportWorkflowRun 持久化授权/快照/checkpoint 并用 task+generation+attempt+lease owner fencing；恢复由作者触发、复用原 task、递增 generation，旧 attempt 无法继续 checkpoint。放弃/取消后清理限定 workflow-owned 资产，并区分恢复 abandon 与取消后的 preview+fingerprint 确认清理；被改动/引用资产保留。统一 LLM run envelope 在 provider I/O 前持久 reserve；无 usage 或恢复时在途请求收敛为 unknown/possible；deep-import retry 最多一次，因此模糊网络失败不能解释为确定零费用或确定一次调用。",
+    "code_refs": [
+      {"path": "backend/modules/imports/workflow_runs.py", "symbol": "ImportWorkflowRunService.checkpoint/resume/abandon", "line": 463},
+      {"path": "backend/modules/imports/orchestrator.py", "symbol": "resume_interrupted/abandon_recovery/cleanup_cancelled_run", "line": 1491},
+      {"path": "backend/infrastructure/llm/workflow_budget.py", "symbol": "reserve/settle/mark_in_flight_unknown/_converge_in_flight", "line": 353},
+      {"path": "backend/modules/imports/deep_import_retry.py", "symbol": "should_retry_deep_import_error/run_deep_import_llm_with_retry", "line": 113}
+    ],
+    "callers": [
+      {"path": "backend/modules/imports/api.py", "symbol": "resume_deep_import/abandon_deep_import/cancelled cleanup routes", "line": 392},
+      {"path": "backend/modules/imports/tasks.py", "symbol": "manual_resume task handlers", "line": 1}
+    ],
+    "test_refs": [
+      {"path": "backend/modules/imports/tests/test_workflow_runs.py", "symbol": "test_stale_attempt_cannot_checkpoint_after_resume_generation", "line": 168, "proof_scope": "静态测试源码断言 generation fencing；未运行"},
+      {"path": "backend/modules/imports/tests/test_deep_import_retry.py", "symbol": "test_retry_policy_does_not_retry_schema_or_quality_gate/test_retry_wrapper_retries_once_then_succeeds", "line": 80, "proof_scope": "静态 retry policy assertions；未运行"},
+      {"path": "backend/infrastructure/llm/tests/test_run_envelope.py", "symbol": "counts usage and unknown charge/recovery tests", "line": 177, "proof_scope": "静态测试源码断言 unknown/possible 和 in-flight recovery 收敛；未运行"}
+    ],
+    "proof_scope": "Imports recovery and shared usage accounting implementations/tests statically inspected; does not prove provider billing outcome, online workflow status, or payment amount.",
+    "read_depth": "imports API→orchestrator→workflow run persistence; shared budget reserve/settle/recovery; retry policy/tests/docs",
+    "validation_identity": "static-only; checkout=/Users/tywww/.codex/worktrees/docs-refresh-luna/ai-writing-assist; HEAD=22bb499789cba89fea92e918fd853ab768688e07; tests_not_run",
+    "unknowns": ["真实账户/供应商最终收费与退款不在本地账本内", "本任务未制造中断或恢复", "没有读取任何正在运行的 task/project 数据"],
+    "proposed_action": "保留恢复与费用未知边界，避免文档承诺零重复调用/零费用；注明账本中的 possible 是计量状态，不是供应商账单。"
+  }
+]

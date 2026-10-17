@@ -3,10 +3,22 @@ id: T-20261009-borrowing-plan-refinement
 title: 对照项目实施交接的借鉴开发计划完善
 status: completed
 created: 2026-10-09T10:32:15+09:00
-updated: 2026-10-09T23:06:26+09:00
+updated: 2026-10-12T23:36:26+08:00
 ---
 
 # 对照项目实施交接的借鉴开发计划完善
+
+## 当前恢复快照（2026-10-12 整理核实）
+
+- 实际交付：[PR #207](https://github.com/FengHuoLinShan/ai-writing-assist/pull/207) 已合入 main，合并提交 `b27b84ac0254d82a66c9a028e83a9c1f1f047c64`，当前 main 可达。本计划任务不再等待 PR，也不是未提交文档。
+- 原主目录的五项初版契约补充已被后续计划复审替代；采用当前 main 的完整版本，未覆盖后续修正。
+- 实施另经 PR #212–#218 和 PR #220 合入；不把业务实现或模型验收归为本次计划任务的成果。
+- 下一步：本计划整理任务关闭；真实模型对照仍见引导实施任务。
+
+- 唯一后续主笔记：主工作树本路径 `/Users/tywww/Desktop/项目/ai-writing-assist/.agent/tasks/2026/T-20261009-borrowing-plan-refinement/TASK.md`；旧工作树副本只读。
+- 最后核实：2026-10-12T23:36:26+08:00。以下各节保留原验收、失败和授权的历史证据，不代表当前交付状态。
+
+## 历史记录
 
 ## 恢复快照
 

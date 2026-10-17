@@ -1,0 +1,170 @@
+{
+  "checked_at": "2026-10-14T09:54:58+08:00",
+  "local_head": "4116b657d38f8b7b45c2e18e091274a9c5fbc773",
+  "local_origin_main": "974f0f5080d43472bc599d1d74782913c725057b",
+  "remote_main": "22bb499789cba89fea92e918fd853ab768688e07",
+  "pr": {
+    "number": 222,
+    "merged_at": "2026-10-14T01:40:41Z",
+    "head": "7903bd03186bb8018a5834b7a96cb38519286963",
+    "merge": "22bb499789cba89fea92e918fd853ab768688e07",
+    "check_records": 19,
+    "all_records_success": true
+  },
+  "merge_sha_workflow_snapshot": [
+    {
+      "conclusion": "success",
+      "created_at": "2026-10-14T01:40:44Z",
+      "head_sha": "22bb499789cba89fea92e918fd853ab768688e07",
+      "html_url": "https://github.com/FengHuoLinShan/ai-writing-assist/actions/runs/38497013282",
+      "id": 38497013282,
+      "name": "Architecture docs",
+      "status": "completed"
+    },
+    {
+      "conclusion": null,
+      "created_at": "2026-10-14T01:40:44Z",
+      "head_sha": "22bb499789cba89fea92e918fd853ab768688e07",
+      "html_url": "https://github.com/FengHuoLinShan/ai-writing-assist/actions/runs/38497013317",
+      "id": 38497013317,
+      "name": "Frontend CI",
+      "status": "in_progress"
+    },
+    {
+      "conclusion": "success",
+      "created_at": "2026-10-14T01:40:44Z",
+      "head_sha": "22bb499789cba89fea92e918fd853ab768688e07",
+      "html_url": "https://github.com/FengHuoLinShan/ai-writing-assist/actions/runs/38497013106",
+      "id": 38497013106,
+      "name": "repo-gates",
+      "status": "completed"
+    },
+    {
+      "conclusion": "success",
+      "created_at": "2026-10-14T01:40:44Z",
+      "head_sha": "22bb499789cba89fea92e918fd853ab768688e07",
+      "html_url": "https://github.com/FengHuoLinShan/ai-writing-assist/actions/runs/38497013147",
+      "id": 38497013147,
+      "name": "Backend CI",
+      "status": "completed"
+    },
+    {
+      "conclusion": "success",
+      "created_at": "2026-10-14T01:40:43Z",
+      "head_sha": "22bb499789cba89fea92e918fd853ab768688e07",
+      "html_url": "https://github.com/FengHuoLinShan/ai-writing-assist/actions/runs/38497013061",
+      "id": 38497013061,
+      "name": "Production Image CI",
+      "status": "completed"
+    },
+    {
+      "conclusion": "success",
+      "created_at": "2026-10-14T01:40:43Z",
+      "head_sha": "22bb499789cba89fea92e918fd853ab768688e07",
+      "html_url": "https://github.com/FengHuoLinShan/ai-writing-assist/actions/runs/38497013065",
+      "id": 38497013065,
+      "name": "CodeQL",
+      "status": "completed"
+    },
+    {
+      "conclusion": "success",
+      "created_at": "2026-10-13T23:49:23Z",
+      "head_sha": "974f0f5080d43472bc599d1d74782913c725057b",
+      "html_url": "https://github.com/FengHuoLinShan/ai-writing-assist/actions/runs/38486549154",
+      "id": 38486549154,
+      "name": "uv in /backend - Update #1625786181",
+      "status": "completed"
+    },
+    {
+      "conclusion": "failure",
+      "created_at": "2026-10-13T22:04:24Z",
+      "head_sha": "974f0f5080d43472bc599d1d74782913c725057b",
+      "html_url": "https://github.com/FengHuoLinShan/ai-writing-assist/actions/runs/38475220048",
+      "id": 38475220048,
+      "name": "Backend PostgreSQL E2E",
+      "status": "completed"
+    },
+    {
+      "conclusion": "failure",
+      "created_at": "2026-10-12T23:56:33Z",
+      "head_sha": "974f0f5080d43472bc599d1d74782913c725057b",
+      "html_url": "https://github.com/FengHuoLinShan/ai-writing-assist/actions/runs/38324736239",
+      "id": 38324736239,
+      "name": "Backend PostgreSQL E2E",
+      "status": "completed"
+    },
+    {
+      "conclusion": "success",
+      "created_at": "2026-10-12T15:10:07Z",
+      "head_sha": "974f0f5080d43472bc599d1d74782913c725057b",
+      "html_url": "https://github.com/FengHuoLinShan/ai-writing-assist/actions/runs/38268244088",
+      "id": 38268244088,
+      "name": "Production Image CI",
+      "status": "completed"
+    }
+  ],
+  "pinned_file_sha256": {
+    "Makefile": "f0f01db745d0808ba97ace483aa9f0e41596e5e4a02ebc93cd0a416c5a815a0a",
+    "deploy/README.md": "1a72213bfbf4ab8b3d63b97e31b281a186f131a269e7ff3b52c0d18a222acbbf",
+    "frontend-console/vue/components/EditorialDesk.vue": "66f5843464b17ea722ef0e399ce9c55be6f01430973db4ac7690872f24be7041",
+    "frontend-console/vue/views/writing/invalidationModel.js": "9480fe09b96f7c788ac45bb152dae46bd73213c81669456e9e835abd5b0ab533",
+    "backend/evals/ask_world.py": "782a5e74dadea39afdfd682e6b8c11cfeedcdc599be893999d469af2367820c6",
+    "backend/evals/cli.py": "9527a96c4431a30b1218d35500cec6252bac7ff7a8a6f32550b8089218855e90",
+    "backend/evals/codex_executor.py": "014853d0f2bab9814b2d20e2e00a5b329e742ae7ea89c1d36e02a1356c7299c6",
+    "backend/core/config.py": "5fad34f1e4bea7ef41f2622036c5c0cd63e69a400d9b9612f4dd197bfd42762d",
+    "backend/tests/e2e/test_p2c_invalidation_recompute.py": "82948a34a0cd735e11688785a9b529f7b588a78302d587547509d5cb1c5ca06b",
+    "backend/modules/world/authority.py": "71f62597e3ea342875c2b1abc2e950f001ccb2ccd3fd360bd16922d28688f151",
+    "backend/modules/world/repositories.py": "d2fa6f426772200fd42c7c3a6a9d1ff9dc57e77c7b4f2cd0a6f5f6d906cfbbc2",
+    "backend/modules/project/llm_runtime.py": "a986036064084c0af4f608dc3cf67e8ae25c07bf102143435d47c9799cf4e09d",
+    "backend/modules/evolution/world.py": "8f8ea09fdc0998cb7fb12b8ae219e3e1b1d92eefeaa43578941e16a7ba5101f7",
+    "backend/modules/evolution/consumer_reuse.py": "3168ce1848c447ad75d115602729e4003c5ef176dbfb60381578bf67717dd9e9",
+    "backend/modules/interaction/services.py": "c065eb3482fb91beec87af03de94e51d1b86063496094eb3cdd949853d23926c",
+    "backend/modules/local_agent/README.md": "d8be0967522efd55676b7b256c72a18060045901760fc2582c6336f75a8a203e",
+    "backend/modules/local_agent/executor_service.py": "0cf6e7d64848441360b2424cea054a11bc190f51506dc1cb75f4f0049648ebf2",
+    "backend/modules/writing/services.py": "b7a89df7899c504b2821aa79b5aeb37eaf58fbff52135467142e976d33f494a7",
+    "backend/modules/evidence/indexing/index_state.py": "708a39314102defe2038efc6c653547e16aa6d5143f5a15eea258c82019e105a",
+    "backend/modules/world/services/worldbuilding/world_authority_service.py": "2640e28ea33296d5189e944bc3745a01acac2ddcb32a1f75f42d70a699c98342",
+    "backend/modules/world/services/core/entity_context_service.py": "a5eb2705f06a3ab432c872a401dd18b29b828ab8a23d26ef203d77bd5890253a",
+    "backend/modules/evolution/tests/test_world.py": "84e469ccbb9a846b8d87b002429cea2021f66fecd6700b2db77893e0cf3cb213",
+    "backend/modules/story/outline_state/scene_workbench.py": "39a37a01b003000350905bac10c10134cec6df6ce81624ad64a3c6337e815a38",
+    ".agent/tasks/2026/T-20261013-capability-tail-fixes/EVIDENCE.json": "58aff6a08e63bf42192b4029384115331101681da947f8f7a43a1cd9289a8ac2",
+    ".agent/tasks/2026/T-20261013-capability-tail-fixes/DELIVERY.md": "4bc5a33cd4b3c01cd894958c5e98bddf2bbda81093b3e2e4bc8ba8269e9af098",
+    ".agent/tasks/2026/T-20261013-capability-tail-fixes/TASK.md": "4d1790199f709a50b54d292ce0a95c5824247e6304cda12d9f525c5d3a11cb23",
+    ".agent/tasks/2026/T-20261013-capability-tail-fixes/ITEMS.csv": "270f1a44746ba4c94359b5c44bed9554a2596809b1629e947eda0caf8dfdc6f9"
+  },
+  "source_line_counts_original": {
+    "py_js_vue": 840591,
+    "css": 22544,
+    "py_js_vue_css": 863135,
+    "method": "sum COVERAGE.csv lines for .py/.js/.vue/.css; includes tests/comments/blank lines"
+  },
+  "worktrees": {
+    "registered": 26,
+    "with_production_path_changes": 8,
+    "path_definition": [
+      "backend/",
+      "frontend-console/",
+      "deploy/",
+      "Makefile",
+      ".github/"
+    ],
+    "independent_features_not_implied": true
+  },
+  "business_test_reexecution": false,
+  "original_evidence_unchanged": true,
+  "production_or_model_calls": false,
+  "private_evidence_directory": "/tmp/novelcraft-report-review-20261014",
+  "html_validation": {
+    "page_checks": "passed before final metadata refresh",
+    "viewports": [
+      390,
+      768,
+      1440
+    ],
+    "print_all_directions": 16,
+    "print_all_batches": 11,
+    "print_state_restored": true,
+    "embedded_downloads_round_trip": 5,
+    "browser_script_errors": 0
+  }
+}

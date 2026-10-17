@@ -1,0 +1,19 @@
+{
+  "checked_at": "2026-10-14T11:31:38+08:00",
+  "baseline_sha": "22bb499789cba89fea92e918fd853ab768688e07",
+  "origin_main": "22bb499789cba89fea92e918fd853ab768688e07",
+  "docs_check": "passed; full inventory and BASE_REF=origin/main impact/link rules",
+  "diff_check": "passed",
+  "diagram_static": "XML IDs/edge endpoints, 4 headings, 20 labels and 16 ordered edges passed",
+  "claims_csv": "72 unique claims, fixed SHA and required fields/path checks passed",
+  "business_changes": false,
+  "independent_reviews": {
+    "SOL-CONTRACT-REVIEW": "gpt-6.1-sol/high; SC-1 fixed and re-read; limited contract acceptance passed",
+    "SOL-VISUAL-REVIEW": "gpt-6.1-sol/high; 9 screenshots and 6 source hashes independently verified; limited visual acceptance passed"
+  },
+  "final_browser_render": "passed: CUA in-app browser supported localhost HTTP, both HTML at 1440/768/390, toolbar expanded/collapsed, visible focus and keyboard pan; 9 final screenshot hashes match",
+  "live_models_database_ci_deploy": "not run",
+  "task_status": "completed",
+  "historical_reviews": "Luna R1/R2 retained as historical evidence; not final reviewer identity",
+  "unverified": "native Draw.io render; optional Copy/PNG/PDF/print; real business model/database/production checks; no commit/push/deploy"
+}

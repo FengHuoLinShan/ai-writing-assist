@@ -3,10 +3,22 @@ id: T-20261012-architecture-diagrams-refresh
 title: 模块架构与作者功能图核查整理
 status: completed
 created: 2026-10-12T22:52:32+08:00
-updated: 2026-10-12T22:52:32+08:00
+updated: 2026-10-12T23:36:26+08:00
 ---
 
 # 模块架构与作者功能图核查整理
+
+## 当前恢复快照（2026-10-12 整理核实）
+
+- 实际交付：[PR #221](https://github.com/FengHuoLinShan/ai-writing-assist/pull/221) 已合入 main，合并提交 `974f0f5080d43472bc599d1d74782913c725057b`，当前 main 可达。八份文档与核查记录已提交、推送及合并；不再等待 PR。
+- 固定 head `9dd03eb7725f9521e4d1b4855b9beea94bce2404` 的六项必需检查通过；本次还核实该 main 合并提交的全部工程检查成功。
+- 主目录旧图源/预览副本已被 main 的最终修订替代；40 张旧检查截图移至仓库外归档，文件内容未丢失。
+- 系统剪贴板权限仍未验证，未部署；下一步：本任务关闭。
+
+- 唯一后续主笔记：主工作树本路径 `/Users/tywww/Desktop/项目/ai-writing-assist/.agent/tasks/2026/T-20261012-architecture-diagrams-refresh/TASK.md`；旧工作树副本只读。
+- 最后核实：2026-10-12T23:36:26+08:00。以下各节保留原验收、失败和授权的历史证据，不代表当前交付状态。
+
+## 历史记录
 
 ## 目标与验收
 

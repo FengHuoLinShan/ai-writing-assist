@@ -1,21 +1,33 @@
 ---
 id: T-20261007-responsive-layout
 title: 全站屏幕自适应布局与回归测试深化
-status: active
+status: completed
 created: 2026-10-07T14:08:09+09:00
-updated: 2026-10-07T16:45:32+09:00
+updated: 2026-10-12T23:36:26+08:00
 ---
 
 # 全站屏幕自适应布局与回归测试深化
 
+## 当前恢复快照（2026-10-12 整理核实）
+
+- 实际交付：[PR #204](https://github.com/FengHuoLinShan/ai-writing-assist/pull/204) 已合入 main，合并提交 `d1f61c8d2caba5a7460b036c9343022baa90cdfd`，当前 main 可达。
+- 状态：实现、P2 整改、WebKit 控件裁切修复、工程检查及合并已完成；补回独有的结束记录。
+- 主干检查：原合并提交检查已结束且成功。真实 iOS/Android 设备、软键盘与显式大库专项仍未验收，不改写为通过。
+- 下一步：本任务工程交付关闭；物理设备与部署如需执行另按其范围授权。
+
+- 唯一后续主笔记：主工作树本路径 `/Users/tywww/Desktop/项目/ai-writing-assist/.agent/tasks/2026/T-20261007-responsive-layout/TASK.md`；旧工作树副本只读。
+- 最后核实：2026-10-12T23:36:26+08:00。以下各节保留原验收、失败和授权的历史证据，不代表当前交付状态。
+
+## 历史记录
+
 ## 恢复快照
 
-- 实际完成：响应式实现、三处 P2 和上传同根遗漏已修复；完整本地质量门禁通过，Standards/Spec 独立复查无剩余 findings。
-- 当前里程碑：本地完整 Chromium 335 passed/2 个原有性能专项跳过；PR #204 首轮其他门禁通过，Linux WebKit 320px 蒙版原生上传控件造成实际裁切，已按截图补齐 CSS，等待新 head 复验。
-- 下一步：验证地图定向 Chromium 与 WebKit 核心及构建/lint，提交 CSS 修复并推送 PR #204；核对新固定 head 全部必需检查后合并，再独立核对 merge SHA 的 main CI。
+- 实际完成：响应式实现、审查三项 P2、上传同根保护遗漏及 Linux WebKit 原生蒙版控件裁切均已修复。PR #204 已按全部必需检查通过的固定 head 合入远端 main。
+- 当前里程碑：固定 head `370b2b7bcb9d311a4258ed74de6bf6254e717ee3` 验证完成；merge `d1f61c8d2caba5a7460b036c9343022baa90cdfd` 与该 head 代码树完全一致。合并后主干 CI 已单独核对，正在运行，不能宣称主干最终全绿。
+- 下一步：如继续主干验收，查询 merge SHA 的 Frontend CI `37591267442`、Backend CI `37591267437`、Production Image CI `37591267433` 和 CodeQL `37591267438` 的最终结果；实机验收与部署需按后续用户请求进行。当前修复及合并交付已完成。
 - 阻塞：无。匹配 Playwright 1.63 的 WebKit 已安装；本机浏览器启动需沙箱外执行。
 - 工作区：`/Users/tywww/.codex/worktrees/responsive-layout/ai-writing-assist`，`codex/responsive-layout`，基线 `85fb1c7be35ae687f949863d179f5fd63c53f3c0`。主工作区未跟踪文件全部保留；用户已授权修复、提交/推送 PR 及合并；没有部署或其他工作树清理授权。
-- 最后核实：2026-10-07T16:27:52+09:00
+- 最后核实：2026-10-07T17:09:11+09:00
 
 ## 目标与验收
 
@@ -35,10 +47,10 @@ updated: 2026-10-07T16:45:32+09:00
 
 - [x] 基线浏览器复现证据与专用环境
 - [x] 共享滚动/浮层/视口及作者布局、状态保留
-- [ ] 地图触控替代：实现及原测试完成，review 发现未保存预览和键盘误定位问题待修复
-- [ ] RP 矮屏适配与长篇阅读锚点：长回复中段 resize 跳回开头待修复
+- [x] 地图触控替代：未保存预览、键盘误定位、上传换图和原生文件控件裁切已修复并跨引擎验证
+- [x] RP 矮屏适配与长篇阅读锚点：段落与偏移在连续 resize/刷新后恢复
 - [x] 响应式矩阵、移动 WebKit、CI/文档
-- [ ] lint、完整 Vitest/build/功能浏览器/辅助套件/文档门禁已通过；独立审查三项 findings 尚未关闭
+- [x] lint、完整 Vitest/build/功能浏览器/辅助套件/文档门禁与独立审查通过；PR 已合并
 
 ## 决策、发现与失败
 
@@ -90,7 +102,7 @@ updated: 2026-10-07T16:45:32+09:00
 
 - 已交付：实现、对应测试、CI 完成标记门禁、权威文档及可复现的本地验证记录；审查确认保留保存/隔离/绑定图元/CAS 边界，无新增依赖或业务 API/schema。
 - 未交付：真实 iOS/Android 软键盘、安全区与浏览器缩放验收；显式大库性能专项；远端 CI 和发布。
-- 交付边界：仅本地工作树；实机未验证；未提交/推送/合并/部署。
+- 交付边界：实现已提交、推送并经 PR #204 合入远端 main；实机未验证、未部署；本次合并后的最终 CI 结论尚未取得。任务收尾记录及索引关闭更新仅在本工作树，未再提交。
 
 
 ## 2026-10-07 独立 review
@@ -124,3 +136,15 @@ updated: 2026-10-07T16:45:32+09:00
 - 首轮远端 Frontend CI `37587713721` 第一分片的 Linux WebKit 确认 320px 下 `.atlas-edit` 被原生 file input 的 min-content 撑出，summary/textarea/file input 实际裁切；没有重试或削弱断言。证据 `/private/tmp/responsive-pr204-failed.log`、`/private/tmp/responsive-pr204-diagnostics/webkit/responsive-core-移动核心流程-手机地图候选保留蒙版上传、修改说明和确认入口/` 的 screenshot/trace。新补 `.atlas-edit min-width:0` 和 file input max-width:100%，保留原用例。
 
 - 平台裁切补丁后，本地完整 Vitest 2795、移动 WebKit 12、lint/build 通过；两轴只读复查确认无新增 findings。证据 `/private/tmp/responsive-linux-fix-{vitest,webkit,lint,build}.log`。Chromium 地图/响应式定向回归进行中，新固定 head 的 Linux CI 仍须通过。
+
+
+## 最终交付与合并证据
+
+- PR：https://github.com/FengHuoLinShan/ai-writing-assist/pull/204；mergedAt `2026-10-07T08:03:38Z`。严格核对工作树无漂移、origin/main 为基线、PR head 和祖先关系，以及实时 ruleset 六项必需检查全 SUCCESS，再执行 `gh pr merge 204 --merge --match-head-commit 370b2b7bcb9d311a4258ed74de6bf6254e717ee3`，没有绕过规则。
+- 六项必需检查：Architecture docs、Backend quality、PostgreSQL critical、Frontend unit quality、Frontend functional browser、Production image contract；其他 CodeQL/仓库/敏感信息检查也通过。
+- 最终固定 head 的远端 Frontend CI `37589627849`：Chromium 两分片 187+148=335 passed（另 2 个原有性能专项跳过），Linux WebKit 12 passed，assistant 1、creative 6、editorial 1 passed。原生蒙版 320px 裁切断言保持并通过，完成标记与聚合门禁通过。日志 `/private/tmp/responsive-pr204-final-ci.log`。
+- CSS 平台补丁后本地 Chromium 地图/响应式 45 passed、WebKit 12、Vitest 2795、lint/build/docs/diff 通过。此前完整本地质量门禁 Backend 7142 passed/3 skipped、coverage 86.31%、deployment 272 通过；远端新 head 再次通过全部必需检查。
+- merge `d1f61c8d2caba5a7460b036c9343022baa90cdfd` 已核实可从 origin/main 到达，tree 与验证 head 完全相同。单独查询该 merge SHA 的 main CI：Architecture docs/repo-gates 已通过，Backend/Frontend/Production Image/CodeQL 正在运行。快照 `/private/tmp/responsive-merge-result.json`。不把 PR 绿色当作主干最终绿色。
+- 用户请求的实现、修复、测试及合并已交付；未进行部署、付费模型或真实设备验收，没有触碰 Guimi 真实库和其他工作树/WIP。任务状态关闭，但保留合并后主干 CI 最终结论尚未取得的边界。
+
+- 交付前最新主干查询：同一 merge SHA 的 Backend CI、Production Image CI、CodeQL、Architecture docs、repo-gates 已成功；Frontend CI `37591267442` 仍在运行。最终主干前端结果未确认，不能宣称主干全绿。产品文件再次 SHA256 核对均与合并 head 一致；只有本地任务收尾记录/索引为未提交修改。
