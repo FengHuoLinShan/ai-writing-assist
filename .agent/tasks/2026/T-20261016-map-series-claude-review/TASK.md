@@ -3,7 +3,7 @@ id: T-20261016-map-series-claude-review
 title: 地图增强系列实现的独立 review（分批）
 status: completed
 created: 2026-10-16T21:30:00+08:00
-updated: 2026-10-17T08:56:00+08:00
+updated: 2026-10-17T13:38:00+08:00
 ---
 
 # 地图增强系列实现的独立 review（分批）
@@ -25,7 +25,7 @@ updated: 2026-10-17T08:56:00+08:00
 - 工作区：`.worktrees/map-series-claude-review`，分支 `codex/map-series-claude-review`，基于
   `codex/map-enhancement-plan` @ `a479e006b`；只有本任务记录与回归测试的本地提交。前端依赖已在工作树内
   按 lock `npm ci`（node_modules 被 git 忽略），前端测试用 `npm --prefix ../frontend-console run test`。
-- 最后核实：2026-10-17T08:56:00+08:00。
+- 最后核实：2026-10-17T13:38:00+08:00。
 
 ## 目标与验收
 
@@ -120,6 +120,10 @@ updated: 2026-10-17T08:56:00+08:00
   `director-scales-plan`，改为在本任务目录交付 `ADR-0042-revision.patch`。补查发现 Story 已有
   `story.reaction.generate`，三套表演卡 schema 都要求多选项或全字段，导演/世界推进 start 为 R4；
   更正了上一轮“v2 格式正合适”的说法。补丁待用户应用。
+- 2026-10-17：用户对两项待裁定事项回复“按你推荐”：前瞻人物反应 v1、v2 随实施停止新生成、旧结果只读，
+  转场卡留在前瞻；暂不放宽每项目单一活动目标运行，M4 再评估。重新生成补丁（ADR 改为“实施前裁定”，
+  同步计划 M0/M4/验证矩阵、索引和该任务记录），在原件副本上应用后与修改件逐字一致，对该工作树空跑无冲突。
+  补丁仍待用户应用。
 
 ## 验证证据
 
