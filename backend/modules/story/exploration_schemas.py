@@ -16,12 +16,17 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator, model_valida
 
 from infrastructure.llm.collaboration import content_hash
 from modules.evidence.contracts import (
+    Assumption,
     ExplorationStart,
     ProvisionalStart,
     SceneAnchorStart,
 )
 
 EXPLORATION_OUTPUT_SCHEMA_VERSION: Literal[1] = 1
+
+# 反事实条件对照（M2 沙盘）：可改条件只限世界规则与状态，身份假设不属于“条件”。
+COUNTERFACTUAL_ASSUMPTION_KINDS: tuple[str, ...] = ("world_rule", "state")
+COUNTERFACTUAL_MAX_ASSUMPTIONS = 10
 
 SANDBOX_OUTPUT_KIND = "story.exploration.sandbox"
 EVENT_OUTPUT_KIND = "story.exploration.event"
@@ -288,21 +293,115 @@ def exploration_start_fingerprint(start: ExplorationStart, scale: str) -> str:
     )
 
 
+def apply_changed_assumptions(
+    start: ProvisionalStart, changed: list[Assumption]
+) -> ProvisionalStart:
+    """反事实克隆（M2 沙盘条件对照）：只改指定条件，其余逐字保留。
+
+    替换语义：对每条 changed 假设，按顺序消耗基线中第一条同 kind 且尚未被
+    替换的假设——其 text 以 changed 为准，其余字段与位置保留；基线中没有
+    同 kind 假设时追加到末尾。问题、时点、候选、知识包等其余起点内容一律
+    原样保留，保证“共同基底一致、只改变指定条件”。
+    """
+
+    assumptions = [item.model_copy(deep=True) for item in start.assumptions]
+    replaced: set[int] = set()
+    appended: list[Assumption] = []
+    for change in changed:
+        target = next(
+            (
+                index
+                for index, item in enumerate(assumptions)
+                if index not in replaced and item.kind == change.kind
+            ),
+            None,
+        )
+        if target is None:
+            appended.append(change.model_copy(deep=True))
+        else:
+            assumptions[target] = assumptions[target].model_copy(
+                update={"text": change.text}
+            )
+            replaced.add(target)
+    assumptions.extend(appended)
+    return start.model_copy(update={"assumptions": assumptions})
+
+
 # ---------------------------------------------------------------------------
 # 请求模型（P0 §8）
 # ---------------------------------------------------------------------------
 
 
+def validate_counterfactual_pair(
+    *,
+    scale: str | None,
+    start: ExplorationStart | None,
+    counterfactual_of_result_id: str | None,
+    changed_assumptions: list[Assumption] | None,
+) -> None:
+    """反事实字段一致性（预览/确认/start 请求共用）：要么全普通起点，要么全反事实。
+
+    不校验“非反事实时必须有 start”——确认/start 请求由
+    ``ExplorationRequestBase`` 补上该规则；preview 允许无 start 的名义预算。
+    """
+
+    if counterfactual_of_result_id is None and changed_assumptions is None:
+        return
+    if counterfactual_of_result_id is None or changed_assumptions is None:
+        raise ValueError("反事实对照需要同时提供基线结果与变更条件")
+    if start is not None:
+        raise ValueError("反事实对照的起点由基线结果克隆得出，请勿直接传 start")
+    if scale is not None and scale != "sandbox":
+        raise ValueError("反事实条件对照仅支持沙盘尺度")
+
+
 class ExplorationRequestBase(ExplorationModel):
     novel_id: str
     scale: ExplorationScale
-    start: Annotated[ExplorationStart, Field(discriminator="kind")]
+    start: Annotated[ExplorationStart | None, Field(discriminator="kind")] = None
     focus: str = Field(default="", max_length=2000)
+    counterfactual_of_result_id: str | None = Field(default=None, max_length=64)
+    changed_assumptions: list[Assumption] | None = Field(
+        default=None,
+        min_length=1,
+        max_length=COUNTERFACTUAL_MAX_ASSUMPTIONS,
+    )
 
     @field_validator("novel_id")
     @classmethod
     def normalize_novel_id(cls, value: str) -> str:
         return _uuid(value)
+
+    @field_validator("counterfactual_of_result_id")
+    @classmethod
+    def normalize_counterfactual_result_id(cls, value: str | None) -> str | None:
+        return _uuid_or_none(value)
+
+    @field_validator("changed_assumptions")
+    @classmethod
+    def validate_changed_assumption_kinds(
+        cls, values: list[Assumption] | None
+    ) -> list[Assumption] | None:
+        if values is None:
+            return None
+        for item in values:
+            if item.kind not in COUNTERFACTUAL_ASSUMPTION_KINDS:
+                raise ValueError(
+                    "反事实对照只支持 world_rule/state 两种条件类型"
+                )
+        return values
+
+    @model_validator(mode="after")
+    def validate_counterfactual_request(self):
+        validate_counterfactual_pair(
+            scale=self.scale,
+            start=self.start,
+            counterfactual_of_result_id=self.counterfactual_of_result_id,
+            changed_assumptions=self.changed_assumptions,
+        )
+        if self.counterfactual_of_result_id is None and self.start is None:
+            raise ValueError("请提供探索起点 start，或反事实基线与变更条件")
+        return self
 
 
 class ExplorationPreviewRequest(ExplorationRequestBase):
@@ -384,11 +483,13 @@ class ExplorationSaveEditRequest(ExplorationModel):
 
 
 class ExplorationCompareRequest(ExplorationModel):
-    """同起点两结果比较（read）；起点不同在服务层失败关闭。"""
+    """两结果比较（read）：same_start 要求起点指纹一致；counterfactual 要求
+    两行互为反事实衍生或共享同一基线，成功后回传 changed_conditions。"""
 
     novel_id: str
     first_result_id: str
     second_result_id: str
+    mode: Literal["same_start", "counterfactual"] = "same_start"
 
     @field_validator("novel_id", "first_result_id", "second_result_id")
     @classmethod
@@ -418,6 +519,8 @@ class ExplorationHistoryRequest(ExplorationModel):
 
 __all__ = [
     "AUTHOR_EDIT_OUTPUT_KIND",
+    "COUNTERFACTUAL_ASSUMPTION_KINDS",
+    "COUNTERFACTUAL_MAX_ASSUMPTIONS",
     "EVENT_OUTPUT_KIND",
     "EXPLORATION_ACTIONS",
     "EXPLORATION_OUTPUT_SCHEMA_VERSION",
@@ -449,5 +552,7 @@ __all__ = [
     "SandboxOutputV1",
     "SceneAnchorStart",
     "SceneLineOutputV1",
+    "apply_changed_assumptions",
     "exploration_start_fingerprint",
+    "validate_counterfactual_pair",
 ]
