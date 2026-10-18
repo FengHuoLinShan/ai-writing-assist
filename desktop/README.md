@@ -40,6 +40,8 @@ uv run --project backend --no-sync python desktop/smoke.py --frozen
 
 macOS 需 Xcode Command Line Tools；Windows 需 Visual Studio C++ 工具环境、
 meson==1.12.1 和 ninja==1.13.2。开发工具不进入最终用户安装流程。
+Intel Mac 构建使用 Python 3.13（uv sync 加 --python 3.13），固定最后提供 Intel
+wheel 的 ONNX Runtime 1.23.2；Apple Silicon/Windows 使用锁定的当前版本。
 固定 PostgreSQL/pgvector 源码 SHA256、模型 revision 和权重 SHA256；
 模型在构建阶段下载，应用检索无需首次联网下载模型。
 依赖版本和摘要写入随包分发的 manifest.json，并分发许可证。

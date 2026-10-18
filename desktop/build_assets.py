@@ -80,7 +80,9 @@ def main():
         if not target_stamp.exists() or target_stamp.read_text() != "14.0":
             if (pg / "config.status").exists():
                 run("make", "distclean", cwd=pg)
-            run("make", "clean", cwd=vector)
+            if (prefix / "bin/pg_config").is_file():
+                run("make", "clean", cwd=vector,
+                    env={**os.environ, "PG_CONFIG": str(prefix / "bin/pg_config")})
     if os.name == "nt":
         download(
             "https://go.microsoft.com/fwlink/p/?LinkId=2124703",

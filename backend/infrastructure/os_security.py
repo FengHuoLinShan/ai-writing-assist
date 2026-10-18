@@ -27,11 +27,11 @@ def _windows_security(path: Path, *, create: bool = False) -> None:
     flags = security.OWNER_SECURITY_INFORMATION | security.DACL_SECURITY_INFORMATION
     descriptor = security.GetFileSecurity(str(path), flags)
     identity = user_identity()
-    if (
-        security.ConvertSidToStringSid(descriptor.GetSecurityDescriptorOwner())
-        != identity
-    ):
-        raise ValueError("Private path must belong to the current user")
+    trusted = {identity, "S-1-5-18", "S-1-5-32-544"}
+    # Elevated Windows processes can create files owned by Administrators.
+    owner = security.ConvertSidToStringSid(descriptor.GetSecurityDescriptorOwner())
+    if owner not in trusted:
+        raise ValueError("Private path has an untrusted owner")
     if create:
         acl = security.ACL()
         for value in (identity, "S-1-5-18", "S-1-5-32-544"):
@@ -57,7 +57,7 @@ def _windows_security(path: Path, *, create: bool = False) -> None:
             continue
         if ace[0][0] != security.ACCESS_ALLOWED_ACE_TYPE or (
             security.ConvertSidToStringSid(ace[2])
-            not in {identity, "S-1-5-18", "S-1-5-32-544"}
+            not in trusted
         ):
             raise ValueError("Private path permits another account")
 
