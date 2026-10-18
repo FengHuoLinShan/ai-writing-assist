@@ -10,6 +10,7 @@ from sqlalchemy import delete, select
 
 from core.errors import ConflictError, NotFoundError
 from modules.evidence import facade as evidence_facade
+from modules.evidence.contracts import redact_hidden_phrases
 from modules.story.director_candidates import transfer_choices
 from modules.story.models import (
     StorySceneDirectorBranch,
@@ -960,6 +961,19 @@ async def save_exploration_scene_reference(
     if str(row.output_hash) != str(data.expected_source_output_hash):
         raise ConflictError("来源结果哈希不匹配，请刷新探索结果后重试")
 
+    source_branch = await get_director_branch(db, novel_id, str(row.branch_id))
+    source_request = source_branch.request_json or {}
+    if not source_request.get("context_confirmation_id") or not source_request.get(
+        "confirmation_action"
+    ):
+        raise ConflictError("来源探索缺少可重验的资料确认，请重新生成后再保存参考")
+    source_confirmed = await evidence_facade.prepare_confirmed_ai_action(
+        db,
+        novel_id=novel_id,
+        action=source_request["confirmation_action"],
+        confirmation_id=source_request["context_confirmation_id"],
+    )
+
     from modules.story.facade import get_scene_story_context
 
     scene_context = await get_scene_story_context(
@@ -979,6 +993,49 @@ async def save_exploration_scene_reference(
     confirmed_scene_id = str((confirmed.compile_options or {}).get("scene_id") or "")
     if confirmed_scene_id != str(_uuid(str(data.target_scene_id))):
         raise ConflictError("资料确认的 Scene 与目标 Scene 不一致，请重新确认目标资料")
+    if not payload.target_ref:
+        raise ConflictError("来源对白缺少目标人物，无法核验参考知识边界")
+    candidate_only = payload.target_ref.startswith("c_")
+    if not candidate_only:
+        target_context = await evidence_facade.project_confirmed_character_context(
+            db, confirmed_context=confirmed, character_id=payload.target_ref
+        )
+        source_context = await evidence_facade.project_confirmed_character_context(
+            db, confirmed_context=source_confirmed, character_id=payload.target_ref
+        )
+
+        # Copies cannot silently carry a broader character read set into another Scene.
+        def source_ids(context):
+            return {
+                str(source.get("id"))
+                for section in context.compiled.sections
+                for source in section.sources
+                if source.get("id")
+            }
+
+        if not source_ids(source_context).issubset(source_ids(target_context)):
+            raise ConflictError("来源角色资料超出目标 Scene 确认范围，请重新确认目标资料")
+
+        def visible_items(context):
+            return {
+                (section.key, item.content)
+                for section in context.compiled.sections
+                for item in (section.items or [section])
+            }
+
+        if not visible_items(source_context).issubset(visible_items(target_context)):
+            raise ConflictError(
+                "来源人物的可知内容与目标 Scene 不一致，请在目标资料范围重新探索"
+            )
+        terms = await evidence_facade.build_hidden_guard_context(
+            db, confirmed_context=confirmed, viewpoint_character_id=payload.target_ref
+        )
+
+        text = payload.line + (payload.action or "")
+        if redact_hidden_phrases(text, [term.phrase for term in terms]) != text:
+            raise ConflictError(
+                "来源对白包含目标 Scene 人物不可知的信息，不能保存为该 Scene 的参考"
+            )
 
     target_scene_id = _uuid(str(data.target_scene_id))
     existing = await db.scalar(
@@ -1001,6 +1058,8 @@ async def save_exploration_scene_reference(
         source_deleted=False,
         name=(data.name or "").strip() or payload.line[:60],
         content_copy_json={
+            "target_ref": payload.target_ref,
+            "candidate_only": candidate_only,
             "line": data.content_copy.line,
             "action": data.content_copy.action,
             "note": data.content_copy.note,
@@ -1173,11 +1232,7 @@ async def read_director_references_for_writing(
                     if not current_basis_available and not exploration_copy
                     else []
                 ),
-                *(
-                    [EXPLORATION_COPY_WRITING_NOTICE]
-                    if exploration_copy
-                    else []
-                ),
+                *([EXPLORATION_COPY_WRITING_NOTICE] if exploration_copy else []),
             ],
             "advisory_only": True,
             "adoption_status": "not_adopted",

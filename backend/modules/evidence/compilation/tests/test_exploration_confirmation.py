@@ -428,9 +428,10 @@ async def test_provisional_empty_project_roundtrip(
     # 重物化不产生 blocker；冻结起点经 selection_trace 回传。
     assert compiled.blockers == []
     assert compiled.selection_trace["exploration"]["start_kind"] == "provisional"
-    assert compiled.selection_trace["exploration"]["exploration_start"] == options[
-        "exploration_start"
-    ]
+    assert (
+        compiled.selection_trace["exploration"]["exploration_start"]
+        == options["exploration_start"]
+    )
     assert compiled.selection_trace["exploration"]["exploration_scale"] == "sandbox"
 
     # 核心指纹门在临时起点仍然生效：资料变化 → context_changed 失败关闭。
@@ -464,6 +465,102 @@ async def test_provisional_confirm_rejects_stale_preview_fingerprint(
             ),
         )
     assert error.value.code == "context_preview_changed"
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("field", ["assumptions", "author_private", "knowledge", "focus"])
+async def test_exploration_preview_binds_author_inputs(
+    db_session: AsyncSession, test_project_id: str, field: str
+) -> None:
+    payload = _provisional_payload(test_project_id)
+    preview = await preview_exploration_context(
+        db_session, ExplorationContextRequest(**payload)
+    )
+    if field == "focus":
+        payload["focus"] = "追踪面包师的秘密"
+    elif field == "assumptions":
+        payload["start"][field][0]["text"] = "每天有两小时重力消失"
+    elif field == "knowledge":
+        payload["start"][field] = [{"subject_ref": "c_baker", "knows": ["炉温下降"]}]
+    else:
+        payload["start"][field] = ["面包师实际是调查员"]
+    payload["expected_context_fingerprint"] = preview["context_fingerprint"]
+    with pytest.raises(ConflictError) as error:
+        await confirm_exploration_context(
+            db_session, ExplorationContextRequest(**payload)
+        )
+    assert error.value.code == "context_preview_changed"
+
+
+@pytest.mark.asyncio
+async def test_character_projection_narrows_original_confirmation_and_guards_hidden_truth(
+    db_session: AsyncSession, test_project_id: str
+) -> None:
+    from modules.evidence.facade import (
+        build_hidden_guard_context,
+        prepare_confirmed_ai_action,
+        project_confirmed_character_context,
+    )
+
+    character_id = _canonical_character(db_session, test_project_id)
+    secret_id = uuid.uuid4()
+    db_session.add(
+        CoreEntity(
+            id=secret_id,
+            novel_id=uuid.UUID(test_project_id),
+            entity_type="item",
+            name="旧钥匙",
+            status="canonical",
+            public_info="一把旧铜钥匙",
+            hidden_truth="钥匙能打开沉船密库",
+        )
+    )
+    await db_session.flush()
+    payload = _provisional_payload(test_project_id)
+    payload.update(
+        action="story.exploration.scene_line.generate",
+        exploration_scale="scene_line",
+        entity_ids=[character_id, str(secret_id)],
+        character_ids=[character_id],
+        user_note="作者要求：钥匙藏在钟楼，人物并不知道",
+    )
+    payload["start"]["canonical_refs"] = [character_id]
+    request = ExplorationContextRequest(**payload)
+    confirmed = await confirm_exploration_context(db_session, request)
+    original = await prepare_confirmed_ai_action(
+        db_session,
+        novel_id=test_project_id,
+        action=request.action,
+        confirmation_id=confirmed.id,
+    )
+    projected = await project_confirmed_character_context(
+        db_session, confirmed_context=original, character_id=character_id
+    )
+    assert "阿澜" in projected.rendered_markdown
+    assert "钥匙能打开沉船密库" not in projected.rendered_markdown
+    assert "钥匙藏在钟楼" not in projected.rendered_markdown
+    assert all(
+        section.key != "author_task_note" for section in projected.compiled.sections
+    )
+    allowed = {
+        source["id"]
+        for section in original.compiled.sections
+        for source in section.sources
+        if source.get("id")
+    }
+    assert all(
+        source.get("id") in allowed
+        for section in projected.compiled.sections
+        for source in section.sources
+    )
+    terms = await build_hidden_guard_context(
+        db_session, confirmed_context=original, viewpoint_character_id=character_id
+    )
+    assert any("钥匙能打开沉船密库" in term.phrase for term in terms)
+    with pytest.raises(ConflictError, match="原确认范围"):
+        await project_confirmed_character_context(
+            db_session, confirmed_context=original, character_id=str(uuid.uuid4())
+        )
 
 
 @pytest.mark.asyncio
@@ -618,3 +715,35 @@ async def test_legacy_confirm_endpoint_rejects_exploration_actions(
     )
     assert response.status_code == 400, response.text
     assert "exploration_start" in response.text
+
+
+async def test_handoff_confirmation_preserves_source_viewpoint_and_exclusions(
+    monkeypatch,
+):
+    from modules.evidence.compilation.contracts import CompileOptions
+    from modules.evidence.compilation.services import confirmation_service
+
+    source = {
+        "reveal_mode": "character",
+        "viewpoint_character_id": str(uuid.uuid4()),
+        "excluded_refs": [{"kind": "section", "section_key": "hidden_truth"}],
+        "pinned_refs": [],
+        "visible_until_scene_id": str(uuid.uuid4()),
+    }
+
+    async def validate(*args):
+        return source
+
+    monkeypatch.setattr(confirmation_service, "get", lambda key: validate)
+    start = _provisional_payload(str(uuid.uuid4()))["start"]
+    start["derived_from"] = {
+        "source_result_id": str(uuid.uuid4()),
+        "source_scale": "sandbox",
+        "selector": "author",
+    }
+    options = CompileOptions(novel_id=str(uuid.uuid4()), task="事件", scope="project")
+    bound = await confirmation_service._bind_handoff_options(None, options, start)
+    assert bound.reveal_mode == "character"
+    assert bound.viewpoint_character_id == source["viewpoint_character_id"]
+    assert bound.excluded_refs == source["excluded_refs"]
+    assert bound.visible_until_scene_id == source["visible_until_scene_id"]

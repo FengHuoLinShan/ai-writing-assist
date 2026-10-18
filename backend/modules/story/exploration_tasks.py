@@ -53,6 +53,7 @@ from modules.story.director_budget import budget_stop_reason
 from modules.story.director_service import get_director_branch, get_director_root
 from modules.story.exploration_budget import preview_exploration_budget
 from modules.story.exploration_feature import require_story_exploration_enabled
+from modules.story.exploration_governance import ExplorationClient, knowledge_reviews
 from modules.story.exploration_schemas import (
     AUTHOR_EDIT_OUTPUT_KIND,
     EVENT_HINT_REQUIRED_ACTION,
@@ -64,10 +65,13 @@ from modules.story.exploration_schemas import (
     LOCK_SET_OUTPUT_KIND,
     MULTI_TARGETS_MAX,
     MULTI_TARGETS_MIN,
+    PAYLOAD_MODELS_BY_BASE_KIND,
     SANDBOX_OUTPUT_KIND,
     SCENE_LINE_OUTPUT_KIND,
     EventOutputV1,
     ExplorationOutputEnvelope,
+    FullRehearsalMaterial,
+    FullRehearsalObservation,
     FullRehearsalOutputV1,
     FullRehearsalPerformance,
     FullRehearsalRequest,
@@ -75,8 +79,9 @@ from modules.story.exploration_schemas import (
     FullRehearsalRoundOrchestration,
     SandboxOutputV1,
     SceneLineOutputV1,
-    _normalize_base_kind,
+    SpatialAssessment,
     check_revision_target,
+    replace_revision_item,
 )
 from modules.story.exploration_schemas import (
     revision_items as _revision_items,
@@ -324,6 +329,7 @@ async def _mirror_progression_envelope(session, task, payload):
     previous = root.run_envelope_json or {}
     _monotonic_envelope(previous, payload)
     root.run_envelope_json = dict(payload)
+    await _mirror_cancelled_exploration(session, task, root, payload, chain="progression")
 
 
 async def _mirror_scene_envelope(session, task, payload):
@@ -342,6 +348,32 @@ async def _mirror_scene_envelope(session, task, payload):
     previous = root.run_envelope_json or {}
     _monotonic_envelope(previous, payload)
     root.run_envelope_json = dict(payload)
+    await _mirror_cancelled_exploration(session, task, root, payload, chain="scene")
+
+
+async def _mirror_cancelled_exploration(session, task, root, payload, *, chain):
+    # The task lifecycle owns cancellation and its lease-fenced transaction.
+    if payload.get("status") != "cancelled" or root.current_task_id != task.id:
+        return
+    reader = get_director_branch if chain == "scene" else get_progression_branch
+    branch = await reader(
+        session,
+        str(task.novel_id),
+        str(_meta(task)["exploration_branch_id"]),
+        lock=True,
+    )
+    if branch.root_id != root.id or branch.current_task_id != task.id:
+        return
+    status = "paused_unknown" if payload.get("requests_unknown") else "paused_budget"
+    root.status = branch.status = status
+    root.current_task_id = branch.current_task_id = None
+    receipt = _task_receipt(
+        status,
+        root_id=str(root.id),
+        branch_id=str(branch.id),
+        budget_stop="author_cancelled",
+    )
+    task.meta = {**_meta(task), "recovery_receipt": receipt}
 
 
 def _budget_guard(meta: dict) -> dict:
@@ -456,6 +488,12 @@ def _require_pending_mode(pending: dict, mode: str) -> None:
 
 def _author_packet(*, start, focus: str, confirmed) -> dict:
     """作者侧输入包：问题、假设、作者私享与已读网页摘要；绝不含角色知识包。"""
+    if isinstance(start, SceneAnchorStart):
+        return {
+            "question": focus,
+            "scene_id": start.scene_id,
+            "confirmed_material": confirmed.rendered_markdown or "",
+        }
     return {
         "question": start.question,
         "focus": focus,
@@ -470,6 +508,43 @@ def _author_packet(*, start, focus: str, confirmed) -> dict:
         "time_basis": start.time_basis,
         "confirmed_material": confirmed.rendered_markdown or "",
     }
+
+
+def _governed_client(client, *, db, novel_id, root, branch, confirmed, start):
+    request = dict(branch.request_json or {})
+    confirmation_id = str(
+        request.get("context_confirmation_id") or root.context_confirmation_id
+    )
+    action = str(request.get("confirmation_action") or confirmed.confirmation.action)
+
+    async def revalidate():
+        context = await prepare_confirmed_ai_action(
+            db, novel_id=novel_id, action=action, confirmation_id=confirmation_id
+        )
+        await _checkpoint(
+            db, root, branch, error_message="来源重验检查点未保存，未发起模型请求"
+        )
+        return context
+
+    return ExplorationClient(
+        client,
+        db=db,
+        novel_id=novel_id,
+        confirmation_id=confirmation_id,
+        action=action,
+        start=start.model_dump(mode="json"),
+        revalidate=revalidate,
+    )
+
+
+async def _revalidate_result_context(db, root, branch):
+    request = dict(branch.request_json or {})
+    await prepare_confirmed_ai_action(
+        db,
+        novel_id=str(root.novel_id),
+        action=str(request["confirmation_action"]),
+        confirmation_id=str(request["context_confirmation_id"]),
+    )
 
 
 def _candidate_packets(start: ProvisionalStart) -> dict:
@@ -540,7 +615,7 @@ def _scene_line_user_data(
     parent_payload: dict | None,
     instruction: str,
 ) -> dict:
-    """B3 单目标输入包：作者问题可作背景，作者私享与候选知识包互不混入。"""
+    """构造待治理输入；人物调用在 ExplorationClient 边界剔除作者全知包。"""
     is_candidate = target_ref.startswith("c_")
     data = {
         "mode": mode,
@@ -707,10 +782,9 @@ def _scene_multi_targets(request: dict, *, mode: str) -> list[str] | None:
     if mode != "start":
         raise ValueError("多目标对白只在 start 模式支持，失败关闭")
     targets = [str(item) for item in raw]
-    if (
-        not (MULTI_TARGETS_MIN <= len(targets) <= MULTI_TARGETS_MAX)
-        or len(set(targets)) != len(targets)
-    ):
+    if not (MULTI_TARGETS_MIN <= len(targets) <= MULTI_TARGETS_MAX) or len(
+        set(targets)
+    ) != len(targets):
         raise ValueError("multi_targets 必须是 2..4 个互不相同的目标，失败关闭")
     return targets
 
@@ -733,8 +807,7 @@ def _scene_full_rehearsal(
         raise ValueError("完整排演请求载荷畸形，失败关闭")
     rehearsal = FullRehearsalRequest.model_validate(raw)
     if root_request is not None and (
-        (root_request or {}).get("full_rehearsal")
-        != rehearsal.model_dump(mode="json")
+        (root_request or {}).get("full_rehearsal") != rehearsal.model_dump(mode="json")
     ):
         raise ValueError("任务排演意图与探索根冻结意图不一致，失败关闭")
     return rehearsal
@@ -769,6 +842,7 @@ def _rehearsal_performance_packet(
     confirmed,
     round_number: int,
     previous_round: FullRehearsalRound | None,
+    prior_rounds: list[FullRehearsalRound] | None = None,
 ) -> dict:
     """单目标角色包：各自知识/误信 + 上一轮观察回执，不含作者私密内容。
 
@@ -811,6 +885,12 @@ def _rehearsal_performance_packet(
                 "正式角色资料只以作者确认的编译产物为准；隐藏真相不在你收到的资料里。"
             )
     data["confirmed_material"] = confirmed.rendered_markdown or ""
+    data["accumulated_observations"] = [
+        observation.observed
+        for prior in (prior_rounds or [])
+        for observation in prior.observations
+        if observation.target_ref == target_ref
+    ]
     if previous_round is not None:
         previous_card = next(
             (
@@ -864,9 +944,7 @@ def _rehearsal_orchestration_packet(
             **({"author_goal": author_goal} if author_goal else {}),
             "author_private": list(getattr(start, "author_private", []) or []),
         },
-        "round_performances": [
-            card.model_dump(mode="json") for card in round_cards
-        ],
+        "round_performances": [card.model_dump(mode="json") for card in round_cards],
         "output_rule": (
             "materials 每条标 kind 与感知者（感知者只能在本次排演目标里选）；"
             "observations 逐个目标写它本轮实际注意到的事，没有就留空；"
@@ -984,6 +1062,18 @@ def _merge_revision(parent_payload: dict, output, base_kind: str, item_path: str
             mode="json"
         )
     elif kind == "gap":
+        if output.mode == "bridge":
+            merged.update(
+                mode="bridge",
+                bridge_candidates=[
+                    item.model_dump(mode="json") for item in output.bridge_candidates
+                ],
+                unsolvable=output.unsolvable.model_dump(mode="json")
+                if output.unsolvable
+                else None,
+                unknowns=list(output.unknowns),
+            )
+            return type(output).model_validate(merged)
         if not output.gaps:
             raise ValueError("修订结果缺少被修订的缺口")
         merged["gaps"][index] = output.gaps[0].model_dump(mode="json")
@@ -992,7 +1082,9 @@ def _merge_revision(parent_payload: dict, output, base_kind: str, item_path: str
             value = getattr(output, key, None)
             if value:
                 merged[key] = value
-    return type(output).model_validate(merged)
+    result = type(output).model_validate(merged)
+    result._knowledge_reviews = knowledge_reviews(output)
+    return result
 
 
 # ---------------------------------------------------------------------------
@@ -1001,21 +1093,11 @@ def _merge_revision(parent_payload: dict, output, base_kind: str, item_path: str
 
 
 def _resolve_revision_items(payload: dict, item_path: str, base_kind: str) -> list[dict]:
-    return [
-        row for row in _revision_items(payload, base_kind) if row["key"] == item_path
-    ]
+    return [row for row in _revision_items(payload, base_kind) if row["key"] == item_path]
 
 
 def _write_revision_item(payload: dict, item_path: str, item, base_kind: str) -> None:
-    base_kind = _normalize_base_kind(base_kind)
-    kind, _, raw_index = item_path.partition(":")
-    index = int(raw_index) if raw_index else 0
-    if base_kind == SANDBOX_OUTPUT_KIND:
-        payload["influence_chain"][index] = item
-    elif base_kind == EVENT_OUTPUT_KIND:
-        payload["bridge_candidates" if kind == "bridge" else "gaps"][index] = item
-    else:
-        payload["line"] = item
+    replace_revision_item(payload, item_path, item, base_kind)
 
 
 def _enforce_locked_items(
@@ -1026,16 +1108,16 @@ def _enforce_locked_items(
 ) -> tuple[dict, list[str]]:
     """生成结果落库前强制回填全部锁定项：内容以父 payload 为准逐字恢复。
 
-    锁定项内容与父不一致只可能因父本身被改——以父 payload 为准回填；
+    先核验父条目与作者锁定哈希一致，再以父 payload 为准回填；
     锁定路径在父中解析不到，或生成结果缺同一路径（如“说详细点”改变了
     结构）→ 报告冲突失败关闭，不偷偷解锁；此时任务失败、结果不落库。
     """
 
     enforced = deepcopy(new_payload)
     honored: list[str] = []
-    for item_path, _pinned_hash in locked_specs:
+    for item_path, pinned_hash in locked_specs:
         parent_rows = _resolve_revision_items(parent_payload, item_path, base_kind)
-        if len(parent_rows) != 1:
+        if len(parent_rows) != 1 or content_hash(parent_rows[0]["item"]) != pinned_hash:
             raise ValueError(
                 f"锁定条目 {item_path} 与父结果不一致，无法保持锁定内容；"
                 "请先解锁或重新锁定"
@@ -1069,6 +1151,8 @@ def _classify_stop(error: Exception, guard: dict, envelope) -> str | None:
     stop = budget_stop_reason(envelope, **guard)
     if stop in {"provider_result_unknown", "usage_incomplete"}:
         return "provider_result_unknown"
+    if type(error).__name__ in {"AIRunBudgetExceededError", "AIRunDeadlineExceededError"}:
+        return stop or "goal_budget_reached"
     return stop
 
 
@@ -1094,7 +1178,12 @@ def _task_receipt(status: str, *, root_id: str, branch_id: str, **extra) -> dict
 
 
 def _completed_receipt(
-    *, row, envelope: ExplorationOutputEnvelope, root_id: str, branch_id: str
+    *,
+    row,
+    envelope: ExplorationOutputEnvelope,
+    root_id: str,
+    branch_id: str,
+    locked_items: list[str] | None = None,
 ) -> dict:
     """任务终态结果信封：前端 pollTaskProgress 就地渲染（P0 §8/D）。"""
     return {
@@ -1104,6 +1193,7 @@ def _completed_receipt(
         "result_id": str(row.id),
         "output_kind": envelope.output_kind,
         "payload": envelope.payload.model_dump(mode="json"),
+        "locked_items": locked_items or [],
     }
 
 
@@ -1122,13 +1212,10 @@ async def _load_parent_result(db, *, model, novel_id: str, branch, parent_id: st
     base_envelope = unpack_exploration_output(parent_row)
     if base_envelope is None:
         raise ValueError("来源结果不是探索结果")
-    if base_envelope.output_kind == "story.exploration.author_edit":
-        raise ValueError("作者编辑版本不能继续详略或修订；请回到原始 AI 结果")
+    if base_envelope.output_kind == AUTHOR_EDIT_OUTPUT_KIND:
+        return parent_row, base_envelope.payload.edited_payload.model_dump(mode="json")
     if base_envelope.output_kind == LOCK_SET_OUTPUT_KIND:
         raise ValueError("锁定记录不是可修订的探索结果；请回到 AI 结果")
-    if base_envelope.output_kind == FULL_REHEARSAL_OUTPUT_KIND:
-        # 完整排演（M3-B）整体落一行：不做增量修订，绕过 API 直接入队也失败关闭。
-        raise ValueError("完整排演结果暂不支持增量修订，请新建任务")
     return parent_row, base_envelope.payload.model_dump(mode="json")
 
 
@@ -1138,8 +1225,10 @@ async def _generate_exploration_payload(
     action: str,
     user_data: dict,
     system_content: str | None = None,
+    audit_output=None,
 ):
     """按动作调用一次有界结构化生成；system_content 缺省用该动作基础 prompt。"""
+    client.audit_output = audit_output
     return await run_managed_structured(
         client,
         LLMCallRequest(
@@ -1162,9 +1251,13 @@ async def _generate_exploration_payload(
     )
 
 
-async def _hidden_guard_terms(db, confirmed) -> list:
+async def _hidden_guard_terms(db, confirmed, character_id=None) -> list:
     """canonical 目标生成后守卫的隐藏短语集合（每次任务最多构建一次）。"""
-    return await build_hidden_guard_context(db, confirmed_context=confirmed)
+    return await build_hidden_guard_context(
+        db,
+        confirmed_context=confirmed,
+        **({"viewpoint_character_id": character_id} if character_id else {}),
+    )
 
 
 def _assert_content_within_guard(data: dict, terms: list, *, message: str) -> None:
@@ -1190,7 +1283,7 @@ async def _validate_canonical_scene_line(
     db, confirmed, output: SceneLineOutputV1
 ) -> None:
     """canonical 目标的生成后守卫：逐次构建短语集合并校验（单目标路径复用）。"""
-    terms = await _hidden_guard_terms(db, confirmed)
+    terms = await _hidden_guard_terms(db, confirmed, output.target_ref)
     _assert_scene_output_within_guard(output, terms)
 
 
@@ -1215,6 +1308,7 @@ async def _run_scene_generation(
     multi_targets: list[str] | None,
     diagnostic_question: str | None,
     diagnostic_subject: str | None,
+    locked_specs: list[tuple[str, str]],
 ) -> SceneLineOutputV1:
     """场景一次任务的三种形态（共用预算停止检查与逐请求检查点）：
 
@@ -1224,10 +1318,25 @@ async def _run_scene_generation(
     - 单目标：原路径（含 detail/revise 的父载荷合并与 canonical 守卫）。
     """
     async with open_project_snapshot_llm_client(db, novel_id, run_snapshot) as client:
+        client = _governed_client(
+            client,
+            db=db,
+            novel_id=novel_id,
+            root=root,
+            branch=branch,
+            confirmed=confirmed,
+            start=start,
+        )
         if multi_targets:
-            variants: list[SceneLineOutputV1] = []
-            guard_terms: list | None = None
-            for target in multi_targets:
+            pending = dict(branch.pending_round_json or {})
+            variants = [
+                SceneLineOutputV1.model_validate(item)
+                for item in pending.get("completed_variants", [])
+            ]
+            if [item.target_ref for item in variants] != multi_targets[: len(variants)]:
+                raise ValueError("已完成对白检查点与目标列表不一致")
+            prior_reviews = list(pending.get("knowledge_reviews") or [])
+            for target in multi_targets[len(variants) :]:
                 stop = budget_stop_reason(envelope, **guard)
                 if stop:
                     raise ExplorationPauseError(stop)
@@ -1254,11 +1363,17 @@ async def _run_scene_generation(
                     raise ValueError("对白目标与请求目标不一致")
                 if not target.startswith("c_"):
                     # canonical 目标：生成后 hidden guard 消费方校验，违规即失败不落库。
-                    if guard_terms is None:
-                        guard_terms = await _hidden_guard_terms(db, confirmed)
-                    _assert_scene_output_within_guard(output, guard_terms)
+                    await _validate_canonical_scene_line(db, confirmed, output)
                 variants.append(output)
-            return SceneLineOutputV1(
+                branch.pending_round_json = {
+                    **(branch.pending_round_json or {}),
+                    "completed_variants": [
+                        item.model_dump(mode="json") for item in variants
+                    ],
+                    "knowledge_reviews": [*prior_reviews, *client.reviews],
+                }
+                await _checkpoint(db, root, branch, error_message="对白条目检查点未保存")
+            result = SceneLineOutputV1(
                 target_ref="",
                 line="",
                 rationale=(
@@ -1267,6 +1382,8 @@ async def _run_scene_generation(
                 ),
                 variants=variants,
             )
+            result._knowledge_reviews = [*prior_reviews, *client.reviews]
+            return result
         if diagnostic_question:
             stop = budget_stop_reason(envelope, **guard)
             if stop:
@@ -1312,6 +1429,9 @@ async def _run_scene_generation(
                 parent_payload=parent_payload,
                 instruction=instruction,
             ),
+            audit_output=lambda output: _final_payload(
+                parent_payload, output, mode, item_path, locked_specs
+            ),
         )
     if str(output.target_ref) != target_ref:
         raise ValueError("对白目标与请求目标不一致")
@@ -1323,6 +1443,137 @@ async def _run_scene_generation(
         if mode == "revise"
         else output
     )
+
+
+def _final_payload(
+    parent_payload,
+    output,
+    mode,
+    item_path,
+    locked_specs,
+    base_kind=SCENE_LINE_OUTPUT_KIND,
+):
+    payload = (
+        _merge_revision(parent_payload, output, base_kind, item_path)
+        if mode == "revise"
+        else output
+    )
+    data = payload.model_dump(mode="json")
+    if parent_payload and locked_specs:
+        data, _ = _enforce_locked_items(parent_payload, data, locked_specs, base_kind)
+    return data
+
+
+async def _run_scene_item_follow_up(
+    db,
+    *,
+    novel_id,
+    root,
+    branch,
+    run_snapshot,
+    start,
+    focus,
+    confirmed,
+    mode,
+    instruction,
+    parent_payload,
+    base_kind,
+    item_path,
+    locked_specs,
+):
+    merged = deepcopy(parent_payload)
+    schemas = {
+        "variant": SceneLineOutputV1,
+        "spatial": SpatialAssessment,
+        "performance": FullRehearsalPerformance,
+        "material": FullRehearsalMaterial,
+        "observation": FullRehearsalObservation,
+    }
+    rows = _revision_items(parent_payload, base_kind)
+    if mode == "revise":
+        rows = [row for row in rows if row["key"] == item_path]
+    locked = {path for path, _ in locked_specs}
+    pending = dict(branch.pending_round_json or {})
+    completed = dict(pending.get("completed_items") or {})
+    if not set(completed).issubset({row["key"] for row in rows}):
+        raise ValueError("已完成局部条目检查点与本次任务不一致")
+    for key, item in completed.items():
+        if key not in locked:
+            replace_revision_item(merged, key, item, base_kind)
+    prior_reviews = list(pending.get("knowledge_reviews") or [])
+    async with open_project_snapshot_llm_client(db, novel_id, run_snapshot) as client:
+        client = _governed_client(
+            client,
+            db=db,
+            novel_id=novel_id,
+            root=root,
+            branch=branch,
+            confirmed=confirmed,
+            start=start,
+        )
+        for row in rows:
+            if row["key"] in locked or row["key"] in completed:
+                continue
+            item = row["item"]
+            target = str(item.get("target_ref") or "")
+            data = _scene_line_user_data(
+                start=start,
+                focus=focus,
+                target_ref=target,
+                confirmed=confirmed,
+                mode=mode,
+                parent_payload=None,
+                instruction=instruction or focus,
+            )
+            if not target:
+                data.pop("target", None)
+            data["previous_item"] = item
+
+            def audit_item(output):
+                final = deepcopy(merged)
+                replace_revision_item(
+                    final, row["key"], output.model_dump(mode="json"), base_kind
+                )
+                return final
+
+            client.audit_output = audit_item
+            await _checkpoint(
+                db, root, branch, error_message="局部续算请求需要先保存检查点"
+            )
+            output = await run_managed_structured(
+                client,
+                LLMCallRequest(
+                    messages=[
+                        LLMMessage(
+                            role="system",
+                            content="你是作者的探索修订器。仅补充或修订指定条目，保持角色、轮次、感知者和条件边界。只输出同构条目。角色不得获得可知包以外的信息。",
+                        ),
+                        LLMMessage(
+                            role="user", content=json.dumps(data, ensure_ascii=False)
+                        ),
+                    ]
+                ),
+                schemas[row["key"].partition(":")[0]],
+                step_name=SCENE_LINE_ACTION,
+                capability_id=EXPLORATION_CAPABILITY,
+                max_fix_attempts=0,
+                transport_retries=False,
+            )
+            if target and str(getattr(output, "target_ref", "")) != target:
+                raise ValueError("局部修订不能更换角色")
+            replace_revision_item(
+                merged, row["key"], output.model_dump(mode="json"), base_kind
+            )
+            completed[row["key"]] = output.model_dump(mode="json")
+            branch.pending_round_json = {
+                **(branch.pending_round_json or {}),
+                "completed_items": completed,
+                "knowledge_reviews": [*prior_reviews, *client.reviews],
+            }
+            await _checkpoint(db, root, branch, error_message="局部条目检查点未保存")
+    result = PAYLOAD_MODELS_BY_BASE_KIND[base_kind].model_validate(merged)
+    result._knowledge_reviews = [*prior_reviews, *client.reviews]
+    return result
 
 
 # ---------------------------------------------------------------------------
@@ -1392,7 +1643,7 @@ def _rehearsal_pending_state(
     state_notes = pending.get("state_notes")
     if (
         not isinstance(start_round, int)
-        or not (FULL_REHEARSAL_ROUNDS_MIN <= start_round <= rehearsal.rounds)
+        or not (FULL_REHEARSAL_ROUNDS_MIN <= start_round <= rehearsal.rounds + 1)
         or not isinstance(completed_raw, list)
         or len(completed_raw) != start_round - 1
         or not isinstance(state_notes, list)
@@ -1433,7 +1684,7 @@ async def _run_full_rehearsal(
     _start_round, completed_rounds, state_notes = _rehearsal_pending_state(
         pending, rehearsal
     )
-    guard_terms: list | None = None
+    prior_reviews = list(pending.get("knowledge_reviews") or [])
 
     def _commit_pending() -> None:
         # round_number 恒等于 1 + 已完成轮数：恢复续跑时同一不变量可复核
@@ -1443,18 +1694,35 @@ async def _run_full_rehearsal(
             item.model_dump(mode="json") for item in completed_rounds
         ]
         pending["state_notes"] = list(state_notes)
+        pending["knowledge_reviews"] = [*prior_reviews, *client.reviews]
         # 每次赋新 dict：JSON 列重复赋同一对象不触发变更追踪。
         branch.pending_round_json = dict(pending)
 
     async with open_project_snapshot_llm_client(db, novel_id, run_snapshot) as client:
+        client = _governed_client(
+            client,
+            db=db,
+            novel_id=novel_id,
+            root=root,
+            branch=branch,
+            confirmed=confirmed,
+            start=start,
+        )
         while 1 + len(completed_rounds) <= rehearsal.rounds:
             round_number = 1 + len(completed_rounds)
             previous_round = completed_rounds[-1] if completed_rounds else None
-            cards: list[FullRehearsalPerformance] = []
+            cards = [
+                FullRehearsalPerformance.model_validate(item)
+                for item in pending.get("round_cards") or []
+            ]
+            if len({card.target_ref for card in cards}) != len(cards) or any(
+                card.target_ref not in targets for card in cards
+            ):
+                raise ValueError("已保存表演卡的角色与原排演不一致")
             for target_ref in targets:
-                stop = budget_stop_reason(
-                    envelope, check_soft_thresholds=False, **guard
-                )
+                if any(card.target_ref == target_ref for card in cards):
+                    continue
+                stop = budget_stop_reason(envelope, check_soft_thresholds=False, **guard)
                 if stop:
                     raise ExplorationPauseError(stop)
                 _commit_pending()
@@ -1473,6 +1741,7 @@ async def _run_full_rehearsal(
                         confirmed=confirmed,
                         round_number=round_number,
                         previous_round=previous_round,
+                        prior_rounds=completed_rounds,
                     ),
                 )
                 if str(card.target_ref) != target_ref:
@@ -1480,8 +1749,7 @@ async def _run_full_rehearsal(
                 if not target_ref.startswith("c_"):
                     # canonical 目标：生成后 hidden guard 消费方校验（对齐
                     # writing 消费方方式），违规即失败不落库。
-                    if guard_terms is None:
-                        guard_terms = await _hidden_guard_terms(db, confirmed)
+                    guard_terms = await _hidden_guard_terms(db, confirmed, target_ref)
                     _assert_content_within_guard(
                         card.model_dump(mode="json"),
                         guard_terms,
@@ -1491,6 +1759,9 @@ async def _run_full_rehearsal(
                         ),
                     )
                 cards.append(card)
+                pending["round_cards"] = [item.model_dump(mode="json") for item in cards]
+                _commit_pending()
+                await _checkpoint(db, root, branch, error_message="表演卡检查点未保存")
             stop = budget_stop_reason(envelope, check_soft_thresholds=False, **guard)
             if stop:
                 raise ExplorationPauseError(stop)
@@ -1525,13 +1796,10 @@ async def _run_full_rehearsal(
                     observations=orchestration.observations,
                 )
             )
-            state_notes = list(
-                dict.fromkeys([*state_notes, *orchestration.state_notes])
-            )
+            state_notes = list(dict.fromkeys([*state_notes, *orchestration.state_notes]))
+            pending["round_cards"] = []
             _commit_pending()
-            await _checkpoint(
-                db, root, branch, error_message="排演轮次检查点未保存"
-            )
+            await _checkpoint(db, root, branch, error_message="排演轮次检查点未保存")
             task.update_progress(
                 min(0.95, len(completed_rounds) / max(1, rehearsal.rounds) * 0.95)
             )
@@ -1541,6 +1809,7 @@ async def _run_full_rehearsal(
         rounds=list(completed_rounds),
         state_notes=list(state_notes),
     )
+    output._knowledge_reviews = [*prior_reviews, *client.reviews]
     if len(output.rounds) != rehearsal.rounds:
         # 循环不变量：恰好完成全部轮次；FullRehearsalOutputV1 还会复核编号
         # 连续与每轮表演卡恰好覆盖全部目标。
@@ -1636,10 +1905,12 @@ async def handle_story_exploration_progression(db, task):
     _check_envelope_identity(envelope, root_id=root_id, novel_id=novel_id)
     guard = _budget_guard(meta)
     start = _validate_start_dump(start_dump)
-    counterfactual_of, changed_assumptions = _counterfactual_request_params(
-        root_request
+    counterfactual_of, changed_assumptions = _counterfactual_request_params(root_request)
+    event_mode_hint = (
+        None
+        if mode == "revise" and meta.get("bridge_target")
+        else _event_mode_hint_for(root_request, action)
     )
-    event_mode_hint = _event_mode_hint_for(root_request, action)
     if mode == "start":
         _require_preview_hash(
             novel_id=novel_id,
@@ -1655,11 +1926,14 @@ async def handle_story_exploration_progression(db, task):
     confirmed = await prepare_confirmed_ai_action(
         db,
         novel_id=novel_id,
-        action=action,
+        action=str(meta.get("confirmation_action") or action),
         confirmation_id=str(root.context_confirmation_id),
     )
     _require_confirmation_matches(
-        confirmed, scale=scale, start_dump=start_dump, focus=focus
+        confirmed,
+        scale=scale,
+        start_dump=start_dump,
+        focus=str(root_request.get("exploration_focus") or ""),
     )
 
     parent_row = None
@@ -1702,12 +1976,7 @@ async def handle_story_exploration_progression(db, task):
         ]
         if mode == "revise" and any(item_path == locked for locked, _ in locked_specs):
             raise ValueError("该条目已锁定，请先解锁再修改")
-        for locked_path, _pinned in locked_specs:
-            if len(_resolve_revision_items(parent_payload, locked_path, scale)) != 1:
-                raise ValueError(
-                    f"锁定条目 {locked_path} 与父结果不一致，无法保持锁定内容；"
-                    "请先解锁或重新锁定"
-                )
+        _enforce_locked_items(parent_payload, parent_payload, locked_specs, scale)
 
     pending = dict(branch.pending_step_json or {})
     _require_pending_mode(pending, mode)
@@ -1725,9 +1994,7 @@ async def handle_story_exploration_progression(db, task):
     await _checkpoint(db, root, branch, error_message="探索检查点未保存，未开始模型请求")
 
     run_snapshot = _require_run_snapshot(meta, root, novel_id)
-    bridge_target = (
-        str(meta.get("bridge_target")) if meta.get("bridge_target") else None
-    )
+    bridge_target = str(meta.get("bridge_target")) if meta.get("bridge_target") else None
     user_data = _sandbox_event_user_data(
         start=start,
         focus=focus,
@@ -1741,6 +2008,15 @@ async def handle_story_exploration_progression(db, task):
 
     try:
         async with open_project_snapshot_llm_client(db, novel_id, run_snapshot) as client:
+            client = _governed_client(
+                client,
+                db=db,
+                novel_id=novel_id,
+                root=root,
+                branch=branch,
+                confirmed=confirmed,
+                start=start,
+            )
             stop = budget_stop_reason(envelope, **guard)
             if stop:
                 raise ExplorationPauseError(stop)
@@ -1752,6 +2028,9 @@ async def handle_story_exploration_progression(db, task):
                 action=action,
                 user_data=user_data,
                 system_content=_event_system_prompt(action, event_mode_hint),
+                audit_output=lambda output: _final_payload(
+                    parent_payload, output, mode, item_path, locked_specs, scale
+                ),
             )
         payload_out = (
             _merge_revision(parent_payload, output, scale, item_path)
@@ -1765,6 +2044,7 @@ async def handle_story_exploration_progression(db, task):
                 parent_payload, payload_out.model_dump(mode="json"), locked_specs, scale
             )
             payload_out = PAYLOAD_MODEL_BY_ACTION[action].model_validate(merged_dict)
+        payload_out._knowledge_reviews = knowledge_reviews(output)
         envelope_out = ExplorationOutputEnvelope(
             output_kind=OUTPUT_KIND_BY_ACTION[action],
             schema_version=EXPLORATION_OUTPUT_SCHEMA_VERSION,
@@ -1784,9 +2064,7 @@ async def handle_story_exploration_progression(db, task):
             honored_locks=honored_locks,
         )
     except ExplorationPauseError as pause:
-        return await _pause_progression(
-            db, root, branch, envelope, guard, pause.reason
-        )
+        return await _pause_progression(db, root, branch, envelope, guard, pause.reason)
     except Exception as error:
         stop = _classify_stop(error, guard, envelope)
         if stop is not None:
@@ -1813,7 +2091,11 @@ async def handle_story_exploration_progression(db, task):
     await _checkpoint(db, root, branch, extra=row, error_message="探索结果未持久化")
     task.update_progress(1.0)
     return _completed_receipt(
-        row=row, envelope=envelope_out, root_id=root_id, branch_id=branch_id
+        row=row,
+        envelope=envelope_out,
+        root_id=root_id,
+        branch_id=branch_id,
+        locked_items=[path for path, _ in locked_specs],
     )
 
 
@@ -1879,8 +2161,10 @@ async def _write_progression_result(
     AI 结果（M3-A），不改变续写基线，因此锁定/编辑之后仍可在最新 AI 结果上
     续算；写入改为服务内直接落行，不再复用推进链的线性 append 不变量。
     """
+    await _revalidate_result_context(db, root, branch)
     root_request = root.request_json or {}
     input_payload = {
+        "knowledge_reviews": knowledge_reviews(envelope.payload),
         "mode": mode,
         "start_summary": {
             "kind": (root_request.get("exploration_start") or {}).get("kind"),
@@ -1909,9 +2193,7 @@ async def _write_progression_result(
             novel_id=root.novel_id,
             baseline_result_id=str(root_request["counterfactual_of"]),
         )
-        input_payload["base_result_fingerprint"] = provenance[
-            "base_result_fingerprint"
-        ]
+        input_payload["base_result_fingerprint"] = provenance["base_result_fingerprint"]
         if not input_payload.get("parent_output_hash"):
             input_payload["parent_output_hash"] = provenance["parent_output_hash"]
 
@@ -1935,11 +2217,9 @@ async def _write_progression_result(
     previous_ai = None
     for row in rows:
         row_envelope = unpack_exploration_output(row)
-        if (
-            row_envelope is None
-            or row_envelope.output_kind
-            not in {AUTHOR_EDIT_OUTPUT_KIND, LOCK_SET_OUTPUT_KIND}
-        ):
+        if row_envelope is None or row_envelope.output_kind not in {
+            LOCK_SET_OUTPUT_KIND,
+        }:
             previous_ai = row
             break
     expected_parent = (
@@ -2044,9 +2324,7 @@ async def handle_story_exploration_scene(db, task):
     )
     if multi_targets and diagnostic_question:
         raise ValueError("multi_targets 与 diagnostic 互斥，失败关闭")
-    rehearsal = _scene_full_rehearsal(
-        scene_request, mode=mode, root_request=root_request
-    )
+    rehearsal = _scene_full_rehearsal(scene_request, mode=mode, root_request=root_request)
     if rehearsal is not None and (multi_targets or diagnostic_question):
         raise ValueError("完整排演与 multi_targets/diagnostic 互斥，失败关闭")
     if mode == "start":
@@ -2064,11 +2342,14 @@ async def handle_story_exploration_scene(db, task):
     confirmed = await prepare_confirmed_ai_action(
         db,
         novel_id=novel_id,
-        action=action,
+        action=str(meta.get("confirmation_action") or action),
         confirmation_id=str(meta.get("context_confirmation_id") or ""),
     )
     _require_confirmation_matches(
-        confirmed, scale=scale, start_dump=start_dump, focus=focus
+        confirmed,
+        scale=scale,
+        start_dump=start_dump,
+        focus=str(root_request.get("exploration_focus") or ""),
     )
 
     parent_row = None
@@ -2077,6 +2358,8 @@ async def handle_story_exploration_scene(db, task):
     item_path = ""
     item_content_hash: str | None = None
     locked_specs: list[tuple[str, str]] = []
+    base_kind = str(meta.get("base_output_kind") or SCENE_LINE_OUTPUT_KIND)
+    complex_parent = False
     if mode in {"detail", "revise"}:
         parent_row, parent_payload = await _load_parent_result(
             db,
@@ -2084,6 +2367,11 @@ async def handle_story_exploration_scene(db, task):
             novel_id=novel_id,
             branch=branch,
             parent_id=str(meta.get("parent_result_id") or ""),
+        )
+        complex_parent = (
+            base_kind == FULL_REHEARSAL_OUTPUT_KIND
+            or parent_payload.get("variants") is not None
+            or parent_payload.get("spatial_assessment") is not None
         )
         # 检查点会 expire 全部 ORM 对象；父结果标识须在首个检查点前取成纯值。
         parent_id = str(parent_row.id)
@@ -2093,7 +2381,7 @@ async def handle_story_exploration_scene(db, task):
                 parent_payload,
                 str(meta.get("item_path") or ""),
                 None if raw_item_text is None else str(raw_item_text),
-                SCENE_LINE_OUTPUT_KIND,
+                base_kind,
             )
             item_path = target["key"]
             item_content_hash = target["item_content_hash"]
@@ -2107,17 +2395,11 @@ async def handle_story_exploration_scene(db, task):
         ]
         if mode == "revise" and any(item_path == locked for locked, _ in locked_specs):
             raise ValueError("该条目已锁定，请先解锁再修改")
-        for locked_path, _pinned in locked_specs:
-            resolved = _resolve_revision_items(
-                parent_payload, locked_path, SCENE_LINE_OUTPUT_KIND
-            )
-            if len(resolved) != 1:
-                raise ValueError(
-                    f"锁定条目 {locked_path} 与父结果不一致，无法保持锁定内容；"
-                    "请先解锁或重新锁定"
-                )
+        _enforce_locked_items(parent_payload, parent_payload, locked_specs, base_kind)
 
-    if rehearsal is not None:
+    if complex_parent:
+        target_ref = ""
+    elif rehearsal is not None:
         # 完整排演（M3-B）：目标由 full_rehearsal.targets 承载，无单目标。
         target_ref = ""
     elif mode == "start":
@@ -2175,7 +2457,38 @@ async def handle_story_exploration_scene(db, task):
     run_snapshot = _require_run_snapshot(meta, root, novel_id)
 
     try:
-        if rehearsal is not None:
+        if complex_parent:
+            payload = await _run_scene_item_follow_up(
+                db,
+                novel_id=novel_id,
+                root=root,
+                branch=branch,
+                run_snapshot=run_snapshot,
+                start=start,
+                focus=focus,
+                confirmed=confirmed,
+                mode=mode,
+                instruction=str(meta.get("instruction") or ""),
+                parent_payload=parent_payload,
+                base_kind=base_kind,
+                item_path=item_path,
+                locked_specs=locked_specs,
+            )
+            envelope_out = ExplorationOutputEnvelope(
+                output_kind=base_kind, payload=payload
+            )
+            row = await _write_scene_result(
+                db,
+                root=root,
+                branch=branch,
+                parent_id=parent_id,
+                envelope=envelope_out,
+                mode=mode,
+                envelope_run=envelope,
+                item_path=item_path or None,
+                item_content_hash=item_content_hash,
+            )
+        elif rehearsal is not None:
             # 完整排演（M3-B）：逐轮表演卡 + 每轮统筹，结果整体落一行。
             payload = await _run_full_rehearsal(
                 db,
@@ -2230,8 +2543,10 @@ async def handle_story_exploration_scene(db, task):
                 multi_targets=multi_targets,
                 diagnostic_question=diagnostic_question,
                 diagnostic_subject=diagnostic_subject,
+                locked_specs=locked_specs,
             )
             honored_locks: list[str] = []
+            reviews = knowledge_reviews(payload)
             if mode in {"detail", "revise"} and locked_specs:
                 # 服务端强制回填：锁定台词以父 payload 为准逐字恢复，不靠模型自觉。
                 payload_dict, honored_locks = _enforce_locked_items(
@@ -2241,6 +2556,7 @@ async def handle_story_exploration_scene(db, task):
                     SCENE_LINE_OUTPUT_KIND,
                 )
                 payload = SceneLineOutputV1.model_validate(payload_dict)
+            payload._knowledge_reviews = reviews
             envelope_out = ExplorationOutputEnvelope(
                 output_kind=SCENE_LINE_OUTPUT_KIND,
                 schema_version=EXPLORATION_OUTPUT_SCHEMA_VERSION,
@@ -2286,7 +2602,11 @@ async def handle_story_exploration_scene(db, task):
     await _checkpoint(db, root, branch, extra=row, error_message="探索对白结果未持久化")
     task.update_progress(1.0)
     return _completed_receipt(
-        row=row, envelope=envelope_out, root_id=root_id, branch_id=branch_id
+        row=row,
+        envelope=envelope_out,
+        root_id=root_id,
+        branch_id=branch_id,
+        locked_items=[path for path, _ in locked_specs],
     )
 
 
@@ -2317,6 +2637,21 @@ async def _write_scene_result(
     diagnostic_question: str | None = None,
     full_rehearsal: FullRehearsalRequest | None = None,
 ):
+    await _revalidate_result_context(db, root, branch)
+    await get_director_branch(db, str(root.novel_id), str(branch.id), lock=True)
+    latest = await db.scalar(
+        select(StorySceneDirectorRound)
+        .where(
+            StorySceneDirectorRound.novel_id == root.novel_id,
+            StorySceneDirectorRound.branch_id == branch.id,
+            StorySceneDirectorRound.output_json["output_kind"].as_string()
+            != LOCK_SET_OUTPUT_KIND,
+        )
+        .order_by(StorySceneDirectorRound.round_number.desc())
+        .limit(1)
+    )
+    if (str(latest.id) if latest is not None else None) != parent_id:
+        raise ConflictError("探索分支的父结果已变化，请从最新结果继续")
     next_number = (
         await db.scalar(
             select(func.max(StorySceneDirectorRound.round_number)).where(
@@ -2328,6 +2663,7 @@ async def _write_scene_result(
     ) + 1
     root_request = root.request_json or {}
     input_json = {
+        "knowledge_reviews": knowledge_reviews(envelope.payload),
         "mode": mode,
         "start_summary": {
             "kind": (root_request.get("exploration_start") or {}).get("kind"),

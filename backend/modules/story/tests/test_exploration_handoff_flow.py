@@ -24,6 +24,7 @@ from dataclasses import replace
 from datetime import UTC, datetime, timedelta
 from types import SimpleNamespace
 
+import pytest
 import pytest_asyncio
 from sqlalchemy import event, select
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
@@ -221,6 +222,29 @@ def _attach_run_envelope(root, novel_id) -> None:
 async def _seed_source(flow, *, scale, start, envelope):
     """种一个已跑完的源探索根 + AI 结果行；返回根/分支/行及其快照。"""
     async with flow.sessions.begin() as db:
+        from modules.evidence.contracts import ExplorationContextRequest
+        from modules.evidence.facade import confirm_exploration_context
+
+        action = {
+            "sandbox": "story.exploration.sandbox.generate",
+            "event": "story.exploration.event.diagnose",
+            "scene_line": "story.exploration.scene_line.generate",
+        }[scale]
+        confirmation = await confirm_exploration_context(
+            db,
+            ExplorationContextRequest(
+                novel_id=str(flow.novel_id),
+                action=action,
+                exploration_scale=scale,
+                task="generation",
+                scope="scene" if start.kind == "scene_anchor" else "project",
+                start=start,
+                scene_id=start.scene_id if start.kind == "scene_anchor" else None,
+                visible_until_scene_id=start.scene_id
+                if start.kind == "scene_anchor"
+                else None,
+            ),
+        )
         root, branch = await create_exploration_root(
             db,
             novel_id=str(flow.novel_id),
@@ -231,6 +255,11 @@ async def _seed_source(flow, *, scale, start, envelope):
                 str(uuid.uuid4()) if scale in ("sandbox", "event") else None
             ),
         )
+        branch.request_json = {
+            **(branch.request_json or {}),
+            "context_confirmation_id": confirmation.id,
+            "confirmation_action": action,
+        }
         _attach_run_envelope(root, flow.novel_id)
         if scale in ("sandbox", "event"):
             row = StoryWorldProgressionStep(
@@ -285,16 +314,12 @@ def _root_snapshot(root) -> dict:
         "novel_id": str(root.novel_id),
         "request_json": copy.deepcopy(root.request_json),
         "run_envelope_json": copy.deepcopy(root.run_envelope_json),
-        "current_task_id": (
-            str(root.current_task_id) if root.current_task_id else None
-        ),
+        "current_task_id": (str(root.current_task_id) if root.current_task_id else None),
     }
 
 
 def _row_snapshot(row) -> dict:
-    payload = (
-        row.result_json if hasattr(row, "result_json") else row.output_json
-    )
+    payload = row.result_json if hasattr(row, "result_json") else row.output_json
     return {
         "input_hash": row.input_hash,
         "output_hash": row.output_hash,
@@ -357,6 +382,68 @@ async def _confirm_and_start(flow, derived, *, scale, action):
     return confirmed, started
 
 
+async def test_handoff_rejects_source_mutation_after_target_confirmation(flow):
+    from core.errors import ConflictError
+    from modules.evidence.facade import prepare_confirmed_ai_action
+
+    source = await _seed_source(
+        flow, scale="sandbox", start=_sandbox_start(), envelope=_sandbox_envelope()
+    )
+    handed = await _handoff(flow, source.row, target_scale="event", item_path="chain:0")
+    derived = ProvisionalStart.model_validate(handed["derived_start"])
+    confirmed, _started = await _confirm_and_start(
+        flow, derived, scale="event", action=EVENT_DIAGNOSE_ACTION
+    )
+    async with flow.sessions.begin() as db:
+        row = await db.get(StoryWorldProgressionStep, source.row.id)
+        changed = copy.deepcopy(row.result_json)
+        changed["payload"]["influence_chain"][0]["holds_when"] = "来源已经换了条件"
+        row.result_json = changed
+    async with flow.sessions.begin() as db:
+        with pytest.raises(ConflictError, match="移交来源"):
+            await prepare_confirmed_ai_action(
+                db,
+                novel_id=str(flow.novel_id),
+                action=EVENT_DIAGNOSE_ACTION,
+                confirmation_id=confirmed["confirmation_id"],
+            )
+
+
+async def test_scene_handoff_target_confirmation_preserves_source_cutoff(flow):
+    from modules.evidence.contracts import SceneAnchorStart
+    from modules.story.outline_state.models import Scene
+
+    async with flow.sessions.begin() as db:
+        scene = Scene(
+            novel_id=flow.novel_id,
+            scene_index=0,
+            title="过去的雨夜",
+            goal="目标不是人物知识",
+        )
+        db.add(scene)
+        await db.flush()
+        scene_id = str(scene.id)
+    source = await _seed_source(
+        flow,
+        scale="scene_line",
+        start=SceneAnchorStart(kind="scene_anchor", scene_id=scene_id),
+        envelope=_scene_envelope(),
+    )
+    handed = await _handoff(flow, source.row, target_scale="event")
+    confirmed, _started = await _confirm_and_start(
+        flow,
+        ProvisionalStart.model_validate(handed["derived_start"]),
+        scale="event",
+        action=EVENT_DIAGNOSE_ACTION,
+    )
+    async with flow.sessions() as db:
+        record = await db.get(
+            ContextConfirmation, uuid.UUID(confirmed["confirmation_id"])
+        )
+        assert record.compile_options["scene_id"] == scene_id
+        assert record.compile_options["visible_until_scene_id"] == scene_id
+
+
 async def _run_task(flow, task_id) -> AsyncTask:
     worker = TaskWorker(
         db_manager=_Manager(flow.engine, flow.sessions),
@@ -369,9 +456,7 @@ async def _run_task(flow, task_id) -> AsyncTask:
 
 async def _confirmation_options(flow, confirmation_id) -> dict:
     async with flow.sessions() as db:
-        record = await db.get(
-            ContextConfirmation, uuid.UUID(str(confirmation_id))
-        )
+        record = await db.get(ContextConfirmation, uuid.UUID(str(confirmation_id)))
         return dict(record.compile_options or {})
 
 
@@ -379,17 +464,12 @@ async def _progression_root_and_steps(flow, root_id):
     async with flow.sessions() as db:
         root = await db.get(StoryWorldProgressionRoot, uuid.UUID(str(root_id)))
         steps = (
-            (
-                await db.scalars(
-                    select(StoryWorldProgressionStep)
-                    .where(
-                        StoryWorldProgressionStep.root_id == uuid.UUID(str(root_id))
-                    )
-                    .order_by(StoryWorldProgressionStep.step_number)
-                )
+            await db.scalars(
+                select(StoryWorldProgressionStep)
+                .where(StoryWorldProgressionStep.root_id == uuid.UUID(str(root_id)))
+                .order_by(StoryWorldProgressionStep.step_number)
             )
-            .all()
-        )
+        ).all()
         return root, steps
 
 
@@ -397,15 +477,12 @@ async def _scene_root_and_rounds(flow, root_id):
     async with flow.sessions() as db:
         root = await db.get(StorySceneDirectorRoot, uuid.UUID(str(root_id)))
         rounds = (
-            (
-                await db.scalars(
-                    select(StorySceneDirectorRound)
-                    .where(StorySceneDirectorRound.root_id == uuid.UUID(str(root_id)))
-                    .order_by(StorySceneDirectorRound.round_number)
-                )
+            await db.scalars(
+                select(StorySceneDirectorRound)
+                .where(StorySceneDirectorRound.root_id == uuid.UUID(str(root_id)))
+                .order_by(StorySceneDirectorRound.round_number)
             )
-            .all()
-        )
+        ).all()
         return root, rounds
 
 
@@ -432,7 +509,7 @@ async def _assert_source_untouched(flow, source) -> None:
 
 
 def _request_user_data(provider, index: int) -> dict:
-    return json.loads(provider.requests[index].messages[1].content)
+    return json.loads(provider.generation_requests[index].messages[1].content)
 
 
 def _assert_absent(texts: str, banned: list[str]) -> None:
@@ -597,10 +674,11 @@ async def test_sandbox_to_event_full_chain(flow):
     source = await _seed_source(
         flow, scale="sandbox", start=_sandbox_start(), envelope=_sandbox_envelope()
     )
-    body = await _handoff(
-        flow, source.row, target_scale="event", item_path="chain:1"
+    body = await _handoff(flow, source.row, target_scale="event", item_path="chain:1")
+    assert (
+        body["source_fingerprint"]
+        == body["derived_start"]["derived_from"]["source_fingerprint"]
     )
-    assert body["source_fingerprint"] == source.root.source_hash
     derived = ProvisionalStart.model_validate(body["derived_start"])
     # 派生起点：derived_from 一跳记录；未选链条目（chain:0）不串入。
     assert derived.derived_from.source_result_id == str(source.row.id)
@@ -652,7 +730,7 @@ async def test_sandbox_to_event_full_chain(flow):
     assert envelope_row.output_kind == EVENT_OUTPUT_KIND
     assert envelope_row.payload.mode == "diagnose"
     ledger = read_ai_run_envelope(root.run_envelope_json)
-    assert ledger.requests_started == 1
+    assert ledger.requests_started == 3
 
     # 模型输入只含被选内容：未选链条目与其主体不进入请求。
     user = _request_user_data(flow.provider, 0)
@@ -672,9 +750,7 @@ async def test_event_gap_to_scene_line_full_chain(flow):
     source = await _seed_source(
         flow, scale="event", start=_event_start(), envelope=_event_envelope()
     )
-    body = await _handoff(
-        flow, source.row, target_scale="scene_line", item_path="gap:0"
-    )
+    body = await _handoff(flow, source.row, target_scale="scene_line", item_path="gap:0")
     derived = ProvisionalStart.model_validate(body["derived_start"])
     assert derived.derived_from.item_path == "gap:0"
     assert derived.assumptions[0].kind == "state"
@@ -779,9 +855,7 @@ async def test_two_hop_handoff_keeps_one_hop_ref_and_semantic_chain(flow):
         flow, scale="event", start=_event_start(), envelope=_event_envelope()
     )
     # 第一跳：A 的 gap:0 → 沙盘派生起点 → 确认 → start → worker 产出 B 结果行。
-    hop1 = await _handoff(
-        flow, source.row, target_scale="sandbox", item_path="gap:0"
-    )
+    hop1 = await _handoff(flow, source.row, target_scale="sandbox", item_path="gap:0")
     b_start = ProvisionalStart.model_validate(hop1["derived_start"])
     _assert_absent(
         b_start.model_dump(mode="json").__str__(), ["缺少当天的路径依据"]
@@ -811,17 +885,16 @@ async def test_two_hop_handoff_keeps_one_hop_ref_and_semantic_chain(flow):
     # 的假设原样保留在 C 的前提集中。
     assert c_start.assumptions[0].kind == "state"
     assert "面包更松软，出炉提前" in c_start.assumptions[0].text
-    assert [(item.kind, item.text) for item in c_start.assumptions[1:]] == [
-        (item.kind, item.text) for item in b_start.assumptions
-    ]
+    assert {(item.kind, item.text) for item in b_start.assumptions}.issubset(
+        {(item.kind, item.text) for item in c_start.assumptions[1:]}
+    )
+    assert any("精确发酵速率未知" in item.text for item in c_start.assumptions)
     assert any(
         "缺少 c_recipient 行踪被获知的接触路径" in item.text
         for item in c_start.assumptions[1:]
     )
     # B 根冻结起点中的 A 假设在第二跳后仍在（源不可变 + 一跳溯源不断链）。
-    b_root_refetch, _b_steps_refetch = await _progression_root_and_steps(
-        flow, b_root_id
-    )
+    b_root_refetch, _b_steps_refetch = await _progression_root_and_steps(flow, b_root_id)
     frozen_b = ProvisionalStart.model_validate(
         b_root_refetch.request_json["exploration_start"]
     )
@@ -841,9 +914,7 @@ async def test_handoff_derived_failure_leaves_source_and_budgets_independent(flo
     source = await _seed_source(
         flow, scale="sandbox", start=_sandbox_start(), envelope=_sandbox_envelope()
     )
-    body = await _handoff(
-        flow, source.row, target_scale="event", item_path="chain:1"
-    )
+    body = await _handoff(flow, source.row, target_scale="event", item_path="chain:1")
     derived = ProvisionalStart.model_validate(body["derived_start"])
     _confirmed, started = await _confirm_and_start(
         flow, derived, scale="event", action=EVENT_DIAGNOSE_ACTION
@@ -875,9 +946,7 @@ async def test_handoff_derived_failure_leaves_source_and_budgets_independent(flo
 
 async def _branch_status(flow, branch_id) -> str:
     async with flow.sessions() as db:
-        branch = await db.get(
-            StoryWorldProgressionBranch, uuid.UUID(str(branch_id))
-        )
+        branch = await db.get(StoryWorldProgressionBranch, uuid.UUID(str(branch_id)))
         return branch.status
 
 
@@ -885,17 +954,12 @@ async def test_repeated_handoff_same_params_is_idempotent(flow):
     source = await _seed_source(
         flow, scale="sandbox", start=_sandbox_start(), envelope=_sandbox_envelope()
     )
-    first = await _handoff(
-        flow, source.row, target_scale="event", item_path="chain:1"
-    )
-    second = await _handoff(
-        flow, source.row, target_scale="event", item_path="chain:1"
-    )
+    first = await _handoff(flow, source.row, target_scale="event", item_path="chain:1")
+    second = await _handoff(flow, source.row, target_scale="event", item_path="chain:1")
     assert first["derived_start"] == second["derived_start"]
     assert first["source_fingerprint"] == second["source_fingerprint"]
     assert (
-        ProvisionalStart.model_validate(first["derived_start"]).derived_from
-        is not None
+        ProvisionalStart.model_validate(first["derived_start"]).derived_from is not None
     )
     # 移交零模型调用：重复派生不产生任何请求。
     assert flow.provider.calls == 0

@@ -193,6 +193,10 @@ story 经 `modules.evidence.contracts` 再导出。`provisional` 临时起点确
 重物化时跳过 outline 与 scene_state 指纹门、保留核心资料指纹（`context_changed` 语义不变），
 空资料集合法；`author_private` 只进作者包，永不进入角色包；候选主体不进 hidden guard
 目标集，canonical 角色仍走资料投影 + hidden guard。请求体直传 `web_refs` 失败关闭。
+起点/假设、尺度与焦点纳入预览、确认和重物化指纹；临时起点明确选择的正式角色纳入原读集。
+`project_confirmed_character_context` 只在该读集内按 POV/Scene 截止收窄；hidden guard 仍由原
+作者确认枚举隐藏资料，再按目标人物判断，避免投影后丢失守卫对象。每次探索请求及结果落盘前
+重新物化同一确认，所有可见生成结果复用知识导演、独立审查和至多一次返修复审。
 
 ## 协作成果投影
 

@@ -1871,6 +1871,7 @@ def _provisional_start():
         time_basis="assumed_now",
     )
 
+
 _SANDOX_RECEIPT_PAYLOAD = {
     "question": "重力减半后面包师的一天？",
     "influence_chain": [
@@ -1924,7 +1925,9 @@ def _exploration_goal_plan(novel_id: str) -> GoalPlan:
     )
 
 
-def _stub_exploration_worker(monkeypatch, *, usage: dict | None, fail: bool = False):
+def _stub_exploration_worker(
+    monkeypatch, *, usage: dict | None, fail: bool = False, fail_after_usage: bool = False
+):
     """把两个探索任务类型的 handler 替换为离线桩：可产生账本用量或失败。"""
     from infrastructure.llm.schemas import LLMUsage
     from infrastructure.llm.workflow_budget import (
@@ -1962,6 +1965,8 @@ def _stub_exploration_worker(monkeypatch, *, usage: dict | None, fail: bool = Fa
                             total_tokens=usage["total_tokens"],
                         ),
                     )
+        if fail_after_usage:
+            raise RuntimeError("stub failure after provider response")
         return {
             "status": "completed",
             "root_id": str(task.meta["exploration_root_id"]),
@@ -2004,19 +2009,17 @@ def _stub_exploration_domain_inputs(monkeypatch, *, calls: list | None = None):
     async def snapshot(_db, novel_id):
         return {"novel_id": novel_id}
 
-    async def attach_ref(_db, *, novel_id, confirmation_id, result_type, result_id, status):  # noqa: E501
+    async def attach_ref(
+        _db, *, novel_id, confirmation_id, result_type, result_id, status
+    ):  # noqa: E501
         return None
 
     monkeypatch.setattr(exploration_api, "require_fresh_confirmation", fresh_confirmation)
     # 操作目录 prepare 直接从 evidence facade 导入；与探索 API 共用同一桩。
     import modules.evidence.facade as evidence_facade
 
-    monkeypatch.setattr(
-        evidence_facade, "require_fresh_confirmation", fresh_confirmation
-    )
-    monkeypatch.setattr(
-        exploration_api, "build_project_llm_execution_snapshot", snapshot
-    )
+    monkeypatch.setattr(evidence_facade, "require_fresh_confirmation", fresh_confirmation)
+    monkeypatch.setattr(exploration_api, "build_project_llm_execution_snapshot", snapshot)
     monkeypatch.setattr(exploration_api, "attach_result_ref", attach_ref)
 
 
@@ -2051,9 +2054,7 @@ def _exploration_goal_env(monkeypatch, db_session, test_project_id, owner_id, pl
     monkeypatch.setattr(service, "_require_goal_project", no_project_gate)
     monkeypatch.setattr(service, "get_any_project_context", project_context)
     monkeypatch.setattr(service, "_trace_enabled", trace_disabled)
-    monkeypatch.setattr(
-        service, "build_project_llm_execution_snapshot", project_snapshot
-    )
+    monkeypatch.setattr(service, "build_project_llm_execution_snapshot", project_snapshot)
     monkeypatch.setattr(service, "open_project_snapshot_llm_client", offline_client)
     monkeypatch.setattr(
         service, "_operation_registry", lambda: story_exploration_operations
@@ -2083,9 +2084,9 @@ async def test_goal_exploration_start_step_approval_and_domain_ledger_import(
     )
 
     request = _start_request(uuid.UUID(test_project_id))
-    request.budget.requests = 4
-    request.budget.possible_charge_requests = 4
-    request.budget.tokens = 8192
+    request.budget.requests = 10
+    request.budget.possible_charge_requests = 10
+    request.budget.tokens = 100000
     prepared = await service.start_goal(db_session, request, owner_id)
     assert prepared["phase"] == "plan_review"
     approved = await service.approve_goal_plan(
@@ -2163,9 +2164,9 @@ async def test_goal_exploration_unknown_domain_usage_stops_goal_for_review(
     _stub_exploration_worker(monkeypatch, usage={"unknown": True})
 
     request = _start_request(uuid.UUID(test_project_id))
-    request.budget.requests = 4
-    request.budget.possible_charge_requests = 4
-    request.budget.tokens = 8192
+    request.budget.requests = 10
+    request.budget.possible_charge_requests = 10
+    request.budget.tokens = 100000
     prepared = await service.start_goal(db_session, request, owner_id)
     approved = await service.approve_goal_plan(
         db_session,
@@ -2241,6 +2242,238 @@ def test_goal_domain_ledger_headroom_refuses_over_declared_allocation():
         }
 
     assert service._domain_ledger_headroom_reason(envelope, budget, _SmallTask()) is None
+
+
+@pytest.mark.parametrize(
+    "requests,tokens,reason",
+    [(9, 0, "80% 可能费用"), (11, 0, "可能产生费用"), (1, 800, "80% 令牌")],
+)
+def test_goal_counter_observes_live_detached_domain_ledger(requests, tokens, reason):
+    from infrastructure.llm.schemas import LLMUsage
+    from infrastructure.llm.workflow_budget import (
+        AIRunBudgetExceededError,
+        AIRunEnvelope,
+        ai_run_scope,
+        new_ai_run_envelope,
+    )
+    from modules.assistant.goal_runs import service
+
+    budget = GoalBudget(
+        requests=100, possible_charge_requests=10, tokens=1000, time_limit_seconds=600
+    )
+    parent = new_ai_run_envelope(
+        operation_id=str(uuid.uuid4()),
+        run_id=str(uuid.uuid4()),
+        root_capability_id="assistant.goal.run",
+        novel_id=str(uuid.uuid4()),
+        request_limit=100,
+        token_limit=1000,
+        budget_mode="goal",
+        scope_fingerprint="a" * 64,
+    )
+    snapshot = parent.snapshot().model_copy(deep=True)
+    snapshot.run_id = str(uuid.uuid4())
+    snapshot.requests_started = requests
+    snapshot.usage = LLMUsage(
+        prompt_tokens=tokens, completion_tokens=0, total_tokens=tokens
+    )
+    from infrastructure.llm.schemas import AIStepReceiptV1
+
+    snapshot.steps = [
+        AIStepReceiptV1(
+            step_name="assistant.goal.plan",
+            step_capability_id="assistant.goal.run",
+            call_kind="structured",
+            requests_started=requests,
+            requests_settled=requests,
+            usage=snapshot.usage,
+        )
+    ]
+    domain = AIRunEnvelope(snapshot)
+    meter = service.GoalWorkflowCounter(
+        parent,
+        budget,
+        domain_baseline={
+            "requests_started": 0,
+            "requests_unknown": 0,
+            "prompt_tokens": 0,
+            "completion_tokens": 0,
+        },
+    )
+    with ai_run_scope(domain), pytest.raises(AIRunBudgetExceededError, match=reason):
+        meter.reserve(requests=1)
+    assert parent.snapshot().requests_started == 0
+
+
+def test_goal_headroom_uses_possible_charge_limit_before_dispatch():
+    from infrastructure.llm.workflow_budget import new_ai_run_envelope
+    from modules.assistant.goal_runs import service
+
+    budget = GoalBudget(
+        requests=20, possible_charge_requests=2, tokens=10000, time_limit_seconds=600
+    )
+    envelope = new_ai_run_envelope(
+        operation_id=str(uuid.uuid4()),
+        run_id=str(uuid.uuid4()),
+        root_capability_id="assistant.goal.run",
+        novel_id=str(uuid.uuid4()),
+        request_limit=20,
+        token_limit=10000,
+        budget_mode="goal",
+        scope_fingerprint="a" * 64,
+    )
+    task = SimpleNamespace(
+        task_type="story_exploration_scene_task",
+        meta={
+            "exploration_authorized_requests": 3,
+            "exploration_authorized_tokens": 100,
+        },
+    )
+    assert "剩余 2 次" in service._domain_ledger_headroom_reason(envelope, budget, task)
+
+
+async def test_goal_handoff_binds_preview_confirmation_start_without_extra_approval(
+    db_session,
+    test_project_id,
+    monkeypatch,
+    exploration_gate,
+):
+    import modules.story.exploration_tasks  # noqa: F401
+    from modules.story import exploration_api
+    from modules.story.tests.test_exploration_handoff import (
+        _sandbox_envelope,
+        _sandbox_start,
+        _seed_source,
+    )
+
+    _root, _branch, source = await _seed_source(
+        db_session,
+        uuid.UUID(test_project_id),
+        scale="sandbox",
+        start=_sandbox_start(),
+        envelope=_sandbox_envelope(),
+    )
+
+    def reference(step, *path):
+        return {
+            "$ref": {
+                "step_id": step,
+                "path": list(path),
+                "value_type": "object" if path == ("derived_start",) else "string",
+            }
+        }
+
+    base = {
+        "novel_id": test_project_id,
+        "scale": "event",
+        "start": reference("handoff", "derived_start"),
+        "focus": "先看订单如何送达",
+        "action": "story.exploration.event.diagnose",
+    }
+    plan = GoalPlan.model_validate(
+        {
+            "title": "从条件影响推到事件路径",
+            "steps": [
+                {
+                    "step_id": "handoff",
+                    "operation_id": "story.exploration.handoff",
+                    "intent": "保留候选条件",
+                    "parameters": {
+                        "novel_id": test_project_id,
+                        "result_id": str(source.id),
+                        "target_scale": "event",
+                        "item_path": "chain:0",
+                        "reason": "考察影响如何形成具体事件",
+                    },
+                },
+                {
+                    "step_id": "preview",
+                    "operation_id": "story.exploration.confirmation_preview",
+                    "intent": "只读目标资料",
+                    "depends_on": ["handoff"],
+                    "parameters": base,
+                },
+                {
+                    "step_id": "confirm",
+                    "operation_id": "story.exploration.confirm",
+                    "intent": "在已批准目标内绑定资料",
+                    "depends_on": ["handoff", "preview"],
+                    "parameters": {
+                        **base,
+                        "expected_context_fingerprint": reference(
+                            "preview", "context_fingerprint"
+                        ),
+                    },
+                },
+                {
+                    "step_id": "start",
+                    "operation_id": "story.exploration.start",
+                    "intent": "在已批准预算内探索",
+                    "depends_on": ["handoff", "preview", "confirm"],
+                    "parameters": {
+                        **base,
+                        "operation_id": str(uuid.uuid4()),
+                        "context_confirmation_id": reference(
+                            "confirm", "confirmation_id"
+                        ),
+                        "budget_preview_hash": reference(
+                            "preview", "budget", "preview_hash"
+                        ),
+                    },
+                },
+            ],
+        }
+    )
+    owner = str(current_account_id())
+    service = _exploration_goal_env(monkeypatch, db_session, test_project_id, owner, plan)
+
+    async def snapshot(_db, novel_id):
+        return {"novel_id": novel_id}
+
+    monkeypatch.setattr(exploration_api, "build_project_llm_execution_snapshot", snapshot)
+    _stub_exploration_worker(
+        monkeypatch,
+        usage={"prompt_tokens": 10, "completion_tokens": 10, "total_tokens": 20},
+    )
+    request = _start_request(uuid.UUID(test_project_id))
+    request.budget = GoalBudget(
+        requests=20, possible_charge_requests=20, tokens=200000, time_limit_seconds=600
+    )
+    errors = []
+    original_error_code = service._error_code
+
+    def capture_error(error):
+        errors.append(str(error))
+        return original_error_code(error)
+
+    monkeypatch.setattr(service, "_error_code", capture_error)
+    prepared = await service.start_goal(db_session, request, owner)
+    assert prepared["phase"] == "plan_review", errors
+    result = await service.approve_goal_plan(
+        db_session,
+        novel_id=test_project_id,
+        run_id=prepared["run_id"],
+        owner_id=owner,
+        data=GoalPlanApproval(
+            expected_revision=prepared["revision"],
+            plan=plan,
+            budget=request.budget,
+            auto_r2=True,
+        ),
+    )
+    assert result["status"] == "completed", result
+    assert all(step["status"] == "completed" for step in result["steps"])
+    run = await db_session.get(AssistantRun, uuid.UUID(result["run_id"]))
+    records = service._step_records(run.checkpoint_json["goal"])
+    task = await db_session.get(
+        AsyncTask, uuid.UUID(records["start"]["reference"]["task_id"])
+    )
+    assert task.meta["_execution_mode"] == "inline_only"
+    assert task.meta["request"]["start"] == records["handoff"]["result"]["derived_start"]
+    assert (
+        task.meta["context_confirmation_id"]
+        == records["confirm"]["result"]["confirmation_id"]
+    )
 
 
 @pytest.mark.asyncio
@@ -2385,17 +2618,21 @@ async def test_exploration_read_result_proves_outcomes_from_domain_state(
         context_confirmation_id=str(uuid.uuid4()),
     )
     started_at = datetime.now(UTC)
-    root.run_envelope_json = new_ai_run_envelope(
-        operation_id=str(uuid.uuid4()),
-        run_id=str(root.id),
-        root_capability_id="story.exploration",
-        novel_id=novel_id,
-        request_limit=1,
-        budget_mode="bounded",
-        token_limit=400,
-        started_at=started_at,
-        deadline_at=started_at + timedelta(hours=1),
-    ).snapshot().model_dump(mode="json")
+    root.run_envelope_json = (
+        new_ai_run_envelope(
+            operation_id=str(uuid.uuid4()),
+            run_id=str(root.id),
+            root_capability_id="story.exploration",
+            novel_id=novel_id,
+            request_limit=1,
+            budget_mode="bounded",
+            token_limit=400,
+            started_at=started_at,
+            deadline_at=started_at + timedelta(hours=1),
+        )
+        .snapshot()
+        .model_dump(mode="json")
+    )
     await db_session.flush()
 
     def _reference(task_id: str) -> dict:
@@ -2513,10 +2750,11 @@ async def test_exploration_goal_apply_binds_stable_operation_parent_and_chain(
     )
 
     captured: dict = {}
-    projected: list[dict] = []
 
-    async def fake_start(db, *, data, owner_id=None):
+    async def fake_start(db, *, data, owner_id=None, internal_meta=None):
+        assert internal_meta["_execution_mode"] == "inline_only"
         captured["operation_id"] = str(data.operation_id)
+        captured["internal_meta"] = internal_meta
         return {
             "task_id": str(data.operation_id),
             "status": "pending",
@@ -2526,6 +2764,7 @@ async def test_exploration_goal_apply_binds_stable_operation_parent_and_chain(
 
     async def fake_follow_up(db, **kwargs):
         captured["follow_up_operation_id"] = str(kwargs["operation_id"])
+        captured["follow_up_meta"] = kwargs["internal_meta"]
         return {
             "task_id": str(kwargs["operation_id"]),
             "status": "pending",
@@ -2536,18 +2775,9 @@ async def test_exploration_goal_apply_binds_stable_operation_parent_and_chain(
     async def fake_locate(db, *, novel_id, result_id, lock=False):
         return None, "scene", None
 
-    async def fake_projection(db, *, task_id, task_type, novel_id, meta_patch, **kwargs):
-        projected.append({"task_id": task_id, "task_type": task_type, **meta_patch})
-        return True
-
     monkeypatch.setattr(exploration_api, "start_exploration_task", fake_start)
     monkeypatch.setattr(exploration_api, "submit_exploration_follow_up", fake_follow_up)
-    monkeypatch.setattr(
-        exploration_api, "_locate_exploration_result", fake_locate
-    )
-    import infrastructure.tasks.facade as tasks_facade
-
-    monkeypatch.setattr(tasks_facade, "update_task_projection", fake_projection)
+    monkeypatch.setattr(exploration_api, "_locate_exploration_result", fake_locate)
 
     context = SimpleNamespace(
         operation_id=str(uuid.uuid4()),
@@ -2570,13 +2800,7 @@ async def test_exploration_goal_apply_binds_stable_operation_parent_and_chain(
     assert captured["operation_id"] == context.operation_id
     assert receipt["task_type"] == "story_exploration_progression_task"
     assert receipt["operation_id"] == context.operation_id
-    assert projected == [
-        {
-            "task_id": receipt["task_id"],
-            "task_type": receipt["task_type"],
-            "_parent_task_id": "parent-1",
-        }
-    ]
+    assert captured["internal_meta"] == context.internal_meta
 
     detail_args = exploration_operations.ExplorationDetailOperationRequest.model_validate(
         {
@@ -2589,6 +2813,7 @@ async def test_exploration_goal_apply_binds_stable_operation_parent_and_chain(
         None, novel_id, detail_args, {}, context=context
     )
     assert captured["follow_up_operation_id"] == context.operation_id
+    assert captured["follow_up_meta"] == context.internal_meta
     assert receipt["task_type"] == "story_exploration_scene_task"
 
 
@@ -2643,4 +2868,127 @@ async def test_exploration_non_goal_apply_keeps_client_operation_id(
         "status": "pending",
         "root_id": "r-1",
         "branch_id": "b-1",
+        "task_type": "story_exploration_progression_task",
+        "target_type": "story_exploration",
+        "scale": "sandbox",
     }
+
+
+@pytest.mark.parametrize("unknown", [False, True])
+async def test_goal_failed_exploration_keeps_imported_usage_and_baseline(
+    db_session, test_project_id, monkeypatch, exploration_gate, unknown
+):
+    owner_id = str(current_account_id())
+    plan = _exploration_goal_plan(test_project_id)
+    service = _exploration_goal_env(
+        monkeypatch, db_session, test_project_id, owner_id, plan
+    )
+    _stub_exploration_domain_inputs(monkeypatch)
+    _stub_exploration_worker(
+        monkeypatch,
+        usage={"unknown": True}
+        if unknown
+        else {"prompt_tokens": 90, "completion_tokens": 30, "total_tokens": 120},
+        fail_after_usage=True,
+    )
+    request = _start_request(uuid.UUID(test_project_id))
+    request.budget.requests = request.budget.possible_charge_requests = 10
+    request.budget.tokens = 100000
+    prepared = await service.start_goal(db_session, request, owner_id)
+    approved = await service.approve_goal_plan(
+        db_session,
+        novel_id=test_project_id,
+        run_id=prepared["run_id"],
+        owner_id=owner_id,
+        data=GoalPlanApproval(
+            expected_revision=prepared["revision"],
+            plan=plan,
+            budget=request.budget,
+            auto_r2=False,
+        ),
+    )
+    result = await service.approve_goal_step(
+        db_session,
+        novel_id=test_project_id,
+        run_id=prepared["run_id"],
+        owner_id=owner_id,
+        data=GoalStepApproval(
+            expected_revision=approved["revision"], step_id="explore", approve=True
+        ),
+    )
+    assert result["stop_code"] == ("task_outcome_unknown" if unknown else "task_failed")
+    assert result["budget"]["used"]["requests"] == 3
+    assert result["budget"]["used"]["tokens"] == (40 if unknown else 160)
+    assert result["budget"]["used"]["charge_state"] == (
+        "possible" if unknown else "recorded"
+    )
+    run = await service._load_goal_run(
+        db_session, test_project_id, prepared["run_id"], owner_id
+    )
+    goal = service._goal_state(run)
+    record = service._step_records(goal)["explore"]
+    assert record["domain_ledger_baseline"]["requests_started"] == 1
+    from infrastructure.tasks.models import AsyncTask
+
+    task = await db_session.get(AsyncTask, uuid.UUID(record["reference"]["task_id"]))
+    ledger = service._envelope_from_run(run)
+    before = ledger.snapshot().model_dump(mode="json")
+    await service._import_domain_ledger_delta(ledger, task, record)
+    assert ledger.snapshot().model_dump(mode="json") == before
+
+
+async def test_domain_usage_import_settles_after_goal_deadline():
+    from datetime import UTC, datetime, timedelta
+    from types import SimpleNamespace
+
+    from infrastructure.llm.schemas import AI_RUN_ENVELOPE_KEY, LLMUsage
+    from infrastructure.llm.workflow_budget import (
+        AIManagedStepContext,
+        AIStepCallKind,
+        managed_step_scope,
+        new_ai_run_envelope,
+    )
+    from modules.assistant.goal_runs.service import _import_domain_ledger_delta
+
+    deadline = datetime.now(UTC) - timedelta(seconds=1)
+    goal = new_ai_run_envelope(
+        operation_id="goal-import",
+        run_id="goal-import",
+        novel_id=str(uuid.uuid4()),
+        root_capability_id="assistant.goal.run",
+        request_limit=5,
+        budget_mode="goal",
+        scope_fingerprint="a" * 64,
+        authorized_step_capabilities=["story.exploration"],
+        started_at=deadline - timedelta(seconds=10),
+        deadline_at=deadline,
+    )
+    # These are terminal source counts, not a new provider request.
+    domain = new_ai_run_envelope(
+        operation_id="domain",
+        run_id="domain",
+        root_capability_id="story.exploration",
+        novel_id=goal.snapshot().novel_id,
+        request_limit=5,
+    )
+    with managed_step_scope(
+        AIManagedStepContext(step_name="domain", call_kind=AIStepCallKind.structured)
+    ):
+        request = await domain.reserve()
+        await domain.settle(
+            request,
+            usage=LLMUsage(prompt_tokens=90, completion_tokens=30, total_tokens=120),
+        )
+    task = SimpleNamespace(
+        task_type="story_exploration_scene_task",
+        meta={AI_RUN_ENVELOPE_KEY: domain.snapshot().model_dump(mode="json")},
+    )
+    record = {}
+    await _import_domain_ledger_delta(goal, task, record)
+    assert goal.snapshot().requests_started == 1
+    assert goal.snapshot().usage.total_tokens == 120
+    assert record["domain_ledger_baseline"]["requests_started"] == 1
+    before = goal.snapshot().model_dump(mode="json")
+    await _import_domain_ledger_delta(goal, task, record)
+    assert goal.snapshot().model_dump(mode="json") == before
+    assert goal.snapshot().deadline_at == deadline

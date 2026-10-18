@@ -149,6 +149,9 @@ _DOMAIN_LEDGER_TASK_OPERATIONS = frozenset(
         "story.exploration.start",
         "story.exploration.detail",
         "story.exploration.revise",
+        "story.exploration.handoff",
+        "story.exploration.confirmation_preview",
+        "story.exploration.confirm",
     }
 )
 _EXPLORATION_RESULT_KINDS = {
@@ -166,6 +169,7 @@ def _task_types_for_operation(operation_id: str) -> tuple[str, ...]:
     if isinstance(task_type, str):
         return (task_type,)
     return tuple(task_type)
+
 
 # Capability IDs come from task-handler registrations, not model output. They
 # are frozen into a goal envelope only after the author approves the plan.
@@ -188,11 +192,13 @@ class GoalWorkflowCounter:
         *,
         time_80_acknowledged: bool = False,
         clock: Callable[[], datetime] | None = None,
+        domain_baseline: Mapping[str, int] | None = None,
     ):
         self.envelope = envelope
         self.budget = budget
         self.time_80_acknowledged = time_80_acknowledged
         self.clock = clock or (lambda: datetime.now(UTC))
+        self.domain_baseline = domain_baseline
 
     def reserve(
         self,
@@ -205,6 +211,29 @@ class GoalWorkflowCounter:
         if min(requests, tools, web, future_requests) < 0:
             raise ValueError("预算预留不能为负数")
         current = self.envelope.snapshot()
+        if self.domain_baseline is not None:
+            from infrastructure.llm.workflow_budget import current_ai_run_envelope
+
+            domain = current_ai_run_envelope()
+            if domain is None or domain is self.envelope:
+                raise AIRunBudgetExceededError(
+                    "领域预算账本不可恢复", run_id=current.run_id
+                )
+            detached = domain.snapshot()
+            current = current.model_copy(deep=True)
+            current.requests_started += max(
+                0, detached.requests_started - self.domain_baseline["requests_started"]
+            )
+            current.requests_unknown += max(
+                0, detached.requests_unknown - self.domain_baseline["requests_unknown"]
+            )
+            baseline_tokens = (
+                self.domain_baseline["prompt_tokens"]
+                + self.domain_baseline["completion_tokens"]
+            )
+            current.usage.total_tokens += max(
+                0, detached.usage.total_tokens - baseline_tokens
+            )
         if current.charge_state is AIChargeState.possible or current.requests_unknown:
             raise AIRunBudgetExceededError(
                 "计费结果未知，目标已暂停核对", run_id=current.run_id
@@ -2462,6 +2491,14 @@ async def _record_goal_plan_approval(
     accepted_plan: GoalPlan,
     operations: Mapping[str, AssistantOperation],
 ) -> None:
+    from modules.assistant.goal_runs.planning import _references
+
+    def arguments_for(step, operation):
+        # Plan approval binds typed references; domain validation follows resolution.
+        if _references(step.parameters):
+            return step.parameters
+        return operation.schema.model_validate(step.parameters).model_dump(mode="json")
+
     previous = (
         {step.step_id: step for step in previous_plan.steps} if previous_plan else {}
     )
@@ -2471,9 +2508,7 @@ async def _record_goal_plan_approval(
         old_operation = operations.get(old_step.operation_id)
         if old_operation is None:
             continue
-        old_arguments = old_operation.schema.model_validate(
-            old_step.parameters
-        ).model_dump(mode="json")
+        old_arguments = arguments_for(old_step, old_operation)
         call_id = _goal_trace_call_id(run, goal, step_id)
         if new_step is None or new_step.operation_id != old_step.operation_id:
             await _record_goal_trace_event(
@@ -2498,16 +2533,12 @@ async def _record_goal_plan_approval(
                     new_operation,
                     "confirmed",
                     step_id=step_id,
-                    arguments=new_operation.schema.model_validate(
-                        new_step.parameters
-                    ).model_dump(mode="json"),
+                    arguments=arguments_for(new_step, new_operation),
                     trace_call_id=call_id,
                 )
             continue
 
-        new_arguments = old_operation.schema.model_validate(
-            new_step.parameters
-        ).model_dump(mode="json")
+        new_arguments = arguments_for(new_step, old_operation)
         changed_fields = sorted(
             name
             for name in old_operation.schema.model_fields
@@ -2549,9 +2580,7 @@ async def _record_goal_plan_approval(
             operation,
             "confirmed",
             step_id=step_id,
-            arguments=operation.schema.model_validate(new_step.parameters).model_dump(
-                mode="json"
-            ),
+            arguments=arguments_for(new_step, operation),
             trace_call_id=_goal_trace_call_id(run, goal, step_id),
         )
 
@@ -2799,9 +2828,21 @@ def _step_is_manual(
     if operation.risk_level == "R2":
         return not (
             bool(goal.get("auto_r2"))
-            and step.operation_id in R2_RESTORE_OPERATIONS
-            and _r2_restore_is_supported(step, operation, resolved_parameters)
+            and (
+                step.operation_id
+                in {
+                    "story.exploration.start",
+                    "story.exploration.detail",
+                    "story.exploration.revise",
+                }
+                or (
+                    step.operation_id in R2_RESTORE_OPERATIONS
+                    and _r2_restore_is_supported(step, operation, resolved_parameters)
+                )
+            )
         )
+    if step.operation_id == "story.exploration.confirm" and operation.risk_level == "R1":
+        return False
     return operation.permission == "confirm"
 
 
@@ -2912,7 +2953,11 @@ def _domain_ledger_headroom_reason(
 ) -> str | None:
     declared_requests, declared_tokens = _domain_ledger_declared_allocation(task)
     snapshot = envelope.snapshot()
-    remaining_requests = max(0, int(budget.requests) - snapshot.requests_started)
+    remaining_requests = max(
+        0,
+        min(int(budget.requests), int(budget.possible_charge_requests))
+        - snapshot.requests_started,
+    )
     remaining_tokens = max(0, int(budget.tokens) - snapshot.usage.total_tokens)
     if declared_requests > remaining_requests or declared_tokens > remaining_tokens:
         return (
@@ -2968,36 +3013,29 @@ async def _import_domain_ledger_delta(
     delta_unknown = min(max(int(delta_unknown), 0), delta_requests)
     if delta_requests == 0 and (delta_prompt or delta_completion):
         delta_requests = 1
-    record["domain_ledger_baseline"] = current
     if delta_requests == 0:
+        record["domain_ledger_baseline"] = current
         return current
 
     from infrastructure.tasks.registry import TaskRegistry
 
     capability = TaskRegistry().get_root_capability(str(task.task_type)) or ""
-    known = delta_requests - delta_unknown
     step_context = AIManagedStepContext(
         step_name=str(task.task_type)[:120],
         call_kind=AIStepCallKind.structured,
         capability_id=capability,
     )
     with managed_step_scope(step_context):
-        for index in range(delta_requests):
-            reservation = await envelope.reserve()
-            if index >= known:
-                await envelope.settle(reservation)
-                continue
-            if index == known - 1 and (delta_prompt or delta_completion):
-                usage = LLMUsage(
-                    prompt_tokens=delta_prompt,
-                    completion_tokens=delta_completion,
-                    total_tokens=delta_prompt + delta_completion,
-                )
-            else:
-                usage = LLMUsage(
-                    prompt_tokens=0, completion_tokens=0, total_tokens=0
-                )
-            await envelope.settle(reservation, usage=usage)
+        await envelope.record_external_usage(
+            requests_started=delta_requests,
+            requests_unknown=delta_unknown,
+            usage=LLMUsage(
+                prompt_tokens=delta_prompt,
+                completion_tokens=delta_completion,
+                total_tokens=delta_prompt + delta_completion,
+            ),
+        )
+    record["domain_ledger_baseline"] = current
     return current
 
 
@@ -3029,9 +3067,7 @@ async def _unknown_step_task_context(
     call_id = _goal_trace_call_id(run, goal, step_id)
     task_types = _task_types_for_operation(step.operation_id)
     reference_task_type = (
-        str(reference.get("task_type") or "")
-        if isinstance(reference, Mapping)
-        else ""
+        str(reference.get("task_type") or "") if isinstance(reference, Mapping) else ""
     )
     operation = _operation_registry().get(step.operation_id)
     parameter_hash = record.get("parameter_fingerprint")
@@ -3631,6 +3667,9 @@ async def _execute_task_step(
         )
         try:
             if domain_ledger:
+                meter.domain_baseline = _step_records(_goal_state(run))[step.step_id][
+                    "domain_ledger_baseline"
+                ]
                 # 领域任务自带严格身份校验的根账本（story.exploration），不能
                 # 嵌套进目标 run；不带目标信封内联执行，由领域账本权威计量，
                 # 结束后把增量汇入目标总账（见 _import_domain_ledger_delta）。
@@ -3686,14 +3725,19 @@ async def _execute_task_step(
     if domain_ledger:
         # 任务已终态：先把本次领域账本增量（含未知用量）汇入目标总账，再读
         # 领域回执判定结果；未知汇入会让目标随后按未知语义停止。
+        # Import a terminal task without per-reservation commits: ledger and
+        # baseline must become durable together, including failed receipts.
+        envelope = AIRunEnvelope(envelope.snapshot())
         try:
             imported_baseline = await _import_domain_ledger_delta(
                 envelope, task, _step_records(goal).setdefault(step.step_id, {})
             )
         except AIRunEnvelopeError as error:
-            raise ConflictError(
-                f"目标总账归集领域用量被拒绝：{error}"
-            ) from error
+            raise ConflictError(f"目标总账归集领域用量被拒绝：{error}") from error
+        goal["envelope"] = envelope.snapshot().model_dump(mode="json")
+        run = await _save_goal(db, run, goal)
+        goal = _goal_state(run)
+        envelope = _live_envelope(db, run)
 
     meter = GoalWorkflowCounter(
         envelope, budget, time_80_acknowledged=bool(goal.get("time_80_acknowledged"))

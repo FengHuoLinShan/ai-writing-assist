@@ -29,6 +29,10 @@ class DirectorReferenceSectionBuilder:
                 continue
             payload = {
                 "name": name,
+                "line": content_copy.get("line"),
+                "action": content_copy.get("action"),
+                "target_ref": content_copy.get("target_ref"),
+                "note": content_copy.get("note"),
                 "angle": content_copy.get("angle"),
                 "performances": content_copy.get("performances") or [],
                 "materials": content_copy.get("materials") or [],

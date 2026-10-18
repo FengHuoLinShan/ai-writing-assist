@@ -8,6 +8,7 @@
 from __future__ import annotations
 
 import json
+import re
 
 from infrastructure.llm.schemas import LLMCallResponse, LLMUsage
 
@@ -146,10 +147,10 @@ def scene_line_payload(
     return {
         "target_ref": target_ref,
         "line": line,
-        "rationale": "目标只看得到对方疲惫，不知道失业的事。",
+        "rationale": "目标只依据对方疲惫的脚步回应。",
         "action": "把伞往对方那边偏了偏",
         "knowledge_basis": ["observed:对方脚步发沉"],
-        "withheld": ["对方失业的传闻（自己并不知道）"],
+        "withheld": [],
         "unknowns": ["对方是否愿意倾诉"],
         "warnings": [],
     }
@@ -216,27 +217,45 @@ class ExplorationOfflineProvider:
         self.fail_next = False
         self.override: dict | None = None
 
+    @property
+    def generation_requests(self):
+        return [
+            request
+            for request in self.requests
+            if "创作知识治理" not in request.messages[0].content
+        ]
+
     async def generate(self, request):
         self.calls += 1
         self.requests.append(request)
         if self.fail_next:
             self.fail_next = False
             raise TimeoutError("offline synthetic unknown charge")
-        if self.override is not None:
+        system = request.messages[0].content
+        user_text = next(
+            message.content for message in request.messages if message.role == "user"
+        )
+        if '创作知识治理的"导演"' in system:
+            payload = {
+                "dispositions": [
+                    {"source_key": key, "disposition": "required_for_generation"}
+                    for key in re.findall(r"^- (\S+) \|", user_text, re.M)
+                ]
+            }
+        elif "创作知识治理的独立审查者" in system:
+            dimensions = re.search(r"必查维度：([^\n]+)", user_text).group(1).split(", ")
+            payload = {
+                "verdict": "pass",
+                "findings": [],
+                "dimensions": [{"dimension": dim, "checked": True} for dim in dimensions],
+            }
+        elif self.override is not None:
             payload = self.override
         else:
-            system = request.messages[0].content
-            user = json.loads(
-                next(
-                    message.content
-                    for message in request.messages
-                    if message.role == "user"
-                )
-            )
+            user = json.loads(user_text)
             if "沙盘推演器" in system:
                 payload = sandbox_payload(
-                    (user.get("author_packet") or {}).get("question")
-                    or "合成沙盘问题？"
+                    (user.get("author_packet") or {}).get("question") or "合成沙盘问题？"
                 )
             elif "排演指导" in system:
                 # 完整排演表演卡（M3-B）：目标与轮次取自输入包。
@@ -263,7 +282,7 @@ class ExplorationOfflineProvider:
                 payload = event_payload("diagnose")
             elif "事件补桥器" in system:
                 payload = event_payload("bridge")
-            elif "对白试探器" in system:
+            elif "对白试探器" in system or "探索修订器" in system:
                 mode = str(user.get("mode") or "start")
                 base = scene_line_payload(
                     str((user.get("target") or {}).get("ref") or "c_b")

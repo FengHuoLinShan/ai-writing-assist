@@ -118,6 +118,9 @@ operation receipt 或任务 attempt 策略变更还应同步 ADR、tasks/LLM REA
 
 ### C. 收尾前做一次“代码到文档”的对照
 
+涉及独立探索时，同时核对起点/焦点确认身份、逐人物可见范围、跨尺度条件继承和恢复账本；
+文档不能继续披露单次生成费用而省略导演/审查/返修，也不能把分支验证改写为 ADR 已采纳。
+
 以实际 diff、模块 README、`contracts.py` / `facade.py`、路由、ORM 和 migration 为输入，
 逐项回答：
 

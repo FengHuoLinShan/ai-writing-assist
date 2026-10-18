@@ -12,7 +12,14 @@ from __future__ import annotations
 import uuid
 from typing import Annotated, Any, Literal
 
-from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
+from pydantic import (
+    BaseModel,
+    ConfigDict,
+    Field,
+    PrivateAttr,
+    field_validator,
+    model_validator,
+)
 
 from infrastructure.llm.collaboration import content_hash
 from modules.evidence.contracts import (
@@ -51,9 +58,9 @@ TARGET_REF_MAX_LENGTH = 64
 
 # 临时起点完整排演（M3-B）：显式展开的多轮排演，目标 1..6 个、轮次 1..3 轮。
 FULL_REHEARSAL_TARGETS_MIN = 1
-FULL_REHEARSAL_TARGETS_MAX = 6
+FULL_REHEARSAL_TARGETS_MAX = 74  # 起点容量：最多 50 个候选与 24 个正式对象。
 FULL_REHEARSAL_ROUNDS_MIN = 1
-FULL_REHEARSAL_ROUNDS_MAX = 3
+FULL_REHEARSAL_ROUNDS_MAX = None  # 请求数、令牌与时限按作者确认的预算约束。
 FULL_REHEARSAL_AUTHOR_GOAL_MAX_LENGTH = 2000
 
 ExplorationScale = Literal["sandbox", "event", "scene_line"]
@@ -80,6 +87,7 @@ _SCALE_ACTION_BY_SCALE: dict[str, set[str]] = {
 
 class ExplorationModel(BaseModel):
     model_config = ConfigDict(extra="forbid")
+    _knowledge_reviews: list[dict] = PrivateAttr(default_factory=list)
 
 
 def _uuid(value: str | uuid.UUID) -> str:
@@ -179,9 +187,7 @@ class InfoGap(ExplorationModel):
     """
 
     subject_ref: str | None = Field(default=None, min_length=1, max_length=64)
-    subject_description: str | None = Field(
-        default=None, min_length=1, max_length=500
-    )
+    subject_description: str | None = Field(default=None, min_length=1, max_length=500)
     knows: list[str] = Field(default_factory=list, max_length=12)
     not_known: list[str] = Field(default_factory=list, max_length=12)
     missing_contact_path: bool
@@ -309,9 +315,7 @@ class SceneLineOutputV1(ExplorationModel):
     )
     spatial_assessment: SpatialAssessment | None = None
 
-    @field_validator(
-        "knowledge_basis", "withheld", "unknowns", "warnings"
-    )
+    @field_validator("knowledge_basis", "withheld", "unknowns", "warnings")
     @classmethod
     def validate_text_lists(cls, values: list[str]) -> list[str]:
         _check_text_list("scene_line text list", values, max_length=1000)
@@ -365,7 +369,9 @@ class FullRehearsalMaterial(ExplorationModel):
 
     kind: Literal["environment", "object", "crowd", "mood", "pacing", "time"]
     text: str = Field(min_length=1, max_length=2000)
-    perceiver_refs: list[str] = Field(default_factory=list, max_length=6)
+    perceiver_refs: list[str] = Field(
+        default_factory=list, max_length=FULL_REHEARSAL_TARGETS_MAX
+    )
 
     @field_validator("perceiver_refs")
     @classmethod
@@ -392,7 +398,7 @@ class FullRehearsalRound(ExplorationModel):
     )
     materials: list[FullRehearsalMaterial] = Field(default_factory=list, max_length=8)
     observations: list[FullRehearsalObservation] = Field(
-        default_factory=list, max_length=12
+        default_factory=list, max_length=FULL_REHEARSAL_TARGETS_MAX
     )
 
 
@@ -407,7 +413,7 @@ class FullRehearsalRoundOrchestration(ExplorationModel):
 
     materials: list[FullRehearsalMaterial] = Field(default_factory=list, max_length=8)
     observations: list[FullRehearsalObservation] = Field(
-        default_factory=list, max_length=12
+        default_factory=list, max_length=FULL_REHEARSAL_TARGETS_MAX
     )
     state_notes: list[str] = Field(default_factory=list, max_length=4)
 
@@ -433,7 +439,7 @@ class FullRehearsalOutputV1(ExplorationModel):
     rounds: list[FullRehearsalRound] = Field(
         min_length=FULL_REHEARSAL_ROUNDS_MIN, max_length=FULL_REHEARSAL_ROUNDS_MAX
     )
-    state_notes: list[str] = Field(default_factory=list, max_length=12)
+    state_notes: list[str] = Field(default_factory=list)
     unknowns: list[str] = Field(default_factory=list, max_length=12)
     warnings: list[str] = Field(default_factory=list, max_length=12)
 
@@ -468,9 +474,7 @@ class FullRehearsalOutputV1(ExplorationModel):
                     raise ValueError("观察回执的 target_ref 必须在本次排演目标内")
             for material in round_item.materials:
                 outside = [
-                    ref
-                    for ref in material.perceiver_refs
-                    if ref not in self.targets
+                    ref for ref in material.perceiver_refs if ref not in self.targets
                 ]
                 if outside:
                     raise ValueError("素材感知者必须引用本次排演目标")
@@ -481,6 +485,7 @@ PAYLOAD_MODELS_BY_BASE_KIND: dict[str, type] = {
     SANDBOX_OUTPUT_KIND: SandboxOutputV1,
     EVENT_OUTPUT_KIND: EventOutputV1,
     SCENE_LINE_OUTPUT_KIND: SceneLineOutputV1,
+    FULL_REHEARSAL_OUTPUT_KIND: FullRehearsalOutputV1,
 }
 
 
@@ -491,9 +496,12 @@ class AuthorEditPayloadV1(ExplorationModel):
         "story.exploration.sandbox",
         "story.exploration.event",
         "story.exploration.scene_line",
+        "story.exploration.full_rehearsal",
     ]
     base_result_id: str
-    edited_payload: SandboxOutputV1 | EventOutputV1 | SceneLineOutputV1
+    edited_payload: (
+        SandboxOutputV1 | EventOutputV1 | SceneLineOutputV1 | FullRehearsalOutputV1
+    )
     edit_note: str | None = Field(default=None, max_length=500)
 
     @field_validator("base_result_id")
@@ -538,12 +546,8 @@ class AffectedItem(ExplorationModel):
 
     item_path: str = Field(min_length=1, max_length=120)
     status: AffectedItemStatus
-    base_excerpt: str = Field(
-        default="", max_length=AFFECTED_ITEM_EXCERPT_MAX_LENGTH
-    )
-    derived_excerpt: str = Field(
-        default="", max_length=AFFECTED_ITEM_EXCERPT_MAX_LENGTH
-    )
+    base_excerpt: str = Field(default="", max_length=AFFECTED_ITEM_EXCERPT_MAX_LENGTH)
+    derived_excerpt: str = Field(default="", max_length=AFFECTED_ITEM_EXCERPT_MAX_LENGTH)
 
 
 class LockSetPayloadV1(ExplorationModel):
@@ -721,9 +725,7 @@ class FullRehearsalRequest(ExplorationModel):
         ge=FULL_REHEARSAL_ROUNDS_MIN,
         le=FULL_REHEARSAL_ROUNDS_MAX,
     )
-    author_goal: str = Field(
-        default="", max_length=FULL_REHEARSAL_AUTHOR_GOAL_MAX_LENGTH
-    )
+    author_goal: str = Field(default="", max_length=FULL_REHEARSAL_AUTHOR_GOAL_MAX_LENGTH)
 
     @field_validator("targets")
     @classmethod
@@ -804,16 +806,12 @@ class ExplorationRequestBase(ExplorationModel):
             return None
         for item in values:
             if item.kind not in COUNTERFACTUAL_ASSUMPTION_KINDS:
-                raise ValueError(
-                    "反事实对照只支持 world_rule/state 两种条件类型"
-                )
+                raise ValueError("反事实对照只支持 world_rule/state 两种条件类型")
         return values
 
     @field_validator("multi_targets")
     @classmethod
-    def validate_multi_targets(
-        cls, values: list[str] | None
-    ) -> list[str] | None:
+    def validate_multi_targets(cls, values: list[str] | None) -> list[str] | None:
         if values is None:
             return None
         for item in values:
@@ -893,9 +891,7 @@ class ExplorationStartTaskRequest(ExplorationConfirmationPreviewRequest):
     time_budget_seconds: int = Field(default=3600, ge=1, le=6 * 3600)
 
 
-def validate_scene_targets(
-    start: ExplorationStart, targets: list[str]
-) -> None:
+def validate_scene_targets(start: ExplorationStart, targets: list[str]) -> None:
     """多目标/诊断主体归属校验：必须落在本次起点的候选或正式角色内。
 
     临时起点逐个核对；场景锚点起点没有候选清单，交给确认与 hidden guard 把关。
@@ -910,7 +906,7 @@ def validate_scene_targets(
 
 
 class ExplorationDetailRequest(ExplorationModel):
-    """"说详细点”：绑定当前结果，不暗扩尺度/资料/联网/根预算。"""
+    """ "说详细点”：绑定当前结果，不暗扩尺度/资料/联网/根预算。"""
 
     novel_id: str
     result_id: str
@@ -1093,12 +1089,39 @@ def exploration_entry_display_text(item_path: str, item: Any) -> str:
         return str((item or {}).get("effect") or "")
     if kind == "gap":
         return str((item or {}).get("description") or "")
+    if kind in {"variant", "performance", "material", "observation", "spatial"}:
+        return str(
+            (item or {}).get("line")
+            or (item or {}).get("line_or_beat")
+            or (item or {}).get("text")
+            or (item or {}).get("observed")
+            or "\n".join((item or {}).get("constraints") or [])
+        )
     return "\n".join(str(step) for step in (item or {}).get("steps") or [])
 
 
 def revision_items(payload: dict, base_kind: str) -> list[dict]:
     """可修订条目枚举：与前端卡片同构（sandbox 链环 / event 缺口或补桥 / 整句）。"""
     base_kind = _normalize_base_kind(base_kind)
+    if base_kind == FULL_REHEARSAL_OUTPUT_KIND:
+        return [
+            {"key": f"{kind}:{r}:{index}", "item": item}
+            for r, round_item in enumerate(payload.get("rounds") or [])
+            for kind, field in (
+                ("performance", "performances"),
+                ("material", "materials"),
+                ("observation", "observations"),
+            )
+            for index, item in enumerate(round_item.get(field) or [])
+        ]
+    if base_kind == SCENE_LINE_OUTPUT_KIND:
+        if payload.get("variants") is not None:
+            return [
+                {"key": f"variant:{index}", "item": item}
+                for index, item in enumerate(payload["variants"])
+            ]
+        if payload.get("spatial_assessment") is not None:
+            return [{"key": "spatial", "item": payload["spatial_assessment"]}]
     if base_kind == SANDBOX_OUTPUT_KIND:
         return [
             {"key": f"chain:{index}", "item": item}
@@ -1106,15 +1129,38 @@ def revision_items(payload: dict, base_kind: str) -> list[dict]:
         ]
     if base_kind == EVENT_OUTPUT_KIND:
         bridge = payload.get("mode") == "bridge"
-        rows = (
-            payload.get("bridge_candidates") if bridge else payload.get("gaps")
-        ) or []
+        rows = (payload.get("bridge_candidates") if bridge else payload.get("gaps")) or []
         prefix = "bridge" if bridge else "gap"
         return [
-            {"key": f"{prefix}:{index}", "item": item}
-            for index, item in enumerate(rows)
+            {"key": f"{prefix}:{index}", "item": item} for index, item in enumerate(rows)
         ]
     return [{"key": "line", "item": payload.get("line")}]
+
+
+def replace_revision_item(payload: dict, item_path: str, item, base_kind: str) -> None:
+    check_revision_target(payload, item_path, None, base_kind)
+    parts = item_path.split(":")
+    family = parts[0]
+    if family in {"performance", "material", "observation"}:
+        field = {
+            "performance": "performances",
+            "material": "materials",
+            "observation": "observations",
+        }[family]
+        payload["rounds"][int(parts[1])][field][int(parts[2])] = item
+    elif family == "variant":
+        payload["variants"][int(parts[1])] = item
+    elif family == "spatial":
+        payload["spatial_assessment"] = item
+    elif family == "line":
+        payload["line"] = item
+    else:
+        field = {
+            "chain": "influence_chain",
+            "gap": "gaps",
+            "bridge": "bridge_candidates",
+        }[family]
+        payload[field][int(parts[1])] = item
 
 
 def revision_entry_text(key: str, item) -> str:
@@ -1164,6 +1210,7 @@ def validate_start_dump(start_dump: dict):
 # 助手操作目录请求模型（operations/api 共用，避免 api↔operations 导入环）
 # ---------------------------------------------------------------------------
 
+
 class ExplorationPreviewOperationRequest(BaseModel):
     """确定性推荐 + 预算/确认范围预览；无模型调用。
 
@@ -1184,6 +1231,14 @@ class ExplorationPreviewOperationRequest(BaseModel):
         max_length=MULTI_TARGETS_MAX,
     )
     diagnostic: SceneSpatialDiagnosticRequest | None = None
+
+
+class ExplorationHandoffOperationRequest(ExplorationModel):
+    novel_id: str
+    result_id: str
+    target_scale: ExplorationScale
+    item_path: str = Field(default="", max_length=120)
+    reason: str = Field(min_length=1, max_length=500)
 
 
 class ExplorationStartOperationRequest(BaseModel):

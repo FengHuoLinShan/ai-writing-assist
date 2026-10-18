@@ -340,14 +340,16 @@ async def get_completed_task_payload(
     task_type: str,
     novel_id: str,
     for_update: bool = False,
+    include_cancelled: bool = False,
 ) -> CompletedTaskPayloadContract | None:
-    """Return a strictly scoped completed task source for an apply workflow."""
+    """Read a scoped completed source, optionally a cancelled recovery receipt."""
     return await TaskLifecycleService().get_completed_payload(
         db,
         task_id=task_id,
         task_type=task_type,
         novel_id=novel_id,
         for_update=for_update,
+        include_cancelled=include_cancelled,
     )
 
 

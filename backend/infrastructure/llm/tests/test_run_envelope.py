@@ -968,3 +968,49 @@ class TestCheckpointAuthorityAndDiscard:
         assert snapshot.requests_started == 1
         assert snapshot.requests_settled == 1
         assert ledger.persist_error is not None
+
+
+async def test_external_usage_settles_after_deadline_without_new_authorization():
+    deadline = datetime.now(UTC) - timedelta(seconds=1)
+    ledger = _ledger(started_at=deadline - timedelta(seconds=1), deadline_at=deadline)
+    with managed_step_scope(_step()):
+        await ledger.record_external_usage(
+            requests_started=2,
+            requests_unknown=1,
+            usage=LLMUsage(prompt_tokens=90, completion_tokens=30, total_tokens=120),
+        )
+        with pytest.raises(AIRunDeadlineExceededError):
+            await ledger.reserve()
+    snapshot = ledger.snapshot()
+    assert snapshot.requests_started == 2 and snapshot.requests_unknown == 1
+    assert snapshot.usage.total_tokens == 120
+    assert snapshot.charge_state is AIChargeState.possible
+    assert snapshot.deadline_at == deadline and snapshot.request_limit == 3
+    assert snapshot.authorization_revision == 0
+    assert read_ai_run_envelope(snapshot.model_dump(mode="json")) is not None
+
+
+async def test_external_usage_preserves_request_indices_across_restore():
+    ledger = _ledger(request_limit=4)
+    with managed_step_scope(_step()):
+        first = await ledger.reserve()
+        await ledger.settle(first, usage=LLMUsage(total_tokens=0))
+        await ledger.record_external_usage(
+            requests_started=2,
+            requests_unknown=0,
+            usage=LLMUsage(total_tokens=0),
+        )
+    restored = AIRunEnvelope(ledger.snapshot())
+    with managed_step_scope(_step()):
+        next_request = await restored.reserve()
+    assert next_request.request_index == 4
+    assert restored.snapshot().requests_started == 4
+    before = restored.snapshot().model_dump(mode="json")
+    with managed_step_scope(_step()):
+        with pytest.raises(AIRunBudgetExceededError):
+            await restored.record_external_usage(
+                requests_started=1,
+                requests_unknown=0,
+                usage=LLMUsage(total_tokens=0),
+            )
+    assert restored.snapshot().model_dump(mode="json") == before

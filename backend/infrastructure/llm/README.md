@@ -412,3 +412,8 @@ Evolution `budget_total`/`budget_remaining` 允许成对为空；旧有限行原
 存在范围数据时迁移拒绝降级。旧未跟踪队列明确保留领域预算 seam，不能冒充已完整跟踪。
 
 新范围信封在预留前同时核验步骤上下文与实际执行 provider/最终 model，步骤标签不能授权其他来源。新 B5 路由把附加型号能力快照保存在 `cost_routing.llm_capability_profile` 并纳入项目签名；发送按最终型号选冻结输入预算，旧路由缺此字段时保留旧策略。冻结 tokenizer 方法与当前工具不一致在装包/最终发送前失败关闭，不重试或默默放宽输入。
+
+`AIRunEnvelope.record_external_usage` 只归集已经核验的终态领域消费，沿用 managed-step
+能力授权与根累计上限，不发起模型请求，不增加额度或延长 deadline。历史请求可在截止后结算；
+后续真实请求仍必须经过 `reserve()` 的时限/预算准入。物理 attempt 时点保留在原领域账本，
+目标只汇总其 step 用量，不伪造调用时间；重建账本后的请求序号仍高于累计已消费数量。

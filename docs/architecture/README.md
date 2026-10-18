@@ -28,6 +28,9 @@
 
 ## 自动门禁
 
+导演独立探索属于既有 Story 模块；跨尺度操作由 Assistant 编排，人物投影与知识审查归 Evidence。
+模块图只标这些边界，来源确认、预算与恢复契约以对应模块 README 为准。
+
 ```bash
 # 清单、模块、ORM 表、API 前缀、任务、路由、Prompt、ADR、链接和 Draw.io 结构
 make docs-check

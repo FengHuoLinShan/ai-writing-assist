@@ -153,9 +153,18 @@ async def exploration_flow(exploration_engine, monkeypatch):
             compile_options={},
         )
 
-    async def guard_terms(_db, *, confirmed_context):
+    async def guard_terms(_db, *, confirmed_context, **kwargs):
         return list(flow.guard_terms)
 
+    async def projected(_db, *, confirmed_context, character_id):
+        return confirmed_context
+
+    from modules.story import exploration_governance
+
+    monkeypatch.setattr(
+        exploration_governance, "project_confirmed_character_context", projected
+    )
+    monkeypatch.setattr(exploration_governance, "build_hidden_guard_context", guard_terms)
     monkeypatch.setattr(exploration_tasks, "prepare_confirmed_ai_action", confirmed)
     monkeypatch.setattr(
         exploration_tasks, "open_project_snapshot_llm_client", offline_client
@@ -186,7 +195,7 @@ async def exploration_flow(exploration_engine, monkeypatch):
         scale: str,
         start=None,
         focus: str = "",
-        request_limit=5,
+        request_limit=100,
         event_mode_hint=None,
     ):
         start = start or _provisional_start()
@@ -311,9 +320,7 @@ async def exploration_flow(exploration_engine, monkeypatch):
         )
         async with flow.sessions.begin() as db:
             task_id = uuid.UUID(
-                enqueue_task(
-                    db, task_type, novel_id=str(spec.novel_id), meta=meta
-                )
+                enqueue_task(db, task_type, novel_id=str(spec.novel_id), meta=meta)
             )
             if spec.scale == "scene_line":
                 from modules.story.models import StorySceneDirectorRoot
@@ -372,9 +379,9 @@ async def test_sandbox_start_persists_compact_step_and_result_envelope(explorati
         assert branch.pending_step_json == {}
         assert branch.parent_step_id == step.id
     assert result["result_id"] == str(step.id)
-    assert flow.provider.calls == 1
+    assert flow.provider.calls == 3
     ledger = read_ai_run_envelope(root.run_envelope_json)
-    assert ledger.requests_started == 1
+    assert ledger.requests_started == 3
 
 
 async def test_scene_line_candidate_persists_director_round(exploration_flow):
@@ -777,7 +784,7 @@ async def test_scene_line_revise_replaces_line_entry(exploration_flow):
         revised = unpack_exploration_output(rounds[1])
         assert revised.payload.line != parent_payload["line"]
         assert revised.payload.target_ref == parent_payload["target_ref"]
-    assert flow.provider.calls == 1
+    assert flow.provider.calls == 3
 
 
 async def test_canonical_scene_line_guard_fails_closed_without_persist(exploration_flow):
@@ -823,7 +830,7 @@ async def test_canonical_scene_line_guard_fails_closed_without_persist(explorati
         assert rows == []
         branch = await db.get(StorySceneDirectorBranch, spec.branch_id)
         assert branch.status == "failed"
-    assert flow.provider.calls == 1
+    assert flow.provider.calls == 3
 
 
 # ---------------------------------------------------------------------------
@@ -838,9 +845,7 @@ async def _freeze_counterfactual_root(flow, spec, baseline_id: str):
         root.request_json = {
             **(root.request_json or {}),
             "counterfactual_of": baseline_id,
-            "changed_assumptions": [
-                item.model_dump(mode="json") for item in changed
-            ],
+            "changed_assumptions": [item.model_dump(mode="json") for item in changed],
         }
     return changed
 
@@ -882,9 +887,7 @@ async def test_counterfactual_start_records_baseline_and_changed_texts(explorati
         db.add(baseline_step)
         await db.flush()
         baseline_id = str(baseline_step.id)
-        baseline_fingerprint = baseline_root.request_json[
-            "exploration_start_fingerprint"
-        ]
+        baseline_fingerprint = baseline_root.request_json["exploration_start_fingerprint"]
     frozen = await _freeze_counterfactual_root(flow, spec, baseline_id)
     assert frozen == changed
     cf_budget = preview_exploration_budget(
@@ -920,7 +923,7 @@ async def test_counterfactual_start_records_baseline_and_changed_texts(explorati
         # 影响与比较标记（M3-A）：实际读集与父版本可核对。
         assert step.input_json["base_result_fingerprint"] == baseline_fingerprint
         assert step.input_json["parent_output_hash"] == "b" * 64
-    assert flow.provider.calls == 1
+    assert flow.provider.calls == 3
 
 
 async def test_counterfactual_start_rejects_plain_budget_hash(exploration_flow):
@@ -1001,7 +1004,7 @@ async def test_info_gap_hint_injects_prompt_and_persists_boundary(exploration_fl
     )
     task = await flow.run(task_id)
     assert task.status == "done", task.error_message
-    system = flow.provider.requests[0].messages[0].content
+    system = flow.provider.generation_requests[0].messages[0].content
     assert "信息差" in system
     assert "误信" in system
     assert "不替角色补全" in system
@@ -1013,7 +1016,7 @@ async def test_info_gap_hint_injects_prompt_and_persists_boundary(exploration_fl
     assert boundary.missing_contact_path is True
     assert envelope_row.schema_version == 1  # v1 内扩展，不升版本
     ledger = read_ai_run_envelope(root.run_envelope_json)
-    assert ledger.requests_started == 1
+    assert ledger.requests_started == 3
 
 
 async def test_goal_hint_injects_goal_prompt_and_persists_goal_path(exploration_flow):
@@ -1032,7 +1035,7 @@ async def test_goal_hint_injects_goal_prompt_and_persists_goal_path(exploration_
     )
     task = await flow.run(task_id)
     assert task.status == "done", task.error_message
-    system = flow.provider.requests[0].messages[0].content
+    system = flow.provider.generation_requests[0].messages[0].content
     assert "导向路径" in system
     assert "行动—响应—后果" in system
     assert "不编造巧合" in system
@@ -1143,7 +1146,7 @@ async def _load_scene_round(flow, spec):
 
 
 def _request_user_data(provider, index: int) -> dict:
-    return json.loads(provider.requests[index].messages[1].content)
+    return json.loads(provider.generation_requests[index].messages[1].content)
 
 
 async def test_scene_multi_target_builds_independent_knowledge_packets(
@@ -1152,9 +1155,7 @@ async def test_scene_multi_target_builds_independent_knowledge_packets(
     flow = exploration_flow
     start = _scene_pair_start()
     targets = ["c_franks", "c_evasive"]
-    spec, envelope = await flow.setup(
-        chain="scene", scale="scene_line", start=start
-    )
+    spec, envelope = await flow.setup(chain="scene", scale="scene_line", start=start)
     task_id = await flow.enqueue(
         spec,
         envelope,
@@ -1163,7 +1164,7 @@ async def test_scene_multi_target_builds_independent_knowledge_packets(
     )
     task = await flow.run(task_id)
     assert task.status == "done", task.error_message
-    assert flow.provider.calls == len(targets)
+    assert flow.provider.calls == 3 * len(targets)
     # 每个目标只收到自己的知识包：请求 i 的 knows/误信与目标一一对应。
     first = _request_user_data(flow.provider, 0)
     second = _request_user_data(flow.provider, 1)
@@ -1183,16 +1184,14 @@ async def test_scene_multi_target_builds_independent_knowledge_packets(
     assert all(variant.line for variant in payload.variants)
     assert row.input_json["multi_targets"] == targets
     ledger = read_ai_run_envelope(root.run_envelope_json)
-    assert ledger.requests_started == 2  # 预算 = 目标数
+    assert ledger.requests_started == 6  # 每个目标含导演与独立审查
 
 
 async def test_scene_multi_target_rejects_single_target_budget_hash(exploration_flow):
     """多目标请求用单目标身份的 preview hash 重放 → worker 失败关闭。"""
     flow = exploration_flow
     start = _scene_pair_start()
-    spec, envelope = await flow.setup(
-        chain="scene", scale="scene_line", start=start
-    )
+    spec, envelope = await flow.setup(chain="scene", scale="scene_line", start=start)
     single_hash = preview_exploration_budget(
         novel_id=str(spec.novel_id),
         scale="scene_line",
@@ -1259,7 +1258,7 @@ async def test_scene_multi_target_canonical_guard_fails_closed(exploration_flow)
             )
         ).all()
         assert rows == []
-    assert flow.provider.calls == 1  # 第一个变体即触发，快速失败
+    assert flow.provider.calls == 3  # 第一个变体即触发，快速失败
 
 
 # ---------------------------------------------------------------------------
@@ -1289,7 +1288,7 @@ async def test_scene_diagnostic_without_material_lists_unknowns(exploration_flow
     )
     task = await flow.run(task_id)
     assert task.status == "done", task.error_message
-    system = flow.provider.requests[0].messages[0].content
+    system = flow.provider.generation_requests[0].messages[0].content
     assert "空间诊断器" in system
     assert "不得把想象当物理证明" in system
     user = _request_user_data(flow.provider, 0)
@@ -1303,7 +1302,7 @@ async def test_scene_diagnostic_without_material_lists_unknowns(exploration_flow
     assert assessment.constraints == []
     assert SPATIAL_UNKNOWN_DISCLOSURE in assessment.unknowns
     ledger = read_ai_run_envelope(root.run_envelope_json)
-    assert ledger.requests_started == 1  # 诊断预算不变
+    assert ledger.requests_started == 3  # 诊断预算不变
 
 
 async def test_scene_diagnostic_cites_confirmed_spatial_material(exploration_flow):
@@ -1373,4 +1372,4 @@ async def test_scene_diagnostic_fabricated_constraints_fail_closed(exploration_f
             )
         ).all()
         assert rows == []
-    assert flow.provider.calls == 1
+    assert flow.provider.calls == 3

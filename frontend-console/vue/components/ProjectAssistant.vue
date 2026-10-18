@@ -19,7 +19,7 @@
       <div v-if="activeTab === 'rp'" class="project-assistant-history"><InteractionAuthorPanel :project-id="projectId" :active="open && activeTab === 'rp'" /></div>
       <div v-show="activeTab === 'goal'" class="project-assistant-goal"><GoalRunsPanel :project-id="projectId" :source-session-id="state.sessionId" :active="open && activeTab === 'goal'" @availability="goalAvailable = $event" /></div>
       <div v-if="state.enabled" v-show="activeTab === 'chat'" class="project-assistant-chat">
-      <div class="project-assistant-sessions"><label for="assistant-session">讨论</label><select id="assistant-session" :value="state.sessionId || ''" :disabled="state.busy || state.loading" @change="assistant.selectSession($event.target.value)"><option v-if="!state.sessionId" value="">新的讨论</option><option v-for="session in state.sessions" :key="session.id" :value="session.id">{{ session.title }}</option></select><button type="button" class="btn btn-sm" :disabled="state.busy" @click="assistant.newSession">新讨论</button></div>
+      <div class="project-assistant-sessions"><label for="assistant-session">讨论</label><select id="assistant-session" :value="state.sessionId || ''" :disabled="state.busy || state.loading" @change="canLeaveExplorations() && assistant.selectSession($event.target.value)"><option v-if="!state.sessionId" value="">新的讨论</option><option v-for="session in state.sessions" :key="session.id" :value="session.id">{{ session.title }}</option></select><button type="button" class="btn btn-sm" :disabled="state.busy" @click="canLeaveExplorations() && assistant.newSession()">新讨论</button></div>
       <div v-if="state.error" class="project-assistant-error" role="alert">{{ state.error }}</div>
       <button v-if="state.pendingSubmission && state.error" class="btn" type="button" :disabled="state.busy" @click="assistant.recoverSubmission">恢复上次提交</button>
       <button v-if="state.sessions.length < state.total" class="btn btn-sm" type="button" :disabled="state.loading" @click="assistant.moreSessions">更多讨论</button>
@@ -28,14 +28,14 @@
         <button v-if="state.messages.length < state.messageTotal" class="btn btn-sm" type="button" :disabled="state.loading" @click="assistant.moreMessages">查看更早的讨论</button>
         <p v-if="state.loading" role="status">正在读取讨论…</p>
         <div v-if="!state.messages.length && !state.run && !state.loading" class="project-assistant-empty"><p>可以直接说你想完成的事。</p><button v-for="hint in hints" :key="hint" class="btn" type="button" @click="assistant.setInput(hint)">{{ hint }}</button></div>
-        <article v-for="message in state.messages" :key="message.id" class="project-assistant-message" :class="{ 'is-author': message.role === 'author' }"><strong>{{ message.role === 'author' ? '你' : '助手' }}</strong><p>{{ message.content }}</p><button v-if="receiptMessageIds.has(message.id)" class="btn btn-sm" type="button" :disabled="state.busy || state.loading || running" @click="assistant.openRun(message.assistant_run_id)">查看本轮方案与结果</button><button v-if="message.outcome_suggestion_id" class="btn btn-sm" type="button" @click="locateAssistantSource({ type: message.outcome_kind === 'checkpoint' ? 'world_checkpoint' : 'world_suggestion', id: message.outcome_suggestion_id })">查看这次讨论的成果</button></article>
+        <article v-for="message in state.messages" :key="message.id" class="project-assistant-message" :class="{ 'is-author': message.role === 'author' }"><strong>{{ message.role === 'author' ? '你' : '助手' }}</strong><p>{{ message.content }}</p><button v-if="receiptMessageIds.has(message.id)" class="btn btn-sm" type="button" :disabled="state.busy || state.loading || running" @click="openRun(message.assistant_run_id)">查看本轮方案与结果</button><button v-if="message.outcome_suggestion_id" class="btn btn-sm" type="button" @click="locateAssistantSource({ type: message.outcome_kind === 'checkpoint' ? 'world_checkpoint' : 'world_suggestion', id: message.outcome_suggestion_id })">查看这次讨论的成果</button></article>
         <section v-if="state.run" class="project-assistant-result" aria-label="本次处理结果">
           <p role="status">{{ statusLabel }}</p>
           <TeamProgress v-if="state.run.result?.collaboration" :collaboration="state.run.result.collaboration" @locate="locateAssistantSource" />
           <div v-if="state.run.result?.next_steps?.length" class="project-assistant-actions"><button v-for="destination in state.run.result.next_steps" :key="destination" type="button" class="btn btn-sm" @click="openAssistantDestination(destination, state.context || {})">{{ state.destinations?.find(item => item.id === destination)?.label || '打开相关工作区' }}</button></div><p v-if="state.run.error" class="project-assistant-error">{{ state.run.error }}</p>
           <button v-if="running" class="btn btn-sm" type="button" :disabled="state.busy" @click="assistant.stop">停止本次处理</button>
-          <div v-if="['failed', 'budget_exceeded', 'cancelled'].includes(state.run.status)" class="project-assistant-actions"><button v-if="state.run.can_resume" class="btn btn-sm" type="button" :disabled="state.busy" @click="assistant.resume(false)">恢复本次查证</button><button class="btn btn-sm" type="button" :disabled="state.busy" @click="assistant.resume(true)">开始新一轮查证</button></div>
-          <details v-if="state.run.result?.sources?.length"><summary>查看依据（{{ state.run.result.sources.length }}）</summary><article v-for="source in state.run.result.sources" :key="source.evidence_id" class="project-assistant-source"><strong>{{ source.title || '参考资料' }}</strong><p>{{ source.snippet || source.text || source.answer || '' }}</p><p v-if="source.excerpted">以上为摘录，可打开来源查看全文。</p><button v-if="source.source_ref || source.target_ref" type="button" class="btn btn-sm" @click="locateAssistantSource(source)">打开来源</button><ExplorationResultCard v-if="source.domain_reference?.type === 'story_exploration_result'" :source="source.domain_reference" :project-id="projectId" @refresh="refreshAfterExploration" /><section v-else-if="explorationRecommendation(source)" class="project-assistant-exploration-recommendation" aria-label="探索推荐"><p>推荐尺度：{{ explorationRecommendation(source).scaleLabel }}<template v-if="explorationRecommendation(source).reason">（{{ explorationRecommendation(source).reason }}）</template></p><p v-if="explorationRecommendation(source).focus">推荐焦点：{{ explorationRecommendation(source).focus }}</p><label class="project-assistant-scope">手动覆盖尺度 <select v-model="explorationOverride.scale" :disabled="explorationPreviewBusy"><option value="">按推荐</option><option value="sandbox">沙盘（一条规则对日常的影响）</option><option value="event">事件（一个因果缺口的诊断或补桥）</option><option value="scene_line">场景对白（一个人物的一句回应）</option></select></label><label class="project-assistant-scope">焦点 <input v-model="explorationOverride.focus" maxlength="2000" :disabled="explorationPreviewBusy" placeholder="想让探索聚焦的方面，可留空"></label><button type="button" class="btn btn-sm" :disabled="explorationPreviewBusy" @click="previewExploration(explorationRecommendation(source))">{{ explorationPreviewBusy ? '正在查看预览…' : '按此设定查看预览' }}</button><p v-if="explorationPreviewSummary" role="status">{{ explorationPreviewSummary }}</p><p v-if="explorationPreviewError" role="alert">{{ explorationPreviewError }}</p></section><button v-if="source.domain_reference?.type === 'world_validation'" type="button" class="btn btn-sm" @click="locateAssistantSource(source.domain_reference)">打开世界复核回执</button><div v-if="source.domain_reference?.type === 'smart_dedup_scan'"><p>{{ source.domain_result?.summary || source.domain_result?.authority }}</p><button type="button" class="btn btn-sm" @click="locateAssistantSource(source.domain_reference)">打开相似资料比较</button></div><details v-if="source.related_results?.length"><summary>该地图的图片与历史</summary><button v-for="item in source.related_results" :key="item.id" class="btn btn-sm" @click="locateAssistantSource(item)">{{ item.title || '查看图片成果' }}</button></details><AssistantReviewResult v-if="source.review_result" :result="source.review_result" /><div v-if="source.domain_result?.candidate"><p>{{ source.domain_result.authority }}</p><button type="button" class="btn btn-sm" @click="locateAssistantSource(source.domain_result.candidate)">查看正文候选</button></div><details v-if="source.domain_result?.draft_structure"><summary>查看结构提案</summary><button v-if="source.domain_reference" type="button" class="btn btn-sm" @click="locateAssistantSource(source.domain_reference)">打开结构审阅页</button><p>{{ source.domain_result.authority }}</p><AssistantValue :value="source.domain_result.draft_structure" /></details><a v-for="link in (source.sources || []).filter(item => safeUrl(item.url))" :key="link.url" :href="link.url" target="_blank" rel="noopener noreferrer">{{ link.title || '查看外部来源' }}</a></article></details>
+          <div v-if="['failed', 'budget_exceeded', 'cancelled'].includes(state.run.status)" class="project-assistant-actions"><button v-if="state.run.can_resume" class="btn btn-sm" type="button" :disabled="state.busy" @click="resume(false)">恢复本次查证</button><button class="btn btn-sm" type="button" :disabled="state.busy" @click="resume(true)">开始新一轮查证</button></div>
+          <details v-if="state.run.result?.sources?.length"><summary>查看依据（{{ state.run.result.sources.length }}）</summary><article v-for="source in state.run.result.sources" :key="source.evidence_id" class="project-assistant-source"><strong>{{ source.title || '参考资料' }}</strong><p>{{ source.snippet || source.text || source.answer || '' }}</p><p v-if="source.excerpted">以上为摘录，可打开来源查看全文。</p><button v-if="source.source_ref || source.target_ref" type="button" class="btn btn-sm" @click="locateAssistantSource(source)">打开来源</button><ExplorationResultCard ref="explorationCards" v-if="source.domain_reference?.type === 'story_exploration_result'" :source="source.domain_reference" :project-id="projectId" @refresh="refreshAfterExploration" /><section v-else-if="explorationRecommendation(source)" class="project-assistant-exploration-recommendation" aria-label="探索推荐"><p>推荐尺度：{{ explorationRecommendation(source).scaleLabel }}<template v-if="explorationRecommendation(source).reason">（{{ explorationRecommendation(source).reason }}）</template></p><p v-if="explorationRecommendation(source).focus">推荐焦点：{{ explorationRecommendation(source).focus }}</p><label class="project-assistant-scope">手动覆盖尺度 <select v-model="explorationOverride.scale" :disabled="explorationPreviewBusy"><option value="">按推荐</option><option value="sandbox">沙盘（一条规则对日常的影响）</option><option value="event">事件（一个因果缺口的诊断或补桥）</option><option value="scene_line">场景对白（一个人物的一句回应）</option></select></label><label class="project-assistant-scope">焦点 <input v-model="explorationOverride.focus" maxlength="2000" :disabled="explorationPreviewBusy" placeholder="想让探索聚焦的方面，可留空"></label><button type="button" class="btn btn-sm" :disabled="explorationPreviewBusy" @click="previewExploration(explorationRecommendation(source))">{{ explorationPreviewBusy ? '正在查看预览…' : '按此设定查看预览' }}</button><p v-if="explorationPreviewSummary" role="status">{{ explorationPreviewSummary }}</p><p v-if="explorationPreviewError" role="alert">{{ explorationPreviewError }}</p></section><button v-if="source.domain_reference?.type === 'world_validation'" type="button" class="btn btn-sm" @click="locateAssistantSource(source.domain_reference)">打开世界复核回执</button><div v-if="source.domain_reference?.type === 'smart_dedup_scan'"><p>{{ source.domain_result?.summary || source.domain_result?.authority }}</p><button type="button" class="btn btn-sm" @click="locateAssistantSource(source.domain_reference)">打开相似资料比较</button></div><details v-if="source.related_results?.length"><summary>该地图的图片与历史</summary><button v-for="item in source.related_results" :key="item.id" class="btn btn-sm" @click="locateAssistantSource(item)">{{ item.title || '查看图片成果' }}</button></details><AssistantReviewResult v-if="source.review_result" :result="source.review_result" /><div v-if="source.domain_result?.candidate"><p>{{ source.domain_result.authority }}</p><button type="button" class="btn btn-sm" @click="locateAssistantSource(source.domain_result.candidate)">查看正文候选</button></div><details v-if="source.domain_result?.draft_structure"><summary>查看结构提案</summary><button v-if="source.domain_reference" type="button" class="btn btn-sm" @click="locateAssistantSource(source.domain_reference)">打开结构审阅页</button><p>{{ source.domain_result.authority }}</p><AssistantValue :value="source.domain_result.draft_structure" /></details><a v-for="link in (source.sources || []).filter(item => safeUrl(item.url))" :key="link.url" :href="link.url" target="_blank" rel="noopener noreferrer">{{ link.title || '查看外部来源' }}</a></article></details>
           <ul v-if="state.run.result?.omissions?.length" class="project-assistant-omissions"><li v-for="item in state.run.result.omissions" :key="item">{{ item }}</li></ul>
           <section v-if="state.run.result?.plans?.length && !batch" aria-label="整体修订方案">
             <h3>先选择整体方案</h3><p>选择后可核对逐项差异，最终确认才会修改。跨章修订完成后会启动领域复核，额外消耗模型用量。</p>
@@ -53,7 +53,7 @@
             <button v-if="batch.status === 'partial'" type="button" class="btn" :disabled="state.busy" @click="assistant.decide(state.selected, true)">重试未完成的操作</button><button v-if="batch.status === 'partial'" type="button" class="btn" :disabled="state.busy" @click="assistant.recheckBatch">重新查证剩余方案</button>
             <ul v-if="batch.results?.length"><li v-for="item in batch.results" :key="item.key">{{ item.result?.label || item.message || '操作已处理' }}<button v-if="item.result" class="btn btn-sm" type="button" @click="locateAssistantSource(item.result)">查看成果</button></li></ul>
           </section>
-          <section v-if="state.run.result?.regression" aria-label="修改后复核"><p>{{ state.run.result.regression.authority }}</p><p v-for="omission in state.run.result.regression.omissions" :key="omission">{{ omission }}</p><button v-for="reference in Object.values(state.run.result.regression.references || {})" :key="reference.id" class="btn btn-sm" @click="reference.type === 'assistant_run' ? assistant.openRun(reference.id) : locateAssistantSource(reference)">查看领域复核</button></section>
+          <section v-if="state.run.result?.regression" aria-label="修改后复核"><p>{{ state.run.result.regression.authority }}</p><p v-for="omission in state.run.result.regression.omissions" :key="omission">{{ omission }}</p><button v-for="reference in Object.values(state.run.result.regression.references || {})" :key="reference.id" class="btn btn-sm" @click="reference.type === 'assistant_run' ? openRun(reference.id) : locateAssistantSource(reference)">查看领域复核</button></section>
           <details v-if="state.run.usage?.requests" class="project-assistant-usage"><summary>查看本次用量</summary><p>模型请求 {{ state.run.usage.requests }} 次，联网请求 {{ state.run.usage.web_requests || 0 }} 次。</p><p>已知输入 {{ state.run.usage.prompt_tokens || 0 }}，已知输出 {{ state.run.usage.completion_tokens || 0 }}。费用未知{{ state.run.usage.usage_complete === false ? '，部分用量未返回' : '' }}。</p></details>
         </section>
       </div>
@@ -69,7 +69,6 @@
 <script setup>
 import { computed, nextTick, onBeforeUnmount, onMounted, reactive, ref, watch } from "vue"
 import { getApi, getAssistantWorkContext } from "../bridge/index.js"
-import { createOperationId } from "../../shared/workflowProgress.js"
 import { createProjectAssistant } from "../composables/useProjectAssistant.js"
 import { registerProjectAssistantOpener } from "../bridge/index.js"
 import { useModalDialog } from "../composables/useModalDialog.js"
@@ -98,6 +97,8 @@ const editorialFocusChapter = ref(null)
 const editorialFocusIssueId = ref(null)
 const experimentContext = ref({ page: "today" })
 const creativeRef = ref(null)
+const explorationCards = ref([])
+function canLeaveExplorations() { return explorationCards.value.every(card => card?.canLeave?.() !== false) }
 // R00 作者意图：turn 与前瞻共用（后端 schemas.TASK_HINTS 封闭集）；
 // "只润色"等意图会实际进入模型输入并在前瞻侧收窄能力集。
 const taskHint = ref("unknown")
@@ -107,7 +108,7 @@ function openEditorialFromNotice(source) { editorialFocusIssueId.value = source?
 function openForecast() { if (activeTab.value === "creative" && creativeRef.value?.canLeave?.() === false) return; try { experimentContext.value = withIntent(capture(true)); activeTab.value = "forecast" } catch (error) { state.error = error.message } }
 function openCreative() { try { experimentContext.value = withIntent(capture(true)); activeTab.value = "creative" } catch (error) { state.error = error.message } }
 let media
-const close = () => { if (activeTab.value !== "creative" || creativeRef.value?.canLeave?.() !== false) emit("close") }
+const close = () => { if (canLeaveExplorations() && (activeTab.value !== "creative" || creativeRef.value?.canLeave?.() !== false)) emit("close") }
 const { overlayRef, dialogRef, onKeydown, onFocusin } = useModalDialog({ isOpen: () => props.open && (state.enabled || props.projectId) && narrow.value, requestClose: close })
 const hints = ["检查当前章节的前后设定", "帮我整理已有正文", "把接下来要处理的事项理清楚"]
 const running = computed(() => ["pending", "running"].includes(state.run?.status))
@@ -123,7 +124,9 @@ function handleKeydown(event) { if (!narrow.value && event.key === "Escape") { e
 function useCurrent() { try { state.context = { ...getAssistantWorkContext(props.projectId, props.page), excluded_targets: state.context?.excluded_targets || [] }; assistant.setInput(state.input) } catch (error) { state.error = error.message } }
 function setScope(value) { try { state.context = { ...(state.context || capture()), scope: value }; assistant.setInput(state.input) } catch (error) { state.error = error.message } }
 function clearSelection() { const { selection_start: _s, selection_end: _e, ...rest } = state.context || {}; state.context = { ...rest, selection: "" }; assistant.setInput(state.input) }
-async function send() { try { await assistant.send(withIntent(state.context || capture())) } catch (error) { state.error = error.message || "暂时无法提交。" } }
+async function openRun(id) { if (canLeaveExplorations()) await assistant.openRun(id) }
+async function resume(newRun) { if (canLeaveExplorations()) await assistant.resume(newRun) }
+async function send() { if (!canLeaveExplorations()) return; try { await assistant.send(withIntent(state.context || capture())) } catch (error) { state.error = error.message || "暂时无法提交。" } }
 function dependencyTitles(action) { return action.depends_on.map(key => state.run.result.actions.find(item => item.key === key)?.title || "前置修改").join("、") }
 function safeUrl(value) { try { const url = new URL(value); return ["https:", "http:"].includes(url.protocol) && !url.username && !url.password } catch { return false } }
 // 导演多尺度探索（第一批）：结果卡与推荐卡的本地接入。推荐/预览为确定性
@@ -142,8 +145,9 @@ function explorationRecommendation(source) {
   return {
     scale,
     scaleLabel: `${EXPLORATION_SCALE_LABELS[scale] || scale || "待定"}${explorationOverride.scale && explorationOverride.scale !== (origin.scale || origin.recommended_scale) ? "（已手动覆盖）" : ""}`,
-    focus: explorationOverride.focus.trim() || origin.focus || origin.recommended_focus || "",
+    focus: explorationOverride.focus.trim() || origin.focus_hint || origin.focus || origin.recommended_focus || "",
     reason: origin.reason || origin.summary || "",
+    question: origin.question || "",
   }
 }
 async function previewExploration(recommendation) {
@@ -154,19 +158,24 @@ async function previewExploration(recommendation) {
   try {
     const preview = await getApi()?.story?.explorationPreview({
       novel_id: props.projectId,
-      operation_id: createOperationId(),
       scale: explorationOverride.scale || recommendation?.scale || undefined,
       focus: explorationOverride.focus.trim() || recommendation?.focus || undefined,
+      question: recommendation?.question || undefined,
     })
     const budget = preview?.budget || preview?.budget_preview || null
     const requests = budget ? `预计模型请求 ${budget.requests_min ?? "?"}${budget.requests_max != null && budget.requests_max !== budget.requests_min ? `–${budget.requests_max}` : ""} 次；每次“说详细点”等补充会再授权 +1。` : ""
     const parts = [preview?.recommendation?.scale ? `按 ${EXPLORATION_SCALE_LABELS[preview.recommendation.scale] || preview.recommendation.scale} 继续` : "", requests, preview?.possible_charge || preview?.confirmation_scope || ""].filter(Boolean)
     explorationPreviewSummary.value = parts.join("。") || "预览已生成，请继续在输入框确认。"
+    state.context = { ...(state.context || capture()), exploration_intent: {
+      question: recommendation?.question || "", scale: explorationOverride.scale || recommendation.scale,
+      focus: explorationOverride.focus.trim() || recommendation?.focus || "",
+    } }
+    assistant.setInput(`请按已选择的问题、尺度和焦点准备独立探索，先核对资料与预算：${recommendation?.question || "沿用本轮问题"}`)
   } catch (error) {
     explorationPreviewError.value = error?.message || "预览暂时无法生成，可稍后重试。"
   } finally { explorationPreviewBusy.value = false }
 }
-function refreshAfterExploration() { if (state.run?.id) void assistant.refreshRun(state.run.id).catch(() => {}) }
+function refreshAfterExploration() { if (canLeaveExplorations() && state.run?.id) void assistant.refreshRun(state.run.id).catch(() => {}) }
 function syncMedia() { narrow.value = media?.matches || false }
 let loadPromise = Promise.resolve()
 let disposed = false
@@ -190,6 +199,7 @@ const removeOpener = registerProjectAssistantOpener(async request => {
     return
   }
   if (state.busy || state.loading) throw new Error("项目助手正在保存或读取讨论，请稍后打开；本页内容仍保留。")
+  if ((request.sessionId || request.runId) && !canLeaveExplorations()) throw new Error("探索还有未保存的编辑，请先保存或复制文本。")
   if (request.sessionId) await assistant.selectSession(request.sessionId)
   if (request.runId) await assistant.openRun(request.runId)
   if (disposed || request.projectId !== props.projectId || state.error) throw new Error(state.error || "作品已切换。")

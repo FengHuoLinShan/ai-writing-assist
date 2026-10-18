@@ -24,6 +24,7 @@ from infrastructure.llm.web_search import search_snapshot, search_snapshot_match
 from infrastructure.llm.workflow_budget import current_ai_run_envelope, workflow_budget
 from infrastructure.tasks.facade import (
     enqueue_operation_task,
+    get_completed_task_payload,
     list_task_lifecycle_contracts,
     resume_manual_task,
 )
@@ -171,12 +172,16 @@ _DOMAIN_REFERENCE_KEYS_BY_TYPE = {
         "scale",
         "output_kind",
         "payload",
+        "locked_items",
+        "needs_author_resume",
+        "status",
     },
     "story_exploration_recommendation": _DOMAIN_REFERENCE_BASE_KEYS
     | {
         "scale",
         "focus_hint",
         "reason",
+        "question",
     },
 }
 
@@ -888,6 +893,67 @@ class AssistantService:
                     "results": batch.results_json,
                 },
             }
+            sources = list(view["result"].get("sources") or [])
+            for item in batch.results_json or []:
+                reference = item.get("result") or {}
+                if reference.get("target_type") != "story_exploration" and reference.get(
+                    "task_type"
+                ) not in {
+                    "story_exploration_progression_task",
+                    "story_exploration_scene_task",
+                }:
+                    continue
+                task_id = reference.get("task_id")
+                if not task_id:
+                    continue
+                for task_type, scale in (
+                    ("story_exploration_progression_task", None),
+                    ("story_exploration_scene_task", "scene_line"),
+                ):
+                    task = await get_completed_task_payload(
+                        db,
+                        task_id=str(task_id),
+                        task_type=task_type,
+                        novel_id=str(run.novel_id),
+                        include_cancelled=True,
+                    )
+                    payload = dict(task.result or {}) if task is not None else None
+                    if not payload or (
+                        payload.get("status") != "completed"
+                        and not payload.get("needs_author_resume")
+                    ):
+                        continue
+                    kind = payload.get("output_kind") or ""
+                    domain = {
+                        "type": "story_exploration_result",
+                        "task_id": str(task_id),
+                        **{
+                            key: payload.get(key)
+                            for key in (
+                                "root_id",
+                                "branch_id",
+                                "result_id",
+                                "output_kind",
+                                "payload",
+                                "locked_items",
+                                "needs_author_resume",
+                                "status",
+                            )
+                        },
+                        "scale": scale
+                        or reference.get("scale")
+                        or payload.get("scale")
+                        or ("sandbox" if kind.endswith("sandbox") else "event"),
+                    }
+                    sources.append(
+                        {
+                            "evidence_id": "exploration:" + str(task_id),
+                            "title": "探索结果",
+                            "domain_reference": domain,
+                        }
+                    )
+                    break
+            view["result"]["sources"] = sources
         return view
 
     async def recheck_batch(self, db, batch_id: str, data, owner_id: str):
@@ -1102,9 +1168,7 @@ class AssistantService:
         operations = resolve_operations(
             protocol["operations"],
             allow_stale=runtime_version
-            in {
-        "7", "8", "9", "10", "11", "12", "13", "14", "15", "16", "17", "18"
-    },
+            in {"7", "8", "9", "10", "11", "12", "13", "14", "15", "16", "17", "18"},
         )
         read_tools = {
             tool.name: tool

@@ -11,6 +11,7 @@
 
 from __future__ import annotations
 
+import json
 import uuid
 from typing import Any
 
@@ -19,6 +20,7 @@ from sqlalchemy import func, or_, select
 from core.errors import ConflictError, DomainError, NotFoundError
 from infrastructure.llm.collaboration import content_hash
 from infrastructure.llm.schemas import read_ai_run_envelope
+from modules.evidence import facade as evidence
 from modules.evidence.contracts import (
     Assumption,
     CandidateRef,
@@ -276,7 +278,10 @@ async def create_exploration_root(
             pending_round_json={},
             status=status,
         )
-    db.add_all([root, branch])
+    # Composite foreign keys live in migrations; persist the parent first.
+    db.add(root)
+    await db.flush()
+    db.add(branch)
     await db.flush()
     return root, branch
 
@@ -306,9 +311,7 @@ def require_legacy_progression_root(root, step=None) -> None:
 def require_legacy_reference_source(root, row) -> None:
     """save_director_reference：临时起点根或探索输出回合不能存为参考剧本。"""
     if getattr(root, "source_kind", SCENE_SOURCE_KIND) == PROVISIONAL_SOURCE_KIND:
-        raise ConflictError(
-            "临时起点探索没有场景依据，不能存为正式参考剧本"
-        )
+        raise ConflictError("临时起点探索没有场景依据，不能存为正式参考剧本")
     if unpack_exploration_output(row) is not None:
         raise ConflictError(
             "探索结果不能存为参考剧本；请在对应任务上继续或先保存编辑版本"
@@ -318,9 +321,7 @@ def require_legacy_reference_source(root, row) -> None:
 def require_legacy_transfer_source(row) -> None:
     """transfer_world_candidate：探索输出回合不能转入 World 候选。"""
     if unpack_exploration_output(row) is not None:
-        raise ConflictError(
-            "探索结果不能转入 World 待审核候选；请在对应任务上继续"
-        )
+        raise ConflictError("探索结果不能转入 World 待审核候选；请在对应任务上继续")
 
 
 # ---------------------------------------------------------------------------
@@ -445,9 +446,8 @@ async def resolve_counterfactual_start(
         raise ConflictError("反事实条件对照的基线必须是临时假设起点")
     start = ProvisionalStart.model_validate(start_dump)
     stored_fingerprint = root_request.get("exploration_start_fingerprint")
-    if (
-        not stored_fingerprint
-        or str(stored_fingerprint) != exploration_start_fingerprint(start, "sandbox")
+    if not stored_fingerprint or str(stored_fingerprint) != exploration_start_fingerprint(
+        start, "sandbox"
     ):
         raise ConflictError("基线结果的冻结起点与指纹不一致，无法反事实克隆")
     cloned = apply_changed_assumptions(start, list(changed_assumptions))
@@ -552,9 +552,7 @@ def compute_affected_items(
 
     base_dict, base_kind = _diff_payload_dict(base_envelope)
     derived_dict, derived_kind = _diff_payload_dict(derived_envelope)
-    granularity = _affected_granularity(
-        base_dict, derived_dict, base_kind, derived_kind
-    )
+    granularity = _affected_granularity(base_dict, derived_dict, base_kind, derived_kind)
     if granularity == _AFFECTED_GRANULARITY_CONSERVATIVE:
         return [], granularity
     items: list[AffectedItem] = []
@@ -565,9 +563,7 @@ def compute_affected_items(
         derived_items = derived_items if isinstance(derived_items, list) else []
         for index in range(max(len(base_items), len(derived_items))):
             base_item = base_items[index] if index < len(base_items) else None
-            derived_item = (
-                derived_items[index] if index < len(derived_items) else None
-            )
+            derived_item = derived_items[index] if index < len(derived_items) else None
             if derived_item is None:
                 status = "removed"
             elif base_item is None:
@@ -584,9 +580,9 @@ def compute_affected_items(
                     base_excerpt=exploration_entry_display_text(path, base_item)[
                         :AFFECTED_ITEM_EXCERPT_MAX_LENGTH
                     ],
-                    derived_excerpt=exploration_entry_display_text(
-                        path, derived_item
-                    )[:AFFECTED_ITEM_EXCERPT_MAX_LENGTH],
+                    derived_excerpt=exploration_entry_display_text(path, derived_item)[
+                        :AFFECTED_ITEM_EXCERPT_MAX_LENGTH
+                    ],
                 )
             )
             if len(items) >= AFFECTED_ITEMS_MAX:
@@ -707,9 +703,7 @@ async def compare_exploration_results(
                 "chain": chain,
                 "root_id": str(row.root_id),
                 "branch_id": str(row.branch_id),
-                "created_at": (
-                    row.created_at.isoformat() if row.created_at else None
-                ),
+                "created_at": (row.created_at.isoformat() if row.created_at else None),
                 "envelope": envelope,
                 "parent_output_hash": _recorded_parent_output_hash(row),
                 "locked_items": [
@@ -754,8 +748,7 @@ async def _require_edit_respects_locks(
 ) -> None:
     """作者编辑也不能动锁定内容（M3-A）：与所在结果不一致即 409，防误操作。
 
-    锁定项在分支上逐字保持，因此“与编辑基行一致”等价于“与锁定内容一致”；
-    解锁后可改。
+    历史基行不一定仍与当前锁一致；必须核对当前锁哈希，解锁后可改。
     """
 
     locked_items = await current_locked_items(
@@ -781,7 +774,10 @@ async def _require_edit_respects_locks(
             raise ConflictError(
                 f"锁定条目 {item.item_path} 与结果结构不一致：{error}"
             ) from error
-        if edited_target["item"] != base_target["item"]:
+        if (
+            base_target["item_content_hash"] != item.item_content_hash
+            or edited_target["item_content_hash"] != item.item_content_hash
+        ):
             raise ConflictError(f"条目 {item.item_path} 已锁定，请先解锁再修改")
 
 
@@ -936,9 +932,7 @@ def _lock_set_payload_of(row: Any) -> LockSetPayloadV1 | None:
     return None
 
 
-async def _branch_rows_desc(
-    db, novel_id: str, branch_id: Any, chain: str
-) -> list[Any]:
+async def _branch_rows_desc(db, novel_id: str, branch_id: Any, chain: str) -> list[Any]:
     """分支结果行按序号倒序（有界扫描）；锁定集读取与幂等查找共用。"""
 
     nid = _uuid(novel_id)
@@ -1014,7 +1008,10 @@ async def set_exploration_item_lock(
     if base_envelope is None:
         raise ConflictError("所选结果不是探索结果，无法设置锁定")
     if base_envelope.output_kind == AUTHOR_EDIT_OUTPUT_KIND:
-        raise ConflictError("作者编辑版本不能设置锁定；请回到原始 AI 结果")
+        base_envelope = ExplorationOutputEnvelope(
+            output_kind=base_envelope.payload.base_output_kind,
+            payload=base_envelope.payload.edited_payload,
+        )
     if base_envelope.output_kind == LOCK_SET_OUTPUT_KIND:
         raise ConflictError("锁定记录不能作为锁定目标")
     try:
@@ -1047,7 +1044,8 @@ async def set_exploration_item_lock(
             row_model.input_hash == lock_op_key,
         )
     )
-    if existing is not None and _lock_set_payload_of(existing) is not None:
+    latest = await _latest_lock_set_row(db, novel_id, base_row.branch_id, chain)
+    if existing is not None and latest is not None and existing.id == latest.id:
         return existing, unpack_exploration_output(existing)  # type: ignore[return-value]
 
     current = await current_locked_items(
@@ -1056,6 +1054,9 @@ async def set_exploration_item_lock(
     paths = {item.item_path for item in current}
     if lock:
         if item_path in paths:
+            pinned = next(item for item in current if item.item_path == item_path)
+            if pinned.item_content_hash != target["item_content_hash"]:
+                raise ConflictError("该路径已锁定其他版本内容，请先解锁再重新锁定")
             # 分支状态幂等：内容不变，不重复追加同一锁定。
             latest = await _latest_lock_set_row(db, novel_id, base_row.branch_id, chain)
             if latest is not None:
@@ -1171,11 +1172,11 @@ _SOURCE_SCALE_LABEL = {
 # 目标尺度的移交问题模板：携带源摘录（≤400）与来源语境，作者可改。
 _HANDOFF_QUESTION_TEMPLATES = {
     "sandbox": (
-        "沙盘追因：在既定前提下，「{excerpt}」背后的成因、成立条件与"
+        "沙盘追因：假设候选「{excerpt}」成立，其背后的成因、成立条件与"
         "更广影响是什么？（本起点由{source}探索移交生成，可修改）"
     ),
     "event": (
-        "事件展开：以「{excerpt}」为既定情节，给出把它落到具体事件的最小"
+        "事件展开：假设候选「{excerpt}」成立，给出把它落到具体事件的最小"
         "行动—条件—后果链与缺口。（本起点由{source}探索移交生成，可修改）"
     ),
     "scene_line": (
@@ -1199,7 +1200,20 @@ def _handoff_excerpt(text: str) -> str:
 
 def _sandbox_link_excerpt(link: dict) -> str:
     return _handoff_excerpt(
-        f"{link.get('effect') or ''}（机制：{link.get('mechanism') or ''}）"
+        json.dumps(
+            {
+                key: link.get(key)
+                for key in (
+                    "condition",
+                    "mechanism",
+                    "effect",
+                    "holds_when",
+                    "unknown",
+                    "affected_refs",
+                )
+            },
+            ensure_ascii=False,
+        )
     )
 
 
@@ -1363,7 +1377,9 @@ async def build_handoff_start(
 
     root = await _root_for_chain(db, novel_id, row.root_id, chain)
     root_request = dict(root.request_json or {})
-    source_fingerprint = str(root_request.get("exploration_start_fingerprint") or "")
+    source_fingerprint, _source_options = await _handoff_source_fingerprint(
+        db, novel_id, row, chain, source_scale, item_path
+    )
     start_dump = dict(root_request.get("exploration_start") or {})
     source_start: ProvisionalStart | None = None
     if start_dump.get("kind") == "provisional":
@@ -1397,15 +1413,118 @@ async def build_handoff_start(
         canonical_refs=canonical_refs,
         knowledge=knowledge,
         time_basis=time_basis,
+        scene_stimuli=[
+            item.model_copy(deep=True)
+            for item in (source_start.scene_stimuli if source_start else [])
+            if item.subject_entity_id in canonical_refs
+        ],
+        web_refs=list(source_start.web_refs) if source_start else [],
         derived_from=HandoffRef(
             source_result_id=str(row.id),
             source_scale=source_scale,  # type: ignore[arg-type]
             item_path=item_path,
             selector=selector,  # type: ignore[arg-type]
             reason=str(reason or "").strip(),
+            source_fingerprint=source_fingerprint,
         ),
     )
     return derived, source_fingerprint
+
+
+async def _handoff_source_fingerprint(db, novel_id, row, chain, scale, item_path):
+    branch = await (
+        get_progression_branch(db, novel_id, str(row.branch_id))
+        if chain == "progression"
+        else get_director_branch(db, novel_id, str(row.branch_id))
+    )
+    request = branch.request_json or {}
+    confirmation_id = request.get("context_confirmation_id")
+    action = request.get("confirmation_action")
+    if not confirmation_id or not action:
+        raise ConflictError("移交来源缺少可重验的资料确认，请重新探索")
+    confirmed = await evidence.prepare_confirmed_ai_action(
+        db, novel_id=novel_id, action=action, confirmation_id=confirmation_id
+    )
+    root = await _root_for_chain(db, novel_id, row.root_id, chain)
+    start = (root.request_json or {}).get("exploration_start") or {}
+    output = unpack_exploration_output(row).model_dump(mode="json")
+    refs = set(start.get("canonical_refs") or [])
+    refs.update(confirmed.compile_options.get("character_ids") or [])
+
+    def collect_targets(value):
+        if isinstance(value, dict):
+            for key, item in value.items():
+                if key in {"target_ref", "subject_ref", "targets"}:
+                    for ref in item if isinstance(item, list) else [item]:
+                        try:
+                            refs.add(str(uuid.UUID(str(ref))))
+                        except (ValueError, TypeError):
+                            pass  # Candidate identities have no canonical knowledge.
+                collect_targets(item)
+        elif isinstance(value, list):
+            for item in value:
+                collect_targets(item)
+
+    collect_targets(output["payload"])
+    character_boundaries = {}
+    for ref in sorted(refs):
+        projection = await evidence.project_confirmed_character_context(
+            db, confirmed_context=confirmed, character_id=ref
+        )
+        terms = await evidence.build_hidden_guard_context(
+            db, confirmed_context=confirmed, viewpoint_character_id=ref
+        )
+        character_boundaries[ref] = content_hash(
+            {
+                "visible": projection.rendered_markdown,
+                "hidden": [term.phrase for term in terms],
+            }
+        )
+    fingerprint = content_hash(
+        {
+            "result_id": str(row.id),
+            "scale": scale,
+            "item_path": item_path,
+            "output": output,
+            "source_input": row.input_json,
+            "start": start,
+            "confirmation_id": confirmation_id,
+            "context": confirmed.confirmation.context_fingerprint,
+            "character_boundaries": character_boundaries,
+        }
+    )
+    return fingerprint, dict(confirmed.compile_options)
+
+
+async def validate_exploration_handoff(db, novel_id: str, start: ProvisionalStart):
+    reference = start.derived_from
+    row, chain = await _locate_result_row(db, novel_id, reference.source_result_id)
+    envelope = unpack_exploration_output(row)
+    if (
+        envelope is None
+        or _SCALE_BY_BASE_OUTPUT_KIND.get(envelope.output_kind) != reference.source_scale
+    ):
+        raise ConflictError("移交来源的尺度或结果已变化，请重新移交")
+    payload = envelope.payload.model_dump(mode="json")
+    if reference.item_path:
+        try:
+            check_revision_target(
+                payload, reference.item_path, None, envelope.output_kind
+            )
+        except ValueError as error:
+            raise ConflictError("移交来源条目已变化，请重新移交") from error
+    fingerprint, source_options = await _handoff_source_fingerprint(
+        db, novel_id, row, chain, reference.source_scale, reference.item_path
+    )
+    if reference.source_fingerprint != fingerprint:
+        raise ConflictError("移交来源或人物知识已变化，请重新移交并确认资料")
+    root = await _root_for_chain(db, novel_id, row.root_id, chain)
+    allowed_web = ((root.request_json or {}).get("exploration_start") or {}).get(
+        "web_refs"
+    ) or []
+    if any(item.model_dump(mode="json") not in allowed_web for item in start.web_refs):
+        raise ConflictError("移交联网资料超出原来源范围")
+    return source_options
 
 
 def _handoff_source_excerpt(
@@ -1439,7 +1558,13 @@ def _handoff_derived_inputs(
         text, _link = _sandbox_item_excerpt(payload, item_path)
         # 被选影响链条目的 effect/mechanism 并为一条 state 假设置顶；
         # 源起点假设（前提集）全量继承，未选链条条目不进入。
-        assumptions = [_state(f"源沙盘探索的既定影响：{text}")]
+        assumptions = _handoff_condition_assumptions(_link if item_path else payload)
+        assumptions.extend(
+            _state("源方案前提：" + value) for value in payload.get("preconditions") or []
+        )
+        assumptions.extend(
+            _state("仍未确定：" + value) for value in payload.get("unknowns") or []
+        )
         assumptions.extend(inherited)
         refs = _sandbox_affected_refs(payload, item_path)
         candidates, canonical, knowledge = _migrate_subjects(source_start, refs)
@@ -1449,12 +1574,22 @@ def _handoff_derived_inputs(
         if target_scale == "scene_line":
             text, item = _event_item_excerpt(payload, item_path)
             # 源事件摘录（或被选条目）为 state 假设；主体迁移按被选条目过滤。
-            assumptions = [_state(f"源事件探索的既定情节：{text}")]
+            assumptions = _handoff_condition_assumptions(
+                (item or {}) if item_path else payload
+            )
             refs = _event_item_refs(payload, item_path, item)
         else:
             # 追因：被选缺口/路径的前提转 world_rule/state 假设。
             assumptions = _event_premise_assumptions(payload, item_path)
+            _, selected = _event_item_excerpt(payload, item_path)
+            assumptions.extend(
+                _handoff_condition_assumptions(selected if item_path else payload)
+            )
             refs = []
+        assumptions.extend(inherited)
+        assumptions.extend(
+            _state("仍未确定：" + value) for value in payload.get("unknowns") or []
+        )
         return assumptions, *_migrate_subjects(source_start, refs)
 
     # scene_line 源：对白/动作与其依据转 state 假设；目标主体迁移。
@@ -1465,19 +1600,23 @@ def _handoff_derived_inputs(
     knowledge_basis = [str(item) for item in payload.get("knowledge_basis") or []]
     if knowledge_basis:
         basis = "；".join([basis, *knowledge_basis])
-    moment = f"源场景探索的已发生时刻：{text}（依据：{basis}）"
+    moment = f"源场景探索的候选时刻（假设成立时）：{text}（依据：{basis}）"
     if target_scale == "event":
         # 追因：对白/动作与其依据转 state 假设 + identity 假设（动机待探）。
         assumptions = [
             _state(moment),
             _identity(
                 f"{speaker} 在该情境下的动机尚待探明"
-                "（以上对白/动作只作已发生记录，不预设动机）"
+                "（以上对白/动作只作候选假设，不预设动机）"
             ),
         ]
     else:
         # 看影响：情境假设继承 + 已发生时刻置顶。
-        assumptions = [_state(f"{moment}；观察它的后续影响"), *inherited]
+        assumptions = [_state(f"{moment}；观察它的后续影响")]
+    assumptions.extend(inherited)
+    assumptions.extend(
+        _state("仍未确定：" + value) for value in payload.get("unknowns") or []
+    )
     candidates, canonical, knowledge = _migrate_subjects(
         source_start, [target] if target else []
     )
@@ -1572,6 +1711,17 @@ def _state(text: str) -> Assumption:
     return Assumption(kind="state", text=text[:2000])
 
 
+def _handoff_condition_assumptions(selected: dict) -> list[Assumption]:
+    text = json.dumps(selected, ensure_ascii=False)
+    return [
+        Assumption(
+            kind="state",
+            text="源探索候选（条件、代价与未知保持有效）：" + text[index : index + 1800],
+        )
+        for index in range(0, len(text), 1800)
+    ]
+
+
 def _rule(text: str) -> Assumption:
     return Assumption(kind="world_rule", text=text[:2000])
 
@@ -1659,6 +1809,7 @@ async def list_exploration_history_results(
         else ["progression", "scene"]
     )
     items: list[dict] = []
+    lock_cache: dict[str, list[str]] = {}
     for chain in chains:
         exploration_root_ids = await _exploration_root_ids(db, nid, chain=chain)
         if chain == "progression":
@@ -1700,8 +1851,17 @@ async def list_exploration_history_results(
             if envelope.output_kind == LOCK_SET_OUTPUT_KIND:
                 # lock_set 是锁定记录，不算 AI 结果：历史 AI 列表过滤（M3-A 契约）。
                 continue
+            branch_key = str(row.branch_id)
+            if branch_key not in lock_cache:
+                lock_cache[branch_key] = [
+                    item.item_path
+                    for item in await current_locked_items(
+                        db, novel_id=novel_id, branch_id=row.branch_id, chain=chain
+                    )
+                ]
             items.append(
                 {
+                    "locked_items": lock_cache[branch_key],
                     "root_id": str(row.root_id),
                     "branch_id": str(row.branch_id),
                     "result_id": str(row.id),
@@ -1712,9 +1872,7 @@ async def list_exploration_history_results(
                     "start_fingerprint": (root.request_json or {}).get(
                         "exploration_start_fingerprint"
                     ),
-                    "created_at": row.created_at.isoformat()
-                    if row.created_at
-                    else None,
+                    "created_at": row.created_at.isoformat() if row.created_at else None,
                     "payload": envelope.payload.model_dump(mode="json"),
                 }
             )
@@ -1737,9 +1895,7 @@ def _result_label(envelope: ExplorationOutputEnvelope) -> str:
         inner = payload.edited_payload.model_dump(mode="json")
         base = payload.base_output_kind
         return f"作者编辑版：{_result_label_of_kind(base, inner)}"
-    return _result_label_of_kind(
-        envelope.output_kind, payload.model_dump(mode="json")
-    )
+    return _result_label_of_kind(envelope.output_kind, payload.model_dump(mode="json"))
 
 
 def _result_label_of_kind(output_kind: str, payload: dict) -> str:
@@ -1809,6 +1965,7 @@ async def read_exploration_history(
             for item in summaries
             if (item[0].request_json or {}).get("exploration_scale") == scale
         ]
+
     def _sort_key(item: tuple[Any, str]):
         created = item[0].created_at
         # created_at 理论上可为空：先按“有值 > 无值”分组，组内按时间与 ID 稳定排序。

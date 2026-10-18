@@ -3,31 +3,25 @@ id: T-20261017-director-scales-impl
 title: 导演多尺度独立探索多批次实施
 status: active
 created: 2026-10-17T19:30:00+08:00
-updated: 2026-10-18T00:00:00+08:00
+updated: 2026-10-18T12:52:43+08:00
 ---
 
 # 导演多尺度独立探索：多批次实施
 
 ## 恢复快照
 
-- **第四批（M4）全部完成并合入**：M4-A1 六向移交契约/服务（14f018bf8）、M4-C 正式 Scene
-  参考副本（b85630f8c）、M4-A2 移交端到端测试、M4-A3 前端移交入口、M4-B1 探索操作接入
-  目标运行（领域独立账本 + 结算后导入增量，含 app task manifest 补注册 `exploration_tasks`）。
-- **收尾回归与治理修复完成（本地分支）**：依赖方向棘轮 517/517、治理/路由闭包/路由棘轮/
-  evidence fusion 四门禁 70 passed；story+assistant 755 passed；docs-check（--no-change-reason
-  通道）与 `git diff --check` 通过。修复要点：家族函数下沉 `exploration_schemas` 解导入环、
-  守卫只放 `api_start` 包装层（operations 以 db=None 复用共享函数）、api/operations/service
-  对 evidence facade 与 tasks facade 的调用改为模块属性晚绑定（恢复 monkeypatch 测试缝）、
-  `_BASE_KIND_BY_SCALE` 映射纠正、`director_api`/`director_service` 懒导入上提。
-- **收尾修复已提交 4778e40c8**（12 文件：7 story 模块 + 2 陈旧断言同步 + 2 README 增量
-  + 任务笔记）。分支 `codex/director-scales-impl` 领先 origin/main 72 commit，未推送。
-- 下一步：全分支实施总结交付；合并 main/推送/ADR-0042 采纳待用户授权；
-  真实模型调用、作者验证、生产功能开启、部署均不启动。
-- 阻塞：无。
-- 已知设计偏差（评审注意）：探索 worker 对推进链改为服务内直接落行（35a17dac3 docstring）；
-  排演/多目标/诊断结果 detail/revise/lock/save-edit 一律 409；探索链无作者侧 resume 端点；
-  排演 action 沿用 scene_line.generate；M4-C 端点用 operation-exemption 未入助手目录；
-  handoff 链仅一跳记录；M4-B1 领域账本内目标侧 80% 实时检查存在盲区（结算后导入兜底）。
+- 2026-10-18 深审追加发现 5 项：Goal 失败账本回退、历史编辑绕过锁、Scene 缺父版本 CAS、
+  取消后领域检查点不可恢复、沙盘受影响者字段不匹配。用户要求“修复，然后 pr”。
+- 五项已修，追加 PostgreSQL 根/分支外键排序和截止后历史费用结算修复；沿用主实施工作树 codex/director-scales-impl，HEAD db8853ff6。
+  原 26 项修复的未提交成果保留并纳入本次 PR；修改前补丁与 3 个未跟踪文件备份在
+  /private/tmp/director-before-review-fix.patch 与 director-before-review-untracked.tgz。
+- 阶段证据：完整 test-ci 通过（后端 9505/85.48%，前端 3335，部署 324），专用 PG critical 112 项通过。
+  最终后端全量 9508 passed / 2 skipped，覆盖率 85.48%；详细证据见 REVIEW-FIXES.md。
+- 下一步：运行提交门禁，提交推送并创建 PR；不合并、不部署。
+- 真实数据库、业务模型与作者验收未获本轮新增授权；ADR-0042 仍 Proposed。
+- 上轮工程证据保留在 REVIEW-FIXES.md；上轮“未见剩余缺陷”已被本轮反例推翻。
+
+此前实施批次及 4778e40c8 等提交仅为工程历史；审查发现的旧设计偏差已由本轮整改替换。
 
 ## 目标与授权
 
@@ -67,11 +61,10 @@ updated: 2026-10-18T00:00:00+08:00
 
 ## 验证证据
 
-- 2026-10-17：基线核实 `git rev-parse origin/main main` = 6004d3703 一致；worktree 建立成功。
-- 实施验证随各 Wave 记录（模块测试、lint、PostgreSQL 隔离库迁移、前端 Vitest、docs-check）。
-- 2026-10-18 收尾：治理四门禁 70 passed（含棘轮 517/517）；story+assistant 755 passed；
-  全量后端套件、docs-check（no-change-reason）、`git diff --check` 结果随收尾提交记录。
+- 2026-10-17：基线 origin/main 与本地 main 6004d3703 一致；各批实施历史见 Git 与同目录契约材料。
+- 2026-10-18：整改完成后的完整门禁、逐项回归映射、未验范围及本地日志见 [REVIEW-FIXES.md](REVIEW-FIXES.md)。
+- 最终离线通过不构成 ADR 采纳、作者确认、真实模型效果、生产可用性或远端交付证明。
 
 ## 下一步
 
-- 提交收尾治理修复；交付全分支总结（含偏差清单）；其余待授权项见恢复快照。
+- 按恢复快照完成本轮修复和 PR；第五批独立验收仍待，当前不合并或部署。

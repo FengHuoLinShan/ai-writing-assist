@@ -13,7 +13,7 @@
         <li v-for="(link, index) in sandboxLinks" :key="index">
           <p><strong>{{ link.condition || "未写明条件" }}</strong> → {{ link.effect }}</p>
           <p v-if="link.mechanism" class="exploration-result-card__basis">机理：{{ link.mechanism }}</p>
-          <p v-if="link.affected?.length" class="exploration-result-card__basis">受影响：{{ link.affected.join("、") }}</p>
+          <p v-if="link.affected_refs?.length" class="exploration-result-card__basis">受影响：{{ link.affected_refs.join("、") }}</p>
           <p v-if="link.holds_when" class="exploration-result-card__basis">成立条件：{{ link.holds_when }}</p>
           <p v-if="link.unknown" class="exploration-result-card__unknown">未知：{{ link.unknown }}</p>
           <button v-if="lockAvailable && revisableItem(`chain:${index}`)" type="button" class="exploration-result-card__lock" :class="{ 'exploration-result-card__lock--on': isItemLocked(`chain:${index}`) }" :aria-pressed="isItemLocked(`chain:${index}`)" :disabled="lockBusyKey === `chain:${index}`" @click="toggleLock(revisableItem(`chain:${index}`))">{{ lockLabel(`chain:${index}`) }}</button>
@@ -157,33 +157,48 @@
       <p class="exploration-result-card__line">{{ compactText(followUp.payload, followUp.output_kind) }}</p>
     </section>
 
-    <p v-if="isFullRehearsal" class="exploration-result-card__hint">完整排演结果不支持增量修订；需要调整请以同起点新建任务。</p>
+    <button v-if="activeTaskId" type="button" class="btn btn-sm" @click="stopTask">停止这次生成</button>
+    <p v-if="backupError" role="alert">本地备份失败，编辑仅保留在本页。保存成功前请勿刷新；可先复制编辑框中的文本。</p>
+    <section v-if="pausedReceipt" aria-label="恢复暂停的探索">
+      <p>探索已暂停，恢复会沿用原起点、检查点、账本与时限；未完成步骤可能需要重新执行。</p>
+      <button type="button" class="btn btn-sm" :disabled="busy" @click="previewResume">核对恢复预算</button>
+      <template v-if="resumePreview">
+        <p>已请求 {{ resumePreview.requests_started }} 次，其中 {{ resumePreview.requests_unknown }} 次结果未知。</p>
+        <label>追加请求上限 <input v-model.number="resumeRequests" type="number" min="1" max="10000"></label>
+        <label>追加用量上限 <input v-model.number="resumeTokens" type="number" min="1"></label>
+        <label v-if="resumePreview.requests_unknown"><input v-model="resumeUnknownAck" type="checkbox">我已核对未知请求，确认继续可能重复计费</label>
+        <button type="button" class="btn btn-sm" :disabled="busy || (resumePreview.requests_unknown && !resumeUnknownAck)" @click="confirmResume">确认追加预算并恢复</button>
+      </template>
+    </section>
+    <ExplorationResultCard v-if="handoffResult" :source="handoffResult" :project-id="projectId" @refresh="emit('refresh')" />
 
     <div class="exploration-result-card__actions">
+      <p v-if="modelFollowUpAvailable" class="exploration-result-card__hint">每个生成条目预计 3–5 次模型请求，包含知识导演与独立审查。说详细点最多追加 {{ (isFullRehearsal || sceneVariants.length || spatialAssessment ? revisionItems.length : 1) * 5 }} 次；局部修订最多追加 5 次。</p>
       <button v-if="modelFollowUpAvailable" type="button" class="btn btn-sm" :disabled="busy" @click="requestDetail">说详细点</button>
       <details v-if="modelFollowUpAvailable && revisionItems.length" class="exploration-result-card__op">
         <summary>局部修订</summary>
         <label><span>选择条目</span>
-          <select v-model="revisionItemKey" :disabled="busy">
+          <select v-model="revisionItemKey" :disabled="busy || savingEdit">
             <option v-for="item in revisionItems" :key="item.key" :value="item.key" :disabled="isItemLocked(item.key)">{{ item.label }}{{ isItemLocked(item.key) ? "（已锁定，先解锁）" : "" }}</option>
           </select>
         </label>
+        <button v-if="lockAvailable && selectedItem && (isFullRehearsal || sceneVariants.length || spatialAssessment)" type="button" class="btn btn-sm" :disabled="busy || Boolean(lockBusyKey)" @click="toggleLock(selectedItem)">{{ lockLabel(selectedItem.key) }}</button>
         <label><span>这条要怎么改</span><textarea v-model="revisionInstruction" rows="2" maxlength="2000" :disabled="busy"></textarea></label>
         <p v-if="selectedItemLocked" class="exploration-result-card__hint">已锁定，先解锁</p>
         <button type="button" class="btn btn-sm" :disabled="busy || selectedItemLocked || !revisionItemKey || !revisionInstruction.trim()" @click="requestRevise">{{ busy ? "正在修订…" : "开始修订" }}</button>
       </details>
-      <details v-if="!isFullRehearsal" class="exploration-result-card__op">
+      <details class="exploration-result-card__op">
         <summary>保存编辑</summary>
         <p class="exploration-result-card__hint">编辑会保存为新版本，AI 原结果保持不变；本地草稿暂存，保存成功才提示已保存。</p>
-        <label><span>编辑{{ revisionItemKey ? `：${selectedItem?.label || "选中条目"}` : "文本" }}</span><textarea v-model="editDraft" rows="3" maxlength="4000"></textarea></label>
+        <label><span>编辑{{ revisionItemKey ? `：${selectedItem?.label || "选中条目"}` : "文本" }}</span><textarea v-model="editDraft" rows="3" maxlength="4000" :disabled="busy || savingEdit"></textarea></label>
         <div class="exploration-result-card__save-row">
-          <button type="button" class="btn btn-sm" :disabled="savingEdit || !editDraft.trim()" @click="startEdit">{{ editing ? "更新草稿" : "开始编辑" }}</button>
-          <button type="button" class="btn btn-sm btn-primary" :disabled="savingEdit || !editDraft.trim()" @click="saveEdit">{{ savingEdit ? "正在保存…" : "保存编辑" }}</button>
+          <button type="button" class="btn btn-sm" :disabled="busy || savingEdit || !editDraft.trim()" @click="startEdit">{{ editing ? "更新草稿" : "开始编辑" }}</button>
+          <button type="button" class="btn btn-sm btn-primary" :disabled="busy || savingEdit || !editDraft.trim()" @click="saveEdit">{{ savingEdit ? "正在保存…" : "保存编辑" }}</button>
         </div>
       </details>
       <details v-if="projectId" class="exploration-result-card__op" @toggle="onCompareToggle">
         <summary>结果对照</summary>
-        <label><span>选择同一 root 下的另一结果</span>
+        <label><span>选择另一探索结果</span>
           <select v-model="compareTargetId" :disabled="comparing">
             <option value="">选择结果</option>
             <option v-for="item in compareCandidates" :key="item.result_id" :value="item.result_id">{{ item.label }}</option>
@@ -268,9 +283,9 @@
 // M4-A：跨尺度移交——把当前结果派生为另一尺度的临时起点，经 confirmation/
 // preview → confirm → 预算预览 → start 启动独立新任务；源为作者编辑版、
 // 完整排演或锁定记录时不提供入口。
-import { computed, onBeforeUnmount, ref, watch } from "vue"
-import { getApi } from "../../bridge/index.js"
-import { createOperationId, pollTaskProgress } from "../../../shared/workflowProgress.js"
+import { computed, onBeforeUnmount, onMounted, ref, watch } from "vue"
+import { getApi, registerAuxiliaryLeaveGuard } from "../../bridge/index.js"
+import { createOperationId, pollTaskProgress, persistActiveWorkflow, recoverActiveWorkflows } from "../../../shared/workflowProgress.js"
 
 const props = defineProps({
   source: { type: Object, required: true },
@@ -325,9 +340,25 @@ const handoffReason = ref("")
 const handoffDerived = ref(null)
 const handoffConfirmation = ref(null)
 const handoffBusy = ref(false)
+const handoffOperationId = ref(createOperationId())
+const handoffStartRequest = ref(null)
+const handoffResult = ref(null)
+const activeTaskId = ref("")
+const pausedReceipt = ref(props.source?.needs_author_resume ? props.source : null)
+const resumePreview = ref(null)
+const resumeRequests = ref(5)
+const resumeTokens = ref(30000)
+const resumeUnknownAck = ref(false)
+let resumeOperationId = createOperationId()
+const backupError = ref(false)
+let activeHandoff = false
+let restoringSelection = false
 let poller = null
 
-const current = ref({ resultId: props.source?.result_id || "", kind: props.source?.output_kind || "", payload: props.source?.payload || {} })
+let initialView = null
+try { initialView = JSON.parse(localStorage.getItem(viewKey()) || "null") } catch { /* 已保存结果从服务端恢复。 */ }
+const current = ref(initialView?.current || { resultId: props.source?.result_id || "", kind: props.source?.output_kind || "", payload: props.source?.payload || {} })
+revisionItemKey.value = initialView?.itemKey || ""
 
 const kind = computed(() => current.value.kind)
 const display = computed(() => {
@@ -345,7 +376,7 @@ const title = computed(() => KIND_LABELS[kind.value] || "探索结果")
 const scaleLabel = computed(() => SCALE_LABELS[props.source?.scale] || props.source?.scale || "探索")
 const scaleClass = computed(() => props.source?.scale || "unknown")
 const question = computed(() => props.source?.label || display.value.question || "")
-const modelFollowUpAvailable = computed(() => kind.value !== AUTHOR_EDIT && kind.value !== FULL_REHEARSAL && Boolean(current.value.resultId))
+const modelFollowUpAvailable = computed(() => kind.value !== LOCK_SET && Boolean(current.value.resultId))
 
 // M4-A 移交入口：作者编辑版/完整排演/锁定记录不作为移交源（服务端同样拒绝）。
 const handoffAvailable = computed(() => (
@@ -439,8 +470,15 @@ const revisionItems = computed(() => {
     }))
   }
   if (isSceneLine.value) {
+    if (payload.variants) return payload.variants.map((item, index) => ({ key: `variant:${index}`, label: `人物对白 ${index + 1}`, text: item.line || "" }))
+    if (payload.spatial_assessment) return [{ key: "spatial", label: "空间诊断", text: (payload.spatial_assessment.constraints || []).join("\n") }]
     return [{ key: "line", label: "这句对白", text: payload.line || "" }]
   }
+  if (isFullRehearsal.value) return (payload.rounds || []).flatMap((round, r) => [
+    ...(round.performances || []).map((item, index) => ({ key: `performance:${r}:${index}`, label: `第 ${r + 1} 轮表演 ${index + 1}`, text: item.line_or_beat || "" })),
+    ...(round.materials || []).map((item, index) => ({ key: `material:${r}:${index}`, label: `第 ${r + 1} 轮素材 ${index + 1}`, text: item.text || "" })),
+    ...(round.observations || []).map((item, index) => ({ key: `observation:${r}:${index}`, label: `第 ${r + 1} 轮观察 ${index + 1}`, text: item.observed || "" })),
+  ])
   return []
 })
 const selectedItem = computed(() => revisionItems.value.find(item => item.key === revisionItemKey.value) || null)
@@ -454,7 +492,7 @@ function normalizeLockedPaths(items) {
 }
 const lockedItemPaths = ref(normalizeLockedPaths(props.source?.locked_items))
 const lockBusyKey = ref("")
-const lockAvailable = computed(() => kind.value !== AUTHOR_EDIT && Boolean(current.value.resultId))
+const lockAvailable = computed(() => kind.value !== LOCK_SET && Boolean(current.value.resultId))
 const selectedItemLocked = computed(() => Boolean(selectedItem.value && lockedItemPaths.value.has(selectedItem.value.key)))
 
 function revisableItem(key) { return revisionItems.value.find(item => item.key === key) || null }
@@ -491,22 +529,35 @@ async function toggleLock(item) {
   } finally { lockBusyKey.value = "" }
 }
 
-function draftKey() { return `${DRAFT_PREFIX}:${props.projectId || "local"}:${current.value.resultId}` }
-function readDraft() {
+function draftKey(itemKey = revisionItemKey.value) { return `${DRAFT_PREFIX}:${props.projectId || "local"}:${current.value.resultId}:${itemKey}` }
+function readDraft(itemKey = revisionItemKey.value) {
   try {
-    const parsed = JSON.parse(localStorage.getItem(draftKey()) || "null")
+    const legacyKey = `${DRAFT_PREFIX}:${props.projectId || "local"}:${current.value.resultId}`
+    const parsed = JSON.parse(localStorage.getItem(draftKey(itemKey)) || localStorage.getItem(legacyKey) || "null")
+    if (parsed?.itemKey && parsed.itemKey !== itemKey) return null
     return parsed && typeof parsed.text === "string" ? parsed : null
   } catch { return null }
 }
-function writeDraft() {
-  try { localStorage.setItem(draftKey(), JSON.stringify({ text: editDraft.value, itemKey: revisionItemKey.value, updatedAt: new Date().toISOString() })) } catch { /* 存储不可用时草稿只留在本页 */ }
+function writeDraft(itemKey = revisionItemKey.value) {
+  try { localStorage.setItem(draftKey(itemKey), JSON.stringify({ text: editDraft.value, itemKey, updatedAt: new Date().toISOString() })); backupError.value = false; return true } catch { backupError.value = true; return false }
 }
 function clearDraft() {
-  try { localStorage.removeItem(draftKey()) } catch { /* ignore */ }
+  try {
+    localStorage.removeItem(draftKey())
+    const legacyKey = `${DRAFT_PREFIX}:${props.projectId || "local"}:${current.value.resultId}`
+    const legacy = JSON.parse(localStorage.getItem(legacyKey) || "null")
+    if (legacy?.itemKey === revisionItemKey.value) localStorage.removeItem(legacyKey)
+  } catch { /* 已保存结果仍在服务端；未清除的备份下次可以恢复。 */ }
 }
 
-watch(revisionItemKey, () => {
-  if (!editing.value) editDraft.value = selectedItem.value?.text || ""
+watch(revisionItemKey, (next, previous) => {
+  if (restoringSelection) { restoringSelection = false; return }
+  if (previous && editDraft.value && editDraft.value !== revisionItems.value.find(item => item.key === previous)?.text) {
+    if (!writeDraft(previous)) { restoringSelection = true; revisionItemKey.value = previous; errorMessage.value = "草稿尚未备份，请先保存或复制，再切换条目。"; return }
+  }
+  const draft = readDraft(next)
+  editing.value = Boolean(draft?.text)
+  editDraft.value = draft?.text ?? selectedItem.value?.text ?? ""
 })
 
 // 条目选择默认落到第一项；结果切换（如补充后的新版本）时重新对齐。
@@ -520,7 +571,7 @@ watch(compareMode, () => { comparison.value = null })
 // 未保存的编辑草稿逐次暂存 localStorage；服务端保存成功后才清除。
 watch(editDraft, value => {
   if (!current.value.resultId) return
-  if (value.trim()) writeDraft()
+  if (value !== (selectedItem.value?.text || "") && value.trim()) { editing.value = true; writeDraft() }
   else clearDraft()
 })
 
@@ -536,7 +587,7 @@ function startEdit() {
   editing.value = true
   if (!editDraft.value.trim()) editDraft.value = selectedItem.value?.text || display.value.line || ""
   writeDraft()
-  status.value = { tone: "info", text: "草稿已暂存在本页，保存成功前不会进入结果历史。" }
+  status.value = { tone: "info", text: backupError.value ? "备份失败，草稿仅保留在本页，请先复制或保存。" : "草稿已在本机备份，保存成功前不会进入结果历史。" }
 }
 
 function editedPayload() {
@@ -547,7 +598,15 @@ function editedPayload() {
   else if (isEvent.value && selectedItem.value) {
     if (selectedItem.value.key.startsWith("bridge")) clone.bridge_candidates[index].steps = text.split("\n").map(line => line.trim()).filter(Boolean)
     else clone.gaps[index].description = text
-  } else if (isSceneLine.value) clone.line = text
+  } else if (isSceneLine.value) {
+    if (selectedItem.value?.key.startsWith("variant:")) clone.variants[index].line = text
+    else if (selectedItem.value?.key === "spatial") clone.spatial_assessment.constraints = text.split("\n").filter(Boolean)
+    else clone.line = text
+  } else if (isFullRehearsal.value && selectedItem.value) {
+    const [family, round, item] = selectedItem.value.key.split(":")
+    const [field, property] = { performance: ["performances", "line_or_beat"], material: ["materials", "text"], observation: ["observations", "observed"] }[family]
+    clone.rounds[Number(round)][field][Number(item)][property] = text
+  }
   else return null
   return clone
 }
@@ -561,21 +620,24 @@ async function saveEdit() {
   errorMessage.value = ""
   status.value = { tone: "info", text: "正在保存编辑…" }
   try {
-    await getApi()?.story?.explorationSaveEdit(current.value.resultId, {
+    const receipt = await getApi()?.story?.explorationSaveEdit(current.value.resultId, {
       novel_id: projectId,
       base_output_kind: effectiveKind.value,
       edited_payload: edited,
     })
+    if (!receipt?.result_id) throw new Error("服务端没有返回已保存的新版本")
     savedLocally.value = true
     editing.value = false
     editDraft.value = ""
     clearDraft()
-    current.value = { ...current.value, kind: AUTHOR_EDIT, payload: { base_output_kind: effectiveKind.value, base_result_id: current.value.resultId, edited_payload: edited } }
+    current.value = { ...current.value, resultId: receipt.result_id, kind: receipt.output_kind || AUTHOR_EDIT, payload: receipt.payload || { base_output_kind: effectiveKind.value, base_result_id: current.value.resultId, edited_payload: edited } }
+    saveView()
     status.value = { tone: "ok", text: "已保存编辑（形成新版本，原结果保持不变）。" }
     emit("refresh")
   } catch (error) {
     // 服务端失败：草稿保留（本页 + localStorage），明示失败原因。
-    errorMessage.value = `保存未成功：${error?.message || "请稍后重试"}。草稿已保留，可直接再次保存。`
+    writeDraft()
+    errorMessage.value = `保存未成功：${error?.message || "请稍后重试"}。${backupError.value ? "本地备份也失败，草稿仅在本页，请先复制文本再离开。" : "草稿已在本机备份，可再次保存。"}`
     status.value = { tone: "", text: "" }
   } finally { savingEdit.value = false }
 }
@@ -587,33 +649,114 @@ function pickFollowUp(task) {
   return wrapper.output_kind && wrapper.payload ? wrapper : null
 }
 
-function pollFollowUp(taskId) {
+function viewKey() { return `${DRAFT_PREFIX}:view:${props.projectId}:${props.source?.result_id || props.source?.task_id}` }
+function saveView() {
+  try {
+    localStorage.setItem(viewKey(), JSON.stringify({ current: current.value, itemKey: revisionItemKey.value, locked: [...lockedItemPaths.value], taskId: activeTaskId.value, handoff: activeHandoff, handoffResult: handoffResult.value, paused: pausedReceipt.value, handoffStartRequest: handoffStartRequest.value, handoffDerived: handoffDerived.value, handoffConfirmation: handoffConfirmation.value, handoffTarget: handoffTarget.value, handoffReason: handoffReason.value }))
+    return true
+  } catch { return false }
+}
+
+async function previewResume() {
+  try {
+    const paused = pausedReceipt.value
+    resumePreview.value = await getApi()?.story?.explorationResumePreview(paused.root_id, paused.branch_id, { novel_id: props.projectId })
+    resumeUnknownAck.value = false
+    resumeOperationId = createOperationId()
+  } catch (error) { errorMessage.value = error?.message || "恢复预览暂不可用，请重试。" }
+}
+
+async function confirmResume() {
+  if (!resumePreview.value || busy.value) return
+  busy.value = true
+  try {
+    const preview = resumePreview.value
+    const receipt = await getApi()?.story?.explorationResume(preview.root_id, preview.branch_id, {
+      novel_id: props.projectId, operation_id: resumeOperationId, checkpoint_hash: preview.checkpoint_hash,
+      additional_requests: resumeRequests.value, additional_tokens: resumeTokens.value,
+      acknowledge_unknown_requests: resumeUnknownAck.value ? preview.requests_unknown : 0,
+      allow_possible_duplicate_charge: resumeUnknownAck.value,
+    })
+    if (!receipt?.task_id) throw new Error("服务端没有返回恢复任务")
+    pausedReceipt.value = null
+    pollFollowUp(receipt.task_id, { handoff: activeHandoff })
+  } catch (error) { busy.value = false; errorMessage.value = error?.message || "恢复未完成，请重试。" }
+}
+
+async function restoreLatest() {
+  const history = await getApi()?.story?.explorationHistory?.({ novel_id: props.projectId, root_id: props.source?.root_id, limit: 100 })
+  const row = history?.items?.find(item => (!props.source?.branch_id || item.branch_id === props.source.branch_id) && item.payload)
+  if (row && !editing.value) {
+    current.value = { resultId: row.result_id, kind: row.output_kind, payload: row.payload }
+    revisionItemKey.value = revisionItems.value.find(item => item.key === revisionItemKey.value)?.key || revisionItems.value[0]?.key || ""
+    const draft = readDraft()
+    if (draft?.text) { editing.value = true; editDraft.value = draft.text }
+    if (Array.isArray(row.locked_items)) lockedItemPaths.value = normalizeLockedPaths(row.locked_items)
+    saveView()
+  }
+}
+
+async function stopTask() {
+  if (!activeTaskId.value) return
+  try { const cancel = getApi()?.tasks?.cancel; if (!cancel) throw new Error("停止接口暂不可用，请稍后重试。"); await cancel(activeTaskId.value, props.projectId); status.value = { tone: "info", text: "已请求停止；正在核对任务最终状态。" } }
+  catch (error) { errorMessage.value = error?.message || "停止请求未成功，请重试。" }
+}
+
+function pollFollowUp(taskId, { handoff = false } = {}) {
   poller?.stop?.()
+  activeTaskId.value = taskId
+  activeHandoff = handoff
+  busy.value = true
+  persistActiveWorkflow({ taskId, workflowType: "story_exploration", projectId: props.projectId, meta: { originResultId: props.source?.result_id || props.source?.task_id, handoff } })
+  saveView()
   poller = pollTaskProgress({
     taskId,
     workflowType: "story_exploration",
     novelId: props.projectId,
     apiClient: getApi(),
-    receiptStorage: null,
     onUpdate: () => { if (!status.value.text || status.value.tone === "info") status.value = { tone: "info", text: "正在生成结果，可离开后回来查看。" } },
     onDone: (_progress, task) => {
       busy.value = false
+      activeTaskId.value = ""
+      if (task?.result?.needs_author_resume) {
+        pausedReceipt.value = task.result
+        status.value = { tone: "info", text: "探索已暂停，请核对预算或未知计费后恢复。" }
+        saveView()
+        return
+      }
       const wrapper = pickFollowUp(task)
       if (wrapper) {
+        if (handoff) {
+          handoffResult.value = { ...wrapper, type: "story_exploration_result", scale: HANDOFF_SCALE_BY_KIND[wrapper.output_kind] || "scene_line", label: handoffDerived.value?.question || "移交后的探索" }
+          status.value = { tone: "ok", text: "移交后的探索已完成，结果见下方。" }
+          saveView()
+          emit("refresh")
+          return
+        }
         followUps.value = [...followUps.value, { output_kind: wrapper.output_kind, payload: wrapper.payload }]
         current.value = { resultId: wrapper.result_id || current.value.resultId, kind: wrapper.output_kind, payload: wrapper.payload }
-        // 新结果是独立版本，不继承父结果的锁定集合。
-        lockedItemPaths.value = new Set()
-        revisionItemKey.value = ""
+        if (Array.isArray(wrapper.locked_items)) lockedItemPaths.value = normalizeLockedPaths(wrapper.locked_items)
+        revisionItemKey.value = revisionItems.value[0]?.key || ""
         revisionInstruction.value = ""
         status.value = { tone: "ok", text: "新结果已生成。" }
       } else {
         status.value = { tone: "ok", text: "新结果已生成，刷新讨论后即可查看。" }
       }
+      saveView()
+      void restoreLatest().catch(() => {})
       emit("refresh")
     },
-    onFailed: progress => {
+    onFailed: (progress, task) => {
       busy.value = false
+      activeTaskId.value = ""
+      if (progress?.cancelled && task?.meta?.recovery_receipt) {
+        pausedReceipt.value = task.meta.recovery_receipt
+        status.value = { tone: "info", text: "生成已停止，已完成的进度仍在；可核对预算后恢复。" }
+        errorMessage.value = ""
+        saveView()
+        return
+      }
+      saveView()
       status.value = { tone: "", text: "" }
       errorMessage.value = progress?.errorMessage || "这次生成没有完成；已保存的结果仍在。"
     },
@@ -622,7 +765,7 @@ function pollFollowUp(taskId) {
 
 async function requestDetail() {
   const projectId = props.projectId
-  if (!current.value.resultId || !projectId || busy.value) return
+  if (!current.value.resultId || !projectId || busy.value || !canGenerate()) return
   busy.value = true
   errorMessage.value = ""
   status.value = { tone: "info", text: "已提交“说详细点”，等待生成…" }
@@ -640,7 +783,7 @@ async function requestDetail() {
 async function requestRevise() {
   const projectId = props.projectId
   const item = selectedItem.value
-  if (!current.value.resultId || !projectId || busy.value || !item) return
+  if (!current.value.resultId || !projectId || busy.value || !item || !canGenerate()) return
   busy.value = true
   errorMessage.value = ""
   status.value = { tone: "info", text: "已提交局部修订，等待生成…" }
@@ -666,12 +809,11 @@ async function onCompareToggle(event) {
   compareOpen.value = event.target?.open === true
   if (!compareOpen.value || compareCandidates.value.length || !props.projectId) return
   try {
-    const history = await getApi()?.story?.explorationHistory({ novel_id: props.projectId, root_id: props.source?.root_id })
+    const history = await getApi()?.story?.explorationHistory({ novel_id: props.projectId, limit: 100 })
     const rows = []
     const collect = item => { if (item?.result_id && item.result_id !== current.value.resultId) rows.push({ result_id: item.result_id, label: item.label || SCALE_LABELS[item.scale] || item.result_id }) }
     for (const item of history?.items || []) collect(item)
     for (const root of history?.roots || []) {
-      if (props.source?.root_id && root?.id && root.id !== props.source.root_id) continue
       for (const branch of root?.branches || []) for (const item of branch?.results || []) collect(item)
     }
     compareCandidates.value = rows
@@ -744,6 +886,8 @@ watch(() => current.value.resultId, () => {
   handoffReason.value = ""
   handoffDerived.value = null
   handoffConfirmation.value = null
+  handoffOperationId.value = createOperationId()
+  handoffStartRequest.value = null
 })
 
 async function requestHandoff() {
@@ -766,6 +910,8 @@ async function requestHandoff() {
       assumptionCount: Array.isArray(start.assumptions) ? start.assumptions.length : 0,
     }
     handoffConfirmation.value = null
+    handoffOperationId.value = createOperationId()
+    handoffStartRequest.value = null
     status.value = { tone: "ok", text: "移交预览已生成；确认资料范围后才会开始新任务。" }
   } catch (error) {
     // 4xx/409 服务端中文原因原样展示。
@@ -795,12 +941,13 @@ async function previewHandoffConfirmation() {
 
 async function confirmAndStartHandoff() {
   const confirmation = handoffConfirmation.value
-  if (!confirmation || handoffBusy.value) return
+  if (!confirmation || handoffBusy.value || busy.value) return
   handoffBusy.value = true
   errorMessage.value = ""
   status.value = { tone: "info", text: "正在确认资料范围并启动新任务…" }
   try {
-    const confirmed = await getApi()?.story?.explorationConfirm({
+    if (!handoffStartRequest.value) {
+      const confirmed = await getApi()?.story?.explorationConfirm({
       ...handoffRequestBase(),
       expected_context_fingerprint: confirmation.fingerprint,
     })
@@ -815,15 +962,19 @@ async function confirmAndStartHandoff() {
     })
     const budgetHash = budgetPreview?.budget?.preview_hash
     if (!budgetHash) throw new Error("服务端没有返回预算预览标识")
-    const receipt = await getApi()?.story?.explorationStart({
+      handoffStartRequest.value = {
       ...handoffRequestBase(),
       context_confirmation_id: confirmed.confirmation_id,
       budget_preview_hash: budgetHash,
-      operation_id: createOperationId(),
+      operation_id: handoffOperationId.value,
       time_budget_seconds: 3600,
-    })
+      }
+      if (!saveView()) throw new Error("任务标识无法在本机保存，请恢复浏览器存储后再开始，以便安全重试")
+    }
+    const receipt = await getApi()?.story?.explorationStart(handoffStartRequest.value)
     if (!receipt?.task_id) throw new Error("服务端没有返回任务标识")
-    status.value = { tone: "ok", text: "已在新任务中继续；新任务从移交后的起点独立运行。" }
+    pollFollowUp(receipt.task_id, { handoff: true })
+    status.value = { tone: "info", text: "已在新任务中继续，正在跟踪生成进度。" }
     emit("refresh")
   } catch (error) {
     status.value = { tone: "", text: "" }
@@ -869,7 +1020,39 @@ function compactText(payload, kindValue = effectiveKind.value) {
   return text.filter(Boolean).join("\n") || "（无内容）"
 }
 
-onBeforeUnmount(() => { poller?.stop?.(); poller = null })
+const unsafeDraft = computed(() => backupError.value && Boolean(editDraft.value.trim()) && editDraft.value !== (selectedItem.value?.text || ""))
+function canGenerate() {
+  if (editDraft.value.trim() && editDraft.value !== (selectedItem.value?.text || "")) {
+    errorMessage.value = "请先保存当前编辑，再基于保存后的版本继续生成。"
+    return false
+  }
+  return true
+}
+function canLeave() { if (!unsafeDraft.value) return true; errorMessage.value = "编辑尚未保存或备份，请先保存或复制文本。"; return false }
+const removeLeaveGuard = registerAuxiliaryLeaveGuard(canLeave)
+function beforeUnload(event) { if (unsafeDraft.value) { event.preventDefault(); event.returnValue = "" } }
+globalThis.addEventListener?.("beforeunload", beforeUnload)
+defineExpose({ canLeave })
+onMounted(() => {
+  try {
+    const saved = initialView
+    if (saved?.current && !editing.value) current.value = saved.current
+    if (saved?.locked) lockedItemPaths.value = normalizeLockedPaths(saved.locked)
+    handoffResult.value = saved?.handoffResult || null
+    pausedReceipt.value = saved?.paused || pausedReceipt.value
+    handoffStartRequest.value = saved?.handoffStartRequest || null
+    handoffDerived.value = saved?.handoffDerived || null
+    handoffConfirmation.value = saved?.handoffConfirmation || null
+    handoffTarget.value = saved?.handoffTarget || ""
+    handoffReason.value = saved?.handoffReason || ""
+    const originId = props.source?.result_id || props.source?.task_id
+    const workflow = recoverActiveWorkflows(props.projectId).find(item => item.workflowType === "story_exploration" && originId && item.meta?.originResultId === originId)
+    const taskId = workflow?.taskId || saved?.taskId
+    if (taskId) { pollFollowUp(taskId, { handoff: workflow?.meta?.handoff ?? saved?.handoff }); return }
+  } catch { /* 已保存内容可以从服务端历史恢复。 */ }
+  void restoreLatest().catch(() => {})
+})
+onBeforeUnmount(() => { saveView(); poller?.stop?.(); poller = null; removeLeaveGuard(); globalThis.removeEventListener?.("beforeunload", beforeUnload) })
 </script>
 
 <style>

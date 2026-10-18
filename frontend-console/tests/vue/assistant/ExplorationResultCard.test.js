@@ -56,6 +56,7 @@ it("renders a sandbox chain with preconditions and unknowns", () => {
   const text = wrapper.text()
   expect(text).toContain("沙盘推演")
   expect(text).toContain("面包需要重新计时")
+  expect(text).toContain("受影响：baker")
   expect(text).toContain("成立条件：减半窗口在清晨")
   expect(text).toContain("前提条件：城镇居民已适应节律")
   expect(text).toContain("未知：长期健康影响未知")
@@ -411,7 +412,7 @@ it("saves an edit as a new version and clears the local draft on success", async
   }))
   expect(wrapper.get('[role="status"]').text()).toContain("已保存编辑")
   expect(wrapper.get(".exploration-result-card__badge").text()).toBe("已保存编辑")
-  expect(localStorage.getItem("novel_exploration_edit_v1:p1:result-1")).toBeNull()
+  expect(localStorage.getItem("novel_exploration_edit_v1:p1:result-1:line")).toBeNull()
 })
 
 it("keeps the draft and shows the failure when the server rejects the edit", async () => {
@@ -425,7 +426,7 @@ it("keeps the draft and shows the failure when the server rejects the edit", asy
   expect(wrapper.get('[role="alert"]').text()).toContain("保存未成功")
   expect(edit.get("textarea").element.value).toBe("还没保存成功的对白")
   expect(wrapper.find(".exploration-result-card__badge").exists()).toBe(false)
-  expect(JSON.parse(localStorage.getItem("novel_exploration_edit_v1:p1:result-1")).text).toBe("还没保存成功的对白")
+  expect(JSON.parse(localStorage.getItem("novel_exploration_edit_v1:p1:result-1:line")).text).toBe("还没保存成功的对白")
 })
 
 it("restores an unsaved draft from localStorage after remount", async () => {
@@ -517,7 +518,7 @@ it("compares against another result from the same start", async () => {
   compare.element.open = true
   await compare.trigger("toggle")
   await flushPromises()
-  expect(explorationHistory).toHaveBeenCalledWith({ novel_id: "p1", root_id: "root-1" })
+  expect(explorationHistory).toHaveBeenCalledWith({ novel_id: "p1", limit: 100 })
 
   await compare.get("select").setValue("result-9")
   await compare.findAll("button").find(button => button.text() === "比较").trigger("click")
@@ -993,15 +994,15 @@ it("renders round materials with kind labels and observations per target", () =>
   expect(rounds[1].text()).not.toContain("观察回执：")
 })
 
-it("hides incremental entries and shows the new-task hint for full rehearsal", () => {
+it("offers typed incremental controls for full rehearsal", () => {
   const wrapper = mountCard(rehearsalSource(), {})
   const text = wrapper.text()
-  expect(text).toContain("完整排演结果不支持增量修订；需要调整请以同起点新建任务")
+  expect(text).toContain("第 1 轮表演 1")
   const buttons = wrapper.findAll("button").map(button => button.text())
-  expect(buttons).not.toContain("说详细点")
+  expect(buttons).toContain("说详细点")
   const summaries = wrapper.findAll("summary").map(summary => summary.text())
-  expect(summaries).not.toContain("局部修订")
-  expect(summaries).not.toContain("保存编辑")
+  expect(summaries).toContain("局部修订")
+  expect(summaries).toContain("保存编辑")
   // 该结果不提供条目锁定入口
   expect(wrapper.findAll(".exploration-result-card__lock")).toHaveLength(0)
 })
@@ -1089,6 +1090,80 @@ function handoffApi(overrides = {}) {
 function handoffDetails(wrapper) {
   return wrapper.findAll("details").find(details => details.find("summary").text() === "基于此推演")
 }
+
+it("replays the exact handoff start after an uncertain receipt and remount", async () => {
+  const api = handoffApi()
+  api.explorationStart.mockRejectedValueOnce(new Error("回执网络中断"))
+  const wrapper = mountCard(sandboxSource, api)
+  let details = await submitHandoff(wrapper)
+  await details.findAll("button").find(button => button.text() === "继续：确认资料范围并开始").trigger("click")
+  await flushPromises()
+  await details.findAll("button").find(button => button.text() === "确认并开始").trigger("click")
+  await flushPromises()
+  const originalRequest = api.explorationStart.mock.calls[0][0]
+  wrapper.unmount()
+  const restored = mountCard(sandboxSource, api)
+  await flushPromises()
+  details = handoffDetails(restored)
+  await details.findAll("button").find(button => button.text() === "确认并开始").trigger("click")
+  await flushPromises()
+  expect(api.explorationConfirm).toHaveBeenCalledTimes(1)
+  expect(api.explorationStart).toHaveBeenNthCalledWith(2, originalRequest)
+  expect(pollConfig().taskId).toBe("task-handoff-1")
+})
+
+it("keeps drafts with their original item and blocks replacement when both saves fail", async () => {
+  const source = structuredClone(sandboxSource)
+  source.payload.influence_chain.push({ condition: "天亮", mechanism: "顾客来访", effect: "店里排队" })
+  const save = vi.fn(async () => { throw new Error("保存离线") })
+  const wrapper = mountCard(source, { explorationSaveEdit: save })
+  const edit = wrapper.findAll("textarea").find(item => item.attributes("maxlength") === "4000")
+  await edit.setValue("第一条编辑")
+  const selector = wrapper.findAll("select").find(item => item.find('option[value="chain:1"]').exists())
+  await selector.setValue("chain:1")
+  await edit.setValue("第二条编辑")
+  await selector.setValue("chain:0")
+  expect(edit.element.value).toBe("第一条编辑")
+  const storage = vi.spyOn(localStorage, "setItem").mockImplementation(() => { throw new Error("存储已满") })
+  try {
+    await edit.setValue("仅在页面中的编辑")
+    await wrapper.findAll("button").find(button => button.text() === "保存编辑").trigger("click")
+    await flushPromises()
+    expect(wrapper.text()).toContain("本地备份也失败")
+    expect(wrapper.vm.canLeave()).toBe(false)
+    await selector.setValue("chain:1")
+    expect(selector.element.value).toBe("chain:0")
+    expect(edit.element.value).toBe("仅在页面中的编辑")
+  } finally { storage.mockRestore() }
+})
+
+it("restores a pending follow-up and keeps server locks on completion", async () => {
+  const api = { explorationDetail: vi.fn(async () => ({ task_id: "task-detail" })) }
+  const source = { ...sandboxSource, locked_items: ["chain:0"] }
+  const wrapper = mountCard(source, api)
+  await wrapper.findAll("button").find(button => button.text() === "说详细点").trigger("click")
+  await flushPromises()
+  wrapper.unmount()
+  const restored = mountCard(source, api)
+  await flushPromises()
+  expect(pollConfig().taskId).toBe("task-detail")
+  pollConfig().onDone({}, { result: { result_id: "new-result", output_kind: source.output_kind, payload: source.payload, locked_items: ["chain:0"] } })
+  await flushPromises()
+  expect(restored.get(".exploration-result-card__lock").attributes("aria-pressed")).toBe("true")
+})
+
+it("restores an unsaved draft for the new result when the original source card remounts", async () => {
+  const wrapper = mountCard(sandboxSource, { explorationDetail: vi.fn(async () => ({ task_id: "task-detail" })) })
+  await wrapper.findAll("button").find(button => button.text() === "说详细点").trigger("click")
+  await flushPromises()
+  pollConfig().onDone({}, { result: { result_id: "result-new", output_kind: sandboxSource.output_kind, payload: sandboxSource.payload } })
+  await flushPromises()
+  await wrapper.findAll("textarea").find(item => item.attributes("maxlength") === "4000").setValue("新版本尚未保存的编辑")
+  wrapper.unmount()
+  const restored = mountCard(sandboxSource, {})
+  await flushPromises()
+  expect(restored.findAll("textarea").find(item => item.attributes("maxlength") === "4000").element.value).toBe("新版本尚未保存的编辑")
+})
 
 async function submitHandoff(wrapper, { reason = "看面包师的生计" } = {}) {
   const details = handoffDetails(wrapper)
@@ -1250,4 +1325,51 @@ it.each([
   const wrapper = mountCard(source, {})
   const summaries = wrapper.findAll("summary").map(summary => summary.text())
   expect(summaries).not.toContain("基于此推演")
+})
+
+it("sends the real stop request for the active task and retains polling", async () => {
+  const cancel = vi.fn(async () => ({}))
+  const wrapper = mountCard(sandboxSource, { explorationDetail: vi.fn(async () => ({ task_id: "task-stop" })) })
+  await wrapper.findAll("button").find(button => button.text() === "说详细点").trigger("click")
+  await flushPromises()
+  setBridgeOverrides({ api: { tasks: { cancel } } })
+  await wrapper.findAll("button").find(button => button.text() === "停止这次生成").trigger("click")
+  await flushPromises()
+  expect(cancel).toHaveBeenCalledWith("task-stop", "p1")
+  expect(wrapper.text()).toContain("正在核对任务最终状态")
+})
+
+it("requires unknown-charge acknowledgement and resumes the original checkpoint", async () => {
+  const preview = { root_id: "root-paused", branch_id: "branch-paused", checkpoint_hash: "checkpoint-1", requests_started: 2, requests_unknown: 1 }
+  const explorationResume = vi.fn(async () => ({ task_id: "task-resumed" }))
+  const wrapper = mountCard({ ...sandboxSource, result_id: undefined, task_id: "task-paused", needs_author_resume: true, root_id: preview.root_id, branch_id: preview.branch_id }, {
+    explorationResumePreview: vi.fn(async () => preview), explorationResume,
+  })
+  await wrapper.findAll("button").find(button => button.text() === "核对恢复预算").trigger("click")
+  await flushPromises()
+  const confirm = wrapper.findAll("button").find(button => button.text() === "确认追加预算并恢复")
+  expect(confirm.element.disabled).toBe(true)
+  await wrapper.get('section[aria-label="恢复暂停的探索"] input[type="checkbox"]').setValue(true)
+  await confirm.trigger("click")
+  await flushPromises()
+  expect(explorationResume).toHaveBeenCalledWith(preview.root_id, preview.branch_id, expect.objectContaining({ checkpoint_hash: preview.checkpoint_hash, acknowledge_unknown_requests: 1, allow_possible_duplicate_charge: true }))
+  expect(pollConfig().taskId).toBe("task-resumed")
+})
+
+
+it("keeps cancelled task checkpoints recoverable after refreshing the card", async () => {
+  const wrapper = mountCard(sandboxSource, {
+    explorationDetail: vi.fn(async () => ({ task_id: "cancelled-detail" })),
+  })
+  await wrapper.findAll("button").find(button => button.text() === "说详细点").trigger("click")
+  await flushPromises()
+  const receipt = { root_id: "root-1", branch_id: "branch-1", status: "paused_unknown", needs_author_resume: true }
+  pollConfig().onFailed({ cancelled: true }, { meta: { recovery_receipt: receipt } })
+  await flushPromises()
+  expect(wrapper.text()).toContain("生成已停止")
+  expect(wrapper.text()).toContain("核对恢复预算")
+  wrapper.unmount()
+  const restored = mountCard(sandboxSource, {})
+  await flushPromises()
+  expect(restored.text()).toContain("核对恢复预算")
 })

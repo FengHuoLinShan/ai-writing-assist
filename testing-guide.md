@@ -11,6 +11,10 @@ World Authority 的规范字节夹具位于
 
 ## 开发阶段真实模型测试
 
+导演探索整改的离线证据须覆盖逐人物投影、每请求/持久化前 stale 拒绝、独立审查阻断、
+Goal 可能费用及实时增量、幂等授权、同根恢复、复杂条目锁和双保存失败；工程绿色不替代
+正式 PostgreSQL 并发、真实浏览器或 Luna 模型/作者验收。相关入口见 Story README。
+
 小说业务批量实测前读取[开发阶段模型约定](development-guide.md#开发阶段模型约定)：
 被测业务及其批量质量复核使用 Codex `gpt-6-luna/max`；代码审查、测试开发和工程诊断
 继续使用 Sol 或其他高级模型。先核验业务的 owner 已验证连接及恢复快照；
@@ -733,3 +737,7 @@ quota，root 检查后只启动同一 operation id，并用精确 Scene task `ru
 [地图预检交接](.agent/tasks/2026/T-20261015-map-enhancement-design/artifacts/evaluation/MAP-SPATIAL-LIVE-PREFLIGHT.md)。
 原始材料/输出只存仓库外0700/0600私有目录；`human_validated=false`，本准备批没有真实调用，
 不代表五题材质量、作者验收或默认启用结论。
+
+导演独立探索的父版本并发回归为 `tests/e2e/test_exploration_review_concurrency.py`，
+已进入 `make test-postgresql-critical`：用 PostgreSQL 分支行锁验证作者版本先提交时，
+基于旧父版本的模型结果必须拒绝落盘。该用例只用合成候选，来源重验使用离线替身。

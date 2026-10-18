@@ -107,6 +107,8 @@ class CharactersLoader(Loader):
         bundle: StructureContextBundle,
     ) -> None:
         char_limit = CONTEXT_BUDGET.get("characters", 6)
+        if (options.consumer_action or "").startswith("story.exploration."):
+            char_limit = max(char_limit, len(options.character_ids or []))
         relevance_action = options.consumer_action in {
             "writing.generate",
             "outline.analyze",

@@ -112,6 +112,14 @@ class HandoffRef(ExplorationContractModel):
     item_path: str = Field(default="", max_length=120)
     selector: HANDOFF_SELECTOR_LITERAL
     reason: str = Field(default="", max_length=500)
+    source_fingerprint: str | None = Field(default=None, min_length=64, max_length=64)
+
+    @model_serializer(mode="wrap")
+    def compatible_shape(self, handler):
+        data = handler(self)
+        if data.get("source_fingerprint") is None:
+            data.pop("source_fingerprint", None)
+        return data
 
     @model_validator(mode="after")
     def validate_handoff_ref(self):

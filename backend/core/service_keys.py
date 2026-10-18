@@ -300,6 +300,9 @@ EVIDENCE_CONFIRMATION_READS: ServiceKey[ConfirmationReadsPort] = ServiceKey(
 STORY_GET_SCENE_CONTRACT: ServiceKey[Callable[..., Any]] = ServiceKey(
     "story.get_scene_contract"
 )
+STORY_VALIDATE_EXPLORATION_HANDOFF: ServiceKey[Callable[..., Any]] = ServiceKey(
+    "story.validate_exploration_handoff"
+)
 STORY_SCENE_SOURCE: ServiceKey[SceneSourcePort] = ServiceKey("story.scene_source")
 STORY_QUEUE_WORLD_PROGRESSION_READ_CHECK: ServiceKey[Callable[..., Any]] = ServiceKey(
     "story.queue_world_progression_read_check"
@@ -507,6 +510,7 @@ ALL_SERVICE_KEYS: tuple[ServiceKey[Any], ...] = (
     RAG_GET_ENTITY_ACTIVITY_STATS,
     RAG_REQUEST_ENTITY_ACTIVITY_REANNOTATION,
     STORY_GET_SCENE_CONTRACT,
+    STORY_VALIDATE_EXPLORATION_HANDOFF,
     STORY_SCENE_SOURCE,
     STORY_QUEUE_WORLD_PROGRESSION_READ_CHECK,
     EVOLUTION_READ_COMPLETED_CHAPTERS,

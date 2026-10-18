@@ -398,7 +398,18 @@ async def read_operation(
         trace_enabled=deps.operation_trace_enabled,
         trace_session_id=deps.session_id,
     )
-    return await operation.prepare(deps.db, deps.novel_id, args, context=context)
+    result = await operation.prepare(deps.db, deps.novel_id, args, context=context)
+    if op_id == "story.exploration.preview" and isinstance(result, dict):
+        saved = deps.remember(
+            {
+                "title": "探索推荐",
+                "snippet": result.get("recommendation_reason") or "",
+                "domain_reference": result.get("recommendation"),
+                "domain_result": result,
+            }
+        )
+        return {**result, **(saved or {})}
+    return result
 
 
 def operation_discovery_tools(

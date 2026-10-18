@@ -14,6 +14,7 @@ from core.errors import ConflictError, ValidationError
 from core.service_keys import (
     STORY_GET_SCENE_CONTRACT,
     STORY_SCENE_SOURCE,
+    STORY_VALIDATE_EXPLORATION_HANDOFF,
     WORLD_GET_CHARACTER_ID_BY_WORLD_ENTITY,
 )
 from infrastructure.stable_hash import stable_hash
@@ -75,7 +76,20 @@ _EXPLORATION_FROZEN_OPTION_KEYS = (
     "exploration_start",
     "exploration_scale",
     "exploration_focus",
+    "exploration_fingerprint_version",
+    "exploration_input_core_fingerprint",
 )
+
+
+def _exploration_fingerprint(context_fingerprint: str, frozen: dict) -> str:
+    return stable_hash(
+        {
+            "context": context_fingerprint,
+            "start": frozen["exploration_start"],
+            "scale": frozen["exploration_scale"],
+            "focus": frozen["exploration_focus"],
+        }
+    )
 
 
 def _pop_exploration_frozen_options(compile_options: dict[str, Any]) -> dict[str, Any]:
@@ -126,7 +140,9 @@ async def _validate_exploration_provisional_start(
     start = request.start
     if request.visible_until_scene_id:
         raise ValidationError("临时假设起点不能绑定 Scene 可见截止点")
-    if start.web_refs:
+    if start.derived_from:
+        await get(STORY_VALIDATE_EXPLORATION_HANDOFF)(db, request.novel_id, start)
+    elif start.web_refs:
         raise ValidationError(
             "web_refs 只能由服务端从助手当轮网页快照冻结填充；"
             "请通过助手当轮确认联网来源，不能在请求中直传"
@@ -153,8 +169,7 @@ async def _validate_exploration_provisional_start(
         )
         if not resolved:
             raise ValidationError(
-                "探索引用的正式角色不存在、非正史或不属于当前项目: "
-                f"{entity_id}"
+                f"探索引用的正式角色不存在、非正史或不属于当前项目: {entity_id}"
             )
 
 
@@ -301,6 +316,70 @@ def _exploration_compile_options(request: ExplorationContextRequest) -> CompileO
     )
 
 
+def _exploration_selection(
+    request: ExplorationContextRequest,
+) -> ExplorationContextRequest:
+    if request.start.kind != "provisional":
+        return request
+    characters = list(
+        dict.fromkeys(
+            [
+                *(request.character_ids or []),
+                *request.start.canonical_refs,
+                *(item.subject_entity_id for item in request.start.scene_stimuli),
+                *(
+                    item.subject_ref
+                    for item in request.start.knowledge
+                    if not item.subject_ref.startswith("c_")
+                ),
+            ]
+        )
+    )
+    return request.model_copy(
+        update={
+            "character_ids": characters,
+            "entity_ids": list(dict.fromkeys([*(request.entity_ids or []), *characters])),
+        }
+    )
+
+
+async def _bind_handoff_options(db, options, start):
+    if not start or not start.get("derived_from"):
+        return options
+    from modules.evidence.compilation.exploration_start import ProvisionalStart
+
+    inherited = await get(STORY_VALIDATE_EXPLORATION_HANDOFF)(
+        db, options.novel_id, ProvisionalStart.model_validate(start)
+    )
+    # A handoff changes the task, never its historical read window or exclusions.
+    for key in (
+        "scope",
+        "reveal_mode",
+        "viewpoint_character_id",
+        "scene_id",
+        "chapter_index",
+        "requested_chapter_index",
+        "visible_until_scene_id",
+        "visible_until_chapter",
+        "visible_until_offset",
+        "entity_ids",
+        "character_ids",
+        "thread_ids",
+        "location_ids",
+        "arc_id",
+        "excluded_asset_ids",
+        "excluded_refs",
+        "pinned_refs",
+        "selected_world_bible_draft_ids",
+        "include_world_synopsis",
+        "include_pending_objects",
+        "source_manifest",
+    ):
+        if key in inherited:
+            setattr(options, key, inherited[key])
+    return options
+
+
 def _exploration_confirmation_request(
     request: ExplorationContextRequest,
 ) -> ContextConfirmationRequest:
@@ -380,10 +459,24 @@ class ContextConfirmationService:
     ) -> dict:
         """探索确认预览：同一套失败关闭校验，不落确认记录。"""
         await validate_exploration_request(db, request)
-        return await self.preview_confirmation(
+        request = _exploration_selection(request)
+        preview = await self.preview_confirmation(
             db,
-            _exploration_compile_options(request),
+            await _bind_handoff_options(
+                db,
+                _exploration_compile_options(request),
+                request.start.model_dump(mode="json"),
+            ),
         )
+        preview["context_fingerprint"] = _exploration_fingerprint(
+            preview["context_fingerprint"],
+            {
+                "exploration_start": request.start.model_dump(mode="json"),
+                "exploration_scale": request.exploration_scale,
+                "exploration_focus": request.focus,
+            },
+        )
+        return preview
 
     async def confirm_exploration(
         self,
@@ -392,6 +485,7 @@ class ContextConfirmationService:
     ) -> ContextConfirmationContract:
         """探索确认：校验后复用通用确认流；起点/尺度/焦点随 compile_options 冻结。"""
         await validate_exploration_request(db, request)
+        request = _exploration_selection(request)
         return await self.confirm_context(
             db,
             _exploration_confirmation_request(request),
@@ -459,6 +553,7 @@ class ContextConfirmationService:
                 _scene_memory_port().scene_memory_current_version()
             ),
         )
+        options = await _bind_handoff_options(db, options, request.exploration_start)
         compiled = await self._compiler.compile_with_tiers(
             db,
             options,
@@ -469,6 +564,15 @@ class ContextConfirmationService:
         if action == "outline.analyze":
             self._require_outline_analysis_range(compiled, options)
         review = context_review_metadata(compiled, options)
+        if exploration:
+            review["context_fingerprint"] = _exploration_fingerprint(
+                review["context_fingerprint"],
+                {
+                    "exploration_start": request.exploration_start,
+                    "exploration_scale": request.exploration_scale or "",
+                    "exploration_focus": request.exploration_focus or "",
+                },
+            )
         if compiled.blockers:
             raise ValueError("；".join(compiled.blockers))
         if (
@@ -498,6 +602,15 @@ class ContextConfirmationService:
                     "exploration_start": request.exploration_start,
                     "exploration_scale": request.exploration_scale or "",
                     "exploration_focus": request.exploration_focus or "",
+                    "exploration_fingerprint_version": 1,
+                    "exploration_input_core_fingerprint": _exploration_fingerprint(
+                        _core_context_fingerprint(compiled),
+                        {
+                            "exploration_start": request.exploration_start,
+                            "exploration_scale": request.exploration_scale,
+                            "exploration_focus": request.exploration_focus or "",
+                        },
+                    ),
                 }
             )
         record = await self._repo.create(
@@ -636,6 +749,13 @@ class ContextConfirmationService:
         # selection_trace 回传给调用方（worker 校验与请求一致，不一致失败关闭）。
         start_kind = compile_options.get("start_kind")
         frozen_exploration = _pop_exploration_frozen_options(compile_options)
+        frozen_start = frozen_exploration.get("exploration_start") or {}
+        if frozen_start.get("derived_from"):
+            from modules.evidence.compilation.exploration_start import ProvisionalStart
+
+            await get(STORY_VALIDATE_EXPLORATION_HANDOFF)(
+                db, novel_id, ProvisionalStart.model_validate(frozen_start)
+            )
         expected_map_baseline = compile_options.pop("map_spatial_baseline", None)
         expected_core_fingerprint = compile_options.pop(
             "compiled_context_core_fingerprint", None
@@ -704,6 +824,17 @@ class ContextConfirmationService:
                     code="context_changed",
                 )
         if frozen_exploration:
+            if frozen_exploration.get("exploration_fingerprint_version") == 1:
+                current = _exploration_fingerprint(
+                    _core_context_fingerprint(compiled),
+                    frozen_exploration,
+                )
+                if current != frozen_exploration.get(
+                    "exploration_input_core_fingerprint"
+                ):
+                    raise ConflictError(
+                        "探索起点或资料已变化，请重新预览并确认", code="context_changed"
+                    )
             compiled.selection_trace["exploration"] = {
                 "start_kind": frozen_exploration.get("start_kind"),
                 "exploration_start": frozen_exploration.get("exploration_start"),

@@ -54,9 +54,15 @@ TASK_HINT_DIRECTIVES = {
 
 def work_directive(work: WorkContext) -> str:
     """turn 最终 user 消息里的意图指令行；unknown 不注入。"""
+    lines = []
     if work.task_hint in TASK_HINT_DIRECTIVES:
-        return f"作者意图：{TASK_HINT_DIRECTIVES[work.task_hint]}"
-    return ""
+        lines.append(f"作者意图：{TASK_HINT_DIRECTIVES[work.task_hint]}")
+    if work.exploration_intent:
+        lines.append(
+            "作者已选择的探索任务（开始参数必须一致）："
+            + work.exploration_intent.model_dump_json()
+        )
+    return "\n".join(lines)
 
 
 def verify_selection_range(draft_content: str, work: WorkContext) -> None:
@@ -76,7 +82,14 @@ def verify_selection_range(draft_content: str, work: WorkContext) -> None:
         raise ValueError("选区与当前正文不一致，请重新选择")
 
 
+class ExplorationIntent(StrictModel):
+    question: str = Field(default="", max_length=4000)
+    scale: Literal["sandbox", "event", "scene_line"]
+    focus: str = Field(default="", max_length=2000)
+
+
 class WorkContext(StrictModel):
+    exploration_intent: ExplorationIntent | None = None
     timezone: str = Field(default="Asia/Shanghai", max_length=64)
     page: Literal[
         "today",

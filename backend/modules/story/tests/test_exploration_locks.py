@@ -203,9 +203,7 @@ def _stub_follow_up_confirmation(monkeypatch):
     ):
         return None
 
-    monkeypatch.setattr(
-        exploration_api, "require_fresh_confirmation", fresh_confirmation
-    )
+    monkeypatch.setattr(exploration_api, "require_fresh_confirmation", fresh_confirmation)
     monkeypatch.setattr(exploration_api, "attach_result_ref", attach_ref)
 
 
@@ -222,9 +220,7 @@ async def test_lock_creates_lock_set_row_and_repeats_idempotently(
     _root, _branch, step = await _seed_sandbox_result(db_session, test_project_id)
     effect = _chain_items(_sandbox_envelope())[0]["effect"]
 
-    body = _lock_body(
-        test_project_id, lock=True, item_path="chain:0", item_text=effect
-    )
+    body = _lock_body(test_project_id, lock=True, item_path="chain:0", item_text=effect)
     first = await async_client.post(
         f"/api/story/exploration/results/{step.id}/lock", json=body
     )
@@ -270,8 +266,7 @@ async def test_lock_creates_lock_set_row_and_repeats_idempotently(
     assert duplicate.status_code == 200
     assert duplicate.json()["result_id"] == payload["result_id"]
     assert (
-        duplicate.json()["payload"]["locked_items"]
-        == payload["payload"]["locked_items"]
+        duplicate.json()["payload"]["locked_items"] == payload["payload"]["locked_items"]
     )
 
 
@@ -360,7 +355,7 @@ async def test_lock_rejects_cross_novel_result(
 
 
 @pytest.mark.asyncio
-async def test_lock_rejects_author_edit_and_lock_set_rows(
+async def test_lock_accepts_author_edit_and_rejects_lock_set_rows(
     async_client, db_session, test_project_id, monkeypatch
 ):
     _enable_exploration(monkeypatch)
@@ -378,8 +373,8 @@ async def test_lock_rejects_author_edit_and_lock_set_rows(
         f"/api/story/exploration/results/{edit_row.id}/lock",
         json=_lock_body(test_project_id, lock=True, item_path="chain:0"),
     )
-    assert on_edit.status_code == 409
-    assert "作者编辑版本" in on_edit.json()["detail"]
+    assert on_edit.status_code == 200
+    assert on_edit.json()["locked_items"] == ["chain:0"]
 
     # 先在 AI 行上锁一条，再尝试把 lock_set 行本身当锁定目标
     locked = await async_client.post(
@@ -392,13 +387,11 @@ async def test_lock_rejects_author_edit_and_lock_set_rows(
         json=_lock_body(test_project_id, lock=True, item_path="chain:1"),
     )
     assert on_lock.status_code == 409
-    assert "锁定记录" in on_lock.json()["detail"]
+    assert "不是可继续的探索结果" in on_lock.json()["detail"]
 
 
 @pytest.mark.asyncio
-async def test_lock_requires_exploration_gate(
-    async_client, db_session, test_project_id
-):
+async def test_lock_requires_exploration_gate(async_client, db_session, test_project_id):
     _root, _branch, step = await _seed_sandbox_result(db_session, test_project_id)
     response = await async_client.post(
         f"/api/story/exploration/results/{step.id}/lock",
@@ -634,9 +627,7 @@ async def test_scene_line_lock_persists_and_gates_author_edit(
     from core.errors import ConflictError
 
     project_id = await project_factory.create_project()
-    _root, branch, row, envelope = await _seed_scene_line_result(
-        db_session, project_id
-    )
+    _root, branch, row, envelope = await _seed_scene_line_result(db_session, project_id)
     lock_row, lock_envelope = await set_exploration_item_lock(
         db_session,
         novel_id=str(project_id),
@@ -732,3 +723,45 @@ async def test_current_locked_items_reads_latest_lock_set_row(
         )
     ]
     assert paths == ["chain:0", "chain:1"]
+
+
+async def test_historical_author_edit_cannot_replace_current_locked_version(
+    db_session, test_project_id
+):
+    from core.errors import ConflictError
+
+    _root, branch, original = await _seed_sandbox_result(db_session, test_project_id)
+    changed = _sandbox_envelope().payload.model_copy(deep=True)
+    changed.influence_chain[0].effect = "作者确认的新内容"
+    latest, _ = await save_exploration_author_edit(
+        db_session,
+        novel_id=str(test_project_id),
+        owner_id=OWNER_ID,
+        base_result_id=str(original.id),
+        edited_payload=changed,
+    )
+    await set_exploration_item_lock(
+        db_session,
+        novel_id=str(test_project_id),
+        owner_id=OWNER_ID,
+        base_result_id=str(latest.id),
+        lock=True,
+        item_path="chain:0",
+    )
+    historical = _sandbox_envelope().payload.model_copy(deep=True)
+    historical.influence_chain[1].effect = "只编辑历史版本的第二条"
+    with pytest.raises(ConflictError, match="已锁定"):
+        await save_exploration_author_edit(
+            db_session,
+            novel_id=str(test_project_id),
+            owner_id=OWNER_ID,
+            base_result_id=str(original.id),
+            edited_payload=historical,
+        )
+    locks = await current_locked_items(
+        db_session,
+        novel_id=str(test_project_id),
+        branch_id=branch.id,
+        chain="progression",
+    )
+    assert [item.item_path for item in locks] == ["chain:0"]

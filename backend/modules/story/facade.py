@@ -489,6 +489,7 @@ __all__ = [
     "persist_one_click_character_cards",
     "restore_character_card_revision",
     *_outline_state_facade_exports,
+    "validate_exploration_handoff",
     "capture_snapshot",
     "confirm_scene_continuity_event",
     "ensure_scene_checkpoints",
@@ -554,3 +555,9 @@ async def compare_scene_state_trial(db, novel_id, request):
     from modules.story.continuity.state_trial import compare_scene_state_trial as compare
 
     return await compare(db, novel_id, request)
+
+
+async def validate_exploration_handoff(db, novel_id, start):
+    from modules.story.exploration_service import validate_exploration_handoff as validate
+
+    return await validate(db, novel_id, start)

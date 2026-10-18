@@ -33,9 +33,14 @@ class HiddenGuardBuilder:
         self,
         db: AsyncSession,
         confirmed_context: ConfirmedAIActionContext,
+        *,
+        viewpoint_character_id: str | None = None,
     ) -> list[HiddenGuardTerm]:
         options = dict(confirmed_context.compile_options or {})
-        character_id = options.get("viewpoint_character_id")
+        character_id = viewpoint_character_id or options.get("viewpoint_character_id")
+        if viewpoint_character_id:
+            options["viewpoint_character_id"] = viewpoint_character_id
+            options["reveal_mode"] = "character"
         if not character_id:
             return []
 

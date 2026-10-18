@@ -39,7 +39,7 @@ it("renders an exploration result source through the dedicated card", async () =
 
 it("shows the exploration recommendation with a manual scale override and preview", async () => {
   const state = baseState()
-  state.run = { status: "completed", result: { sources: [{ evidence_id: "ev-2", title: "探索推荐", domain_reference: { type: "story_exploration_recommendation", scale: "sandbox", focus: "面包师的日常", reason: "输入是一条世界规则" } }] } }
+  state.run = { status: "completed", result: { sources: [{ evidence_id: "ev-2", title: "探索推荐", domain_reference: { type: "story_exploration_recommendation", question: "重力变化会怎样？", scale: "sandbox", focus_hint: "面包师的日常", reason: "输入是一条世界规则" } }] } }
   const explorationPreview = vi.fn(async () => ({ recommendation: { scale: "sandbox" }, budget: { requests_min: 1, requests_max: 1 }, possible_charge: "开始模型请求后可能产生计费" }))
   mocks.api = { story: { explorationPreview } }
   mocks.assistant = { state, load: vi.fn(), dispose: vi.fn(), refreshRun: vi.fn() }
@@ -55,7 +55,8 @@ it("shows the exploration recommendation with a manual scale override and previe
   await flushPromises()
 
   expect(explorationPreview).toHaveBeenCalledWith(expect.objectContaining({ novel_id: "p1", scale: "event", focus: "面包师的日常" }))
-  expect(explorationPreview.mock.calls[0][0].operation_id).toBeTruthy()
+  expect(explorationPreview.mock.calls[0][0]).not.toHaveProperty("operation_id")
+  expect(state.context.exploration_intent).toEqual({ question: "重力变化会怎样？", scale: "event", focus: "面包师的日常" })
   expect(recommendation.text()).toContain("预计模型请求 1 次")
 })
 
@@ -114,4 +115,14 @@ it.each([false, true])("resolves delayed capabilities in an open panel and prese
 
   expect(tab(chooseRp ? "RP旅程" : "讨论").attributes("aria-pressed")).toBe("true")
   if (!chooseRp) expect(wrapper.get("#assistant-input").element.value).toBe("恢复的讨论草稿")
+})
+
+it("preserves an unsafe exploration edit when another run is opened externally", async () => {
+  const state = baseState()
+  state.run = { id: "run-current", status: "completed", result: { sources: [{ domain_reference: { type: "story_exploration_result", result_id: "result-current" } }] } }
+  mocks.assistant = { state, load: vi.fn(), dispose: vi.fn(), openRun: vi.fn() }
+  mount(ProjectAssistant, { props: { projectId: "p1", open: true }, global: { stubs: { ProactiveCare: true, EditorialDesk: true, ExplorationResultCard: { ...ExplorationResultCardStub, methods: { canLeave: () => false } } } } })
+  await flushPromises()
+  await expect(mocks.opener({ projectId: "p1", runId: "run-old" })).rejects.toThrow("未保存")
+  expect(mocks.assistant.openRun).not.toHaveBeenCalled()
 })

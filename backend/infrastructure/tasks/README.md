@@ -544,3 +544,8 @@ Evolution `budget_total`/`budget_remaining` 允许成对为空；旧有限行原
 
 注册的 `run_budget_policy` 显式给出模式及范围绑定；普通注册仍必须冻结有限额度。
 Evolution 新队列绑定 `evolution_budget`，旧队列的注册迁移 seam 可保留未跟踪领域预算。
+
+探索任务的取消在既有 run-envelope 终态镜像事务内同步领域状态，保留分段检查点及累计用量。
+领域可在任务 metadata 的 `recovery_receipt` 保存无 secret 的显式恢复回执；默认完成来源读取
+仍只接受 done。`get_completed_task_payload(include_cancelled=True)` 仅额外返回携此回执的
+cancelled 任务，供恢复展示使用，不能作为已完成资产采用。普通 apply 调用保持默认值。

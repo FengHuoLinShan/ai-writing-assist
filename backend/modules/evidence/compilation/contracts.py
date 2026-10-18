@@ -109,6 +109,10 @@ SCENE_WORLD_STATE_ACTIONS = frozenset(
         "writing.generate",
         "writing.conflict_check.ai_review",
         "writing.conflict_check.ai_suggestion",
+        "story.exploration.sandbox.generate",
+        "story.exploration.event.diagnose",
+        "story.exploration.event.bridge",
+        "story.exploration.scene_line.generate",
     }
 )
 

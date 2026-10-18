@@ -543,9 +543,11 @@ class TaskLifecycleService:
         task_type: str,
         novel_id: str,
         for_update: bool = False,
+        include_cancelled: bool = False,
     ) -> CompletedTaskPayloadContract | None:
         """Return one exactly scoped completed task payload.
 
+        Cancelled recovery receipts are opt-in; apply consumers still require done.
         The optional row lock serializes idempotent apply operations without
         exposing ``AsyncTask`` outside the infrastructure module.
         """
@@ -556,6 +558,7 @@ class TaskLifecycleService:
         stmt = select(
             AsyncTask.id,
             AsyncTask.task_type,
+            AsyncTask.status,
             AsyncTask.novel_id,
             AsyncTask.meta,
             AsyncTask.result,
@@ -563,7 +566,9 @@ class TaskLifecycleService:
         ).where(
             AsyncTask.id == parsed_task_id,
             AsyncTask.task_type == str(task_type),
-            AsyncTask.status == "done",
+            AsyncTask.status.in_(
+                ("done", "cancelled") if include_cancelled else ("done",)
+            ),
             AsyncTask.novel_id == uuid.UUID(str(novel_id)),
         )
         if for_update:
@@ -572,6 +577,10 @@ class TaskLifecycleService:
         if row is None:
             return None
         meta = dict(row["meta"] or {})
+        if row["status"] == "cancelled" and not isinstance(
+            meta.get("recovery_receipt"), dict
+        ):
+            return None
         context_confirmation_id = meta.get("context_confirmation_id")
         if context_confirmation_id is not None and not isinstance(
             context_confirmation_id, str
@@ -594,7 +603,9 @@ class TaskLifecycleService:
             task_id=str(row["id"]),
             task_type=str(row["task_type"]),
             novel_id=str(row["novel_id"]),
-            result=deepcopy(dict(row["result"] or {})),
+            result=deepcopy(dict(meta.get("recovery_receipt") or row["result"] or {}))
+            if include_cancelled and row["status"] == "cancelled"
+            else deepcopy(dict(row["result"] or {})),
             revision_token=row["updated_at"],
             context_confirmation_id=context_confirmation_id,
             action=action,

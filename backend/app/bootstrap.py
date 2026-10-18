@@ -81,6 +81,7 @@ from core.service_keys import (
     RAG_REQUEST_ENTITY_ACTIVITY_REANNOTATION,
     SOURCE_CHANGED,
     STORY_GET_SCENE_CONTRACT,
+    STORY_VALIDATE_EXPLORATION_HANDOFF,
     STORY_SCENE_SOURCE,
     STORY_QUEUE_WORLD_PROGRESSION_READ_CHECK,
     EVOLUTION_READ_COMPLETED_CHAPTERS,
@@ -227,6 +228,9 @@ from modules.evolution.facade import (
 )
 from modules.evolution.evidence_read import read_evolution_object_patterns
 from modules.story.facade import get_scene_contract as _story_get_scene_contract
+from modules.story.facade import (
+    validate_exploration_handoff as _story_validate_exploration_handoff,
+)
 from modules.story.facade import read_object_dossier_state
 from modules.story.facade import read_scene_director_references_for_writing
 from modules.world import assistant_ports as _world_assistant
@@ -595,6 +599,7 @@ def _container_services() -> Iterable[tuple[ServiceKey[Any], Any]]:
             _interaction_validate_demo_context,
         ),
         (STORY_GET_SCENE_CONTRACT, _story_get_scene_contract),
+        (STORY_VALIDATE_EXPLORATION_HANDOFF, _story_validate_exploration_handoff),
         (
             WORLD_LIST_ADOPTED_MAP_CONTINUITY_FACTS,
             _world_list_map_continuity_facts,

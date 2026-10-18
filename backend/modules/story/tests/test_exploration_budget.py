@@ -31,14 +31,14 @@ def _start(question: str = "这个城镇每天只有一小时重力减半，面�
 
 
 @pytest.mark.parametrize("scale", ["sandbox", "event", "scene_line"])
-def test_initial_budget_is_exactly_one_request(scale):
+def test_initial_budget_includes_director_generation_audit_and_one_repair(scale):
     preview = preview_exploration_budget(
         novel_id=str(uuid.uuid4()), scale=scale, start=_start()
     )
     assert isinstance(preview, ExplorationBudgetPreview)
-    assert preview.requests_min == 1
-    assert preview.requests_max == 1
-    assert preview.follow_up_max_requests == 1
+    assert preview.requests_min == 3
+    assert preview.requests_max == 5
+    assert preview.follow_up_max_requests == 5
     assert 0 <= preview.tokens_min <= preview.tokens_max
     assert len(preview.preview_hash) == 64
     assert preview.token_estimate.minimum == preview.tokens_min
@@ -132,7 +132,7 @@ def test_budget_identity_includes_event_mode_hint():
             novel_id=novel_id, scale="event", start=start, event_mode_hint="info_gap"
         ).preview_hash
     )
-    assert info_budget.requests_max == goal_budget.requests_max == 1
+    assert info_budget.requests_max == goal_budget.requests_max == 5
 
 
 def test_budget_model_rejects_inconsistent_ranges():
@@ -175,12 +175,12 @@ def test_multi_targets_scale_requests_and_identity():
         start=start,
         multi_targets=targets,
     )
-    assert multi.requests_min == multi.requests_max == 3
-    assert multi.follow_up_max_requests == 1
+    assert (multi.requests_min, multi.requests_max) == (9, 15)
+    assert multi.follow_up_max_requests == 5
     single = preview_exploration_budget(
         novel_id=novel_id, scale="scene_line", start=start
     )
-    assert single.requests_min == single.requests_max == 1
+    assert (single.requests_min, single.requests_max) == (3, 5)
     assert multi.tokens_max > single.tokens_max  # 输出按目标数放大
     # 目标列表纳入身份：不同目标集合/顺序 → 不同 hash
     other = preview_exploration_budget(
@@ -190,12 +190,15 @@ def test_multi_targets_scale_requests_and_identity():
         multi_targets=["c_evasive", "c_franks", "c_bystander"],
     )
     assert multi.preview_hash != other.preview_hash
-    assert multi.preview_hash == preview_exploration_budget(
-        novel_id=novel_id,
-        scale="scene_line",
-        start=start,
-        multi_targets=list(targets),
-    ).preview_hash
+    assert (
+        multi.preview_hash
+        == preview_exploration_budget(
+            novel_id=novel_id,
+            scale="scene_line",
+            start=start,
+            multi_targets=list(targets),
+        ).preview_hash
+    )
     identity = exploration_preview_identity(
         novel_id=novel_id, scale="scene_line", start=start, multi_targets=targets
     )
@@ -205,30 +208,31 @@ def test_multi_targets_scale_requests_and_identity():
 def test_diagnostic_question_changes_budget_identity():
     """空间诊断（M2）：预算不变（1 请求），诊断问题纳入身份。"""
     novel_id, start = str(uuid.uuid4()), _start()
-    plain = preview_exploration_budget(
-        novel_id=novel_id, scale="scene_line", start=start
-    )
+    plain = preview_exploration_budget(novel_id=novel_id, scale="scene_line", start=start)
     diagnostic = preview_exploration_budget(
         novel_id=novel_id,
         scale="scene_line",
         start=start,
         diagnostic_question="他能一步从大门跨到桌边吗？",
     )
-    assert diagnostic.requests_min == diagnostic.requests_max == 1
+    assert (diagnostic.requests_min, diagnostic.requests_max) == (3, 5)
     assert diagnostic.preview_hash != plain.preview_hash
-    assert diagnostic.preview_hash == preview_exploration_budget(
-        novel_id=novel_id,
-        scale="scene_line",
-        start=start,
-        diagnostic_question="他能一步从大门跨到桌边吗？",
-    ).preview_hash
+    assert (
+        diagnostic.preview_hash
+        == preview_exploration_budget(
+            novel_id=novel_id,
+            scale="scene_line",
+            start=start,
+            diagnostic_question="他能一步从大门跨到桌边吗？",
+        ).preview_hash
+    )
     identity = exploration_preview_identity(
         novel_id=novel_id,
         scale="scene_line",
         start=start,
         diagnostic_question="他能一步从大门跨到桌边吗？",
     )
-    assert identity["diagnostic_question_chars"] == len("他能一步从大门跨到桌边吗？")
+    assert identity["diagnostic_question"] == "他能一步从大门跨到桌边吗？"
 
 
 # ---------------------------------------------------------------------------
@@ -250,25 +254,25 @@ def test_full_rehearsal_budget_is_targets_plus_one_per_round():
         start=start,
         full_rehearsal=_rehearsal(targets=("c_a", "c_b"), rounds=2),
     )
-    assert two_by_two.requests_min == two_by_two.requests_max == (2 + 1) * 2
+    assert (two_by_two.requests_min, two_by_two.requests_max) == (18, 30)
     single = preview_exploration_budget(
         novel_id=novel_id,
         scale="scene_line",
         start=start,
         full_rehearsal=_rehearsal(targets=("c_a",), rounds=1),
     )
-    assert single.requests_min == single.requests_max == 2
+    assert (single.requests_min, single.requests_max) == (6, 10)
     three_rounds = preview_exploration_budget(
         novel_id=novel_id,
         scale="scene_line",
         start=start,
         full_rehearsal=_rehearsal(targets=("c_a", "c_b", "c_c"), rounds=3),
     )
-    assert three_rounds.requests_min == three_rounds.requests_max == (3 + 1) * 3
+    assert (three_rounds.requests_min, three_rounds.requests_max) == (36, 60)
     # 有界：min == max；token 区间随请求次数放大
     assert two_by_two.tokens_min <= two_by_two.tokens_max
     assert two_by_two.tokens_max > single.tokens_max
-    assert single.follow_up_max_requests == 1
+    assert single.follow_up_max_requests == 5
 
 
 def test_full_rehearsal_identity_binds_targets_rounds_and_goal():
@@ -326,7 +330,7 @@ def test_full_rehearsal_identity_binds_targets_rounds_and_goal():
     assert identity["full_rehearsal"] == {
         "targets": ["c_franks", "c_evasive"],
         "rounds": 2,
-        "author_goal_chars": len("看分歧"),
+        "author_goal": "看分歧",
     }
 
 

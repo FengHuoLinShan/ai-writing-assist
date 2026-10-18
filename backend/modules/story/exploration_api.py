@@ -71,13 +71,16 @@ from modules.story.exploration_schemas import (
     ExplorationCompareRequest,
     ExplorationConfirmationPreviewRequest,
     ExplorationConfirmationRequest,
+    ExplorationOutputEnvelope,
     ExplorationScale,
     ExplorationStartTaskRequest,
+    FullRehearsalOutputV1,
     FullRehearsalPreviewIntent,
     FullRehearsalRequest,
     SandboxOutputV1,
     SceneLineOutputV1,
     SceneSpatialDiagnosticRequest,
+    revision_items,
     validate_counterfactual_pair,
     validate_scene_targets,
 )
@@ -103,9 +106,12 @@ from modules.story.exploration_schemas import (
     validate_start_dump as validate_start_dump,
 )
 from modules.story.exploration_service import _locate_exploration_result
-from modules.story.models import StorySceneDirectorRound
+from modules.story.models import StorySceneDirectorRoot, StorySceneDirectorRound
 from modules.story.outline_state.models import Scene
-from modules.story.world_progression_models import StoryWorldProgressionStep
+from modules.story.world_progression_models import (
+    StoryWorldProgressionRoot,
+    StoryWorldProgressionStep,
+)
 from modules.story.world_progression_service import get_progression_branch
 
 router = APIRouter(prefix="/api/story/exploration", tags=["story-exploration"])
@@ -258,8 +264,11 @@ class ExplorationSaveEditApiRequest(_ApiModel):
         "story.exploration.sandbox",
         "story.exploration.event",
         "story.exploration.scene_line",
+        "story.exploration.full_rehearsal",
     ]
-    edited_payload: SandboxOutputV1 | EventOutputV1 | SceneLineOutputV1
+    edited_payload: (
+        SandboxOutputV1 | EventOutputV1 | SceneLineOutputV1 | FullRehearsalOutputV1
+    )
     edit_note: str | None = Field(default=None, max_length=500)
 
     @model_validator(mode="after")
@@ -294,6 +303,16 @@ class ExplorationHandoffApiRequest(_ApiModel):
         return self
 
 
+class ExplorationResumeRequest(_ApiModel):
+    novel_id: str
+    operation_id: UUID
+    checkpoint_hash: str = Field(pattern="^[a-f0-9]{64}$")
+    additional_requests: int = Field(ge=1, le=10000)
+    additional_tokens: int = Field(ge=1)
+    acknowledge_unknown_requests: int = Field(default=0, ge=0)
+    allow_possible_duplicate_charge: bool = False
+
+
 class ExplorationStartApiRequest(ExplorationStartTaskRequest):
     """start 端点在 P1 契约之上允许可选指定一句对白的目标角色。"""
 
@@ -310,7 +329,6 @@ async def _project_owner_id(db, novel_id: str) -> str:
     if context is None or context.owner_id is None:
         raise NotFoundError("项目不存在")
     return str(context.owner_id)
-
 
 
 async def _branch_for(db, novel_id: str, chain: str, branch_id, *, lock: bool = False):
@@ -343,28 +361,9 @@ def _effective_output_kind(envelope) -> str:
 
 
 def require_scene_follow_up_supported(envelope) -> None:
-    """多目标对白/空间诊断（M2）与完整排演（M3-B）结果暂不支持“说详细点”/
-    局部修订，也不可锁定单条目：尽早失败关闭。
-
-    完整排演整体落一行、按 (目标数 + 1) × 轮次 分开计量，增量修订的
-    item_path 语法不适用；作者需要调整时请新建任务。
-    """
-    payload = envelope.payload
-    if envelope.output_kind == FULL_REHEARSAL_OUTPUT_KIND:
-        raise ConflictError("完整排演结果暂不支持增量修订，请新建任务")
-    if envelope.output_kind == AUTHOR_EDIT_OUTPUT_KIND:
-        if payload.base_output_kind != SCENE_LINE_OUTPUT_KIND:
-            return
-        payload = payload.edited_payload
-    elif envelope.output_kind != SCENE_LINE_OUTPUT_KIND:
-        return
-    if getattr(payload, "variants", None) or getattr(
-        payload, "spatial_assessment", None
-    ):
-        raise ConflictError(
-            "多目标对白与空间诊断结果暂不支持“说详细点”或局部修订；"
-            "请回到单目标一句对白结果"
-        )
+    """仅允许具有类型化条目契约的探索结果继续。"""
+    if _effective_output_kind(envelope) not in PAYLOAD_MODELS_BY_BASE_KIND:
+        raise ConflictError("该记录不是可继续的探索结果")
 
 
 def _generation_action(base_kind: str, payload: dict) -> str:
@@ -445,8 +444,10 @@ def full_rehearsal_work_steps(*, targets_count: int, rounds: int) -> list[str]:
         f"逐目标表演卡 ×{targets_count}/轮 ×{rounds} 轮（每目标独立知识/误信包）",
         f"素材与观察统筹 ×1/轮 ×{rounds} 轮（素材感知者与观察回执）",
         (
-            f"共 {(targets_count + 1) * rounds} 次模型请求；"
-            "完整排演步骤数多于聚焦输出（聚焦单次任务仅 1 次请求）"
+            f"共 {(targets_count + 1) * rounds} 个生成步骤，"
+            "每步包含知识导演、生成与独立审查；"
+            f"预计 {(targets_count + 1) * rounds * 3}–"
+            f"{(targets_count + 1) * rounds * 5} 次模型请求（含最多一次返修与复审）"
         ),
     ]
 
@@ -460,14 +461,15 @@ async def build_exploration_preview(db, data: ExplorationPreviewApiRequest) -> d
     counterfactual_of: str | None = None
     if data.counterfactual_of_result_id is not None:
         counterfactual_of = data.counterfactual_of_result_id
-        derived_start, counterfactual_of = (
-            await exploration_service.resolve_counterfactual_start(
-                db,
-                novel_id=data.novel_id,
-                result_id=counterfactual_of,
-                scale=data.scale or "sandbox",
-                changed_assumptions=list(data.changed_assumptions or []),
-            )
+        (
+            derived_start,
+            counterfactual_of,
+        ) = await exploration_service.resolve_counterfactual_start(
+            db,
+            novel_id=data.novel_id,
+            result_id=counterfactual_of,
+            scale=data.scale or "sandbox",
+            changed_assumptions=list(data.changed_assumptions or []),
         )
     preview_rehearsal: FullRehearsalRequest | None = None
     if data.preview_full_rehearsal is not None:
@@ -479,15 +481,15 @@ async def build_exploration_preview(db, data: ExplorationPreviewApiRequest) -> d
         "scene_line"
         if (data.multi_targets or data.diagnostic or preview_rehearsal)
         and derived_start is None
-        else "sandbox" if derived_start is not None else None
+        else "sandbox"
+        if derived_start is not None
+        else None
     )
     reason = ""
     if scale is None:
         project_has_content = (
             await db.scalar(
-                select(Scene.id)
-                .where(Scene.novel_id == UUID(data.novel_id))
-                .limit(1)
+                select(Scene.id).where(Scene.novel_id == UUID(data.novel_id)).limit(1)
             )
             is not None
         )
@@ -545,7 +547,10 @@ async def build_exploration_preview(db, data: ExplorationPreviewApiRequest) -> d
             or (derived_start or data.start).kind == "provisional"
             else "scene（场景锚点起点）"
         ),
-        "possible_charge": "首次运行预计 1 次模型请求；“说详细点”等每次再授权 +1。",
+        "possible_charge": (
+            "每个生成单元预计 3–5 次模型请求"
+            "（知识导演、生成、独立审查及至多一次返修复审）；续算会单独追加预算。"
+        ),
         "action": ACTION_BY_SCALE[scale],
         "recommendation": {
             "type": "story_exploration_recommendation",
@@ -582,8 +587,8 @@ def _advisory_budget(
 ) -> ExplorationBudgetPreview:
     """未提供起点时的名义预算：请求次数为硬约定，Token 按焦点长度粗估。
 
-    场景多目标（M2）：预算 = 目标数（每人一次独立知识包请求）。
-    完整排演（M3-B）：预算 = (目标数 + 1) × 轮次，与聚焦输出分开计量。
+    场景多目标有 N 个生成单元，完整排演有 (N+1)×轮数 个单元；
+    每单元 3–5 次物理请求，与聚焦输出分开计量。
     """
     chars = len(focus)
     if full_rehearsal is not None:
@@ -608,11 +613,11 @@ def _advisory_budget(
             "rounds": int(full_rehearsal.rounds),
         }
     return ExplorationBudgetPreview(
-        requests_min=request_count,
-        requests_max=request_count,
-        follow_up_max_requests=1,
-        tokens_min=tokens_min,
-        tokens_max=tokens_max,
+        requests_min=request_count * 3,
+        requests_max=request_count * 5,
+        follow_up_max_requests=5,
+        tokens_min=tokens_min * 3,
+        tokens_max=(tokens_max + 4000) * 5,
         preview_hash=content_hash(identity),
     )
 
@@ -637,9 +642,7 @@ def _context_request(
         exploration_scale=data.scale,
         focus=data.focus,
         start=start,
-        expected_context_fingerprint=getattr(
-            data, "expected_context_fingerprint", None
-        ),
+        expected_context_fingerprint=getattr(data, "expected_context_fingerprint", None),
     )
 
 
@@ -673,18 +676,14 @@ async def _require_full_rehearsal_eligibility(
     """
 
     if start.kind != "provisional":
-        raise ConflictError(
-            "完整排演仅支持临时假设起点；场景锚点请继续使用聚焦输出"
-        )
+        raise ConflictError("完整排演仅支持临时假设起点；场景锚点请继续使用聚焦输出")
     try:
         validate_scene_targets(start, rehearsal.targets)
     except ValueError as error:
         raise ConflictError(str(error)) from error
     for target in rehearsal.targets:
         if target.startswith("c_"):
-            has_knowledge = any(
-                entry.subject_ref == target for entry in start.knowledge
-            )
+            has_knowledge = any(entry.subject_ref == target for entry in start.knowledge)
             has_identity_assumption = any(
                 item.kind == "identity" for item in start.assumptions
             )
@@ -695,18 +694,14 @@ async def _require_full_rehearsal_eligibility(
                     "或继续使用聚焦输出"
                 )
             continue
-        resolved = await get(WORLD_GET_CHARACTER_ID_BY_WORLD_ENTITY)(
-            db, novel_id, target
-        )
+        resolved = await get(WORLD_GET_CHARACTER_ID_BY_WORLD_ENTITY)(db, novel_id, target)
         if not resolved:
             raise NotFoundError(
                 f"完整排演引用的正式角色不存在、非正史或不属于当前作品：{target}"
             )
 
 
-async def preview_confirmation(
-    db, data: ExplorationConfirmationPreviewRequest
-) -> dict:
+async def preview_confirmation(db, data: ExplorationConfirmationPreviewRequest) -> dict:
     require_story_exploration_enabled()
     await require_active_project(db, data.novel_id)
     start = await _effective_request_start(db, data)
@@ -801,7 +796,11 @@ def _resolve_scene_target(data: ExplorationStartApiRequest) -> str | None:
 
 
 async def start_exploration_task(
-    db, *, data: ExplorationStartApiRequest, owner_id: str | None = None
+    db,
+    *,
+    data: ExplorationStartApiRequest,
+    owner_id: str | None = None,
+    internal_meta: dict | None = None,
 ) -> dict:
     # active-project/owner 守卫在 HTTP 包装层（api_start）与 operations apply 侧；
     # 本函数被助手操作复用，db 可能为探测用 None，不做项目查询。
@@ -893,9 +892,7 @@ async def start_exploration_task(
         scale=data.scale,
         start=effective_start,
         scene_id=(
-            effective_start.scene_id
-            if effective_start.kind == "scene_anchor"
-            else None
+            effective_start.scene_id if effective_start.kind == "scene_anchor" else None
         ),
         context_confirmation_id=(
             data.context_confirmation_id if chain == "progression" else None
@@ -914,6 +911,7 @@ async def start_exploration_task(
         full_rehearsal=data.full_rehearsal,
     )
     started_at = datetime.now(UTC)
+    root.request_json = {**root.request_json, "exploration_focus": data.focus}
     envelope = new_ai_run_envelope(
         operation_id=str(data.operation_id),
         run_id=str(root.id),
@@ -953,6 +951,7 @@ async def start_exploration_task(
             **({"target_ref": target_ref} if target_ref else {}),
         },
     )
+    meta.update(internal_meta or {})
     receipt = await enqueue_task_with_optional_operation(
         db,
         operation_id=str(data.operation_id),
@@ -1008,7 +1007,7 @@ async def _branch_tip_id(db, novel_id: str, chain: str, branch) -> str | None:
     结果即可继续；其余行为不变。
     """
 
-    non_ai_kinds = {AUTHOR_EDIT_OUTPUT_KIND, LOCK_SET_OUTPUT_KIND}
+    non_ai_kinds = {LOCK_SET_OUTPUT_KIND}
     if chain == "progression":
         rows = (
             await db.scalars(
@@ -1054,6 +1053,7 @@ async def submit_exploration_follow_up(
     item_text: str | None = None,
     bridge_target: str | None = None,
     revision_of: str | None = None,
+    internal_meta: dict | None = None,
 ) -> dict:
     require_story_exploration_enabled()
     await require_active_project(db, novel_id)
@@ -1061,9 +1061,35 @@ async def submit_exploration_follow_up(
     row, chain, root = await _locate_exploration_result(
         db, novel_id=novel_id, result_id=result_id, lock=True
     )
+    fingerprint_payload = {
+        "mode": mode,
+        "result_id": str(row.id),
+        "focus": focus,
+        "instruction": instruction,
+        **({"item_path": item_path} if mode == "revise" else {}),
+        **({"item_text": item_text} if mode == "revise" and item_text else {}),
+        **({"bridge_target": bridge_target} if bridge_target else {}),
+    }
+    existing = await get_operation_task(
+        db,
+        operation_id=str(operation_id),
+        task_type=TASK_TYPE_BY_CHAIN[chain],
+        novel_id=novel_id,
+        request_payload=fingerprint_payload,
+    )
+    if existing is not None:
+        return {
+            "task_id": str(existing.task_id),
+            "status": existing.status,
+            "root_id": str(root.id),
+            "branch_id": str(row.branch_id),
+        }
     envelope = exploration_service.unpack_exploration_output(row)
     if envelope.output_kind == AUTHOR_EDIT_OUTPUT_KIND:
-        raise ConflictError("作者编辑版本不能继续详略或修订；请回到原始 AI 结果")
+        envelope = ExplorationOutputEnvelope(
+            output_kind=envelope.payload.base_output_kind,
+            payload=envelope.payload.edited_payload,
+        )
     base_kind = _effective_output_kind(envelope)
     require_scene_follow_up_supported(envelope)
     if mode == "revise":
@@ -1084,9 +1110,12 @@ async def submit_exploration_follow_up(
         if mode == "revise" and item_path in locked_paths:
             raise ConflictError("该条目已锁定，请先解锁再修改")
         payload_dict = envelope.payload.model_dump(mode="json")
-        for locked_path in sorted(locked_paths):
+        for locked_item in locked_items:
+            locked_path = locked_item.item_path
             try:
-                check_revision_target(payload_dict, locked_path, None, base_kind)
+                target = check_revision_target(payload_dict, locked_path, None, base_kind)
+                if target["item_content_hash"] != locked_item.item_content_hash:
+                    raise ValueError("锁定内容已变化")
             except ValueError as error:
                 raise ConflictError(
                     f"锁定条目 {locked_path} 与当前结果不一致，请先解锁或重新锁定"
@@ -1120,8 +1149,27 @@ async def submit_exploration_follow_up(
         start=start,
         focus=focus or instruction,
     )
+    complex_scene = base_kind == FULL_REHEARSAL_OUTPUT_KIND or (
+        base_kind == SCENE_LINE_OUTPUT_KIND
+        and (
+            envelope.payload.variants is not None
+            or envelope.payload.spatial_assessment is not None
+        )
+    )
+    count = (
+        len(revision_items(envelope.payload.model_dump(mode="json"), base_kind))
+        if complex_scene and mode == "detail"
+        else 1
+    )
+    follow_up_budget = follow_up_budget.model_copy(
+        update={
+            "requests_min": follow_up_budget.requests_min * count,
+            "requests_max": follow_up_budget.requests_max * count,
+            "tokens_max": follow_up_budget.tokens_max * count,
+        }
+    )
     await run_envelope.authorize_additional_requests(
-        1,
+        follow_up_budget.requests_max,
         reason=(
             AIRunAuthorizationReason.author_detail_expand
             if mode == "detail"
@@ -1164,6 +1212,7 @@ async def submit_exploration_follow_up(
         time_budget_seconds=3600,
         execution_snapshot=dict(root.llm_execution_snapshot_json or {}),
         extra={
+            "base_output_kind": base_kind,
             "parent_result_id": str(row.id),
             "start": _root_start_dump(root),
             "focus": focus,
@@ -1171,22 +1220,10 @@ async def submit_exploration_follow_up(
             **({"item_path": item_path} if mode == "revise" else {}),
             **({"item_text": item_text} if mode == "revise" and item_text else {}),
             **({"bridge_target": bridge_target} if bridge_target else {}),
-            **(
-                {"target_ref": _scene_target(envelope)}
-                if chain == "scene"
-                else {}
-            ),
+            **({"target_ref": _scene_target(envelope)} if chain == "scene" else {}),
         },
     )
-    fingerprint_payload = {
-        "mode": mode,
-        "result_id": str(row.id),
-        "focus": focus,
-        "instruction": instruction,
-        **({"item_path": item_path} if mode == "revise" else {}),
-        **({"item_text": item_text} if mode == "revise" and item_text else {}),
-        **({"bridge_target": bridge_target} if bridge_target else {}),
-    }
+    meta.update(internal_meta or {})
     receipt = await enqueue_task_with_optional_operation(
         db,
         operation_id=str(operation_id),
@@ -1201,12 +1238,8 @@ async def submit_exploration_follow_up(
         return {
             "task_id": str(receipt.task_id),
             "status": receipt.status,
-            "root_id": str(
-                existing_meta.get("exploration_root_id") or root.id
-            ),
-            "branch_id": str(
-                existing_meta.get("exploration_branch_id") or branch.id
-            ),
+            "root_id": str(existing_meta.get("exploration_root_id") or root.id),
+            "branch_id": str(existing_meta.get("exploration_branch_id") or branch.id),
         }
     root.current_task_id = UUID(str(receipt.task_id))
     branch.current_task_id = UUID(str(receipt.task_id))
@@ -1234,8 +1267,6 @@ def _scene_target(envelope) -> str:
     return str(getattr(payload, "target_ref", "") or "")
 
 
-
-
 # ---------------------------------------------------------------------------
 # 零模型端点：lock / save-edit / compare / history
 # ---------------------------------------------------------------------------
@@ -1252,7 +1283,10 @@ async def lock_exploration_item(
     )
     envelope = exploration_service.unpack_exploration_output(row)
     if envelope.output_kind == AUTHOR_EDIT_OUTPUT_KIND:
-        raise ConflictError("作者编辑版本不能设置锁定；请回到原始 AI 结果")
+        envelope = ExplorationOutputEnvelope(
+            output_kind=envelope.payload.base_output_kind,
+            payload=envelope.payload.edited_payload,
+        )
     # 多目标/空间诊断结果没有可锁定的单条目，与修订同样失败关闭。
     require_scene_follow_up_supported(envelope)
     branch = await _branch_for(db, data.novel_id, chain, row.branch_id, lock=True)
@@ -1284,9 +1318,11 @@ async def save_exploration_edit(
 ) -> dict:
     require_story_exploration_enabled()
     await require_active_project(db, data.novel_id)
-    row, _chain, _root = await _locate_exploration_result(
+    row, chain, root = await _locate_exploration_result(
         db, novel_id=data.novel_id, result_id=result_id, lock=True
     )
+    branch = await _branch_for(db, data.novel_id, chain, row.branch_id, lock=True)
+    await _require_root_idle(db, root, branch)
     envelope = exploration_service.unpack_exploration_output(row)
     if _effective_output_kind(envelope) != data.base_output_kind:
         raise ConflictError("base_output_kind 与所选结果不一致，请刷新后重试")
@@ -1410,6 +1446,169 @@ async def exploration_history(
     )
 
 
+async def _exploration_resume_state(db, *, novel_id, root_id, branch_id, lock=False):
+    await require_active_project(db, novel_id)
+    require_story_exploration_enabled()
+    root = None
+    for chain, model in (
+        ("scene", StorySceneDirectorRoot),
+        ("progression", StoryWorldProgressionRoot),
+    ):
+        query = select(model).where(
+            model.novel_id == UUID(novel_id), model.id == UUID(root_id)
+        )
+        root = await db.scalar(query.with_for_update() if lock else query)
+        if root is not None:
+            break
+    if root is None or not _root_scale(root):
+        raise NotFoundError("探索运行不存在")
+    branch = await _branch_for(db, novel_id, chain, branch_id, lock=lock)
+    if branch.root_id != root.id:
+        raise NotFoundError("探索分支不存在")
+    pending = dict(
+        branch.pending_round_json if chain == "scene" else branch.pending_step_json or {}
+    )
+    raw = read_ai_run_envelope(root.run_envelope_json)
+    if (
+        raw is None
+        or raw.run_id != str(root.id)
+        or raw.root_capability_id != EXPLORATION_CAPABILITY
+    ):
+        raise ConflictError("探索累计账本不可恢复")
+    checkpoint_hash = content_hash(
+        {
+            "root": str(root.id),
+            "branch": str(branch.id),
+            "pending": pending,
+            "ledger": raw.model_dump(mode="json"),
+        }
+    )
+    return root, branch, chain, raw, checkpoint_hash
+
+
+async def resume_exploration(db, *, root_id, branch_id, data: ExplorationResumeRequest):
+    root, branch, chain, raw, checkpoint_hash = await _exploration_resume_state(
+        db, novel_id=data.novel_id, root_id=root_id, branch_id=branch_id, lock=True
+    )
+    fingerprint = data.model_dump(mode="json")
+    existing = await get_operation_task(
+        db,
+        operation_id=str(data.operation_id),
+        task_type=TASK_TYPE_BY_CHAIN[chain],
+        novel_id=data.novel_id,
+        request_payload=fingerprint,
+    )
+    if existing:
+        return {
+            "task_id": str(existing.task_id),
+            "status": existing.status,
+            "root_id": root_id,
+            "branch_id": branch_id,
+        }
+    if checkpoint_hash != data.checkpoint_hash or branch.status not in {
+        "paused_budget",
+        "paused_unknown",
+    }:
+        raise ConflictError("暂停状态已变化，请重新核对恢复预览")
+    await _require_root_idle(db, root, branch)
+    if raw.requests_unknown and (
+        data.acknowledge_unknown_requests != raw.requests_unknown
+        or not data.allow_possible_duplicate_charge
+    ):
+        raise ConflictError("须明确核对未知请求数量并确认可能重复计费，才能恢复")
+    if raw.deadline_at and raw.deadline_at <= datetime.now(UTC):
+        raise ConflictError("原运行时限已到，不能延长该运行；请用原起点明确开始新任务")
+    previous = await db.scalar(
+        select(AsyncTask)
+        .where(
+            AsyncTask.novel_id == UUID(data.novel_id),
+            AsyncTask.task_type == TASK_TYPE_BY_CHAIN[chain],
+            AsyncTask.meta["exploration_branch_id"].as_string() == branch_id,
+        )
+        .order_by(AsyncTask.created_at.desc())
+        .limit(1)
+    )
+    if previous is None:
+        raise ConflictError("原任务快照缺失，不能自动重发")
+    confirmation_id, action = _branch_confirmation(branch)
+    await evidence_facade.prepare_confirmed_ai_action(
+        db, novel_id=data.novel_id, action=action, confirmation_id=confirmation_id
+    )
+    envelope = AIRunEnvelope(raw)
+    await envelope.authorize_additional_requests(
+        data.additional_requests,
+        additional_tokens=data.additional_tokens,
+        reason=AIRunAuthorizationReason.duplicate_charge_confirmed
+        if raw.requests_unknown
+        else AIRunAuthorizationReason.author_resume,
+    )
+    snapshot = envelope.snapshot()
+    meta = {
+        **previous.meta,
+        AI_RUN_ENVELOPE_KEY: snapshot.model_dump(mode="json"),
+        "exploration_authorized_requests": data.additional_requests,
+        "exploration_authorized_tokens": data.additional_tokens,
+        "exploration_baseline_requests_started": snapshot.requests_started,
+        "exploration_acknowledged_unknown_requests": snapshot.requests_unknown,
+        "exploration_baseline_recent_attempts_overflow": (
+            snapshot.recent_attempts_overflow
+        ),
+    }
+    meta.pop("_execution_mode", None)
+    meta.pop("_parent_task_id", None)
+    meta.pop("recovery_receipt", None)
+    receipt = await enqueue_task_with_optional_operation(
+        db,
+        operation_id=str(data.operation_id),
+        task_type=TASK_TYPE_BY_CHAIN[chain],
+        novel_id=data.novel_id,
+        request_payload=fingerprint,
+        meta=meta,
+    )
+    root.run_envelope_json = snapshot.model_dump(mode="json")
+    root.current_task_id = branch.current_task_id = UUID(str(receipt.task_id))
+    root.status = branch.status = "queued"
+    await db.flush()
+    return {
+        "task_id": str(receipt.task_id),
+        "status": receipt.status,
+        "root_id": root_id,
+        "branch_id": branch_id,
+    }
+
+
+@router.get("/roots/{root_id}/branches/{branch_id}/resume")
+async def api_resume_preview(root_id: str, branch_id: str, db: DbSession, novel_id: str):
+    root, branch, _chain, raw, fingerprint = await _exploration_resume_state(
+        db, novel_id=novel_id, root_id=root_id, branch_id=branch_id
+    )
+    return {
+        "root_id": root_id,
+        "branch_id": branch_id,
+        "status": branch.status,
+        "checkpoint_hash": fingerprint,
+        "requests_started": raw.requests_started,
+        "requests_unknown": raw.requests_unknown,
+        "suggested_requests": 5,
+        "suggested_tokens": 30000,
+    }
+
+
+@router.post(
+    "/roots/{root_id}/branches/{branch_id}/resume",
+    status_code=202,
+    openapi_extra={
+        "x-novelcraft-operation-exemption": (
+            "作者核对暂停检查点与未知计费后显式追加授权；复用原根与累计账本"
+        )
+    },
+)
+async def api_resume(
+    root_id: str, branch_id: str, data: ExplorationResumeRequest, db: DbSession
+):
+    return await resume_exploration(db, root_id=root_id, branch_id=branch_id, data=data)
+
+
 # ---------------------------------------------------------------------------
 # 路由
 # ---------------------------------------------------------------------------
@@ -1453,8 +1652,9 @@ async def api_preview(data: ExplorationPreviewApiRequest, db: DbSession):
 @router.post(
     "/confirmation/preview",
     openapi_extra={
-        "x-novelcraft-operation-exemption":
+        "x-novelcraft-operation-exemption": (
             "确认流的只读组成步骤，不经助手操作目录单独发起"
+        )
     },
 )
 async def api_confirmation_preview(
@@ -1470,8 +1670,9 @@ async def api_confirmation_preview(
 @router.post(
     "/confirmation",
     openapi_extra={
-        "x-novelcraft-operation-exemption":
+        "x-novelcraft-operation-exemption": (
             "确认落盘由对应操作内在依赖，不作为独立助手操作暴露"
+        )
     },
 )
 async def api_confirmation(data: ExplorationConfirmationRequest, db: DbSession):
@@ -1557,8 +1758,7 @@ async def api_revise(result_id: str, data: ExplorationReviseApiRequest, db: DbSe
 @router.post(
     "/results/{result_id}/lock",
     openapi_extra={
-        "x-novelcraft-operation-exemption":
-            "结果编辑保护的元数据操作，不产生任何模型调用"
+        "x-novelcraft-operation-exemption": "结果编辑保护的元数据操作，不产生任何模型调用"
     },
 )
 async def api_lock(result_id: str, data: ExplorationLockApiRequest, db: DbSession):
@@ -1572,8 +1772,9 @@ async def api_lock(result_id: str, data: ExplorationLockApiRequest, db: DbSessio
 @router.post(
     "/results/{result_id}/save-edit",
     openapi_extra={
-        "x-novelcraft-operation-exemption":
+        "x-novelcraft-operation-exemption": (
             "作者编辑保存零模型调用，作为结果历史新版本写入"
+        )
     },
 )
 async def api_save_edit(
@@ -1589,8 +1790,9 @@ async def api_save_edit(
 @router.post(
     "/results/{result_id}/handoff",
     openapi_extra={
-        "x-novelcraft-operation-exemption":
+        "x-novelcraft-operation-exemption": (
             "移交只派生新的探索起点，零模型调用；后续确认与开始走对应任务操作"
+        )
     },
 )
 async def api_handoff(result_id: str, data: ExplorationHandoffApiRequest, db: DbSession):

@@ -195,8 +195,8 @@ async def test_preview_recommends_scale_and_nominal_budget(
     assert response.status_code == 200
     body = response.json()
     assert body["recommended_scale"] == "sandbox"
-    assert body["budget"]["requests_max"] == 1
-    assert body["budget"]["follow_up_max_requests"] == 1
+    assert body["budget"]["requests_max"] == 5
+    assert body["budget"]["follow_up_max_requests"] == 5
     assert body["requires_confirmation"] is True
     assert body["recommendation"]["type"] == "story_exploration_recommendation"
 
@@ -219,9 +219,7 @@ async def test_gate_blocks_execution_but_keeps_history_and_compare_readable(
     async_client, db_session, test_project_id, monkeypatch
 ):
     monkeypatch.delenv("STORY_EXPLORATION_ENABLED", raising=False)
-    _root, _branch, step, _start = await _seed_sandbox_result(
-        db_session, test_project_id
-    )
+    _root, _branch, step, _start = await _seed_sandbox_result(db_session, test_project_id)
     _root2, _branch2, step2, _start2 = await _seed_sandbox_result(
         db_session, test_project_id
     )
@@ -399,12 +397,8 @@ def _stub_confirmation(monkeypatch, start: ProvisionalStart, scale: str = "sandb
     ):
         return None
 
-    monkeypatch.setattr(
-        exploration_api, "require_fresh_confirmation", fresh_confirmation
-    )
-    monkeypatch.setattr(
-        exploration_api, "build_project_llm_execution_snapshot", snapshot
-    )
+    monkeypatch.setattr(exploration_api, "require_fresh_confirmation", fresh_confirmation)
+    monkeypatch.setattr(exploration_api, "build_project_llm_execution_snapshot", snapshot)
     monkeypatch.setattr(exploration_api, "attach_result_ref", attach_ref)
 
 
@@ -523,9 +517,7 @@ async def test_revise_rejects_bad_path_and_unknown_entry(
     async_client, db_session, test_project_id, monkeypatch
 ):
     _enable_exploration(monkeypatch)
-    _root, _branch, step, _start = await _seed_sandbox_result(
-        db_session, test_project_id
-    )
+    _root, _branch, step, _start = await _seed_sandbox_result(db_session, test_project_id)
 
     bad_format = await async_client.post(
         f"/api/story/exploration/results/{step.id}/revise",
@@ -574,9 +566,7 @@ async def test_save_edit_rejects_kind_mismatch(
     async_client, db_session, test_project_id, monkeypatch
 ):
     _enable_exploration(monkeypatch)
-    _root, _branch, step, _start = await _seed_sandbox_result(
-        db_session, test_project_id
-    )
+    _root, _branch, step, _start = await _seed_sandbox_result(db_session, test_project_id)
     response = await async_client.post(
         f"/api/story/exploration/results/{step.id}/save-edit",
         json={
@@ -608,9 +598,7 @@ async def test_history_returns_flat_items_and_isolates_novel(
     async_client, db_session, test_project_id, project_factory, monkeypatch
 ):
     _enable_exploration(monkeypatch)
-    _root, _branch, step, _start = await _seed_sandbox_result(
-        db_session, test_project_id
-    )
+    _root, _branch, step, _start = await _seed_sandbox_result(db_session, test_project_id)
     other_project = str(await project_factory.create_project(title="另一本"))
 
     mine = await async_client.get(
@@ -702,17 +690,23 @@ async def test_counterfactual_preview_returns_derived_start_and_baseline_hash(
     expected_start = _cloned_start()
     assert body["derived_start"] == expected_start.model_dump(mode="json")
     assert body["counterfactual_of_result_id"] == str(baseline.id)
-    assert body["budget"]["preview_hash"] == preview_exploration_budget(
-        novel_id=test_project_id,
-        scale="sandbox",
-        start=expected_start,
-        counterfactual_of_result_id=str(baseline.id),
-        changed_assumptions=_changed_assumptions(),
-    ).preview_hash
+    assert (
+        body["budget"]["preview_hash"]
+        == preview_exploration_budget(
+            novel_id=test_project_id,
+            scale="sandbox",
+            start=expected_start,
+            counterfactual_of_result_id=str(baseline.id),
+            changed_assumptions=_changed_assumptions(),
+        ).preview_hash
+    )
     # 普通起点的预算身份不含基线，两者不同
-    assert body["budget"]["preview_hash"] != preview_exploration_budget(
-        novel_id=test_project_id, scale="sandbox", start=expected_start
-    ).preview_hash
+    assert (
+        body["budget"]["preview_hash"]
+        != preview_exploration_budget(
+            novel_id=test_project_id, scale="sandbox", start=expected_start
+        ).preview_hash
+    )
 
 
 @pytest.mark.asyncio
@@ -1134,9 +1128,8 @@ def test_resolve_scene_target_rejects_diagnostic_with_target_ref():
         _resolve_scene_target(outside)
 
 
-def test_scene_follow_up_blocked_for_variants_and_diagnostic_results():
+def test_scene_follow_up_accepts_variants_and_diagnostic_results():
     """多目标/空间诊断结果不接受“说详细点”或局部修订：尽早失败关闭。"""
-    from core.errors import ConflictError
     from modules.story.exploration_api import require_scene_follow_up_supported
     from modules.story.exploration_schemas import (
         ExplorationOutputEnvelope,
@@ -1153,28 +1146,26 @@ def test_scene_follow_up_blocked_for_variants_and_diagnostic_results():
             ],
         }
     )
-    with pytest.raises(ConflictError):
-        require_scene_follow_up_supported(
-            ExplorationOutputEnvelope(
-                output_kind=SCENE_LINE_OUTPUT_KIND,
-                schema_version=1,
-                payload=variants_payload,
-            )
+    require_scene_follow_up_supported(
+        ExplorationOutputEnvelope(
+            output_kind=SCENE_LINE_OUTPUT_KIND,
+            schema_version=1,
+            payload=variants_payload,
         )
+    )
     diagnostic_payload = SceneLineOutputV1.model_validate(
         {
             "rationale": "空间诊断。",
             "spatial_assessment": SpatialAssessment(supported=None),
         }
     )
-    with pytest.raises(ConflictError):
-        require_scene_follow_up_supported(
-            ExplorationOutputEnvelope(
-                output_kind=SCENE_LINE_OUTPUT_KIND,
-                schema_version=1,
-                payload=diagnostic_payload,
-            )
+    require_scene_follow_up_supported(
+        ExplorationOutputEnvelope(
+            output_kind=SCENE_LINE_OUTPUT_KIND,
+            schema_version=1,
+            payload=diagnostic_payload,
         )
+    )
     # 普通单目标结果不受影响
     single = SceneLineOutputV1.model_validate(
         {"target_ref": "c_a", "line": "好", "rationale": "r"}
@@ -1185,10 +1176,24 @@ def test_scene_follow_up_blocked_for_variants_and_diagnostic_results():
         )
     )
 
+    from modules.story.exploration_schemas import revision_items
 
-def test_full_rehearsal_result_blocked_for_follow_up_and_lock():
+    assert [
+        item["key"]
+        for item in revision_items(
+            variants_payload.model_dump(mode="json"), SCENE_LINE_OUTPUT_KIND
+        )
+    ] == ["variant:0", "variant:1"]
+    assert (
+        revision_items(
+            diagnostic_payload.model_dump(mode="json"), SCENE_LINE_OUTPUT_KIND
+        )[0]["key"]
+        == "spatial"
+    )
+
+
+def test_full_rehearsal_result_supports_typed_follow_up_and_lock():
     """完整排演结果（M3-B）不接受增量修订也不可锁定单条目：失败关闭。"""
-    from core.errors import ConflictError
     from modules.story.exploration_api import require_scene_follow_up_supported
     from modules.story.exploration_schemas import (
         FULL_REHEARSAL_OUTPUT_KIND,
@@ -1209,14 +1214,22 @@ def test_full_rehearsal_result_blocked_for_follow_up_and_lock():
             ],
         }
     )
-    with pytest.raises(ConflictError, match="完整排演结果暂不支持增量修订"):
-        require_scene_follow_up_supported(
-            ExplorationOutputEnvelope(
-                output_kind=FULL_REHEARSAL_OUTPUT_KIND,
-                schema_version=1,
-                payload=payload,
-            )
+    require_scene_follow_up_supported(
+        ExplorationOutputEnvelope(
+            output_kind=FULL_REHEARSAL_OUTPUT_KIND,
+            schema_version=1,
+            payload=payload,
         )
+    )
+
+    from modules.story.exploration_schemas import revision_items
+
+    assert [
+        item["key"]
+        for item in revision_items(
+            payload.model_dump(mode="json"), FULL_REHEARSAL_OUTPUT_KIND
+        )
+    ] == ["performance:0:0", "performance:0:1"]
 
 
 # ---------------------------------------------------------------------------
@@ -1322,7 +1335,7 @@ async def _seed_full_rehearsal_result(db_session, project_id):
 
 
 @pytest.mark.asyncio
-async def test_full_rehearsal_result_detail_revise_lock_save_edit_rejected(
+async def test_full_rehearsal_invalid_confirmation_path_and_shape_fail_closed(
     async_client, db_session, test_project_id, monkeypatch
 ):
     """完整排演结果的 detail/revise/lock 一律 409；save-edit 因 kind 并集拒绝。"""
@@ -1338,7 +1351,7 @@ async def test_full_rehearsal_result_detail_revise_lock_save_edit_rejected(
         },
     )
     assert detail.status_code == 409
-    assert "完整排演结果暂不支持增量修订" in detail.json()["detail"]
+    assert "缺少可复用的资料确认" in detail.json()["detail"]
 
     revise = await async_client.post(
         f"/api/story/exploration/results/{row.id}/revise",
@@ -1350,7 +1363,7 @@ async def test_full_rehearsal_result_detail_revise_lock_save_edit_rejected(
         },
     )
     assert revise.status_code == 409
-    assert "完整排演结果暂不支持增量修订" in revise.json()["detail"]
+    assert "修订路径" in revise.json()["detail"]
 
     lock = await async_client.post(
         f"/api/story/exploration/results/{row.id}/lock",
@@ -1362,7 +1375,7 @@ async def test_full_rehearsal_result_detail_revise_lock_save_edit_rejected(
         },
     )
     assert lock.status_code == 409
-    assert "完整排演结果暂不支持增量修订" in lock.json()["detail"]
+    assert "修订路径" in lock.json()["detail"]
 
     save_edit = await async_client.post(
         f"/api/story/exploration/results/{row.id}/save-edit",
@@ -1467,17 +1480,17 @@ async def test_preview_full_rehearsal_discloses_work_steps_and_budget(
     assert response.status_code == 200, response.json()
     body = response.json()
     assert body["recommended_scale"] == "scene_line"
-    assert body["budget"]["requests_min"] == body["budget"]["requests_max"] == 6
+    assert (body["budget"]["requests_min"], body["budget"]["requests_max"]) == (18, 30)
     work_steps = "\n".join(body["work_steps"])
     assert "逐目标表演卡 ×2/轮" in work_steps
     assert "素材与观察统筹 ×1/轮" in work_steps
-    assert "多于聚焦输出" in work_steps
+    assert "预计 18–30 次模型请求" in work_steps
     assert body["full_rehearsal"] == {
         "targets": ["c_franks", "c_evasive"],
         "rounds": 2,
         "author_goal": "",
     }
-    assert "6 次" in body["possible_charge"]
+    assert "30 次" in body["possible_charge"]
     # 聚焦预览不带 work_steps
     plain = await async_client.post(
         "/api/story/exploration/preview", json={"novel_id": test_project_id}
@@ -1520,9 +1533,7 @@ async def test_start_full_rehearsal_rejects_scene_anchor_start(
     from modules.evidence.contracts import SceneAnchorStart
 
     start = SceneAnchorStart(kind="scene_anchor", scene_id=str(uuid.uuid4()))
-    body = _full_rehearsal_start_body(
-        test_project_id, start, operation_id=uuid.uuid4()
-    )
+    body = _full_rehearsal_start_body(test_project_id, start, operation_id=uuid.uuid4())
     response = await async_client.post("/api/story/exploration/start", json=body)
     assert response.status_code == 409
     assert "临时假设起点" in response.json()["detail"]
@@ -1622,9 +1633,7 @@ async def test_start_full_rehearsal_enqueues_with_frozen_rehearsal_and_budget(
     response = await async_client.post("/api/story/exploration/start", json=body)
     assert response.status_code == 202, response.json()
     payload = response.json()
-    root_row = await db_session.get(
-        StorySceneDirectorRoot, uuid.UUID(payload["root_id"])
-    )
+    root_row = await db_session.get(StorySceneDirectorRoot, uuid.UUID(payload["root_id"]))
     assert root_row is not None
     # 排演意图冻结进根 request_json，worker 执行切片读取同一载荷
     assert root_row.request_json["full_rehearsal"] == {
@@ -1633,10 +1642,10 @@ async def test_start_full_rehearsal_enqueues_with_frozen_rehearsal_and_budget(
         "author_goal": "看两人对离职话题的不同反应",
     }
     envelope = root_row.run_envelope_json
-    assert envelope["request_limit"] == (2 + 1) * 2
+    assert envelope["request_limit"] == (2 + 1) * 2 * 5
     task = await db_session.get(AsyncTask, uuid.UUID(payload["task_id"]))
     assert task.meta["request"]["full_rehearsal"]["rounds"] == 2
-    assert task.meta["exploration_authorized_requests"] == 6
+    assert task.meta["exploration_authorized_requests"] == 30
     assert task.meta["action"] == "story.exploration.scene_line.generate"
 
     # 幂等：同 operation 重放返回同一任务
@@ -1652,9 +1661,7 @@ async def test_start_full_rehearsal_rejects_target_ref_and_stale_hash(
     _enable_exploration(monkeypatch)
     start = ProvisionalStart.model_validate(_rehearsal_start())
     _stub_confirmation(monkeypatch, start, scale="scene_line")
-    body = _full_rehearsal_start_body(
-        test_project_id, start, operation_id=uuid.uuid4()
-    )
+    body = _full_rehearsal_start_body(test_project_id, start, operation_id=uuid.uuid4())
     body["target_ref"] = "c_franks"
     conflict = await async_client.post("/api/story/exploration/start", json=body)
     assert conflict.status_code == 400
@@ -1666,8 +1673,6 @@ async def test_start_full_rehearsal_rejects_target_ref_and_stale_hash(
         operation_id=uuid.uuid4(),
         hash_override="0" * 64,
     )
-    stale_response = await async_client.post(
-        "/api/story/exploration/start", json=stale
-    )
+    stale_response = await async_client.post("/api/story/exploration/start", json=stale)
     assert stale_response.status_code == 409
     assert "重新预览预算" in stale_response.json()["detail"]

@@ -503,52 +503,56 @@ Evolution 成功回执经稳定 DI 端口投递免费检查，Story 只通过 Ev
 导演区分人物卡 active 状态与当前修订 accepted 状态；正常手工确认的有效修订可被识别为作者参考。
 卡片可用性不证明逐字段角色知识，未证明的自由文本仍只留在 director_only，不进入角色输入。
 
-## 导演多尺度独立探索（ADR-0042 第一批）
+## 导演多尺度独立探索（ADR-0042 分支实现）
 
-`STORY_EXPLORATION_ENABLED` 默认关闭（`exploration_feature.py::require_story_exploration_enabled` 抛 503）；
-API、助手操作与两个 worker 共享此门禁，history/compare 端点与 history 操作不挂 gate，关闭后可读历史。
+`STORY_EXPLORATION_ENABLED` 默认关闭。ADR-0042 仍为 Proposed；分支离线实现不代表采纳、
+真实模型或作者验收。API、助手操作和两个 worker 共用开关；历史/比较关闭后仍可读取。
 
-`exploration_api.py` 声明 `/api/story/exploration` 九端点：`POST /preview`（确定性推荐与预算预览，
-无模型调用）、`POST /confirmation/preview`、`POST /confirmation`（经 Evidence facade 的探索确认，
-复用 `expected_context_fingerprint` 机制）、`POST /start`（幂等 + preview hash + 确认校验，202）、
-`POST /results/{result_id}/detail` 与 `/revise`（追加授权 `author_detail_expand`/`author_revise` 的
-说详细点与局部修订，`item_path + item_text` 防漂移定位）、`/save-edit`（作者编辑新版本，零模型调用）、
-`POST /compare`（`start_fingerprint` 不同返回 409）与 `GET /history`（provisional 根与 Scene 根分开列出）。
+`/api/story/exploration` 提供推荐/预算预览、资料预览/确认、幂等启动、detail/revise、作者编辑、
+锁定、比较、历史、跨尺度移交，以及 `/roots/{root_id}/branches/{branch_id}/resume` 的 GET 预览
+与 POST 恢复。起点由 Evidence 的 `scene_anchor | provisional` 判别联合定义；临时起点不要求
+Scene。起点、假设、尺度、焦点与选中/排除资料共同绑定确认及预算身份。
 
-`exploration_schemas.py` 定义起点判别联合（`scene_anchor` / `provisional`）与六类
-`output_kind` 载荷（sandbox/event/scene_line/author_edit/lock_set/full_rehearsal，
-`schema_version=1`、`extra="forbid"`、`unknowns` 一等字段）；story 侧从
-`modules/evidence/contracts.py` 引用起点定义，不复刻。
-临时起点完整排演（M3-B 切片 1/2）：请求可选 `full_rehearsal`（targets 1..6、rounds 1..3、
-author_goal 0..2000），仅 provisional 起点 + 场景尺度接受，与 multi_targets/diagnostic
-互斥；预算按 (目标数+1)×轮次 分开计量并计入 preview_hash 身份；`/preview` 携带
-`preview_full_rehearsal` 时返回 `work_steps`（逐目标表演卡 ×N/轮、素材与观察统筹 ×1/轮，
-步骤数多于聚焦输出）。确认/启动前做资格校验：目标须落在起点内（409），正式角色经
-World 端口核验存在且属于本作品（404），候选无可知包且无身份假设 → 409 能力不足拒绝展开
-（聚焦紧凑路径保留）。action 沿用 `story.exploration.scene_line.generate`，模式由请求字段
-区分。worker 逐轮执行：每目标一次表演卡生成（候选渲染各自 KnowledgeEntry，正式角色给
-确认编译产物 + “场景本地假设”前缀 stimuli 并逐卡过 hidden guard），每轮末一次作者侧
-统筹调用（materials/observations/state_notes，author_goal 只进作者统筹包），观察回执
-进入对应目标下一轮角色包；每轮后提交式检查点（pending 记 round_number/completed_rounds），
-暂停后续跑不重跑已完成轮；结果整体落一行 full_rehearsal 信封（input_json 记
-mode/targets/rounds），detail/revise/lock 一律 409，save-edit 的 kind 并集不含
-full_rehearsal。
-`exploration_service.py` 负责根/分支创建（provisional 强制无 scene_id，scene 强制有）与历史/比较读；
-`exploration_budget.py` 提供初始单请求预算与追加授权预览；`exploration_recommend.py` 是纯确定性
-推荐函数；`exploration_operations.py` 导出六项操作目录（op_version "1"：preview/compare/history R0，
-start/detail/revise R2 confirm），runtime 版本随目录扩为 "18"。
+沙盘/事件写 `story_world_progression_steps`，场景对白/多目标/空间诊断/完整排演写
+`story_scene_director_rounds`。六类 `output_kind` 均经 schema 校验；`unknowns` 保持开放。
+作者编辑形成新版本，后续操作使用新结果 ID；复杂结果按 variant、spatial、performance、
+material、observation 定位条目。detail/revise 复用原根确认并重验，锁定内容由服务端回填，
+最终合并内容同样接受知识审查。锁记录不因新结果出现而清空。
 
-`exploration_tasks.py` 的 `story_exploration_progression_task`（B1 沙盘、B2 事件诊断/补桥，
-结果写 `story_world_progression_steps` 零参与者紧凑步骤）与 `story_exploration_scene_task`
-（B3 场景一句对白、多目标、空间诊断与 M3-B 完整排演，结果写
-`story_scene_director_rounds`）注册根能力 `story.exploration`，`never_retry`、
-聚焦路径单次/多目标逐人请求而完整排演按 (目标数+1)×轮次 计量、provider 前后检查点；
-worker 重算 preview hash（含排演身份）、校验信封身份与冻结起点/排演意图，
-canonical 目标生成后做 hidden guard 消费方校验。detail/revise 复用同一对 worker（meta.mode）。
+每个生成单元复用 Evidence 的知识导演→生成→独立审查，失败最多一次返修与复审，正常
+3 次、最多 5 次物理请求，不隐藏格式/传输重试。每次请求与最终写结果前重物化原确认，
+保留审查回执。作者问题、假设和私享仅给作者侧；候选人物只收本人知识/观察/误信包，正式
+角色只收原确认读集内按 POV 和 Scene 截止投影的资料，并逐人物检查 hidden guard。
 
-结果行带 `output_kind` 包装：旧导演/推进/参考/转入路径遇到探索结果或 provisional 根失败关闭
-（`continue/advance/resume`、`save_director_reference`、`transfer_world_candidate` 等，契约 §7）；
-Writing 参考读取不受影响。两根表由迁移 `20261017_exploration_start_kind` 增加 `source_kind`
-列（CHECK 限定仅 provisional 可空 scene_id）与 `(novel_id, source_kind, created_at)` 索引；
-downgrade 在存在 provisional 行时拒绝。临时起点确认经 Evidence：provisional 跳过 outline/scene
-指纹门、核心指纹保留，`author_private` 永不进入角色包；候选主体无 hidden_truth，知识包即边界。
+完整排演仅支持 provisional + 场景尺度，与多目标/空间诊断互斥。targets 最多 74（起点候选
+50 + 正式角色 24 的容量），轮数由作者与总预算约束，不设 6 人/3 轮产品上限。每轮 N 张
+独立人物卡与一次作者统筹，共 (N+1)×轮数 个生成单元，预算披露为其 3–5 倍请求。
+`author_goal` 只进统筹；各人物累计自己历轮观察，不接收作者状态摘要或他人私享。
+多目标对白、复杂结果续算的每个条目，以及排演的每张卡和每轮均保存检查点；
+恢复跳过已完成单元并保留原审查回执。
+
+暂停恢复绑定原 root/branch、当前累计账本和 checkpoint hash，未知计费须核对数量并显式
+允许可能重复费用；相同 operation_id 重放只返回原回执，不再次追加预算。恢复不延长原始
+截止、不换模型快照、不重置累计用量；Goal 子任务暂停后由作者显式恢复和目标回执核对。
+
+助手目录包括 preview/compare/history/handoff/confirmation_preview（R0）、confirm（R1），
+start/detail/revise（R2）。Goal 先以 inline_only 保存领域回执，通过请求、可能费用、token
+与时间准入后执行；每个领域请求实时观察目标剩余额度，结束只导入增量。已批准目标内的
+资料确认可自动执行；三个 R2 探索操作还需作者显式开启 auto_r2。其他 R2/R3/R4 门禁不变。
+普通助手回执携带类型并投影实际完成或暂停结果；手动尺度/焦点绑定原问题。前端保存任务
+身份并恢复轮询、支持真实停止，移交重试复用同一启动请求；未保存编辑按结果和条目备份，
+双保存失败时阻止离开/切换，成功编辑使用新版本 ID。
+
+跨尺度移交保留所选候选的条件、代价、未知和来源假设，不把候选影响当作既定事实。
+反事实比较可从同作品跨根历史选择，仍由服务端核验基线关系。保存到正式 Scene 的对白参考
+须重验源确认、目标 Scene 确认和人物可知内容；候选人物副本只供作者参考。Writing 的
+`director_reference` 显式选择后消费实际 line/action，仍为 advisory，不成为正史或场景事实。
+旧导演/推进/转入路径遇到探索载荷失败关闭，既有普通 Scene 工作流保持各自契约。
+两根表由 `20261017_exploration_start_kind` 增加 source_kind 与索引；存在 provisional 行时
+禁止降级。离线回归入口为 `modules/story/tests/test_exploration*.py`，未知与语义阻断反例
+见 `test_exploration_review_regressions.py`。
+
+探索编辑须逐项核对分支当前锁的内容哈希，历史版本不能带回旧锁定内容；任务执行期间
+保存编辑返回冲突。Scene 生成落盘在分支行锁内核验最新父版本，期间出现作者新版本时拒绝旧结果。
+作者停止或 worker 取消后，任务保持 cancelled，领域根/分支标为可显式恢复的暂停，保留已完成单元；
+未知用量仍须核对并确认可能重复费用，不自动重发。恢复回执可经任务、助手及刷新后的结果卡读取。

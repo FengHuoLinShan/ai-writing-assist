@@ -545,6 +545,9 @@ C5_WORLD_PROGRESSION_OPERATIONS = {
     "story.world_progression.read_continuous_authorization",
 }
 C6_EXPLORATION_OPERATIONS = {
+    "story.exploration.handoff",
+    "story.exploration.confirmation_preview",
+    "story.exploration.confirm",
     "story.exploration.preview",
     "story.exploration.start",
     "story.exploration.detail",
@@ -552,8 +555,26 @@ C6_EXPLORATION_OPERATIONS = {
     "story.exploration.compare",
     "story.exploration.history",
 }
-# P0 冻结契约 §6：六项探索操作随 runtime 18 进入目录；快照按当前实测钉死。
+# Runtime 18 的探索目录包含移交及目标资料确认，旧目录不得隐式扩展。
 C6_EXPLORATION_SNAPSHOT = {
+    "story.exploration.handoff": (
+        "按所选结果派生跨尺度起点",
+        "read",
+        "1",
+        "518ff861465f8e72e753ba5e0dcd763e43cb7886614ee5010d9089e368719912",
+    ),
+    "story.exploration.confirmation_preview": (
+        "预览目标探索资料",
+        "read",
+        "1",
+        "967e3cc6d7173840ece914fd360ec75a03949f3f9b34abbb2d978a1cb5662acd",
+    ),
+    "story.exploration.confirm": (
+        "确认目标探索资料",
+        "confirm",
+        "1",
+        "59b6f3fc70000183e49186669bf70aaa845221e6b3e3ecc01073bf5bc1a550c7",
+    ),
     "story.exploration.compare": (
         "比较同起点探索结果",
         "read",
@@ -588,7 +609,7 @@ C6_EXPLORATION_SNAPSHOT = {
         "发起独立探索任务",
         "confirm",
         "1",
-        "2f71fa8f28346609179232311b1bea2bee56d52f4d08be38f18fce6333dd7d0d",
+        "f2d02707adcf91ab839ffbda6647f992ec8c667519631dc7e8ca4c9bccacbda7",
     ),
 }
 C0_DOSSIER_INTERCHANGE_OPERATIONS = {
@@ -712,7 +733,9 @@ def test_bootstrap_operation_catalog_matches_snapshot():
                 operation.revision,
                 fingerprint(operation.schema.model_json_schema()),
             ),
-            "expected": C0C_REVISED_SNAPSHOT.get(name, OPERATION_SNAPSHOT[name]),
+            "expected": C0C_REVISED_SNAPSHOT.get(
+                name, OPERATION_SNAPSHOT.get(name) or C6_EXPLORATION_SNAPSHOT[name]
+            ),
         }
         for name, operation in catalog.items()
         if name in OPERATION_SNAPSHOT or name in C6_EXPLORATION_SNAPSHOT

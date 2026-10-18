@@ -68,6 +68,14 @@ _hidden_guard_builder = HiddenGuardBuilder()
 _interaction_story_context_service = InteractionStoryContextService()
 
 
+async def project_confirmed_character_context(
+    db, *, confirmed_context, character_id: str
+):
+    return await _confirmed_ai_action_service.character_projection(
+        db, confirmed=confirmed_context, character_id=character_id
+    )
+
+
 async def compile_interaction_story_context(
     db: AsyncSession,
     *,
@@ -1159,9 +1167,18 @@ async def build_hidden_guard_context(
     db: AsyncSession,
     *,
     confirmed_context: ConfirmedAIActionContext,
+    viewpoint_character_id: str | None = None,
 ) -> list[HiddenGuardTerm]:
     """Build deterministic hidden guard terms for post-generation validation."""
-    return await _hidden_guard_builder.build(db, confirmed_context)
+    return await _hidden_guard_builder.build(
+        db,
+        confirmed_context,
+        **(
+            {"viewpoint_character_id": viewpoint_character_id}
+            if viewpoint_character_id
+            else {}
+        ),
+    )
 
 
 def confirmed_knowledge_source_count(confirmed_context: ConfirmedAIActionContext) -> int:

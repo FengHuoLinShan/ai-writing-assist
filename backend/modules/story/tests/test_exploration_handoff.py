@@ -244,7 +244,25 @@ async def _seed_source(db_session, project_id, *, scale: str, start, envelope):
     from datetime import UTC, datetime, timedelta
 
     from infrastructure.llm.workflow_budget import new_ai_run_envelope
+    from modules.evidence.contracts import ExplorationContextRequest
+    from modules.evidence.facade import confirm_exploration_context
 
+    action = {
+        "sandbox": "story.exploration.sandbox.generate",
+        "event": "story.exploration.event.diagnose",
+        "scene_line": "story.exploration.scene_line.generate",
+    }[scale]
+    confirmation = await confirm_exploration_context(
+        db_session,
+        ExplorationContextRequest(
+            novel_id=str(project_id),
+            action=action,
+            exploration_scale=scale,
+            task="generation",
+            scope="project",
+            start=start,
+        ),
+    )
     started_at = datetime.now(UTC)
 
     def _attach_run_envelope(root):
@@ -311,6 +329,11 @@ async def _seed_source(db_session, project_id, *, scale: str, start, envelope):
             state_json={},
             run_envelope_json={},
         )
+    branch.request_json = {
+        **(branch.request_json or {}),
+        "context_confirmation_id": confirmation.id,
+        "confirmation_action": action,
+    }
     db_session.add(row)
     await db_session.flush()
     return root, branch, row
@@ -362,7 +385,7 @@ async def test_sandbox_to_event_selected_link_topped_and_subjects_filtered(
     derived, fingerprint = await _handoff(
         db_session, project_id, row, target_scale="event", item_path="chain:1"
     )
-    assert fingerprint == exploration_start_fingerprint(start, "sandbox")
+    assert fingerprint == derived.derived_from.source_fingerprint
     assert derived.derived_from is not None
     assert derived.derived_from.source_result_id == str(row.id)
     assert derived.derived_from.source_scale == "sandbox"
@@ -914,7 +937,10 @@ async def test_handoff_api_returns_derived_start_and_fingerprint(
     body = response.json()
     assert body["requires_confirmation"] is True
     assert body["preview_hint"]
-    assert body["source_fingerprint"] == root.source_hash
+    assert (
+        body["source_fingerprint"]
+        == body["derived_start"]["derived_from"]["source_fingerprint"]
+    )
     derived_start = body["derived_start"]
     assert derived_start["kind"] == "provisional"
     assert derived_start["derived_from"]["source_result_id"] == str(row.id)

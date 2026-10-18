@@ -765,12 +765,13 @@ Evolution `SceneSample` 可用 `subject_surface`，禁止猜测实体 ID；主�
 窄观察关闭思考并给 16,384 输出上限；身份、World 与独立复核使用 high 和分步输出预算，
 模型能力不足时保留待处理，不把格式通过当作文学质量证明。
 
-三项新增生产能力的 Prompt/Schema 入口：
+相关生产能力的 Prompt/Schema 入口：
 
 |能力|所属入口与输出约束|
 |---|---|
 |`story.scene_director`|`modules/story/director_tasks.py` 的逐角色意图、有限结算与素材生成；共用 `simulation_v3` 与 Director 强类型输出。每个角色只读自己的 Evidence 视角，依据须匹配实际收到的当前来源；作者秘密与未来事实不得进入角色知识。输出保留为候选回合/表演素材，不写正文或正史。总开关默认关闭。|
 |`story.world_progression`|`modules/story/world_progression_tasks.py` 的角色意图、推进步与剧情钩子生成；结构化引用、确定性交汇及独立一致性校验，沿同一授权根结算用量。作者导向属于候选约束，不是已发生事实；采用只产生可编辑大纲候选或导演起点。总开关默认关闭。|
+|`story.exploration.sandbox/event/scene_line`|`modules/story/exploration_tasks.py` 与 `exploration_governance.py` 的临时探索；沿原资料确认逐请求重验，以逐人物知识包生成，知识导演和独立审查最多返修一次。审查对象包含合并后的完整结果及锁定条目；正常每单元 3 次、最多 5 次请求。输出仅为候选，Scene 移交保留来源截止、排除及角色视角。总开关默认关闭。|
 |`assistant.goal.plan`|`modules/assistant/goal_runs/service.py` 的两阶段目录选择/步骤规划；`GoalOperationSelection` 与目标计划 schema 只接受冻结目录内能力和已授权范围。关闭格式自动重试；未知请求、预算停点与 R3/R4 作者确认沿目标运行状态机处理。计划自身不执行领域写入。|
 
 这些能力经 Project 执行快照创建业务 LLM 客户端，使用 managed step 和同一根预算；

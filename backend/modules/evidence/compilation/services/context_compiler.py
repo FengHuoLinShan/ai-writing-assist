@@ -228,6 +228,13 @@ class ContextCompiler:
         )
 
         loader_names = list(SCOPE_LOADERS.get(options.scope, ["project"]))
+        if (options.consumer_action or "").startswith("story.exploration."):
+            for name, selected in (
+                ("world_entities", options.entity_ids),
+                ("characters", options.character_ids),
+            ):
+                if selected and name not in loader_names:
+                    loader_names.append(name)
         if (
             options.consumer_action in {"writing.generate", "writing.targeted_revision"}
             and options.director_reference_ids

@@ -1,7 +1,7 @@
 """Pure operation catalog entries for author-authorized multi-scale exploration.
 
-P0 §6：六项 OPERATIONS_SPEC（op_version "1"）。preview/compare/history 是
-R0 只读；start/detail/revise 是 confirm R2、possible_model_charge、multi_stage。
+OPERATIONS_SPEC（op_version "1"）：预览、比较、历史和移交是 R0 只读，
+目标资料确认 R1；start/detail/revise 是 R2、possible_model_charge、multi_stage。
 read 类操作必须是 R0 且 apply=None；非 read 必须有 apply（装配件校验）。
 history/compare 操作不挂执行 gate（关闭后仍可读）；其余 prepare/apply 挂 gate。
 
@@ -13,12 +13,11 @@ M4-B goal runs 接入：start/detail/revise 声明 read_result 并支持受控�
 
 from __future__ import annotations
 
-from uuid import UUID
+from uuid import UUID, uuid4
 
 from sqlalchemy import select
 
 from infrastructure.llm.collaboration import content_hash
-from infrastructure.tasks import facade as tasks_facade
 from infrastructure.tasks.facade import get_completed_task_payload
 from infrastructure.tasks.models import AsyncTask
 from modules.evidence import facade as evidence_facade
@@ -31,7 +30,10 @@ from modules.story.exploration_recommend import recommend_exploration_scale
 from modules.story.exploration_schemas import (
     ExplorationBudgetPreview,
     ExplorationCompareRequest,
+    ExplorationConfirmationPreviewRequest,
+    ExplorationConfirmationRequest,
     ExplorationDetailOperationRequest,
+    ExplorationHandoffOperationRequest,
     ExplorationHistoryOperationRequest,
     ExplorationPreviewOperationRequest,
     ExplorationReviseOperationRequest,
@@ -92,21 +94,6 @@ async def _task_type_for_result(db, novel_id: str, result_id: str) -> str:
     return _PROGRESSION_TASK if chain == "progression" else _SCENE_TASK
 
 
-async def _bind_goal_parent_task(db, context, *, novel_id: str, receipt: dict) -> None:
-    """把领域任务绑定到目标运行的父任务回执，供恢复路径核对归属。"""
-    internal = getattr(context, "internal_meta", None) or {}
-    parent_task_id = internal.get("_parent_task_id")
-    if not parent_task_id:
-        return
-    await tasks_facade.update_task_projection(
-        db,
-        task_id=str(receipt.get("task_id")),
-        task_type=str(receipt.get("task_type")),
-        novel_id=novel_id,
-        meta_patch={"_parent_task_id": str(parent_task_id)},
-    )
-
-
 def _goal_receipt(context, receipt: dict, *, task_type: str) -> dict:
     """目标运行冻结的稳定任务回执：task_id 即目标冻结的稳定操作标识。"""
     return {
@@ -152,7 +139,6 @@ def _require_gate() -> None:
     require_story_exploration_enabled()
 
 
-
 # ---------------------------------------------------------------------------
 # prepare / apply
 # ---------------------------------------------------------------------------
@@ -178,11 +164,11 @@ def _advisory_budget_payload(
     if multi_targets:
         identity["multi_targets"] = [str(item) for item in multi_targets]
     return ExplorationBudgetPreview(
-        requests_min=request_count,
-        requests_max=request_count,
-        follow_up_max_requests=1,
-        tokens_min=tokens_min,
-        tokens_max=tokens_max,
+        requests_min=request_count * 3,
+        requests_max=request_count * 5,
+        follow_up_max_requests=5,
+        tokens_min=tokens_min * 3,
+        tokens_max=(tokens_max + 4000) * 5,
         preview_hash=content_hash(identity),
     ).model_dump(mode="json")
 
@@ -192,9 +178,7 @@ async def _prepare_preview(db, novel_id, args, *, context=None):
     _require_gate()
     await require_active_project(db, novel_id)
     project_has_content = (
-        await db.scalar(
-            select(Scene.id).where(Scene.novel_id == UUID(novel_id)).limit(1)
-        )
+        await db.scalar(select(Scene.id).where(Scene.novel_id == UUID(novel_id)).limit(1))
         is not None
     )
     recommended, reason = recommend_exploration_scale(
@@ -226,6 +210,7 @@ async def _prepare_preview(db, novel_id, args, *, context=None):
             "scale": effective_scale,
             "reason": reason,
             "focus_hint": args.focus,
+            "question": args.question,
         },
     }
 
@@ -235,6 +220,15 @@ async def _prepare_start(db, novel_id, args, *, context=None):
     _require_gate()
     await require_active_project(db, novel_id)
     start = validate_start_dump(dict(args.start))
+    intent = getattr(getattr(context, "work", None), "exploration_intent", None)
+    if intent is not None and (
+        args.scale != intent.scale
+        or args.focus != intent.focus
+        or (intent.question and getattr(start, "question", "") != intent.question)
+    ):
+        raise ValueError(
+            "探索参数与作者在推荐卡中选择的任务不一致，请沿用指定问题、尺度和焦点"
+        )
     confirmation = await evidence_facade.require_fresh_confirmation(
         db,
         novel_id=novel_id,
@@ -299,13 +293,19 @@ async def _apply_start(db, novel_id, args, preview, *, context=None):
     if args.full_rehearsal is not None:
         payload["full_rehearsal"] = args.full_rehearsal.model_dump(mode="json")
     receipt = await exploration_api.start_exploration_task(
-        db, data=ExplorationStartApiRequest.model_validate(payload)
+        db,
+        data=ExplorationStartApiRequest.model_validate(payload),
+        **({"internal_meta": context.internal_meta} if goal_mode else {}),
     )
     if not goal_mode:
-        return receipt
+        return {
+            **receipt,
+            "task_type": _task_type_for_scale(args.scale),
+            "target_type": EXPLORATION_TARGET_TYPE,
+            "scale": args.scale,
+        }
     task_type = _task_type_for_scale(args.scale)
     bound = _goal_receipt(context, receipt, task_type=task_type)
-    await _bind_goal_parent_task(db, context, novel_id=novel_id, receipt=bound)
     return bound
 
 
@@ -318,7 +318,10 @@ async def _prepare_detail(db, novel_id, args, *, context=None):
     )
     return {
         "result_id": str(row.id),
-        "effect": "对当前结果做一次“说详细点”，同根追加授权 1 次模型请求",
+        "effect": (
+            "对当前结果做一次“说详细点”，"
+            "同根按生成条目追加最多 5 次模型请求（含导演与审查）"
+        ),
     }
 
 
@@ -336,12 +339,16 @@ async def _apply_detail(db, novel_id, args, preview, *, context=None):
             context.operation_id if goal_mode else UUID(str(args.operation_id))
         ),
         focus=args.focus,
+        **({"internal_meta": context.internal_meta} if goal_mode else {}),
     )
     if not goal_mode:
-        return receipt
+        return {
+            **receipt,
+            "task_type": await _task_type_for_result(db, novel_id, str(args.result_id)),
+            "target_type": EXPLORATION_TARGET_TYPE,
+        }
     task_type = await _task_type_for_result(db, novel_id, str(args.result_id))
     bound = _goal_receipt(context, receipt, task_type=task_type)
-    await _bind_goal_parent_task(db, context, novel_id=novel_id, receipt=bound)
     return bound
 
 
@@ -353,8 +360,15 @@ async def _prepare_revise(db, novel_id, args, *, context=None):
         db, novel_id=novel_id, result_id=str(args.result_id)
     )
     envelope = unpack_exploration_output(row)
-    if envelope is None or envelope.output_kind == AUTHOR_EDIT_KIND:
-        raise ValueError("作者编辑版本不能继续修订；请回到原始 AI 结果")
+    if envelope is None:
+        raise ValueError("所选记录不是探索结果")
+    if envelope.output_kind == AUTHOR_EDIT_KIND:
+        from modules.story.exploration_schemas import ExplorationOutputEnvelope
+
+        envelope = ExplorationOutputEnvelope(
+            output_kind=envelope.payload.base_output_kind,
+            payload=envelope.payload.edited_payload,
+        )
     try:
         check_revision_target(
             envelope.payload.model_dump(mode="json"),
@@ -367,7 +381,7 @@ async def _prepare_revise(db, novel_id, args, *, context=None):
     return {
         "result_id": str(row.id),
         "locked_item_path": args.item_path,
-        "effect": "只重生成选中条目，其余内容服务端原样保留；同根追加授权 1 次",
+        "effect": "只重生成选中条目，其余内容服务端原样保留；同根追加最多 5 次模型请求",
     }
 
 
@@ -388,12 +402,16 @@ async def _apply_revise(db, novel_id, args, preview, *, context=None):
         item_path=args.item_path,
         item_text=args.item_text,
         bridge_target=args.bridge_target,
+        **({"internal_meta": context.internal_meta} if goal_mode else {}),
     )
     if not goal_mode:
-        return receipt
+        return {
+            **receipt,
+            "task_type": await _task_type_for_result(db, novel_id, str(args.result_id)),
+            "target_type": EXPLORATION_TARGET_TYPE,
+        }
     task_type = await _task_type_for_result(db, novel_id, str(args.result_id))
     bound = _goal_receipt(context, receipt, task_type=task_type)
-    await _bind_goal_parent_task(db, context, novel_id=novel_id, receipt=bound)
     return bound
 
 
@@ -436,7 +454,6 @@ async def _exploration_failed_without_result(db, novel_id: str, root_id: str) ->
     """
     from sqlalchemy import select
 
-
     try:
         root_uuid = UUID(root_id)
     except (TypeError, ValueError):
@@ -462,7 +479,6 @@ async def _exploration_failed_without_result(db, novel_id: str, root_id: str) ->
 
 async def _read_exploration_task_result(db, novel_id, reference):
 
-
     task_type = str(reference.get("task_type") or "")
     root_id = str(reference.get("root_id") or "")
     task = await get_completed_task_payload(
@@ -470,6 +486,7 @@ async def _read_exploration_task_result(db, novel_id, reference):
         novel_id=novel_id,
         task_id=str(reference.get("task_id")),
         task_type=task_type,
+        include_cancelled=True,
     )
 
     if task is None:
@@ -486,10 +503,7 @@ async def _read_exploration_task_result(db, novel_id, reference):
                 "root_id": root_id,
                 "proof": {"kind": "task_cancelled_before_first_claim"},
             }
-        if (
-            root_id
-            and await _exploration_failed_without_result(db, novel_id, root_id)
-        ):
+        if root_id and await _exploration_failed_without_result(db, novel_id, root_id):
             return {
                 "status": "not_applied",
                 "task_type": task_type,
@@ -512,6 +526,19 @@ async def _read_exploration_task_result(db, novel_id, reference):
             "result_id": str(result.get("result_id") or ""),
             "output_kind": str(result.get("output_kind") or ""),
             "payload": result.get("payload"),
+            "domain_reference": {
+                "type": "story_exploration_result",
+                "task_id": str(reference.get("task_id")),
+                "root_id": str(result.get("root_id") or root_id),
+                "branch_id": str(result.get("branch_id") or ""),
+                "result_id": str(result.get("result_id") or ""),
+                "output_kind": str(result.get("output_kind") or ""),
+                "scale": {
+                    "story.exploration.sandbox": "sandbox",
+                    "story.exploration.event": "event",
+                }.get(result.get("output_kind"), "scene_line"),
+                "payload": result.get("payload"),
+            },
         }
     if status in {"paused_budget", "paused_unknown"}:
         return {
@@ -568,7 +595,98 @@ async def _prepare_history(db, novel_id, args, *, context=None):
     )
 
 
+async def _prepare_handoff(db, novel_id, args, *, context=None):
+    _require_project(novel_id, args)
+    return await exploration_api.handoff_exploration_result(
+        db,
+        result_id=args.result_id,
+        data=exploration_api.ExplorationHandoffApiRequest(
+            **args.model_dump(exclude={"result_id"}),
+            selector="assistant",
+            operation_id=uuid4(),
+        ),
+    )
+
+
+async def _prepare_confirmation_preview(db, novel_id, args, *, context=None):
+    _require_project(novel_id, args)
+    preview = await exploration_api.preview_confirmation(db, args)
+    start = await exploration_api._effective_request_start(db, args)
+    budget = preview_exploration_budget(
+        novel_id=novel_id,
+        scale=args.scale,
+        start=start,
+        focus=args.focus,
+        event_mode_hint=args.event_mode_hint,
+        multi_targets=args.multi_targets,
+        diagnostic_question=args.diagnostic.question if args.diagnostic else None,
+        full_rehearsal=args.full_rehearsal,
+    )
+    return {**preview, "budget": budget.model_dump(mode="json")}
+
+
+async def _prepare_confirmation(db, novel_id, args, *, context=None):
+    _require_project(novel_id, args)
+    preview = await exploration_api.preview_confirmation(db, args)
+    if preview["context_fingerprint"] != args.expected_context_fingerprint:
+        raise ValueError("目标资料预览已变化，请重新查证后确认")
+    return preview
+
+
+async def _apply_confirmation(db, novel_id, args, preview, *, context=None):
+    _require_project(novel_id, args)
+    return await exploration_api.confirm_exploration(db, args)
+
+
 OPERATIONS_SPEC = {
+    "story.exploration.handoff": {
+        "label": "按所选结果派生跨尺度起点",
+        "schema": ExplorationHandoffOperationRequest,
+        "prepare": _prepare_handoff,
+        "apply": None,
+        "permission": "read",
+        **_metadata(
+            description="只读取所选条目并保留条件、未知和知识边界；必须记录移交理由。",
+            risk="R0",
+            fee="free",
+            produces=("exploration_derived_start",),
+            preconditions=("当前作者拥有来源探索",),
+            reversibility="read_only",
+        ),
+        "trace_rule": _trace(ExplorationHandoffOperationRequest),
+    },
+    "story.exploration.confirmation_preview": {
+        "label": "预览目标探索资料",
+        "schema": ExplorationConfirmationPreviewRequest,
+        "prepare": _prepare_confirmation_preview,
+        "apply": None,
+        "permission": "read",
+        **_metadata(
+            description="读取目标起点、尺度与焦点绑定的资料指纹；不调用模型。",
+            risk="R0",
+            fee="free",
+            produces=("exploration_context_preview",),
+            preconditions=("当前作者可访问目标作品",),
+            reversibility="read_only",
+        ),
+        "trace_rule": _trace(ExplorationConfirmationPreviewRequest),
+    },
+    "story.exploration.confirm": {
+        "label": "确认目标探索资料",
+        "schema": ExplorationConfirmationRequest,
+        "prepare": _prepare_confirmation,
+        "apply": _apply_confirmation,
+        "permission": "confirm",
+        **_metadata(
+            description="重验目标资料预览后冻结确认；目标运行仅在作者批准的计划与范围内执行。",
+            risk="R1",
+            fee="free",
+            produces=("exploration_context_confirmation",),
+            preconditions=("目标预览指纹仍匹配",),
+            reversibility="discard_preview",
+        ),
+        "trace_rule": _trace(ExplorationConfirmationRequest),
+    },
     "story.exploration.preview": {
         "label": "预览独立探索推荐与预算",
         "schema": ExplorationPreviewOperationRequest,
@@ -624,7 +742,7 @@ OPERATIONS_SPEC = {
         **_metadata(
             description=(
                 "绑定当前探索结果追加一次有界生成；不扩大尺度、资料或联网范围，"
-                "同根追加授权 1 次模型请求。"
+                "同根按生成条目追加最多 5 次模型请求（含导演与审查）。"
             ),
             risk="R2",
             fee="possible_model_charge",
@@ -647,7 +765,7 @@ OPERATIONS_SPEC = {
         "permission": "confirm",
         **_metadata(
             description=(
-                "按条目路径（chain:N/gap:N/bridge:N/line）锁定父结果中的一个条目"
+                "按条目路径选择父结果中的一个条目（含多目标、空间与排演）"
                 "重生成，item_text 与父内容比对防漂移；其余内容服务端原样保留，"
                 "新结果行指向父行。"
             ),

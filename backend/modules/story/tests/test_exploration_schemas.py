@@ -546,9 +546,7 @@ def test_event_three_modes_are_mutually_exclusive():
     GoalPath.model_validate(_goal_path_payload())
     # goal 模式必须给 goal_path
     with pytest.raises(ValidationError):
-        EventOutputV1.model_validate(
-            _event_payload(mode="goal", goal_path=None)
-        )
+        EventOutputV1.model_validate(_event_payload(mode="goal", goal_path=None))
     # goal 模式禁 bridge_candidates
     with pytest.raises(ValidationError):
         EventOutputV1.model_validate(
@@ -557,7 +555,9 @@ def test_event_three_modes_are_mutually_exclusive():
                 "goal_path": _goal_path_payload(),
                 "bridge_candidates": [
                     BridgePath(
-                        steps=["x"], required_conditions=[], cost_or_risk="y",
+                        steps=["x"],
+                        required_conditions=[],
+                        cost_or_risk="y",
                         holds=True,
                     )
                 ],
@@ -565,9 +565,7 @@ def test_event_three_modes_are_mutually_exclusive():
         )
     # diagnose 模式禁 goal_path
     with pytest.raises(ValidationError):
-        EventOutputV1.model_validate(
-            _event_payload(goal_path=_goal_path_payload())
-        )
+        EventOutputV1.model_validate(_event_payload(goal_path=_goal_path_payload()))
     # bridge 模式禁 goal_path
     bridge_base = _event_payload(
         mode="bridge",
@@ -676,9 +674,7 @@ def test_start_task_request_event_mode_hint_scale_value_and_action_guard():
     assert goal_ok.event_mode_hint == "goal"
     # goal 提示配 diagnose 动作 → 拒绝
     with pytest.raises(ValidationError):
-        ExplorationStartTaskRequest.model_validate(
-            {**base, "event_mode_hint": "goal"}
-        )
+        ExplorationStartTaskRequest.model_validate({**base, "event_mode_hint": "goal"})
 
 
 def test_scene_line_output_bounds_and_fields():
@@ -867,8 +863,7 @@ def test_counterfactual_changed_assumptions_rejects_empty_and_identity_kind():
                 **_start_task_base(start=None),
                 "counterfactual_of_result_id": baseline_id,
                 "changed_assumptions": [
-                    {"kind": "state", "text": f"条件{i}"}
-                    for i in range(11)
+                    {"kind": "state", "text": f"条件{i}"} for i in range(11)
                 ],
             }
         )
@@ -932,9 +927,7 @@ def test_counterfactual_budget_identity_includes_baseline_and_changed():
     changed_a = [Assumption(kind="world_rule", text="重力变化时段从早晨改到傍晚")]
     changed_b = [Assumption(kind="world_rule", text="重力变化时段改到深夜")]
 
-    plain = exploration_preview_identity(
-        novel_id=NOVEL_ID, scale="sandbox", start=start
-    )
+    plain = exploration_preview_identity(novel_id=NOVEL_ID, scale="sandbox", start=start)
     assert "counterfactual_of_result_id" not in plain
 
     cf_a = exploration_preview_identity(
@@ -974,14 +967,17 @@ def test_counterfactual_budget_identity_includes_baseline_and_changed():
         novel_id=NOVEL_ID, scale="sandbox", start=start
     )
     assert budget_cf.preview_hash != budget_plain.preview_hash
-    assert budget_cf.requests_max == budget_plain.requests_max == 1
-    assert budget_cf.preview_hash == preview_exploration_budget(
-        novel_id=NOVEL_ID,
-        scale="sandbox",
-        start=start,
-        counterfactual_of_result_id=baseline_a,
-        changed_assumptions=changed_a,
-    ).preview_hash
+    assert budget_cf.requests_max == budget_plain.requests_max == 5
+    assert (
+        budget_cf.preview_hash
+        == preview_exploration_budget(
+            novel_id=NOVEL_ID,
+            scale="sandbox",
+            start=start,
+            counterfactual_of_result_id=baseline_a,
+            changed_assumptions=changed_a,
+        ).preview_hash
+    )
 
 
 def test_compare_request_defaults_to_same_start_and_accepts_counterfactual():
@@ -1348,7 +1344,7 @@ def test_full_rehearsal_request_bounds_and_uniqueness():
             {
                 **base,
                 "full_rehearsal": _full_rehearsal_payload(
-                    targets=[f"c_t{i}" for i in range(7)]
+                    targets=[f"c_t{i}" for i in range(75)]
                 ),
             }
         )
@@ -1366,10 +1362,16 @@ def test_full_rehearsal_request_bounds_and_uniqueness():
         ExplorationStartTaskRequest.model_validate(
             {**base, "full_rehearsal": _full_rehearsal_payload(rounds=0)}
         )
-    with pytest.raises(ValidationError):
-        ExplorationStartTaskRequest.model_validate(
-            {**base, "full_rehearsal": _full_rehearsal_payload(rounds=4)}
-        )
+    expanded = ExplorationStartTaskRequest.model_validate(
+        {
+            **base,
+            "full_rehearsal": _full_rehearsal_payload(
+                rounds=4, targets=[f"c_t{i}" for i in range(7)]
+            ),
+        }
+    )
+    assert expanded.full_rehearsal.rounds == 4
+    assert len(expanded.full_rehearsal.targets) == 7
     with pytest.raises(ValidationError):
         ExplorationStartTaskRequest.model_validate(
             {**base, "full_rehearsal": _full_rehearsal_payload(author_goal="长" * 2001)}
@@ -1430,9 +1432,7 @@ def test_full_rehearsal_requires_scene_scale_and_excludes_focus_variants():
                 **base,
                 "start": None,
                 "counterfactual_of_result_id": str(uuid.uuid4()),
-                "changed_assumptions": [
-                    {"kind": "world_rule", "text": "重力恢复正常"}
-                ],
+                "changed_assumptions": [{"kind": "world_rule", "text": "重力恢复正常"}],
                 "full_rehearsal": _full_rehearsal_payload(),
             }
         )

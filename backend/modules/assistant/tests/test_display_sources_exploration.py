@@ -2,6 +2,10 @@
 
 from __future__ import annotations
 
+import uuid
+
+import pytest
+
 from modules.assistant.service import (
     _DOMAIN_REFERENCE_BASE_KEYS,
     _DOMAIN_REFERENCE_KEYS_BY_TYPE,
@@ -77,3 +81,70 @@ def test_unknown_domain_type_falls_back_to_base_keys():
     assert domain["task_id"] == "t-9"
     assert domain["type"] == "totally_new_type"
     assert "payload" not in domain
+
+
+@pytest.mark.parametrize(
+    "paused,cancelled", [(False, False), (True, False), (True, True)]
+)
+async def test_get_run_projects_actual_domain_task_result(
+    db_session, test_project_id, paused, cancelled
+):
+    from infrastructure.tasks.models import AsyncTask
+    from modules.account.facade import current_account_id
+    from modules.assistant.models import AssistantActionBatch, AssistantRun
+    from modules.assistant.service import AssistantService
+
+    task = AsyncTask(
+        novel_id=uuid.UUID(test_project_id),
+        task_type="story_exploration_scene_task",
+        status="done",
+        meta={},
+        result={
+            "root_id": str(uuid.uuid4()),
+            "branch_id": str(uuid.uuid4()),
+            "status": "paused_budget" if paused else "completed",
+            "needs_author_resume": paused,
+            "result_id": None if paused else str(uuid.uuid4()),
+            "output_kind": "story.exploration.scene_line",
+            "payload": {"line": "你先回去吧"},
+            "locked_items": ["line"],
+        },
+    )
+    if cancelled:
+        task.status = "cancelled"
+        task.meta = {"recovery_receipt": task.result}
+        task.result = {}
+    db_session.add(task)
+    run = AssistantRun(
+        novel_id=uuid.UUID(test_project_id),
+        owner_id=current_account_id(),
+        status="completed",
+        request_hash="a" * 64,
+        request_json={},
+        result_json={},
+    )
+    db_session.add(run)
+    await db_session.flush()
+    db_session.add(
+        AssistantActionBatch(
+            novel_id=run.novel_id,
+            run_id=run.id,
+            fingerprint="b" * 64,
+            results_json=[
+                {
+                    "result": {
+                        "task_id": str(task.id),
+                        "task_type": task.task_type,
+                        "target_type": "story_exploration",
+                    }
+                }
+            ],
+        )
+    )
+    await db_session.flush()
+    view = await AssistantService().get_run(db_session, test_project_id, str(run.id))
+    reference = view["result"]["sources"][0]["domain_reference"]
+    assert reference["task_id"] == str(task.id)
+    assert reference["needs_author_resume"] is paused
+    assert reference["locked_items"] == ["line"]
+    assert reference["payload"]["line"] == "你先回去吧"

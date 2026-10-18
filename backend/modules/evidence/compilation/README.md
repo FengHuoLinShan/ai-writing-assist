@@ -35,6 +35,10 @@ Writing 在任务入队时冻结经确认的副本；执行期间来源删除或
 
 ## 定位
 
+独立探索确认同时绑定起点、尺度、焦点和核心资料。正式角色投影使用同一确认读集的交集，
+不补回排除资产或截止后事实；候选角色只使用显式知识包。对白参考 section 包含实际 line/action，
+候选人物副本仅限作者，角色视角只读同一正式人物且已核验可知内容的副本。
+
 Evidence 的 compilation 子域决定本次 AI 操作能看到哪些资料、哪些资料要被裁剪，以及哪些
 confirmation 需要在资产变化后标脏。
 Canonical API 前缀为 `/api/evidence/compilation`；旧 `/api/context` 前缀已退场。

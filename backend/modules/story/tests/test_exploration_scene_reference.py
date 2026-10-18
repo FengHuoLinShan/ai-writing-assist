@@ -126,7 +126,10 @@ async def _seed_provisional_result(
                 root_id=root_id,
                 branch_kind="start",
                 source_hash="e" * 64,
-                request_json={},
+                request_json={
+                    "context_confirmation_id": "source-confirmation",
+                    "confirmation_action": "story.exploration.scene_line.generate",
+                },
                 pending_round_json={},
                 status="complete",
             ),
@@ -159,7 +162,10 @@ async def _seed_target_scene(db, novel_id: str, title: str = "雨夜站台") -> 
 
 def _confirmation_stub(scene_id: str | None):
     async def fake(db, *, novel_id, action, confirmation_id, **_kwargs):
-        assert action == director_service.EXPLORATION_REFERENCE_CONFIRM_ACTION
+        assert action in {
+            director_service.EXPLORATION_REFERENCE_CONFIRM_ACTION,
+            "story.exploration.scene_line.generate",
+        }
         return SimpleNamespace(compile_options={"scene_id": scene_id})
 
     return fake
@@ -330,9 +336,7 @@ async def test_output_hash_mismatch_is_rejected(exploration_flow):
             flow.db,
             flow.novel_id,
             flow.owner_id,
-            _request(
-                flow.novel_id, flow.root_id, flow.round_id, flow.scene_id, "0" * 64
-            ),
+            _request(flow.novel_id, flow.root_id, flow.round_id, flow.scene_id, "0" * 64),
         )
 
 
@@ -491,7 +495,10 @@ async def test_non_provisional_root_is_rejected(db_session, project_factory):
                 root_id=root_id,
                 branch_kind="start",
                 source_hash=LEGACY_SCENE_HASH,
-                request_json={},
+                request_json={
+                    "context_confirmation_id": "source-confirmation",
+                    "confirmation_action": "story.exploration.scene_line.generate",
+                },
                 pending_round_json={},
                 status="complete",
             ),
@@ -532,9 +539,7 @@ async def test_result_under_another_root_is_not_found(exploration_flow):
             flow.db,
             flow.novel_id,
             flow.owner_id,
-            _request(
-                flow.novel_id, flow.root_id, other_round, flow.scene_id, other_hash
-            ),
+            _request(flow.novel_id, flow.root_id, other_round, flow.scene_id, other_hash),
         )
 
 
@@ -642,8 +647,7 @@ async def test_soft_deleted_reference_is_omitted_and_resave_creates_new(explorat
     dumped = read.model_dump(mode="json")
     assert dumped["items"] == []
     assert (
-        dumped["omission_reasons"][result["id"]]
-        == "所选副本当前不可读取或不属于当前作品"
+        dumped["omission_reasons"][result["id"]] == "所选副本当前不可读取或不属于当前作品"
     )
 
     resaved = await director_service.save_exploration_scene_reference(
@@ -681,7 +685,10 @@ async def test_legacy_reference_regression_keeps_source_recheck(
                 root_id=root_id,
                 branch_kind="start",
                 source_hash=LEGACY_SCENE_HASH,
-                request_json={},
+                request_json={
+                    "context_confirmation_id": "source-confirmation",
+                    "confirmation_action": "story.exploration.scene_line.generate",
+                },
                 pending_round_json={},
                 status="complete",
             ),
@@ -807,3 +814,78 @@ async def test_http_endpoint_saves_and_repeats_idempotently(
     bad_origin = {**payload, "origin": "worker"}
     rejected = await async_client.post(url, json=bad_origin)
     assert rejected.status_code == 422
+
+
+async def test_saved_exploration_line_reaches_writing_reference_section(
+    exploration_flow, monkeypatch
+):
+    from modules.evidence.compilation.contracts import (
+        CompileOptions,
+        StructureContextBundle,
+    )
+    from modules.evidence.compilation.services.director_reference_config import (
+        DIRECTOR_REFERENCE_CAPABILITIES_ENV,
+    )
+    from modules.evidence.compilation.services.director_reference_sections import (
+        DirectorReferenceSectionBuilder,
+    )
+    from modules.evidence.compilation.services.loaders.director_reference_loader import (
+        DirectorReferenceLoader,
+    )
+    from modules.story.facade import read_scene_director_references_for_writing
+
+    flow = exploration_flow
+    saved = await director_service.save_exploration_scene_reference(
+        flow.db,
+        flow.novel_id,
+        flow.owner_id,
+        _request(
+            flow.novel_id, flow.root_id, flow.round_id, flow.scene_id, flow.output_hash
+        ),
+    )
+    monkeypatch.setenv(DIRECTOR_REFERENCE_CAPABILITIES_ENV, "writing.generate")
+    bundle = StructureContextBundle(novel_id=flow.novel_id, task="正文", scope="scene")
+    options = CompileOptions(
+        novel_id=flow.novel_id,
+        task="正文",
+        scope="scene",
+        scene_id=flow.scene_id,
+        consumer_action="writing.generate",
+        director_reference_ids=[saved["id"]],
+    )
+    await DirectorReferenceLoader(reader=read_scene_director_references_for_writing).load(
+        flow.db, options, bundle
+    )
+    section = DirectorReferenceSectionBuilder.build(bundle)[0]
+    assert "你要是累了就先回去吧。" in section.content
+    assert "把伞往对方那边偏了偏" in section.content
+    assert "只借鉴语气" in section.content
+    assert section.items[0].source["adoption_status"] == "not_adopted"
+
+
+async def test_copy_rejects_stale_source_confirmation_before_saving(
+    exploration_flow, monkeypatch
+):
+    flow = exploration_flow
+    original = evidence_facade.prepare_confirmed_ai_action
+
+    async def fresh(db, **kwargs):
+        if kwargs["confirmation_id"] == "source-confirmation":
+            raise ConflictError("源人物知识已变")
+        return await original(db, **kwargs)
+
+    monkeypatch.setattr(evidence_facade, "prepare_confirmed_ai_action", fresh)
+    with pytest.raises(ConflictError, match="源人物知识"):
+        await director_service.save_exploration_scene_reference(
+            flow.db,
+            flow.novel_id,
+            flow.owner_id,
+            _request(
+                flow.novel_id,
+                flow.root_id,
+                flow.round_id,
+                flow.scene_id,
+                flow.output_hash,
+            ),
+        )
+    assert await _reference_count(flow.db, flow.novel_id) == 0

@@ -197,13 +197,13 @@ async def _rehearsal_round_rows(flow, spec) -> list:
 
 
 def _request_user_data(provider, index: int) -> dict:
-    return json.loads(provider.requests[index].messages[1].content)
+    return json.loads(provider.generation_requests[index].messages[1].content)
 
 
 def _performance_requests(provider) -> list[dict]:
     return [
         _request_user_data(provider, index)
-        for index, request in enumerate(provider.requests)
+        for index, request in enumerate(provider.generation_requests)
         if json.loads(request.messages[1].content).get("mode")
         == "full_rehearsal_performance"
     ]
@@ -212,7 +212,7 @@ def _performance_requests(provider) -> list[dict]:
 def _orchestration_requests(provider) -> list[dict]:
     return [
         _request_user_data(provider, index)
-        for index, request in enumerate(provider.requests)
+        for index, request in enumerate(provider.generation_requests)
         if json.loads(request.messages[1].content).get("mode")
         == "full_rehearsal_orchestration"
     ]
@@ -231,14 +231,14 @@ async def test_full_rehearsal_three_rounds_two_targets_full_chain(
     targets = ["c_franks", "c_evasive"]
     start = _rehearsal_pair_start()
     spec, envelope = await flow.setup(
-        chain="scene", scale="scene_line", start=start, request_limit=20
+        chain="scene", scale="scene_line", start=start, request_limit=100
     )
     rehearsal = _rehearsal(targets=targets, rounds=3)
     await _freeze_rehearsal_root(flow, spec, rehearsal)
     task_id = await _enqueue_rehearsal(flow, spec, envelope, rehearsal)
     task = await flow.run(task_id)
     assert task.status == "done", task.error_message
-    assert flow.provider.calls == (len(targets) + 1) * 3 == 9
+    assert flow.provider.calls == (len(targets) + 1) * 3 * 3 == 27
 
     row, envelope_row, root, branch = await _load_flow_rows(flow, spec)
     assert envelope_row is not None
@@ -268,7 +268,7 @@ async def test_full_rehearsal_three_rounds_two_targets_full_chain(
     assert branch.pending_round_json == {}
     assert root.status == "ready" and branch.status == "complete"
     ledger = read_ai_run_envelope(root.run_envelope_json)
-    assert ledger.requests_started == 9
+    assert ledger.requests_started == 27
     # 任务终态信封可就地渲染（P0 §8/D）
     result = dict(task.result or {})
     assert result["status"] == "completed"
@@ -283,7 +283,7 @@ async def test_full_rehearsal_author_goal_only_in_author_packets(
     flow = exploration_flow
     start = _rehearsal_pair_start()
     spec, envelope = await flow.setup(
-        chain="scene", scale="scene_line", start=start, request_limit=20
+        chain="scene", scale="scene_line", start=start, request_limit=100
     )
     rehearsal = _rehearsal(rounds=1)
     await _freeze_rehearsal_root(flow, spec, rehearsal)
@@ -310,7 +310,7 @@ async def test_full_rehearsal_candidate_packets_isolated(
     flow = exploration_flow
     start = _rehearsal_pair_start()
     spec, envelope = await flow.setup(
-        chain="scene", scale="scene_line", start=start, request_limit=20
+        chain="scene", scale="scene_line", start=start, request_limit=100
     )
     rehearsal = _rehearsal(rounds=1)
     await _freeze_rehearsal_root(flow, spec, rehearsal)
@@ -334,7 +334,7 @@ async def test_full_rehearsal_observation_and_materials_feed_next_round(
     flow = exploration_flow
     start = _rehearsal_pair_start()
     spec, envelope = await flow.setup(
-        chain="scene", scale="scene_line", start=start, request_limit=20
+        chain="scene", scale="scene_line", start=start, request_limit=100
     )
     rehearsal = _rehearsal(rounds=2)
     await _freeze_rehearsal_root(flow, spec, rehearsal)
@@ -399,7 +399,7 @@ async def test_full_rehearsal_canonical_guard_fails_closed(
     task = await flow.run(task_id)
     assert task.status == "failed"
     assert await _rehearsal_round_rows(flow, spec) == []
-    assert flow.provider.calls == 1  # 第一张 canonical 表演卡即快速失败
+    assert flow.provider.calls == 3  # 第一张 canonical 表演卡即快速失败
 
 
 async def test_full_rehearsal_rejects_plain_budget_hash(
@@ -481,7 +481,7 @@ async def test_full_rehearsal_pause_then_resume_skips_completed_rounds(
     targets = ["c_franks", "c_evasive"]
     start = _rehearsal_pair_start()
     spec, envelope = await flow.setup(
-        chain="scene", scale="scene_line", start=start, request_limit=20
+        chain="scene", scale="scene_line", start=start, request_limit=100
     )
     rehearsal = _rehearsal(targets=targets, rounds=2)
     await _freeze_rehearsal_root(flow, spec, rehearsal)
@@ -490,7 +490,7 @@ async def test_full_rehearsal_pause_then_resume_skips_completed_rounds(
     real_generate = flow.provider.generate
 
     async def flaky_generate(request):
-        if flow.provider.calls == 3:  # 第 1 轮已完成（3 次调用），第 2 轮首卡前
+        if flow.provider.calls == 9:  # 第 1 轮已完成（3 次调用），第 2 轮首卡前
             raise TimeoutError("synthetic unknown result")
         return await real_generate(request)
 
@@ -509,9 +509,9 @@ async def test_full_rehearsal_pause_then_resume_skips_completed_rounds(
         assert pending["mode"] == "full_rehearsal"
         assert pending["round_number"] == 2
         assert [item["round_number"] for item in pending["completed_rounds"]] == [1]
-    assert flow.provider.calls == 3
+    assert flow.provider.calls == 9
     # 3 次成功 + 1 次结果未知（预留计入 started）
-    assert read_ai_run_envelope(root.run_envelope_json).requests_started == 4
+    assert read_ai_run_envelope(root.run_envelope_json).requests_started == 10
 
     flow.provider.generate = real_generate
     resume_task_id = await _enqueue_rehearsal(
@@ -523,10 +523,10 @@ async def test_full_rehearsal_pause_then_resume_skips_completed_rounds(
     )
     resume_task = await flow.run(resume_task_id)
     assert resume_task.status == "done", resume_task.error_message
-    assert flow.provider.calls == 6  # 只补第 2 轮的 3 次调用
+    assert flow.provider.calls == 18  # 只补第 2 轮的 3 次调用
     resumed_rounds = {
         json.loads(request.messages[1].content).get("round")
-        for request in flow.provider.requests[3:]
+        for request in flow.provider.generation_requests[3:]
     }
     assert resumed_rounds == {2}
 
@@ -535,7 +535,7 @@ async def test_full_rehearsal_pause_then_resume_skips_completed_rounds(
     assert branch.pending_round_json == {}
     assert root.status == "ready"
     # 4（含 1 次未知）+ 续跑 3 次
-    assert read_ai_run_envelope(root.run_envelope_json).requests_started == 7
+    assert read_ai_run_envelope(root.run_envelope_json).requests_started == 19
 
 
 async def test_full_rehearsal_budget_exhausted_pauses_with_checkpoint(
@@ -546,7 +546,7 @@ async def test_full_rehearsal_budget_exhausted_pauses_with_checkpoint(
     targets = ["c_franks", "c_evasive"]
     start = _rehearsal_pair_start()
     spec, envelope = await flow.setup(
-        chain="scene", scale="scene_line", start=start, request_limit=3
+        chain="scene", scale="scene_line", start=start, request_limit=9
     )
     rehearsal = _rehearsal(targets=targets, rounds=2)
     await _freeze_rehearsal_root(flow, spec, rehearsal)
@@ -565,8 +565,8 @@ async def test_full_rehearsal_budget_exhausted_pauses_with_checkpoint(
         assert pending["round_number"] == 2
         assert [item["round_number"] for item in pending["completed_rounds"]] == [1]
     assert await _rehearsal_round_rows(flow, spec) == []  # 未完成不落结果行
-    assert flow.provider.calls == 3
-    assert read_ai_run_envelope(root.run_envelope_json).requests_started == 3
+    assert flow.provider.calls == 9
+    assert read_ai_run_envelope(root.run_envelope_json).requests_started == 9
 
 
 async def test_full_rehearsal_pending_conflicts_with_plain_scene_task(
@@ -576,7 +576,7 @@ async def test_full_rehearsal_pending_conflicts_with_plain_scene_task(
     flow = exploration_flow
     start = _rehearsal_pair_start()
     spec, envelope = await flow.setup(
-        chain="scene", scale="scene_line", start=start, request_limit=3
+        chain="scene", scale="scene_line", start=start, request_limit=9
     )
     rehearsal = _rehearsal(rounds=2)
     await _freeze_rehearsal_root(flow, spec, rehearsal)
@@ -627,7 +627,7 @@ async def test_full_rehearsal_pending_conflicts_with_plain_scene_task(
     plain_task = await flow.run(plain_task_id)
     assert plain_task.status == "failed"
     assert "检查点" in (plain_task.error_message or "")
-    assert flow.provider.calls == 3  # 未新增模型调用
+    assert flow.provider.calls == 9  # 未新增模型调用
 
 
 # ---------------------------------------------------------------------------
@@ -642,14 +642,14 @@ async def test_full_rehearsal_result_roundtrip_and_history_label(
     flow = exploration_flow
     start = _rehearsal_pair_start()
     spec, envelope = await flow.setup(
-        chain="scene", scale="scene_line", start=start, request_limit=20
+        chain="scene", scale="scene_line", start=start, request_limit=100
     )
     rehearsal = _rehearsal(targets=("c_franks",), rounds=1)
     await _freeze_rehearsal_root(flow, spec, rehearsal)
     task_id = await _enqueue_rehearsal(flow, spec, envelope, rehearsal)
     task = await flow.run(task_id)
     assert task.status == "done", task.error_message
-    assert flow.provider.calls == 2  # 1 张表演卡 + 1 次统筹
+    assert flow.provider.calls == 6  # 1 张表演卡 + 1 次统筹
 
     row, envelope_row, root, branch = await _load_flow_rows(flow, spec)
     assert envelope_row.output_kind == FULL_REHEARSAL_OUTPUT_KIND
