@@ -7,10 +7,14 @@ import platform
 from time import perf_counter
 from uuid import UUID, uuid4
 
+import pytest_asyncio
 from sqlalchemy import func, insert, select, text
 
 from infrastructure.llm.providers import OpenAIProvider
 from infrastructure.tasks.models import AsyncTask
+from modules.account.context import bind_principal, reset_principal
+from modules.account.contracts import AccountPrincipal
+from modules.account.models import Account
 from modules.assistant.forecast import runtime, service
 from modules.assistant.forecast.contracts import (
     EvaluateRequest,
@@ -26,10 +30,31 @@ from modules.writing.facade import create_draft_only
 from modules.writing.models import WritingDraft
 
 
+@pytest_asyncio.fixture
+async def unconfigured_project(db_session, project_factory):
+    owner = uuid4()
+    support_code = "feed-load-" + owner.hex[:16]
+    db_session.add(Account(id=owner, support_code=support_code))
+    await db_session.flush()
+    project_id = await project_factory.create_project(owner_id=owner)
+    token = bind_principal(
+        AccountPrincipal(
+            account_id=owner,
+            status="active",
+            identity_type="email",
+            support_code=support_code,
+        )
+    )
+    try:
+        yield str(project_id)
+    finally:
+        reset_principal(token)
+
+
 async def test_saved_writing_feed_under_retained_history_load(
-    db_session, test_project_id, monkeypatch
+    db_session, unconfigured_project, monkeypatch
 ):
-    db, nid = db_session, test_project_id
+    db, nid = db_session, unconfigured_project
     settings_on(monkeypatch)
 
     async def analyze(*models):
@@ -91,6 +116,7 @@ async def test_saved_writing_feed_under_retained_history_load(
     candidate = await db.scalar(
         select(ForecastCandidate).where(ForecastCandidate.run_id == submitted.run_id)
     )
+    assert candidate is not None, "Unconfigured owner must receive a readiness suggestion"
     template = {
         column.name: getattr(candidate, column.name)
         for column in ForecastCandidate.__table__.columns

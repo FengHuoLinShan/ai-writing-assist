@@ -80,7 +80,7 @@ jobs:
   postgresql-critical:
     name: PostgreSQL critical
     runs-on: ubuntu-24.04
-    timeout-minutes: 25
+    timeout-minutes: 60
 
     defaults:
       run:
@@ -127,6 +127,33 @@ jobs:
           prune-cache: true
           cache-dependency-glob: backend/uv.lock
 
+      - name: Install PostgreSQL 17 client
+        if: steps.changes.outputs.postgresql == 'true'
+        shell: bash
+        run: |
+          set -euo pipefail
+          source /etc/os-release
+          key_file="$(mktemp)"
+          trap 'rm -f "$key_file"' EXIT
+          curl --fail --silent --show-error \
+            https://www.postgresql.org/media/keys/ACCC4CF8.asc \
+            --output "$key_file"
+          fingerprint="$(
+            gpg --show-keys --with-colons "$key_file" \
+              | awk -F: '$1 == "fpr" { print $10; exit }'
+          )"
+          test "$fingerprint" = "B97B0AFCAA1A47F044F244A07FCC7D46ACCC4CF8"
+          sudo gpg --batch --yes --dearmor \
+            --output /usr/share/keyrings/postgresql.gpg \
+            "$key_file"
+          echo \
+            "deb [signed-by=/usr/share/keyrings/postgresql.gpg] https://apt.postgresql.org/pub/repos/apt ${VERSION_CODENAME}-pgdg main" \
+            | sudo tee /etc/apt/sources.list.d/pgdg.list >/dev/null
+          sudo apt-get update
+          sudo apt-get install --yes --no-install-recommends postgresql-client-17
+          echo "/usr/lib/postgresql/17/bin" >> "$GITHUB_PATH"
+          /usr/lib/postgresql/17/bin/pg_dump --version
+
       - name: Install locked backend dependencies
         if: steps.changes.outputs.postgresql == 'true'
         run: uv sync --locked --extra ci
@@ -145,9 +172,15 @@ jobs:
           POSTGRESQL_DIAGNOSTICS_PHASE: pre-test
         run: uv run --locked --extra ci -- python tools/postgresql_ci_diagnostics.py
 
-      - name: Run serial PostgreSQL critical contracts
+      - name: Prepare test artifacts directory
         if: steps.changes.outputs.postgresql == 'true'
-        run: make -C .. test-postgresql-critical
+        run: mkdir -p .test-artifacts
+
+      - name: Run full serial PostgreSQL E2E contracts
+        if: steps.changes.outputs.postgresql == 'true'
+        run: >-
+          make -C .. test-e2e
+          ARGS="--timeout=180 --junitxml=.test-artifacts/postgresql-e2e.junit.xml"
 
       - name: Capture post-test PostgreSQL diagnostics
         if: always() && steps.changes.outputs.postgresql == 'true'
@@ -163,7 +196,8 @@ jobs:
           path: |
             backend/.test-artifacts/postgresql-diagnostics-pre-test.json
             backend/.test-artifacts/postgresql-diagnostics-post-test.json
-            backend/.test-artifacts/postgresql-critical.junit.xml
+            backend/.test-artifacts/postgresql-e2e.junit.xml
+            backend/.test-artifacts/scale-*.json
             backend/.test-artifacts/evolution-issue209-native-*.json
           if-no-files-found: error
           include-hidden-files: true

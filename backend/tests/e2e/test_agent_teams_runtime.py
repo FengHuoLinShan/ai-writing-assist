@@ -21,7 +21,13 @@ from infrastructure.llm.errors import (
     LLMRateLimitError,
 )
 from infrastructure.llm.providers import OpenAIProvider
-from infrastructure.llm.schemas import LLMCallResponse, LLMToolCall, LLMUsage
+from infrastructure.llm.schemas import (
+    AI_RUN_ENVELOPE_KEY,
+    LLMCallResponse,
+    LLMToolCall,
+    LLMUsage,
+    read_ai_run_envelope,
+)
 from infrastructure.llm.secret_store import encrypt_secret, fingerprint_secret
 from infrastructure.tasks.models import AsyncTask
 from infrastructure.tasks.worker import TaskWorker
@@ -43,21 +49,22 @@ pytestmark = [pytest.mark.asyncio, pytest.mark.e2e]
 
 
 @pytest.mark.parametrize(
-    "cancel,fatal,summary_failure,member_error",
+    "cancel,fatal,summary_failure,member_error,known_usage",
     [
-        (False, False, False, None),
-        (True, False, False, None),
-        (False, True, False, None),
-        (False, False, True, None),
-        (False, False, False, LLMInvalidResponseError),
-        (False, False, False, LLMContentFilterError),
-        (False, False, False, LLMAuthError),
-        (False, False, False, LLMQuotaError),
-        (False, False, False, LLMRateLimitError),
+        (False, False, False, None, False),
+        (True, False, False, None, False),
+        (False, True, False, None, False),
+        (False, False, True, None, False),
+        (False, False, False, LLMInvalidResponseError, True),
+        (False, False, False, LLMInvalidResponseError, False),
+        (False, False, False, LLMContentFilterError, False),
+        (False, False, False, LLMAuthError, False),
+        (False, False, False, LLMQuotaError, False),
+        (False, False, False, LLMRateLimitError, False),
     ],
 )
 async def test_team_real_worker_domain_review_and_cancellation(
-    monkeypatch, cancel, fatal, summary_failure, member_error
+    monkeypatch, cancel, fatal, summary_failure, member_error, known_usage
 ):
     engine = create_async_engine(DATABASE_URL, pool_size=8, max_overflow=0)
     sessions = async_sessionmaker(engine, expire_on_commit=False)
@@ -88,6 +95,8 @@ async def test_team_real_worker_domain_review_and_cancellation(
             )
             if "summary" in output.parameters["properties"]:
                 if member_error and "你的专项：事实与规则" in request.messages[0].content:
+                    if known_usage:
+                        raise member_error("Synthetic member failure", usage=usage)
                     raise member_error("Synthetic member failure")
                 assert "reports" not in request.messages[-1].content
                 if cancel:
@@ -227,6 +236,22 @@ async def test_team_real_worker_domain_review_and_cancellation(
             if fatal or member_error in (LLMAuthError, LLMQuotaError, LLMRateLimitError):
                 assert finished.status == stored.status == "failed"
                 assert not stored.result_json.get("actions")
+            elif member_error and not known_usage:
+                assert finished.status == stored.status == "failed"
+                envelope = read_ai_run_envelope(finished.meta[AI_RUN_ENVELOPE_KEY])
+                assert envelope.requests_unknown == 1
+                assert len(calls) <= 3
+                assert not stored.result_json.get("actions")
+                assert not stored.result_json.get("plans")
+                assert (
+                    await db.scalar(
+                        select(AsyncTask.id).where(
+                            AsyncTask.novel_id == nid,
+                            AsyncTask.task_type == "writing_semantic_review",
+                        )
+                    )
+                    is None
+                )
             elif cancel:
                 assert finished.status == stored.status == "cancelled"
                 assert all(

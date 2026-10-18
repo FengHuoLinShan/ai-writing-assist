@@ -576,6 +576,46 @@ def test_production_image_contract_emits_sboms_before_vulnerability_gates() -> N
     assert action_names.count("actions/upload-artifact") == 1
 
 
+def test_postgresql_pr_and_nightly_run_the_same_complete_suite() -> None:
+    backend = _load_yaml(REPOSITORY_ROOT / ".github/workflows/backend-ci.yml")
+    nightly = _load_yaml(REPOSITORY_ROOT / ".github/workflows/backend-postgresql-e2e.yml")
+    pr_job = backend["jobs"]["postgresql-critical"]
+    assert pr_job["name"] == "PostgreSQL critical"
+    for job in (pr_job, nightly["jobs"]["postgresql-e2e"]):
+        assert job["timeout-minutes"] == "60"
+        assert job["env"]["DATABASE_URL"] == job["env"]["E2E_DATABASE_URL"]
+        steps = job["steps"]
+        full = next(
+            step for step in steps if "make -C .. test-e2e" in step.get("run", "")
+        )
+        assert full["run"] == (
+            "make -C .. test-e2e "
+            'ARGS="--timeout=180 --junitxml=.test-artifacts/postgresql-e2e.junit.xml"'
+        )
+        assert "continue-on-error" not in full
+        client = next(
+            step for step in steps if step["name"] == "Install PostgreSQL 17 client"
+        )
+        assert steps.index(client) < steps.index(full)
+        assert "postgresql-client-17" in client["run"]
+        assert "B97B0AFCAA1A47F044F244A07FCC7D46ACCC4CF8" in client["run"]
+        upload = next(
+            step for step in steps if _action_name(step) == "actions/upload-artifact"
+        )
+        assert "always()" in upload["if"]
+        assert (
+            "backend/.test-artifacts/postgresql-e2e.junit.xml" in upload["with"]["path"]
+        )
+        assert "backend/.test-artifacts/scale-*.json" in upload["with"]["path"]
+        assert upload["with"]["if-no-files-found"] == "error"
+    makefile = (REPOSITORY_ROOT / "Makefile").read_text()
+    target = makefile.split("\ntest-e2e:", 1)[1].split("\ntest-postgresql-critical:", 1)[
+        0
+    ]
+    assert 'pytest tests/e2e -m "not real_llm and not external_data"' in target
+    assert "-n " not in target
+
+
 def test_ci_selection_keeps_required_jobs_and_fails_closed() -> None:
     gates = {
         "backend-quality": "backend",
