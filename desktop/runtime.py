@@ -358,7 +358,7 @@ class LocalRuntime:
             connection.commit()
         finally:
             connection.close()
-        self.run(entry_command("migrate"), timeout=600, cancellable=True)
+        self.run(entry_command("migrate"), timeout=180, cancellable=True)
         self.spawn("api", entry_command("api"), control=True)
         token = self.env["NOVELCRAFT_DESKTOP_TOKEN"]
 

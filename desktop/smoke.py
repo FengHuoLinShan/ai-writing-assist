@@ -53,7 +53,7 @@ def launch(command, directory):
         target=lambda: result.put(process.stdout.readline()), daemon=True
     ).start()
     try:
-        deadline = time.monotonic() + 900
+        deadline = time.monotonic() + 300
         while True:
             try:
                 remaining = max(0, deadline - time.monotonic())

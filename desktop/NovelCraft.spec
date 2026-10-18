@@ -50,7 +50,7 @@ options = [('X utf8', None, 'OPTION')]
 exe = EXE(pyz, a.scripts, options, exclude_binaries=True, name='NovelCraft',
           debug=False, strip=False, upx=False, console=False)
 runtime = EXE(pyz, a.scripts, options, exclude_binaries=True, name='NovelCraftRuntime',
-              debug=False, strip=False, upx=False, console=True)
+              debug=sys.platform == 'win32', strip=False, upx=False, console=True)
 app = COLLECT(exe, runtime, a.binaries, a.datas,
               strip=False, upx=False, name='NovelCraft')
 if sys.platform == 'darwin':
