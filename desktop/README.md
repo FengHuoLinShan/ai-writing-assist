@@ -56,6 +56,7 @@ PyInstaller 打包窗口程序和独立 console runtime，使子进程可以正�
 
 macOS 应用位于 desktop/dist/NovelCraft.app，CI 另生成 DMG。
 Windows 通过 windows.iss 生成每用户安装器，内含固定摘要的 Microsoft WebView2 bootstrapper；
+中文安装文本按固定上游 revision/摘要获取，不依赖构建机另外安装语言包。
 系统缺少 WebView2 时首次安装需要联网，不要求用户自行安装运行环境。
 安装器检查 Microsoft 公布的注册表版本键，已有 Runtime 时不重复安装。
 未配置代码签名/公证时只是开发测试包，不能宣称普通用户的无警告安装已完成。

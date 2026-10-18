@@ -180,28 +180,13 @@ def desktop():
 
 
 if __name__ == "__main__":
-    if os.name == "nt":
-        import ctypes
-
-        # Loader failures must reach the supervisor, not wait on an invisible dialog.
-        kernel = ctypes.WinDLL("kernel32", use_last_error=True)
-        kernel.SetErrorMode(kernel.GetErrorMode() | 0x0001 | 0x8000)
     multiprocessing.freeze_support()
     parser = argparse.ArgumentParser()
     parser.add_argument(
         "--role", choices=["supervisor", "api", "worker", "migrate", "embedding-check"]
     )
     arguments = parser.parse_args()
-    if arguments.role == "migrate":
-        import faulthandler
-
-        print("Starting desktop schema preparation", file=sys.stderr, flush=True)
-        faulthandler.dump_traceback_later(30, repeat=True)
-        try:
-            run_role(arguments.role)
-        finally:
-            faulthandler.cancel_dump_traceback_later()
-    elif arguments.role:
+    if arguments.role:
         run_role(arguments.role)
     else:
         desktop()

@@ -9,8 +9,6 @@ import subprocess
 import sys
 import tempfile
 import threading
-import time
-from contextlib import closing
 from pathlib import Path
 
 import httpx
@@ -18,25 +16,6 @@ import psycopg2
 from infrastructure.os_security import private_directory
 
 ROOT = Path(__file__).resolve().parents[1]
-
-
-def startup_progress(directory):
-    """Report waits in this synthetic database without exposing its credentials."""
-    try:
-        port = (directory / "database/postmaster.pid").read_text().splitlines()[3]
-        saved = json.loads((directory / "secrets.json").read_text())
-        with closing(psycopg2.connect(
-            host="127.0.0.1", port=port, user="novelcraft", dbname="novelcraft",
-            password=saved["database_password"], connect_timeout=2,
-        )) as connection, connection.cursor() as cursor:
-            cursor.execute(
-                "SELECT state, wait_event_type, wait_event, left(query, 140) "
-                "FROM pg_stat_activity WHERE datname='novelcraft' "
-                "AND pid <> pg_backend_pid() AND backend_type='client backend'"
-            )
-            print("Synthetic startup progress:", cursor.fetchall(), flush=True)
-    except (OSError, ValueError, IndexError, psycopg2.Error):
-        pass  # The server may still be starting; the main startup deadline applies.
 
 
 def launch(command, directory):
@@ -53,16 +32,7 @@ def launch(command, directory):
         target=lambda: result.put(process.stdout.readline()), daemon=True
     ).start()
     try:
-        deadline = time.monotonic() + 300
-        while True:
-            try:
-                remaining = max(0, deadline - time.monotonic())
-                row = json.loads(result.get(timeout=min(30, remaining)))
-                break
-            except queue.Empty:
-                if time.monotonic() >= deadline:
-                    raise
-                startup_progress(directory)
+        row = json.loads(result.get(timeout=300))
         url = row["url"]
         origin = url.split("/_desktop/")[0]
         client = httpx.Client(base_url=origin, timeout=30, trust_env=False)

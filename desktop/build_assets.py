@@ -21,6 +21,9 @@ VECTOR_SHA = "10bf9938906e5d643bbc4a7eea104b6f57ba4898e5b76b20e60484ea1d5a7f8f"
 MODEL_REVISION = "71e50dc531959f9e04ebf190ea25b00261a0a186"
 MODEL_SHA = "b665f3bba56c3119bc76ba131ebcc544d720a7408cb11581bdf354aaa0198d43"
 WEBVIEW_SHA = "90ae8eb0d9d22d6e51fccde49e4d25d266ff9343ad0cc931faa6f482569cea62"
+INNO_REVISION = "cfdf48923178df4b4f040e038b423aa555a61ffc"
+INNO_LANGUAGE_SHA = "7d544b9bb1d142cfa11f2e5d3cc8abe2e55f8e066c5124e3772675aa236e1278"
+INNO_LICENSE_SHA = "2e5346868c2a18434489824e11d65c3031620f792fefc415d05f19cd441abf5c"
 
 
 def download(url: str, target: Path, sha: str | None = None):
@@ -84,6 +87,14 @@ def main():
                 run("make", "clean", cwd=vector,
                     env={**os.environ, "PG_CONFIG": str(prefix / "bin/pg_config")})
     if os.name == "nt":
+        inno = f"https://raw.githubusercontent.com/jrsoftware/issrc/{INNO_REVISION}/"
+        download(
+            inno + "Files/Languages/Unofficial/ChineseSimplified.isl",
+            ASSETS / "ChineseSimplified.isl", INNO_LANGUAGE_SHA,
+        )
+        download(
+            inno + "license.txt", ASSETS / "licenses/Inno-Setup.txt", INNO_LICENSE_SHA,
+        )
         download(
             "https://go.microsoft.com/fwlink/p/?LinkId=2124703",
             ASSETS / "WebView2Setup.exe",
@@ -172,6 +183,7 @@ def main():
         run("make", "-j" + jobs, "OPTFLAGS=", cwd=vector, env=env)
         run("make", "install", "OPTFLAGS=", cwd=vector, env=env)
     (ASSETS / "licenses").mkdir(parents=True, exist_ok=True)
+    shutil.copy2(ROOT / "LICENSE", ASSETS / "licenses/NovelCraft.txt")
     shutil.copy2(pg / "COPYRIGHT", ASSETS / "licenses/PostgreSQL.txt")
     shutil.copy2(vector / "LICENSE", ASSETS / "licenses/pgvector.txt")
     model = ASSETS / "model"
@@ -186,18 +198,18 @@ def main():
     )
     if sys.platform == "darwin":
         target_stamp.write_text("14.0")
-    (ASSETS / "manifest.json").write_text(
-        json.dumps(
-            {
-                "postgres": PG_VERSION,
-                "pgvector": VECTOR_VERSION,
-                "model_revision": MODEL_REVISION,
-                "model_sha256": MODEL_SHA,
-                "tokenizer_sha256": tokenizer,
-            },
-            indent=2,
-        )
-    )
+    manifest = {
+        "postgres": PG_VERSION,
+        "pgvector": VECTOR_VERSION,
+        "model_revision": MODEL_REVISION,
+        "model_sha256": MODEL_SHA,
+        "tokenizer_sha256": tokenizer,
+    }
+    if os.name == "nt":
+        manifest["inno_translation"] = {
+            "revision": INNO_REVISION, "sha256": INNO_LANGUAGE_SHA,
+        }
+    (ASSETS / "manifest.json").write_text(json.dumps(manifest, indent=2))
 
 
 if __name__ == "__main__":
