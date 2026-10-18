@@ -181,6 +181,7 @@ class LocalRuntime:
                 command,
                 env=self.env,
                 cwd=backend_root(),
+                stdin=subprocess.DEVNULL,
                 stdout=log,
                 stderr=log,
                 creationflags=subprocess.CREATE_NO_WINDOW if os.name == "nt" else 0,

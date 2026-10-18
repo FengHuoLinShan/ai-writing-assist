@@ -1,7 +1,10 @@
 import json
+import os
+import subprocess
 import sys
 import threading
 import time
+from pathlib import Path
 
 import pytest
 
@@ -60,3 +63,29 @@ def test_close_cancels_cold_setup_and_reaps_the_child(tmp_path):
     finally:
         timer.cancel()
         runtime.close()
+
+
+def test_setup_does_not_inherit_the_parent_control_pipe(tmp_path):
+    root = Path(__file__).resolve().parents[2]
+    script = (
+        "import sys; from pathlib import Path; "
+        "from desktop.runtime import LocalRuntime; "
+        "runtime = LocalRuntime(Path(sys.argv[1])); "
+        "runtime.run([sys.executable, '-c', "
+        "'import sys; assert not sys.stdin.read()'], timeout=3); "
+        "runtime.close()"
+    )
+    with subprocess.Popen(
+        [sys.executable, "-c", script, str(tmp_path / "desktop")],
+        stdin=subprocess.PIPE,
+        env={
+            **os.environ,
+            "PYTHONPATH": os.pathsep.join([str(root), str(root / "backend")]),
+        },
+    ) as process:
+        try:
+            assert process.wait(timeout=8) == 0
+        finally:
+            process.stdin.close()
+            if process.poll() is None:
+                process.kill()
