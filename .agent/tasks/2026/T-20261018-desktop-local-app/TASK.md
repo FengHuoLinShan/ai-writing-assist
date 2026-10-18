@@ -3,7 +3,7 @@ id: T-20261018-desktop-local-app
 title: macOS 与 Windows 完整本地桌面应用
 status: active
 created: 2026-10-18T19:42:17+08:00
-updated: 2026-10-18T21:37:00+08:00
+updated: 2026-10-18T21:47:00+08:00
 ---
 
 # 完整本地桌面应用
@@ -12,7 +12,7 @@ updated: 2026-10-18T21:37:00+08:00
 
 - 工作区：/Users/tywww/.codex/worktrees/desktop-local-app/ai-writing-assist，codex/desktop-local-app，基线 083843474e9880252fe4bfca1b1a7132262dc9b6。其他工作树 WIP 未动；代码已提交推送，草稿 PR #256：https://github.com/FengHuoLinShan/ai-writing-assist/pull/256，未合并/发布。
 - 实际完成：desktop 运行/打包/安装器/三平台 workflow、本地图片、OS 安全与锁、文档已实现。源码与首轮冻结 macOS ARM64 smoke 通过，World 全模块 1570 测试通过。
-- 当前里程碑：macOS ARM64 冻结搬移 smoke、真实窗口中文工作稿保存/退出/重开、DMG 挂载结构与 ad-hoc codesign 完整性通过；ARM64/Intel 两种 Mac 的 CI 构建与冻结 smoke 均通过（run 39130740309 / 027a0cad4）。Windows 在首次 initdb 访问安装目录时失败，修复测试目录 ACL 后等待 run 39132029278。
+- 当前里程碑：macOS ARM64 冻结搬移 smoke、真实窗口中文工作稿保存/退出/重开、DMG 挂载结构与 ad-hoc codesign 完整性通过；ARM64/Intel 两种 Mac 的 CI 构建与冻结 smoke 均通过（run 39130740309 / 027a0cad4）。Windows 已从安装目录访问推进到真实数据库初始化；运行时临时数据库目录同样需要显式当前用户 ACL，已在 3e291feb1 复用 private_directory 修复，等待 run 39132885893。
 - 下一步：检查 PR #256 最新 Desktop installers run 的三平台日志，修复原生构建/冻结 smoke 的实际故障，再取回安装器。
 - 未完成：Windows 实际首次启动/安装验收、Intel 人工窗口验收、签名/公证与正式发布。
 
@@ -92,5 +92,8 @@ updated: 2026-10-18T21:37:00+08:00
 - Windows run 39129851048：8 个 desktop 测试通过（含真实句柄身份/超时/终止），复用 liveness 测试失败在 pytest 临时目录 ACL 不符合私有目录契约。测试 fixture 改为专用子目录；smoke 同理在临时 workspace 下显式创建 private_directory 子目录，不放宽 OS 安全检查。这也解释了此前 supervisor 首启可能在 temp ACL 校验即退出。
 - 运行初始化命令也使用 CREATE_NO_WINDOW，避免弹出辅助控制台。
 
-- Windows run 39130740309：9 测试通过，原生编译/打包/中文安装路径中的离线模型推理通过；initdb 自身定位时报 Permission denied。源码表明 initdb 降为 restricted token 后读取 exe，而 elevated 临时目录可能只给 Administrators 访问。搬移安装 fixture 现在用显式当前用户 ACL 的子目录，失败时输出 icacls 证据；不放宽产品权限门禁。等待 run 39132029278，不能把此假设宣称为已修好。
+- Windows run 39130740309：9 测试通过，原生编译/打包/中文安装路径中的离线模型推理通过；initdb 自身定位时报 Permission denied。源码表明 initdb 降为 restricted token 后读取 exe，而 elevated 临时目录可能只给 Administrators 访问。搬移安装 fixture 现在用显式当前用户 ACL 的子目录，失败时输出 icacls 证据；不放宽产品权限门禁。run 39132029278 证实此修复有效：initdb 已读取自身并输出 locale 配置；随后在真实运行时 mkdtemp 创建的数据库 staging 目录报 Permission denied。现 runtime 以随机新路径经 private_directory 创建 staging，保留 initdb restricted token；源码 smoke 复验通过，冻结 Windows 待 run 39132885893。
 - Windows liveness marker 固定 LF，避免 CRLF 导致原有原子内容契约失败；平台 job 并发组独立，停止旧构建不会阻塞其他系统。
+
+- 全量 fast CI：9215 passed / 2 skipped，85.25% coverage；两项配置契约失败为新 workflow 的 Action 注释/行格式与 Intel Python 例外。已补与全仓一致的 Action SHA/version 注释，既有 toolchain 测试保留强制版本断言并精确断言桌面三平台 matrix（Intel 3.13.15，其他跟随 backend/.python-version）；本地两项复测通过。
+- 3e291feb1 之后本地 desktop/liveness/两项配置契约：30 passed / 2 Windows-only skipped；源码全启动/持久化/重启 smoke 通过。

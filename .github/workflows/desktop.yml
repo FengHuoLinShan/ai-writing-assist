@@ -4,6 +4,7 @@ on:
   workflow_dispatch:
   pull_request:
     paths:
+      - '.gitattributes'
       - 'desktop/**'
       - '.github/workflows/desktop.yml'
       - 'backend/infrastructure/os_security.py'

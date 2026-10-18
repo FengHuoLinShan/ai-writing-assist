@@ -1,2 +1,5 @@
 # Auto detect text files and perform LF normalization
 * text=auto
+
+# Frozen migration digests cover exact bytes on every build platform.
+/backend/alembic/frozen/*.sql text eol=lf
