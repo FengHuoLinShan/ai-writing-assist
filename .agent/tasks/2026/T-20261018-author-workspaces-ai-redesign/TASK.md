@@ -3,12 +3,14 @@ id: T-20261018-author-workspaces-ai-redesign
 title: 写作台、世界对象与 AI 协作统一改造
 status: completed
 created: 2026-10-18T16:32:21+08:00
-updated: 2026-10-19T01:19:55+08:00
+updated: 2026-10-19T01:20:59+08:00
 ---
 
 # 写作台、世界对象与 AI 协作统一改造
 
 ## 恢复快照
+
+- 2026-10-19T01:20:59+08:00 当前分支完整实现已提交并推送，业务提交 `be537fbf8`；[PR #257](https://github.com/FengHuoLinShan/ai-writing-assist/pull/257) 已创建并附加当前聊天，目标 main，未合并/部署。提交后 repo-gates（0 二进制变化、76 个生产文件、发布证据、模块导入/依赖方向）与 secret hygiene、docs-check、diff 检查通过；Goal service 4653 行为非阻断提示。PR 已明确最新 3320 前端/1925 后端/14 WebKit 通过、既有 PG 基线失败及未验边界；远端 CI 刚触发，需按 PR 当前 SHA 核实，不宣称通过。此条交付记录另作纯文档提交并推送，后续合并或发布仍须授权。
 
 - 2026-10-19T01:19:55+08:00 用户明确要求“此分支提交，开pr”，授权当前主题分支完整改动的提交、推送和创建 PR；不含合并或部署。已 fetch origin/main=`083843474e9880252fe4bfca1b1a7132262dc9b6`，当前 HEAD 落后其一条 CI 提交，保留分支名。暂存完整作者工作台实现、两轮评审修复及研究/任务文档，193 文件；secret hygiene 与提交后 repo-gates 在交付流程中核验。PR 将明确本地验证、既有 PG 基线失败、真实设备/作者验收边界，随后记录远端 PR。
 
