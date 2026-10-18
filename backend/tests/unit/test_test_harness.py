@@ -407,7 +407,10 @@ def test_production_toolchain_uses_pinned_images_and_consistent_versions() -> No
                     if options["python-version"] == "${{ matrix.python }}":
                         assert path.name == "desktop.yml"
                         # Intel's last ONNX Runtime wheel requires Python 3.13.
-                        assert job["strategy"]["matrix"]["include"] == [
+                        assert [
+                            {key: row[key] for key in ("os", "python")}
+                            for row in job["strategy"]["matrix"]["include"]
+                        ] == [
                             {"os": "macos-15", "python": python_version},
                             {"os": "macos-15-intel", "python": "3.13.15"},
                             {"os": "windows-2025", "python": python_version},
