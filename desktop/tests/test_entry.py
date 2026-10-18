@@ -20,8 +20,9 @@ def test_gui_creates_private_data_root_before_webview(monkeypatch, tmp_path):
         assert directory.is_dir()
         assert private_directory(directory) == directory
         assert options["storage_path"] == str(directory / "webview")
+        assert sys.modules["webview"].settings["ALLOW_DOWNLOADS"] is True
 
     monkeypatch.setitem(sys.modules, "webview", SimpleNamespace(
-        create_window=lambda *args, **kwargs: window, start=start,
+        create_window=lambda *args, **kwargs: window, start=start, settings={},
     ))
     desktop()

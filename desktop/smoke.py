@@ -58,13 +58,15 @@ def main():
     parser = argparse.ArgumentParser()
     target = parser.add_mutually_exclusive_group()
     target.add_argument("--frozen", action="store_true")
-    target.add_argument("--installed", type=Path, help="Windows installation directory")
+    target.add_argument("--installed", type=Path, help="Installed app/bundle directory")
     args = parser.parse_args()
     installation = None
+    relative = (
+        "Contents/MacOS/NovelCraftRuntime"
+        if sys.platform == "darwin" else "NovelCraftRuntime.exe"
+    )
     if args.installed:
-        if os.name != "nt":
-            parser.error("--installed requires Windows")
-        command = [str(args.installed / "NovelCraftRuntime.exe")]
+        command = [str(args.installed / relative)]
     elif args.frozen:
         installation = Path(tempfile.mkdtemp(prefix="novelcraft-安装检查-"))
         bundle_name = "NovelCraft.app" if sys.platform == "darwin" else "NovelCraft"
@@ -73,12 +75,7 @@ def main():
             installation / bundle_name,
             symlinks=True,
         )
-        relative = (
-            "NovelCraft.app/Contents/MacOS/NovelCraftRuntime"
-            if sys.platform == "darwin"
-            else "NovelCraft/NovelCraftRuntime.exe"
-        )
-        command = [str(installation / relative)]
+        command = [str(installation / bundle_name / relative)]
     else:
         command = [sys.executable, str(ROOT / "desktop/entry.py")]
     directory = Path(tempfile.mkdtemp(prefix="novelcraft-作品检查-"))
@@ -143,6 +140,13 @@ def main():
         print(
             f"Smoke failed; isolated evidence retained at {directory}", file=sys.stderr
         )
+        from infrastructure.llm.redaction import redact_diagnostic
+
+        for name in ("smoke-supervisor", "setup", "database", "api", "worker"):
+            log = directory / (name + ".log")
+            if log.exists():
+                tail = log.read_text(errors="replace")[-5000:]
+                print(name + ": " + redact_diagnostic(tail, limit=5000), file=sys.stderr)
         raise
 
 

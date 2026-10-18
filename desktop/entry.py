@@ -115,6 +115,7 @@ def desktop():
     from desktop.runtime import data_directory, entry_command
 
     directory = private_directory(data_directory())
+    webview.settings["ALLOW_DOWNLOADS"] = True
 
     window = webview.create_window(
         "NovelCraft",

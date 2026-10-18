@@ -6,7 +6,7 @@ Python 原生 WebView 承载正式前端构建；图片写入本机私有文件�
 或自行配置服务器。业务 AI 仍需用户在应用内配置并验证模型连接；
 原生订阅 CLI 不是本安装包捆绑组件。
 
-共同源码分别生成 macOS Apple Silicon、macOS Intel 和 Windows x64 产物。
+共同源码分别生成 macOS Apple Silicon、macOS Intel 和 Windows 10 1903+/11 x64 产物。
 构建流程存在不等于所有平台已验收，实际证据与未完成项见
 [任务记录](../.agent/tasks/2026/T-20261018-desktop-local-app/TASK.md)。
 
@@ -23,6 +23,7 @@ Python 原生 WebView 承载正式前端构建；图片写入本机私有文件�
 - 单实例锁阻止并发打开同一数据目录。GUI 断开管道后，监督进程关闭所属
   worker/API/数据库；不按端口扫描终止其他程序。
 - 退出需确认，本地任务停止。未知模型请求遵守既有恢复规则，禁止静默重放。
+- 启用原生 WebView 下载，文稿与图片导出仍通过保存对话框选择位置。
 - 安装目录不保存作品，卸载程序不删除数据。未提供跨设备同步。
 
 项目未上线，本轮不做旧开发库导入、跨版本数据迁移或生产备份兼容。
@@ -42,6 +43,7 @@ uv run --project backend --no-sync python desktop/smoke.py --frozen
 macOS 需 Xcode Command Line Tools；Windows 需 Visual Studio C++ 工具环境、
 meson==1.12.1、ninja==1.13.2 与 winflexbison3，设置 CC=cl/CXX=cl。
 开发工具不进入最终用户安装流程。
+Windows 数据库程序使用进程内 UTF-8 manifest，支持中文安装/数据路径，不修改系统区域设置。
 Intel Mac 构建使用 Python 3.13（uv sync 加 --python 3.13），固定最后提供 Intel
 wheel 的 ONNX Runtime 1.23.2；Apple Silicon/Windows 使用锁定的当前版本。
 固定 PostgreSQL/pgvector 源码 SHA256、模型 revision 和权重 SHA256；

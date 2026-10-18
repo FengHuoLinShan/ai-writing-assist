@@ -144,6 +144,12 @@ def main():
         env = {**os.environ, "PGROOT": str(prefix)}
         run("nmake", "/F", "Makefile.win", cwd=vector, env=env)
         run("nmake", "/F", "Makefile.win", "install", cwd=vector, env=env)
+        for executable in (prefix / "bin").glob("*.exe"):
+            run(
+                "mt.exe", "-nologo", "-manifest",
+                str(ROOT / "desktop/windows-utf8.manifest"),
+                "-outputresource:" + str(executable) + ";#1", cwd=BUILD,
+            )
     else:
         if not (pg / "config.status").exists():
             run(
@@ -173,6 +179,11 @@ def main():
     download(base + "onnx/model_quantized.onnx", model / "model.onnx", MODEL_SHA)
     tokenizer = download(base + "tokenizer.json", model / "tokenizer.json")
     download(base + "README.md", ASSETS / "licenses/Embedding-model.md")
+    download(
+        "https://raw.githubusercontent.com/FlagOpen/FlagEmbedding/"
+        "c086741f5e117b7b8ce1745ea00b6c262f281a01/LICENSE",
+        ASSETS / "licenses/BGE-MIT.txt",
+    )
     if sys.platform == "darwin":
         target_stamp.write_text("14.0")
     (ASSETS / "manifest.json").write_text(
