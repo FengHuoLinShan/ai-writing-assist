@@ -49,6 +49,33 @@ async def _generate(_self, request, *, complete_stream=False):
     # 与 OpenAIProvider.generate 同签名：complete_stream 只切换取流方式，
     # 桩本就返回完整响应，无需区分。
     await asyncio.sleep(0.1)
+    schema = (request.response_format or {}).get("json_schema", {}).get("schema", {})
+    if {"decision", "fingerprint", "reason"} <= schema.get(
+        "properties", {}
+    ).keys() or any(
+        message.role == "system" and "你只判断当前具体预览" in message.content
+        for message in request.messages
+    ):
+        payload = json.loads(
+            next(
+                message.content
+                for message in reversed(request.messages)
+                if message.role == "user"
+            )
+        )
+        if "暂停判断" in payload["author_task"]["intent"]:
+            await asyncio.sleep(8)
+        return LLMCallResponse(
+            content=json.dumps(
+                {
+                    "decision": "allow",
+                    "fingerprint": payload["fingerprint"],
+                    "reason": "合成判断：符合本次简介修改及保留要求",
+                },
+                ensure_ascii=False,
+            ),
+            usage=LLMUsage(prompt_tokens=100, completion_tokens=30, total_tokens=130),
+        )
     from tests.support.creative_browser_provider import structured_reply
 
     structured = structured_reply(request)
@@ -103,6 +130,74 @@ async def _generate(_self, request, *, complete_stream=False):
         ),
         "",
     )
+    if "核对精确焦点" in latest or "自动修改人物简介" in latest:
+        receipt = next(
+            (
+                json.loads(message.content)
+                for message in request.messages
+                if message.role == "tool" and message.tool_call_id == "browser-focus"
+            ),
+            None,
+        )
+        if receipt is None:
+            return LLMCallResponse(
+                tool_calls=[
+                    LLMToolCall(
+                        id="browser-focus", name="inspect_current", arguments="{}"
+                    )
+                ],
+                usage=LLMUsage(prompt_tokens=100, completion_tokens=30, total_tokens=130),
+            )
+        if "自动修改人物简介" in latest:
+            entity_id = re.search(r'"entity_id"\s*:\s*"([0-9a-f-]{36})"', values).group(1)
+            return LLMCallResponse(
+                tool_calls=[
+                    LLMToolCall(
+                        id="browser-auto-result",
+                        name=output.name,
+                        arguments=json.dumps(
+                            {
+                                "answer": "简介修改预览已准备。",
+                                "evidence_ids": [receipt["evidence_id"]],
+                                "actions": [
+                                    {
+                                        "key": "profile",
+                                        "capability": "world.edit_entity",
+                                        "title": "更新人物简介",
+                                        "reason": "按作者明确要求修改简介",
+                                        "arguments": {
+                                            "entity_id": entity_id,
+                                            "changes": {"summary": "负责守灯的旅人"},
+                                        },
+                                    }
+                                ],
+                            },
+                            ensure_ascii=False,
+                        ),
+                    )
+                ],
+                usage=LLMUsage(prompt_tokens=100, completion_tokens=30, total_tokens=130),
+            )
+        return LLMCallResponse(
+            tool_calls=[
+                LLMToolCall(
+                    id="browser-focus-result",
+                    name=output.name,
+                    arguments=json.dumps(
+                        {
+                            "answer": "已核对本轮精确焦点。",
+                            "evidence_ids": [
+                                item["evidence_id"] for item in receipt["objects"]
+                            ]
+                            if "objects" in receipt
+                            else [receipt["evidence_id"]],
+                        },
+                        ensure_ascii=False,
+                    ),
+                )
+            ],
+            usage=LLMUsage(prompt_tokens=100, completion_tokens=30, total_tokens=130),
+        )
     if "IANA" in latest:
         tools = {tool.name for tool in request.tools}
         results = {
@@ -234,6 +329,19 @@ async def _generate(_self, request, *, complete_stream=False):
                 }
             ],
         }
+    if (
+        "核对这些正文批注是否需要世界书或故事结构的配套修改。" in values
+        and "选组验收" in values
+    ):
+        result = {
+            "answer": "这两处仅调整表达，不需要世界书或故事结构修改。",
+            "actions": [],
+        }
+    if "临时讨论验收" in latest:
+        result = {
+            "answer": "这段可先讨论措辞；正式修改前请保存正文，再准备预览。",
+            "actions": [],
+        }
     return LLMCallResponse(
         tool_calls=[
             LLMToolCall(
@@ -277,6 +385,57 @@ async def _stream(_self, request):
 OpenAIProvider.generate = _generate
 OpenAIProvider.research = _no_external_io
 OpenAIProvider.generate_stream = _stream
+
+# Test-only calibration substitution, restricted by the harness's database gate
+# and an explicit synthetic project title. This is never real-model evidence.
+from modules.assistant import approval as _approval
+
+_original_approval_availability = _approval.approval_availability
+
+
+async def _synthetic_approval_availability(db, novel_id, owner_id):
+    from uuid import UUID
+
+    from sqlalchemy import select
+
+    from modules.assistant.approval_cases import SUITE_HASH
+    from modules.assistant.approval_contracts import APPROVAL_POLICY
+    from modules.assistant.models import AssistantApprovalCalibration
+    from modules.project.facade import (
+        build_project_llm_execution_snapshot,
+        get_any_project_context,
+    )
+
+    project = await get_any_project_context(db, novel_id)
+    if project and project.title.startswith("代批合成验收"):
+        snapshot = await build_project_llm_execution_snapshot(
+            db, novel_id, purpose="approval_judgment"
+        )
+        model_hash = _approval.calibration_fingerprint(snapshot)
+        existing = await db.scalar(
+            select(AssistantApprovalCalibration).where(
+                AssistantApprovalCalibration.novel_id == UUID(novel_id),
+                AssistantApprovalCalibration.owner_id == UUID(owner_id),
+                AssistantApprovalCalibration.model_fingerprint == model_hash,
+                AssistantApprovalCalibration.policy_version == APPROVAL_POLICY,
+            )
+        )
+        if existing is None:
+            db.add(
+                AssistantApprovalCalibration(
+                    novel_id=UUID(novel_id),
+                    owner_id=UUID(owner_id),
+                    model_fingerprint=model_hash,
+                    policy_version=APPROVAL_POLICY,
+                    suite_hash=SUITE_HASH,
+                    receipt_json={"passed": True, "synthetic_browser_fixture": True},
+                )
+            )
+            await db.flush()
+    return await _original_approval_availability(db, novel_id, owner_id)
+
+
+_approval.approval_availability = _synthetic_approval_availability
 
 
 async def _noop_storage_cleanup(db, task):

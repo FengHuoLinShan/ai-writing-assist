@@ -518,6 +518,7 @@ async def test_usage_stats_omit_complete_endpoint_and_credentials() -> None:
     client = LLMClient.__new__(LLMClient)
     client._execution_capability = None
     client._high_quality = False
+    client._approval_judgment = False
     client.authorize_request = None
     client._provider = SimpleNamespace(
         name="openai",
@@ -1330,6 +1331,7 @@ async def test_client_accepts_real_provider_stream_coroutine_shape(monkeypatch) 
     client = LLMClient.__new__(LLMClient)
     client._execution_capability = None
     client._high_quality = False
+    client._approval_judgment = False
     client.authorize_request = None
     client._provider = provider
     client._settings = _retry_settings(base_delay=0.0, max_delay=0.0)

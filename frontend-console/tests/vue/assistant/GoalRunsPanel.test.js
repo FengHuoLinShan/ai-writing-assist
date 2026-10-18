@@ -2,6 +2,7 @@ import { afterEach, expect, it, vi } from "vitest"
 import { enableAutoUnmount, flushPromises, mount } from "@vue/test-utils"
 import GoalRunsPanel from "../../../vue/components/GoalRunsPanel.vue"
 import GoalPlanField from "../../../vue/components/GoalPlanField.vue"
+import TaskApprovalSettings from "../../../vue/components/TaskApprovalSettings.vue"
 
 const mocks = vi.hoisted(() => ({ api: null, locateAssistantSource: vi.fn() }))
 
@@ -301,6 +302,26 @@ it("submits edited plan fields and an explicit R2 automation choice", async () =
   expect(body.plan.steps[0].parameters.changes.title).toBe("更新后的标题")
   expect(body.auto_r2).toBe(true)
   expect(wrapper.text()).toContain("已完成")
+})
+
+it("keeps the grant readable and revocable after an automatic plan response is lost", async () => {
+  const planReview = goalView()
+  const api = setupApi({
+    recentGoals: vi.fn().mockResolvedValue([planReview]),
+    approveGoal: vi.fn().mockRejectedValue(new Error("连接中断，提交结果待核对")),
+    taskApproval: vi.fn().mockResolvedValue({ status: "active", version: 2, task: { intent: "只改本计划" }, decisions: [] }),
+    revokeTaskApproval: vi.fn().mockResolvedValue({ status: "revoked", version: 3, decisions: [] }),
+  })
+  const wrapper = await mountedPanel(api, { projectId: "lost-approval-project" })
+  wrapper.getComponent(TaskApprovalSettings).vm.$emit("update:modelValue", { preserve: [], max_judgments: 5, timeout_seconds: 30 })
+  await wrapper.get(".goal-runs-plan").trigger("submit")
+  await flushPromises()
+  expect(wrapper.text()).toContain("连接中断")
+  expect(wrapper.text()).toContain("本任务自动修改已开启")
+  await wrapper.findAll("button").find(button => button.text() === "撤回自动修改").trigger("click")
+  await flushPromises()
+  expect(api.revokeTaskApproval).toHaveBeenCalledExactlyOnceWith("lost-approval-project", planReview.run_id, 2)
+  expect(wrapper.text()).toContain("自动修改已撤回")
 })
 
 it("retains an unsent replan reason when the server returns 409", async () => {

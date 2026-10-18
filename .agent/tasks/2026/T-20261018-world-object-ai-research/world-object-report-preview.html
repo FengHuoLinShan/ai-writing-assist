@@ -1,0 +1,1722 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="referrer" content="no-referrer">
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; base-uri 'none'; form-action 'none'">
+<title>世界对象系统 · 可视化研究报告</title>
+<style>:root {
+  color-scheme: light dark;
+  background-color: var(
+    --background,
+    var(--color-background-primary, light-dark(rgb(255 255 255), rgb(24 24 24)))
+  ) !important;
+
+  /* Agent-facing contract; keep in sync with SKILL.md. */
+  --background: var(
+    --color-background-primary,
+    light-dark(rgb(255 255 255), rgb(24 24 24))
+  );
+  --foreground: var(
+    --color-text-primary,
+    light-dark(rgb(26 28 31), rgb(255 255 255))
+  );
+  --card: color-mix(in oklab, var(--foreground) 5%, var(--background));
+  --card-foreground: var(
+    --color-text-primary,
+    light-dark(rgb(26 28 31), rgb(255 255 255))
+  );
+  --popover: var(
+    --color-background-secondary,
+    light-dark(rgb(255 255 255), rgb(45 45 45))
+  );
+  --popover-foreground: var(
+    --color-text-primary,
+    light-dark(rgb(26 28 31), rgb(255 255 255))
+  );
+  --primary: var(
+    --color-text-info,
+    light-dark(rgb(51 156 255), rgb(131 195 255))
+  );
+  --primary-foreground: var(
+    --color-text-inverse,
+    light-dark(rgb(255 255 255), rgb(13 13 13))
+  );
+  --secondary: var(
+    --color-background-secondary,
+    light-dark(rgb(255 255 255 / 96%), rgb(54 54 54 / 96%))
+  );
+  --secondary-foreground: var(
+    --color-text-primary,
+    light-dark(rgb(26 28 31), rgb(255 255 255))
+  );
+  --muted: color-mix(in srgb, var(--foreground) 10%, transparent);
+  --muted-foreground: var(
+    --color-text-secondary,
+    light-dark(rgb(26 28 31 / 49.4%), rgb(255 255 255 / 49.8%))
+  );
+  --accent: var(
+    --color-background-info,
+    light-dark(rgb(229 242 255), rgb(13 39 63))
+  );
+  --accent-foreground: var(
+    --color-text-info,
+    light-dark(rgb(51 156 255), rgb(131 195 255))
+  );
+  --destructive: var(
+    --color-text-warning,
+    light-dark(rgb(226 85 7), rgb(255 133 73))
+  );
+  --border: var(
+    --color-border-secondary,
+    light-dark(rgb(26 28 31 / 8%), rgb(255 255 255 / 8.2%))
+  );
+  --input: var(
+    --color-border-primary,
+    light-dark(
+      rgb(26 28 31 / 11.8%),
+      color-mix(in oklab, rgb(0 0 0) 10%, transparent)
+    )
+  );
+  --ring: var(
+    --color-ring-primary,
+    light-dark(rgb(51 156 255), rgb(131 195 255 / 76%))
+  );
+  --font-size-base: var(--font-text-md-size, 16px);
+  --blue: light-dark(rgb(51 156 255), rgb(51 156 255));
+  --orange: light-dark(rgb(226 85 7), rgb(251 106 34));
+  --green: light-dark(rgb(0 162 64), rgb(64 201 119));
+  --red: light-dark(rgb(224 46 42), rgb(255 103 100));
+  --purple: light-dark(rgb(146 79 247), rgb(173 123 249));
+  --yellow: light-dark(rgb(255 195 0), rgb(255 210 64));
+  --viz-series-1: var(--primary);
+  --viz-series-2: light-dark(rgb(243 136 59), rgb(245 154 86));
+  --viz-series-3: light-dark(rgb(93 201 119), rgb(116 213 139));
+  --viz-series-4: light-dark(rgb(235 119 177), rgb(240 143 192));
+  --viz-series-5: light-dark(rgb(155 121 236), rgb(170 145 239));
+  --viz-series-6: light-dark(rgb(58 185 177), rgb(90 203 194));
+
+  /* Internal implementation variables; not part of the agent contract. */
+  --font-sans:
+    -apple-system-body, ui-sans-serif, -apple-system, system-ui, "Segoe UI",
+    Helvetica, "Apple Color Emoji", Arial, sans-serif, "Segoe UI Emoji",
+    "Segoe UI Symbol";
+  --font-mono:
+    ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, "Liberation Mono",
+    monospace;
+  --font-size-normal: max(11px, var(--font-size-base));
+  --font-size-tooltip: calc(var(--font-size-base) - 1px);
+  --font-size-small: max(11px, calc(var(--font-size-base) - 2px));
+  --font-size-h1: calc(var(--font-size-normal) * 1.7142857143);
+  --font-size-h2: calc(var(--font-size-normal) * 1.4285714286);
+  --font-size-h3: calc(var(--font-size-normal) * 1.2857142857);
+  --font-weight-normal: 400;
+  --font-weight-medium: 500;
+  --icon-size: 16px;
+  --line-height-normal: calc(var(--font-size-normal) * 1.5);
+  --line-height-tooltip: calc(var(--font-size-tooltip) * 1.4285714286);
+  --line-height-small: calc(var(--font-size-small) + 4px);
+  --corner-shape: round;
+  --radius: var(--border-radius-lg, 8px);
+  --radius-sm: calc(var(--radius) * 0.5);
+  --radius-md: calc(var(--radius) * 0.75);
+  --radius-lg: var(--radius);
+  --radius-2xl: calc(var(--radius) * 2);
+  --radius-full: 9999px;
+  --shadow-sm: 0 1px 2px -1px rgb(0 0 0 / 8%);
+  --checkmark-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 17 17'%3E%3Cpath d='M12.8961 3.64101C13.1297 3.41418 13.4984 3.37523 13.7779 3.56581C14.0571 3.75635 14.1554 4.11331 14.0299 4.41347L13.9615 4.53847L7.71151 13.7045C7.59411 13.8767 7.4063 13.9877 7.19881 14.0072C6.99136 14.0267 6.78564 13.9533 6.63826 13.806L2.88826 10.056L2.79842 9.9457C2.6192 9.67407 2.64927 9.30496 2.88826 9.06581C3.12738 8.82669 3.49647 8.79676 3.76815 8.97597L3.8785 9.06581L7.03084 12.2182L12.8053 3.74941L12.8961 3.64101Z'/%3E%3C/svg%3E");
+
+  /* Legacy aliases; not part of the current agent contract. */
+  --viz-bg: transparent;
+  --viz-panel: var(--card);
+  --viz-border: var(--border);
+  --viz-text: var(--foreground);
+  --viz-muted: var(--muted-foreground);
+  --viz-accent: var(--primary);
+  --viz-accent-text: var(--primary-foreground);
+  --viz-accent-bg: var(--accent);
+  --viz-font-size: var(--font-size-base);
+  --viz-warning: var(--destructive);
+}
+
+:root[data-theme="light"] {
+  color-scheme: light;
+}
+
+:root[data-theme="dark"] {
+  color-scheme: dark;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html > body {
+  /* Preserve MCP aliases for older inline renderers without creating :root cycles. */
+  --color-background-primary: var(
+    --background,
+    light-dark(rgb(255 255 255), rgb(24 24 24))
+  );
+  --color-text-primary: var(
+    --foreground,
+    light-dark(rgb(26 28 31), rgb(255 255 255))
+  );
+  --color-border-secondary: var(
+    --border,
+    light-dark(rgb(26 28 31 / 8%), rgb(255 255 255 / 8.2%))
+  );
+
+  margin: 0;
+  padding: var(--visualize-paint-gutter, 0px);
+  color: var(--foreground);
+  background: transparent !important;
+  font-family: var(--font-sans) !important;
+  -webkit-font-smoothing: antialiased;
+  font-size: var(--font-size-base);
+  line-height: calc(var(--font-size-base) * 1.625);
+  font-weight: var(--font-weight-normal);
+}
+
+.cursor-interaction {
+  cursor: var(--cursor-interaction, pointer);
+}
+
+a {
+  color: color-mix(in srgb, var(--viz-accent) 80%, var(--viz-text) 20%);
+  cursor: var(--cursor-interaction, pointer);
+  text-decoration: none;
+  text-underline-offset: 2px;
+  font-weight: inherit;
+}
+
+a:is(:hover, :focus-visible) {
+  text-decoration-line: underline;
+  text-decoration-style: dashed;
+  text-decoration-thickness: 0.5px;
+}
+
+h1,
+h2,
+h3,
+h4,
+h5,
+h6,
+p {
+  margin-block: 0;
+}
+p,
+h1,
+h2,
+h3,
+h4,
+h5,
+h6,
+li,
+.table {
+  font-family: var(--font-sans);
+}
+
+h1 {
+  font-size: calc(var(--font-size-base) * 1.5);
+  line-height: 1.3333333333;
+}
+
+h2 {
+  font-size: calc(var(--font-size-base) * 1.25);
+  line-height: 1.4;
+}
+h3 {
+  font-size: calc(var(--font-size-base) * 1.125);
+  line-height: 1.5555555556;
+}
+h4 {
+  font-size: var(--font-size-base);
+  line-height: 1.5;
+}
+h5,
+h6 {
+  font-size: var(--font-size-base);
+  line-height: calc(var(--font-size-base) * 1.625);
+}
+
+h1,
+h2,
+h3,
+h4,
+h5,
+h6,
+b,
+strong,
+th {
+  font-weight: 600;
+}
+
+code:not(pre code) {
+  display: inline;
+  padding: 1px 6px;
+  border-radius: var(--radius-sm);
+  corner-shape: var(--corner-shape);
+  background: var(--muted);
+  font-family: var(--font-mono);
+  font-size: 0.92em;
+  overflow-wrap: anywhere;
+  -webkit-box-decoration-break: clone;
+  box-decoration-break: clone;
+  word-break: break-word;
+}
+pre,
+pre code {
+  font-family: var(--font-mono);
+  font-size: 12px;
+  line-height: 20px;
+}
+
+.table-responsive {
+  width: 100%;
+  overflow-x: auto;
+  scrollbar-width: thin;
+}
+
+.table {
+  width: 100%;
+  color: var(--foreground);
+  font: inherit;
+  text-align: start;
+  border-collapse: separate;
+  border-spacing: 0;
+  font-size: calc(var(--font-size-base) * 0.875);
+  line-height: calc(var(--font-size-base) * 1.625);
+  font-family: var(--font-sans);
+}
+
+.table :is(th, td) {
+  padding-block: 10px;
+  padding-inline: 0 24px;
+  overflow-wrap: anywhere;
+  border-bottom: 1px solid var(--border);
+  text-align: start;
+  vertical-align: top;
+  border-bottom-color: color-mix(in srgb, var(--foreground) 5%, transparent);
+}
+.table :is(th, td):not(:last-child) {
+  padding-inline-end: calc(var(--font-size-base) * 1.5);
+}
+
+.table-responsive > .table :is(th, td) {
+  overflow-wrap: break-word;
+}
+
+.table :is(th, td):last-child {
+  padding-inline-end: 0;
+}
+
+.table :is(caption, thead th) {
+  font-weight: 600;
+}
+
+.table thead :is(th, td) {
+  border-bottom-color: var(--border-strong, var(--input));
+  padding-block: calc(var(--font-size-base) / 2);
+  line-height: var(--font-size-base);
+}
+
+.table tbody tr:last-child :is(th, td) {
+  border-bottom: 0;
+}
+.table tbody :is(th, td) {
+  padding-block: calc(var(--font-size-base) * 0.625);
+}
+
+.table.table-sm :is(th, td) {
+  padding-block: 8px;
+}
+
+.table.table-sm :is(th, td):not(:last-child) {
+  padding-inline-end: 16px;
+}
+
+.table :is(.text-end, [align="right"]) {
+  text-align: end;
+  font-variant-numeric: tabular-nums;
+}
+
+.table :is(.text-center, [align="center"]) {
+  text-align: center;
+}
+
+.table .text-nowrap {
+  white-space: nowrap;
+}
+
+#widget {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  width: 100%;
+  padding: 0;
+  background: transparent !important;
+}
+
+.card {
+  min-width: 0;
+  padding: 12px;
+  overflow: hidden;
+  overflow-wrap: break-word;
+  border-radius: var(--radius-2xl);
+  corner-shape: var(--corner-shape);
+  color: var(--card-foreground);
+  background: var(--card);
+}
+
+.widget {
+  min-width: 0;
+  overflow: hidden;
+  border: 0;
+  border-radius: var(--radius-lg);
+  corner-shape: var(--corner-shape);
+  box-shadow: 0 0 0 0.5px var(--border-strong, var(--border));
+  color: var(--foreground);
+  background: var(--background);
+}
+
+#widget > :not(.card, .widget, .progress) {
+  width: 100% !important;
+  max-width: none !important;
+  margin: 0 !important;
+  padding: 0 !important;
+  border: 0 !important;
+  border-radius: 0 !important;
+  background: transparent !important;
+  box-shadow: none !important;
+}
+
+.tooltip {
+  position: fixed;
+  z-index: 50;
+  top: 0;
+  left: 0;
+  width: max-content;
+  max-width: min(
+    20rem,
+    var(--tooltip-available-width, calc(100vw - 10px)),
+    calc(100vw - 10px)
+  );
+  max-height: min(
+    var(--tooltip-available-height, calc(100vh - 10px)),
+    calc(100vh - 10px)
+  );
+  border: 1px solid var(--border);
+  corner-shape: var(--corner-shape);
+  overflow-wrap: break-word;
+  white-space: normal;
+  pointer-events: none;
+  user-select: none;
+  font-family: var(--font-sans);
+  padding: 5px 12px;
+  border-color: color-mix(
+    in oklab,
+    light-dark(var(--primary-foreground), var(--foreground)) 5%,
+    transparent
+  );
+  border-radius: var(--radius-2xl);
+  color: light-dark(var(--primary-foreground), var(--foreground));
+  background: light-dark(var(--foreground), var(--popover));
+  box-shadow: 0 8px 18px rgb(15 23 42 / 20%);
+  letter-spacing: -0.15px;
+  font-size: calc(var(--font-size-base) * 14 / 16);
+  font-size: round(nearest, calc(var(--font-size-base) * 14 / 16), 1px);
+  font-weight: 600;
+  line-height: 18px;
+  text-align: center;
+}
+
+.viz-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(max(180px, 24%), 1fr));
+  gap: 10px;
+}
+
+.viz-stat {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.viz-stat-value {
+  font-size: var(--font-size-h2);
+  font-weight: var(--font-weight-medium);
+  line-height: 1.25;
+}
+
+.viz-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px;
+}
+
+hr {
+  width: 100%;
+  height: 1px;
+  margin-block: 6px;
+  border: 0;
+  background: var(--border);
+}
+
+.nav {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  gap: 4px;
+}
+
+.progress {
+  display: flex;
+  height: 8px;
+  margin-block: calc((var(--line-height-normal, 1.5em) - 8px) / 2);
+  overflow: hidden;
+  border: 0;
+  border-radius: var(--radius-full);
+  background: var(--muted);
+}
+
+.progress-bar:only-child {
+  border-radius: var(--radius-full);
+}
+
+.progress-bar {
+  height: 100%;
+  flex-shrink: 0;
+  border: 0;
+  background: var(--viz-series-1);
+}
+
+.viz-badge {
+  display: inline-flex;
+  align-items: center;
+  padding: 4px 8px;
+  border-radius: var(--radius-sm);
+  color: color-mix(in srgb, var(--foreground) 40%, var(--muted-foreground));
+  background: color-mix(in srgb, var(--foreground) 5%, transparent);
+  font-family: var(--font-sans);
+  font-size: calc(var(--font-size-base) * 14 / 16);
+  font-size: round(nearest, calc(var(--font-size-base) * 14 / 16), 1px);
+  font-weight: var(--font-weight-normal);
+  line-height: 1;
+}
+
+small,
+.text-small {
+  font-size: var(--font-size-small);
+  line-height: var(--line-height-small);
+}
+
+.text-muted {
+  color: var(--muted-foreground);
+}
+
+.tabular-nums {
+  font-variant-numeric: tabular-nums;
+}
+
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}
+
+.viz-controls {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+
+.viz-controls > .form-label {
+  display: grid;
+  min-width: min(100%, 260px);
+  flex: 1 1 280px;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: baseline;
+  gap: 2px 12px;
+  margin-bottom: 0;
+}
+
+.viz-controls > .form-label > :is(.form-control, .form-range, .form-select) {
+  grid-column: 1 / -1;
+}
+
+.btn,
+.nav-link,
+.form-check-input,
+.form-control,
+.form-range,
+.form-select {
+  font: inherit;
+}
+
+/* Match inline alignment without overriding a containing flex or grid layout. */
+.btn,
+.nav-link,
+.form-control,
+.form-select,
+.form-range,
+.form-check {
+  vertical-align: middle;
+}
+
+.btn,
+.nav-link {
+  appearance: button;
+  display: inline-flex;
+  inline-size: fit-content;
+  max-inline-size: 100%;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  margin: 0;
+  padding: 0 8px;
+  -webkit-app-region: no-drag;
+  border: 1px solid var(--input);
+  corner-shape: var(--corner-shape);
+  cursor: var(--cursor-interaction, pointer);
+  text-align: center;
+  text-decoration: none;
+  white-space: nowrap;
+  user-select: none;
+  -webkit-font-smoothing: inherit;
+  font-family: var(--font-sans);
+  height: fit-content;
+  min-height: calc(12px + 2 * var(--control-spacing, 12px));
+  padding-inline: var(--control-spacing, 12px);
+  border-color: transparent;
+  border-radius: var(--radius-full);
+  color: var(--foreground);
+  background: color-mix(in srgb, var(--foreground) 5%, transparent);
+  font-size: calc(var(--font-size-base) * 14 / 16);
+  font-size: round(nearest, calc(var(--font-size-base) * 14 / 16), 1px);
+  font-weight: var(--font-weight-normal);
+  line-height: 18px;
+}
+
+.btn {
+  border-color: var(--border);
+  color: var(--secondary-foreground);
+  background: var(--secondary);
+}
+
+.btn:is(.btn-block, .viz-tile) {
+  inline-size: 100%;
+}
+
+.btn.viz-tile {
+  min-width: 0;
+  overflow-wrap: anywhere;
+  white-space: normal;
+}
+
+a.btn {
+  cursor: var(--cursor-interaction, pointer);
+  text-decoration: none;
+}
+
+.btn:not(:disabled):hover {
+  background: light-dark(
+    color-mix(in srgb, var(--foreground) 5.5%, transparent),
+    color-mix(in srgb, var(--foreground) 8%, transparent)
+  );
+}
+
+.nav-link:not(:disabled):not([aria-disabled="true"]):hover {
+  background: color-mix(in srgb, var(--foreground) 10%, transparent);
+}
+
+.btn-primary {
+  border-color: var(--border);
+  color: var(--primary-foreground);
+  background: var(--foreground);
+  background-clip: border-box;
+}
+
+.btn-primary .text-muted {
+  color: color-mix(in srgb, var(--primary-foreground) 50%, transparent);
+}
+
+.btn-primary:not(:disabled):hover {
+  background: color-mix(in srgb, var(--foreground) 80%, transparent);
+  background-clip: border-box;
+}
+
+.btn-ghost {
+  border-color: transparent;
+  color: var(--muted-foreground);
+  background: transparent;
+}
+
+.btn-ghost:not(:disabled):hover {
+  color: var(--muted-foreground);
+  background: light-dark(
+    color-mix(in srgb, var(--foreground) 5.5%, transparent),
+    color-mix(in srgb, var(--foreground) 8%, transparent)
+  );
+}
+
+.nav-pills .nav-link {
+  min-width: 0;
+  border-color: transparent;
+  color: var(--muted-foreground);
+  background: transparent;
+}
+
+.nav-justified .nav-link {
+  flex: 1 1 0;
+  overflow-wrap: anywhere;
+  white-space: normal;
+}
+
+.nav-pills .nav-link.active {
+  color: var(--foreground);
+  background: var(--muted);
+}
+
+/* Shared preview chrome; product styles stay inside each variant. */
+.viz-dotted-background {
+  background-image: radial-gradient(
+    circle,
+    color-mix(in srgb, var(--foreground) 14%, transparent) 0.8px,
+    transparent 0.8px
+  );
+  background-position: center;
+  background-size: 16px 16px;
+}
+
+.viz-carousel {
+  position: relative;
+  min-width: 0;
+}
+
+.viz-carousel:has(> .viz-carousel-controls) {
+  min-height: calc(60px + var(--viz-carousel-picker-height, 0px));
+  padding-bottom: 60px;
+}
+
+.viz-carousel > [data-variant][hidden] {
+  display: none !important;
+}
+
+.viz-carousel > [data-variant] {
+  isolation: isolate;
+}
+
+.viz-carousel-controls {
+  --viz-carousel-hover: light-dark(
+    color-mix(in srgb, var(--foreground) 5.4%, transparent),
+    color-mix(in srgb, var(--foreground) 7.8%, transparent)
+  );
+  position: absolute;
+  z-index: 2;
+  bottom: 8px;
+  left: 50%;
+  display: flex;
+  width: max-content;
+  /* Leave room for the host's design-controls launcher at the trailing edge. */
+  max-width: calc(100% - 96px);
+  align-items: center;
+  gap: 0;
+  padding: 0;
+  border: 1px solid var(--border);
+  border-radius: 16px;
+  color: var(--foreground);
+  background: var(--background);
+  font-family: var(--font-sans);
+  /* Match the settings dropdown chrome independently of the content font size. */
+  font-size: 13px;
+  font-weight: var(--font-weight-normal);
+  line-height: 18px;
+  transform: translateX(-50%);
+  user-select: none;
+}
+
+/* Keep authored mockup button styles out of the shared carousel chrome. */
+.viz-carousel-controls button,
+.viz-carousel-picker > summary {
+  display: flex !important;
+  height: auto !important;
+  min-height: 30px;
+  align-items: center !important;
+  justify-content: center !important;
+  gap: 4px;
+  padding: 0 6px !important;
+  -webkit-app-region: no-drag;
+  border: 0 !important;
+  border-radius: 14px !important;
+  color: inherit !important;
+  background: transparent !important;
+  font: inherit !important;
+  -webkit-tap-highlight-color: transparent;
+}
+
+.viz-carousel-controls > button,
+.viz-carousel-picker > summary {
+  position: relative;
+  isolation: isolate;
+}
+
+.viz-carousel-controls > button {
+  --icon-size: 16px;
+  width: 30px !important;
+  padding: 0 !important;
+}
+
+.viz-carousel-picker > summary {
+  padding-inline: 12px !important;
+}
+
+.viz-carousel-controls .viz-carousel-caret {
+  width: 14px;
+  height: 14px;
+  flex: none;
+  margin: 0;
+  color: inherit;
+  transform: rotate(180deg);
+}
+
+.viz-carousel-controls > button > svg,
+.viz-carousel-controls .viz-carousel-caret,
+.viz-carousel-count {
+  opacity: 0.5;
+}
+
+.viz-carousel-controls > button::before,
+.viz-carousel-picker > summary::before {
+  position: absolute;
+  z-index: -1;
+  inset: 3px;
+  border-radius: 12px;
+  content: "";
+  pointer-events: none;
+}
+
+.viz-carousel-controls > button:hover::before,
+.viz-carousel-picker > summary:hover::before {
+  background: var(--viz-carousel-hover);
+}
+
+.viz-carousel-controls > button,
+.viz-carousel-controls [data-lucide],
+.viz-carousel-controls .lucide {
+  flex-shrink: 0;
+}
+
+.viz-carousel-picker {
+  min-width: 0;
+}
+
+.viz-carousel-picker > summary {
+  min-width: 0;
+  list-style: none;
+}
+
+.viz-carousel-picker > summary::-webkit-details-marker {
+  display: none;
+}
+
+.viz-carousel-count {
+  flex-shrink: 0;
+  white-space: nowrap;
+}
+
+.viz-carousel-name {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.viz-carousel-options {
+  position: absolute;
+  right: 0;
+  bottom: calc(100% + 4px);
+  left: 0;
+  display: flex;
+  max-height: 240px;
+  flex-direction: column;
+  gap: 2px;
+  overflow: auto;
+  padding: 4px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  background: var(--background);
+  box-shadow: 0 4px 12px light-dark(rgb(0 0 0 / 6%), rgb(0 0 0 / 25%));
+}
+
+.viz-carousel-options > button {
+  border-radius: max(0px, calc(var(--radius-lg) - 5px)) !important;
+  width: 100% !important;
+  min-height: 28px;
+  justify-content: flex-start !important;
+  padding: 4px 8px !important;
+  font-size: var(--font-size-small) !important;
+  text-align: start;
+  white-space: normal;
+  overflow-wrap: anywhere;
+}
+
+.viz-carousel-options > [aria-current="true"],
+.viz-carousel-options > button:hover {
+  background: var(--viz-carousel-hover) !important;
+}
+
+.btn:disabled,
+.nav-link:disabled,
+.nav-link[aria-disabled="true"] {
+  cursor: not-allowed;
+  opacity: 0.4;
+}
+
+[data-lucide] {
+  stroke-width: 1.6;
+}
+
+.form-label {
+  display: block;
+  margin-bottom: 6px;
+  color: var(--foreground);
+}
+
+.form-control {
+  display: block;
+  width: 100%;
+  padding: 0 8px;
+  outline: none;
+  border: 1px solid var(--input);
+  corner-shape: var(--corner-shape);
+  color: var(--foreground);
+  font-family: var(--font-sans);
+  height: calc(12px + 2 * var(--control-spacing, 12px));
+  min-height: calc(12px + 2 * var(--control-spacing, 12px));
+  padding-inline: calc(4px + var(--control-spacing, 12px) / 2);
+  border-color: var(--input);
+  border-radius: var(--radius-md);
+  background: color-mix(in srgb, var(--popover) 96%, transparent);
+  font-size: calc(var(--font-size-base) * 14 / 16);
+  font-size: round(nearest, calc(var(--font-size-base) * 14 / 16), 1px);
+  font-weight: var(--font-weight-normal);
+  line-height: 1.4285714286;
+}
+.form-control:is(
+  [type="file"],
+  [type="date"],
+  [type="datetime-local"],
+  [type="month"],
+  [type="week"],
+  [type="color"]
+) {
+  height: calc(12px + 2 * var(--control-spacing, 12px));
+  min-height: calc(12px + 2 * var(--control-spacing, 12px));
+  line-height: 18px;
+}
+.form-control:is(
+  [type="date"],
+  [type="datetime-local"],
+  [type="month"],
+  [type="week"]
+) {
+  padding-inline: var(--control-spacing, 12px);
+}
+
+.form-control::placeholder {
+  color: var(--muted-foreground);
+}
+
+.form-control[type="file"] {
+  overflow: hidden;
+  cursor: var(--cursor-interaction, pointer);
+  padding: 0;
+}
+
+.form-control[type="file"]::file-selector-button {
+  padding: 0 8px;
+  border: 0;
+  border-right: 1px solid var(--input);
+  color: var(--secondary-foreground);
+  background: var(--secondary);
+  cursor: inherit;
+  font: inherit;
+  min-height: calc(10px + 2 * var(--control-spacing, 12px));
+  padding-inline: var(--control-spacing, 12px);
+  margin-inline-end: var(--control-spacing, 12px);
+}
+
+.form-control[type="file"]:not(:disabled):hover::file-selector-button {
+  background: color-mix(in srgb, var(--foreground) 6%, var(--secondary));
+}
+
+.form-control-color[type="color"] {
+  width: 40px;
+  height: calc(12px + 2 * var(--control-spacing, 12px));
+  padding: 3px;
+  cursor: var(--cursor-interaction, pointer);
+}
+
+.form-control-color[type="color"]::-webkit-color-swatch-wrapper {
+  padding: 0;
+}
+
+.form-control-color[type="color"]::-webkit-color-swatch {
+  border: 0;
+  border-radius: calc(var(--radius-lg) - 4px);
+  corner-shape: var(--corner-shape);
+}
+
+textarea.form-control {
+  height: auto;
+  resize: vertical;
+  min-height: 96px;
+  padding: 8px 10px;
+}
+
+.form-control:focus-visible {
+  border-color: var(--ring);
+  box-shadow: none;
+}
+.form-control:disabled {
+  color: var(--muted-foreground);
+  background: color-mix(in srgb, var(--foreground) 5%, transparent);
+  opacity: 1;
+}
+.form-control[aria-invalid="true"] {
+  border-color: var(--red);
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--red) 20%, transparent);
+}
+
+.form-control:disabled,
+.form-select:disabled {
+  cursor: not-allowed;
+}
+
+.form-select {
+  appearance: none;
+  display: block;
+  width: 100%;
+  height: fit-content;
+  min-height: calc(12px + 2 * var(--control-spacing, 12px));
+  margin: 0;
+  /* The secondary icon role is 14px at compact density and 16px at web density. */
+  --icon-size: calc(10px + var(--control-spacing, 12px) / 2);
+  /* Settings dropdowns retain a 12px inset and a 4px text-to-chevron gap. */
+  padding: 0 calc(16px + var(--icon-size)) 0 12px;
+  outline: none;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-full);
+  corner-shape: var(--corner-shape);
+  color: var(--foreground);
+  background-color: var(--secondary);
+  background-image:
+    linear-gradient(
+      45deg,
+      transparent calc(50% - 0.6px),
+      var(--muted-foreground) calc(50% - 0.6px) calc(50% + 0.6px),
+      transparent calc(50% + 0.6px)
+    ),
+    linear-gradient(
+      135deg,
+      transparent calc(50% - 0.6px),
+      var(--muted-foreground) calc(50% - 0.6px) calc(50% + 0.6px),
+      transparent calc(50% + 0.6px)
+    );
+  background-position:
+    calc(100% - 12px - var(--icon-size) / 2) 50%,
+    calc(100% - 12px - var(--icon-size) * 0.18) 50%;
+  background-repeat: no-repeat;
+  background-size: calc(var(--icon-size) * 0.32) calc(var(--icon-size) * 0.32);
+  cursor: var(--cursor-interaction, default);
+  font-size: calc(var(--font-size-base) * 14 / 16);
+  font-size: round(nearest, calc(var(--font-size-base) * 14 / 16), 1px);
+  font-weight: var(--font-weight-normal);
+  line-height: 18px;
+}
+
+.form-select option {
+  color: var(--popover-foreground);
+  background-color: var(--popover);
+}
+
+.form-select:not(:disabled):hover {
+  background-color: light-dark(
+    color-mix(in srgb, var(--foreground) 5.5%, transparent),
+    color-mix(in srgb, var(--foreground) 8%, transparent)
+  );
+}
+
+.form-select:focus-visible {
+  box-shadow: 0 0 0 2px var(--ring);
+}
+.form-select:disabled {
+  opacity: 0.4;
+}
+
+.form-check {
+  display: flex;
+  min-height: calc(12px + 2 * var(--control-spacing, 12px));
+  align-items: center;
+  gap: 6px;
+}
+
+.form-check-input {
+  appearance: none;
+  width: 14px;
+  height: 14px;
+  flex: 0 0 auto;
+  margin: 0;
+  border: 1px solid var(--input);
+  color: var(--primary-foreground);
+  background-color: transparent;
+  cursor: var(--cursor-interaction, default);
+  transition:
+    background-color 150ms,
+    border-color 150ms,
+    box-shadow 150ms;
+}
+
+.form-check:not(.form-switch) .form-check-input[type="checkbox"] {
+  corner-shape: round;
+  box-shadow: var(--shadow-sm);
+  position: relative;
+  width: calc(10px + var(--control-spacing, 12px) / 2);
+  height: calc(10px + var(--control-spacing, 12px) / 2);
+  border-color: var(--border-strong, var(--input));
+  border-radius: calc(var(--radius-sm) / 2);
+  background-color: transparent;
+  color: var(--foreground);
+}
+
+.form-check:not(.form-switch)
+  .form-check-input:not(:disabled):not(:checked):hover {
+  background-color: var(--card);
+}
+
+.form-check:not(.form-switch)
+  .form-check-input[type="checkbox"]:is(:checked, :indeterminate) {
+  border-color: var(--border-strong, var(--input));
+  background-color: color-mix(in srgb, var(--popover) 96%, transparent);
+}
+
+.form-check:not(.form-switch)
+  .form-check-input[type="checkbox"]:checked::before {
+  display: block;
+  width: 100%;
+  height: 100%;
+  background: var(--primary-foreground);
+  content: "";
+  mask: var(--checkmark-image) center / 12px 12px no-repeat;
+  background-color: var(--foreground);
+}
+.form-check:not(.form-switch)
+  .form-check-input[type="checkbox"]:indeterminate::before {
+  position: absolute;
+  inset: 0;
+  display: block;
+  width: 65%;
+  height: 6.65%;
+  margin: auto;
+  border-radius: var(--radius-full);
+  background: var(--foreground);
+  mask: none;
+  content: "";
+}
+
+.form-check-input[type="radio"] {
+  border-radius: var(--radius-full);
+  width: 16px;
+  height: 16px;
+  border: 0;
+  box-shadow: inset 0 0 0 1px var(--input);
+}
+
+.form-check-input[type="radio"]:checked {
+  border: 0;
+  background: radial-gradient(
+    circle,
+    var(--primary-foreground) 0 3px,
+    var(--foreground) 3px
+  );
+  box-shadow: none;
+}
+
+.form-check:not(.form-switch) .form-check-input:focus-visible {
+  outline: 2px solid var(--ring);
+  outline-offset: 2px;
+}
+.form-check:not(.form-switch) .form-check-input[type="checkbox"]:focus-visible {
+  border-color: var(--ring);
+  outline: none;
+  box-shadow: 0 0 0 2px var(--ring);
+}
+
+.form-check:not(.form-switch) .form-check-input:disabled {
+  cursor: not-allowed;
+  pointer-events: none;
+}
+
+.form-check:not(.form-switch) .form-check-input:disabled + .form-check-label {
+  cursor: not-allowed;
+}
+.form-check:not(.form-switch) .form-check-input[type="radio"]:disabled,
+.form-check:not(.form-switch)
+  .form-check-input[type="radio"]:disabled
+  + .form-check-label {
+  opacity: 0.5;
+}
+
+.form-switch .form-check-input:disabled,
+.form-switch .form-check-input:disabled + .form-check-label {
+  cursor: not-allowed;
+  opacity: 0.6;
+}
+
+.form-check-label {
+  color: var(--foreground);
+  cursor: var(--cursor-interaction, default);
+}
+
+.form-switch .form-check-input {
+  position: relative;
+  width: 32px;
+  height: 20px;
+  border: 0;
+  border-radius: var(--radius-full);
+  background: var(--muted);
+  box-shadow: none;
+  transition: background-color 200ms cubic-bezier(0, 0, 0.2, 1);
+}
+
+.form-switch .form-check-input::before {
+  position: absolute;
+  top: 50%;
+  left: 0;
+  width: 16px;
+  height: 16px;
+  box-sizing: border-box;
+  border: 1px solid light-dark(var(--primary-foreground), var(--foreground));
+  border-radius: var(--radius-full);
+  box-shadow: var(--shadow-sm);
+  content: "";
+  transform: translate(2px, -50%);
+  transition: transform 200ms cubic-bezier(0, 0, 0.2, 1);
+  border-color: #fff;
+  background: #fff;
+}
+
+.form-switch .form-check-input:checked {
+  background: var(--blue);
+}
+
+.form-switch .form-check-input:checked::before {
+  transform: translate(14px, -50%);
+}
+
+.form-switch .form-check-input:focus-visible {
+  box-shadow: 0 0 0 2px var(--ring);
+  outline: none;
+}
+
+.form-range {
+  appearance: none;
+  display: block;
+  width: 100%;
+  flex: 1;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  accent-color: var(--primary);
+  height: calc(12px + 2 * var(--control-spacing, 12px));
+  min-height: calc(12px + 2 * var(--control-spacing, 12px));
+  outline: none;
+  border-radius: var(--radius-full);
+  color: var(--foreground);
+  background: transparent;
+}
+
+.form-range::-webkit-slider-runnable-track {
+  background: var(--form-range-track, var(--border));
+  height: 2px;
+  border-radius: var(--radius-full);
+}
+
+.form-range::-webkit-slider-thumb {
+  appearance: none;
+  width: 20px;
+  height: 20px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-full);
+  margin-top: -9px;
+  border-color: transparent;
+  background: currentColor;
+  box-shadow: var(--shadow-sm);
+}
+
+/* Outline the native track and thumb, preserving the larger input hit area. */
+.form-range:focus-visible::-webkit-slider-runnable-track {
+  outline: 2px auto Highlight;
+  outline-color: -webkit-focus-ring-color;
+}
+
+.form-range::-moz-range-track {
+  background: var(--form-range-track, var(--border));
+  height: 2px;
+  border-radius: var(--radius-full);
+}
+
+.form-range::-moz-range-thumb {
+  width: 20px;
+  height: 20px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-full);
+  border-color: transparent;
+  background: currentColor;
+  box-shadow: var(--shadow-sm);
+}
+
+.form-range:focus-visible::-moz-range-thumb {
+  outline: 2px solid Highlight;
+  outline-offset: 2px;
+}
+
+.form-range:disabled {
+  opacity: 1;
+  cursor: default;
+}
+
+.btn:not(.btn-primary, .viz-tile):is(
+  [aria-pressed="true"],
+  [aria-selected="true"],
+  .is-selected
+) {
+  border-color: transparent;
+  color: var(--primary-foreground);
+  background: var(--blue);
+}
+
+.btn.viz-tile:is([aria-pressed="true"], [aria-selected="true"], .is-selected) {
+  border-color: var(--primary);
+  box-shadow: inset 0 0 0 1px var(--primary);
+}
+
+.btn:focus-visible,
+.nav-link:focus-visible {
+  outline-offset: 2px;
+  outline: none;
+  box-shadow: 0 0 0 2px var(--ring);
+}
+
+.viz-carousel-controls :is(button, summary):focus-visible {
+  outline: 2px solid var(--ring) !important;
+  outline-offset: 2px !important;
+}
+
+/* Web recipes are the default, including on renderers without inline style queries. */
+@supports (border-radius: if(style(--corner-shape: round): 1px; else: 2px)) {
+  /* Match the host's proportional text-sm scale at every text preference. */
+  .tooltip,
+  .viz-badge,
+  .btn,
+  .nav-link,
+  .form-control,
+  .form-select {
+    font-size: if(
+      style(--corner-shape: round): round(
+          nearest,
+          calc(var(--font-size-base) * 14 / 16),
+          1px
+        );
+        else: round(nearest, calc(var(--font-size-base) * 13 / 14), 1px)
+    );
+  }
+
+  .btn,
+  .nav-link,
+  .form-select {
+    border-radius: if(
+      style(--corner-shape: round): var(--radius-full); else: var(--radius-lg)
+    );
+  }
+
+  .form-check:not(.form-switch) .form-check-input[type="checkbox"] {
+    border-radius: if(
+      style(--corner-shape: round): calc(var(--radius-sm) / 2);
+        else: calc(var(--radius-lg) * 0.4)
+    );
+  }
+
+  .tooltip {
+    font-weight: if(
+      style(--corner-shape: round): 600; else: var(--font-weight-normal)
+    );
+  }
+}
+
+@media (pointer: coarse) {
+  .viz-carousel:has(> .viz-carousel-controls) {
+    min-height: calc(76px + var(--viz-carousel-picker-height, 0px));
+    padding-bottom: 76px;
+  }
+
+  .btn,
+  .nav-link,
+  .viz-carousel-controls button,
+  .viz-carousel-picker > summary,
+  .form-control,
+  .form-select {
+    min-width: 44px;
+    min-height: 44px;
+  }
+
+  /* Keep small-screen WebKit from zooming when a text field receives focus. */
+  .form-control,
+  .form-select {
+    font-size: max(16px, calc(var(--font-size-base) * 14 / 16));
+    font-size: max(
+      16px,
+      round(nearest, calc(var(--font-size-base) * 14 / 16), 1px)
+    );
+  }
+  .form-control:is(
+    [type="file"],
+    [type="date"],
+    [type="datetime-local"],
+    [type="month"],
+    [type="week"],
+    [type="time"],
+    [type="color"]
+  ) {
+    height: 44px;
+    min-height: 44px;
+    font-size: max(16px, calc(var(--font-size-base) * 14 / 16));
+    font-size: max(
+      16px,
+      round(nearest, calc(var(--font-size-base) * 14 / 16), 1px)
+    );
+  }
+
+  .form-control[type="file"]::file-selector-button {
+    min-width: 44px;
+    min-height: 44px;
+  }
+
+  .form-control-color[type="color"] {
+    width: 44px;
+    height: 44px;
+  }
+
+  .form-control:is(
+    [type="date"],
+    [type="datetime-local"],
+    [type="month"],
+    [type="time"],
+    [type="week"]
+  ) {
+    min-width: 0;
+    max-width: 100%;
+    padding-block: 8px;
+  }
+
+  .form-check {
+    min-height: 44px;
+    padding-inline: 15px;
+  }
+
+  .form-check-input {
+    position: relative;
+  }
+
+  .form-check-input::after {
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    width: 44px;
+    height: 44px;
+    content: "";
+    transform: translate(-50%, -50%);
+  }
+
+  .form-check-label {
+    display: inline-flex;
+    min-width: 44px;
+    min-height: 44px;
+    align-items: center;
+  }
+
+  .form-range {
+    height: 44px;
+    touch-action: pan-y;
+  }
+}
+
+svg {
+  display: block;
+  max-width: 100%;
+  height: auto;
+}
+
+#widget > svg {
+  width: 100%;
+}
+
+/* Model-authored chart rules can otherwise stretch icons after these styles load. */
+svg.lucide {
+  display: block;
+  width: var(--icon-size) !important;
+  height: var(--icon-size) !important;
+  flex: none;
+  margin: 0 !important;
+  stroke-width: 1.6;
+}
+
+.text-warning,
+.text-destructive {
+  color: var(--destructive);
+}
+
+body { box-sizing: border-box; max-width: 1080px; margin: 0 auto; padding: 36px 28px; }
+:root { --font-size-base: 15px; }
+@media (max-width: 620px) { body { padding: 20px 18px; } }
+@media print { body { max-width: none; padding: 0; } }
+</style>
+</head>
+<body>
+<script>
+(() => {
+  const key = 'world-object-report-view-v1';
+  let initial = null;
+  try { initial = JSON.parse(localStorage.getItem(key) || 'null'); } catch {}
+  window.openai = {
+    widgetState: initial,
+    setWidgetState: async state => {
+      window.openai.widgetState = state;
+      try { localStorage.setItem(key, JSON.stringify(state)); } catch {}
+    }
+  };
+})();
+</script><div id="world-research-visual">
+  <header class="wr-header">
+    <div class="wr-eyebrow text-small">NOVELCRAFT · 产品研究 · 2026-10-18</div>
+    <h2>世界对象系统</h2>
+    <div class="wr-subtitle">布局、作者操作与 AI 协助</div>
+    <div class="wr-thesis"><span class="text-small">优先方向</span><strong>打通已有能力，让操作回到当前对象</strong></div>
+  </header>
+  <div class="viz-row wr-legend" aria-label="证据图例">
+    <span class="wr-key"><span class="wr-dot wr-existing"></span>已有实现</span>
+    <span class="wr-key"><span class="wr-dot wr-gap"></span>操作断点</span>
+    <span class="wr-key"><span class="wr-dot wr-proposed"></span>研究建议，未实施</span>
+  </div>
+  <nav class="viz-controls wr-navigation" aria-label="报告视图">
+    <button class="btn" type="button" data-view="structure" aria-pressed="true" aria-controls="wr-structure">系统布局</button>
+    <button class="btn" type="button" data-view="journey" aria-pressed="false" aria-controls="wr-journey">作者操作</button>
+    <button class="btn" type="button" data-view="assistant" aria-pressed="false" aria-controls="wr-assistant">AI 协助</button>
+    <button class="btn" type="button" data-view="priorities" aria-pressed="false" aria-controls="wr-priorities">改进顺序</button>
+  </nav>
+  <div id="wr-view-caption" class="wr-view-caption text-small">组织方式与编辑入口：哪些已经存在，哪些需要梳理。</div>
+
+  <section id="wr-structure" aria-label="当前结构与详情建议">
+    <h3>已有骨架，继续复用</h3>
+    <div class="wr-tree" role="group" aria-label="当前入口：资料库、关系、待处理资料">
+      <div class="wr-trunk">人物与世界</div>
+      <div class="wr-branches">
+        <div class="wr-branch"><div class="wr-node wr-existing">资料库</div><ul><li>搜索 · 最近 · 收藏</li><li>主题 · 类型 · 关系分组</li><li>对象 · 资料页 · 工作稿</li></ul></div>
+        <div class="wr-branch"><div class="wr-node wr-existing">关系</div><ul><li>查询 · 来源证据</li><li>方向 · 生效范围</li><li>编辑 · 批量处置</li></ul></div>
+        <div class="wr-branch"><div class="wr-node wr-existing">待处理资料</div><ul><li>对象 · 别名 · 关系</li><li>智能整理 · 推荐下一项</li><li>采用 · 合并 · 忽略</li></ul></div>
+      </div>
+    </div>
+    <div class="wr-contrast">
+      <div>
+        <div class="wr-section-label wr-gap">需要梳理</div><h3>当前详情：入口分散</h3>
+        <ol class="wr-stack"><li>编辑资料 <span class="text-small">名称／类型／概要</span></li><li>就地编辑 <span class="text-small">基本信息／作者秘密</span></li><li>对象档案 <span class="text-small">面向／有效期／模板</span></li><li>人物旧档案字段 <span class="text-small">既有兼容入口</span></li></ol>
+        <div class="wr-annotation wr-gap"><span>断点</span> 同一条设定，该从哪里修改？</div>
+      </div>
+      <div>
+        <div class="wr-section-label wr-proposed">布局建议 · 未实施</div><h3>建议详情：按作者任务分层</h3>
+        <ol class="wr-stack"><li>概览 <span class="text-small">身份／简述／图片／状态</span></li><li>设定档案 <span class="text-small">稳定设定／面向／有效期</span></li><li>关系 <span class="text-small">查看／新增／调整</span></li><li>经历与来源 <span class="text-small">时点／证据／历史分开展示</span></li></ol>
+        <div class="wr-annotation wr-proposed"><span>建议</span> 先统一操作语义，保留原领域写入权</div>
+      </div>
+    </div>
+    <div class="wr-rule"><strong>三种组织方式，各自回答一个问题</strong><div class="wr-concepts"><div><span>类型</span><strong>它是什么？</strong><small>人物、地点、物件</small></div><div><span>主题</span><strong>为什么放在一起？</strong><small>第一卷、港口群像</small></div><div><span>关系</span><strong>彼此有什么联系？</strong><small>属于、持有、位于</small></div></div></div>
+    <details class="wr-evidence"><summary class="cursor-interaction">现状依据</summary><div class="text-small">WorldView.vue:10–13 · WorldLibraryHome.vue:45–145 · WorldEntityDetail.vue:247–365 · RESEARCH.md §3、§5<br>“经历与来源”为聚合阅读建议，当前没有据此证明完整统一时间线。</div></details>
+  </section>
+
+  <section id="wr-journey" aria-label="作者操作路径" hidden>
+    <h3>选一个任务，看操作如何接起来</h3>
+    <div class="viz-controls" aria-label="选择作者任务">
+      <button class="btn" type="button" data-task="find" aria-pressed="true">找资料</button>
+      <button class="btn" type="button" data-task="create" aria-pressed="false">建对象</button>
+      <button class="btn" type="button" data-task="relation" aria-pressed="false">维护关系</button>
+      <button class="btn" type="button" data-task="organize" aria-pressed="false">整理候选</button>
+      <button class="btn" type="button" data-task="change" aria-pressed="false">修改设定</button>
+      <button class="btn" type="button" data-task="complete" aria-pressed="false">查漏补全</button>
+    </div>
+    <div id="wr-task-label" class="wr-task-label">“这个人物是谁？依据在哪里？”</div>
+    <ol id="wr-task-flow" class="wr-flow" aria-label="任务步骤">
+      <li class="wr-existing"><span>搜索／快速打开</span><small>按名称、别名找资料</small></li>
+      <li class="wr-existing"><span>对象概览</span><small>确认身份与状态</small></li>
+      <li class="wr-existing"><span>档案／来源</span><small>按需展开证据</small></li>
+      <li class="wr-proposed"><span>返回原工作</span><small>验证筛选与定位恢复</small></li>
+    </ol>
+    <div class="wr-annotation wr-gap" id="wr-task-gap"><span>核验重点</span> 同名需要消歧；命中别名不代表唯一身份。</div>
+    <div class="wr-rule" id="wr-task-reuse"><strong>已有基础</strong><div>资料库搜索、快速打开、对象详情与修订历史。</div></div>
+    <div class="wr-rule"><strong>保存与恢复有不同边界</strong><div class="wr-recovery"><span>对象表单<br><small>显式保存／冲突保留输入<br>跨刷新备份未证实</small></span><span>资料页<br><small>本地备份／离开保护<br>不等于对象档案也支持</small></span><span>查漏任务<br><small>持久回执／继续／安全撤销<br>复用现有专项流程</small></span></div></div>
+    <details class="wr-evidence"><summary class="cursor-interaction">现状依据</summary><div class="text-small">RESEARCH.md §3.2、§3.4、§6 · TargetedCompletionPanel.vue:109–151 · WorldEntityDetail.vue:112–225 · useWorldBible.js:555–563</div></details>
+  </section>
+
+  <section id="wr-assistant" aria-label="AI协助与确认边界" hidden>
+    <h3>入口跟着对象，结果回到对象</h3>
+    <div class="wr-assistant-lanes">
+      <div class="wr-lane"><span class="wr-lane-label">建议入口</span><div class="wr-node wr-proposed">当前对象／所选条目 → 让 AI 帮我</div></div>
+      <div class="wr-lane"><span class="wr-lane-label">明确范围</span><div class="wr-node wr-proposed">对象身份 ＋ 已保存版本 ＋ 当前条目 ＋ 截止场景</div></div>
+      <div class="wr-lane"><span class="wr-lane-label">已有底座</span><ol class="wr-ai-flow wr-existing" aria-label="现有助手操作链"><li>读取证据</li><li>准备提案</li><li>作者确认</li><li>领域执行</li><li>成果导航</li></ol></div>
+      <div class="wr-lane"><span class="wr-lane-label">协作结果</span><div class="wr-node wr-proposed">回到原对象，区分已修改／未完成／已失效</div></div>
+    </div>
+    <div class="wr-modes">
+      <div><h3>教我操作</h3><div>版本化说明 → 可达入口</div><small>不修改作品</small></div>
+      <div><h3>查找与理解</h3><div>对象／关系 → 可打开来源</div><small>未记录 ≠ 不存在</small></div>
+      <div><h3>检查与构思</h3><div>证据冲突／未知／创作选项</div><small>允许保留有意矛盾</small></div>
+      <div><h3>准备修改</h3><div>原内容 → 拟修改 → 影响</div><small>确认前不写入</small></div>
+    </div>
+    <h3>一起阅读，分别维护</h3>
+    <div class="wr-layers"><div><strong>World · 设定</strong><span>作者稳定设定／有效期</span></div><div><strong>Story · 时点</strong><span>本场位置／状态／知情</span></div><div><strong>Evolution · 理解</strong><span>带证据的派生倾向</span></div></div>
+    <div class="wr-rule"><strong>助手能力，按实际边界使用</strong><div class="wr-capabilities"><div><span class="wr-section-label wr-existing">已有接线</span><div>查对象与来源 · 对象增改 · 添加关系 · 档案与历史 · 确认执行</div></div><div><span class="wr-section-label wr-gap">需要补齐</span><div>具体条目与批选上下文 · 关系编辑、结束与移除 · 对象表单草稿状态</div></div></div></div>
+    <div class="wr-rule"><strong>读取、判断、执行都受原范围约束</strong><div class="text-small">作者秘密 ≠ 角色已知 · 前 12 条检索 ≠ 全库查清 · 批次依赖 ≠ 自动绑定新建对象身份</div></div>
+    <details class="wr-evidence"><summary class="cursor-interaction">现状依据</summary><div class="text-small">RESEARCH.md §7 · assistantContext.js:10–50 · assistant_operation_registry.py:57–70 · world/assistant_tools.py · world/assistant_dossier_tools.py<br>代码接线不证明当前账户、开关、模型质量和端到端体验。</div></details>
+  </section>
+
+  <section id="wr-priorities" aria-label="研究建议优先级" hidden>
+    <h3>先修通任务，再决定布局复杂度</h3>
+    <ol class="wr-roadmap">
+      <li><span class="wr-phase">P0</span><div><strong>入口与编辑职责</strong><div>对象详情就地助手 · 编辑入口分工 · 保存状态 · 作者语言</div><small>验收：知道改哪里，输入不丢失</small></div></li>
+      <li><span class="wr-phase">P1</span><div><strong>精确上下文与结果返回</strong><div>当前条目／截止场景 · 操作帮助 · 来源定位 · 修改回执</div><small>验收：“这一条”准确，资料变化拒绝执行</small></div></li>
+      <li><span class="wr-phase">P1</span><div><strong>关系与整理路径</strong><div>对象内添加关系 · 本页范围说明 · 复用查漏专项</div><small>验收：方向正确，不越过已采用资产保护</small></div></li>
+      <li><span class="wr-phase">P2</span><div><strong>布局与恢复对照验证</strong><div>顺序详情／连续浏览 · 图与列表 · 对象跨刷新草稿</div><small>验收：任务完成、返回定位与恢复；先记录基线</small></div></li>
+    </ol>
+    <div class="wr-contrast wr-tests"><div><h3>工程检查</h3><ul><li>未确认不写入</li><li>过期／跨项目拒绝</li><li>重复提交与部分失败可恢复</li><li>草稿及秘密不泄漏</li></ul></div><div><h3>作者验证</h3><ul><li>找对对象与入口</li><li>理解范围和状态</li><li>来源可核对，修改有控制</li><li>愿意再次使用的理由</li></ul></div></div>
+    <div class="wr-annotation wr-proposed"><span>暂不增加</span> 新聊天系统 · 新事实存储 · 任意自动化 · 强制常驻四栏</div>
+    <details class="wr-evidence"><summary class="cursor-interaction">研究依据与验证边界</summary><div class="text-small">研究来源：当前代码、Notion 布局与关系文档、LegendKeeper、Campfire、World Anvil、Microsoft CHI 2019、W3C。<br>研究结论未经业务浏览器闭环、真实模型或作者实测；设计收益与最优布局待验证。参见 RESEARCH.md §4、§8–§10。</div></details>
+  </section>
+  <div id="wr-announcer" class="sr-only" aria-live="polite"></div>
+</div>
+<style>
+#world-research-visual{color:var(--foreground);overflow-wrap:anywhere}
+#world-research-visual .wr-header{padding:8px 92px 22px 0}
+#world-research-visual .wr-eyebrow{color:var(--muted-foreground);margin-bottom:12px}
+#world-research-visual .wr-header h2{margin:0 0 6px}
+#world-research-visual .wr-subtitle{color:var(--muted-foreground)}
+#world-research-visual .wr-thesis{display:flex;flex-direction:column;gap:5px;margin-top:22px}
+#world-research-visual .wr-thesis>span{color:var(--muted-foreground)}
+#world-research-visual .wr-legend{gap:12px 22px;margin-bottom:20px}
+#world-research-visual .wr-key{display:inline-flex;align-items:center;gap:7px}
+#world-research-visual .wr-dot{width:8px;height:8px;display:inline-block;border-radius:50%}
+#world-research-visual .wr-existing{--wr-series:var(--viz-series-1)}
+#world-research-visual .wr-gap{--wr-series:var(--viz-series-2)}
+#world-research-visual .wr-proposed{--wr-series:var(--viz-series-3)}
+#world-research-visual .wr-dot{background:var(--wr-series)}
+#world-research-visual .wr-view-caption{margin:12px 0 0;color:var(--muted-foreground);min-height:2em}
+#world-research-visual section{padding-top:4px}
+#world-research-visual h3{margin:20px 0 12px}
+#world-research-visual ul{padding-left:20px;margin:12px 0}
+#world-research-visual li{margin:8px 0}
+#world-research-visual small{color:var(--muted-foreground);font-size:var(--font-size-base)}
+#world-research-visual strong{font-weight:500}
+#world-research-visual .wr-trunk{text-align:center;padding:10px 0 14px;border-bottom:1px solid var(--border);font-weight:500}
+#world-research-visual .wr-branches{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:24px}
+#world-research-visual .wr-branch{padding-top:18px;position:relative}
+#world-research-visual .wr-branch:before{content:"";position:absolute;top:0;left:50%;height:18px;width:1px;background:var(--border)}
+#world-research-visual .wr-node{padding:12px;background:color-mix(in srgb,var(--wr-series) 8%,transparent);border-left:3px solid var(--wr-series)}
+#world-research-visual .wr-contrast{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:32px;margin-top:26px}
+#world-research-visual .wr-section-label{display:inline-flex;align-items:center;gap:7px;color:var(--muted-foreground)}
+#world-research-visual .wr-section-label:before{content:"";width:7px;height:7px;border-radius:50%;background:var(--wr-series);flex:none}
+#world-research-visual .wr-section-label+h3{margin-top:8px}
+#world-research-visual .wr-stack{list-style:none;padding:0;margin:0}
+#world-research-visual .wr-stack li{padding:12px 0;border-bottom:1px solid var(--border);display:flex;flex-direction:column;gap:4px;margin:0}
+#world-research-visual .wr-annotation{margin-top:18px;padding:10px 0 10px 14px;border-left:3px solid var(--wr-series)}
+#world-research-visual .wr-annotation>span{display:block;font-weight:500;margin-bottom:6px}
+#world-research-visual .wr-rule{margin-top:26px;padding-top:20px;border-top:1px solid var(--border)}
+#world-research-visual .wr-rule>div{margin-top:12px}
+#world-research-visual .wr-concepts,#world-research-visual .wr-recovery,#world-research-visual .wr-layers{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:24px}
+#world-research-visual .wr-concepts>div{display:flex;flex-direction:column;gap:7px}
+#world-research-visual .wr-concepts>div>span{color:var(--muted-foreground)}
+#world-research-visual .wr-evidence{margin-top:28px;padding:16px 0;border-top:1px solid var(--border)}
+#world-research-visual .wr-evidence>div{margin-top:12px}
+#world-research-visual .wr-task-label{margin:22px 0 18px;font-weight:500}
+#world-research-visual .wr-flow{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));list-style:none;gap:16px;padding:0;counter-reset:wr-number}
+#world-research-visual .wr-flow li{counter-increment:wr-number;position:relative;padding:12px;border-top:3px solid var(--wr-series);background:color-mix(in srgb,var(--wr-series) 7%,transparent);margin:0;min-width:0}
+#world-research-visual .wr-flow li:before{content:counter(wr-number,decimal-leading-zero);display:block;color:var(--muted-foreground);margin-bottom:12px}
+#world-research-visual .wr-flow .wr-step-status{display:block;color:var(--muted-foreground);margin-bottom:6px}
+#world-research-visual .wr-flow .wr-step-title{display:block;font-weight:500;margin-bottom:8px}
+#world-research-visual .wr-flow small{display:block}
+#world-research-visual .wr-recovery span{padding:4px 0}
+#world-research-visual .wr-lane{display:grid;grid-template-columns:80px minmax(0,1fr);align-items:start;gap:18px;margin:16px 0}
+#world-research-visual .wr-lane-label{color:var(--muted-foreground);padding-top:12px}
+#world-research-visual .wr-ai-flow{display:flex;flex-wrap:wrap;align-items:center;gap:8px 12px;list-style:none;margin:0;padding:12px;border-left:3px solid var(--wr-series);background:color-mix(in srgb,var(--wr-series) 8%,transparent)}
+#world-research-visual .wr-ai-flow li{margin:0}
+#world-research-visual .wr-ai-flow li:not(:last-child):after{content:"→";margin-left:12px;color:var(--muted-foreground)}
+#world-research-visual .wr-modes,#world-research-visual .wr-capabilities{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px 32px;margin-top:24px}
+#world-research-visual .wr-modes>div{padding-bottom:16px;border-bottom:1px solid var(--border)}
+#world-research-visual .wr-modes small{display:block;margin-top:7px}
+#world-research-visual .wr-capabilities .wr-section-label{margin-bottom:10px}
+#world-research-visual .wr-layers>div{padding:12px 0;border-top:2px solid var(--border)}
+#world-research-visual .wr-layers span{display:block;margin-top:8px;color:var(--muted-foreground)}
+#world-research-visual .wr-roadmap{list-style:none;padding:0}
+#world-research-visual .wr-roadmap li{display:grid;grid-template-columns:44px minmax(0,1fr);gap:20px;padding:18px 0;border-bottom:1px solid var(--border);margin:0}
+#world-research-visual .wr-roadmap strong{display:block;margin-bottom:8px}
+#world-research-visual .wr-roadmap small{display:block;margin-top:8px}
+#world-research-visual .wr-phase{font-weight:500;color:var(--muted-foreground)}
+#world-research-visual [hidden]{display:none!important}
+@media(max-width:620px){#world-research-visual .wr-contrast,#world-research-visual .wr-recovery,#world-research-visual .wr-layers,#world-research-visual .wr-concepts{grid-template-columns:1fr;gap:18px}#world-research-visual .wr-flow{grid-template-columns:repeat(2,minmax(0,1fr));gap:12px}#world-research-visual .wr-modes,#world-research-visual .wr-capabilities{grid-template-columns:1fr}#world-research-visual .wr-lane{grid-template-columns:1fr;gap:7px}#world-research-visual .wr-lane-label{padding-top:0}#world-research-visual .wr-header{padding-right:50px}#world-research-visual .wr-branches{grid-template-columns:1fr;gap:0}#world-research-visual .wr-branch:before{left:12px}}
+@media(max-width:380px){#world-research-visual .wr-flow{grid-template-columns:1fr}#world-research-visual .wr-header{padding-right:30px}}
+@media print{#world-research-visual section[hidden]{display:block!important}#world-research-visual .wr-navigation,#world-research-visual .wr-view-caption{display:none}#world-research-visual section{break-before:page}#world-research-visual #wr-structure{break-before:auto}#world-research-visual .wr-flow li,#world-research-visual .wr-roadmap li{break-inside:avoid}}
+</style>
+<script>
+(function(){
+const root=document.getElementById('world-research-visual');
+const tasks={
+find:{label:'“这个人物是谁？依据在哪里？”',steps:[['搜索／快速打开','按名称、别名找资料','existing'],['对象概览','确认身份与状态','existing'],['档案／来源','按需展开证据','existing'],['返回原工作','验证筛选与定位恢复','proposed']],gap:'同名需要消歧；命中别名不代表唯一身份。',reuse:'资料库搜索、快速打开、对象详情与修订历史。'},
+create:{label:'“新建人物，再逐步补充设定。”',steps:[['最小身份与简述','不强制填满模板','existing'],['重名核对','不把同名自动融合','proposed'],['创建并打开详情','选择人物、地点或设定','existing'],['补档案与关系','按需扩展对象','existing']],gap:'创建后同批添加关系，不能仅凭批次依赖自动绑定新身份；可分两轮提案。',reuse:'新建资料、创建后定位、对象档案与模板。'},
+relation:{label:'“这个人加入了哪个组织？”',steps:[['对象详情','确认当前对象','existing'],['就地新增关系','目前需转到其他入口','gap'],['对端／方向／时点','区分长期设定与剧情事件','existing'],['预览确认','来源与版本重验','existing']],gap:'详情可编辑已有关系，新增入口分散；助手新增已接通，但编辑、结束、移除尚不完整。',reuse:'关系页、关系分组、既有创建表单及场景有效期读取。'},
+organize:{label:'“整理这一页候选，别动已采用设定。”',steps:[['明确本页集合','当前页选中项','existing'],['识别与消歧','保留同名竞争身份','existing'],['允许范围内处置','已采用对象只读核对','proposed'],['结果回执','成功／跳过／失败','existing']],gap:'对已采用对象补别名或融合内容也属于修改；必须遵守保护范围，不能借“整理”扩大授权。',reuse:'待处理队列、智能整理、采用／合并／忽略及原领域确认。'},
+change:{label:'“修改这条设定，会影响哪里？”',steps:[['选中具体条目','补齐精确上下文','proposed'],['影响查询','区分字面提及与因果影响','existing'],['修改预览','原内容／拟改／范围','existing'],['确认并回到对象','刷新结果，过期则重预览','proposed']],gap:'顶部编辑、就地编辑、档案和旧字段职责不清；对象未保存草稿不能被助手当成正式事实。',reuse:'影响预演、助手提案、版本基线、409冲突处理与修订历史。'},
+complete:{label:'“从指定章节补出遗漏资料。”',steps:[['对象查漏入口','当前详情已存在','existing'],['范围与授权','指定章节，冻结许可','existing'],['运行与审阅','来源／冲突／未决项','existing'],['继续／安全撤销','复用持久任务回执','existing']],gap:'专项能力已具备；重点是解释入口与结果去向，不再另造一套无来源的聊天流水线。',reuse:'TargetedCompletionPanel 的授权、回执、恢复、暂停、继续与安全撤销。'}
+};
+const viewCaptions={structure:'组织方式与编辑入口：哪些已经存在，哪些需要梳理。',journey:'六条作者路径：看清每一步的已有能力与待补环节。',assistant:'从理解资料到准备修改：明确上下文、确认与结果去向。',priorities:'按任务价值分期推进；工程检查与作者验证分别验收。'};
+const statusLabels={existing:'已有能力',gap:'操作断点',proposed:'研究建议'};
+let view='structure',task='find';
+function render(){
+root.querySelectorAll('[data-view]').forEach(b=>b.setAttribute('aria-pressed',String(b.dataset.view===view)));
+['structure','journey','assistant','priorities'].forEach(k=>root.querySelector('#wr-'+k).hidden=k!==view);
+root.querySelector('#wr-view-caption').textContent=viewCaptions[view];
+root.querySelectorAll('[data-task]').forEach(b=>b.setAttribute('aria-pressed',String(b.dataset.task===task)));
+const data=tasks[task];root.querySelector('#wr-task-label').textContent=data.label;
+const flow=root.querySelector('#wr-task-flow');flow.replaceChildren();
+data.steps.forEach(([label,detail,kind])=>{
+  const li=document.createElement('li');li.className='wr-'+kind;
+  const status=document.createElement('span');status.className='wr-step-status text-small';status.textContent=statusLabels[kind];
+  const title=document.createElement('span');title.className='wr-step-title';title.textContent=label;
+  const small=document.createElement('small');small.textContent=detail;
+  li.append(status,title,small);flow.append(li);
+});
+const gap=root.querySelector('#wr-task-gap');gap.replaceChildren();const label=document.createElement('span');label.textContent='核验重点';gap.append(label,document.createTextNode(data.gap));
+root.querySelector('#wr-task-reuse div').textContent=data.reuse;
+}
+function persist(){if(window.openai&&typeof window.openai.setWidgetState==='function'){const result=window.openai.setWidgetState({modelContent:{report:'世界对象系统研究',view,task},privateContent:null});if(result&&typeof result.catch==='function')result.catch(()=>{})}}
+function restore(state){const s=state&&state.modelContent;if(s&&['structure','journey','assistant','priorities'].includes(s.view))view=s.view;if(s&&Object.hasOwn(tasks,s.task))task=s.task;render()}
+root.addEventListener('click',event=>{const button=event.target.closest('button');if(!button||!root.contains(button))return;if(button.dataset.view){view=button.dataset.view;render();root.querySelector('#wr-announcer').textContent='已切换：'+button.textContent;persist()}else if(button.dataset.task){task=button.dataset.task;render();root.querySelector('#wr-announcer').textContent=tasks[task].label;persist()}});
+window.addEventListener('openai:set_globals',event=>{const globals=event.detail&&event.detail.globals;if(globals&&globals.widgetState)restore(globals.widgetState)});
+restore(window.openai&&window.openai.widgetState);
+})();
+</script>
+
+</body>
+</html>

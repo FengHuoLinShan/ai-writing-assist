@@ -27,6 +27,7 @@ test("作者可在 390/1280 宽度配置借用面向并保存秘密档案", asyn
   const detail = page.locator(".world-entity-detail")
   await expect(detail).toBeVisible()
   const dossierPanel = detail.locator("details.world-entity-dossier")
+  await detail.getByRole('tab', { name: '设定档案', exact: true }).click()
   await dossierPanel.locator("summary").click()
   const editor = dossierPanel.locator(".object-dossier-editor")
   await expect(editor.getByText("新增档案条目", { exact: true })).toBeVisible()
@@ -79,6 +80,7 @@ test("作者可在 390/1280 宽度配置借用面向并保存秘密档案", asyn
   await page.evaluate(async (entityId) => {
     await window.router.navigate("world", "bible", true, new URLSearchParams({ entity_id: entityId }))
   }, target.id)
+  await detail.getByRole('tab', { name: '设定档案', exact: true }).click()
   await detail.locator("details.world-entity-dossier summary").click()
   const importer = detail.locator(".manifest-import")
   await expect(importer).toBeVisible()
@@ -115,6 +117,7 @@ test("结构化档案在窄屏新增字符串、清空重加并保存无名称�
     await window.router.navigate("world", "bible", true, new URLSearchParams({ entity_id: entityId }))
   }, entity.id)
   const panel = page.locator("details.world-entity-dossier")
+  await page.getByRole('tab', { name: '设定档案', exact: true }).click()
   await panel.locator("summary").click()
   const editor = panel.locator(".object-dossier-editor")
   await page.setViewportSize({ width: 390, height: 844 })

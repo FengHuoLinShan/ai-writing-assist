@@ -134,6 +134,8 @@ POST   /api/writing/recompute/{operation_id}/adopt     # 执行重算（幂等�
 POST   /api/writing/generate                            # 生成正文建议预览，不自动采用或发布
 POST   /api/writing/semantic-reviews                    # 冻结正文/合同的独立语义审查
 POST   /api/writing/targeted-revisions                  # 按审查 finding（或显式纳入的待核实合同条目）生成新返修候选
+GET    /api/writing/drafts/{id}/revision-groups          # 精确补丁与不可拆组预览
+POST   /api/writing/drafts/{id}/revision-selections      # 冻结选择后组成新候选，重新治理与独立审查
 GET    /api/writing/export                              # 按章序导出每章当前已采用版本（txt/md/md-zip，可选 chapter_index 单章）
 ```
 
@@ -378,3 +380,10 @@ hash/source 与请求一致、受影响场景当前仍 ready 且 basis 有效后
 结果归原项目，不把旧执行响应写入新提示面板。恢复提示读取失败会告知作者重试。
 
 写作生成的私有冻结候选由 Tasks facade 租约 checkpoint 保存；已有负载无效/来源漂移失败关闭，不视为缓存未命中，不自动重付费。
+
+局部候选选择按 [Writing 模块契约](../../backend/modules/writing/README.md#局部修改组与派生完整候选) 组成完整候选；新候选不沿用原批准与审查。旧补丁缺少可靠分组时只支持整组，原文与世界提案各自保留恢复回执。
+
+
+写作台按账户/作品/章节恢复本场资料、批注或前瞻的当前工作面。来源定位先核对当前实际
+文字 hash，再把服务端码点位置转换为 textarea UTF16 位置并滚入视口；原始版本过期时
+保留当前正文并提示重新读取。该定位不触发生成或采用，也不替换作者后续修改。

@@ -293,8 +293,13 @@ def test_goal_usage_delta_uses_only_exact_step_ledger_differences():
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "replacement",
+    ["新值", {"$ref": {"step_id": "create", "path": ["id"], "value_type": "identifier"}}],
+)
 async def test_goal_plan_edit_and_accept_are_recorded_only_for_proven_same_operation(
     db_session,
+    replacement,
 ):
     from pydantic import BaseModel
 
@@ -330,7 +335,7 @@ async def test_goal_plan_edit_and_accept_are_recorded_only_for_proven_same_opera
             GoalStep(
                 step_id="edit",
                 operation_id="project.update_task",
-                parameters={"name": "新值"},
+                parameters={"name": replacement},
                 intent="更新作者待办",
             ),
             GoalStep(
@@ -360,6 +365,7 @@ async def test_goal_plan_edit_and_accept_are_recorded_only_for_proven_same_opera
 
     assert [item["event_type"] for item in seen] == ["edited", "confirmed", "confirmed"]
     assert seen[0]["metadata"] == {"changed_fields": ["name"]}
+    assert seen[1]["arguments"] == {"name": replacement}
     assert seen[0]["call_id"] == seen[1]["call_id"]
     assert seen[2]["operation"].op_id == "project.add_task"
     assert seen[2]["event_type"] == "confirmed"

@@ -82,6 +82,8 @@ def test_unmapped_luna_uses_byte_upper_bound():
 
 def test_full_input_boundary_checks_envelope_and_schema(monkeypatch):
     provider = CodexProvider.__new__(CodexProvider)
+    provider._effort = "max"
+    provider._approval_judgment = False
     monkeypatch.setattr(CodexProvider, "validate_connection", lambda self: None)
     capability = resolve_llm_capability_profile("codex", "gpt-6-luna")
     request = LLMCallRequest(
@@ -209,6 +211,8 @@ def test_five_hundred_k_full_input_includes_host_framing(monkeypatch):
     request.messages[0].content = "x" * (500000 - overhead)
     assert codex_input_tokens(request) == 500000
     provider = CodexProvider.__new__(CodexProvider)
+    provider._effort = "max"
+    provider._approval_judgment = False
     provider._execution_capability = resolve_llm_capability_profile("codex", "gpt-6-luna")
     provider.validate_request(request)
     request.messages[0].content += "x"
@@ -232,6 +236,8 @@ def test_tokenizer_drift_cannot_relax_a_frozen_input_budget(monkeypatch):
     )
     monkeypatch.setattr(CodexProvider, "validate_connection", lambda self: None)
     provider = CodexProvider.__new__(CodexProvider)
+    provider._effort = "max"
+    provider._approval_judgment = False
     provider._execution_capability = capability
     with pytest.raises(LLMError) as caught:
         provider.validate_request(request)
@@ -264,6 +270,7 @@ def test_routed_model_uses_its_frozen_input_budget_and_legacy_route_is_unchanged
     from infrastructure.llm.client import LLMClient
 
     client = LLMClient.__new__(LLMClient)
+    client._approval_judgment = False
     client._provider = SimpleNamespace(name="openai")
     client._limiter_provider_id = "deepseek"
     client._execution_capability = resolve_llm_capability_profile(

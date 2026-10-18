@@ -916,6 +916,21 @@ CAPABILITY_REGISTRY: dict[str, CapabilityKnowledgePolicy] = {
         ),
         # --- Assistant ---
         _policy(
+            "assistant.approval.judge",
+            DOMAIN_ASSISTANT,
+            "冻结任务内的具体修改批准判断",
+            subjects=("author",),
+            dimensions=("author_intent",),
+            confirmation=CONFIRMATION_REQUIRED,
+            snapshot=SNAPSHOT_REQUIRED,
+            outputs=(OUTPUT_PROPOSAL,),
+            gate=ADOPTION_DISPLAY_ONLY,
+            notes=(
+                "仅专用 low 模型判断 allow/ask/deny；不生成操作或替代领域审查。"
+                "授权和预览绑定的回执重验后才能进入原领域执行。"
+            ),
+        ),
+        _policy(
             "assistant.guided_flow.direction_cards",
             DOMAIN_ASSISTANT,
             "新书开篇方向卡",

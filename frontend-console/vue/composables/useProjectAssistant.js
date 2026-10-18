@@ -7,7 +7,7 @@ import { clearActiveWorkflow } from "../../shared/workflowProgress.js"
 const active = status => ["pending", "running"].includes(status)
 
 export function createProjectAssistant() {
-  const state = reactive({ projectId: null, sessionId: null, sessions: [], total: 0, sessionOffset: 0, messages: [], messageTotal: 0, input: "", run: null, loading: false, busy: false, enabled: false, error: "", backupError: false, pendingSubmission: false, selected: [], context: null, allowWeb: false, destinations: [], webUnavailableReason: "", modelUnavailableReason: "", collaboration: [], blueprint: null, preservedConstraints: "", previousReportId: null, scenarioKeys: [] })
+  const state = reactive({ projectId: null, sessionId: null, sessions: [], total: 0, sessionOffset: 0, messages: [], messageTotal: 0, input: "", run: null, loading: false, busy: false, enabled: false, error: "", backupError: false, pendingSubmission: false, selected: [], context: null, approvalRequest: null, approvalAvailability: null, productHelp: null, allowWeb: false, destinations: [], webUnavailableReason: "", modelUnavailableReason: "", collaboration: [], blueprint: null, preservedConstraints: "", previousReportId: null, scenarioKeys: [] })
   const drafts = new Map()
   let generation = 0
   let accountGeneration = 0
@@ -35,7 +35,7 @@ export function createProjectAssistant() {
   function setInput(value) {
     state.input = value
     if (!state.projectId) return
-    record(state.projectId).drafts[state.sessionId || "new"] = { text: value, context: state.context, blueprint: state.blueprint, oneShotTeam: true, preservedConstraints: state.preservedConstraints, previousReportId: state.previousReportId, scenarioKeys: [...state.scenarioKeys], allowWeb: state.allowWeb, webBackend: "searxng-v1" }
+    record(state.projectId).drafts[state.sessionId || "new"] = { text: value, context: state.context, approvalRequest: state.approvalRequest, blueprint: state.blueprint, oneShotTeam: true, preservedConstraints: state.preservedConstraints, previousReportId: state.previousReportId, scenarioKeys: [...state.scenarioKeys], allowWeb: state.allowWeb, webBackend: "searxng-v1" }
     save()
   }
   function consumeTeam(token, payload) {
@@ -106,6 +106,7 @@ export function createProjectAssistant() {
     state.input = typeof draft.text === "string" ? draft.text : ""
     state.context = draft.context || null
     state.blueprint = draft.oneShotTeam ? draft.blueprint || null : null
+    state.approvalRequest = draft.approvalRequest || null
     state.preservedConstraints = draft.preservedConstraints || ""
     state.previousReportId = draft.previousReportId || null
     state.scenarioKeys = [...(draft.scenarioKeys || [])]
@@ -136,7 +137,7 @@ export function createProjectAssistant() {
     if (state.projectId) setInput(state.input)
     generation += 1
     workflow.resetMemoryScope()
-    Object.assign(state, { projectId, sessionId: null, sessions: [], messages: [], input: "", run: null, enabled: false, error: "", loading: false, busy: false, context: null, pendingSubmission: false, selected: [] })
+    Object.assign(state, { projectId, sessionId: null, sessions: [], messages: [], input: "", run: null, enabled: false, error: "", loading: false, busy: false, context: null, approvalRequest: null, approvalAvailability: null, productHelp: null, pendingSubmission: false, selected: [] })
     if (!projectId || !api()) return
     const owner = generation
     try {
@@ -146,6 +147,8 @@ export function createProjectAssistant() {
       state.modelUnavailableReason = capabilities.model?.available === false ? capabilities.model.reason : ""
       state.destinations = capabilities.destinations || []
       state.collaboration = capabilities.collaboration || []
+      state.approvalAvailability = capabilities.automatic_approval || null
+      state.productHelp = capabilities.product_help || null
       state.webUnavailableReason = capabilities.web_search?.available ? "" : capabilities.web_search?.reason || "公开资料搜索尚未配置"
       if (!state.enabled) return
       const list = await api().sessions(projectId)
@@ -182,6 +185,7 @@ export function createProjectAssistant() {
         if (sourceHash) originalContext.source_hash = sourceHash
       } catch (error) { state.error = error.message; return }
     }
+    const originalApproval = state.approvalRequest ? JSON.parse(JSON.stringify(state.approvalRequest)) : null
     const originalInput = state.input
     const originalAllowWeb = state.allowWeb
     const originalBlueprint = state.blueprint
@@ -195,6 +199,7 @@ export function createProjectAssistant() {
     if (!state.sessionId || originalProject !== state.projectId || originalAccount !== accountGeneration) return
     if (creatingSession) {
       state.context = originalContext
+      state.approvalRequest = originalApproval
       state.allowWeb = originalAllowWeb
       state.blueprint = originalBlueprint
       state.preservedConstraints = originalConstraints
@@ -209,7 +214,7 @@ export function createProjectAssistant() {
     const saved = record(token.projectId)
     const previous = saved.pending[token.sessionId]
     if (previous && previous.message !== state.input) { state.error = "上一条提交尚未确认，请先恢复原请求；当前输入已保留。"; return }
-    const payload = previous || { novel_id: token.projectId, operation_id: crypto.randomUUID(), message: state.input, context: originalContext, allow_web: state.allowWeb, web_backend: state.allowWeb && (!state.blueprint || state.blueprint === "research") ? "searxng-v1" : null, ...(state.blueprint ? { blueprint: state.blueprint, preserved_constraints: state.preservedConstraints.split("\n").map(value => value.trim()).filter(Boolean), ...(state.previousReportId ? { previous_report_id: state.previousReportId, scenario_keys: state.scenarioKeys } : {}), allow_web: state.blueprint === "research" && state.allowWeb } : {}) }
+    const payload = previous || { novel_id: token.projectId, operation_id: crypto.randomUUID(), message: state.input, context: originalContext, ...(originalApproval && !state.blueprint ? { approval: originalApproval } : {}), allow_web: state.allowWeb, web_backend: state.allowWeb && (!state.blueprint || state.blueprint === "research") ? "searxng-v1" : null, ...(state.blueprint ? { blueprint: state.blueprint, preserved_constraints: state.preservedConstraints.split("\n").map(value => value.trim()).filter(Boolean), ...(state.previousReportId ? { previous_report_id: state.previousReportId, scenario_keys: state.scenarioKeys } : {}), allow_web: state.blueprint === "research" && state.allowWeb } : {}) }
     saved.pending[token.sessionId] = payload
     state.pendingSubmission = true
     save(token.projectId)
@@ -226,6 +231,7 @@ export function createProjectAssistant() {
       if (current(token)) {
         if (state.input === payload.message) { state.input = ""; state.context = payload.context }
         setRun(run)
+        state.approvalRequest = null
         saved.viewedRuns[token.sessionId] = run.id
         save(token.projectId)
         state.pendingSubmission = false
@@ -261,7 +267,7 @@ export function createProjectAssistant() {
       if (saved.drafts[token.sessionId]?.text === pending.message) saved.drafts[token.sessionId] = { text: "", context: pending.context, blueprint: null, allowWeb: pending.allow_web, webBackend: pending.web_backend }
       consumeTeam(token, pending)
       save(token.projectId, token.accountGeneration)
-      if (current(token)) { if (state.input === pending.message) { state.input = ""; state.context = pending.context } setRun(run); state.pendingSubmission = false; state.error = "" }
+      if (current(token)) { if (state.input === pending.message) { state.input = ""; state.context = pending.context } setRun(run); state.approvalRequest = null; state.pendingSubmission = false; state.error = "" }
       workflow.adopt(run, { sessionId: token.sessionId, runId: run.id }, token.projectId)
     } catch (error) { if (current(token)) state.error = error.message || "暂时无法恢复提交。" }
     finally { if (current(token)) state.busy = false }
@@ -367,7 +373,7 @@ export function createProjectAssistant() {
     } catch (error) { if (current(token)) state.error = error.message || "讨论列表暂时无法读取。" }
     finally { if (current(token)) state.loading = false }
   }
-  function invalidate() { accountGeneration += 1; generation += 1; drafts.clear(); workflow.resetMemoryScope(); Object.assign(state, { projectId: null, sessionId: null, sessions: [], input: "", messages: [], run: null, enabled: false, context: null, error: "", pendingSubmission: false, backupError: false, busy: false, loading: false, selected: [] }) }
+  function invalidate() { accountGeneration += 1; generation += 1; drafts.clear(); workflow.resetMemoryScope(); Object.assign(state, { projectId: null, sessionId: null, sessions: [], input: "", messages: [], run: null, enabled: false, context: null, approvalRequest: null, approvalAvailability: null, productHelp: null, error: "", pendingSubmission: false, backupError: false, busy: false, loading: false, selected: [] }) }
   function beforeUnload(event) { if (state.projectId && state.backupError && (state.input || Object.values(record(state.projectId).pending).length || Object.values(record(state.projectId).decisions).length)) { event.preventDefault(); event.returnValue = "" } }
   globalThis.addEventListener?.(ACCOUNT_INVALIDATED_EVENT, invalidate)
   globalThis.addEventListener?.("beforeunload", beforeUnload)

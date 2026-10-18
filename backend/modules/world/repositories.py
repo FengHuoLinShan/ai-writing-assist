@@ -1650,12 +1650,14 @@ class EntityRelationRepository:
         *,
         relation_type: str | None = None,
         limit: int = DEFAULT_PAGE_SIZE,
+        include_removed: bool = False,
     ) -> list[EntityRelation]:
         conditions = [
             EntityRelation.novel_id == novel_id,
             EntityRelation.source_id == source_id,
-            EntityRelation.status != "deprecated",
         ]
+        if not include_removed:
+            conditions.append(EntityRelation.status != "deprecated")
         if relation_type:
             conditions.append(EntityRelation.relation_type == relation_type)
 
@@ -1677,12 +1679,14 @@ class EntityRelationRepository:
         *,
         relation_type: str | None = None,
         limit: int = DEFAULT_PAGE_SIZE,
+        include_removed: bool = False,
     ) -> list[EntityRelation]:
         conditions = [
             EntityRelation.novel_id == novel_id,
             EntityRelation.target_id == target_id,
-            EntityRelation.status != "deprecated",
         ]
+        if not include_removed:
+            conditions.append(EntityRelation.status != "deprecated")
         if relation_type:
             conditions.append(EntityRelation.relation_type == relation_type)
 
@@ -1828,7 +1832,9 @@ class EntityRelationRepository:
             "status",
         ):
             value = getattr(data, field, None)
-            if value is not None:
+            if value is not None or (
+                field == "description" and field in data.model_fields_set
+            ):
                 update_values[field] = value
         if "validity" in data.model_fields_set:
             update_values["validity_json"] = (

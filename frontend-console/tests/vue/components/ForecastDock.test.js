@@ -127,5 +127,14 @@ it("renders grounded performance cards and copies a readable option for writing"
   expect(writeText.mock.calls[0][0]).toContain("声音：轻声收住")
   expect(writeText.mock.calls[0][0]).toContain("资料缺口：没有可用的人物时点状态")
   expect(toast).toHaveBeenCalledWith("已复制，可粘贴到写作输入中作为参考。", "success")
+  state.prepared = { outcome: { status: "completed", results: [{ key: "reference", status: "completed", result: { type: "world_bible_page_draft", id: "saved-reference", label: "已保存资料工作稿" } }] } }
+  const navigate = vi.fn()
+  globalThis.router = { navigate }
+  await flushPromises()
+  await wrapper.findAll("button").find(button => button.text() === "查看成果").trigger("click")
+  expect(navigate).toHaveBeenCalledOnce()
+  expect(navigate.mock.calls[0].slice(0, 3)).toEqual(["world", "bible", true])
+  expect(navigate.mock.calls[0][3].get("draft_id")).toBe("saved-reference")
+  delete globalThis.router
   wrapper.unmount()
 })

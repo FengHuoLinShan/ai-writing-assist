@@ -10,6 +10,7 @@ from pydantic import (
     BeforeValidator,
     ConfigDict,
     Field,
+    field_serializer,
     field_validator,
     model_validator,
 )
@@ -153,6 +154,14 @@ class EntityRelationResponse(BaseModel):
     suggested_action: str | None = None
     created_at: datetime | None = None
     updated_at: datetime | None = None
+
+    @field_serializer("review_meta")
+    def serialize_review_meta(self, value: dict | None) -> dict | None:
+        if value is None:
+            return None
+        return {
+            key: item for key, item in value.items() if key != "author_change_history"
+        }
 
     @model_validator(mode="after")
     def derive_author_state(self) -> EntityRelationResponse:

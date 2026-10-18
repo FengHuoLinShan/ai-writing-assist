@@ -18,6 +18,7 @@ from modules.assistant.goal_runs.contracts import (
     GoalAction,
     GoalPlanApproval,
     GoalReplanRequest,
+    GoalResume,
 )
 from modules.assistant.models import AssistantRun
 from modules.assistant.tests.test_goal_runs import (
@@ -41,6 +42,7 @@ pytestmark = [pytest.mark.asyncio, pytest.mark.e2e]
         "concurrent",
         "advance_concurrent",
         "cancel_during",
+        "pause_during",
     ],
 )
 async def test_goal_author_action_does_not_self_lock_checkpoint(monkeypatch, action):
@@ -48,7 +50,7 @@ async def test_goal_author_action_does_not_self_lock_checkpoint(monkeypatch, act
         return create_async_engine(
             DATABASE_URL,
             connect_args={"server_settings": {"statement_timeout": "1500"}},
-            pool_size=2 if action == "cancel_during" else 1,
+            pool_size=2 if action in {"cancel_during", "pause_during"} else 1,
             max_overflow=0,
             pool_timeout=1,
         )
@@ -81,7 +83,7 @@ async def test_goal_author_action_does_not_self_lock_checkpoint(monkeypatch, act
     entered = asyncio.Event()
     release = asyncio.Event()
     prepare_calls = 0
-    if action in {"concurrent", "advance_concurrent", "cancel_during"}:
+    if action in {"concurrent", "advance_concurrent", "cancel_during", "pause_during"}:
 
         async def blocked_prepare(_db, _novel_id, args, *, context=None):
             nonlocal prepare_calls
@@ -134,7 +136,12 @@ async def test_goal_author_action_does_not_self_lock_checkpoint(monkeypatch, act
                 budget=request.budget,
                 auto_r2=False,
             )
-            if action in {"concurrent", "advance_concurrent", "cancel_during"}:
+            if action in {
+                "concurrent",
+                "advance_concurrent",
+                "cancel_during",
+                "pause_during",
+            }:
 
                 async def approve_once():
                     async with maker() as action_db:
@@ -170,17 +177,39 @@ async def test_goal_author_action_does_not_self_lock_checkpoint(monkeypatch, act
                                 prepared["run_id"],
                                 str(owner_id),
                             )
-                            cancelled = await service.cancel_goal(
+                            stop = (
+                                service.pause_goal
+                                if action == "pause_during"
+                                else service.cancel_goal
+                            )
+                            stopped = await stop(
                                 cancel_db,
                                 str(project_id),
                                 prepared["run_id"],
                                 GoalAction(expected_revision=current["revision"]),
                                 str(owner_id),
                             )
-                        assert cancelled["stop_code"] == "cancel_requested"
+                        assert stopped["stop_code"] == (
+                            "pause_requested"
+                            if action == "pause_during"
+                            else "cancel_requested"
+                        )
                 finally:
                     release.set()
                 result = await first
+                if action == "pause_during":
+                    assert result["stop_code"] == "paused"
+                    async with maker() as resume_db:
+                        result = await service.resume_goal(
+                            resume_db,
+                            str(project_id),
+                            prepared["run_id"],
+                            GoalResume(
+                                expected_revision=result["revision"],
+                                budget=request.budget,
+                            ),
+                            str(owner_id),
+                        )
                 assert result["status"] == (
                     "cancelled" if action == "cancel_during" else "completed"
                 )

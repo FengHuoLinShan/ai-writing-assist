@@ -734,6 +734,10 @@ quota，root 检查后只启动同一 operation id，并用精确 Scene task `ru
 原始材料/输出只存仓库外0700/0600私有目录；`human_validated=false`，本准备批没有真实调用，
 不代表五题材质量、作者验收或默认启用结论。
 
+### 作者工作台任务批准回归
+
+自动批准的工程测试覆盖共享判断、授权撤回、具体预览重验和幂等回执：`make test TESTS="modules/assistant/tests/test_approval.py" ARGS="-q"`。专用 PostgreSQL 上运行 `tests/e2e/test_assistant_approval.py` 验证两种锁顺序；浏览器合成模型 fixture 仅证明操作流程，不提供真实模型校准。指定模型必须完成固定案例和当前配置指纹匹配，未校准时保持人工。恢复与跨页返回另见 `frontend-console/e2e/world-workspace-recovery.spec.js`，不以 DOM 存在替代原文实际进入视口。
+
 ## 本地桌面分发验收
 
 发布前还需 desktop/tests 的版本、main 来源、CI 状态、混合/损坏产物与稳定版签名门禁回归。

@@ -57,6 +57,13 @@ def test_c2_child_scope_requires_exact_frozen_v9_available_operation() -> None:
         "story.reaction",
     ]
     assert _assistant_catalog_budget_scope("8", frozen) is None
+    automatic = _assistant_catalog_budget_scope("17", frozen, approval=True)
+    assert automatic["authorized_step_capabilities"] == [
+        "assistant.approval.judge",
+        "story.character_card",
+        "story.reaction",
+    ]
+    assert automatic["scope_fingerprint"] != scope["scope_fingerprint"]
     stale = {
         **frozen,
         "story.reaction.generate": {

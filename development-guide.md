@@ -26,6 +26,12 @@ AI 小说程序在开发阶段的大量业务 LLM 调用使用 Codex `gpt-6-luna
 代码开发、代码审查、工程诊断及已授权的工程子代理继续使用 Sol 或其他高级模型；
 开发 Agent 和小说程序调用的模型分别配置。共享约束以 [AGENTS.md](AGENTS.md#运行时-llm) 为准。
 
+2026-10-18 作者工作台改造的已确认窄例外：批准判断使用 Project 入口的
+`purpose="approval_judgment"`，按已验证连接固定 DeepSeek `deepseek-flash` 或 Codex
+`gpt-6-luna`，专用 `low` 档及结构化输出。快照冻结用途，恢复时继续核验当前 owner 连接；
+不跨供应商回退，不改变生成/抽取/审查的 max 约定。此用途不是自动执行授权；自动模式仍需
+固定案例与指定模型校准、任务范围授权和每次领域重验。付费供应商实测仍需专项授权。
+
 启动或恢复小说程序的模型任务前，完成以下核验：
 
 1. 核验业务请求实际使用 Luna/max；仅在 Prompt 写模型名不算配置完成。后台跟进的
@@ -513,6 +519,15 @@ API 与 worker 使用相同 Compose runtime 环境。回退不降级表、不撤
 实验结果仅证明合成技术合同，不代表真实模型或作者验收。
 
 本机 Codex 文本开发（ADR-0033）：AUTH_MODE=local，已登录且支持 read-only/ignore-rules/output-schema 与工具关闭参数的 Codex CLI；多版本时设置 CODEX_CLI_COMMAND。账户设置实际验证后使用 Luna/max。公开服务不开放该连接。
+
+
+批准判断的合成校准入口为 `python -m tools.approval_model_calibration`（backend 目录）。
+必须指定作品及其当前 owner；默认只读核验 Project 判断配置，`--help` 不访问数据库。
+显式 `--execute --output-dir /仓库外/新的私有目录` 执行固定 18 案例；只使用已有已验证
+连接，不提供 API Key、provider 或模型覆盖参数。目录不可复用，保存 0600 账本/回执，
+未知结果先核对原账本及领域校准记录，不另建目录绕过未知门禁。详见 Assistant README。
+默认累计 token 上限 65536；只有显式授权了新额度才可通过 `--token-limit` 调整，
+不能因供应商宿主开销或本轮失败自行扩大预算。新契约需完整重校准，不拼接旧轮次通过案例。
 
 ## 本地桌面构建
 

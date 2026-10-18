@@ -85,6 +85,7 @@ class CLISpec:
     output_schema: dict[str, Any] | None = None
     context_window_tokens: int | None = None
     auto_compact_token_limit: int | None = None
+    approval_judgment: bool = False
 
 
 def _command(spec: CLISpec) -> tuple[list[str], bytes | None]:
@@ -159,7 +160,9 @@ def _command(spec: CLISpec) -> tuple[list[str], bytes | None]:
                 "-c",
                 "mcp_servers={}",
                 "-c",
-                'model_reasoning_effort="max"',
+                'model_reasoning_effort="low"'
+                if spec.approval_judgment
+                else 'model_reasoning_effort="max"',
                 "exec",
                 "--json",
                 "--ephemeral",

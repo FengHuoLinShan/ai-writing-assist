@@ -147,7 +147,8 @@ request messages。需要主动裁剪上下文时，应显式使用 `ContextBudg
 `workflow_budget.py` 的 `AIRunEnvelope` 是运行期累计账本，`ai_run_scope()` 与
 `managed_step_scope()` 用 ContextVar 把运行身份和当前受管 step 注入调用链。
 Goal v3 仅接受作者冻结的 Goal 范围；Assistant 目录 v4 只接受服务端冻结的
-`story.character_card`、`story.reaction` 子能力，且沿用父任务账本与启动时间。
+`story.character_card`、`story.reaction` 子能力；新任务明确开启批准模式时可额外冻结
+`assistant.approval.judge`。三项均沿用父任务账本与启动时间，旧信封不自动获得判断能力。
 v4 的未知扣费或 80% 请求阈值在下一次 provider 预留前拒绝；v1/v2 能力规则不变。
 一次权威领域运行只有一个 run：自动重试、恢复、requeue 与 manual resume 都累加同一账本，
 只有作者明确续算或确认可能重复扣费时才通过 `authorize_additional_requests()` 追加请求或 Token 额度，
@@ -411,6 +412,14 @@ Evolution `budget_total`/`budget_remaining` 允许成对为空；旧有限行原
 存在范围数据时迁移拒绝降级。旧未跟踪队列明确保留领域预算 seam，不能冒充已完整跟踪。
 
 新范围信封在预留前同时核验步骤上下文与实际执行 provider/最终 model，步骤标签不能授权其他来源。新 B5 路由把附加型号能力快照保存在 `cost_routing.llm_capability_profile` 并纳入项目签名；发送按最终型号选冻结输入预算，旧路由缺此字段时保留旧策略。冻结 tokenizer 方法与当前工具不一致在装包/最终发送前失败关闭，不重试或默默放宽输入。
+
+### 批准判断 low 隔离
+
+Project 显式 `approval_judgment` 用途可以构造专用 client：仅当前 provider 的
+`deepseek-flash`/`gpt-6-luna`、low、无工具且结构化请求；在请求预留与 I/O 前拒绝模型、
+档位或输出模式漂移。普通 Codex client 仍拒绝 low。专用 Codex 原生命令仅改 low 参数，
+保留原生工具关闭、只读沙箱、ignore-user-config/ignore-rules、schema 与身份重验；
+回执记录实际 low，不输出私有思考。该能力不证明判断器已校准或自动模式已开放。
 
 ## 本机平台安全
 

@@ -408,7 +408,7 @@ export function createEditorController({
       restoreCursor(projectId, state.chapter, loadedDraftIdentity)
       if (Number.isInteger(options.editorialOffset) && options.editorialOffset >= 0) {
         if (draft?.content_hash === options.editorialHash) {
-          state.cursorOffset = Math.min(options.editorialOffset, state.content.length)
+          state.cursorOffset = Array.from(state.content).slice(0, options.editorialOffset).join('').length
           pendingCursorRestore = true
         } else toast("这条编辑意见所引用的正文已变化，请在编辑台查看当前依据。", "info")
       }
@@ -803,6 +803,7 @@ export function createEditorController({
       applyDraft(result, { isReadonly: false })
       syncElements()
       emit()
+      await refreshVersions(result)
       toast("已采用到工作稿", "success")
       return result
     } catch (err) {

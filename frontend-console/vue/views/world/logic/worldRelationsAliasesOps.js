@@ -92,7 +92,7 @@ function validityFromControls(startId, endId) {
  * 从 API 拉取可引用的实体列表并返回 <option> HTML 字符串。
  * 参数与渲染形态与 vanilla _entityOptionsHtml（worldView.js:3646-3652 / 3999 区域）对齐。
  */
-async function fetchEntityOptionsHtml() {
+async function fetchEntityOptionsHtml(selectedId = '') {
   const esc = getEsc()
   const api = getApi()
   const projectId = getAppState()?.currentProjectId
@@ -109,6 +109,7 @@ async function fetchEntityOptionsHtml() {
       .filter((item) => (
         ["canonical", "draft", "candidate"].includes(item.status)
         && !item.content_json?._meta?.compatibility_shadow
+        && (item.id || item.entity_id) !== selectedId
       ))
     if (!items.length) return '<option value="">暂无可用对象</option>'
     return items.map((item) => {
@@ -121,9 +122,11 @@ async function fetchEntityOptionsHtml() {
 }
 
 /** 构造实体下拉选择器的完整 HTML（含空选项 + 实体选项）。 */
-async function entitySelectHtml(selectId) {
-  const options = await fetchEntityOptionsHtml()
-  return `<select class="form-select" id="${selectId}"><option value="">请选择</option>${options}</select>`
+async function entitySelectHtml(selectId, initial = {}) {
+  const options = await fetchEntityOptionsHtml(initial.id)
+  const esc = getEsc()
+  const selected = initial.id ? `<option value="${esc(initial.id)}" selected>${esc(initial.name || '当前对象')}</option>` : ''
+  return `<select class="form-select" id="${selectId}"><option value="">请选择</option>${selected}${options}</select>`
 }
 
 // ============================================================
@@ -131,25 +134,21 @@ async function entitySelectHtml(selectId) {
 // ============================================================
 
 /** 对应 vanilla showRelationCreateForm（worldView.js:2351-2397）。 */
-export async function showRelationCreateForm(reviewTypeCatalog = {}) {
+export async function showRelationCreateForm(reviewTypeCatalog = {}, initial = {}) {
   const esc = getEsc()
   const toast = getToast()
   const showModalHtml = getShowModalHtml()
   const scope = captureWorldOperationScope()
   const projectId = scope.projectId
   let pending = false
-  // 先 fetch 实体选项再构建 HTML（确保模态打开时 select 已有完整选项）
-  const [sourceSelectHtml, targetSelectHtml] = await Promise.all([
-    entitySelectHtml("rel-source"),
-    entitySelectHtml("rel-target"),
-  ])
   if (!ownsWorldOperationScope(scope)) return
   const initialType = catalogTypeItems(reviewTypeCatalog, "relation")[0]?.value || "related_to"
   const initialKind = kindOrTypeDefault(reviewTypeCatalog, "relation", "", initialType)
   const formHtml = `
     <div class="form-group">
       <label>源对象</label>
-      ${sourceSelectHtml}
+      <input type="hidden" id="rel-source" value="${esc(initial.source_id || '')}" data-modal-dirty-track />
+      <div id="rel-source-picker"></div>
     </div>
     <div class="form-group">
       <label for="rel-kind">关系分类</label>
@@ -163,7 +162,8 @@ export async function showRelationCreateForm(reviewTypeCatalog = {}) {
     </div>
     <div class="form-group">
       <label>目标对象</label>
-      ${targetSelectHtml}
+      <input type="hidden" id="rel-target" data-modal-dirty-track />
+      <div id="rel-target-picker"></div>
     </div>
     <div class="form-group">
       <label>描述</label>
@@ -175,6 +175,7 @@ export async function showRelationCreateForm(reviewTypeCatalog = {}) {
     class: "btn-primary",
     handler: async () => {
       if (pending) return false
+      if (!ownsWorldOperationScope(scope)) return true
       const src = document.getElementById("rel-source")?.value
       const tgt = document.getElementById("rel-target")?.value
       if (!src || !tgt) {
@@ -221,6 +222,16 @@ export async function showRelationCreateForm(reviewTypeCatalog = {}) {
     catalog: reviewTypeCatalog,
     domain: "relation",
   })
+  mountEntityReferencePickerForReview({
+    rootId: "rel-source-picker", inputId: "rel-source",
+    selectedId: initial.source_id || "", selectedName: initial.source_name || "",
+    placeholder: "按名称或别名搜索源对象", ariaLabel: "搜索源对象",
+  })
+  mountEntityReferencePickerForReview({
+    rootId: "rel-target-picker", inputId: "rel-target", replaceExisting: false,
+    placeholder: "按名称或别名搜索目标对象", ariaLabel: "搜索目标对象",
+  })
+  globalThis.refreshModalFormBaseline?.()
 }
 
 /** 对应 vanilla showAliasCreateForm（worldView.js:3086-3124）。 */

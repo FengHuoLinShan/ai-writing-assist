@@ -140,6 +140,8 @@
           <span>不必靠记忆判断，先看看正文具体改了什么。</span>
           <button type="button" class="btn btn-sm" :disabled="candidateBusy" @click="$emit('compare-candidate')">与当前工作稿比较</button>
         </div>
+        <WritingRevisionGroups v-if="projectId && state.draftId" :project-id="projectId" :draft-id="state.draftId" @selection-change="revisionSelectionChanged = $event" @open-candidate="$emit('open-candidate', $event)" />
+        <p v-if="revisionSelectionChanged" role="status">当前选择需组成新候选并重新审查，请打开新候选后采用。</p>
         <ul v-if="visibleFindings.length" class="writing-candidate-findings" aria-label="独立审查问题">
           <li v-for="finding in visibleFindings" :key="finding.finding_id">
             <strong>{{ severityLabel(finding.severity) }}</strong>
@@ -179,7 +181,7 @@
           :knowledge-review="state.provenanceJson?.knowledge_review || null"
         />
         <div class="writing-candidate-review-actions">
-          <button v-if="canAdoptCandidate" class="btn btn-primary" :disabled="candidateBusy" @click="$emit('adopt')">{{ state.candidateAction === 'adopt' ? '采用中…' : '采用到工作稿' }}</button>
+          <button v-if="canAdoptCandidate" class="btn btn-primary" :disabled="candidateBusy || revisionSelectionChanged" @click="$emit('adopt')">{{ state.candidateAction === 'adopt' ? '采用中…' : '采用到工作稿' }}</button>
           <button v-else-if="targetedRevisionReady && !commentCandidate" class="btn btn-primary" :disabled="candidateBusy" @click="$emit('targeted-revision', [...includedContractItemIds])">{{ generationLoading ? '处理中…' : (includedContractItemIds.length ? `按问题返修（含 ${includedContractItemIds.length} 条待核实）` : '按问题定向返修') }}</button>
           <button v-else class="btn btn-primary" :disabled="candidateBusy" @click="$emit('semantic-review')">{{ generationLoading ? '处理中…' : independentReview ? '重新独立审查' : '运行独立语义审查' }}</button>
           <button v-if="canAdoptCandidate || targetedRevisionReady" class="btn" :disabled="candidateBusy" @click="$emit('semantic-review')">{{ independentReview ? '重新独立审查' : '运行独立语义审查' }}</button>
@@ -230,6 +232,7 @@ import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from "vue"
 import AIResultTraceDetails from "../../../components/AIResultTraceDetails.vue"
 import InvalidationNotice from "./InvalidationNotice.vue"
 import RecomputePanel from "./RecomputePanel.vue"
+import WritingRevisionGroups from "./WritingRevisionGroups.vue"
 import { readWritingFocus } from "../../../shared/assistantContext.js"
 
 const props = defineProps({
@@ -257,7 +260,7 @@ const emit = defineEmits(["composition", "open-chapters", "create-chapter",
   "generate-draft", "generate-continuation", "generate-pov", "regenerate-candidate",
   "auto-extract", "open-deep-import-settings", "open-ai-tools", "adopt", "reject",
   "semantic-review", "deep-review", "editorial-ready", "editorial-open", "targeted-revision", "compare-candidate", "export",
-  "retry-load", "reload-server", "focus-context", "add-comment", "export-book", "save-example",
+  "retry-load", "reload-server", "focus-context", "add-comment", "export-book", "save-example", "open-candidate",
 ])
 
 const titleEl = ref(null)
@@ -265,6 +268,7 @@ const editorEl = ref(null)
 const mirrorEl = ref(null)
 const mirrorSize = ref({})
 const selectedFocus = ref(null)
+const revisionSelectionChanged = ref(false)
 // P2-C C4：保存后失效提示的展开入口；notice 变化时面板自行复位，这里只管开合。
 const invalidationPanelOpen = ref(false)
 function openInvalidationPanel() {
@@ -272,7 +276,7 @@ function openInvalidationPanel() {
   invalidationPanelOpen.value = true
   return true
 }
-defineExpose({ openInvalidationPanel, scrollCommentIntoView })
+defineExpose({ openInvalidationPanel, scrollCommentIntoView, restoreObjectPosition })
 watch(() => props.state.invalidationNotice, (value) => {
   if (!value) invalidationPanelOpen.value = false
 })
@@ -300,11 +304,25 @@ function saveSelectionExample() {
     content: String(selectedFocus.value.selection || "").slice(0, 2000),
   })
 }
+const objectReturnOffset = ref(null)
+async function restoreObjectPosition(location) {
+  const editor = editorEl.value
+  const content = props.state.content
+  if (!editor) return
+  objectReturnOffset.value = location.start
+  syncMirrorSize(editor)
+  await nextTick()
+  if (editorEl.value !== editor || props.state.content !== content) return
+  editor.focus({ preventScroll: true })
+  editor.setSelectionRange(location.start, location.end)
+  scrollCommentIntoView(location.start)
+  editor.scrollIntoView({ block: 'center' })
+}
 const highlightedSegments = computed(() => {
   const content = props.state.content || ""
-  if (props.state.dirty || !content) return [{ text: content + "\u200b", highlighted: false }]
+  if (!content) return [{ text: content + "\u200b", highlighted: false }]
   const chars = Array.from(content)
-  const ranges = props.comments.filter(item => (
+  const ranges = (props.state.dirty ? [] : props.comments).filter(item => (
     item.status === "open" && item.draft_id === props.state.draftId
     && Number.isInteger(item.start_offset) && Number.isInteger(item.end_offset)
     && chars.slice(item.start_offset, item.end_offset).join("") === item.excerpt
@@ -312,7 +330,7 @@ const highlightedSegments = computed(() => {
     start: chars.slice(0, item.start_offset).join("").length,
     end: chars.slice(0, item.end_offset).join("").length,
   }))
-  const bounds = [...new Set([0, content.length, ...ranges.flatMap(item => [item.start, item.end])])].sort((a, b) => a - b)
+  const bounds = [...new Set([0, content.length, ...(objectReturnOffset.value !== null ? [Math.min(objectReturnOffset.value, content.length)] : []), ...ranges.flatMap(item => [item.start, item.end])])].sort((a, b) => a - b)
   return bounds.slice(0, -1).map((start, index) => {
     const end = bounds[index + 1]
     return { start, text: content.slice(start, end) + (end === content.length ? "\u200b" : ""), highlighted: ranges.some(item => item.start < end && item.end > start) }
@@ -339,16 +357,19 @@ function watchMirrorSize() {
   mirrorObserver = new ResizeObserver(([entry]) => {
     const editor = editorEl.value
     if (!editor || entry.target !== editor) return
-    const style = getComputedStyle(editor)
-    mirrorSize.value = {
-      width: `${editor.clientWidth}px`, height: `${editor.clientHeight}px`,
-      fontFamily: style.fontFamily, fontSize: style.fontSize, fontWeight: style.fontWeight,
-      lineHeight: style.lineHeight, letterSpacing: style.letterSpacing,
-      padding: style.padding, tabSize: style.tabSize,
-    }
-    syncMirrorScroll({ target: editor })
+    syncMirrorSize(editor)
   })
   mirrorObserver.observe(editorEl.value)
+}
+function syncMirrorSize(editor) {
+  const style = getComputedStyle(editor)
+  mirrorSize.value = {
+    width: `${editor.clientWidth}px`, height: `${editor.clientHeight}px`,
+    fontFamily: style.fontFamily, fontSize: style.fontSize, fontWeight: style.fontWeight,
+    lineHeight: style.lineHeight, letterSpacing: style.letterSpacing,
+    padding: style.padding, tabSize: style.tabSize,
+  }
+  syncMirrorScroll({ target: editor })
 }
 const reviewPanelEl = ref(null)
 const toolMenusEl = ref(null)
@@ -391,7 +412,7 @@ const reviewBlocked = computed(() => independentReview.value?.verdict === "needs
 // 「重新独立审查」，不再走入只弹提示的死路。
 const targetedRevisionReady = computed(() => reviewBlocked.value
   || (hasUnresolvedReview.value && includedContractItemIds.value.length > 0))
-const commentCandidate = computed(() => props.state.provenanceJson?.source === "writing_comment_revision")
+const commentCandidate = computed(() => ["writing_comment_revision", "writing_selected_revision"].includes(props.state.provenanceJson?.source))
 const knowledgeReview = computed(() => props.state.provenanceJson?.knowledge_review || null)
 const knowledgeGated = computed(() => Boolean(props.state.provenanceJson?.review_required))
 const knowledgePassed = computed(() => !knowledgeGated.value || knowledgeReview.value?.status === "passed")

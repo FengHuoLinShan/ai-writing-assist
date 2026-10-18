@@ -49,6 +49,7 @@ from .profiles import (
     SpeciesProfile,
     _ProfileMixin,
 )
+from .review_scope import WorldEntityReviewScope
 from .worldbuilding import (
     AssetKnowledgeTag,
     CharacterKnowledgeTag,
@@ -127,6 +128,7 @@ __all__ = [
     "WorldCanonHead",
     "WorldCanonRevision",
     "WorldEntity",
+    "WorldEntityReviewScope",
     "WorldEntityAlias",
     "WorldLibraryFavorite",
     "WorldLibraryRecent",

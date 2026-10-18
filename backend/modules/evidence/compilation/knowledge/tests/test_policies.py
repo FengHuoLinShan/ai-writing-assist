@@ -84,6 +84,7 @@ EXPECTED_CAPABILITIES = (
     # Assistant
     "assistant.turn",
     "assistant.goal.plan",
+    "assistant.approval.judge",
     "assistant.guided_flow.direction_cards",
     "assistant.forecast",
     "assistant.editorial",

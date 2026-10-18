@@ -4,6 +4,7 @@ import {
   cleanupProject,
   waitForBackend,
 } from "./helpers/api-client.js"
+import { expectActionReachable, expectResponsiveLayout, runResponsiveMatrix, WORKSPACE_VIEWPORTS } from "./helpers/responsive.js"
 
 const backendPort = process.env.BACKEND_PORT || "8000"
 const apiBase = `http://localhost:${backendPort}/api`
@@ -63,6 +64,41 @@ test.describe("设置流程", () => {
     await expect(page.locator(".settings-advanced-section")).not.toHaveAttribute("open", "")
     expect(browserErrors).toEqual([])
     expect(failedResponses).toEqual([])
+  })
+
+  test("账户设置随窗口自动重排并保留未保存输入", async ({ page }, testInfo) => {
+    await page.goto("/#settings")
+    await page.reload()
+    const goal = page.locator("#author-daily-goal")
+    await goal.fill("4321")
+    const images = page.locator(".settings-advanced-section")
+    await images.locator("summary").click()
+    await page.locator("#account-image-api-key").fill("synthetic-unsaved-key")
+    await runResponsiveMatrix(page, async ({ width }) => {
+      await expectResponsiveLayout(page)
+      await expect(goal).toHaveValue("4321")
+      await expect(page.locator("#account-image-api-key")).toHaveValue("synthetic-unsaved-key")
+      await expectActionReachable(page.locator("#account-llm-save"))
+      await expectActionReachable(page.locator("#global-author-save"))
+      const connection = await page.locator(".account-connection-section").boundingBox()
+      const image = await images.boundingBox()
+      if (width >= 1920) expect(image.x).toBeGreaterThanOrEqual(connection.x + connection.width)
+      if (width <= 768) expect(image.y).toBeGreaterThanOrEqual(connection.y + connection.height)
+      if ([390, 1920].includes(width)) await page.screenshot({ path: testInfo.outputPath(`account-${width}.png`), fullPage: true })
+    }, WORKSPACE_VIEWPORTS)
+  })
+
+  test("RP 补连接在宽屏使用完整内容区", async ({ page }) => {
+    await page.setViewportSize({ width: 1920, height: 1080 })
+    await page.goto("/#settings?return_to=journeys")
+    await page.reload()
+    await expect(page.getByRole("heading", { name: "AI 文本服务" })).toBeVisible()
+    await expect(page.locator(".settings-shell__navigation")).toHaveCount(0)
+    await expect(page.locator("#author-daily-goal")).toHaveCount(0)
+    const body = await page.locator(".settings-shell__body").boundingBox()
+    const connection = await page.locator(".account-connection-section").boundingBox()
+    expect(connection.width).toBeGreaterThanOrEqual(body.width - 1)
+    await expectResponsiveLayout(page)
   })
 
   test("账户连接加载失败后可在原位重试", async ({ page }) => {

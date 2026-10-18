@@ -25,6 +25,37 @@ beforeEach(() => {
 })
 
 describe("referencePicker", () => {
+  it("closes a picker when focus moves to another field and rejects late results", async () => {
+    let finish
+    const picker = mount({ sources: [{ kind: 'entity', search: () => new Promise(resolve => { finish = resolve }) }] })
+    const input = document.querySelector('[data-reference-query]')
+    input.focus()
+    await vi.waitFor(() => expect(finish).toBeTypeOf('function'))
+    const outside = document.createElement('input')
+    document.body.append(outside)
+    outside.focus()
+    finish([{ id: 'late', label: '迟到对象' }])
+    await Promise.resolve()
+    await Promise.resolve()
+    expect(input.getAttribute('aria-expanded')).toBe('false')
+    expect(document.querySelector('[data-reference-results]').hidden).toBe(true)
+    expect(picker.getRefs()).toEqual([])
+    picker.destroy()
+  })
+  it("keeps pointer selection from blurring the input and removes the guard on destroy", async () => {
+    const picker = mount()
+    const input = document.querySelector('[data-reference-query]')
+    input.focus()
+    await vi.waitFor(() => expect(document.querySelector('[data-reference-result]')).not.toBeNull())
+    const results = document.querySelector('[data-reference-results]')
+    const event = new MouseEvent('mousedown', { bubbles: true, cancelable: true })
+    document.querySelector('[data-reference-result]').dispatchEvent(event)
+    expect(event.defaultPrevented).toBe(true)
+    picker.destroy()
+    const afterDestroy = new MouseEvent('mousedown', { bubbles: true, cancelable: true })
+    results.dispatchEvent(afterDestroy)
+    expect(afterDestroy.defaultPrevented).toBe(false)
+  })
   it("normalizes references without exposing ids as labels", () => {
     expect(normalizeReferenceItem({ entity_id: "e1", name: "克莱恩" }, "character")).toEqual({
       kind: "character",

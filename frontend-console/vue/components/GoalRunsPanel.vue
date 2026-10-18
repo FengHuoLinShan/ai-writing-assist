@@ -3,7 +3,7 @@
     <header class="goal-runs-header">
       <div>
         <h2>目标运行</h2>
-        <p>把一件事拆成可检查的步骤；每次修改都由你决定。</p>
+        <p>把一件事拆成可检查的步骤，按本次选择的方式批准具体修改。</p>
       </div>
       <button type="button" class="goal-runs-refresh" :disabled="loading || busy" @click="refresh">刷新</button>
     </header>
@@ -62,7 +62,7 @@
       <button class="goal-runs-button goal-runs-button--primary" type="submit" :disabled="busy || loading || !goalText.trim() || !budgetAcknowledged">
         {{ busy ? '正在准备计划…' : pendingStart ? '恢复上次提交' : '生成并审阅计划' }}
       </button>
-      <p v-if="capabilities.max_steps" class="goal-runs-help">最多 {{ capabilities.max_steps }} 步。可恢复的修改默认逐步确认；影响采用或正式内容的决定始终逐步确认。</p>
+      <p v-if="capabilities.max_steps" class="goal-runs-help">最多 {{ capabilities.max_steps }} 步。默认逐步确认；自动模式仅在本任务明确授权和轻量模型实测通过后可用。</p>
       <details v-if="capabilities.unavailable_operations?.length" class="goal-runs-help">
         <summary>{{ capabilities.unavailable_operations.length }} 项操作暂不能纳入目标计划</summary>
         <ul>
@@ -80,6 +80,8 @@
         </div>
         <span class="goal-runs-progress">{{ goal.progress?.completed || 0 }} / {{ goal.progress?.total || 0 }}</span>
       </header>
+
+      <TaskApprovalReceipt v-if="goal.automatic_approval || approvalSubmittedRunId === goal.run_id" :project-id="projectId" :run-id="goal.run_id" :revision="goal.revision" :live="busy || goal.status === 'running'" />
 
       <p v-if="goal.stop_reason" class="goal-runs-stop" role="status">
         <strong>{{ goal.stop_reason_label || '当前停点' }}</strong>
@@ -187,7 +189,8 @@
             <input v-model.number="planBudget.time_limit_minutes" type="number" min="1" :max="approvalTimeLimitMinutes" :disabled="busy" />
           </label>
         </fieldset>
-        <label class="goal-runs-consent goal-runs-consent--r2">
+        <TaskApprovalSettings v-model="approvalRequest" :availability="capabilities.automatic_approval" :scope-label="planDraft.steps.length ? `本计划的 ${planDraft.steps.length} 个步骤及明确目标` : ''" :budget-label="`本目标合计最多 ${planBudget.requests} 次模型请求，含计划、生成与判断`" :disabled="busy" />
+        <label v-if="!approvalRequest" class="goal-runs-consent goal-runs-consent--r2">
           <input v-model="autoR2" type="checkbox" :disabled="busy" />
           <span>允许本目标自动执行有明确恢复入口的修改；其他修改仍会停下来逐步确认。</span>
         </label>
@@ -262,6 +265,8 @@ import { computed, onBeforeUnmount, ref, watch } from "vue"
 import { getApi } from "../bridge/index.js"
 import { locateAssistantSource } from "../shared/assistantNavigation.js"
 import GoalPlanStep from "./GoalPlanStep.vue"
+import TaskApprovalSettings from "./TaskApprovalSettings.vue"
+import TaskApprovalReceipt from "./TaskApprovalReceipt.vue"
 
 const props = defineProps({
   projectId: { type: String, default: null },
@@ -280,6 +285,8 @@ const planBudget = ref(defaultBudget())
 const resumeBudget = ref(defaultBudget())
 const budgetAcknowledged = ref(false)
 const autoR2 = ref(false)
+const approvalRequest = ref(null)
+const approvalSubmittedRunId = ref(null)
 const replanReason = ref("")
 const loading = ref(false)
 const busy = ref(false)
@@ -406,6 +413,8 @@ function saveDraft(projectId = props.projectId) {
     resumeBudget: { ...resumeBudget.value },
     budgetAcknowledged: budgetAcknowledged.value,
     autoR2: autoR2.value,
+    approvalRequest: clone(approvalRequest.value),
+    approvalSubmittedRunId: approvalSubmittedRunId.value,
     replanReason: replanReason.value,
     planDraft: clone(planDraft.value),
     pendingStart: clone(pendingStart.value),
@@ -421,6 +430,8 @@ function restoreDraft(projectId) {
   resumeBudget.value = { ...defaultBudget(), ...(draft?.resumeBudget || {}) }
   budgetAcknowledged.value = draft?.budgetAcknowledged === true
   autoR2.value = draft?.autoR2 === true
+  approvalRequest.value = clone(draft?.approvalRequest)
+  approvalSubmittedRunId.value = draft?.approvalSubmittedRunId || null
   replanReason.value = draft?.replanReason || ""
   planDraft.value = clone(draft?.planDraft)
   pendingStart.value = clone(draft?.pendingStart)
@@ -467,6 +478,7 @@ function isActive(value) {
 }
 
 function setGoal(value, { preservePlan = false } = {}) {
+  if (value?.run_id !== goal.value?.run_id || !preservePlan) approvalRequest.value = null
   goal.value = value
   const sameRun = value?.run_id && value.run_id === draftGoalRunId.value
   if (!preservePlan || !sameRun || !planDraft.value) {
@@ -717,11 +729,16 @@ async function runAction(method, payload, { preservePlan = false } = {}) {
 
 function approvePlan() {
   if (!goal.value || !planDraft.value) return
+  if (approvalRequest.value) {
+    approvalSubmittedRunId.value = goal.value.run_id
+    saveDraft()
+  }
   return runAction(api().approveGoal, {
     expected_revision: goal.value.revision,
     plan: operationPlan(),
     budget: budgetPayload(planBudget.value),
-    auto_r2: autoR2.value === true,
+    auto_r2: !approvalRequest.value && autoR2.value === true,
+    ...(approvalRequest.value ? { approval: clone(approvalRequest.value) } : {}),
   })
 }
 
@@ -790,7 +807,7 @@ watch(() => props.projectId, (value, previous) => {
 }, { immediate: true })
 watch(() => props.active, value => { if (value && capabilities.value.enabled) void refresh() })
 watch(
-  [goalText, startBudget, planBudget, resumeBudget, budgetAcknowledged, autoR2, replanReason],
+  [goalText, startBudget, planBudget, resumeBudget, budgetAcknowledged, autoR2, approvalRequest, replanReason],
   () => saveDraft(),
   { deep: true },
 )

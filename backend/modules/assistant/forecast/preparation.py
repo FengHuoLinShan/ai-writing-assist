@@ -35,6 +35,16 @@ def actions_for(proposal, ctx, capability):
         ]
     result = []
     for direction in proposal.directions:
+        if not ctx.excluded_targets:
+            result.append(
+                {
+                    "action_id": f"world.save_reference.{direction.direction_id}",
+                    "label": f"存为参考：{direction.title}",
+                    "kind": "prepare_domain",
+                    "requires_confirmation": True,
+                    "available": True,
+                }
+            )
         if not ctx.excluded_targets and not ctx.focus.context_confirmation_id:
             domain = (
                 "evidence"
@@ -304,6 +314,27 @@ async def prepare(db, novel_id, candidate_id, data):
             + direction["proposal"]
             + "\n保留要求："
             + ctx.focus.explicit_instruction,
+        }
+    elif data.action_id.startswith("world.save_reference.") and direction:
+        capability = "world.create_page_draft"
+        lines = [
+            "构思参考 · 未采用，尚未发生",
+            "",
+            proposal["title"],
+            "前提：" + direction["condition"],
+            "思路：" + direction["proposal"],
+        ]
+        lines += ["可能后果：" + item for item in direction.get("possible_effects", [])]
+        lines += ["仍需成立的假设：" + item for item in direction.get("assumptions", [])]
+        lines += ["待核对：" + item for item in proposal.get("unknowns", [])]
+        lines += [
+            "依据：" + item["label"]
+            for item in candidate.payload_json.get("evidence", [])
+        ]
+        arguments = {
+            "title": ("构思参考：" + direction["title"])[:200],
+            "page_type": "background",
+            "free_text": "\n".join(lines),
         }
     elif data.action_id.startswith("story.prepare_information_plan.") and direction:
         capability = "story.create_information_plan"

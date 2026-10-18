@@ -171,6 +171,7 @@ class CodexProvider:
         api_key="",
         connection_fingerprint=None,
         execution_capability=None,
+        approval_judgment=False,
     ):
         current = codex_connection_fingerprint()
         if default_model != CODEX_MODEL or api_key or base_url != CODEX_BASE_URL:
@@ -183,6 +184,8 @@ class CodexProvider:
         self._api_key = ""
         self._connection_fingerprint = current
         self._execution_capability = execution_capability
+        self._approval_judgment = approval_judgment
+        self._effort = "low" if approval_judgment else CODEX_EFFORT
 
     def validate_connection(self) -> None:
         if codex_connection_fingerprint() != self._connection_fingerprint:
@@ -192,12 +195,21 @@ class CodexProvider:
         self.validate_connection()
         if (
             request.model != CODEX_MODEL
-            or request.extra.get("reasoning_effort", CODEX_EFFORT) != CODEX_EFFORT
+            or request.extra.get("reasoning_effort", self._effort) != self._effort
             or request.extra.get("codex_text_adapter_version", CODEX_TEXT_ADAPTER_VERSION)
             != CODEX_TEXT_ADAPTER_VERSION
         ):
             raise LLMError(
-                "Codex 文本步骤固定使用 Luna/max",
+                "Codex 文本步骤的模型、用途或思考档位不符",
+                provider=self.name,
+                error_kind="codex_configuration",
+            )
+
+        if self._approval_judgment and (
+            request.tools or (request.response_format or {}).get("type") != "json_schema"
+        ):
+            raise LLMError(
+                "批准判断仅接受无工具的结构化请求",
                 provider=self.name,
                 error_kind="codex_configuration",
             )
@@ -239,6 +251,7 @@ class CodexProvider:
                         timeout_seconds=self.request_timeout,
                         max_tool_attempts=0,
                         text_only=True,
+                        approval_judgment=self._approval_judgment,
                         output_schema=output_schema,
                         context_window_tokens=capability.context_limit_tokens
                         if capability
@@ -318,7 +331,7 @@ class CodexProvider:
                 "transport": "codex_cli",
                 "adapter_version": CODEX_TEXT_ADAPTER_VERSION,
                 "cli_diagnostic": getattr(result, "diagnostic", None),
-                "reasoning_effort": CODEX_EFFORT,
+                "reasoning_effort": self._effort,
                 "schema_mode": "native" if constrained is not None else "envelope",
                 "native_tool_attempts": result.tool_attempts,
                 "output_token_limit_enforced": False,

@@ -5,6 +5,7 @@ export function openAssistantDestination(destination, context = {}) {
   const routes = {
     project_import: ["project", null, { open: "import" }], writing: ["writing"],
     world: ["world", "bible"], world_review: ["world", "review"], story: ["outline", "story-outline"],
+    world_objects: ["world", "objects"], world_relations: ["world", "relations"],
     map: ["map"], references: ["rag", "search"], model_settings: ["settings"],
     project_settings: ["project-settings"], world_generation: ["generate", null, { tab: "world" }],
     writing_generation: ["generate", null, { tab: "pov_prose" }],

@@ -165,13 +165,14 @@ describe("搜索", () => {
     await wrapper.get("#world-relation-search").setValue("  雨夜结盟  ")
     await wrapper.get('[role="search"]').trigger("submit")
 
-    expect(worldSession.relationListFilters).toEqual({ q: "雨夜结盟", skip: 0, limit: 20 })
+    expect(worldSession.relationListFilters).toEqual({ q: "雨夜结盟", status: "canonical", skip: 0, limit: 20 })
     expect(router.navigate.mock.calls[0][3].get("q")).toBe("雨夜结盟")
     expect(router.navigate.mock.calls[0][3].has("page")).toBe(false)
 
     await wrapper.get('[role="search"] button[type="button"]').trigger("click")
     expect(worldSession.relationListFilters.q).toBe("")
-    expect(router.navigate.mock.calls[1][3].toString()).toBe("")
+    expect(router.navigate.mock.calls[1][3].has("q")).toBe(false)
+    expect(router.navigate.mock.calls[1][3].get("status")).toBe("canonical")
   })
 })
 
@@ -253,4 +254,16 @@ describe("批量操作", () => {
     await wrapper.setProps({ relations: [RELATIONS[1]], relationsTotal: 1 })
     expect(wrapper.find(".bulk-toolbar__status strong").text()).toBe("0")
   })
+})
+
+
+it("keeps the removed-relation view in the URL and offers history instead of bulk removal", async () => {
+  const wrapper = mountTab({ relations: [{ ...RELATIONS[0], status: "deprecated" }] })
+  const filter = wrapper.findAll("select").find(select => select.find('option[value="deprecated"]').exists())
+  await filter.setValue("deprecated")
+  expect(worldSession.relationListFilters.status).toBe("deprecated")
+  expect(router.navigate.mock.calls.at(-1)[3].get("status")).toBe("deprecated")
+  expect(wrapper.find('[data-action="delete-relation"]').exists()).toBe(false)
+  expect(wrapper.find(".relation-maintenance").exists()).toBe(true)
+  expect(wrapper.text()).not.toContain("批量删除")
 })

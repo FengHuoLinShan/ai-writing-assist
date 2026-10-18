@@ -1,5 +1,5 @@
 <?xml version='1.0' encoding='utf-8'?>
-<mxfile host="drawio" modified="2026-10-15T00:00:00.000Z" agent="Codex drawio-skill" version="26.0.0" type="device">
+<mxfile host="drawio" modified="2026-10-18T13:10:00.000Z" agent="Codex drawio-skill" version="26.0.0" type="device">
   <diagram id="module-architecture" name="模块架构">
     <mxGraphModel dx="1600" dy="1120" grid="1" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="1600" pageHeight="1600" math="0" shadow="0" background="#f8fafc">
       <root>
@@ -18,7 +18,7 @@
         <mxCell id="5" value="account 账号&#10;身份 · 会话 · owner 边界&#10;账户连接 · 全局偏好" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ede9fe;strokeColor=#7c3aed;fontColor=#3b0764;fontSize=13;fontStyle=1;spacing=8;" vertex="1" parent="4">
           <mxGeometry x="20" y="55" width="280" height="75" as="geometry" />
         </mxCell>
-        <mxCell id="assistant" value="assistant 项目助手&#10;讨论 · 引导流程 · 成组确认 · 提醒&#10;Evidence 只读 · 领域成果仍归原模块" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ede9fe;strokeColor=#7c3aed;fontColor=#3b0764;fontSize=13;fontStyle=1;spacing=8;" vertex="1" parent="4">
+        <mxCell id="assistant" value="assistant 项目助手&#10;讨论 · 引导流程 · 任务批准 · 提醒&#10;Evidence 精确回读 · 领域事务与回执" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ede9fe;strokeColor=#7c3aed;fontColor=#3b0764;fontSize=13;fontStyle=1;spacing=8;" vertex="1" parent="4">
           <mxGeometry x="320" y="55" width="280" height="75" as="geometry" />
         </mxCell>
         <mxCell id="35" value="interaction RP 互动旅程&#10;有限 Agent + 私人分支 / 回顾 / 看海&#10;只读固定作品版本；旅程不写回原作" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ede9fe;strokeColor=#7c3aed;fontColor=#3b0764;fontSize=13;fontStyle=1;spacing=8;" vertex="1" parent="4">

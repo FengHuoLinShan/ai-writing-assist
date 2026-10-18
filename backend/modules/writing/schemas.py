@@ -563,6 +563,21 @@ class WritingTargetedRevisionOutput(BaseModel):
         default_factory=list,
         max_length=50,
     )
+    groups: list[list[str]] | None = Field(default=None, max_length=50)
+
+
+class WritingCandidateSelectionRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    novel_id: str
+    operation_id: uuid.UUID
+    expected_preview_hash: str = Field(min_length=64, max_length=64)
+    group_ids: list[str] = Field(min_length=1, max_length=50)
+
+    @model_validator(mode="after")
+    def unique_groups(self):
+        if len(set(self.group_ids)) != len(self.group_ids):
+            raise ValueError("Duplicate revision groups")
+        return self
 
 
 class WritingTargetedRevisionRequest(BaseModel):
