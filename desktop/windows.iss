@@ -1,8 +1,10 @@
 ; Per-user installation. User data is outside {app}.
+#include "build\assets\version.iss"
 [Setup]
 AppId={{9D4214C0-CFD8-4D82-93A3-449B6DE6A26A}
 AppName=NovelCraft
-AppVersion=0.1.0
+AppVersion={#NovelCraftVersion}
+VersionInfoVersion={#NovelCraftNumericVersion}
 DefaultDirName={localappdata}\Programs\NovelCraft
 DefaultGroupName=NovelCraft
 PrivilegesRequired=lowest

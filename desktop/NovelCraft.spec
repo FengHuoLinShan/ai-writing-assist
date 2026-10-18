@@ -1,5 +1,7 @@
 # Build with the locked backend desktop extra after build_assets.py and npm build.
 import importlib.metadata
+import json
+import os
 import sys
 from pathlib import Path
 
@@ -10,6 +12,9 @@ from PyInstaller.utils.hooks import (
 root = Path(SPECPATH).parent
 backend = root / 'backend'
 assets = root / 'desktop/build/assets'
+build = json.loads((assets / 'build.json').read_text())
+numeric_version = build['version'].split('-')[0]
+signing_identity = os.environ.get('NOVELCRAFT_CODESIGN_IDENTITY')
 datas = [
     (str(backend / 'prompts'), 'prompts'),
     (str(backend / 'alembic'), 'alembic'),
@@ -18,6 +23,7 @@ datas = [
     (str(assets / 'model'), 'model'),
     (str(assets / 'licenses'), 'licenses'),
     (str(assets / 'manifest.json'), '.'),
+    (str(assets / 'build.json'), '.'),
 ]
 binaries = []
 for file in (assets / 'postgres').rglob('*'):
@@ -47,13 +53,34 @@ a = Analysis([str(root / 'desktop/entry.py')], pathex=[str(root), str(backend)],
                        'PyQt5', 'PyQt6', 'PySide2', 'PySide6'])
 pyz = PYZ(a.pure)
 options = [('X utf8', None, 'OPTION')]
+native_version = None
+if sys.platform == 'win32':
+    from PyInstaller.utils.win32.versioninfo import (
+        VSVersionInfo, FixedFileInfo, StringFileInfo, StringTable, StringStruct,
+        VarFileInfo, VarStruct,
+    )
+    numbers = tuple(int(n) for n in numeric_version.split('.')) + (0,)
+    native_version = VSVersionInfo(
+        ffi=FixedFileInfo(filevers=numbers, prodvers=numbers, fileType=1),
+        kids=[StringFileInfo([StringTable('040904B0', [
+            StringStruct('ProductName', 'NovelCraft'),
+            StringStruct('FileDescription', 'NovelCraft'),
+            StringStruct('FileVersion', build['version']),
+            StringStruct('ProductVersion', build['version']),
+        ])]), VarFileInfo([VarStruct('Translation', [1033, 1200])])],
+    )
 exe = EXE(pyz, a.scripts, options, exclude_binaries=True, name='NovelCraft',
+          version=native_version, codesign_identity=signing_identity,
           debug=False, strip=False, upx=False, console=False)
 runtime = EXE(pyz, a.scripts, options, exclude_binaries=True, name='NovelCraftRuntime',
+              version=native_version, codesign_identity=signing_identity,
               debug=False, strip=False, upx=False, console=True)
 app = COLLECT(exe, runtime, a.binaries, a.datas,
               strip=False, upx=False, name='NovelCraft')
 if sys.platform == 'darwin':
     app = BUNDLE(app, name='NovelCraft.app', bundle_identifier='io.novelcraft.desktop',
                  info_plist={'NSHighResolutionCapable': True,
+                             'CFBundleShortVersionString': numeric_version,
+                             'CFBundleVersion': numeric_version,
+                             'NovelCraftVersion': build['version'],
                              'LSMinimumSystemVersion': '14.0'})

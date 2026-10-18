@@ -1,5 +1,6 @@
 """Build a native desktop bundle on the target OS/architecture."""
 
+import json
 import os
 import subprocess
 import sys
@@ -13,6 +14,16 @@ def main():
         raise SystemExit("Build on macOS or Windows")
     os.environ["PYTHONUTF8"] = "1"
     subprocess.run([sys.executable, str(ROOT / "desktop/build_assets.py")], check=True)
+    sys.path.insert(0, str(ROOT))
+    from desktop.release import build_metadata
+
+    metadata = build_metadata()
+    assets = ROOT / "desktop/build/assets"
+    (assets / "build.json").write_text(json.dumps(metadata, indent=2) + "\n")
+    (assets / "version.iss").write_text(
+        '#define NovelCraftVersion "' + metadata["version"] + '"\n'
+        '#define NovelCraftNumericVersion "' + metadata["version"].split("-")[0] + '"\n'
+    )
     npm = "npm.cmd" if os.name == "nt" else "npm"
     subprocess.run([npm, "ci", "--prefix", str(ROOT / "frontend-console")], check=True)
     subprocess.run(

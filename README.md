@@ -9,7 +9,7 @@
 [![PostgreSQL E2E](https://github.com/FengHuoLinShan/ai-writing-assist/actions/workflows/backend-postgresql-e2e.yml/badge.svg?branch=main)](https://github.com/FengHuoLinShan/ai-writing-assist/actions/workflows/backend-postgresql-e2e.yml)
 [![CodeQL](https://github.com/FengHuoLinShan/ai-writing-assist/actions/workflows/codeql.yml/badge.svg?branch=main)](https://github.com/FengHuoLinShan/ai-writing-assist/actions/workflows/codeql.yml)
 
-[体验入口](https://novel.zhh.se) · [项目定位](#项目定位) · [能力与状态](#能力与状态) · [系统架构](#系统架构) · [核心工程设计](#核心工程设计) · [本地运行](#本地运行) · [开发文档](#开发文档)
+[桌面版下载与版本](https://github.com/FengHuoLinShan/ai-writing-assist/releases) · [项目定位](#项目定位) · [能力与状态](#能力与状态) · [系统架构](#系统架构) · [核心工程设计](#核心工程设计) · [本地运行](#本地运行) · [开发文档](#开发文档)
 
 > 文档内容最近按 2026-09-28 的 `main` 核对。项目处于 **Alpha / 工程验证阶段**；代码存在、功能启用、真实模型验收和线上发布是不同状态。体验入口与线上能力以实际部署为准。
 
@@ -207,12 +207,22 @@ RP 只使用选中分支和获准的固定来源版本，不反写原作。地�
 
 ## 本地运行
 
+### 安装桌面版（主要交付方式）
+
+从 [Releases](https://github.com/FengHuoLinShan/ai-writing-assist/releases) 选择版本与系统：
+macOS 14+ 分 Apple Silicon / Intel，Windows 10 1903+/11 选择 x64 安装器。
+无需 Docker、Python、Node 或另配服务器；业务 AI 连接在应用内配置并验证。
+安装与数据保留见 [桌面说明](desktop/README.md)，发布与版本维护见
+[桌面发布流程](desktop/RELEASE.md)。当前仍处于 Alpha；以 Release 中的实际产物与验收记录为准。
+
+### 从源码开发
+
 AI 小说程序在开发阶段的大量业务 LLM 调用使用 **Codex GPT-6 Luna / max**；
 代码开发和代码审查继续使用 **Sol 或其他高级模型**。业务调用配置不符时停止，
 付费供应商不自动回退。配置核验与运行边界见
 [开发阶段模型约定](development-guide.md#开发阶段模型约定)，Agent 共享规则见 [AGENTS.md](AGENTS.md#运行时-llm)。
 
-### 前置条件
+#### 前置条件
 
 准备 Python 3.12+、uv、与前端锁定依赖兼容的 Node.js/npm、Docker Compose 和 Make。以下命令适用于 macOS/Linux shell；Windows 可在 WSL 等相应开发环境中执行。
 
@@ -235,7 +245,7 @@ make dev
 
 `make migrate` 显式升级到 Alembic head。开发服务会检查 schema 状态，不应依赖启动过程悄悄迁移数据库。后端默认开发端口为 `8000`，前端脚本默认为 `8080`，具体以终端输出和环境配置为准。
 
-### 配置注意事项
+#### 配置注意事项
 
 业务模型连接在账户设置中管理。需要持久保存模型密钥时，配置 `LLM_SETTINGS_ENCRYPTION_KEY`，可用下列命令生成并安全保存：
 

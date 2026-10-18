@@ -2,12 +2,41 @@ name: Desktop installers
 
 on:
   workflow_dispatch:
+  workflow_call:
+    inputs:
+      source_sha:
+        required: true
+        type: string
+      signed:
+        default: false
+        type: boolean
+    secrets:
+      MACOS_CERTIFICATE_P12:
+        required: false
+      MACOS_CERTIFICATE_PASSWORD:
+        required: false
+      MACOS_SIGNING_IDENTITY:
+        required: false
+      APPLE_ID:
+        required: false
+      APPLE_TEAM_ID:
+        required: false
+      APPLE_APP_PASSWORD:
+        required: false
+      WINDOWS_CERTIFICATE_P12:
+        required: false
+      WINDOWS_CERTIFICATE_PASSWORD:
+        required: false
+  push:
+    branches: [main]
+    paths: ['desktop/**', 'backend/**', 'frontend-console/**', '.gitattributes', '.github/workflows/desktop*.yml']
   pull_request:
     paths:
       - '.gitattributes'
       - 'desktop/**'
-      - '.github/workflows/desktop.yml'
-      - 'backend/infrastructure/os_security.py'
+      - '.github/workflows/desktop*.yml'
+      - 'backend/**'
+      - 'frontend-console/**'
 
 permissions:
   contents: read
@@ -17,24 +46,40 @@ env:
 
 jobs:
   build:
+    if: ${{ !inputs.signed || github.ref == 'refs/heads/main' }}
     concurrency:
-      group: desktop-${{ github.ref }}-${{ matrix.os }}
-      cancel-in-progress: true
+      group: desktop-${{ github.workflow }}-${{ inputs.source_sha || github.ref }}-${{ matrix.os }}
+      cancel-in-progress: ${{ github.event_name == 'pull_request' }}
     strategy:
       fail-fast: false
       matrix:
         include:
           - os: macos-15
             python: '3.14.8'
+            platform: macos-arm64
           - os: macos-15-intel
             python: '3.13.15'
+            platform: macos-x64
           - os: windows-2025
             python: '3.14.8'
+            platform: windows-x64
     runs-on: ${{ matrix.os }}
     timeout-minutes: 60
     steps:
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ inputs.source_sha || github.sha }}
+          fetch-depth: 0
+      - name: Validate signed source
+        if: inputs.signed
+        shell: bash
+        env:
+          SOURCE_SHA: ${{ inputs.source_sha }}
+        run: |
+          test "$GITHUB_REF" = refs/heads/main
+          git merge-base --is-ancestor "$SOURCE_SHA" origin/main
+          test "$(git rev-parse HEAD)" = "$SOURCE_SHA"
       - name: Set up Python and uv
         uses: astral-sh/setup-uv@1c37ad07a6a961277cf70c0d37d6f313000f5884 # v10.3.0
         with:
@@ -50,10 +95,30 @@ jobs:
         run: |
           uv pip install --python backend/.venv/Scripts/python.exe meson==1.12.1 ninja==1.13.2
           choco install winflexbison3 --yes --no-progress
+      - name: Lint desktop code
+        run: uv run --project backend --no-sync ruff check --config backend/pyproject.toml desktop
+      - name: Parse Windows signing script
+        if: runner.os == 'Windows'
+        run: |
+          $errors = $null
+          [System.Management.Automation.Language.Parser]::ParseFile((Resolve-Path desktop/sign_windows.ps1), [ref]$null, [ref]$errors) | Out-Null
+          if ($errors) { throw ($errors | Out-String) }
       - name: Desktop access boundary tests
         run: uv run --project backend --no-sync python -m pytest desktop/tests backend/infrastructure/tasks/tests/test_liveness.py::test_control_loop_marker_writes_an_atomic_private_monotonic_value -q
+      - name: Prepare Apple signing
+        if: runner.os == 'macOS' && inputs.signed
+        env:
+          MACOS_CERTIFICATE_P12: ${{ secrets.MACOS_CERTIFICATE_P12 }}
+          MACOS_CERTIFICATE_PASSWORD: ${{ secrets.MACOS_CERTIFICATE_PASSWORD }}
+          NOVELCRAFT_CODESIGN_IDENTITY: ${{ secrets.MACOS_SIGNING_IDENTITY }}
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+          APPLE_APP_PASSWORD: ${{ secrets.APPLE_APP_PASSWORD }}
+        run: backend/.venv/bin/python desktop/sign_macos.py prepare
       - name: Build macOS app
         if: runner.os == 'macOS'
+        env:
+          NOVELCRAFT_CODESIGN_IDENTITY: ${{ inputs.signed && secrets.MACOS_SIGNING_IDENTITY || '' }}
         run: backend/.venv/bin/python desktop/build.py
       - name: Build Windows app
         if: runner.os == 'Windows'
@@ -66,6 +131,12 @@ jobs:
           set CC=cl
           set CXX=cl
           backend\.venv\Scripts\python.exe desktop\build.py
+      - name: Sign Windows executables
+        if: runner.os == 'Windows' && inputs.signed
+        env:
+          WINDOWS_CERTIFICATE_P12: ${{ secrets.WINDOWS_CERTIFICATE_P12 }}
+          WINDOWS_CERTIFICATE_PASSWORD: ${{ secrets.WINDOWS_CERTIFICATE_PASSWORD }}
+        run: ./desktop/sign_windows.ps1 app
       - name: Native runtime smoke
         run: uv run --project backend --no-sync python desktop/smoke.py --frozen
       - name: Create macOS disk image
@@ -79,6 +150,12 @@ jobs:
         if: runner.os == 'Windows'
         shell: cmd
         run: '"C:\Program Files (x86)\Inno Setup 6\ISCC.exe" desktop/windows.iss'
+      - name: Sign Windows installer
+        if: runner.os == 'Windows' && inputs.signed
+        env:
+          WINDOWS_CERTIFICATE_P12: ${{ secrets.WINDOWS_CERTIFICATE_P12 }}
+          WINDOWS_CERTIFICATE_PASSWORD: ${{ secrets.WINDOWS_CERTIFICATE_PASSWORD }}
+        run: ./desktop/sign_windows.ps1 installer
       - name: Install and run Windows package
         if: runner.os == 'Windows'
         run: |
@@ -87,13 +164,38 @@ jobs:
           if ($setup.ExitCode -ne 0) { throw "Installer failed: $($setup.ExitCode)" }
           uv run --project backend --no-sync python desktop/smoke.py --installed "$install"
           $smokeExit = $LASTEXITCODE
-          Start-Process (Join-Path $install 'unins000.exe') -ArgumentList @('/VERYSILENT', '/NORESTART') -Wait
+          $uninstall = Start-Process (Join-Path $install 'unins000.exe') -ArgumentList @('/VERYSILENT', '/NORESTART') -Wait -PassThru
+          if ($uninstall.ExitCode -ne 0 -or (Test-Path (Join-Path $install 'NovelCraft.exe'))) { throw 'Uninstall failed' }
           if ($smokeExit -ne 0) { exit $smokeExit }
+      - name: Notarize macOS package
+        if: runner.os == 'macOS' && inputs.signed
+        env:
+          NOVELCRAFT_CODESIGN_IDENTITY: ${{ secrets.MACOS_SIGNING_IDENTITY }}
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+          APPLE_APP_PASSWORD: ${{ secrets.APPLE_APP_PASSWORD }}
+        run: backend/.venv/bin/python desktop/sign_macos.py notarize desktop/dist/NovelCraft-${{ runner.arch }}.dmg
+      - name: Version artifacts
+        shell: bash
+        env:
+          PLATFORM: ${{ matrix.platform }}
+          SIGNED: ${{ inputs.signed }}
+        run: |
+          if [ "$RUNNER_OS" = macOS ]; then
+            source="desktop/dist/NovelCraft-$RUNNER_ARCH.dmg"
+          else
+            source=desktop/dist/NovelCraft-Windows-x64-Setup.exe
+          fi
+          args=()
+          if [ "$SIGNED" = true ]; then args+=(--signed); fi
+          uv run --project backend --no-sync python desktop/release.py package "$source" "$PLATFORM" "${args[@]}"
       - name: Upload installers
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: NovelCraft-${{ matrix.os }}
-          path: |
-            desktop/dist/*.dmg
-            desktop/dist/*Setup.exe
+          path: desktop/dist/release/*
+          retention-days: 14
           if-no-files-found: error
+      - name: Clean signing keychain
+        if: always() && runner.os == 'macOS' && inputs.signed
+        run: backend/.venv/bin/python desktop/sign_macos.py cleanup

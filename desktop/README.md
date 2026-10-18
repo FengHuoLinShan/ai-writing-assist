@@ -6,6 +6,8 @@ Python 原生 WebView 承载正式前端构建；图片写入本机私有文件�
 或自行配置服务器。业务 AI 仍需用户在应用内配置并验证模型连接；
 原生订阅 CLI 不是本安装包捆绑组件。
 
+桌面安装包是主要交付物；[版本与发布流程](RELEASE.md) 定义发布操作与验收门禁。
+
 共同源码分别生成 macOS Apple Silicon、macOS Intel 和 Windows 10 1903+/11 x64 产物。
 构建流程存在不等于所有平台已验收，实际证据与未完成项见
 [任务记录](../.agent/tasks/2026/T-20261018-desktop-local-app/TASK.md)。
@@ -62,7 +64,9 @@ Windows 通过 windows.iss 生成每用户安装器，内含固定摘要的 Micr
 未配置代码签名/公证时只是开发测试包，不能宣称普通用户的无警告安装已完成。
 
 .github/workflows/desktop.yml 分别构建三平台并运行冻结程序 smoke，再上传产物；
-不发布 Release、不部署、不使用真实稿件或调用业务 LLM。
+普通构建不发布 Release、不部署、不使用真实稿件或调用业务 LLM。
+desktop-release.yml 仅从已通过 CI 的固定 main SHA 调用同一构建，汇总校验后创建 Release 草稿；
+公开发布是独立的人工操作。稳定版强制签名（Mac 含公证），预览版明确标注。
 smoke 使用专用临时目录，验证本地模型推理、会话保护、创建作品、重复启动、退出和重启。
 Windows CI 还实际静默安装、运行安装目录内的程序并卸载。
 失败保留隔离证据，成功只删除该次专用测试目录。
