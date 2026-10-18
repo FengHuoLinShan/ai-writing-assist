@@ -130,7 +130,7 @@ Evidence indexing/compilation 回归集中在 `backend/modules/evidence/`；
 | `make audit-frontend-deps` | Audit `frontend-console/package-lock.json`; fail only on high/critical dependency advisories | npm registry/advisory data |
 | `npm --prefix frontend-console run lint` | Production JS, Vue SFC, Vitest, Playwright, and build-config correctness / Vue essential rules | Locked frontend dependencies; no formatting gate |
 | `E2E_DATABASE_URL='<dedicated-postgresql-url>' make test-e2e` | PostgreSQL/pgvector behavior | Explicit dedicated test database at Alembic head; fails fast if missing, non-dedicated, unavailable, or stale |
-| `E2E_DATABASE_URL='<dedicated-postgresql-url>' make test-postgresql-critical` | Serial merge-gate subset: fresh migration with an out-of-process `alembic check` ORM parity gate, Evolution finite/scope atomic budgets, scope-safe migration downgrade and synthetic Luna range completion, event soft-delete backfill/safe downgrade and create/restore/delete-update races, isolation, uniqueness, CAS, advisory-lock races, and task run-envelope lease/terminal merge | Explicit dedicated PostgreSQL 17 + pgvector database at Alembic head; workers=1, retries=0 |
+| `E2E_DATABASE_URL='<dedicated-postgresql-url>' make test-postgresql-critical` | Serial local diagnostic subset: fresh migration with an out-of-process `alembic check` ORM parity gate, Evolution finite/scope atomic budgets, scope-safe migration downgrade and synthetic Luna range completion, event soft-delete backfill/safe downgrade and create/restore/delete-update races, isolation, uniqueness, CAS, advisory-lock races, and task run-envelope lease/terminal merge | Explicit dedicated PostgreSQL 17 + pgvector database at Alembic head; workers=1, retries=0 |
 | `RUN_E2E_TESTS=1 E2E_DATABASE_URL='<dedicated-postgresql-url>' uv --directory backend run pytest tests/e2e/test_rp_source_versions.py -m e2e` | RP source revision 并发唯一性、历史 chunk 共存、来源删除门禁与 consumer snapshot 生命周期 | Dedicated PostgreSQL at Alembic head |
 | `RUN_E2E_TESTS=1 E2E_DATABASE_URL='<dedicated-postgresql-url>' uv --directory backend run --locked --extra ci pytest tests/e2e/test_evolution_issue209.py -m e2e --timeout=120` | #209 账本缓存跨 Session 查询计数、项目隔离、来源失效/恢复/rollback、继承与并发写入；1/10/100 Scene 原生查询与 EXPLAIN 报告随 critical diagnostics 上传 | Dedicated native PostgreSQL at Alembic head; WASM sequential checks do not replace concurrency acceptance |
 | `RUN_E2E_TESTS=1 E2E_DATABASE_URL='<dedicated-postgresql-url>' uv run pytest tests/e2e/test_project_task_gate_concurrency.py -m "not real_llm and not external_data"` | Project delete vs atlas upload/cleanup race | Dedicated PostgreSQL at Alembic head |
@@ -286,12 +286,12 @@ secret hygiene gate，再安装 uv `0.13.1` 与 Python `3.14.8`，
 只有在 PR 模板逐项核对并提供无影响原因后才能通过。该 workflow 显式监听
 `opened / synchronize / reopened / edited`，因此维护者补齐 Dependabot PR 的文档
 影响说明后会用当前 PR 正文重新验证，无需修改 bot 生成的提交。
-PostgreSQL job 使用锁定版本的 PostgreSQL 17 + pgvector 一次性 service container，按串行、
-零重试规则执行 fresh migration、高风险事务契约，以及上传 201、工作稿保存 200/201、
+`PostgreSQL critical` 保留稳定检查名，PR 与 main 使用锁定版本的 PostgreSQL 17 + pgvector 一次性 service container，按串行、
+零重试规则执行确定性全量 E2E，包含 fresh migration、高风险事务契约，以及上传 201、工作稿保存 200/201、
 地图 observation 201 和世界书投影任务响应后的跨 session 立即可见性契约，
 并分别保留测试前、测试后的脱敏
 JUnit/版本/Alembic/锁等待诊断；诊断查询自身有独立短超时，不会吞掉主体测试预算。完整
-PostgreSQL E2E 由每日定时及手动发布前 workflow 执行，显式安装与服务端同主版本的
+PostgreSQL E2E 也由每日定时及手动 workflow 执行；两者统一调用 `make test-e2e`，默认每例超时 180 秒、job 超时 60 分钟，显式安装与服务端同主版本的
 PostgreSQL 17 客户端以覆盖备份恢复演练，不包含真实 LLM 或外部数据。
 Backend audit reads OSV advisory data for the complete lockfile, including
 optional extras. It uses `--no-build`, so the standalone audit does not build

@@ -434,7 +434,9 @@ async def test_delete_rejects_later_handler_commit_and_preserves_checkpoint(
                 )
             )
 
-        worker_task = asyncio.create_task(worker.run_once())
+        worker_task = asyncio.create_task(
+            worker.run_once(task_id=str(task_id), novel_id=str(project_id))
+        )
         await asyncio.wait_for(handler_committed.wait(), timeout=2.0)
         finalize_started.clear()
 

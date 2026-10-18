@@ -205,12 +205,22 @@ async def test_worker_fences_late_outputs_and_preserves_root_usage(monkeypatch, 
                     == len(calls)
                     == 5
                 )
-            elif mode in {"complete", "unknown_usage"}:
+            elif mode == "complete":
                 assert (
                     task.status == "done" and run.status == "completed" and artifacts >= 6
                 )
                 assert len(calls) == owner_case.requests_used == 16
-                assert run.budget_json["usage_complete"] is (mode == "complete")
+                assert run.budget_json["usage_complete"] is True
+            elif mode == "unknown_usage":
+                assert task.status == "failed" and run.status == "budget_exceeded"
+                assert len(calls) == owner_case.requests_used == 1
+                assert run.budget_json["usage_unknown"] is True
+                assert run.budget_json["usage_complete"] is False
+                assert artifacts == 0
+                assert (await views.run_view(db, str(nid), run_id))["can_resume"] is False
+                with pytest.raises(ConflictError):
+                    await cases.resume_run(db, str(nid), run_id)
+                assert len(calls) == 1
             else:
                 assert task.status in {"cancelled", "failed"} and artifacts == 0
                 assert (await views.run_view(db, str(nid), run_id))["status"] in {
@@ -218,8 +228,9 @@ async def test_worker_fences_late_outputs_and_preserves_root_usage(monkeypatch, 
                     "cancelled",
                 }
                 if mode == "timeout":
-                    with pytest.raises(ConflictError, match="恢复资格"):
+                    with pytest.raises(ConflictError) as denied:
                         await cases.resume_run(db, str(nid), run_id)
+                    assert denied.value.code == "USAGE_UNKNOWN"
     finally:
         release.set()
         reset_principal(token)

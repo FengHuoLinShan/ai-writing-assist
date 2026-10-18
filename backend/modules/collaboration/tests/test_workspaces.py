@@ -140,7 +140,14 @@ async def test_trial_does_not_write_and_merge_is_exact_and_idempotent(
     )
     repeated = await merge_workspace(db, nid, view["id"], request)
     assert repeated["receipt_id"] == result["receipt_id"] and repeated["replayed"]
-    assert await db.scalar(select(func.count()).select_from(CreativeMergeReceipt)) == 1
+    assert (
+        await db.scalar(
+            select(func.count())
+            .select_from(CreativeMergeReceipt)
+            .where(CreativeMergeReceipt.novel_id == UUID(nid))
+        )
+        == 1
+    )
 
 
 async def test_failed_second_write_rolls_back_every_domain_write(
@@ -176,7 +183,14 @@ async def test_failed_second_write_rolls_back_every_domain_write(
         assert (
             await get_latest_draft_for_chapter(db, nid, draft.chapter_index)
         ).id == draft.id
-    assert await db.scalar(select(func.count()).select_from(CreativeMergeReceipt)) == 0
+    assert (
+        await db.scalar(
+            select(func.count())
+            .select_from(CreativeMergeReceipt)
+            .where(CreativeMergeReceipt.novel_id == UUID(nid))
+        )
+        == 0
+    )
 
 
 async def test_duplicate_workspace_edit_returns_its_original_revision_without_appending(
@@ -359,7 +373,14 @@ async def test_revert_creates_checked_compensation_without_erasing_merge(
     assert undo["status"] == "ready"
     assert undo["workspace"]["changes"][0]["after"]["content"] == drafts[0].content
     assert (await get_latest_draft_for_chapter(db, nid, 1)).id == adopted.id
-    assert await db.scalar(select(func.count()).select_from(CreativeMergeReceipt)) == 1
+    assert (
+        await db.scalar(
+            select(func.count())
+            .select_from(CreativeMergeReceipt)
+            .where(CreativeMergeReceipt.novel_id == UUID(nid))
+        )
+        == 1
+    )
     assert not undo["workspace"]["can_seal"]
 
 
