@@ -13,6 +13,7 @@ from pathlib import Path
 
 import httpx
 import psycopg2
+from infrastructure.os_security import private_directory
 
 ROOT = Path(__file__).resolve().parents[1]
 
@@ -78,7 +79,8 @@ def main():
         command = [str(installation / bundle_name / relative)]
     else:
         command = [sys.executable, str(ROOT / "desktop/entry.py")]
-    directory = Path(tempfile.mkdtemp(prefix="novelcraft-作品检查-"))
+    workspace = Path(tempfile.mkdtemp(prefix="novelcraft-作品检查-"))
+    directory = private_directory(workspace / "private")
     try:
         subprocess.run([*command, "--role", "embedding-check"], check=True, timeout=180)
         process, client, log = launch(command, directory)
@@ -129,7 +131,7 @@ def main():
             assert response.json()["title"] == "Desktop synthetic persistence"
         finally:
             stop(process, client, log)
-        shutil.rmtree(directory)
+        shutil.rmtree(workspace)
         if installation is not None:
             shutil.rmtree(installation)
         print(

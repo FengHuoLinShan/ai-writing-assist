@@ -185,6 +185,7 @@ class LocalRuntime:
                 stderr=log,
                 check=True,
                 timeout=timeout,
+                creationflags=subprocess.CREATE_NO_WINDOW if os.name == "nt" else 0,
             )
 
     def spawn(self, name: str, command: list[str], *, control=False):

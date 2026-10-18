@@ -3,7 +3,7 @@ id: T-20261018-desktop-local-app
 title: macOS 与 Windows 完整本地桌面应用
 status: active
 created: 2026-10-18T19:42:17+08:00
-updated: 2026-10-18T21:02:46+08:00
+updated: 2026-10-18T21:10:26+08:00
 ---
 
 # 完整本地桌面应用
@@ -87,3 +87,6 @@ updated: 2026-10-18T21:02:46+08:00
 - CI run 39129339966 的 Windows failure 发生在新复用的 backend/conftest 导入：capabilities.json 被系统默认 CP1252 解码。已将源码构建/测试 PYTHONUTF8=1，冻结两个 EXE 固定 X utf8；仅设置环境不足以影响 PyInstaller 的隔离解释器。
 - PostgreSQL 源码 check_root 明确拒绝 Windows elevated token；Windows 改用 pg_ctl 自带的 restricted token 启动，保存 postmaster.pid 对应进程句柄并校验精确 exe 身份。新 Windows-only 测试用真实拥有的 ping 子进程验证身份不符不终止、wait timeout 和精确句柄终止。不能绕过 PG 的安全检查。
 - 本机最新包再次搬移 smoke 通过，包含导出开关和 BGE MIT 许可证；当前还需重打含最新平台启动修复的最终包。
+
+- Windows run 39129851048：8 个 desktop 测试通过（含真实句柄身份/超时/终止），复用 liveness 测试失败在 pytest 临时目录 ACL 不符合私有目录契约。测试 fixture 改为专用子目录；smoke 同理在临时 workspace 下显式创建 private_directory 子目录，不放宽 OS 安全检查。这也解释了此前 supervisor 首启可能在 temp ACL 校验即退出。
+- 运行初始化命令也使用 CREATE_NO_WINDOW，避免弹出辅助控制台。
