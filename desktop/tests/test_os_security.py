@@ -47,7 +47,7 @@ def test_windows_rejects_other_accounts_even_with_trusted_owner(tmp_path):
     descriptor = security.GetFileSecurity(str(directory), flags)
     acl = descriptor.GetSecurityDescriptorDacl()
     acl.AddAccessAllowedAce(
-        security.ACL_REVISION, 0x80000000,
+        security.ACL_REVISION, 0x120089,
         security.ConvertStringSidToSid("S-1-5-32-545"),
     )
     descriptor.SetSecurityDescriptorDacl(1, acl, 0)
