@@ -148,10 +148,9 @@ def main():
 
         if os.name == "nt":
             # Preserve ACL evidence when PostgreSQL's restricted token cannot read a file.
-            subprocess.run(["icacls", str(Path(command[0]).parent)], check=False)
-            subprocess.run([
-                "icacls", str(Path(command[0]).parent / "_internal/postgres/bin/initdb.exe")
-            ], check=False)
+            install = Path(command[0]).parent
+            for path in (install, install / "_internal/postgres/bin/initdb.exe"):
+                subprocess.run(["icacls", str(path)], check=False)
 
         for name in ("smoke-supervisor", "setup", "database", "api", "worker"):
             log = directory / (name + ".log")
