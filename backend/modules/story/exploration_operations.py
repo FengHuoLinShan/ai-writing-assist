@@ -15,20 +15,34 @@ from __future__ import annotations
 
 from uuid import UUID
 
-from pydantic import BaseModel, ConfigDict, Field
 from sqlalchemy import select
 
+from infrastructure.llm.collaboration import content_hash
+from infrastructure.tasks import facade as tasks_facade
+from infrastructure.tasks.facade import get_completed_task_payload
+from infrastructure.tasks.models import AsyncTask
+from modules.evidence import facade as evidence_facade
 from modules.project.facade import require_active_project
+from modules.story import exploration_api
+from modules.story.exploration_api import ExplorationStartApiRequest
+from modules.story.exploration_budget import preview_exploration_budget
+from modules.story.exploration_feature import require_story_exploration_enabled
 from modules.story.exploration_recommend import recommend_exploration_scale
 from modules.story.exploration_schemas import (
-    EVENT_HINT_LITERAL,
-    MULTI_TARGETS_MAX,
-    MULTI_TARGETS_MIN,
+    ExplorationBudgetPreview,
     ExplorationCompareRequest,
-    ExplorationScale,
-    FullRehearsalRequest,
-    SceneSpatialDiagnosticRequest,
+    ExplorationDetailOperationRequest,
+    ExplorationHistoryOperationRequest,
+    ExplorationPreviewOperationRequest,
+    ExplorationReviseOperationRequest,
+    ExplorationStartOperationRequest,
+    check_revision_target,
+    validate_start_dump,
 )
+from modules.story.exploration_service import unpack_exploration_output
+from modules.story.models import StorySceneDirectorRoot
+from modules.story.outline_state.models import Scene
+from modules.story.world_progression_models import StoryWorldProgressionRoot
 
 EXPLORATION_TARGET_TYPE = "story_exploration"
 AUTHOR_EDIT_KIND = "story.exploration.author_edit"
@@ -72,9 +86,7 @@ def _task_type_for_scale(scale: str) -> str:
 
 
 async def _task_type_for_result(db, novel_id: str, result_id: str) -> str:
-    from modules.story.exploration_api import _locate_exploration_result
-
-    _row, chain, _root = await _locate_exploration_result(
+    _row, chain, _root = await exploration_api._locate_exploration_result(
         db, novel_id=novel_id, result_id=str(result_id)
     )
     return _PROGRESSION_TASK if chain == "progression" else _SCENE_TASK
@@ -82,13 +94,11 @@ async def _task_type_for_result(db, novel_id: str, result_id: str) -> str:
 
 async def _bind_goal_parent_task(db, context, *, novel_id: str, receipt: dict) -> None:
     """把领域任务绑定到目标运行的父任务回执，供恢复路径核对归属。"""
-    from infrastructure.tasks.facade import update_task_projection
-
     internal = getattr(context, "internal_meta", None) or {}
     parent_task_id = internal.get("_parent_task_id")
     if not parent_task_id:
         return
-    await update_task_projection(
+    await tasks_facade.update_task_projection(
         db,
         task_id=str(receipt.get("task_id")),
         task_type=str(receipt.get("task_type")),
@@ -139,94 +149,8 @@ def _require_project(novel_id: str, args) -> None:
 
 
 def _require_gate() -> None:
-    from modules.story.exploration_feature import require_story_exploration_enabled
-
     require_story_exploration_enabled()
 
-
-class ExplorationPreviewOperationRequest(BaseModel):
-    """确定性推荐 + 预算/确认范围预览；无模型调用。
-
-    ``multi_targets``（M2 场景多目标）仅场景尺度接受：名义预算 = 目标数。
-    """
-
-    model_config = ConfigDict(extra="forbid")
-
-    novel_id: str
-    question: str | None = Field(default=None, max_length=4000)
-    scale: ExplorationScale | None = None
-    focus: str = Field(default="", max_length=2000)
-    task_hint: str | None = Field(default=None, max_length=120)
-    has_selection: bool = False
-    multi_targets: list[str] | None = Field(
-        default=None,
-        min_length=MULTI_TARGETS_MIN,
-        max_length=MULTI_TARGETS_MAX,
-    )
-    diagnostic: SceneSpatialDiagnosticRequest | None = None
-
-
-class ExplorationStartOperationRequest(BaseModel):
-    """发起探索任务；与 REST /start 同一执行路径（幂等 operation_id）。
-
-    ``event_mode_hint``（M2）仅事件尺度接受：info_gap → 信息差诊断，
-    goal → 导向路径；与 action 的配对校验由 apply 侧契约模型完成。
-    ``multi_targets`` / ``diagnostic``（M2）仅场景尺度接受，二者互斥。
-    ``full_rehearsal``（M3-B）仅临时起点 + 场景尺度接受，与前两者互斥；
-    资格校验（404/409）由 apply 侧 start 执行路径完成。
-    """
-
-    model_config = ConfigDict(extra="forbid")
-
-    novel_id: str
-    scale: ExplorationScale
-    start: dict
-    focus: str = Field(default="", max_length=2000)
-    action: str = Field(min_length=1, max_length=128)
-    context_confirmation_id: str = Field(min_length=1, max_length=128)
-    budget_preview_hash: str = Field(pattern="^[a-f0-9]{64}$")
-    operation_id: str = Field(min_length=1, max_length=64)
-    time_budget_seconds: int = Field(default=3600, ge=1, le=6 * 3600)
-    target_ref: str | None = Field(default=None, min_length=1, max_length=64)
-    event_mode_hint: EVENT_HINT_LITERAL | None = None
-    multi_targets: list[str] | None = Field(
-        default=None,
-        min_length=MULTI_TARGETS_MIN,
-        max_length=MULTI_TARGETS_MAX,
-    )
-    diagnostic: SceneSpatialDiagnosticRequest | None = None
-    full_rehearsal: FullRehearsalRequest | None = None
-
-
-class ExplorationDetailOperationRequest(BaseModel):
-    model_config = ConfigDict(extra="forbid")
-
-    novel_id: str
-    result_id: str
-    focus: str = Field(default="", max_length=2000)
-    operation_id: str = Field(min_length=1, max_length=64)
-
-
-class ExplorationReviseOperationRequest(BaseModel):
-    model_config = ConfigDict(extra="forbid")
-
-    novel_id: str
-    result_id: str
-    item_path: str = Field(min_length=1, max_length=120)
-    item_text: str | None = Field(default=None, max_length=4000)
-    instruction: str = Field(min_length=1, max_length=2000)
-    bridge_target: str | None = Field(default=None, max_length=500)
-    operation_id: str = Field(min_length=1, max_length=64)
-
-
-class ExplorationHistoryOperationRequest(BaseModel):
-    model_config = ConfigDict(extra="forbid")
-
-    novel_id: str
-    root_id: str | None = Field(default=None, max_length=64)
-    scale: ExplorationScale | None = None
-    limit: int = Field(default=20, ge=1, le=100)
-    offset: int = Field(default=0, ge=0)
 
 
 # ---------------------------------------------------------------------------
@@ -242,9 +166,6 @@ def _advisory_budget_payload(
     multi_targets: list[str] | None = None,
 ) -> dict:
     """未冻结起点时的名义预算（请求次数为硬约定，Token 按焦点长度粗估）。"""
-    from infrastructure.llm.collaboration import content_hash
-    from modules.story.exploration_schemas import ExplorationBudgetPreview
-
     chars = len(focus)
     request_count = len(multi_targets) if multi_targets else 1
     tokens_min = max(1, chars // 4) + 100 * request_count
@@ -270,8 +191,6 @@ async def _prepare_preview(db, novel_id, args, *, context=None):
     _require_project(novel_id, args)
     _require_gate()
     await require_active_project(db, novel_id)
-    from modules.story.outline_state.models import Scene
-
     project_has_content = (
         await db.scalar(
             select(Scene.id).where(Scene.novel_id == UUID(novel_id)).limit(1)
@@ -315,12 +234,8 @@ async def _prepare_start(db, novel_id, args, *, context=None):
     _require_project(novel_id, args)
     _require_gate()
     await require_active_project(db, novel_id)
-    from modules.evidence.facade import require_fresh_confirmation
-    from modules.story.exploration_api import validate_start_dump
-    from modules.story.exploration_budget import preview_exploration_budget
-
     start = validate_start_dump(dict(args.start))
-    confirmation = await require_fresh_confirmation(
+    confirmation = await evidence_facade.require_fresh_confirmation(
         db,
         novel_id=novel_id,
         action=args.action,
@@ -358,10 +273,6 @@ async def _apply_start(db, novel_id, args, preview, *, context=None):
     _require_project(novel_id, args)
     _require_gate()
     await require_active_project(db, novel_id)
-    from modules.story.exploration_api import (
-        ExplorationStartApiRequest,
-        start_exploration_task,
-    )
 
     goal_mode = _goal_execution(context)
     payload = {
@@ -387,7 +298,7 @@ async def _apply_start(db, novel_id, args, preview, *, context=None):
         payload["diagnostic"] = args.diagnostic.model_dump(mode="json")
     if args.full_rehearsal is not None:
         payload["full_rehearsal"] = args.full_rehearsal.model_dump(mode="json")
-    receipt = await start_exploration_task(
+    receipt = await exploration_api.start_exploration_task(
         db, data=ExplorationStartApiRequest.model_validate(payload)
     )
     if not goal_mode:
@@ -402,9 +313,7 @@ async def _prepare_detail(db, novel_id, args, *, context=None):
     _require_project(novel_id, args)
     _require_gate()
     await require_active_project(db, novel_id)
-    from modules.story.exploration_api import _locate_exploration_result
-
-    row, _chain, _root = await _locate_exploration_result(
+    row, _chain, _root = await exploration_api._locate_exploration_result(
         db, novel_id=novel_id, result_id=str(args.result_id)
     )
     return {
@@ -417,10 +326,8 @@ async def _apply_detail(db, novel_id, args, preview, *, context=None):
     _require_project(novel_id, args)
     _require_gate()
     await require_active_project(db, novel_id)
-    from modules.story.exploration_api import submit_exploration_follow_up
-
     goal_mode = _goal_execution(context)
-    receipt = await submit_exploration_follow_up(
+    receipt = await exploration_api.submit_exploration_follow_up(
         db,
         novel_id=novel_id,
         result_id=str(args.result_id),
@@ -442,11 +349,7 @@ async def _prepare_revise(db, novel_id, args, *, context=None):
     _require_project(novel_id, args)
     _require_gate()
     await require_active_project(db, novel_id)
-    from modules.story.exploration_api import _locate_exploration_result
-    from modules.story.exploration_service import unpack_exploration_output
-    from modules.story.exploration_tasks import check_revision_target
-
-    row, _chain, _root = await _locate_exploration_result(
+    row, _chain, _root = await exploration_api._locate_exploration_result(
         db, novel_id=novel_id, result_id=str(args.result_id)
     )
     envelope = unpack_exploration_output(row)
@@ -472,10 +375,8 @@ async def _apply_revise(db, novel_id, args, preview, *, context=None):
     _require_project(novel_id, args)
     _require_gate()
     await require_active_project(db, novel_id)
-    from modules.story.exploration_api import submit_exploration_follow_up
-
     goal_mode = _goal_execution(context)
-    receipt = await submit_exploration_follow_up(
+    receipt = await exploration_api.submit_exploration_follow_up(
         db,
         novel_id=novel_id,
         result_id=str(args.result_id),
@@ -505,8 +406,6 @@ async def _cancelled_before_first_claim(
     db, *, novel_id: str, task_id: str, task_type: str
 ) -> bool:
     """任务在首次领取前已取消：服务端确认没有执行任何领域操作。"""
-    from infrastructure.tasks.models import AsyncTask
-
     try:
         task_uuid = UUID(task_id)
     except (TypeError, ValueError):
@@ -537,8 +436,6 @@ async def _exploration_failed_without_result(db, novel_id: str, root_id: str) ->
     """
     from sqlalchemy import select
 
-    from modules.story.models import StorySceneDirectorRoot
-    from modules.story.world_progression_models import StoryWorldProgressionRoot
 
     try:
         root_uuid = UUID(root_id)
@@ -565,7 +462,6 @@ async def _exploration_failed_without_result(db, novel_id: str, root_id: str) ->
 
 async def _read_exploration_task_result(db, novel_id, reference):
 
-    from infrastructure.tasks.facade import get_completed_task_payload
 
     task_type = str(reference.get("task_type") or "")
     root_id = str(reference.get("root_id") or "")
@@ -651,9 +547,8 @@ async def _read_revise_result(db, novel_id, reference):
 async def _prepare_compare(db, novel_id, args, *, context=None):
     _require_project(novel_id, args)
     await require_active_project(db, novel_id)
-    from modules.story.exploration_api import compare_exploration
 
-    return await compare_exploration(
+    return await exploration_api.compare_exploration(
         db,
         data=ExplorationCompareRequest.model_validate(args.model_dump(mode="json")),
     )
@@ -662,9 +557,8 @@ async def _prepare_compare(db, novel_id, args, *, context=None):
 async def _prepare_history(db, novel_id, args, *, context=None):
     _require_project(novel_id, args)
     await require_active_project(db, novel_id)
-    from modules.story.exploration_api import exploration_history
 
-    return await exploration_history(
+    return await exploration_api.exploration_history(
         db,
         novel_id=novel_id,
         root_id=args.root_id,

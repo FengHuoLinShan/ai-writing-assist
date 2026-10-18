@@ -30,6 +30,7 @@ from modules.evidence.facade import (
 )
 from modules.project.facade import (
     build_project_llm_execution_snapshot,
+    get_any_project_context,
     require_active_project,
 )
 from modules.story.director_budget import (
@@ -144,9 +145,7 @@ def _preview_request(
 
 
 async def _project_owner_id(db, novel_id: str) -> str:
-    from modules.project import facade as project_facade
-
-    context = await project_facade.get_any_project_context(db, novel_id)
+    context = await get_any_project_context(db, novel_id)
     if context is None or context.owner_id is None:
         raise NotFoundError("项目不存在")
     return str(context.owner_id)

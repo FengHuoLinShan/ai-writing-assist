@@ -10,7 +10,7 @@
 from __future__ import annotations
 
 import uuid
-from typing import Annotated, Literal
+from typing import Annotated, Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
@@ -1064,3 +1064,186 @@ __all__ = [
     "validate_counterfactual_pair",
     "validate_scene_targets",
 ]
+
+
+# ---------------------------------------------------------------------------
+# 修订条目定位与防漂移（纯载荷逻辑；tasks/service/api 共用，避免模块环）
+# ---------------------------------------------------------------------------
+
+EXPLORATION_CAPABILITY = "story.exploration"
+
+_BASE_KIND_BY_SCALE = {
+    "sandbox": SANDBOX_OUTPUT_KIND,
+    "event": EVENT_OUTPUT_KIND,
+    "scene_line": SCENE_LINE_OUTPUT_KIND,
+}
+
+
+def _normalize_base_kind(kind_or_scale: str) -> str:
+    return _BASE_KIND_BY_SCALE.get(kind_or_scale, kind_or_scale)
+
+
+def exploration_entry_display_text(item_path: str, item: Any) -> str:
+    """条目展示文本（与前端卡片渲染口径一致）：锁定标签、防漂移与摘录共用。"""
+
+    kind = str(item_path or "").partition(":")[0]
+    if kind == "line":
+        return str(item or "")
+    if kind == "chain":
+        return str((item or {}).get("effect") or "")
+    if kind == "gap":
+        return str((item or {}).get("description") or "")
+    return "\n".join(str(step) for step in (item or {}).get("steps") or [])
+
+
+def revision_items(payload: dict, base_kind: str) -> list[dict]:
+    """可修订条目枚举：与前端卡片同构（sandbox 链环 / event 缺口或补桥 / 整句）。"""
+    base_kind = _normalize_base_kind(base_kind)
+    if base_kind == SANDBOX_OUTPUT_KIND:
+        return [
+            {"key": f"chain:{index}", "item": item}
+            for index, item in enumerate(payload.get("influence_chain") or [])
+        ]
+    if base_kind == EVENT_OUTPUT_KIND:
+        bridge = payload.get("mode") == "bridge"
+        rows = (
+            payload.get("bridge_candidates") if bridge else payload.get("gaps")
+        ) or []
+        prefix = "bridge" if bridge else "gap"
+        return [
+            {"key": f"{prefix}:{index}", "item": item}
+            for index, item in enumerate(rows)
+        ]
+    return [{"key": "line", "item": payload.get("line")}]
+
+
+def revision_entry_text(key: str, item) -> str:
+    """条目当前展示文本；推导唯一实现，锁定标签与影响标记摘录共用同一口径。"""
+    return exploration_entry_display_text(key, item)
+
+
+def check_revision_target(
+    parent_payload: dict, item_path: str, item_text: str | None, base_kind: str
+) -> dict:
+    """按冻结路径语法（chain:N/gap:N/bridge:N/line）定位父条目并做防漂移比对。
+
+    解析不到、路径越界或 item_text 与父内容不一致即失败关闭；返回
+    ``{"key", "item", "item_content_hash", "label"}``，内容哈希与展示标签
+    （锁定项用，截选 0..200）由服务端计算。
+    """
+
+    path = str(item_path or "").strip()
+    matches = [
+        row for row in revision_items(parent_payload, base_kind) if row["key"] == path
+    ]
+    if len(matches) != 1:
+        raise ValueError(
+            f"修订路径 {path or '(空)'} 不在父结果的可修订条目中；请刷新结果后重选"
+        )
+    target = matches[0]
+    if item_text is not None and str(item_text) != revision_entry_text(
+        target["key"], target["item"]
+    ):
+        raise ValueError("所选条目内容已变化，请刷新结果后再提交修订")
+    return {
+        "key": target["key"],
+        "item": target["item"],
+        "item_content_hash": content_hash(target["item"]),
+        "label": revision_entry_text(target["key"], target["item"])[:200],
+    }
+
+
+def validate_start_dump(start_dump: dict):
+    """起点载荷校验的稳定入口（operations 复用）。"""
+    if start_dump.get("kind") == "scene_anchor":
+        return SceneAnchorStart.model_validate(start_dump)
+    return ProvisionalStart.model_validate(start_dump)
+
+
+# ---------------------------------------------------------------------------
+# 助手操作目录请求模型（operations/api 共用，避免 api↔operations 导入环）
+# ---------------------------------------------------------------------------
+
+class ExplorationPreviewOperationRequest(BaseModel):
+    """确定性推荐 + 预算/确认范围预览；无模型调用。
+
+    ``multi_targets``（M2 场景多目标）仅场景尺度接受：名义预算 = 目标数。
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    novel_id: str
+    question: str | None = Field(default=None, max_length=4000)
+    scale: ExplorationScale | None = None
+    focus: str = Field(default="", max_length=2000)
+    task_hint: str | None = Field(default=None, max_length=120)
+    has_selection: bool = False
+    multi_targets: list[str] | None = Field(
+        default=None,
+        min_length=MULTI_TARGETS_MIN,
+        max_length=MULTI_TARGETS_MAX,
+    )
+    diagnostic: SceneSpatialDiagnosticRequest | None = None
+
+
+class ExplorationStartOperationRequest(BaseModel):
+    """发起探索任务；与 REST /start 同一执行路径（幂等 operation_id）。
+
+    ``event_mode_hint``（M2）仅事件尺度接受：info_gap → 信息差诊断，
+    goal → 导向路径；与 action 的配对校验由 apply 侧契约模型完成。
+    ``multi_targets`` / ``diagnostic``（M2）仅场景尺度接受，二者互斥。
+    ``full_rehearsal``（M3-B）仅临时起点 + 场景尺度接受，与前两者互斥；
+    资格校验（404/409）由 apply 侧 start 执行路径完成。
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    novel_id: str
+    scale: ExplorationScale
+    start: dict
+    focus: str = Field(default="", max_length=2000)
+    action: str = Field(min_length=1, max_length=128)
+    context_confirmation_id: str = Field(min_length=1, max_length=128)
+    budget_preview_hash: str = Field(pattern="^[a-f0-9]{64}$")
+    operation_id: str = Field(min_length=1, max_length=64)
+    time_budget_seconds: int = Field(default=3600, ge=1, le=6 * 3600)
+    target_ref: str | None = Field(default=None, min_length=1, max_length=64)
+    event_mode_hint: EVENT_HINT_LITERAL | None = None
+    multi_targets: list[str] | None = Field(
+        default=None,
+        min_length=MULTI_TARGETS_MIN,
+        max_length=MULTI_TARGETS_MAX,
+    )
+    diagnostic: SceneSpatialDiagnosticRequest | None = None
+    full_rehearsal: FullRehearsalRequest | None = None
+
+
+class ExplorationDetailOperationRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    novel_id: str
+    result_id: str
+    focus: str = Field(default="", max_length=2000)
+    operation_id: str = Field(min_length=1, max_length=64)
+
+
+class ExplorationReviseOperationRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    novel_id: str
+    result_id: str
+    item_path: str = Field(min_length=1, max_length=120)
+    item_text: str | None = Field(default=None, max_length=4000)
+    instruction: str = Field(min_length=1, max_length=2000)
+    bridge_target: str | None = Field(default=None, max_length=500)
+    operation_id: str = Field(min_length=1, max_length=64)
+
+
+class ExplorationHistoryOperationRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    novel_id: str
+    root_id: str | None = Field(default=None, max_length=64)
+    scale: ExplorationScale | None = None
+    limit: int = Field(default=20, ge=1, le=100)
+    offset: int = Field(default=0, ge=0)

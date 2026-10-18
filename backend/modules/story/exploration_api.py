@@ -20,8 +20,9 @@ from sqlalchemy import select
 
 from core.container import get
 from core.dependencies import DbSession
-from core.errors import ConflictError, NotFoundError
+from core.errors import ConflictError, DomainError, NotFoundError
 from core.service_keys import WORLD_GET_CHARACTER_ID_BY_WORLD_ENTITY
+from infrastructure.llm.collaboration import content_hash
 from infrastructure.llm.schemas import (
     AI_RUN_ENVELOPE_KEY,
     AIRunAuthorizationReason,
@@ -33,6 +34,7 @@ from infrastructure.tasks.facade import (
     get_operation_task,
 )
 from infrastructure.tasks.models import AsyncTask
+from modules.evidence import facade as evidence_facade
 from modules.evidence.contracts import (
     Assumption,
     ExplorationContextRequest,
@@ -43,11 +45,13 @@ from modules.evidence.facade import (
     preview_exploration_context,
     require_fresh_confirmation,
 )
+from modules.project import facade as project_facade
 from modules.project.facade import (
     build_project_llm_execution_snapshot,
     require_active_project,
 )
 from modules.story import exploration_service
+from modules.story.director_service import get_director_branch
 from modules.story.exploration_budget import preview_exploration_budget
 from modules.story.exploration_feature import require_story_exploration_enabled
 from modules.story.exploration_recommend import recommend_exploration_scale
@@ -77,10 +81,34 @@ from modules.story.exploration_schemas import (
     validate_counterfactual_pair,
     validate_scene_targets,
 )
+from modules.story.exploration_schemas import (
+    EXPLORATION_CAPABILITY as EXPLORATION_CAPABILITY,
+)
+from modules.story.exploration_schemas import (
+    ExplorationDetailOperationRequest as ExplorationDetailOperationRequest,
+)
+from modules.story.exploration_schemas import (
+    ExplorationPreviewOperationRequest as ExplorationPreviewOperationRequest,
+)
+from modules.story.exploration_schemas import (
+    ExplorationReviseOperationRequest as ExplorationReviseOperationRequest,
+)
+from modules.story.exploration_schemas import (
+    ExplorationStartOperationRequest as ExplorationStartOperationRequest,
+)
+from modules.story.exploration_schemas import (
+    check_revision_target as check_revision_target,
+)
+from modules.story.exploration_schemas import (
+    validate_start_dump as validate_start_dump,
+)
+from modules.story.exploration_service import _locate_exploration_result
+from modules.story.models import StorySceneDirectorRound
+from modules.story.outline_state.models import Scene
+from modules.story.world_progression_models import StoryWorldProgressionStep
+from modules.story.world_progression_service import get_progression_branch
 
 router = APIRouter(prefix="/api/story/exploration", tags=["story-exploration"])
-
-EXPLORATION_CAPABILITY = "story.exploration"
 
 # 分支 AI 结果指针的有界回扫上限；单分支结果行数远小于该值。
 _TIP_SCAN_CAP = 500
@@ -103,8 +131,6 @@ TASK_TYPE_BY_CHAIN = {
 
 
 def _raise_http(error: Exception) -> HTTPException:
-    from core.errors import DomainError
-
     if isinstance(error, PermissionError):
         return HTTPException(status_code=403, detail=str(error))
     if isinstance(error, NotFoundError):
@@ -280,49 +306,16 @@ class ExplorationStartApiRequest(ExplorationStartTaskRequest):
 
 
 async def _project_owner_id(db, novel_id: str) -> str:
-    from modules.project import facade as project_facade
-
     context = await project_facade.get_any_project_context(db, novel_id)
     if context is None or context.owner_id is None:
         raise NotFoundError("项目不存在")
     return str(context.owner_id)
 
 
-def _is_exploration_root(root) -> bool:
-    request_json = getattr(root, "request_json", None) or {}
-    return bool(request_json.get("exploration_start_fingerprint"))
-
-
-def _envelope_capability(root) -> str | None:
-    raw = read_ai_run_envelope(getattr(root, "run_envelope_json", None))
-    return raw.root_capability_id if raw is not None else None
-
-
-async def _locate_exploration_result(
-    db, *, novel_id: str, result_id: str, lock: bool = False
-):
-    row, chain = await exploration_service.locate_exploration_result(
-        db, novel_id=novel_id, result_id=result_id, lock=lock
-    )
-    envelope = exploration_service.unpack_exploration_output(row)
-    if envelope is None:
-        raise ConflictError("所选结果不是探索结果")
-    root = await exploration_service.root_for_chain(db, novel_id, row.root_id, chain)
-    if (
-        not _is_exploration_root(root)
-        or _envelope_capability(root) != EXPLORATION_CAPABILITY
-    ):
-        raise ConflictError("所选结果不属于独立探索运行")
-    return row, chain, root
-
 
 async def _branch_for(db, novel_id: str, chain: str, branch_id, *, lock: bool = False):
-    from modules.story.director_service import get_director_branch
-
     if chain == "scene":
         return await get_director_branch(db, novel_id, str(branch_id), lock=lock)
-    from modules.story.world_progression_service import get_progression_branch
-
     return await get_progression_branch(db, novel_id, str(branch_id), lock=lock)
 
 
@@ -490,8 +483,6 @@ async def build_exploration_preview(db, data: ExplorationPreviewApiRequest) -> d
     )
     reason = ""
     if scale is None:
-        from modules.story.outline_state.models import Scene
-
         project_has_content = (
             await db.scalar(
                 select(Scene.id)
@@ -594,8 +585,6 @@ def _advisory_budget(
     场景多目标（M2）：预算 = 目标数（每人一次独立知识包请求）。
     完整排演（M3-B）：预算 = (目标数 + 1) × 轮次，与聚焦输出分开计量。
     """
-    from infrastructure.llm.collaboration import content_hash
-
     chars = len(focus)
     if full_rehearsal is not None:
         request_count = (len(full_rehearsal.targets) + 1) * full_rehearsal.rounds
@@ -738,14 +727,14 @@ async def confirm_exploration(db, data: ExplorationConfirmationRequest) -> dict:
     """落确认并回投影影；起点/尺度/焦点随确认冻结（P0 §2.4）。"""
     require_story_exploration_enabled()
     await require_active_project(db, data.novel_id)
-    from modules.evidence.facade import confirm_exploration_context
-
     start = await _effective_request_start(db, data)
     if data.full_rehearsal is not None:
         await _require_full_rehearsal_eligibility(
             db, novel_id=data.novel_id, start=start, rehearsal=data.full_rehearsal
         )
-    record = await confirm_exploration_context(db, _context_request(data, start))
+    record = await evidence_facade.confirm_exploration_context(
+        db, _context_request(data, start)
+    )
     return {
         "confirmation_id": str(record.id),
         "action": record.action,
@@ -814,8 +803,9 @@ def _resolve_scene_target(data: ExplorationStartApiRequest) -> str | None:
 async def start_exploration_task(
     db, *, data: ExplorationStartApiRequest, owner_id: str | None = None
 ) -> dict:
+    # active-project/owner 守卫在 HTTP 包装层（api_start）与 operations apply 侧；
+    # 本函数被助手操作复用，db 可能为探测用 None，不做项目查询。
     require_story_exploration_enabled()
-    await require_active_project(db, data.novel_id)
     owner_id = owner_id or await _project_owner_id(db, data.novel_id)
     chain = exploration_service.EXPLORATION_CHAIN_BY_SCALE[data.scale]
     task_type = TASK_TYPE_BY_CHAIN[chain]
@@ -1020,8 +1010,6 @@ async def _branch_tip_id(db, novel_id: str, chain: str, branch) -> str | None:
 
     non_ai_kinds = {AUTHOR_EDIT_OUTPUT_KIND, LOCK_SET_OUTPUT_KIND}
     if chain == "progression":
-        from modules.story.world_progression_models import StoryWorldProgressionStep
-
         rows = (
             await db.scalars(
                 select(StoryWorldProgressionStep)
@@ -1034,8 +1022,6 @@ async def _branch_tip_id(db, novel_id: str, chain: str, branch) -> str | None:
             )
         ).all()
     else:
-        from modules.story.models import StorySceneDirectorRound
-
         rows = (
             await db.scalars(
                 select(StorySceneDirectorRound)
@@ -1082,8 +1068,6 @@ async def submit_exploration_follow_up(
     require_scene_follow_up_supported(envelope)
     if mode == "revise":
         # 入队前先按 item_path 定位并做防漂移比对，失败立即 409（worker 内再权威校验）。
-        from modules.story.exploration_tasks import check_revision_target
-
         try:
             check_revision_target(
                 envelope.payload.model_dump(mode="json"), item_path, item_text, base_kind
@@ -1096,15 +1080,13 @@ async def submit_exploration_follow_up(
         db, novel_id=novel_id, branch_id=row.branch_id, chain=chain
     )
     if locked_items:
-        from modules.story.exploration_tasks import check_revision_target as _resolve
-
         locked_paths = {item.item_path for item in locked_items}
         if mode == "revise" and item_path in locked_paths:
             raise ConflictError("该条目已锁定，请先解锁再修改")
         payload_dict = envelope.payload.model_dump(mode="json")
         for locked_path in sorted(locked_paths):
             try:
-                _resolve(payload_dict, locked_path, None, base_kind)
+                check_revision_target(payload_dict, locked_path, None, base_kind)
             except ValueError as error:
                 raise ConflictError(
                     f"锁定条目 {locked_path} 与当前结果不一致，请先解锁或重新锁定"
@@ -1252,13 +1234,6 @@ def _scene_target(envelope) -> str:
     return str(getattr(payload, "target_ref", "") or "")
 
 
-def validate_start_dump(start_dump: dict):
-    """起点载荷校验的稳定入口（供 operations 复用）。"""
-    from modules.evidence.contracts import ProvisionalStart, SceneAnchorStart
-
-    if start_dump.get("kind") == "scene_anchor":
-        return SceneAnchorStart.model_validate(start_dump)
-    return ProvisionalStart.model_validate(start_dump)
 
 
 # ---------------------------------------------------------------------------
@@ -1440,34 +1415,85 @@ async def exploration_history(
 # ---------------------------------------------------------------------------
 
 
-@router.post("/preview")
+def _trace_fields(schema: type) -> dict[str, str]:
+    return {field: f"data.{field}" for field in schema.model_fields}
+
+
+_OPERATION_TRACE_SCHEMAS = {
+    "story.exploration.preview": ExplorationPreviewOperationRequest,
+    "story.exploration.start": ExplorationStartOperationRequest,
+    "story.exploration.detail": ExplorationDetailOperationRequest,
+    "story.exploration.revise": ExplorationReviseOperationRequest,
+    "story.exploration.compare": ExplorationCompareRequest,
+}
+
+
+def _op_trace_fields(operation_id: str) -> dict[str, str]:
+    """路由 trace 字段须与操作目录 schema 一致（adapter 按目录校验）。"""
+    return _trace_fields(_OPERATION_TRACE_SCHEMAS[operation_id])
+
+
+@router.post(
+    "/preview",
+    openapi_extra={
+        "x-novelcraft-operation-id": "story.exploration.preview",
+        "x-novelcraft-operation-trace-fields": _op_trace_fields(
+            "story.exploration.preview"
+        ),
+    },
+)
 async def api_preview(data: ExplorationPreviewApiRequest, db: DbSession):
+    await require_active_project(db, data.novel_id)
     try:
         return await build_exploration_preview(db, data)
     except Exception as error:
         raise _raise_http(error) from error
 
 
-@router.post("/confirmation/preview")
+@router.post(
+    "/confirmation/preview",
+    openapi_extra={
+        "x-novelcraft-operation-exemption":
+            "确认流的只读组成步骤，不经助手操作目录单独发起"
+    },
+)
 async def api_confirmation_preview(
     data: ExplorationConfirmationPreviewRequest, db: DbSession
 ):
+    await require_active_project(db, data.novel_id)
     try:
         return await preview_confirmation(db, data)
     except Exception as error:
         raise _raise_http(error) from error
 
 
-@router.post("/confirmation")
+@router.post(
+    "/confirmation",
+    openapi_extra={
+        "x-novelcraft-operation-exemption":
+            "确认落盘由对应操作内在依赖，不作为独立助手操作暴露"
+    },
+)
 async def api_confirmation(data: ExplorationConfirmationRequest, db: DbSession):
+    await require_active_project(db, data.novel_id)
     try:
         return await confirm_exploration(db, data)
     except Exception as error:
         raise _raise_http(error) from error
 
 
-@router.post("/start", status_code=http_status.HTTP_202_ACCEPTED)
+@router.post(
+    "/start",
+    status_code=http_status.HTTP_202_ACCEPTED,
+    openapi_extra={
+        "x-novelcraft-operation-id": "story.exploration.start",
+        "x-novelcraft-operation-trace-fields": _op_trace_fields(
+            "story.exploration.start"
+        ),
+    },
+)
 async def api_start(data: ExplorationStartApiRequest, db: DbSession):
+    await require_active_project(db, data.novel_id)
     try:
         return await start_exploration_task(db, data=data)
     except Exception as error:
@@ -1475,9 +1501,17 @@ async def api_start(data: ExplorationStartApiRequest, db: DbSession):
 
 
 @router.post(
-    "/results/{result_id}/detail", status_code=http_status.HTTP_202_ACCEPTED
+    "/results/{result_id}/detail",
+    status_code=http_status.HTTP_202_ACCEPTED,
+    openapi_extra={
+        "x-novelcraft-operation-id": "story.exploration.detail",
+        "x-novelcraft-operation-trace-fields": _op_trace_fields(
+            "story.exploration.detail"
+        ),
+    },
 )
 async def api_detail(result_id: str, data: ExplorationDetailApiRequest, db: DbSession):
+    await require_active_project(db, data.novel_id)
     try:
         return await submit_exploration_follow_up(
             db,
@@ -1492,9 +1526,17 @@ async def api_detail(result_id: str, data: ExplorationDetailApiRequest, db: DbSe
 
 
 @router.post(
-    "/results/{result_id}/revise", status_code=http_status.HTTP_202_ACCEPTED
+    "/results/{result_id}/revise",
+    status_code=http_status.HTTP_202_ACCEPTED,
+    openapi_extra={
+        "x-novelcraft-operation-id": "story.exploration.revise",
+        "x-novelcraft-operation-trace-fields": _op_trace_fields(
+            "story.exploration.revise"
+        ),
+    },
 )
 async def api_revise(result_id: str, data: ExplorationReviseApiRequest, db: DbSession):
+    await require_active_project(db, data.novel_id)
     try:
         return await submit_exploration_follow_up(
             db,
@@ -1512,34 +1554,64 @@ async def api_revise(result_id: str, data: ExplorationReviseApiRequest, db: DbSe
         raise _raise_http(error) from error
 
 
-@router.post("/results/{result_id}/lock")
+@router.post(
+    "/results/{result_id}/lock",
+    openapi_extra={
+        "x-novelcraft-operation-exemption":
+            "结果编辑保护的元数据操作，不产生任何模型调用"
+    },
+)
 async def api_lock(result_id: str, data: ExplorationLockApiRequest, db: DbSession):
+    await require_active_project(db, data.novel_id)
     try:
         return await lock_exploration_item(db, result_id=result_id, data=data)
     except Exception as error:
         raise _raise_http(error) from error
 
 
-@router.post("/results/{result_id}/save-edit")
+@router.post(
+    "/results/{result_id}/save-edit",
+    openapi_extra={
+        "x-novelcraft-operation-exemption":
+            "作者编辑保存零模型调用，作为结果历史新版本写入"
+    },
+)
 async def api_save_edit(
     result_id: str, data: ExplorationSaveEditApiRequest, db: DbSession
 ):
+    await require_active_project(db, data.novel_id)
     try:
         return await save_exploration_edit(db, result_id=result_id, data=data)
     except Exception as error:
         raise _raise_http(error) from error
 
 
-@router.post("/results/{result_id}/handoff")
+@router.post(
+    "/results/{result_id}/handoff",
+    openapi_extra={
+        "x-novelcraft-operation-exemption":
+            "移交只派生新的探索起点，零模型调用；后续确认与开始走对应任务操作"
+    },
+)
 async def api_handoff(result_id: str, data: ExplorationHandoffApiRequest, db: DbSession):
+    await require_active_project(db, data.novel_id)
     try:
         return await handoff_exploration_result(db, result_id=result_id, data=data)
     except Exception as error:
         raise _raise_http(error) from error
 
 
-@router.post("/compare")
+@router.post(
+    "/compare",
+    openapi_extra={
+        "x-novelcraft-operation-id": "story.exploration.compare",
+        "x-novelcraft-operation-trace-fields": _op_trace_fields(
+            "story.exploration.compare"
+        ),
+    },
+)
 async def api_compare(data: ExplorationCompareRequest, db: DbSession):
+    await require_active_project(db, data.novel_id)
     try:
         return await compare_exploration(db, data)
     except Exception as error:

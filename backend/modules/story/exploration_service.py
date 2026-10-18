@@ -18,6 +18,7 @@ from sqlalchemy import func, or_, select
 
 from core.errors import ConflictError, DomainError, NotFoundError
 from infrastructure.llm.collaboration import content_hash
+from infrastructure.llm.schemas import read_ai_run_envelope
 from modules.evidence.contracts import (
     Assumption,
     CandidateRef,
@@ -27,6 +28,10 @@ from modules.evidence.contracts import (
     SceneAnchorStart,
 )
 from modules.project import facade as project_facade
+from modules.story.director_service import (
+    get_director_branch,
+    get_director_root,
+)
 from modules.story.exploration_schemas import (
     AFFECTED_ITEM_EXCERPT_MAX_LENGTH,
     AFFECTED_ITEMS_MAX,
@@ -48,6 +53,15 @@ from modules.story.exploration_schemas import (
     apply_changed_assumptions,
     exploration_start_fingerprint,
 )
+from modules.story.exploration_schemas import (
+    EXPLORATION_CAPABILITY as EXPLORATION_CAPABILITY,
+)
+from modules.story.exploration_schemas import (
+    check_revision_target as check_revision_target,
+)
+from modules.story.exploration_schemas import (
+    exploration_entry_display_text as exploration_entry_display_text,
+)
 from modules.story.models import (
     StorySceneDirectorBranch,
     StorySceneDirectorRoot,
@@ -57,6 +71,10 @@ from modules.story.world_progression_models import (
     StoryWorldProgressionBranch,
     StoryWorldProgressionRoot,
     StoryWorldProgressionStep,
+)
+from modules.story.world_progression_service import (
+    get_progression_branch,
+    get_progression_root,
 )
 
 EXPLORATION_CHAIN_BY_SCALE: dict[str, str] = {
@@ -355,13 +373,31 @@ async def _locate_result_row(
     raise NotFoundError("探索结果不存在")
 
 
+async def _locate_exploration_result(
+    db, *, novel_id: str, result_id: str, lock: bool = False
+):
+    """定位探索结果行并校验其属于本作品的独立探索运行（api/operations 共用）。"""
+    row, chain = await locate_exploration_result(
+        db, novel_id=novel_id, result_id=result_id, lock=lock
+    )
+    envelope = unpack_exploration_output(row)
+    if envelope is None:
+        raise ConflictError("所选结果不是探索结果")
+    root = await _root_for_chain(db, novel_id, row.root_id, chain)
+    request_json = getattr(root, "request_json", None) or {}
+    raw = read_ai_run_envelope(getattr(root, "run_envelope_json", None))
+    capability = raw.root_capability_id if raw is not None else None
+    if (
+        not request_json.get("exploration_start_fingerprint")
+        or capability != EXPLORATION_CAPABILITY
+    ):
+        raise ConflictError("所选结果不属于独立探索运行")
+    return row, chain, root
+
+
 async def _root_for_chain(db, novel_id: str, root_id: Any, chain: str):
     if chain == "scene":
-        from modules.story.director_service import get_director_root
-
         return await get_director_root(db, novel_id, str(root_id))
-    from modules.story.world_progression_service import get_progression_root
-
     return await get_progression_root(db, novel_id, str(root_id))
 
 
@@ -470,19 +506,6 @@ _AFFECTED_LIST_FAMILIES: tuple[tuple[str, str], ...] = (
     ("gap", "gaps"),
     ("bridge", "bridge_candidates"),
 )
-
-
-def exploration_entry_display_text(item_path: str, item: Any) -> str:
-    """条目展示文本（与前端卡片渲染口径一致）：锁定标签、防漂移与摘录共用。"""
-
-    kind = str(item_path or "").partition(":")[0]
-    if kind == "line":
-        return str(item or "")
-    if kind == "chain":
-        return str((item or {}).get("effect") or "")
-    if kind == "gap":
-        return str((item or {}).get("description") or "")
-    return "\n".join(str(step) for step in (item or {}).get("steps") or [])
 
 
 def _diff_payload_dict(envelope: ExplorationOutputEnvelope) -> tuple[dict, str]:
@@ -735,8 +758,6 @@ async def _require_edit_respects_locks(
     解锁后可改。
     """
 
-    from modules.story.exploration_tasks import check_revision_target
-
     locked_items = await current_locked_items(
         db, novel_id=novel_id, branch_id=base_row.branch_id, chain=chain
     )
@@ -820,8 +841,6 @@ async def save_exploration_author_edit(
     }
 
     if chain == "scene":
-        from modules.story.director_service import get_director_branch
-
         branch = await get_director_branch(
             db, novel_id, str(base_row.branch_id), lock=True
         )
@@ -860,8 +879,6 @@ async def save_exploration_author_edit(
             run_envelope_json={},
         )
     else:
-        from modules.story.world_progression_service import get_progression_branch
-
         branch = await get_progression_branch(
             db, novel_id, str(base_row.branch_id), lock=True
         )
@@ -991,8 +1008,6 @@ async def set_exploration_item_lock(
     已锁定项重复加锁按分支状态幂等返回当前 lock_set 行；解除未锁定项 409。
     """
 
-    from modules.story.exploration_tasks import check_revision_target
-
     await _require_project(db, novel_id, owner_id, for_update=True)
     base_row, chain = await _locate_result_row(db, novel_id, base_result_id, lock=True)
     base_envelope = unpack_exploration_output(base_row)
@@ -1071,8 +1086,6 @@ async def set_exploration_item_lock(
     }
 
     if chain == "scene":
-        from modules.story.director_service import get_director_branch
-
         branch = await get_director_branch(
             db, novel_id, str(base_row.branch_id), lock=True
         )
@@ -1101,8 +1114,6 @@ async def set_exploration_item_lock(
             run_envelope_json={},
         )
     else:
-        from modules.story.world_progression_service import get_progression_branch
-
         branch = await get_progression_branch(
             db, novel_id, str(base_row.branch_id), lock=True
         )
@@ -1345,8 +1356,6 @@ async def build_handoff_start(
 
     item_path = str(item_path or "").strip()
     if item_path:
-        from modules.story.exploration_tasks import check_revision_target
-
         try:
             check_revision_target(payload, item_path, None, envelope.output_kind)
         except ValueError as error:

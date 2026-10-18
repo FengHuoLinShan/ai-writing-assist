@@ -3,26 +3,30 @@ id: T-20261017-director-scales-impl
 title: 导演多尺度独立探索多批次实施
 status: active
 created: 2026-10-17T19:30:00+08:00
-updated: 2026-10-17T19:30:00+08:00
+updated: 2026-10-18T00:00:00+08:00
 ---
 
 # 导演多尺度独立探索：多批次实施
 
 ## 恢复快照
 
-- 实际完成：第一至三批全部完成并合入，M3 终门禁全绿（后端 1346、前端 3316、docs-check、
-  diff-check）；面板标签微切片 08694bffa。研究覆盖账本与 M5 离线准备已交付。
-  **第四批进行中**：M4-A1 六向移交契约/服务已合入（14f018bf8，含 evidence 起点模型
-  `ProvisionalStart.derived_from` 扩展，旧载荷字节兼容）；M4-C 正式 Scene 参考副本已合入
-  （b85630f8c，确认 action 用 writing.generate，Writing 消费 advisory 语义不变）。
-  运行中：M4-A2 移交端到端测试、M4-A3 前端移交入口、M4-B1 探索操作接入目标运行。
-- 当前里程碑：回收三个 M4 切片并合入 → M4 收尾全量回归 + docs + docs-check。
-- 下一步：全分支实施总结；合并 main/推送/ADR 采纳待用户授权；真实模型/作者验证不启动。
+- **第四批（M4）全部完成并合入**：M4-A1 六向移交契约/服务（14f018bf8）、M4-C 正式 Scene
+  参考副本（b85630f8c）、M4-A2 移交端到端测试、M4-A3 前端移交入口、M4-B1 探索操作接入
+  目标运行（领域独立账本 + 结算后导入增量，含 app task manifest 补注册 `exploration_tasks`）。
+- **收尾回归与治理修复完成（本地分支）**：依赖方向棘轮 517/517、治理/路由闭包/路由棘轮/
+  evidence fusion 四门禁 70 passed；story+assistant 755 passed；docs-check（--no-change-reason
+  通道）与 `git diff --check` 通过。修复要点：家族函数下沉 `exploration_schemas` 解导入环、
+  守卫只放 `api_start` 包装层（operations 以 db=None 复用共享函数）、api/operations/service
+  对 evidence facade 与 tasks facade 的调用改为模块属性晚绑定（恢复 monkeypatch 测试缝）、
+  `_BASE_KIND_BY_SCALE` 映射纠正、`director_api`/`director_service` 懒导入上提。
+- 待提交：9 文件（7 个 story 模块 + 2 个 README 增量），建议单 commit。
+- 下一步：提交治理修复 → 全分支实施总结交付；合并 main/推送/ADR-0042 采纳待用户授权；
+  真实模型调用、作者验证、生产功能开启、部署均不启动。
 - 阻塞：无。
 - 已知设计偏差（评审注意）：探索 worker 对推进链改为服务内直接落行（35a17dac3 docstring）；
   排演/多目标/诊断结果 detail/revise/lock/save-edit 一律 409；探索链无作者侧 resume 端点；
   排演 action 沿用 scene_line.generate；M4-C 端点用 operation-exemption 未入助手目录；
-  handoff 链仅一跳记录，端到端链式测试由 M4-A2 补。
+  handoff 链仅一跳记录；M4-B1 领域账本内目标侧 80% 实时检查存在盲区（结算后导入兜底）。
 
 ## 目标与授权
 
@@ -64,7 +68,9 @@ updated: 2026-10-17T19:30:00+08:00
 
 - 2026-10-17：基线核实 `git rev-parse origin/main main` = 6004d3703 一致；worktree 建立成功。
 - 实施验证随各 Wave 记录（模块测试、lint、PostgreSQL 隔离库迁移、前端 Vitest、docs-check）。
+- 2026-10-18 收尾：治理四门禁 70 passed（含棘轮 517/517）；story+assistant 755 passed；
+  全量后端套件、docs-check（no-change-reason）、`git diff --check` 结果随收尾提交记录。
 
 ## 下一步
 
-- Wave0 三个 Explore 代理派出并回收；P0 契约文档落盘本任务目录并提交。
+- 提交收尾治理修复；交付全分支总结（含偏差清单）；其余待授权项见恢复快照。

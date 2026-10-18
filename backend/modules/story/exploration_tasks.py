@@ -28,6 +28,7 @@ from uuid import UUID
 
 from sqlalchemy import func, select
 
+from core.errors import ConflictError
 from infrastructure.llm.agent_step_harness import run_managed_structured
 from infrastructure.llm.collaboration import content_hash
 from infrastructure.llm.schemas import LLMCallRequest, LLMMessage
@@ -41,6 +42,7 @@ from modules.evidence.contracts import (
     Assumption,
     ProvisionalStart,
     SceneAnchorStart,
+    redact_hidden_phrases,
 )
 from modules.evidence.facade import (
     build_hidden_guard_context,
@@ -48,12 +50,14 @@ from modules.evidence.facade import (
 )
 from modules.project.facade import open_project_snapshot_llm_client
 from modules.story.director_budget import budget_stop_reason
+from modules.story.director_service import get_director_branch, get_director_root
 from modules.story.exploration_budget import preview_exploration_budget
 from modules.story.exploration_feature import require_story_exploration_enabled
 from modules.story.exploration_schemas import (
     AUTHOR_EDIT_OUTPUT_KIND,
     EVENT_HINT_REQUIRED_ACTION,
     EVENT_OUTPUT_KIND,
+    EXPLORATION_CAPABILITY,
     EXPLORATION_OUTPUT_SCHEMA_VERSION,
     FULL_REHEARSAL_OUTPUT_KIND,
     FULL_REHEARSAL_ROUNDS_MIN,
@@ -71,10 +75,14 @@ from modules.story.exploration_schemas import (
     FullRehearsalRoundOrchestration,
     SandboxOutputV1,
     SceneLineOutputV1,
+    _normalize_base_kind,
+    check_revision_target,
+)
+from modules.story.exploration_schemas import (
+    revision_items as _revision_items,
 )
 from modules.story.exploration_service import (
     current_locked_items,
-    exploration_entry_display_text,
     pack_exploration_output,
     unpack_exploration_output,
 )
@@ -90,7 +98,6 @@ from modules.story.world_progression_service import (
 
 EXPLORATION_PROGRESSION_TASK = "story_exploration_progression_task"
 EXPLORATION_SCENE_TASK = "story_exploration_scene_task"
-EXPLORATION_CAPABILITY = "story.exploration"
 
 # 分支续写基线（最新 AI 结果）回扫上限；单分支行数远小于该值。
 _TIP_SCAN_CAP = 500
@@ -951,71 +958,6 @@ _BASE_KIND_BY_SCALE = {
 }
 
 
-def _normalize_base_kind(kind_or_scale: str) -> str:
-    return _BASE_KIND_BY_SCALE.get(kind_or_scale, kind_or_scale)
-
-
-def _revision_items(payload: dict, base_kind: str) -> list[dict]:
-    """可修订条目枚举：与前端卡片同构（sandbox 链环 / event 缺口或补桥 / 整句）。"""
-    base_kind = _normalize_base_kind(base_kind)
-    if base_kind == SANDBOX_OUTPUT_KIND:
-        return [
-            {"key": f"chain:{index}", "item": item}
-            for index, item in enumerate(payload.get("influence_chain") or [])
-        ]
-    if base_kind == EVENT_OUTPUT_KIND:
-        bridge = payload.get("mode") == "bridge"
-        rows = (
-            payload.get("bridge_candidates") if bridge else payload.get("gaps")
-        ) or []
-        prefix = "bridge" if bridge else "gap"
-        return [
-            {"key": f"{prefix}:{index}", "item": item}
-            for index, item in enumerate(rows)
-        ]
-    return [{"key": "line", "item": payload.get("line")}]
-
-
-def _revision_entry_text(key: str, item) -> str:
-    """条目当前展示文本；与前端卡片渲染口径一致，用于防漂移比对。
-
-    推导唯一实现在 ``exploration_service.exploration_entry_display_text``，
-    锁定标签与影响标记摘录共用同一口径，不各自漂移。
-    """
-    return exploration_entry_display_text(key, item)
-
-
-def check_revision_target(
-    parent_payload: dict, item_path: str, item_text: str | None, base_kind: str
-) -> dict:
-    """按冻结路径语法（chain:N/gap:N/bridge:N/line）定位父条目并做防漂移比对。
-
-    解析不到、路径越界或 item_text 与父内容不一致即失败关闭；返回
-    ``{"key", "item", "item_content_hash", "label"}``，内容哈希与展示标签
-    （锁定项用，截选 0..200）由服务端计算。
-    """
-
-    path = str(item_path or "").strip()
-    matches = [
-        row for row in _revision_items(parent_payload, base_kind) if row["key"] == path
-    ]
-    if len(matches) != 1:
-        raise ValueError(
-            f"修订路径 {path or '(空)'} 不在父结果的可修订条目中；请刷新结果后重选"
-        )
-    target = matches[0]
-    if item_text is not None and str(item_text) != _revision_entry_text(
-        target["key"], target["item"]
-    ):
-        raise ValueError("所选条目内容已变化，请刷新结果后再提交修订")
-    return {
-        "key": target["key"],
-        "item": target["item"],
-        "item_content_hash": content_hash(target["item"]),
-        "label": _revision_entry_text(target["key"], target["item"])[:200],
-    }
-
-
 def _merge_revision(parent_payload: dict, output, base_kind: str, item_path: str):
     """只把被修订条目替换进父载荷；其余内容服务端原样拷贝。"""
     matches = [
@@ -1227,8 +1169,6 @@ async def _hidden_guard_terms(db, confirmed) -> list:
 
 def _assert_content_within_guard(data: dict, terms: list, *, message: str) -> None:
     """hidden truth 短语出现在载荷 JSON 里即失败关闭（消息按消费方定制）。"""
-    from modules.evidence.compilation.knowledge import redact_hidden_phrases
-
     text = json.dumps(data, ensure_ascii=False)
     if redact_hidden_phrases(text, [term.phrase for term in terms]) != text:
         raise ValueError(message)
@@ -1939,8 +1879,6 @@ async def _write_progression_result(
     AI 结果（M3-A），不改变续写基线，因此锁定/编辑之后仍可在最新 AI 结果上
     续算；写入改为服务内直接落行，不再复用推进链的线性 append 不变量。
     """
-    from core.errors import ConflictError
-
     root_request = root.request_json or {}
     input_payload = {
         "mode": mode,
@@ -2068,8 +2006,6 @@ async def _write_progression_result(
 async def handle_story_exploration_scene(db, task):
     require_task_checkpoint_session(db)
     require_story_exploration_enabled()
-    from modules.story.director_service import get_director_branch, get_director_root
-
     meta = _meta(task)
     novel_id = str(task.novel_id)
     root_id = str(meta.get("exploration_root_id") or "")

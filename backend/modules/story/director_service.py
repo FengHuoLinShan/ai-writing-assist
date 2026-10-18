@@ -9,6 +9,7 @@ from uuid import UUID
 from sqlalchemy import delete, select
 
 from core.errors import ConflictError, NotFoundError
+from modules.evidence import facade as evidence_facade
 from modules.story.director_candidates import transfer_choices
 from modules.story.models import (
     StorySceneDirectorBranch,
@@ -969,9 +970,7 @@ async def save_exploration_scene_reference(
     if scene_context is None:
         raise NotFoundError("目标 Scene 不存在")
 
-    from modules.evidence.facade import prepare_confirmed_ai_action
-
-    confirmed = await prepare_confirmed_ai_action(
+    confirmed = await evidence_facade.prepare_confirmed_ai_action(
         db,
         novel_id=novel_id,
         action=EXPLORATION_REFERENCE_CONFIRM_ACTION,

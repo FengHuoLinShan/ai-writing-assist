@@ -56,6 +56,7 @@ EXPECTED_CAPABILITIES = (
     "story.one_click",
     "story.scene_director",
     "story.world_progression",
+    "story.exploration",
     "story.exploration.sandbox",
     "story.exploration.event",
     "story.exploration.scene_line",

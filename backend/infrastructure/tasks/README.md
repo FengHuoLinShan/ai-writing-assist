@@ -95,6 +95,8 @@ Story handler，同注册根能力 `story.exploration`，`never_retry`、单次�
 `story_scene_director_rounds`。worker 校验信封身份与冻结起点、重算 preview hash，provider 前后
 提交 pending_step_json / pending_round_json 检查点；"说详细点"与局部修订复用同一对 worker
 （meta.mode），每次须经追加授权。已由 app task manifest 注册。
+目标运行（ADR-0038）发起的探索步骤不并入目标信封：领域任务始终保留独立的 `story.exploration`
+根账本并在 worker 内做信封身份校验，目标侧只在该任务结算后导入已结算增量。
 
 `deep_import` 完成时可把 post-import adoption package 的 compact receipt 写入既有
 `result.phase_artifacts`；这不是新任务类型或队列状态。包组装失败不得覆盖已完成的
