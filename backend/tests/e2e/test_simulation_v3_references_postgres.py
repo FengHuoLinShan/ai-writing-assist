@@ -21,8 +21,11 @@ from modules.world.models import CoreEntity
 pytestmark = [pytest.mark.asyncio, pytest.mark.e2e]
 
 
+@pytest.mark.parametrize(
+    "invalid_reference", ["foreign_object", "candidate_object", "provisional_map"]
+)
 async def test_v3_refs_require_current_world_identity_before_http_enqueue(
-    db_session, async_client
+    db_session, async_client, invalid_reference
 ):
     novel_id, other_novel_id = uuid4(), uuid4()
     actor_id, foreign_id, map_id, revision_id = (uuid4() for _ in range(4))
@@ -90,6 +93,17 @@ async def test_v3_refs_require_current_world_identity_before_http_enqueue(
     )
     await validate_simulation_context_refs(db_session, str(novel_id), context)
 
+    rejected_ref = SimulationReference(kind="object", id=str(foreign_id))
+    if invalid_reference == "candidate_object":
+        actor_entity = await db_session.get(CoreEntity, actor_id)
+        actor_entity.status = "candidate"
+        rejected_ref = actor
+    elif invalid_reference == "provisional_map":
+        map_node = await db_session.get(MapAtlasNode, map_id)
+        map_node.status = "provisional"
+        rejected_ref = saved_map
+    await db_session.flush()
+
     scene_id = str(uuid4())
     with (
         patch(
@@ -97,7 +111,9 @@ async def test_v3_refs_require_current_world_identity_before_http_enqueue(
             autospec=True,
             return_value=SimpleNamespace(story_rehearsal_enabled=True),
         ),
-        patch("modules.story.api.require_fresh_confirmation", autospec=True) as fresh,
+        patch(
+            "modules.story.task_submission.require_fresh_confirmation", autospec=True
+        ) as fresh,
     ):
         response = await async_client.post(
             f"/api/story/scenes/{scene_id}/rehearsals",
@@ -109,11 +125,11 @@ async def test_v3_refs_require_current_world_identity_before_http_enqueue(
                 "simulation_protocol": "simulation_v3",
                 "simulation_seed": {
                     **context.model_dump(mode="json"),
-                    "locations": [{"kind": "object", "id": str(foreign_id)}],
+                    "locations": [rejected_ref.model_dump(mode="json")],
                     "positions": [],
                 },
             },
         )
     assert response.status_code == 400
-    assert "不属于当前作品" in response.json()["detail"]
+    assert "不属于当前作品或尚未采用" in response.json()["detail"]
     fresh.assert_not_awaited()
