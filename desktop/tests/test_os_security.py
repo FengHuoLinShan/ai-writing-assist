@@ -3,7 +3,6 @@ import os
 from pathlib import Path
 
 import pytest
-
 from infrastructure.os_security import open_private_file, private_directory, try_lock
 
 
@@ -52,6 +51,8 @@ def test_windows_rejects_other_accounts_even_with_trusted_owner(tmp_path):
         security.ConvertStringSidToSid("S-1-5-32-545"),
     )
     descriptor.SetSecurityDescriptorDacl(1, acl, 0)
-    security.SetFileSecurity(str(directory), security.DACL_SECURITY_INFORMATION, descriptor)
+    security.SetFileSecurity(
+        str(directory), security.DACL_SECURITY_INFORMATION, descriptor,
+    )
     with pytest.raises(ValueError, match="another account"):
         private_directory(directory)
