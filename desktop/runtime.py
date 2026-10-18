@@ -225,8 +225,8 @@ class LocalRuntime:
         if pgdata.exists() and not (pgdata / "PG_VERSION").exists():
             raise RuntimeError("数据库初始化尚未完成，请保留数据目录并查看 setup.log。")
         if not pgdata.exists():
-            staged = Path(
-                tempfile.mkdtemp(prefix=".initial-database-", dir=self.directory)
+            staged = private_directory(
+                self.directory / (".initial-database-" + secrets.token_hex(16))
             )
             password = self.directory / ".initial-password"
             fd = open_private_file(password, write=True)

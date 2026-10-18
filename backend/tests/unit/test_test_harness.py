@@ -404,7 +404,16 @@ def test_production_toolchain_uses_pinned_images_and_consistent_versions() -> No
             for step in job.get("steps", []):
                 options = step.get("with", {})
                 if "python-version" in options:
-                    assert options["python-version"] == python_version
+                    if options["python-version"] == "${{ matrix.python }}":
+                        assert path.name == "desktop.yml"
+                        # Intel's last ONNX Runtime wheel requires Python 3.13.
+                        assert job["strategy"]["matrix"]["include"] == [
+                            {"os": "macos-15", "python": python_version},
+                            {"os": "macos-15-intel", "python": "3.13.15"},
+                            {"os": "windows-2025", "python": python_version},
+                        ]
+                    else:
+                        assert options["python-version"] == python_version
                 if "node-version-file" in options:
                     assert (
                         repo_root / options["node-version-file"]
