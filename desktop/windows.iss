@@ -31,11 +31,25 @@ Name: "{autodesktop}\NovelCraft"; Filename: "{app}\NovelCraft.exe"
 Filename: "{app}\NovelCraft.exe"; Description: "启动 NovelCraft"; Flags: nowait postinstall skipifsilent
 
 [Code]
+function WebViewInstalled(): Boolean;
+var
+  Version: String;
+  Key: String;
+begin
+  Key := 'SOFTWARE\Microsoft\EdgeUpdate\Clients\{F3017226-FE2A-4295-8BDF-00C3A9A7E4C5}';
+  Result := (RegQueryStringValue(HKLM32, Key, 'pv', Version) and
+             (Version <> '') and (Version <> '0.0.0.0')) or
+            (RegQueryStringValue(HKCU, Key, 'pv', Version) and
+             (Version <> '') and (Version <> '0.0.0.0'));
+end;
+
 function PrepareToInstall(var NeedsRestart: Boolean): String;
 var
   ResultCode: Integer;
 begin
   Result := '';
+  if WebViewInstalled() then
+    Exit;
   ExtractTemporaryFile('WebView2Setup.exe');
   if not Exec(ExpandConstant('{tmp}\WebView2Setup.exe'), '/silent /install', '',
               SW_HIDE, ewWaitUntilTerminated, ResultCode) or (ResultCode <> 0) then

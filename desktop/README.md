@@ -52,11 +52,13 @@ PyInstaller 打包窗口程序和独立 console runtime，使子进程可以正�
 macOS 应用位于 desktop/dist/NovelCraft.app，CI 另生成 DMG。
 Windows 通过 windows.iss 生成每用户安装器，内含固定摘要的 Microsoft WebView2 bootstrapper；
 系统缺少 WebView2 时首次安装需要联网，不要求用户自行安装运行环境。
+安装器检查 Microsoft 公布的注册表版本键，已有 Runtime 时不重复安装。
 未配置代码签名/公证时只是开发测试包，不能宣称普通用户的无警告安装已完成。
 
 .github/workflows/desktop.yml 分别构建三平台并运行冻结程序 smoke，再上传产物；
 不发布 Release、不部署、不使用真实稿件或调用业务 LLM。
 smoke 使用专用临时目录，验证本地模型推理、会话保护、创建作品、重复启动、退出和重启。
+Windows CI 还实际静默安装、运行安装目录内的程序并卸载。
 失败保留隔离证据，成功只删除该次专用测试目录。
 
 SQLite 目前只有测试/检索回退，不构成完整产品支持。换库需要验证任务领取、

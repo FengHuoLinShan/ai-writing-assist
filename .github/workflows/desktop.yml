@@ -73,6 +73,16 @@ jobs:
         if: runner.os == 'Windows'
         shell: cmd
         run: '"C:\Program Files (x86)\Inno Setup 6\ISCC.exe" desktop/windows.iss'
+      - name: Install and run Windows package
+        if: runner.os == 'Windows'
+        run: |
+          $install = Join-Path $env:RUNNER_TEMP 'NovelCraft installed'
+          $setup = Start-Process desktop/dist/NovelCraft-Windows-x64-Setup.exe -ArgumentList @('/VERYSILENT', '/SUPPRESSMSGBOXES', '/NORESTART', '/SP-', ('/DIR="' + $install + '"')) -Wait -PassThru
+          if ($setup.ExitCode -ne 0) { throw "Installer failed: $($setup.ExitCode)" }
+          uv run --project backend --no-sync python desktop/smoke.py --installed "$install"
+          $smokeExit = $LASTEXITCODE
+          Start-Process (Join-Path $install 'unins000.exe') -ArgumentList @('/VERYSILENT', '/NORESTART') -Wait
+          if ($smokeExit -ne 0) { exit $smokeExit }
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
         with:
           name: NovelCraft-${{ matrix.os }}

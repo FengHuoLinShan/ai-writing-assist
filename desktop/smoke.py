@@ -56,10 +56,16 @@ def stop(process, client, log):
 
 def main():
     parser = argparse.ArgumentParser()
-    parser.add_argument("--frozen", action="store_true")
+    target = parser.add_mutually_exclusive_group()
+    target.add_argument("--frozen", action="store_true")
+    target.add_argument("--installed", type=Path, help="Windows installation directory")
     args = parser.parse_args()
     installation = None
-    if args.frozen:
+    if args.installed:
+        if os.name != "nt":
+            parser.error("--installed requires Windows")
+        command = [str(args.installed / "NovelCraftRuntime.exe")]
+    elif args.frozen:
         installation = Path(tempfile.mkdtemp(prefix="novelcraft-安装检查-"))
         bundle_name = "NovelCraft.app" if sys.platform == "darwin" else "NovelCraft"
         shutil.copytree(
