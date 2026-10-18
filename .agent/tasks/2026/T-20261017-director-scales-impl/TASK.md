@@ -19,8 +19,9 @@ updated: 2026-10-18T00:00:00+08:00
   守卫只放 `api_start` 包装层（operations 以 db=None 复用共享函数）、api/operations/service
   对 evidence facade 与 tasks facade 的调用改为模块属性晚绑定（恢复 monkeypatch 测试缝）、
   `_BASE_KIND_BY_SCALE` 映射纠正、`director_api`/`director_service` 懒导入上提。
-- 待提交：9 文件（7 个 story 模块 + 2 个 README 增量），建议单 commit。
-- 下一步：提交治理修复 → 全分支实施总结交付；合并 main/推送/ADR-0042 采纳待用户授权；
+- **收尾修复已提交 4778e40c8**（12 文件：7 story 模块 + 2 陈旧断言同步 + 2 README 增量
+  + 任务笔记）。分支 `codex/director-scales-impl` 领先 origin/main 72 commit，未推送。
+- 下一步：全分支实施总结交付；合并 main/推送/ADR-0042 采纳待用户授权；
   真实模型调用、作者验证、生产功能开启、部署均不启动。
 - 阻塞：无。
 - 已知设计偏差（评审注意）：探索 worker 对推进链改为服务内直接落行（35a17dac3 docstring）；
