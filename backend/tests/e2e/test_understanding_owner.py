@@ -54,7 +54,7 @@ async def test_scene_world_identity_and_receipt_history_on_postgres(
     )
 
     async def snapshot(db, novel_id):
-        return {"profile": {"model": "synthetic-no-network"}}
+        return {"profile": {"provider_id": "openai", "model": "synthetic-no-network"}}
 
     class Client:
         async def generate_structured(self, request, schema, **kwargs):
@@ -191,7 +191,7 @@ async def test_reading_double_submit_and_unsampled_source_invalidation(
     sessions, nid = project
 
     async def snapshot(db, novel_id):
-        return {"profile": {"model": "synthetic-no-network"}}
+        return {"profile": {"provider_id": "openai", "model": "synthetic-no-network"}}
 
     monkeypatch.setattr(workflow, "build_project_llm_execution_snapshot", snapshot)
     async with sessions() as db:
@@ -244,7 +244,7 @@ async def test_reading_worker_persists_recovery_without_resampling(
     call_limit = 2 if phase == "understanding" and failure != "sampling" else 1
 
     async def snapshot(db, novel_id):
-        return {"profile": {"model": "synthetic-no-network"}}
+        return {"profile": {"provider_id": "openai", "model": "synthetic-no-network"}}
 
     class Sampler:
         async def execute_world_request(self, **inputs):
@@ -293,6 +293,8 @@ async def test_reading_worker_persists_recovery_without_resampling(
     if phase == "preparation":
 
         class Client:
+            profile_summary = {"provider_id": "openai", "model": "synthetic-no-network"}
+
             async def generate_structured(self, request, schema, **kwargs):
                 calls.append(request)
                 if failure == "sampling":
@@ -418,7 +420,7 @@ async def test_boundary_response_and_source_edit_keep_project_first_lock_order(
     calls = []
 
     async def snapshot(db, novel_id):
-        return {"profile": {"model": "synthetic-no-network"}}
+        return {"profile": {"provider_id": "openai", "model": "synthetic-no-network"}}
 
     async def generate(request, schema, **kwargs):
         calls.append(request)
@@ -446,7 +448,10 @@ async def test_boundary_response_and_source_edit_keep_project_first_lock_order(
 
     @asynccontextmanager
     async def client(*args):
-        yield SimpleNamespace(generate_structured=generate)
+        yield SimpleNamespace(
+            generate_structured=generate,
+            profile_summary={"provider_id": "openai", "model": "synthetic-no-network"},
+        )
 
     original_save = preparation._save_call
 
@@ -854,7 +859,7 @@ async def test_scene_recompute_inherits_original_receipt_on_postgres(
     world_calls = []
 
     async def snapshot(db, novel_id):
-        return {"profile": {"model": "synthetic-no-network"}}
+        return {"profile": {"provider_id": "openai", "model": "synthetic-no-network"}}
 
     class Sampler:
         async def execute_world_request(self, **inputs):
@@ -961,7 +966,7 @@ async def test_invalid_quote_requires_new_authorized_run_on_worker(project, monk
     calls = []
 
     async def snapshot(db, novel_id):
-        return {"profile": {"model": "synthetic-no-network"}}
+        return {"profile": {"provider_id": "openai", "model": "synthetic-no-network"}}
 
     class Sampler:
         async def sample(self, *, scene_text, input_manifest):

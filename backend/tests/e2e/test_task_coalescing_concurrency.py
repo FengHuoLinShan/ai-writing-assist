@@ -220,7 +220,9 @@ async def test_running_owner_allows_only_one_pending_follower() -> None:
                 meta={"novel_id": novel_id},
             )
         async with sessions() as claim_db:
-            claimed = await lifecycle.claim_next(claim_db)
+            claimed = await lifecycle.claim_next(
+                claim_db, task_id=owner.task_id, novel_id=novel_id
+            )
             assert claimed is not None
             assert str(claimed.id) == owner.task_id
             owner_lease = str(claimed.lease_id)
@@ -229,7 +231,12 @@ async def test_running_owner_allows_only_one_pending_follower() -> None:
         assert len(set(follower_ids)) == 1
 
         async with sessions() as blocked_db:
-            assert await lifecycle.claim_next(blocked_db) is None
+            assert (
+                await lifecycle.claim_next(
+                    blocked_db, task_id=follower_ids[0], novel_id=novel_id
+                )
+                is None
+            )
 
         async with sessions() as finish_db:
             assert await lifecycle.finalize(
@@ -239,7 +246,9 @@ async def test_running_owner_allows_only_one_pending_follower() -> None:
                 status="done",
             )
         async with sessions() as follower_db:
-            claimed_follower = await lifecycle.claim_next(follower_db)
+            claimed_follower = await lifecycle.claim_next(
+                follower_db, task_id=follower_ids[0], novel_id=novel_id
+            )
             assert claimed_follower is not None
             assert str(claimed_follower.id) == follower_ids[0]
             assert (

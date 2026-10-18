@@ -1,0 +1,73 @@
+{
+  "verified_at": "2026-10-18T10:24:56+08:00",
+  "base_commit": "6004d3703d03c5110044239c86362d23df39df53",
+  "branch": "codex/ci-full-postgresql",
+  "source_sha256": {
+    ".github/workflows/backend-ci.yml": "98bfd6aa47d5e8ec89eaff93af8a8dc78747717fd4a9f3b333ad9ea23273341a",
+    ".github/workflows/backend-postgresql-e2e.yml": "93c03de82c45825b3be2a7c8deb185d662dd8a5d295ad8c4c22a316ecd2ba540",
+    "backend/modules/collaboration/tests/test_workspaces.py": "a16e1038e790e0e9d9d7756f12bc22d5c93874ece4635a34a2c91976572d6149",
+    "backend/tests/e2e/test_agent_teams_runtime.py": "fffc286d1106f45f7c521d0b8ce8557d2238d3f967e68d87b18134b36b5b9324",
+    "backend/tests/e2e/test_creative_worker.py": "3fadf0902d12701be76e1c9d43d66613e892141775785daf75df12a1346e9aa2",
+    "backend/tests/e2e/test_forecast_performance.py": "a4d8b6a376b3fced0473d5e89856804cf1332a6d31027093fe317024381ca750",
+    "backend/tests/e2e/test_project_task_gate_concurrency.py": "a5bd8b4c0d23d13318d1fda2a04c87c10b3a4e2fe8e834b39042e384f04f9a4d",
+    "backend/tests/e2e/test_simulation_v3_references_postgres.py": "06690e808f2b910c811ad122acf8076a3c09199fd88e44af922500598a6abf76",
+    "backend/tests/e2e/test_task_coalescing_concurrency.py": "b38a322b53277cda4b6145a6d60f282f40d5a1e03c56cf0301e630b767f64abf",
+    "backend/tests/e2e/test_understanding_owner.py": "94342337021539c797f5d2ec9a60642603439cbb55728061e2196d9bafdcd146",
+    "backend/tests/unit/test_repository_security_automation.py": "b3666c625174066a181954eda15fa2db0e256625c8754d5fff53e823109c8fef",
+    "testing-guide.md": "ba22a21cc64ef703a76222f2c0c145b42fec06d8d95464e280bde75491293eb6"
+  },
+  "checks": {
+    "postgresql_full": {
+      "passed": 409,
+      "deselected_real_llm_or_external_data": 7,
+      "seconds": 386.12,
+      "exit_code": 0
+    },
+    "postgresql_critical": {
+      "passed": 108,
+      "seconds": 209.91,
+      "exit_code": 0
+    },
+    "make_test_ci": {
+      "exit_code": 0,
+      "backend_passed": 9205,
+      "backend_skipped": 2,
+      "backend_warnings": 14,
+      "coverage_percent": 85.27,
+      "frontend_passed": 3253,
+      "deployment_passed": 324
+    },
+    "frontend_node_24_21_0": {
+      "files_passed": 259,
+      "tests_passed": 3253,
+      "exit_code": 0
+    },
+    "workflow_and_change_selection_contracts": {
+      "passed": 56,
+      "exit_code": 0
+    },
+    "alembic_upgrade_and_check": {
+      "exit_code": 0
+    },
+    "ruff_and_diff_check": {
+      "exit_code": 0
+    },
+    "docs_check_origin_main": {
+      "exit_code": 0
+    }
+  },
+  "environment": {
+    "python": "3.14.8",
+    "postgresql": "17.10",
+    "pgvector": "0.8.2",
+    "ci_pgvector_pin": "0.8.6",
+    "node_test_ci": "22.22.3",
+    "node_frontend_recheck": "24.21.0"
+  },
+  "limits": [
+    "Local uncommitted source snapshot; GitHub Actions not triggered",
+    "CI Ubuntu pinned container not executed locally",
+    "No real model, user corpus or production acceptance",
+    "No commit, push, merge or deploy"
+  ]
+}
