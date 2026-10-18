@@ -13,7 +13,6 @@ from dataclasses import fields
 from pathlib import Path
 
 import pytest
-
 from core.config import (
     Settings,
     _env,
@@ -614,6 +613,16 @@ class TestEnvHelper:
 
 class TestLoadEnvFile:
     """load_env_file() loads .env-style files without overriding env."""
+
+    def test_desktop_roles_do_not_load_developer_env(self, tmp_path, monkeypatch):
+        env_file = tmp_path / ".env"
+        env_file.write_text("CUSTOM_DESKTOP_ENV_KEY=from-developer-file\n")
+        monkeypatch.delenv("CUSTOM_DESKTOP_ENV_KEY", raising=False)
+        monkeypatch.setenv("NOVELCRAFT_DESKTOP_TOKEN", "synthetic-desktop-token")
+
+        load_env_file(env_file)
+
+        assert "CUSTOM_DESKTOP_ENV_KEY" not in os.environ
 
     def test_loads_custom_env_file(self, tmp_path, monkeypatch):
         env_file = tmp_path / ".env"

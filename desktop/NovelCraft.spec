@@ -80,6 +80,7 @@ app = COLLECT(exe, runtime, a.binaries, a.datas,
 if sys.platform == 'darwin':
     app = BUNDLE(app, name='NovelCraft.app', bundle_identifier='io.novelcraft.desktop',
                  info_plist={'NSHighResolutionCapable': True,
+                             'LSBackgroundOnly': False,
                              'CFBundleShortVersionString': numeric_version,
                              'CFBundleVersion': numeric_version,
                              'NovelCraftVersion': build['version'],

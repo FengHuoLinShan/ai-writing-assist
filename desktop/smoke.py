@@ -3,6 +3,7 @@
 import argparse
 import json
 import os
+import plistlib
 import queue
 import shutil
 import subprocess
@@ -81,6 +82,9 @@ def main():
         command = [str(installation / bundle_name / relative)]
     else:
         command = [sys.executable, str(ROOT / "desktop/entry.py")]
+    if sys.platform == "darwin" and (args.frozen or args.installed):
+        info = plistlib.loads((Path(command[0]).parents[1] / "Info.plist").read_bytes())
+        assert not info.get("LSBackgroundOnly"), "Desktop app must appear in the Dock"
     workspace = Path(tempfile.mkdtemp(prefix="novelcraft-作品检查-"))
     directory = private_directory(workspace / "private")
     try:

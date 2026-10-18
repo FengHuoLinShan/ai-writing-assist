@@ -49,6 +49,7 @@ Windows 数据库程序使用进程内 UTF-8 manifest，支持中文安装/数�
 冻结 Python 解释器固定使用 UTF-8；源码构建/测试也以 PYTHONUTF8=1 启动。
 Windows 经 pg_ctl 的受限 token 启动数据库，即使父进程有管理员权限也不绕过 PG 安全检查；
 监督器保存并验证该数据库的原生进程句柄。
+源码桌面子进程也跳过开发目录的 .env，仅使用监督器提供的隔离配置。
 Intel Mac 构建使用 Python 3.13.15（uv sync 加 --python 3.13.15），固定最后提供 Intel
 wheel 的 ONNX Runtime 1.23.2；Apple Silicon/Windows 使用锁定的当前版本。
 固定 PostgreSQL/pgvector 源码 SHA256、模型 revision 和权重 SHA256；

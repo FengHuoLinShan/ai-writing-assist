@@ -35,6 +35,8 @@ from shared.constants import DEFAULT_LLM_MAX_TOKENS
 
 def load_env_file(env_path: Path | None = None) -> None:
     """Load backend .env values without overriding existing environment."""
+    if os.environ.get("NOVELCRAFT_DESKTOP_TOKEN"):
+        return  # Desktop roles use only the supervisor's isolated configuration.
     path = env_path or Path(__file__).resolve().parent.parent / ".env"
     if not path.exists():
         return
