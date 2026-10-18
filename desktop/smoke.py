@@ -71,10 +71,12 @@ def main():
     elif args.frozen:
         installation = Path(tempfile.mkdtemp(prefix="novelcraft-安装检查-"))
         bundle_name = "NovelCraft.app" if sys.platform == "darwin" else "NovelCraft"
+        destination = private_directory(installation / bundle_name)
         shutil.copytree(
             ROOT / "desktop/dist" / bundle_name,
-            installation / bundle_name,
+            destination,
             symlinks=True,
+            dirs_exist_ok=True,
         )
         command = [str(installation / bundle_name / relative)]
     else:
@@ -143,6 +145,13 @@ def main():
             f"Smoke failed; isolated evidence retained at {directory}", file=sys.stderr
         )
         from infrastructure.llm.redaction import redact_diagnostic
+
+        if os.name == "nt":
+            # Preserve ACL evidence when PostgreSQL's restricted token cannot read a file.
+            subprocess.run(["icacls", str(Path(command[0]).parent)], check=False)
+            subprocess.run([
+                "icacls", str(Path(command[0]).parent / "_internal/postgres/bin/initdb.exe")
+            ], check=False)
 
         for name in ("smoke-supervisor", "setup", "database", "api", "worker"):
             log = directory / (name + ".log")
