@@ -41,7 +41,9 @@ jobs:
       - run: uv sync --project backend --locked --extra desktop --extra ci
       - name: Install Windows build tools
         if: runner.os == 'Windows'
-        run: uv pip install --python backend/.venv/Scripts/python.exe meson==1.12.1 ninja==1.13.2
+        run: |
+          uv pip install --python backend/.venv/Scripts/python.exe meson==1.12.1 ninja==1.13.2
+          choco install winflexbison3 --yes --no-progress
       - name: Desktop access boundary tests
         run: uv run --project backend --no-sync python -m pytest desktop/tests -q
       - name: Build macOS app
@@ -51,7 +53,12 @@ jobs:
         if: runner.os == 'Windows'
         shell: cmd
         run: |
-          call "C:\Program Files\Microsoft Visual Studio\2022\Enterprise\Common7\Tools\VsDevCmd.bat" -arch=x64
+          for /f "usebackq tokens=*" %%i in (`"%ProgramFiles(x86)%\Microsoft Visual Studio\Installer\vswhere.exe" -latest -products * -requires Microsoft.VisualStudio.Component.VC.Tools.x86.x64 -property installationPath`) do set "NOVELCRAFT_VS_INSTALL=%%i"
+          if not defined NOVELCRAFT_VS_INSTALL exit /b 1
+          call "%NOVELCRAFT_VS_INSTALL%\VC\Auxiliary\Build\vcvars64.bat"
+          if errorlevel 1 exit /b 1
+          set CC=cl
+          set CXX=cl
           backend\.venv\Scripts\python.exe desktop\build.py
       - name: Native runtime smoke
         run: uv run --project backend --no-sync python desktop/smoke.py --frozen

@@ -1,4 +1,5 @@
 import json
+import sys
 
 from desktop.runtime import LocalRuntime
 
@@ -25,3 +26,15 @@ def test_private_instance_state_and_stable_origin(monkeypatch, tmp_path):
         assert json.loads((root / "secrets.json").read_text())["api_port"]
     finally:
         reopened.close()
+
+
+def test_failed_pg_control_still_stops_owned_process(monkeypatch, tmp_path):
+    runtime = LocalRuntime(tmp_path / "desktop")
+    process = runtime.spawn(
+        "database", [sys.executable, "-c", "import time; time.sleep(30)"],
+    )
+    monkeypatch.setattr(runtime, "pg", lambda name: "missing-novelcraft-test-pg-control")
+    runtime.close()
+    assert process.poll() is not None
+    reopened = LocalRuntime(runtime.directory)
+    reopened.close()

@@ -4,7 +4,7 @@ import httpx
 import pytest
 from starlette.responses import JSONResponse
 
-from desktop.gateway import DesktopGateway
+from desktop.gateway import DesktopGateway, readiness_proof
 
 
 @pytest.mark.asyncio
@@ -17,6 +17,10 @@ async def test_loopback_session_origin_and_assets(tmp_path: Path):
     async with httpx.AsyncClient(
         transport=httpx.ASGITransport(app), base_url="http://127.0.0.1:8123"
     ) as client:
+        assert (await client.get("/api/projects")).status_code == 401
+        ready = await client.get("/_desktop/ready")
+        assert ready.text == readiness_proof("secret")
+        assert "secret" not in ready.text
         assert (await client.get("/api/projects")).status_code == 401
         assert (await client.get("/_desktop/open/wrong")).status_code == 401
         response = await client.get("/_desktop/open/secret")

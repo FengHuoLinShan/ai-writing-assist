@@ -10,6 +10,10 @@ from starlette.responses import PlainTextResponse, RedirectResponse
 from starlette.staticfiles import StaticFiles
 
 
+def readiness_proof(token: str) -> str:
+    return hmac.digest(token.encode(), b"novelcraft-ready", "sha256").hex()
+
+
 class DesktopGateway:
     def __init__(self, api, frontend, origin: str, token: str) -> None:
         self.api = api
@@ -28,6 +32,10 @@ class DesktopGateway:
         path = scope["path"]
         if headers.get(b"host", b"").decode() != self.host:
             return await PlainTextResponse("Invalid host", 403)(scope, receive, send)
+        if path == "/_desktop/ready" and scope["method"] == "GET":
+            return await PlainTextResponse(readiness_proof(self.token))(
+                scope, receive, send
+            )
         bootstrap = path.removeprefix("/_desktop/open/")
         if (
             path.startswith("/_desktop/open/")
@@ -61,9 +69,6 @@ class DesktopGateway:
                 )
         if path.startswith("/api/"):
             return await self.api(scope, receive, send)
-        if path == "/_desktop/ready":
-            return await PlainTextResponse("ready")(scope, receive, send)
-
         async def secured_send(message):
             if message["type"] == "http.response.start":
                 message.setdefault("headers", []).extend(

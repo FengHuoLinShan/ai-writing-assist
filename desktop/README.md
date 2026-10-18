@@ -19,6 +19,7 @@ Python 原生 WebView 承载正式前端构建；图片写入本机私有文件�
 - 原生服务只监听 loopback。API 与前端共用稳定本机端口，保留 WebView 的草稿和阅读状态。
   每次启动更换会话令牌，通过一次性入口设置 HttpOnly/SameSite Cookie；
   校验 Host 与写请求 Origin，保留 owner、novel_id 和领域确认门禁。
+  启动探针校验实例 HMAC，不向可能抢占端口的程序发送会话令牌。
 - 单实例锁阻止并发打开同一数据目录。GUI 断开管道后，监督进程关闭所属
   worker/API/数据库；不按端口扫描终止其他程序。
 - 退出需确认，本地任务停止。未知模型请求遵守既有恢复规则，禁止静默重放。
@@ -39,7 +40,8 @@ uv run --project backend --no-sync python desktop/smoke.py --frozen
 ~~~
 
 macOS 需 Xcode Command Line Tools；Windows 需 Visual Studio C++ 工具环境、
-meson==1.12.1 和 ninja==1.13.2。开发工具不进入最终用户安装流程。
+meson==1.12.1、ninja==1.13.2 与 winflexbison3，设置 CC=cl/CXX=cl。
+开发工具不进入最终用户安装流程。
 Intel Mac 构建使用 Python 3.13（uv sync 加 --python 3.13），固定最后提供 Intel
 wheel 的 ONNX Runtime 1.23.2；Apple Silicon/Windows 使用锁定的当前版本。
 固定 PostgreSQL/pgvector 源码 SHA256、模型 revision 和权重 SHA256；

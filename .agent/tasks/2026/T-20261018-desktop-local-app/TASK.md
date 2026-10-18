@@ -3,18 +3,18 @@ id: T-20261018-desktop-local-app
 title: macOS 与 Windows 完整本地桌面应用
 status: active
 created: 2026-10-18T19:42:17+08:00
-updated: 2026-10-18T20:24:17+08:00
+updated: 2026-10-18T20:34:50+08:00
 ---
 
 # 完整本地桌面应用
 
 ## 恢复快照
 
-- 工作区：/Users/tywww/.codex/worktrees/desktop-local-app/ai-writing-assist，codex/desktop-local-app，基线 083843474e9880252fe4bfca1b1a7132262dc9b6。其他工作树 WIP 未动；尚未提交/推送/发布。
+- 工作区：/Users/tywww/.codex/worktrees/desktop-local-app/ai-writing-assist，codex/desktop-local-app，基线 083843474e9880252fe4bfca1b1a7132262dc9b6。其他工作树 WIP 未动；代码已提交推送，草稿 PR #256：https://github.com/FengHuoLinShan/ai-writing-assist/pull/256，未合并/发布。
 - 实际完成：desktop 运行/打包/安装器/三平台 workflow、本地图片、OS 安全与锁、文档已实现。源码与首轮冻结 macOS ARM64 smoke 通过，World 全模块 1570 测试通过。
-- 当前里程碑：PostgreSQL 已重建为 macOS 14.0 最低目标并经 otool 核实；最终打包进程在运行，输出 desktop/build/packaging.log。
-- 下一步：等最终打包退出，再串行运行 backend/.venv/bin/python desktop/smoke.py --frozen（会搬离仓库验证），随后检查原生窗口并生成 DMG。
-- 未完成：最终包/原生窗口/DMG、Windows/Intel 实际构建与验收、签名/公证与正式发布。不能用 ARM64 代表其他平台。
+- 当前里程碑：macOS ARM64 冻结搬移 smoke、真实窗口中文工作稿保存/退出/重开、DMG 挂载结构与 ad-hoc codesign 完整性通过；三平台 CI 修复中。
+- 下一步：检查 PR #256 最新 Desktop installers run 的三平台日志，修复原生构建/冻结 smoke 的实际故障，再取回安装器。
+- 未完成：Windows/Intel 实际构建与验收、签名/公证与正式发布。不能用 ARM64 代表其他平台。
 
 ## 目标与验收
 
@@ -43,7 +43,7 @@ updated: 2026-10-18T20:24:17+08:00
 - [x] 本地运行、存储与平台适配实现。
 - [x] 固定依赖、安装器及 CI 定义。
 - [x] 源码与首轮冻结 ARM64 smoke。
-- [ ] 最终搬移 smoke、原生窗口、DMG。
+- [x] 最终搬移 smoke、原生窗口、DMG。
 - [ ] Windows/Intel 实际构建与安装验收。
 - [ ] 签名/公证/正式发布，不能以构建配置存在宣称完成。
 
@@ -52,7 +52,7 @@ updated: 2026-10-18T20:24:17+08:00
 - World 全模块：1570 passed，1 deselected，1 warning；日志 desktop/build/world-tests.log（生成文件忽略）。
 - 图片/config/worker 针对性：226 passed；embedding/worker/desktop：119 passed。
 - Codex 身份/真实跨进程准入/模型池/desktop：80 passed（runtime 单测新增前）。
-- desktop/tests 最新 5 passed，含会话、真实锁死亡释放和稳定 origin/不继承凭据。
+- desktop/tests 最新 6 passed / 1 Windows-only skipped（Mac）；Windows 6 tests 已通过，包含真实 ACL 反例，含会话、真实锁死亡释放和稳定 origin/不继承凭据。
 - 前端正式 build 与 production asset verification 通过，未改前端业务代码。
 - backend/desktop Ruff、git diff --check、文档完整性通过。
 - 文档 BASE_REF 差异检查通过显式 no-change-reason 复核未变的 CLAUDE 导入层、维护协议与业务模块图；未弱化门禁。
@@ -60,8 +60,20 @@ updated: 2026-10-18T20:24:17+08:00
 - 曾并行打包和 smoke 导致库文件正在替换，不算有效产品验收；后续必须串行。
 - 本机默认编译 minos 26.0 已纠正到 14.0。最终搬移冻结 smoke 已通过，含中文路径、中文 pg_trgm 与 vector 运算。
 - PG17 的 pg_trgm 字符分类仍使用 OS；builtin C.UTF-8 排序之外显式设置 Unicode LC_CTYPE，真实 SQL 断言通过。
-- 原生窗口试验发现 WebView 可先创建非私有根目录，现已将私有根目录创建移到 GUI 初始化前并增加单测；最新包重建后需再验窗口。
+- 原生窗口试验发现 WebView 可先创建非私有根目录，现已将私有根目录创建移到 GUI 初始化前并增加单测；修复后原生窗口验证通过，中文正文真实持久化重开。
 
 ## 交付边界
 
 本地实施中。无真实模型/作者验收、无生产部署或正式发布；其他平台和签名明确未完成。
+
+## 跨平台构建发现
+
+- 首轮 macOS fresh runner 无 pg_config，不能在未编译前 make clean；现在仅对已有前缀执行清理。
+- 新 ONNX Runtime 不再提供 Intel Mac wheel；Intel 使用 Python 3.13 + ONNX Runtime 1.23.2，其他架构保持当前锁定版本。
+- Windows elevated process 默认属主可为 Administrators；校验可信 user/SYSTEM/Administrators 属主，同时 DACL 仍禁止其他账户，新增真实 ACL 反例测试。
+- 本地 DMG：desktop/dist/NovelCraft-ARM64.dmg，构建源 4c356a5c5；后续修改主要为构建/Windows，正式取最新 CI 包；本地 SHA256 b2208cb62708364dca207fa37fd375ed31fab409b1863a99114052cac11dd9a5。
+- GUI 专用合成目录路径保存在 ignored desktop/build/gui-session.json。首次 CUA 自动启动曾创建空默认 NovelCraft/webview；仅将该空根目录收紧到 0700，没有读写其他数据。
+
+- Windows 下一轮构建已到 Meson：runner 的 VS 安装版本发生变化，旧硬编码路径未加载 MSVC，且缺 flex/bison；改为 vswhere + vcvars64 + CC/CXX=cl，并安装 winflexbison3。
+- 安全复查补齐启动证明：loopback readiness 只返回实例 HMAC，监督进程校验，不向抢占端口的程序发送会话 Cookie；API/页面仍要求会话。源码 smoke 复验中。
+- 关闭失败路径：pg_ctl 不可用仍终止自己启动的进程并释放锁；真实子进程反例单测通过。

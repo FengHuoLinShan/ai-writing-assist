@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import base64
+import hmac
 import json
 import os
 import secrets
@@ -14,9 +15,11 @@ import tempfile
 import threading
 import time
 from pathlib import Path
-from urllib.request import ProxyHandler, Request, build_opener
+from urllib.request import ProxyHandler, build_opener
 
 from infrastructure.os_security import open_private_file, private_directory, try_lock
+
+from desktop.gateway import readiness_proof
 
 
 def resource_root() -> Path:
@@ -319,12 +322,13 @@ class LocalRuntime:
         token = self.env["NOVELCRAFT_DESKTOP_TOKEN"]
 
         def api_ready():
-            request = Request(
-                self.origin + "/_desktop/ready",
-                headers={"Cookie": f"novelcraft_desktop={token}"},
-            )
-            with build_opener(ProxyHandler({})).open(request, timeout=1) as response:
-                return response.status == 200
+            # A process racing for this port must not receive the session secret.
+            with build_opener(ProxyHandler({})).open(
+                self.origin + "/_desktop/ready", timeout=1
+            ) as response:
+                return hmac.compare_digest(
+                    response.read(128), readiness_proof(token).encode()
+                )
 
         self._wait(api_ready)
         self.spawn("worker", entry_command("worker"), control=True)
@@ -332,28 +336,38 @@ class LocalRuntime:
 
     def close(self):
         self.stopping.set()
-        for name, process in reversed(self.processes):
-            if process.poll() is None:
-                if process.stdin:
-                    process.stdin.close()
-                elif name == "database":
-                    self.run(
-                        [
-                            self.pg("pg_ctl"),
-                            "-D",
-                            str(self.directory / "database"),
-                            "stop",
-                            "-m",
-                            "fast",
-                            "-w",
-                        ],
-                        timeout=60,
-                    )
+        try:
+            for name, process in reversed(self.processes):
+                if process.poll() is not None:
+                    continue
                 try:
-                    process.wait(timeout=135 if name == "worker" else 30)
-                except subprocess.TimeoutExpired:
-                    process.terminate()
-                    process.wait(timeout=15)
-        for log in self.logs:
-            log.close()
-        os.close(self.lock)
+                    if process.stdin:
+                        try:
+                            process.stdin.close()
+                        except BrokenPipeError:
+                            pass
+                    elif name == "database":
+                        try:
+                            self.run(
+                                [self.pg("pg_ctl"), "-D",
+                                 str(self.directory / "database"),
+                                 "stop", "-m", "fast", "-w"],
+                                timeout=60,
+                            )
+                        except (OSError, subprocess.SubprocessError):
+                            process.terminate()
+                    try:
+                        process.wait(timeout=135 if name == "worker" else 30)
+                    except subprocess.TimeoutExpired:
+                        process.terminate()
+                        try:
+                            process.wait(timeout=15)
+                        except subprocess.TimeoutExpired:
+                            process.kill()
+                            process.wait(timeout=15)
+                except ProcessLookupError:
+                    pass
+        finally:
+            for log in self.logs:
+                log.close()
+            os.close(self.lock)
