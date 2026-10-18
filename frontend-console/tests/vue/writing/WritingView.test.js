@@ -80,6 +80,33 @@ describe("WritingView", () => {
     vi.restoreAllMocks()
   })
 
+  it("交给编辑的保存回执在控制器后续通知后仍保留", async () => {
+    const api = {
+      ...globalThis.api,
+      assistant: { capabilities: vi.fn().mockResolvedValue({ editorial: { available: true } }) },
+      writing: {
+        ...globalThis.api.writing,
+        markEditorialReady: vi.fn().mockResolvedValue({ content_hash: "saved-hash", editorial_ready_hash: "saved-hash" }),
+      },
+    }
+    setBridgeOverrides({ api, assistantOpener: vi.fn().mockResolvedValue(undefined) })
+    const wrapper = mount(WritingView, { props: props(), attachTo: document.body })
+    try {
+      await flushPromises()
+      const ready = wrapper.findAll("button").find(button => button.text() === "本章写完，交给编辑看")
+      await ready.trigger("click")
+      await flushPromises()
+      expect(api.writing.markEditorialReady).toHaveBeenCalledWith("d1", "p1", expect.stringMatching(/^[0-9a-f]{64}$/))
+      expect(wrapper.text()).toContain("本版已交编辑")
+
+      await wrapper.find("#writing-editor").trigger("blur")
+      await flushPromises()
+      expect(wrapper.text()).toContain("本版已交编辑")
+    } finally {
+      wrapper.unmount()
+    }
+  })
+
   it("Vue 模板拥有写作台 DOM，动态内容按文本转义", async () => {
     const wrapper = mount(WritingView, { props: props(), attachTo: document.body })
     await flushPromises()
