@@ -64,3 +64,8 @@ updated: 2026-10-18T10:43:40+08:00
 - 本地源码指纹与验证回执一致；远端 Ubuntu/锁定镜像、浏览器与镜像门禁以关联 PR 的固定 head 结果为准，不能由本地结果替代。
 
 - 已提交并接入最新 main，推送主题分支并创建 [PR #254](https://github.com/FengHuoLinShan/ai-writing-assist/pull/254)。实际提交、远端检查和合并结果均可从该 PR 恢复；此笔记的 completed 对应本地实现验收，不预先宣称远端 CI 或合并成功。
+
+### 远端镜像门禁补修
+
+- 固定 head fcb165d27 的 image run 39091129835 在 apk 安装失败：钉定 libexpat 2.8.5-r0 无法由当前 runtime repository 解析，可用版本为 2.9.0-r0。官方包记录：https://pkgs.alpinelinux.org/package/v3.24/main/x86_64/libexpat （2026-10-17 构建）。
+- 仅更新 frontend Dockerfile 的 libexpat pin；不变更基础镜像、应用依赖或漏洞阈值。原 verification.json 仍是前一阶段历史快照，不覆盖本次 Dockerfile；新固定 head 的 image build/smoke、SBOM 和漏洞门禁必须重验。
