@@ -11,6 +11,7 @@ ROOT = Path(__file__).resolve().parents[1]
 def main():
     if sys.platform not in {"darwin", "win32"}:
         raise SystemExit("Build on macOS or Windows")
+    os.environ["PYTHONUTF8"] = "1"
     subprocess.run([sys.executable, str(ROOT / "desktop/build_assets.py")], check=True)
     npm = "npm.cmd" if os.name == "nt" else "npm"
     subprocess.run([npm, "ci", "--prefix", str(ROOT / "frontend-console")], check=True)

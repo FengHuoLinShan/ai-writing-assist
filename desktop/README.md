@@ -44,6 +44,9 @@ macOS 需 Xcode Command Line Tools；Windows 需 Visual Studio C++ 工具环境�
 meson==1.12.1、ninja==1.13.2 与 winflexbison3，设置 CC=cl/CXX=cl。
 开发工具不进入最终用户安装流程。
 Windows 数据库程序使用进程内 UTF-8 manifest，支持中文安装/数据路径，不修改系统区域设置。
+冻结 Python 解释器固定使用 UTF-8；源码构建/测试也以 PYTHONUTF8=1 启动。
+Windows 经 pg_ctl 的受限 token 启动数据库，即使父进程有管理员权限也不绕过 PG 安全检查；
+监督器保存并验证该数据库的原生进程句柄。
 Intel Mac 构建使用 Python 3.13（uv sync 加 --python 3.13），固定最后提供 Intel
 wheel 的 ONNX Runtime 1.23.2；Apple Silicon/Windows 使用锁定的当前版本。
 固定 PostgreSQL/pgvector 源码 SHA256、模型 revision 和权重 SHA256；

@@ -20,21 +20,18 @@ from urllib.request import ProxyHandler, build_opener
 from infrastructure.os_security import open_private_file, private_directory, try_lock
 
 from desktop.gateway import readiness_proof
+from desktop.windows_process import WindowsDatabaseProcess
 
 
 def resource_root() -> Path:
     return (
-        Path(sys._MEIPASS)
-        if getattr(sys, "frozen", False)
-        else Path(__file__).parents[1]
+        Path(sys._MEIPASS) if getattr(sys, "frozen", False) else Path(__file__).parents[1]
     )
 
 
 def backend_root() -> Path:
     return (
-        resource_root()
-        if getattr(sys, "frozen", False)
-        else resource_root() / "backend"
+        resource_root() if getattr(sys, "frozen", False) else resource_root() / "backend"
     )
 
 
@@ -84,7 +81,7 @@ class LocalRuntime:
         )
         self.pg_bin = assets / "postgres/bin"
         self.model = assets / "model"
-        self.processes: list[tuple[str, subprocess.Popen]] = []
+        self.processes: list[tuple[str, subprocess.Popen | WindowsDatabaseProcess]] = []
         self.logs = []
         self.stopping = threading.Event()
         self.env = self._environment()
@@ -171,6 +168,7 @@ class LocalRuntime:
                 "NOVELCRAFT_DESKTOP_TOKEN": secrets.token_urlsafe(32),
                 "NOVELCRAFT_DESKTOP_DATA_DIR": str(self.directory),
                 "PYTHONUNBUFFERED": "1",
+                "PYTHONUTF8": "1",
                 "POOL_SIZE": "4",
                 "MAX_OVERFLOW": "4",
             }
@@ -247,9 +245,11 @@ class LocalRuntime:
                         "--encoding=UTF8",
                         "--locale=C",
                         # pg_trgm still uses the OS character classifier in PG 17.
-                        "--lc-ctype=" + (
+                        "--lc-ctype="
+                        + (
                             "English_United States.1252"
-                            if os.name == "nt" else "en_US.UTF-8"
+                            if os.name == "nt"
+                            else "en_US.UTF-8"
                         ),
                         "--locale-provider=builtin",
                         "--builtin-locale=C.UTF-8",
@@ -262,24 +262,47 @@ class LocalRuntime:
                     shutil.rmtree(staged)
         if (pgdata / "PG_VERSION").read_text().strip() != "17":
             raise RuntimeError("数据版本与应用不兼容，已停止启动以保护作品。")
-        self.spawn(
-            "database",
-            [
-                self.pg("postgres"),
-                "-D",
-                str(pgdata),
-                "-h",
-                "127.0.0.1",
-                "-p",
-                self.env["PGPORT"],
-                "-c",
-                "shared_buffers=32MB",
-                "-c",
-                "max_connections=30",
-                "-c",
-                "unix_socket_directories=",
-            ],
-        )
+        options = [
+            "-h",
+            "127.0.0.1",
+            "-p",
+            self.env["PGPORT"],
+            "-c",
+            "shared_buffers=32MB",
+            "-c",
+            "max_connections=30",
+            "-c",
+            "unix_socket_directories=",
+        ]
+        if os.name == "nt":
+            # pg_ctl removes administrator privileges before starting PostgreSQL.
+            try:
+                self.run(
+                    [
+                        self.pg("pg_ctl"),
+                        "-D",
+                        str(pgdata),
+                        "start",
+                        "-w",
+                        "-t",
+                        "60",
+                        "-l",
+                        str(self.directory / "database.log"),
+                        "-o",
+                        subprocess.list2cmdline(options),
+                    ]
+                )
+                pid = int((pgdata / "postmaster.pid").read_text().splitlines()[0])
+                process = WindowsDatabaseProcess(pid, self.pg("postgres"))
+                self.processes.append(("database", process))
+            except BaseException:
+                if (pgdata / "postmaster.pid").exists():
+                    self.run(
+                        [self.pg("pg_ctl"), "-D", str(pgdata), "stop", "-m", "fast", "-w"]
+                    )
+                raise
+        else:
+            self.spawn("database", [self.pg("postgres"), "-D", str(pgdata), *options])
 
         def connect(database="postgres"):
             return psycopg2.connect(
@@ -349,9 +372,15 @@ class LocalRuntime:
                     elif name == "database":
                         try:
                             self.run(
-                                [self.pg("pg_ctl"), "-D",
-                                 str(self.directory / "database"),
-                                 "stop", "-m", "fast", "-w"],
+                                [
+                                    self.pg("pg_ctl"),
+                                    "-D",
+                                    str(self.directory / "database"),
+                                    "stop",
+                                    "-m",
+                                    "fast",
+                                    "-w",
+                                ],
                                 timeout=60,
                             )
                         except (OSError, subprocess.SubprocessError):
@@ -368,6 +397,9 @@ class LocalRuntime:
                 except ProcessLookupError:
                     pass
         finally:
+            for _, process in self.processes:
+                if isinstance(process, WindowsDatabaseProcess):
+                    process.close()
             for log in self.logs:
                 log.close()
             os.close(self.lock)

@@ -46,9 +46,10 @@ a = Analysis([str(root / 'desktop/entry.py')], pathex=[str(root), str(backend)],
              excludes=['pytest', 'ruff', 'torch', 'sentence_transformers', 'tkinter',
                        'PyQt5', 'PyQt6', 'PySide2', 'PySide6'])
 pyz = PYZ(a.pure)
-exe = EXE(pyz, a.scripts, [], exclude_binaries=True, name='NovelCraft',
+options = [('X utf8', None, 'OPTION')]
+exe = EXE(pyz, a.scripts, options, exclude_binaries=True, name='NovelCraft',
           debug=False, strip=False, upx=False, console=False)
-runtime = EXE(pyz, a.scripts, [], exclude_binaries=True, name='NovelCraftRuntime',
+runtime = EXE(pyz, a.scripts, options, exclude_binaries=True, name='NovelCraftRuntime',
               debug=False, strip=False, upx=False, console=True)
 app = COLLECT(exe, runtime, a.binaries, a.datas,
               strip=False, upx=False, name='NovelCraft')

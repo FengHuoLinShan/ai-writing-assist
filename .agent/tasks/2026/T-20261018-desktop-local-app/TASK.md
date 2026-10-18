@@ -3,7 +3,7 @@ id: T-20261018-desktop-local-app
 title: macOS 与 Windows 完整本地桌面应用
 status: active
 created: 2026-10-18T19:42:17+08:00
-updated: 2026-10-18T20:55:38+08:00
+updated: 2026-10-18T21:02:46+08:00
 ---
 
 # 完整本地桌面应用
@@ -83,3 +83,7 @@ updated: 2026-10-18T20:55:38+08:00
 - pywebview 默认禁用下载，已显式开启；Mac 原生保存对话框导出合成中文正文成功，UTF-8 文件内容已核对，保存在项目 output/desktop-20261018/NovelCraft-desktop-export-check.txt。
 - worker liveness 原来调用 Windows 不存在的 fchmod、使用 /tmp；现在 Windows 用用户私有 AppData marker + ACL，POSIX/Docker 契约不变，加入跨平台 CI 复用原有 atomic marker 测试。
 - 当前最新本机 bundle 在 ignored desktop/build/final-dist，前一版 desktop/dist 的 GUI 被 CUA AX 查询重新拉起为默认数据目录的空白演示实例，可留供用户查看；不要并发覆盖该 bundle。当前 output DMG 尚需更新为开启导出的包。
+
+- CI run 39129339966 的 Windows failure 发生在新复用的 backend/conftest 导入：capabilities.json 被系统默认 CP1252 解码。已将源码构建/测试 PYTHONUTF8=1，冻结两个 EXE 固定 X utf8；仅设置环境不足以影响 PyInstaller 的隔离解释器。
+- PostgreSQL 源码 check_root 明确拒绝 Windows elevated token；Windows 改用 pg_ctl 自带的 restricted token 启动，保存 postmaster.pid 对应进程句柄并校验精确 exe 身份。新 Windows-only 测试用真实拥有的 ping 子进程验证身份不符不终止、wait timeout 和精确句柄终止。不能绕过 PG 的安全检查。
+- 本机最新包再次搬移 smoke 通过，包含导出开关和 BGE MIT 许可证；当前还需重打含最新平台启动修复的最终包。
