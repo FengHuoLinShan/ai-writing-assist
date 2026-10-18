@@ -96,13 +96,14 @@ def _build_task_worker():
     )
 
 
-async def _run_task_worker(worker) -> None:
+async def _run_task_worker(worker, *, shutdown_event=None) -> None:
     """Run a composed worker and translate production SIGTERM into a drain."""
     loop = asyncio.get_running_loop()
     signal_handler_installed = False
     shutdown_started = False
     drain_deadline_handle = None
     run_task = asyncio.create_task(worker.run_forever())
+    shutdown_watch = None
 
     def force_shutdown(reason: str) -> None:
         logger.warning("TaskWorker forcing shutdown: %s", reason)
@@ -130,6 +131,12 @@ async def _run_task_worker(worker) -> None:
             f"drain deadline {WORKER_DRAIN_TIMEOUT_SECONDS:.0f}s exceeded",
         )
 
+    async def watch_shutdown():
+        await shutdown_event.wait()
+        begin_graceful_shutdown()
+
+    if shutdown_event is not None:
+        shutdown_watch = asyncio.create_task(watch_shutdown())
     try:
         try:
             loop.add_signal_handler(signal.SIGTERM, begin_graceful_shutdown)
@@ -139,16 +146,19 @@ async def _run_task_worker(worker) -> None:
             signal_handler_installed = True
         await run_task
     finally:
+        if shutdown_watch is not None:
+            shutdown_watch.cancel()
+            await asyncio.gather(shutdown_watch, return_exceptions=True)
         if drain_deadline_handle is not None:
             drain_deadline_handle.cancel()
         if signal_handler_installed:
             loop.remove_signal_handler(signal.SIGTERM)
 
 
-async def main() -> None:
+async def main(*, shutdown_event=None) -> None:
     _configure_worker_process()
     worker = _build_task_worker()
-    await _run_task_worker(worker)
+    await _run_task_worker(worker, shutdown_event=shutdown_event)
 
 
 def _require_schema_current() -> None:

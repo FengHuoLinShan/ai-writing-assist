@@ -776,3 +776,12 @@ DB 本地配置上限 30 天，restic `--keep-within 30d`；对象按不超过 3
 author_export；每行支持 objects 下中文相对 file，拒绝穿越/重复/缺图。运维 ZIP 白名单解包后
 按目录恢复，先核对目标 DB 对象归属与可用 hash/size；作者 ZIP 恢复前须 chmod 600。
 图片包不恢复数据库或跨项目导入。生产启用仍须后续发布授权和只读对账。
+
+## 桌面运行配置
+
+桌面组合根独立管理 loopback API、worker 和随包 PostgreSQL，继续使用相同 PostgreSQL 任务队列、
+领域 handler 和 owner/project 守卫。图片改由 World 的本地文件适配承载，不增加业务模块或新队列。
+OS 安全 helper 在 POSIX 继续验证 UID/权限并使用 flock，在 Windows 验证私有 ACL 并使用
+msvcrt 锁；Windows 的 worker 关闭也进入既有有界排空路径。
+原生 ONNX 推理按模型输入声明补齐 token_type_ids，不改变原有池化算法或既有 embedding 身份。
+分发契约、数据目录与验收边界见 [桌面说明](../../desktop/README.md)。

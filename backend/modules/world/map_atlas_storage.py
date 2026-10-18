@@ -268,6 +268,16 @@ def require_owned_page_object_key(key: str, novel_id: str, page_id: str) -> str:
 
 def storage_configuration_status() -> dict:
     settings = get_settings()
+    if settings.world_images_directory and settings.map_atlas_s3_bucket.strip():
+        try:
+            _local_image_client(settings)
+        except (ValueError, OSError):
+            return {
+                "available": False,
+                "reason": "本机图片目录不可用。",
+                "check": "configuration",
+            }
+        return {"available": True, "reason": None, "check": "configuration"}
     reason = None
     if not settings.map_atlas_s3_bucket.strip():
         reason = "图片存储尚未配置，请联系管理员完成私有存储设置。"
@@ -278,6 +288,18 @@ def storage_configuration_status() -> dict:
     return {"available": reason is None, "reason": reason, "check": "configuration"}
 
 
+def _local_image_client(settings):
+    from pathlib import Path
+
+    from modules.world.local_image_store import LocalImageClient
+
+    if settings.app_env != "local" or settings.auth_mode != "local":
+        raise ValueError(
+            "Local image storage is restricted to local single-user runtimes"
+        )
+    return LocalImageClient(Path(settings.world_images_directory))
+
+
 class MapAtlasStorage:
     """Small async wrapper around one synchronous boto3 S3 client."""
 
@@ -286,6 +308,9 @@ class MapAtlasStorage:
         self.bucket = (bucket or settings.map_atlas_s3_bucket).strip()
         if not self.bucket:
             raise RuntimeError("MAP_ATLAS_S3_BUCKET is required")
+        if settings.world_images_directory:
+            self._client = client if client is not None else _local_image_client(settings)
+            return
         endpoint_url = validate_map_atlas_s3_endpoint_url(
             settings.map_atlas_s3_endpoint_url
         )

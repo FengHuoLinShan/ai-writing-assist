@@ -437,6 +437,9 @@ class Settings:
     )
 
     # --- AI 地图册私有对象存储 ---
+    world_images_directory: str = field(
+        default_factory=lambda: _env("WORLD_IMAGES_DIRECTORY", "")
+    )
     map_atlas_s3_bucket: str = field(
         default_factory=lambda: _env("MAP_ATLAS_S3_BUCKET", "")
     )
