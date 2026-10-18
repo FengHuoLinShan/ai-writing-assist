@@ -3,7 +3,7 @@ id: T-20261018-desktop-local-app
 title: macOS 与 Windows 完整本地桌面应用
 status: active
 created: 2026-10-18T19:42:17+08:00
-updated: 2026-10-18T21:47:00+08:00
+updated: 2026-10-18T22:04:00+08:00
 ---
 
 # 完整本地桌面应用
@@ -97,3 +97,7 @@ updated: 2026-10-18T21:47:00+08:00
 
 - 全量 fast CI：9215 passed / 2 skipped，85.25% coverage；两项配置契约失败为新 workflow 的 Action 注释/行格式与 Intel Python 例外。已补与全仓一致的 Action SHA/version 注释，既有 toolchain 测试保留强制版本断言并精确断言桌面三平台 matrix（Intel 3.13.15，其他跟随 backend/.python-version）；本地两项复测通过。
 - 3e291feb1 之后本地 desktop/liveness/两项配置契约：30 passed / 2 Windows-only skipped；源码全启动/持久化/重启 smoke 通过。
+
+- Windows run 39132885893 / 3e291feb1：initdb、受限 token 启动数据库、精确进程监控均成功；Alembic 报冻结 SQL checksum mismatch，Windows checkout 自动 CRLF 改了快照字节。a15c6208c 用 .gitattributes 将 /backend/alembic/frozen/*.sql 限定 text eol=lf，不改 snapshot/摘要/安全校验。真实 `git -c core.autocrlf=true checkout-index` 复核两个 SQL 与原件字节完全一致且无 CRLF。当前等待 run 39133981415。
+- 3e291feb1 的完整 Backend quality、PostgreSQL critical 已通过；生产镜像恢复演练先在 docker.m.daocloud.io 拉镜像 TLS handshake timeout，重跑通过，未修改服务器恢复逻辑。
+- 最新已取回 ARM64 DMG（3e291feb1）位于 ignored desktop/build/artifacts-3e291feb/mac-arm，挂载与 ad-hoc codesign 完整性通过，SHA256 c9ad21cd1843008e76341d1c0897c3b428af0d125345773a3a7b007d1b2e753b。output 目前仍是 027a0cad4 的两种 Mac 包，最终可统一换最新 CI 产物。

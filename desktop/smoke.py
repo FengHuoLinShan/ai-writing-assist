@@ -32,7 +32,7 @@ def launch(command, directory):
         target=lambda: result.put(process.stdout.readline()), daemon=True
     ).start()
     try:
-        row = json.loads(result.get(timeout=180))
+        row = json.loads(result.get(timeout=900))
         url = row["url"]
         origin = url.split("/_desktop/")[0]
         client = httpx.Client(base_url=origin, timeout=30, trust_env=False)

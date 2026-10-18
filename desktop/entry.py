@@ -121,7 +121,8 @@ def desktop():
         "NovelCraft",
         html="<html lang='zh-CN'><meta charset='utf-8'>"
         "<title>NovelCraft</title><body style='font:18px system-ui;padding:48px'>"
-        "<h1>NovelCraft</h1><p>正在准备你的创作空间…</p></body></html>",
+        "<h1>NovelCraft</h1><p>正在准备你的创作空间…</p>"
+        "<p>首次启动可能需要几分钟，请稍候。</p></body></html>",
         width=1280,
         height=860,
         min_size=(800, 600),
