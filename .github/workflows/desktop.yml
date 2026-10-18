@@ -14,12 +14,11 @@ permissions:
 env:
   PYTHONUTF8: '1'
 
-concurrency:
-  group: desktop-${{ github.ref }}
-  cancel-in-progress: true
-
 jobs:
   build:
+    concurrency:
+      group: desktop-${{ github.ref }}-${{ matrix.os }}
+      cancel-in-progress: true
     strategy:
       fail-fast: false
       matrix:

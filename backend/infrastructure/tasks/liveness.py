@@ -46,7 +46,7 @@ def write_control_loop_liveness(
     try:
         if os.name != "nt":
             os.fchmod(descriptor, 0o600)
-        marker_file = os.fdopen(descriptor, "w", encoding="ascii")
+        marker_file = os.fdopen(descriptor, "w", encoding="ascii", newline="\n")
         descriptor = -1
         with marker_file:
             marker_file.write(f"{timestamp:.17g}\n")
