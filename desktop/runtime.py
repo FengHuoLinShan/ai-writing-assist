@@ -175,18 +175,35 @@ class LocalRuntime:
         )
         return env
 
-    def run(self, command: list[str], *, timeout=180) -> None:
+    def run(self, command: list[str], *, timeout=180, cancellable=False) -> None:
         with (self.directory / "setup.log").open("ab") as log:
-            subprocess.run(
+            with subprocess.Popen(
                 command,
                 env=self.env,
                 cwd=backend_root(),
                 stdout=log,
                 stderr=log,
-                check=True,
-                timeout=timeout,
                 creationflags=subprocess.CREATE_NO_WINDOW if os.name == "nt" else 0,
-            )
+            ) as process:
+                deadline = time.monotonic() + timeout
+                try:
+                    while True:
+                        if cancellable and self.stopping.is_set():
+                            raise RuntimeError("启动已取消，作品数据已保留。")
+                        remaining = deadline - time.monotonic()
+                        if remaining <= 0:
+                            raise subprocess.TimeoutExpired(command, timeout)
+                        try:
+                            result = process.wait(timeout=min(0.2, remaining))
+                            break
+                        except subprocess.TimeoutExpired:
+                            pass
+                    if result:
+                        raise subprocess.CalledProcessError(result, command)
+                finally:
+                    if process.poll() is None:
+                        process.kill()
+                    process.wait()
 
     def spawn(self, name: str, command: list[str], *, control=False):
         log = (self.directory / f"{name}.log").open("ab")
@@ -341,7 +358,7 @@ class LocalRuntime:
             connection.commit()
         finally:
             connection.close()
-        self.run(entry_command("migrate"), timeout=600)
+        self.run(entry_command("migrate"), timeout=600, cancellable=True)
         self.spawn("api", entry_command("api"), control=True)
         token = self.env["NOVELCRAFT_DESKTOP_TOKEN"]
 

@@ -1,5 +1,9 @@
 import json
 import sys
+import threading
+import time
+
+import pytest
 
 from desktop.runtime import LocalRuntime
 
@@ -38,3 +42,21 @@ def test_failed_pg_control_still_stops_owned_process(monkeypatch, tmp_path):
     assert process.poll() is not None
     reopened = LocalRuntime(runtime.directory)
     reopened.close()
+
+
+def test_close_cancels_cold_setup_and_reaps_the_child(tmp_path):
+    runtime = LocalRuntime(tmp_path / "desktop")
+    timer = threading.Timer(0.1, runtime.stopping.set)
+    timer.start()
+    started = time.monotonic()
+    try:
+        with pytest.raises(RuntimeError, match="启动已取消"):
+            runtime.run(
+                [sys.executable, "-c", "import time; time.sleep(30)"],
+                timeout=60,
+                cancellable=True,
+            )
+        assert time.monotonic() - started < 5
+    finally:
+        timer.cancel()
+        runtime.close()
