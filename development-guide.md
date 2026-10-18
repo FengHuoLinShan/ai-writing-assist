@@ -513,3 +513,13 @@ API 与 worker 使用相同 Compose runtime 环境。回退不降级表、不撤
 实验结果仅证明合成技术合同，不代表真实模型或作者验收。
 
 本机 Codex 文本开发（ADR-0033）：AUTH_MODE=local，已登录且支持 read-only/ignore-rules/output-schema 与工具关闭参数的 Codex CLI；多版本时设置 CODEX_CLI_COMMAND。账户设置实际验证后使用 Luna/max。公开服务不开放该连接。
+
+## 本地桌面构建
+
+桌面安装包为主要交付物。版本、变更说明、固定 main SHA、签名及 Release 草稿操作见
+[桌面发布流程](desktop/RELEASE.md)；开发容器和服务器部署仍保留各自用途。
+
+完整本地分发复用生产前端构建，不使用 make dev 的容器和热更新进程。
+在独立 worktree 的虚拟环境安装 backend 的 desktop extra，再运行 desktop/build.py。
+目标 macOS/Windows 原生编译、资源锁定、构建与验收命令以 [桌面 README](desktop/README.md) 为准；
+不复用真实开发库，不读取或复制已有模型密钥、CLI 登录态或作品。

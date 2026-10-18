@@ -411,3 +411,10 @@ Evolution `budget_total`/`budget_remaining` 允许成对为空；旧有限行原
 存在范围数据时迁移拒绝降级。旧未跟踪队列明确保留领域预算 seam，不能冒充已完整跟踪。
 
 新范围信封在预留前同时核验步骤上下文与实际执行 provider/最终 model，步骤标签不能授权其他来源。新 B5 路由把附加型号能力快照保存在 `cost_routing.llm_capability_profile` 并纳入项目签名；发送按最终型号选冻结输入预算，旧路由缺此字段时保留旧策略。冻结 tokenizer 方法与当前工具不一致在装包/最终发送前失败关闭，不重试或默默放宽输入。
+
+## 本机平台安全
+
+模型池文件锁与 Codex 身份文件读取共用 infrastructure/os_security.py。
+POSIX 保留 UID、权限、no-follow 和 flock；Windows 验证所有者与受限 ACL，
+使用 msvcrt 文件锁，进程退出释放占用；不以禁用跨进程限流换取 Windows 启动。
+桌面完整构建与平台验收范围见 [桌面说明](../../../desktop/README.md)。

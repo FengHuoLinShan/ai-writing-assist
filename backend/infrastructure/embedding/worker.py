@@ -81,6 +81,7 @@ def _try_load_onnx(model_path: str, wlog) -> tuple | None:
         tokenizer_path = os.path.join(os.path.dirname(onnx_path), "tokenizer.json")
         if os.path.isfile(tokenizer_path):
             tokenizer = Tokenizer.from_file(tokenizer_path)
+            tokenizer.enable_truncation(max_length=512)
         else:
             wlog.warning("No tokenizer.json found alongside ONNX model")
             return None
@@ -235,6 +236,10 @@ def _worker_loop(
                         "input_ids": padded_ids,
                         "attention_mask": padded_mask,
                     }
+                    if "token_type_ids" in {
+                        item.name for item in onnx_session.get_inputs()
+                    }:
+                        ort_inputs["token_type_ids"] = [[0] * max_len for _ in padded_ids]
                     outputs = onnx_session.run(None, ort_inputs)
                     # 取最后一层 hidden state 的 mean pooling
                     last_hidden = outputs[0]

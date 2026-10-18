@@ -28,6 +28,7 @@ from infrastructure.llm.schemas import (
     LLMToolDelta,
     LLMUsage,
 )
+from infrastructure.os_security import user_identity
 
 CODEX_MODEL = "gpt-6-luna"
 CODEX_EFFORT = "max"
@@ -54,7 +55,7 @@ def codex_connection_fingerprint() -> str:
         codex_login_identity(),
         str(Path(command).resolve()),
         str(Path(command).resolve().stat().st_mtime_ns),
-        str(os.getuid()),
+        user_identity(),
         str(Path(os.environ.get("CODEX_HOME", str(Path.home() / ".codex"))).resolve()),
     ]
     return hashlib.sha256(json.dumps(identity).encode()).hexdigest()

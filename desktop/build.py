@@ -1,0 +1,51 @@
+"""Build a native desktop bundle on the target OS/architecture."""
+
+import json
+import os
+import subprocess
+import sys
+from pathlib import Path
+
+ROOT = Path(__file__).resolve().parents[1]
+
+
+def main():
+    if sys.platform not in {"darwin", "win32"}:
+        raise SystemExit("Build on macOS or Windows")
+    os.environ["PYTHONUTF8"] = "1"
+    subprocess.run([sys.executable, str(ROOT / "desktop/build_assets.py")], check=True)
+    sys.path.insert(0, str(ROOT))
+    from desktop.release import build_metadata
+
+    metadata = build_metadata()
+    assets = ROOT / "desktop/build/assets"
+    (assets / "build.json").write_text(json.dumps(metadata, indent=2) + "\n")
+    (assets / "version.iss").write_text(
+        '#define NovelCraftVersion "' + metadata["version"] + '"\n'
+        '#define NovelCraftNumericVersion "' + metadata["version"].split("-")[0] + '"\n'
+    )
+    npm = "npm.cmd" if os.name == "nt" else "npm"
+    subprocess.run([npm, "ci", "--prefix", str(ROOT / "frontend-console")], check=True)
+    subprocess.run(
+        [npm, "run", "build", "--prefix", str(ROOT / "frontend-console")], check=True
+    )
+    subprocess.run(
+        [
+            sys.executable,
+            "-m",
+            "PyInstaller",
+            "--noconfirm",
+            "--clean",
+            "--distpath",
+            str(ROOT / "desktop/dist"),
+            "--workpath",
+            str(ROOT / "desktop/build/pyinstaller"),
+            str(ROOT / "desktop/NovelCraft.spec"),
+        ],
+        cwd=ROOT,
+        check=True,
+    )
+
+
+if __name__ == "__main__":
+    main()

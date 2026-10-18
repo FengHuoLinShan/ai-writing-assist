@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import math
+import os
 import stat
 import subprocess
 import sys
@@ -18,7 +19,7 @@ def _write_cmdline(path, *tokens: bytes) -> None:
 
 
 def test_control_loop_marker_writes_an_atomic_private_monotonic_value(tmp_path) -> None:
-    marker_path = tmp_path / "control-loop"
+    marker_path = tmp_path / "private" / "control-loop"
 
     liveness.write_control_loop_liveness(
         marker_path=marker_path,
@@ -26,8 +27,13 @@ def test_control_loop_marker_writes_an_atomic_private_monotonic_value(tmp_path) 
     )
 
     assert marker_path.read_bytes() == b"123.5\n"
-    assert stat.S_IMODE(marker_path.stat().st_mode) == 0o600
-    assert not list(tmp_path.glob(".control-loop.*"))
+    if os.name == "nt":
+        from infrastructure.os_security import open_private_file
+
+        os.close(open_private_file(marker_path))
+    else:
+        assert stat.S_IMODE(marker_path.stat().st_mode) == 0o600
+    assert not list(marker_path.parent.glob(".control-loop.*"))
 
 
 @pytest.mark.parametrize(
