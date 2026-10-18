@@ -2,8 +2,9 @@
 id: T-20261018-ci-full-postgresql
 title: 修复 PostgreSQL nightly 并启用 PR 全量门禁
 status: completed
+external_ref: https://github.com/FengHuoLinShan/ai-writing-assist/pull/254
 created: 2026-10-18T10:04:00+08:00
-updated: 2026-10-18T10:24:56+08:00
+updated: 2026-10-18T10:43:40+08:00
 ---
 
 # CI/CD 修复
@@ -12,7 +13,7 @@ updated: 2026-10-18T10:24:56+08:00
 
 - 工作区：`.worktrees/ci-full-postgresql`，分支 `codex/ci-full-postgresql`，基线 `6004d3703d03c5110044239c86362d23df39df53`。
 - 已复用 `268cc1289` 的 simulation 测试补丁；原分支保留。
-- 下一步：已获用户远端交付授权，接入最新 main、提交与推送，按固定 PR head 的检查结果合并；关联 PR 为远端交付状态源。
+- 恢复核验：`gh pr view 254 --json state,headRefOid,mergeCommit,statusCheckRollup`。本地实现和验证已完成；远端交付状态以该 PR 为准，禁止把此处历史本地结果替代固定 head 检查。
 - 数据库：本任务新建容器 `ci-full-postgresql-20261018`，loopback 65418，库 `ci_full_e2e_test`（初始诊断）、`ci_focus_e2e_test`（定向/critical）、`ci_final_e2e_test`（最终全量）；不访问其他库。
 - 本地验证阶段结束时尚未提交；本轮用户已明确授权提交、合并、推送，不含部署。后续状态以关联 PR 为准。
 
@@ -61,3 +62,5 @@ updated: 2026-10-18T10:24:56+08:00
 - 用户已授权提交、合并与推送。已 fetch 的 main 为 `98598127f933782f26019ca0e9970c53849c2a97`，包含 #253 的同一 simulation 补丁；接入后不重复交付。
 - ponytail-review 已检查 workflow、实际 Make target、分类、任务 claim scope、原回滚与未知用量保护，未发现阻断项。
 - 本地源码指纹与验证回执一致；远端 Ubuntu/锁定镜像、浏览器与镜像门禁以关联 PR 的固定 head 结果为准，不能由本地结果替代。
+
+- 已提交并接入最新 main，推送主题分支并创建 [PR #254](https://github.com/FengHuoLinShan/ai-writing-assist/pull/254)。实际提交、远端检查和合并结果均可从该 PR 恢复；此笔记的 completed 对应本地实现验收，不预先宣称远端 CI 或合并成功。
