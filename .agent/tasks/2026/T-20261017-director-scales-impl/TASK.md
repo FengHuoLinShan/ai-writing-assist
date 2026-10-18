@@ -3,7 +3,7 @@ id: T-20261017-director-scales-impl
 title: 导演多尺度独立探索多批次实施
 status: active
 created: 2026-10-17T19:30:00+08:00
-updated: 2026-10-18T12:52:43+08:00
+updated: 2026-10-18T12:54:22+08:00
 ---
 
 # 导演多尺度独立探索：多批次实施
@@ -12,12 +12,13 @@ updated: 2026-10-18T12:52:43+08:00
 
 - 2026-10-18 深审追加发现 5 项：Goal 失败账本回退、历史编辑绕过锁、Scene 缺父版本 CAS、
   取消后领域检查点不可恢复、沙盘受影响者字段不匹配。用户要求“修复，然后 pr”。
-- 五项已修，追加 PostgreSQL 根/分支外键排序和截止后历史费用结算修复；沿用主实施工作树 codex/director-scales-impl，HEAD db8853ff6。
+- 五项已修，追加 PostgreSQL 根/分支外键排序和截止后历史费用结算修复；沿用主实施工作树 codex/director-scales-impl；修复提交 a12c80169。
   原 26 项修复的未提交成果保留并纳入本次 PR；修改前补丁与 3 个未跟踪文件备份在
   /private/tmp/director-before-review-fix.patch 与 director-before-review-untracked.tgz。
 - 阶段证据：完整 test-ci 通过（后端 9505/85.48%，前端 3335，部署 324），专用 PG critical 112 项通过。
   最终后端全量 9508 passed / 2 skipped，覆盖率 85.48%；详细证据见 REVIEW-FIXES.md。
-- 下一步：运行提交门禁，提交推送并创建 PR；不合并、不部署。
+- 已提交推送并创建 [PR #255](https://github.com/FengHuoLinShan/ai-writing-assist/pull/255)；固定修复提交 a12c80169 的 repo-gates/docs-check 通过，与 origin/main 083843474 可无冲突合并。
+- 下一步：核对 PR 远端 CI；后续合并、第五批真实模型/作者验收仍需相应授权，不自动执行。
 - 真实数据库、业务模型与作者验收未获本轮新增授权；ADR-0042 仍 Proposed。
 - 上轮工程证据保留在 REVIEW-FIXES.md；上轮“未见剩余缺陷”已被本轮反例推翻。
 
@@ -67,4 +68,4 @@ updated: 2026-10-18T12:52:43+08:00
 
 ## 下一步
 
-- 按恢复快照完成本轮修复和 PR；第五批独立验收仍待，当前不合并或部署。
+- 本轮工程修复和 PR 创建已完成，远端 CI 以 PR 当前状态为准；第五批独立验收仍待，当前不合并或部署。

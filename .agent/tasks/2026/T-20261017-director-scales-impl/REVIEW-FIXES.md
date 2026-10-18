@@ -129,3 +129,8 @@ start schema 哈希；保持旧冻结目录隔离断言，未弱化安全门、�
 收尾静态检查：全库 Ruff lint、变更 46 个 Python 文件格式检查、diff whitespace 与 docs-check 通过。
 额外全库格式检查失败：177 个既有文件需格式化，本轮未扩大格式修改；日志
 `/private/tmp/director-review-final-static.log`。真实浏览器与业务模型仍未执行。
+
+交付：修复提交 `a12c80169` 已推送至 `origin/codex/director-scales-impl`，
+[PR #255](https://github.com/FengHuoLinShan/ai-writing-assist/pull/255) 已创建。固定提交的
+`make repo-gates docs-check BASE_REF=origin/main` 通过（文件大小门禁 2 条非失败 warning）；
+与当时 origin/main `083843474` 的 merge-tree 无冲突。未合并、未部署；远端 CI 不以本地门禁代替。
