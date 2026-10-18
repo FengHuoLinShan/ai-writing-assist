@@ -45,7 +45,7 @@ jobs:
           uv pip install --python backend/.venv/Scripts/python.exe meson==1.12.1 ninja==1.13.2
           choco install winflexbison3 --yes --no-progress
       - name: Desktop access boundary tests
-        run: uv run --project backend --no-sync python -m pytest desktop/tests -q
+        run: uv run --project backend --no-sync python -m pytest desktop/tests backend/infrastructure/tasks/tests/test_liveness.py::test_control_loop_marker_writes_an_atomic_private_monotonic_value -q
       - name: Build macOS app
         if: runner.os == 'macOS'
         run: backend/.venv/bin/python desktop/build.py

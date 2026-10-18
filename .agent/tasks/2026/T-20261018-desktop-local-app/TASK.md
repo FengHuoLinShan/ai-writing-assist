@@ -3,7 +3,7 @@ id: T-20261018-desktop-local-app
 title: macOS 与 Windows 完整本地桌面应用
 status: active
 created: 2026-10-18T19:42:17+08:00
-updated: 2026-10-18T20:34:50+08:00
+updated: 2026-10-18T20:55:38+08:00
 ---
 
 # 完整本地桌面应用
@@ -77,3 +77,9 @@ updated: 2026-10-18T20:34:50+08:00
 - Windows 下一轮构建已到 Meson：runner 的 VS 安装版本发生变化，旧硬编码路径未加载 MSVC，且缺 flex/bison；改为 vswhere + vcvars64 + CC/CXX=cl，并安装 winflexbison3。
 - 安全复查补齐启动证明：loopback readiness 只返回实例 HMAC，监督进程校验，不向抢占端口的程序发送会话 Cookie；API/页面仍要求会话。源码 smoke 复验中。
 - 关闭失败路径：pg_ctl 不可用仍终止自己启动的进程并释放锁；真实子进程反例单测通过。
+
+- CI run 39128124674（5ca4c54fe）：ARM64 与 Intel Mac 构建、冻结 smoke 和 DMG 上传均通过。Windows 已完成 MSVC 原生编译和冻结，离线模型通过，但 supervisor 首启退出；原 stderr 未打印，下一轮已补脱敏日志。
+- 已为 Windows 原生 PG EXE 加入进程 UTF-8 manifest（Windows 10 1903+），避免窄字符入口丢失中文安装路径；这是依据源码/系统 API 的修复假设，等待真实 smoke。
+- pywebview 默认禁用下载，已显式开启；Mac 原生保存对话框导出合成中文正文成功，UTF-8 文件内容已核对，保存在项目 output/desktop-20261018/NovelCraft-desktop-export-check.txt。
+- worker liveness 原来调用 Windows 不存在的 fchmod、使用 /tmp；现在 Windows 用用户私有 AppData marker + ACL，POSIX/Docker 契约不变，加入跨平台 CI 复用原有 atomic marker 测试。
+- 当前最新本机 bundle 在 ignored desktop/build/final-dist，前一版 desktop/dist 的 GUI 被 CUA AX 查询重新拉起为默认数据目录的空白演示实例，可留供用户查看；不要并发覆盖该 bundle。当前 output DMG 尚需更新为开启导出的包。

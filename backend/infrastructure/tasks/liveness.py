@@ -11,7 +11,10 @@ import time
 from collections.abc import Callable
 from pathlib import Path
 
-CONTROL_LOOP_MARKER_PATH = Path("/tmp/ai-writing-task-worker-control-loop")
+CONTROL_LOOP_MARKER_PATH = (
+    Path.home() / "AppData/Local/NovelCraft/worker-control-loop"
+    if os.name == "nt" else Path("/tmp/ai-writing-task-worker-control-loop")
+)
 DEFAULT_FRESHNESS_SECONDS = 30.0
 _MAX_MARKER_BYTES = 128
 _MARKER_VALUE_RE = re.compile(
@@ -29,14 +32,20 @@ def write_control_loop_liveness(
     if not math.isfinite(timestamp):
         raise ValueError("control-loop monotonic timestamp must be finite")
 
-    marker_path.parent.mkdir(parents=True, exist_ok=True)
+    if os.name == "nt":
+        from infrastructure.os_security import private_directory
+
+        private_directory(marker_path.parent)
+    else:
+        marker_path.parent.mkdir(parents=True, exist_ok=True)
     descriptor, temporary_name = tempfile.mkstemp(
         prefix=f".{marker_path.name}.",
         dir=marker_path.parent,
     )
     temporary_path = Path(temporary_name)
     try:
-        os.fchmod(descriptor, 0o600)
+        if os.name != "nt":
+            os.fchmod(descriptor, 0o600)
         marker_file = os.fdopen(descriptor, "w", encoding="ascii")
         descriptor = -1
         with marker_file:
