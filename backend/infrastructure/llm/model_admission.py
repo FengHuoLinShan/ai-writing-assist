@@ -6,52 +6,34 @@ import asyncio
 import hashlib
 import json
 import os
-import stat
 from contextlib import asynccontextmanager
 from pathlib import Path
+
+from infrastructure.os_security import open_private_file, private_directory, try_lock
 
 
 def _admission_directory() -> Path:
     directory = (
         Path(os.environ["LLM_MODEL_ADMISSION_DIRECTORY"])
         if os.environ.get("LLM_MODEL_ADMISSION_DIRECTORY")
-        else Path("/tmp") / f"novelcraft-model-admission-{os.getuid()}"
-    )
-    directory.mkdir(mode=0o700, exist_ok=True)
-    info = directory.lstat()
-    if (
-        not stat.S_ISDIR(info.st_mode)
-        or info.st_uid != os.getuid()
-        or info.st_mode & 0o077
-    ):
-        raise ValueError(
-            "Model admission directory must be private and owned by this user"
+        else (
+            Path.home() / "AppData/Local/NovelCraft/model-admission"
+            if os.name == "nt"
+            else Path("/tmp") / f"novelcraft-model-admission-{os.getuid()}"
         )
-    return directory
+    )
+    return private_directory(directory)
 
 
 def _open_lock(path: Path) -> int:
-    fd = os.open(path, os.O_RDWR | os.O_CREAT | os.O_NOFOLLOW | os.O_CLOEXEC, 0o600)
-    info = os.fstat(fd)
-    if (
-        not stat.S_ISREG(info.st_mode)
-        or info.st_uid != os.getuid()
-        or info.st_mode & 0o077
-    ):
-        os.close(fd)
-        raise ValueError("Model admission file must be private and owned by this user")
-    return fd
+    return open_private_file(path, write=True)
 
 
 def _try_admit(directory: Path, identity: str, limit: int, rpm: int = 0) -> int | None:
-    import fcntl
-
     guard = _open_lock(directory / f"{identity}.limit")
     locked = []
     try:
-        try:
-            fcntl.flock(guard, fcntl.LOCK_EX | fcntl.LOCK_NB)
-        except BlockingIOError:
+        if not try_lock(guard):
             return None
         saved = os.read(guard, 256)
         config = json.dumps({"concurrency": limit, "rpm": rpm}).encode()
@@ -64,9 +46,7 @@ def _try_admit(directory: Path, identity: str, limit: int, rpm: int = 0) -> int 
             )
             for i in range(max(previous, limit)):
                 fd = _open_lock(directory / f"{identity}.{i}")
-                try:
-                    fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
-                except BlockingIOError:
+                if not try_lock(fd):
                     os.close(fd)
                     return None
                 locked.append(fd)
@@ -78,9 +58,7 @@ def _try_admit(directory: Path, identity: str, limit: int, rpm: int = 0) -> int 
             locked.clear()
         for i in range(limit):
             fd = _open_lock(directory / f"{identity}.{i}")
-            try:
-                fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
-            except BlockingIOError:
+            if not try_lock(fd):
                 os.close(fd)
             else:
                 return fd

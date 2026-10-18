@@ -737,3 +737,16 @@ quota，root 检查后只启动同一 operation id，并用精确 Scene task `ru
 ### 作者工作台任务批准回归
 
 自动批准的工程测试覆盖共享判断、授权撤回、具体预览重验和幂等回执：`make test TESTS="modules/assistant/tests/test_approval.py" ARGS="-q"`。专用 PostgreSQL 上运行 `tests/e2e/test_assistant_approval.py` 验证两种锁顺序；浏览器合成模型 fixture 仅证明操作流程，不提供真实模型校准。指定模型必须完成固定案例和当前配置指纹匹配，未校准时保持人工。恢复与跨页返回另见 `frontend-console/e2e/world-workspace-recovery.spec.js`，不以 DOM 存在替代原文实际进入视口。
+
+## 本地桌面分发验收
+
+发布前还需 desktop/tests 的版本、main 来源、CI 状态、混合/损坏产物与稳定版签名门禁回归。
+三平台来自同一固定 SHA；汇总 release.json、SHA256SUMS、安装说明和本版说明，
+缺任一平台或摘要不符即停止。Release 草稿不会自动公开，人工验收与签名证据按
+[桌面发布流程](desktop/RELEASE.md) 记录；不得用源码测试代替安装包验收。
+
+使用 desktop extra 在各目标系统运行 desktop/tests，验证 loopback Host/Origin/会话边界和
+真实跨进程文件锁。desktop/smoke.py --frozen 必须在打包完成后串行执行，使用专用临时目录
+验证真实本地 ONNX 推理、初次建库、创建作品、重复启动保护、退出及重开持久化。
+不调用业务模型、不读取真实稿件，失败保留隔离证据。macOS ARM64 通过不代表 Windows/Intel 通过；
+无签名测试包也不等于普通用户安装验收。原生窗口、保存/离开恢复、安装器和签名分别记录。

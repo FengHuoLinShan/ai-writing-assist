@@ -528,3 +528,13 @@ API 与 worker 使用相同 Compose runtime 环境。回退不降级表、不撤
 未知结果先核对原账本及领域校准记录，不另建目录绕过未知门禁。详见 Assistant README。
 默认累计 token 上限 65536；只有显式授权了新额度才可通过 `--token-limit` 调整，
 不能因供应商宿主开销或本轮失败自行扩大预算。新契约需完整重校准，不拼接旧轮次通过案例。
+
+## 本地桌面构建
+
+桌面安装包为主要交付物。版本、变更说明、固定 main SHA、签名及 Release 草稿操作见
+[桌面发布流程](desktop/RELEASE.md)；开发容器和服务器部署仍保留各自用途。
+
+完整本地分发复用生产前端构建，不使用 make dev 的容器和热更新进程。
+在独立 worktree 的虚拟环境安装 backend 的 desktop extra，再运行 desktop/build.py。
+目标 macOS/Windows 原生编译、资源锁定、构建与验收命令以 [桌面 README](desktop/README.md) 为准；
+不复用真实开发库，不读取或复制已有模型密钥、CLI 登录态或作品。

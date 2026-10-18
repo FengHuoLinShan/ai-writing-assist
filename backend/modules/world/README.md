@@ -1605,3 +1605,10 @@ version_number 对应的 revision_id/revision_digest；页面和 revision 联接
 预算与实际 ActionBatch 容量；修改各自批准，完成后重读真实版本，不把整份清单标成 AI
 已完成。复杂依赖复用 Goal 的显式产物引用、重新准备与批准、部分成功/未知回执及恢复；
 依赖顺序本身不会注入新对象身份，也不提供跨域整体撤销。
+
+## 本地桌面图片存储
+
+桌面运行可通过 WORLD_IMAGES_DIRECTORY 指定绝对私有目录，仅允许 local 环境和 local 认证。
+World 自有 LocalImageClient 实现现有图片对象操作，地图册和对象图片按 bucket 分目录，
+继续复用 PNG 校验、owner/novel_id、引用检查与清理收敛；拒绝目录穿越和符号链接，写入原子替换。
+服务器不设置该项，继续使用 S3；公开模式误配置本地路径会失败关闭。

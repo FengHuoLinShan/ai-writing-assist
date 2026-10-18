@@ -2155,6 +2155,10 @@ export function useWritingWorkspace(props) {
     todayWords,
     currentScene,
     editorState,
+    updateEditorialReady: (receipt) => editor.setState({
+      editorialReadyHash: receipt.editorial_ready_hash,
+      contentHash: receipt.content_hash,
+    }),
     generationLoading,
     generationTask,
     publishProgress,

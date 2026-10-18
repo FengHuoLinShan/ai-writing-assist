@@ -420,3 +420,10 @@ Project 显式 `approval_judgment` 用途可以构造专用 client：仅当前 p
 档位或输出模式漂移。普通 Codex client 仍拒绝 low。专用 Codex 原生命令仅改 low 参数，
 保留原生工具关闭、只读沙箱、ignore-user-config/ignore-rules、schema 与身份重验；
 回执记录实际 low，不输出私有思考。该能力不证明判断器已校准或自动模式已开放。
+
+## 本机平台安全
+
+模型池文件锁与 Codex 身份文件读取共用 infrastructure/os_security.py。
+POSIX 保留 UID、权限、no-follow 和 flock；Windows 验证所有者与受限 ACL，
+使用 msvcrt 文件锁，进程退出释放占用；不以禁用跨进程限流换取 Windows 启动。
+桌面完整构建与平台验收范围见 [桌面说明](../../../desktop/README.md)。

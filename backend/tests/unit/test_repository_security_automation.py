@@ -43,7 +43,7 @@ ALLOWED_ACTIONS = {
     "github/codeql-action/init",
 }
 ACTION_LINE_PATTERN = re.compile(
-    r"^\s*uses:\s+(?P<action>[^@\s]+)@(?P<sha>[0-9a-f]{40})"
+    r"^\s*(?:-\s+)?uses:\s+(?P<action>[^@\s]+)@(?P<sha>[0-9a-f]{40})"
     r"\s+#\s+(?P<version>v[0-9][0-9A-Za-z.\-]*)\s*$"
 )
 
@@ -92,10 +92,36 @@ def _workflow_action_lines(path: Path) -> list[tuple[str, str, str]]:
     ]
     parsed: list[tuple[str, str, str]] = []
     for line in action_lines:
+        local = re.fullmatch(
+            r"\s*uses:\s+(\./\.github/workflows/[A-Za-z0-9_-]+\.yml)\s*", line
+        )
+        if local:
+            target = REPOSITORY_ROOT / local[1]
+            assert target.is_file(), f"missing local reusable workflow: {target}"
+            assert "workflow_call" in _load_yaml(target)["on"]
+            continue
         match = ACTION_LINE_PATTERN.fullmatch(line)
         assert match is not None, f"unpinned or uncommented action in {path}: {line}"
         parsed.append((match["action"], match["sha"], match["version"]))
     return parsed
+
+
+@pytest.mark.parametrize(
+    "reference",
+    [
+        "actions/checkout@main",
+        "actions/checkout@" + "a" * 40,
+        "./.github/workflows/../../outside.yml",
+        "./.github/workflows/missing.yml",
+    ],
+)
+def test_workflow_reference_guard_rejects_unpinned_or_unsafe_calls(
+    tmp_path: Path, reference: str
+) -> None:
+    workflow = tmp_path / "unsafe.yml"
+    workflow.write_text("  uses: " + reference + "\n")
+    with pytest.raises(AssertionError):
+        _workflow_action_lines(workflow)
 
 
 def test_ci_actions_are_allowlisted_fully_pinned_and_consistent() -> None:

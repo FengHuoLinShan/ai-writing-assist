@@ -785,3 +785,12 @@ Project 显式 `approval_judgment` 用途可以构造专用 client：仅当前 p
 档位或输出模式漂移。普通 Codex client 仍拒绝 low。专用 Codex 原生命令仅改 low 参数，
 保留原生工具关闭、只读沙箱、ignore-user-config/ignore-rules、schema 与身份重验；
 回执记录实际 low，不输出私有思考。该能力不证明判断器已校准或自动模式已开放。
+
+## 桌面运行配置
+
+桌面组合根独立管理 loopback API、worker 和随包 PostgreSQL，继续使用相同 PostgreSQL 任务队列、
+领域 handler 和 owner/project 守卫。图片改由 World 的本地文件适配承载，不增加业务模块或新队列。
+OS 安全 helper 在 POSIX 继续验证 UID/权限并使用 flock，在 Windows 验证私有 ACL 并使用
+msvcrt 锁；Windows 的 worker 关闭也进入既有有界排空路径。
+原生 ONNX 推理按模型输入声明补齐 token_type_ids，不改变原有池化算法或既有 embedding 身份。
+分发契约、数据目录与验收边界见 [桌面说明](../../desktop/README.md)。

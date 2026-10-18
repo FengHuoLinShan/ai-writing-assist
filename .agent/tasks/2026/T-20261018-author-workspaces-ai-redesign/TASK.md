@@ -10,6 +10,8 @@ updated: 2026-10-19T01:37:07+08:00
 
 ## 恢复快照
 
+- 同步 main 出现后续 #256（`a991a22db`，本地桌面应用），PR 转为冲突。本轮合并仅八处文档/索引追加冲突，逐块保留双方内容；Codex provider 的平台身份读取和 Writing 的 editorial-ready 更新自动合并后保留两边行为。写作视图86项、LLM基础设施493项、Ruff/全量ESLint与文档门禁通过。旧head `f016dbb65` 的远端后端9293/2 skipped、完整PG417/7 deselected、浏览器分片2 170/2 skipped与原历史用例均已通过，但不能冒充同步后head验收；同步提交推送后须等全套CI。
+
 - PR CI 定位：旧 head 的浏览器分片2为169 passed/2 skipped/1 failed，唯一失败 `world.spec.js` 对象历史闭环点击隐藏的“改动历史”。详情改造后需先进入“经历与来源”；本轮只补该公开入口，全部备注/恢复/深链高亮/返回筛选断言保留。确切专用E2E库本地实际浏览器复验1 passed（11.8s，`/tmp/pr257-local-browser.log`），该文件ESLint通过；分片1及其余CI全部通过。合并前同步 main 的 #254（含PG历史失败测试修复与全PG门禁），随后推送本轮修复，等待当前SHA全部检查通过。
 
 - 2026-10-19T01:37:07+08:00 用户要求检查 PR #257、修复失败 CI，并在全部通过后合并，已授权本轮修复/推送与条件合并；不含部署。当前 PR head=`0fe067f696fc526c9d908907b764631bbe8bb72b`，工作区原本干净。CI Backend quality、PostgreSQL critical、前端 unit、架构/镜像/安全与 repo-gates 已通过；functional browser shard 2 失败，shard 1 仍运行。正在取 shard 2 具体日志，下一步定位失败并复现根因；不得绕过失败或直接合并。

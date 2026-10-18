@@ -197,6 +197,14 @@ design_docs = ["docs/prompts/Prompt体系设计.md"]
 code_docs = []
 api_prefixes = []
 
+[[components]]
+name = "desktop"
+kind = "runtime-contract"
+source_roots = ["desktop"]
+design_docs = ["docs/adr/0043-local-desktop-distribution.md"]
+code_docs = ["desktop/README.md"]
+api_prefixes = []
+
 [[impact_rules]]
 id = "module-production"
 advisory = true

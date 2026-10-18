@@ -847,8 +847,7 @@ async function markEditorialReady() {
     const expectedHash = Array.from(bytes, byte => byte.toString(16).padStart(2, "0")).join("")
     const saved = await getApi().writing.markEditorialReady(draftId, props.projectId, expectedHash)
     if (draftId === state.draftId && chapter === vm.selectedChapter.value && !state.dirty && state.lastSavedContent === content) {
-      state.editorialReadyHash = saved.editorial_ready_hash
-      state.contentHash = saved.content_hash
+      vm.updateEditorialReady(saved)
     }
     getToast()("这版工作稿已交编辑；可在编辑台查看或开始审读。", "success")
   } catch (error) { getToast()(error.message || "交给编辑失败，工作稿仍保留。", "error"); return }

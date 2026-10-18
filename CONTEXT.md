@@ -11,7 +11,7 @@ README、ORM 模型与 Alembic migration。当前文档范围由
 | 中文概念 | 英文 | 当前承载 | 含义 |
 |---|---|---|---|
 | 核心实体 | CoreEntity | `core_entities` | 世界对象身份根表。`entity_type` 区分人物、地点、势力、物品、事件、规则、秘密等；统一保存名称、摘要、可见性、状态、扩展 JSON 与图片版本元数据。 |
-| 对象图片 | World object image | 私有 S3 `world-objects` bucket + CoreEntity 图片元数据 | 可选的作者识别辅助资料；浏览器只通过 owner + `novel_id` 门禁读取缩略图或完整图，不取得 object key。 |
+| 对象图片 | World object image | 服务器私有 S3 / 桌面本地文件 + CoreEntity 图片元数据 | 可选的作者识别辅助资料；浏览器只通过 owner + `novel_id` 门禁读取缩略图或完整图，不取得 object key。 |
 | 类型化档案 | Entity Profile | `species_profiles`、`faction_profiles`、`location_profiles`、`rule_profiles`、`item_profiles`、`secret_profiles` | 高频对象类型的 1:1 强字段扩展。 |
 | 通用档案 | GenericEntityProfile | `generic_entity_profiles` | 没有专属强表的实体 profile；配合 `entity_profile_templates` 描述 schema/展示。 |
 | 人物 | Character | `characters` | `entity_id → core_entities.id` 的人物扩展。 |
@@ -98,7 +98,7 @@ manifest 与 hash；manifest 按真实来源类型和 ID 记录 context/world lo
 已发布正文变化时，当前已保存地图的真实正文来源会进入写作失效回执，提示作者去地图核对；
 只作提示，不改变地图状态或 Scene 重算范围。其余未覆盖来源见 [Evolution 合同](docs/modules/22_evolution.md)。
 
-账户图片连接固定使用 `gpt-image-2`，也可按 ADR-0029 逐次授权本机 CLI 生图；结果存入私有 S3。浏览器通过 owner 与 `novel_id` 双门禁的后端
+账户图片连接固定使用 `gpt-image-2`，也可按 ADR-0029 逐次授权本机 CLI 生图；结果经同一 World 存储接口保存：服务器写私有 S3，桌面写私有本地文件。浏览器通过 owner 与 `novel_id` 双门禁的后端
 接口读取。项目永久删除以 share/exclusive project lock 封住晚到上传，并用不依赖项目 FK 的
 全局前缀清理任务移除对象。
 
