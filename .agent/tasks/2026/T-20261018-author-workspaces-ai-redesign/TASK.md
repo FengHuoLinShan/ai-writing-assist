@@ -10,6 +10,8 @@ updated: 2026-10-19T01:37:07+08:00
 
 ## 恢复快照
 
+- 同步后head `6df9cc2f6`：后端、完整PG、浏览器分片2与三平台桌面构建均通过；分片1 functional为208 passed/1 failed。唯一失败 `focused-evidence.spec.js` 窄屏选章后强制点“关闭章节”，与产品自动收起竞争；trace含force点击，截图账户菜单打开并遮挡本章资料。已改为选章后等待章节dialog隐藏，刷新恢复也按实际选章路径等待，删除force和吞错；查证范围/部分结果/来源选择/刷新续跑断言全部保留。完整focused-evidence文件重复3轮，9 passed（实际结果见 `/tmp/pr257-local-browser.log`）；ESLint通过。下一步提交/推送此最小测试同步，再等新head全部CI后合并。
+
 - 同步 main 出现后续 #256（`a991a22db`，本地桌面应用），PR 转为冲突。本轮合并仅八处文档/索引追加冲突，逐块保留双方内容；Codex provider 的平台身份读取和 Writing 的 editorial-ready 更新自动合并后保留两边行为。写作视图86项、LLM基础设施493项、Ruff/全量ESLint与文档门禁通过。旧head `f016dbb65` 的远端后端9293/2 skipped、完整PG417/7 deselected、浏览器分片2 170/2 skipped与原历史用例均已通过，但不能冒充同步后head验收；同步提交推送后须等全套CI。
 
 - PR CI 定位：旧 head 的浏览器分片2为169 passed/2 skipped/1 failed，唯一失败 `world.spec.js` 对象历史闭环点击隐藏的“改动历史”。详情改造后需先进入“经历与来源”；本轮只补该公开入口，全部备注/恢复/深链高亮/返回筛选断言保留。确切专用E2E库本地实际浏览器复验1 passed（11.8s，`/tmp/pr257-local-browser.log`），该文件ESLint通过；分片1及其余CI全部通过。合并前同步 main 的 #254（含PG历史失败测试修复与全PG门禁），随后推送本轮修复，等待当前SHA全部检查通过。
