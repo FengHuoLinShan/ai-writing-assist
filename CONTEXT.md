@@ -62,6 +62,7 @@ README、ORM 模型与 Alembic migration。当前文档范围由
 | Scene 建议决定 | `scene_fusion_suggestions` | 承载 Phase 1c 融合决定和重复提取的 replacement 审查；未采用的替换候选只保存在 suggestion payload，不是 active Scene，不进入下游事实链。 |
 | 伏笔 / 揭示 | `foreshadowing_plans` / `reveal_plans` | PlotThread 信息推进的底层投影与兼容读模型；作者侧不再作为独立顶层模块。 |
 | 正文版本 | `writing_drafts` | 章节正文的多版本承载；普通正文只有工作稿/已发布成熟度，未采用 AI 文本以兼容 `candidate` 保存为待处理建议，并保存 conflict snapshot 与生成 provenance。 |
+| 临时草稿 | 尚未保存为正文版本的作者编辑内容 | 可用于对话讨论，但不是正式正文来源或可直接采用的事实提案；正式修改须先保存，再基于已保存版本重新准备。 |
 | 写作冲突检查 | `writing_conflict_checks` / `writing_conflict_items` | 规则检查、证据、AI 软判断和建议的记录；不自动修改正文或已采用资产。 |
 | 导入记录 | `import_records` | 文件导入元信息；不保存上传原文。 |
 | 导入章节 | `imported_chapters` | 仍由 world 事件/关系/版本来源 FK 引用的章节正文表；上传主路径以 WritingDraft 作为编辑承载。 |
@@ -82,6 +83,7 @@ README、ORM 模型与 Alembic migration。当前文档范围由
 | 可操作资料项 | ContextItem | CompiledContext 内实际交给模型的单项资料；状态为 required、automatic、author_pinned、excluded 或 omitted。 |
 | Context 指纹 | compiled_context_fingerprint | 对 provider 可见 sections/items、来源身份、选择与有效范围的通用 SHA-256；预览、确认、执行必须一致。 |
 | 定向查证 | `retrieve_focused_evidence()` / `focused_evidence_neighbors` | 导入、地图和写作副客服用的只读稳定入口：按对象引用或未入库名称与关注问题做最大深度 0/1 的受限一跳查读；邻居模型步骤只对已核验根证据提名，不选工具、不扩大范围、不写事实。checkpoint 由服务端保存并可续查；手动新增资料须重新预览确认。 |
+| 作者精确世界焦点 | Assistant `WorkContext.focus_ref` → Evidence facade → World 版本 reader | 只物化显式选中的当前对象投影、单条档案修订或关系，并于回答前重读校验；作者视角、不扩展邻居或整对象简报、不授予角色知识，且不扩大既有 Context confirmation。 |
 | 角色原文许可 | CharacterKnowledge + 精确 EvidenceLink | character 视角引用原文须有截止点前 canonical/full 的 `known_content` 与精确原文一致，并由 active 精确 EvidenceLink 绑定该字段；缺少证明时保留已知 metadata、省略原文，固定来源无法证明则 blocker。该许可不等于完整知识边界审查，coverage 明示 `not_performed`。 |
 | 统一地图 | `map_atlas_nodes` / `map_atlas_revisions`，以及既有图片 run/page/annotation | 系统粗层保留 `cover → world → region → city → district → street → interior`；v2 加入开放项目类型、独立空间、行程、模态与 Scene 生效锚点。空间内容及来源只追加，数据库 trigger 禁止原地修改；普通保存按当前 head 做 CAS，候选的 `base_revision_id` 记录派生基线，审核再校验候选版本与当前 head，不能互相替代。底图三锚点校准只改图片展示。恢复版本不改 World 正式事实。 |
 | 项目词表与地图候选 | `project_vocabulary_terms` / `project_vocabulary_revisions`、空间线索与自动草图 | 词表按项目维护稳定身份、固定修订、计算特性与墓碑；模型线索和草图需来源重验与作者审核，未采用不参与正式空间检查。 |

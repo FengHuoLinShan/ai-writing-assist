@@ -76,6 +76,7 @@
         <button class="btn" type="button" @click="runDialogAction(openCategoryManager)">管理分类</button>
         <button class="btn" type="button" @click="runDialogAction(openPageTemplateManager)">页面模板</button>
         <button class="btn" type="button" @click="runDialogAction(openObjectTools)">人物与设定工具</button>
+        <button class="btn" type="button" @click="runDialogAction(() => getRouter()?.navigate('world', 'objects', true))">按冻结清单分批整理对象</button>
         <button class="btn" type="button" @click="runDialogAction(() => setDisplayMode('graph'))">关联图</button>
         <button class="btn" type="button" @click="runDialogAction(() => { worldbookImportOpen = true })">导入目录</button>
         <button class="btn" type="button" @click="runDialogAction(openSuggestions)">创设建议</button>

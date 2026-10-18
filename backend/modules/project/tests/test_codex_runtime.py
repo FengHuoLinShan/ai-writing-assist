@@ -374,3 +374,43 @@ def test_native_project_snapshot_requires_scope_before_provider_creation():
         with pytest.raises(ProjectLLMConfigurationError, match="requires novel_id"):
             create_project_snapshot_llm_client(profile)
         provider.assert_not_called()
+
+
+async def test_approval_snapshot_restores_low_and_rechecks_same_owner_connection(
+    db_session, test_project_id
+):
+    from infrastructure.llm.schemas import LLMCallRequest
+    from modules.project.facade import open_project_snapshot_llm_client
+
+    with (
+        patch(
+            "infrastructure.llm.codex_provider.codex_text_enabled",
+            autospec=True,
+            return_value=True,
+        ),
+        patch(
+            "infrastructure.llm.codex_provider.codex_connection_fingerprint",
+            autospec=True,
+            return_value="test-host",
+        ),
+    ):
+        await seed(db_session)
+        snapshot = await build_project_llm_execution_snapshot(
+            db_session, test_project_id, purpose="approval_judgment"
+        )
+        assert snapshot["profile"]["reasoning_effort"] == "low"
+        assert "test-host" not in str(snapshot)
+        async with open_project_snapshot_llm_client(
+            db_session, test_project_id, snapshot
+        ) as client:
+            await client.authorize_request()
+            request = client.resolve_request_defaults(
+                LLMCallRequest(response_format={"type": "json_schema"})
+            )
+            assert request.extra["reasoning_effort"] == "low"
+            client._validate_input_budget(request)
+            await AccountLLMCredentialRepository().delete(
+                db_session, BOOTSTRAP_ACCOUNT_ID, "codex"
+            )
+            with pytest.raises(ProjectLLMConfigurationError, match="尚未连接"):
+                await client.authorize_request()

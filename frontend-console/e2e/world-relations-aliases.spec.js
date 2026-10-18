@@ -61,8 +61,12 @@ test.describe("世界对象 — 关系与别名", () => {
     await page.locator('#sidebar-context-slot [data-action="world-tool-new-relation"]').click()
     await expect(page.locator(SEL.modalTitle)).toHaveText("新建关系")
 
-    await page.locator("#rel-source").selectOption(sourceId)
-    await page.locator("#rel-target").selectOption(targetId)
+    await page.getByRole('combobox', { name: '搜索源对象', exact: true }).fill('源对象')
+    await page.locator('#rel-source-picker').getByRole('option').filter({ hasText: '源对象' }).click()
+    await expect(page.locator('#rel-source')).toHaveValue(sourceId)
+    await page.getByRole('combobox', { name: '搜索目标对象', exact: true }).fill('目标对象')
+    await page.locator('#rel-target-picker').getByRole('option').filter({ hasText: '目标对象' }).click()
+    await expect(page.locator('#rel-target')).toHaveValue(targetId)
     await page.locator("#rel-type").selectOption("ally_of")
     await page.locator("#rel-desc").fill("测试关系描述")
 

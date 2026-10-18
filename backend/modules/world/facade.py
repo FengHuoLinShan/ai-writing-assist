@@ -13,6 +13,10 @@ Facade 不写复杂业务逻辑，只做稳定的对外代理。
 
 from typing import TYPE_CHECKING
 
+from modules.world.assistant_focus import (
+    read_assistant_world_focus,
+    validate_assistant_world_focus,
+)
 from modules.world.attention_facade import (  # noqa: F401
     get_author_attention_summary,
 )
@@ -293,4 +297,6 @@ __all__ = [
     "update_character_location",
     "update_entity",
     "upsert_relation",
+    "read_assistant_world_focus",
+    "validate_assistant_world_focus",
 ]

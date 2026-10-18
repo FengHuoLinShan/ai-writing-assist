@@ -193,6 +193,51 @@ async def test_provider_only_forecast_read_decide_and_no_old_resurrection(
         == task_count + 1
     )
     assert calls == ["ForecastOutput", "AuditVerdictOutput"]
+    from modules.world.models import WorldBiblePage, WorldBiblePageDraft
+
+    pages_before = await db.scalar(select(func.count()).select_from(WorldBiblePage))
+    reference_action = next(
+        item
+        for item in candidate["actions"]
+        if item["action_id"].startswith("world.save_reference.")
+    )
+    reference_body = {
+        **prepare_body,
+        "operation_id": str(uuid4()),
+        "action_id": reference_action["action_id"],
+    }
+    reference = await async_client.post(
+        f"{url}/candidates/{candidate['candidate_id']}/prepare",
+        params={"novel_id": nid},
+        json=reference_body,
+    )
+    assert reference.status_code == 200, reference.text
+    reference = reference.json()
+    assert reference["domain_write_performed"] is False
+    saved_reference = await async_client.post(
+        f"/api/assistant/batches/{reference['batch_id']}/decide",
+        json={
+            "novel_id": nid,
+            "fingerprint": reference["batch_fingerprint"],
+            "confirmed": True,
+            "selected": ["selected"],
+        },
+    )
+    assert saved_reference.status_code == 200, saved_reference.text
+    reference_id = saved_reference.json()["results"][0]["result"]["id"]
+    saved = await db.get(WorldBiblePageDraft, UUID(reference_id))
+    assert "构思参考 · 未采用，尚未发生" in saved.free_text
+    assert candidate["directions"][0]["proposal"] in saved.free_text
+    assert (
+        await db.scalar(select(func.count()).select_from(WorldBiblePage)) == pages_before
+    )
+    reference_replay = await async_client.post(
+        f"{url}/candidates/{candidate['candidate_id']}/prepare",
+        params={"novel_id": nid},
+        json=reference_body,
+    )
+    assert reference_replay.json()["batch_id"] == reference["batch_id"]
+    assert calls == ["ForecastOutput", "AuditVerdictOutput"]
     decision = {
         "expected_notice_version": candidate["notice_version"],
         "expected_assessment_hash": candidate["assessment_hash"],

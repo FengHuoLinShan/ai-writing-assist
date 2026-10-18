@@ -1,0 +1,96 @@
+<div id="wb-research-visual">
+  <style>
+    #wb-research-visual { color: var(--foreground); font: inherit; }
+    #wb-research-visual .wb-flow { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 12px; align-items: stretch; margin: 14px 0 18px; }
+    #wb-research-visual .wb-step { min-width: 0; padding: 12px 0; border-top: 2px solid var(--border); }
+    #wb-research-visual .wb-step strong { display: block; margin-bottom: 5px; font-weight: 500; }
+    #wb-research-visual .wb-index { color: var(--viz-series-1); margin-right: 6px; }
+    #wb-research-visual .wb-sub { color: var(--muted-foreground); }
+    #wb-research-visual .wb-split { display: grid; grid-template-columns: minmax(0, 1.2fr) minmax(0, .8fr); gap: 22px; align-items: start; }
+    #wb-research-visual .wb-detail { border-left: 2px solid var(--viz-series-1); padding: 2px 0 2px 14px; }
+    #wb-research-visual .wb-detail h3 { margin-top: 0; }
+    #wb-research-visual .wb-points { margin: 8px 0 0; padding-left: 20px; }
+    #wb-research-visual .wb-points li { margin: 5px 0; }
+    #wb-research-visual .wb-label { color: var(--muted-foreground); }
+    #wb-research-visual [hidden] { display: none !important; }
+    @media (max-width: 560px) {
+      #wb-research-visual .wb-flow { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+      #wb-research-visual .wb-split { grid-template-columns: 1fr; gap: 12px; }
+    }
+  </style>
+  <h2>写作台：从作者任务到安全回稿</h2>
+  <p class="text-muted">报告的主张：正文保持稳定，辅助方式随任务展开；先找真实断点，再决定布局。</p>
+
+  <div class="wb-flow" role="img" aria-label="写作流程：定位任务与范围，选择合适帮助，审阅并决定，回到正文或恢复任务">
+    <div class="wb-step"><strong><span class="wb-index">01</span>定位任务</strong><span class="wb-sub">查这里 · 改这里 · 想下一步 · 审本章</span></div>
+    <div class="wb-step"><strong><span class="wb-index">02</span>交代范围</strong><span class="wb-sub">焦点、资料、叙事时点、稿件版本</span></div>
+    <div class="wb-step"><strong><span class="wb-index">03</span>审阅决定</strong><span class="wb-sub">查看依据与差异；接受、拒绝或继续讨论</span></div>
+    <div class="wb-step"><strong><span class="wb-index">04</span>回到作品</strong><span class="wb-sub">定位不丢、稿件不被静默覆盖、任务可恢复</span></div>
+  </div>
+
+  <div class="wb-split">
+    <section>
+      <h3>同一写作台，不同任务入口</h3>
+      <div class="nav nav-pills" role="tablist" aria-label="作者任务">
+        <button class="nav-link active" id="wb-tab-find" role="tab" aria-controls="wb-panel-find" aria-selected="true" type="button">查前文</button>
+        <button class="nav-link" id="wb-tab-edit" role="tab" aria-controls="wb-panel-edit" aria-selected="false" type="button">改一段</button>
+        <button class="nav-link" id="wb-tab-idea" role="tab" aria-controls="wb-panel-idea" aria-selected="false" type="button">想下一步</button>
+      </div>
+      <div id="wb-panel-find" role="tabpanel" aria-labelledby="wb-tab-find">
+        <p><strong>目标：</strong>查一个人物事实，打开前文原句核对。</p>
+        <p><span class="wb-label">合适形态：</span>直接浏览资料，必要时用任务型对话解释。</p>
+        <p><span class="wb-label">关键检查：</span>回答是否区分已知、未知与角色可知范围？</p>
+      </div>
+      <div id="wb-panel-edit" role="tabpanel" aria-labelledby="wb-tab-edit" hidden>
+        <p><strong>目标：</strong>改选中的对白，保留潜台词，不加新事实。</p>
+        <p><span class="wb-label">合适形态：</span>选区指令与局部比较；允许手改、拒绝和撤销。</p>
+        <p><span class="wb-label">关键检查：</span>结果是否仍绑定原稿、选区和保留要求？</p>
+      </div>
+      <div id="wb-panel-idea" role="tabpanel" aria-labelledby="wb-tab-idea" hidden>
+        <p><strong>目标：</strong>卡文时找几种不同走向，暂不生成正文。</p>
+        <p><span class="wb-label">合适形态：</span>可放大的探索空间；保留分支并明确如何回到正文。</p>
+        <p><span class="wb-label">关键检查：</span>候选是待选思路，是否避免被误当成已发生剧情？</p>
+      </div>
+    </section>
+
+    <section class="wb-detail">
+      <h3>待验证的布局选择</h3>
+      <div class="nav nav-pills" role="tablist" aria-label="辅助区布局">
+        <button class="nav-link active" id="wb-layout-a" role="tab" aria-controls="wb-layout-a-panel" aria-selected="true" type="button">A · 单一辅助区</button>
+        <button class="nav-link" id="wb-layout-b" role="tab" aria-controls="wb-layout-b-panel" aria-selected="false" type="button">B · 资料常显</button>
+      </div>
+      <div id="wb-layout-a-panel" role="tabpanel" aria-labelledby="wb-layout-a">
+        <p>助手、批注、比较按当前任务切换。</p>
+        <p><span class="wb-label">观察：</span>找入口与切换成本；正文位置是否保持。</p>
+      </div>
+      <div id="wb-layout-b-panel" role="tabpanel" aria-labelledby="wb-layout-b" hidden>
+        <p>资料持续可见，助手按需展开或临时分屏。</p>
+        <p><span class="wb-label">观察：</span>查资料是否更快；多个面板是否挤压正文。</p>
+      </div>
+    </section>
+  </div>
+
+  <hr>
+  <p><strong>先后顺序：</strong>观察现有任务路径 → 对照两种辅助区 → 再评估局部采用、主动提醒与复杂探索的改造。</p>
+
+  <script>
+    (() => {
+      const root = document.getElementById('wb-research-visual');
+      const groups = [
+        ['wb-tab-find', 'wb-tab-edit', 'wb-tab-idea'],
+        ['wb-layout-a', 'wb-layout-b']
+      ];
+      for (const ids of groups) {
+        const tabs = ids.map(id => root.querySelector(`#${id}`));
+        for (const tab of tabs) tab.addEventListener('click', () => {
+          for (const item of tabs) {
+            const selected = item === tab;
+            item.setAttribute('aria-selected', String(selected));
+            item.classList.toggle('active', selected);
+            root.querySelector(`#${item.getAttribute('aria-controls')}`).hidden = !selected;
+          }
+        });
+      }
+    })();
+  </script>
+</div>

@@ -151,6 +151,24 @@ export function getAppState() {
   return _overrides.state ?? globalThis.appState
 }
 
+/** Local draft keys must be isolated by the authenticated account where one exists. */
+export function getLocalDraftAccountScope() {
+  const account = _overrides.currentAccount ?? globalThis.currentAccount
+  if (typeof account?.id === "string" && account.id.trim()) return account.id.trim()
+  const config = _overrides.accountAuthConfig ?? globalThis.accountAuthConfig
+  return config?.auth_mode === "public" ? null : "local"
+}
+
+/** Browser storage is optional: callers must report when it is unavailable. */
+export function getLocalDraftStorage() {
+  if (_overrides.localDraftStorage) return _overrides.localDraftStorage
+  try {
+    return globalThis.localStorage ?? null
+  } catch {
+    return null
+  }
+}
+
 /** 作者公开演示工作台只读；RP 演示使用独立入口。 */
 export function getPublicDemoReadOnly() {
   return _overrides.publicDemoReadOnly ?? Boolean(globalThis.publicDemoMode && !globalThis.publicDemoRpMode)

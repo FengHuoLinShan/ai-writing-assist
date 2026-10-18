@@ -131,6 +131,8 @@ export const writing = {
     createComment: (draftId, payload) => contractJson("writing.createComment", { draftId }, {}, payload),
     updateComment: (commentId, payload) => contractJson("writing.updateComment", { commentId }, {}, payload),
     runComments: (payload) => contractJson("writing.runComments", {}, {}, payload),
+    revisionGroups: (draftId, novelId) => request(withQuery(`/writing/drafts/${draftId}/revision-groups`, { novel_id: novelId }), { cache: "no-store" }),
+    selectRevisionGroups: (draftId, payload) => post(`/writing/drafts/${draftId}/revision-selections`, payload),
 
     async createConflictCheck(payload) {
       return contractJson("writing.createConflictCheck", {}, {}, payload)

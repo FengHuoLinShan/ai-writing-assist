@@ -68,8 +68,9 @@ test("离开页面后恢复批注任务结果，不重复轮询已完成任务",
   phase = "done"
   await page.reload()
   await waitWritingReady(page, { editor: true })
-  // 右栏收起时批注面板不再挤进窄条（仅保留标题签），展开「本章资料」应看到恢复的任务结果
-  await page.getByLabel("展开本章资料").click()
+  const referenceToggle = page.getByRole('button', { name: '本章资料', exact: true })
+  await expect(referenceToggle).toHaveAttribute('aria-expanded', 'false')
+  await referenceToggle.click()
   await expect(page.getByRole("button", { name: "比较修订候选" })).toBeVisible()
   expect(await editor.inputValue()).toContain("甲😀乙丙")
   await page.waitForTimeout(300)

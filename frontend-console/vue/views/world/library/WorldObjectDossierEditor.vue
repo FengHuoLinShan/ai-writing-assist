@@ -15,6 +15,7 @@
     <p v-if="loading" role="status">正在读取对象档案…</p>
     <p v-if="loadError" class="error-card" role="alert">{{ loadError }}</p>
     <p v-if="actionError" class="field-error" role="alert">{{ actionError }}</p>
+    <p v-if="editBackupError" class="field-error" role="alert">{{ editBackupError }}</p>
     <p v-if="notice" class="object-dossier-editor__notice" role="status">{{ notice }}</p>
 
     <template v-if="dossier">
@@ -44,6 +45,14 @@
           <p v-if="entry.validity_gap" class="object-dossier-editor__warning" role="status">{{ entry.story_field_key ? `Story 字段 ${entry.story_field_key} 的来源或截止点暂不可核实` : '此档案未声明可核对的 Story 状态字段' }}：{{ validityGapLabel(entry.validity_gap) }}</p>
 
           <form v-if="editingId === entry.id" class="object-dossier-editor__form" @submit.prevent="saveEdit(entry)">
+            <div v-if="entryBackupConflict?.revisionId === entry.id" class="object-dossier-editor__warning" role="alert" data-conflict="local-dossier-draft">
+              <p>发现基于较早修订的本机草稿，当前服务器内容尚未被覆盖。可核对最新修订后保留改动，或明确放弃这份副本。</p>
+              <div class="object-dossier-editor__conflict-actions">
+                <button type="button" class="btn btn-sm" :disabled="editBackupRecovering" @click="keepStaleEntryDraft">{{ editBackupRecovering ? '核对中…' : '核对后保留草稿' }}</button>
+                <button type="button" class="btn btn-sm btn-ghost" :disabled="editBackupRecovering" @click="discardStaleEntryDraft">放弃本机草稿</button>
+              </div>
+            </div>
+            <p v-if="editBackupStatus" class="object-dossier-editor__meta" role="status">{{ editBackupStatus }} 本机副本可能包含作者秘密；仅保存在此浏览器。</p>
             <p v-if="conflict?.revisionId === entry.id" class="object-dossier-editor__warning" role="alert">
               {{ conflict.message }}
               <span v-if="conflict.serverEntry">服务器已有修订 {{ conflict.serverEntry.revision_number }}。</span>
@@ -53,8 +62,8 @@
                 <button v-if="conflict.serverEntry" type="button" class="btn btn-sm btn-ghost" :disabled="Boolean(busyKey)" @click="resolveEditConflict('keep')">保留我的草稿并基于新版本保存</button>
               </span>
             </p>
-            <label v-if="!editingLegacyArray(entry)"><span>内容</span><textarea v-model="editDraft.content" rows="4" maxlength="20000" :disabled="readOnly || Boolean(busyKey)" /></label>
-            <fieldset v-else class="object-dossier-editor__legacy-value" :disabled="readOnly || Boolean(busyKey)">
+            <label v-if="!editingLegacyArray(entry)"><span>内容</span><textarea data-dossier-field="content" v-model="editDraft.content" rows="4" maxlength="20000" :disabled="readOnly || Boolean(busyKey) || Boolean(entryBackupConflict)" /></label>
+            <fieldset v-else class="object-dossier-editor__legacy-value" :disabled="readOnly || Boolean(busyKey) || Boolean(entryBackupConflict)">
               <legend>结构化内容</legend>
               <template v-if="typeof editLegacyItemTemplate === 'string'">
                 <article v-for="(value, index) in editLegacyValue" :key="index" class="object-dossier-editor__legacy-item">
@@ -73,12 +82,12 @@
               <p class="object-dossier-editor__meta">保存时保留档案原有结构；下方展示内容会同步更新。</p>
             </fieldset>
             <p v-if="editingLegacyArray(entry)" class="object-dossier-editor__content">{{ editDraft.content }}</p>
-            <label><span>标签（用逗号分隔）</span><input v-model="editDraft.tagsText" maxlength="800" :disabled="readOnly || Boolean(busyKey)"></label>
-            <label><span>可见范围</span><select v-model="editDraft.visibility" :disabled="readOnly || Boolean(busyKey)"><option value="public">公开</option><option value="secret">作者秘密</option></select></label>
-            <label v-if="templateStateFields.length || entry.story_field_key"><span>精确关联的 Story 文字状态字段</span><select v-model="editDraft.storyFieldKey" :disabled="readOnly || Boolean(busyKey)"><option value="">不绑定 Story 字段</option><option v-if="entry.story_field_key && !templateStateFields.some(field => field.key === entry.story_field_key)" :value="entry.story_field_key">{{ entry.story_field_key }} · 当前模板中未找到</option><option v-for="field in templateStateFields" :key="field.key" :value="field.key">{{ field.label }} · {{ field.key }}</option></select></label>
+            <label><span>标签（用逗号分隔）</span><input v-model="editDraft.tagsText" maxlength="800" :disabled="readOnly || Boolean(busyKey) || Boolean(entryBackupConflict)"></label>
+            <label><span>可见范围</span><select v-model="editDraft.visibility" :disabled="readOnly || Boolean(busyKey) || Boolean(entryBackupConflict)"><option value="public">公开</option><option value="secret">作者秘密</option></select></label>
+            <label v-if="templateStateFields.length || entry.story_field_key"><span>精确关联的 Story 文字状态字段</span><select v-model="editDraft.storyFieldKey" :disabled="readOnly || Boolean(busyKey) || Boolean(entryBackupConflict)"><option value="">不绑定 Story 字段</option><option v-if="entry.story_field_key && !templateStateFields.some(field => field.key === entry.story_field_key)" :value="entry.story_field_key">{{ entry.story_field_key }} · 当前模板中未找到</option><option v-for="field in templateStateFields" :key="field.key" :value="field.key">{{ field.label }} · {{ field.key }}</option></select></label>
             <div class="object-dossier-editor__validity">
-              <label><span>从哪场开始生效</span><select v-model="editDraft.startAnchor" :disabled="readOnly || Boolean(busyKey)"><option value="">全书</option><option v-if="editDraft.startAnchor && !sceneOptionExists(editDraft.startAnchor)" :value="editDraft.startAnchor">{{ anchorChoiceLabel(editDraft.startAnchor) }}</option><option v-for="scene in scenes" :key="scene.id" :value="`scene:${scene.id}`">{{ sceneLabel(scene) }}</option></select></label>
-              <label><span>到哪场结束生效</span><select v-model="editDraft.endAnchor" :disabled="readOnly || Boolean(busyKey)"><option value="">持续至今</option><option v-if="editDraft.endAnchor && !sceneOptionExists(editDraft.endAnchor)" :value="editDraft.endAnchor">{{ anchorChoiceLabel(editDraft.endAnchor) }}</option><option v-for="scene in scenes" :key="scene.id" :value="`scene:${scene.id}`">{{ sceneLabel(scene) }}</option></select></label>
+              <label><span>从哪场开始生效</span><select v-model="editDraft.startAnchor" :disabled="readOnly || Boolean(busyKey) || Boolean(entryBackupConflict)"><option value="">全书</option><option v-if="editDraft.startAnchor && !sceneOptionExists(editDraft.startAnchor)" :value="editDraft.startAnchor">{{ anchorChoiceLabel(editDraft.startAnchor) }}</option><option v-for="scene in scenes" :key="scene.id" :value="`scene:${scene.id}`">{{ sceneLabel(scene) }}</option></select></label>
+              <label><span>到哪场结束生效</span><select v-model="editDraft.endAnchor" :disabled="readOnly || Boolean(busyKey) || Boolean(entryBackupConflict)"><option value="">持续至今</option><option v-if="editDraft.endAnchor && !sceneOptionExists(editDraft.endAnchor)" :value="editDraft.endAnchor">{{ anchorChoiceLabel(editDraft.endAnchor) }}</option><option v-for="scene in scenes" :key="scene.id" :value="`scene:${scene.id}`">{{ sceneLabel(scene) }}</option></select></label>
             </div>
             <p v-if="actionError" class="field-error" role="alert">{{ actionError }}</p>
             <div class="object-dossier-editor__actions">
@@ -88,6 +97,7 @@
           </form>
           <div v-else-if="!readOnly" class="object-dossier-editor__actions">
             <button type="button" class="btn btn-sm" :disabled="Boolean(busyKey)" @click="beginEdit(entry)">编辑</button>
+            <button type="button" class="btn btn-sm" :disabled="Boolean(busyKey)" @click="askAboutEntry(entry)">问这条档案</button>
           </div>
 
           <details class="object-dossier-editor__history" @toggle="event => event.target.open && loadHistory(entry.entry_group_id)">
@@ -124,8 +134,19 @@
 
       <section v-if="!readOnly" class="object-dossier-editor__new">
         <h4>新增档案条目</h4>
+        <p class="object-dossier-editor__meta">未保存的新增条目会备份在当前浏览器，可能包含作者秘密；本机备份不等于已保存到作品。</p>
         <p v-if="facetError" class="field-error" role="alert">{{ facetError }}</p>
-        <form class="object-dossier-editor__form" @submit.prevent="createEntry">
+        <p v-if="newBackupStatus" class="object-dossier-editor__notice" role="status">{{ newBackupStatus }}</p>
+        <p v-if="newBackupError && !newBackupSaved" class="field-error" role="alert">{{ newBackupError }}</p>
+        <p v-if="newDraftFacetStale" class="object-dossier-editor__warning" role="alert">原档案面向已不可用；其余输入仍保留，请重新选择面向。</p>
+        <p v-if="sceneError" class="field-error" role="alert">{{ sceneError }}<span v-if="newDraft.startSceneId || newDraft.endSceneId"> 已选范围无法核对，请重新读取或清除范围。</span></p>
+        <p v-else-if="newDraftRangeStale" class="object-dossier-editor__warning" role="alert">草稿中的 Story 场景已变化；请重新选择或清除范围，其他输入仍保留。</p>
+        <p v-if="newDraftStoryFieldStale" class="object-dossier-editor__warning" role="alert">草稿中的 Story 状态字段已变化；请重新选择或清除此关联。</p>
+        <div v-if="newBackupSaved" class="object-dossier-editor__warning" role="alert">
+          <p>{{ newBackupError }}</p>
+          <button type="button" class="btn btn-sm" @click="clearSavedNewDraftCopy">清除已保存条目的本机副本</button>
+        </div>
+        <form v-else class="object-dossier-editor__form" @submit.prevent="createEntry">
           <label><span>档案面向</span><select v-model="newDraft.facingKey" :disabled="Boolean(busyKey) || !facets.length"><option value="">选择面向</option><option v-for="facet in facets" :key="facingKey(facet.facing)" :value="facingKey(facet.facing)">{{ facet.label }}<template v-if="facet.source === 'project'"> · 项目自定义</template></option></select></label>
           <p v-if="selectedFacet?.description" class="object-dossier-editor__meta">{{ selectedFacet.description }}</p>
           <label><span>内容</span><textarea v-model="newDraft.content" rows="4" maxlength="20000" :disabled="Boolean(busyKey)" /></label>
@@ -137,7 +158,10 @@
             <label><span>到哪场结束生效</span><select v-model="newDraft.endSceneId" :disabled="Boolean(busyKey)"><option value="">持续至今</option><option v-for="scene in scenes" :key="scene.id" :value="scene.id">{{ sceneLabel(scene) }}</option></select></label>
           </div>
           <p v-if="actionError" class="field-error" role="alert">{{ actionError }}</p>
-          <div class="object-dossier-editor__actions"><button type="submit" class="btn btn-sm btn-primary" :disabled="Boolean(busyKey) || !newDraft.facingKey || !newDraft.content.trim()">{{ busyKey === 'create' ? '保存中…' : '保存档案条目' }}</button></div>
+          <div class="object-dossier-editor__actions">
+            <button type="submit" class="btn btn-sm btn-primary" :disabled="Boolean(busyKey) || !newDraft.facingKey || !newDraft.content.trim()">{{ busyKey === 'create' ? '保存中…' : '保存档案条目' }}</button>
+            <button v-if="newDraftDirty" type="button" class="btn btn-sm" :disabled="Boolean(busyKey)" @click="discardNewDraft">放弃新增草稿</button>
+          </div>
         </form>
       </section>
 
@@ -210,7 +234,8 @@
 
 <script setup>
 import { computed, onBeforeUnmount, onMounted, reactive, ref, watch } from "vue"
-import { getApi, getConfirm } from "../../../bridge/index.js"
+import { getApi, getConfirm, getLocalDraftAccountScope, getLocalDraftStorage, getToast, openProjectAssistant } from "../../../bridge/index.js"
+import { clearLocalDraftBackup, readLocalDraftBackup, writeLocalDraftBackup } from "../../../shared/localDraftBackup.js"
 import { validityGapLabel } from "../logic/validityLabels.js"
 import WorldDossierManifestImport from "./WorldDossierManifestImport.vue"
 
@@ -218,11 +243,42 @@ const props = defineProps({
   entity: { type: Object, required: true },
   projectId: { type: String, required: true },
   readOnly: { type: Boolean, default: false },
+  assistantContextReady: { type: Boolean, default: true },
 })
 const SYSTEM_ENTITY_TYPES = new Set(["character", "location", "faction", "organization", "species", "group", "item", "object", "event", "rule", "power_system", "secret", "legend", "resource", "concept", "creature", "skill", "ability", "artifact", "other"])
 const coreTypeOptions = [["character", "人物"], ["location", "地点"], ["item", "物件"], ["faction", "势力"], ["species", "种族"], ["rule", "规则"], ["secret", "秘密"], ["event", "事件"]]
 const emit = defineEmits(["dirty", "saved"])
 const entityId = computed(() => props.entity?.id || props.entity?.entity_id || "")
+async function askAboutEntry(entry) {
+  if (readOnly.value) return
+  if (!props.assistantContextReady) {
+    getToast()("先保存或取消未保存的资料，再按已保存版本打开助手讨论。", "warning")
+    return
+  }
+  if (!entityId.value || !entry?.id || !entry?.entry_group_id) {
+    getToast()("无法核对这条档案的保存修订；请重新读取后再提问。", "warning")
+    return
+  }
+  try {
+    await openProjectAssistant({
+      projectId: props.projectId,
+      context: {
+        page: "world",
+        scope: "current",
+        target: { target_type: "world_entity", target_id: entityId.value },
+        focus_ref: {
+          kind: "dossier_entry",
+          entity_id: entityId.value,
+          entry_group_id: entry.entry_group_id,
+          revision_id: entry.id,
+        },
+        focus_label: "档案条目：" + (entry.facing_label || "档案") + " · 修订 " + entry.revision_number,
+      },
+    })
+  } catch (error) {
+    getToast()(error?.message || "暂时无法打开档案讨论。", "error")
+  }
+}
 const typeLabel = computed(() => ({ character: "人物", location: "地点", item: "物件", faction: "势力", organization: "组织", rule: "规则", secret: "秘密" })[props.entity?.entity_type] || props.entity?.entity_type || "对象")
 const readOnly = computed(() => props.readOnly)
 const customStateFieldsAllowed = computed(() => !SYSTEM_ENTITY_TYPES.has(String(props.entity?.entity_type || "").toLowerCase()))
@@ -232,6 +288,7 @@ const scenes = ref([])
 const loading = ref(false)
 const loadError = ref("")
 const facetError = ref("")
+const sceneError = ref("")
 const actionError = ref("")
 const notice = ref("")
 const exportBusy = ref(false)
@@ -246,6 +303,15 @@ const editDraft = reactive({ content: "", tagsText: "", visibility: "public", st
 const newDraft = reactive({ facingKey: "", content: "", tagsText: "", visibility: "public", startSceneId: "", endSceneId: "", storyFieldKey: "" })
 const readCutoffSceneId = ref("")
 const conflict = ref(null)
+const entryBackupConflict = ref(null)
+const editBackupDraft = ref(null)
+const editBackupStatus = ref("")
+const editBackupError = ref("")
+const editBackupRecovering = ref(false)
+const newBackupDraft = ref(null)
+const newBackupStatus = ref("")
+const newBackupError = ref("")
+const newBackupSaved = ref(false)
 const restoreTarget = ref(null)
 const restoreError = ref("")
 const historyByGroup = ref({})
@@ -275,6 +341,7 @@ const templateHistoryError = ref("")
 let generation = 0
 let loadSequence = 0
 let dossierReadSequence = 0
+let skipNewDraftPersist = false
 
 const entries = computed(() => dossier.value?.entries || [])
 const selectedFacet = computed(() => facets.value.find((item) => facingKey(item.facing) === newDraft.facingKey) || null)
@@ -282,7 +349,126 @@ const editDirty = computed(() => {
   const original = editingOriginal.value
   return Boolean(original) && JSON.stringify({ content: editDraft.content, legacyValue: editLegacyValue.value, tagsText: editDraft.tagsText, visibility: editDraft.visibility, startAnchor: editDraft.startAnchor, endAnchor: editDraft.endAnchor, storyFieldKey: editDraft.storyFieldKey }) !== JSON.stringify({ content: original.content, legacyValue: Array.isArray(original.legacy_value) ? original.legacy_value : null, tagsText: tagsText(original.tags), visibility: original.visibility, startAnchor: anchorValue(original.validity?.start), endAnchor: anchorValue(original.validity?.end), storyFieldKey: original.story_field_key || "" })
 })
+function entryDraftScope(entryGroupId = editingOriginal.value?.entry_group_id) {
+  const accountId = getLocalDraftAccountScope()
+  if (!accountId || !props.projectId || !entityId.value || !entryGroupId) return null
+  const sectionId = String(entryGroupId).replace(/[^a-z0-9-]/gi, "-").toLowerCase()
+  return { accountId, projectId: String(props.projectId), objectId: String(entityId.value), section: "dossier-" + sectionId }
+}
+function newEntryDraftScope() {
+  const accountId = getLocalDraftAccountScope()
+  if (!accountId || !props.projectId || !entityId.value) return null
+  return { accountId, projectId: String(props.projectId), objectId: String(entityId.value), section: "dossier-entry-create" }
+}
+
+function cloneValue(value) {
+  return value == null ? value : JSON.parse(JSON.stringify(value))
+}
+
+function editDraftPayload() {
+  const original = editingOriginal.value
+  if (!original) return {}
+  const payload = {}
+  const originalLegacy = Array.isArray(original.legacy_value) ? original.legacy_value : null
+  if (Array.isArray(editLegacyValue.value)) {
+    if (JSON.stringify(editLegacyValue.value) !== JSON.stringify(originalLegacy)) payload.legacy_value = cloneValue(editLegacyValue.value)
+  } else if (editDraft.content !== (original.content || "")) payload.content = editDraft.content
+  if (editDraft.tagsText !== tagsText(original.tags)) payload.tagsText = editDraft.tagsText
+  if (editDraft.visibility !== (original.visibility || "public")) payload.visibility = editDraft.visibility
+  if (editDraft.startAnchor !== anchorValue(original.validity?.start)) payload.startAnchor = editDraft.startAnchor
+  if (editDraft.endAnchor !== anchorValue(original.validity?.end)) payload.endAnchor = editDraft.endAnchor
+  if (editDraft.storyFieldKey !== (original.story_field_key || "")) payload.storyFieldKey = editDraft.storyFieldKey
+  return payload
+}
+
+function applyEditDraftPayload(payload = {}) {
+  if (Array.isArray(payload.legacy_value)) {
+    editLegacyValue.value = cloneValue(payload.legacy_value)
+    editLegacyItemTemplate.value = editLegacyValue.value[0] ?? (editingOriginal.value?.legacy_field_key?.endsWith("_entity_ids_json") ? "" : { name: "" })
+    syncLegacyValue()
+  } else if (Object.prototype.hasOwnProperty.call(payload, "content") && typeof payload.content === "string") {
+    editDraft.content = payload.content
+  }
+  if (typeof payload.tagsText === "string") editDraft.tagsText = payload.tagsText
+  if (typeof payload.visibility === "string") editDraft.visibility = payload.visibility
+  if (typeof payload.startAnchor === "string") editDraft.startAnchor = payload.startAnchor
+  if (typeof payload.endAnchor === "string") editDraft.endAnchor = payload.endAnchor
+  if (typeof payload.storyFieldKey === "string") editDraft.storyFieldKey = payload.storyFieldKey
+}
+
+function persistEditDraft() {
+  if (!editingId.value || !editDirty.value || entryBackupConflict.value) return
+  const payload = editDraftPayload()
+  if (!Object.keys(payload).length) return
+  const result = writeLocalDraftBackup(getLocalDraftStorage(), entryDraftScope(), editExpectedRevisionId.value || null, payload)
+  if (!result.ok) {
+    editBackupError.value = "本机草稿备份失败；档案输入仍保留在页面中，请先复制需要保留的内容再离开。"
+    return
+  }
+  editBackupDraft.value = result.draft
+  editBackupError.value = ""
+  if (!editBackupStatus.value) editBackupStatus.value = "档案草稿已备份在此浏览器，尚未保存到作品。"
+}
+
+function clearEditDraft(draft = editBackupDraft.value) {
+  if (!draft) return true
+  const result = clearLocalDraftBackup(getLocalDraftStorage(), draft)
+  if (!result.ok || result.changed) {
+    editBackupError.value = result.changed
+      ? "本机档案草稿已在其他页面更新，没有清除；请重新打开并核对。"
+      : "服务器已处理，但本机档案副本未能清除；重新编辑时请核对版本。"
+    return false
+  }
+  if (editBackupDraft.value?.serialized === draft.serialized) editBackupDraft.value = null
+  return true
+}
+
+function beginEdit(entry, options = {}) {
+  editingId.value = entry.id
+  editExpectedRevisionId.value = entry.id
+  editLegacyValue.value = Array.isArray(entry.legacy_value) ? cloneValue(entry.legacy_value) : null
+  editLegacyItemTemplate.value = editLegacyValue.value?.[0] ?? (entry.legacy_field_key?.endsWith("_entity_ids_json") ? "" : { name: "" })
+  editDraft.content = entry.content || ""
+  editDraft.tagsText = tagsText(entry.tags)
+  editDraft.visibility = entry.visibility || "public"
+  editDraft.startAnchor = anchorValue(entry.validity?.start)
+  editDraft.endAnchor = anchorValue(entry.validity?.end)
+  editDraft.storyFieldKey = entry.story_field_key || ""
+  conflict.value = null
+  entryBackupConflict.value = null
+  actionError.value = ""
+  editBackupError.value = ""
+  editBackupStatus.value = ""
+  editBackupDraft.value = null
+
+  if (Object.prototype.hasOwnProperty.call(options, "payload")) {
+    editBackupDraft.value = options.sourceDraft || null
+    applyEditDraftPayload(options.payload)
+    editBackupStatus.value = options.rebased
+      ? "已核对最新服务器修订并保留本机改动；再次保存仍会校验修订。"
+      : "已恢复与当前修订匹配的本机草稿；核对后点击保存。"
+    if (options.rebased) persistEditDraft()
+  } else if (!options.skipLocalBackup) {
+    const result = readLocalDraftBackup(getLocalDraftStorage(), entryDraftScope(entry.entry_group_id))
+    if (!result.ok) editBackupError.value = "无法读取此条目的本机草稿；原副本未删除，当前编辑仍可继续。"
+    else if (result.draft) {
+      editBackupDraft.value = result.draft
+      if (result.draft.base_version === entry.id) {
+        applyEditDraftPayload(result.draft.payload)
+        editBackupStatus.value = "已恢复与当前修订匹配的本机草稿；核对后点击保存。"
+      } else {
+        entryBackupConflict.value = { revisionId: entry.id, entryGroupId: entry.entry_group_id, draft: result.draft }
+        editBackupStatus.value = "发现基于旧修订的本机草稿，尚未覆盖服务器条目。"
+      }
+    } else editBackupDraft.value = null
+  } else editBackupDraft.value = null
+  emitDirty()
+}
+
 const newDraftDirty = computed(() => Boolean(newDraft.facingKey || newDraft.content.trim() || newDraft.tagsText.trim() || newDraft.startSceneId || newDraft.endSceneId || newDraft.visibility !== "public" || newDraft.storyFieldKey))
+const newDraftFacetStale = computed(() => Boolean(newDraft.facingKey && !selectedFacet.value && !facetError.value && !loading.value))
+const newDraftRangeStale = computed(() => !loading.value && !sceneError.value && [newDraft.startSceneId, newDraft.endSceneId].some((id) => id && !scenes.value.some((scene) => scene.id === id)))
+const newDraftStoryFieldStale = computed(() => Boolean(newDraft.storyFieldKey && templateLoaded.value && !templateStateFields.value.some((field) => field.key === newDraft.storyFieldKey)))
 const editingOriginal = computed(() => entries.value.find((item) => item.id === editingId.value) || null)
 const templateVersion = computed(() => template.value?.version_number ?? null)
 const borrowedFacingExists = computed(() => templateBorrowedFacings.value.some((item) => {
@@ -316,8 +502,9 @@ function resetData({ preserveCutoff = false } = {}) {
   loadSequence += 1
   dossierReadSequence += 1
   dossier.value = null; facets.value = []; scenes.value = []
-  loading.value = false; loadError.value = ""; facetError.value = ""; actionError.value = ""; notice.value = ""
-  busyKey.value = ""; editingId.value = ""; editExpectedRevisionId.value = ""; conflict.value = null
+  loading.value = false; loadError.value = ""; facetError.value = ""; sceneError.value = ""; actionError.value = ""; notice.value = ""
+  busyKey.value = ""; editingId.value = ""; editExpectedRevisionId.value = ""; conflict.value = null; entryBackupConflict.value = null
+  editBackupDraft.value = null; editBackupStatus.value = ""; editBackupError.value = ""; editBackupRecovering.value = false
   exportBusy.value = false
   importDirty.value = false; importResetKey.value += 1
   restoreTarget.value = null; restoreError.value = ""; historyByGroup.value = {}; historyErrors.value = {}; historyLoadingId.value = ""
@@ -327,21 +514,144 @@ function resetData({ preserveCutoff = false } = {}) {
   newStateField.key = ""; newStateField.label = ""
   templateHistory.value = []; templateHistoryLoading.value = false; templateHistoryError.value = ""
   if (!preserveCutoff) readCutoffSceneId.value = ""
-  clearNewDraft()
+  resetNewDraftState()
 }
 
-function clearNewDraft() {
+function newDraftPayload() {
+  return {
+    facingKey: newDraft.facingKey,
+    content: newDraft.content,
+    tagsText: newDraft.tagsText,
+    visibility: newDraft.visibility,
+    startSceneId: newDraft.startSceneId,
+    endSceneId: newDraft.endSceneId,
+    storyFieldKey: newDraft.storyFieldKey,
+  }
+}
+function applyNewDraftPayload(payload = {}) {
+  const values = {
+    facingKey: typeof payload.facingKey === "string" ? payload.facingKey : "",
+    content: typeof payload.content === "string" ? payload.content : "",
+    tagsText: typeof payload.tagsText === "string" ? payload.tagsText : "",
+    visibility: payload.visibility === "secret" ? "secret" : "public",
+    startSceneId: typeof payload.startSceneId === "string" ? payload.startSceneId : "",
+    endSceneId: typeof payload.endSceneId === "string" ? payload.endSceneId : "",
+    storyFieldKey: typeof payload.storyFieldKey === "string" ? payload.storyFieldKey : "",
+  }
+  if (JSON.stringify(newDraftPayload()) === JSON.stringify(values)) return
+  skipNewDraftPersist = true
+  Object.assign(newDraft, values)
+}
+function persistNewDraft() {
+  if (readOnly.value || newBackupSaved.value || !newDraftDirty.value) return true
+  const result = writeLocalDraftBackup(getLocalDraftStorage(), newEntryDraftScope(), null, newDraftPayload())
+  if (!result.ok) {
+    newBackupError.value = "新增档案草稿无法备份；输入仍保留在页面中，请先复制需要保留的内容再离开。"
+    return false
+  }
+  newBackupDraft.value = result.draft
+  newBackupError.value = ""
+  newBackupStatus.value = "新增条目草稿已备份在此浏览器，尚未保存到作品。"
+  return true
+}
+function restoreNewDraft({ fromConcurrentUpdate = false } = {}) {
+  if (readOnly.value) return false
+  const result = readLocalDraftBackup(getLocalDraftStorage(), newEntryDraftScope())
+  if (!result.ok) {
+    newBackupError.value = "无法读取新增条目的本机草稿；副本未删除，当前表单仍可继续。"
+    return false
+  }
+  newBackupDraft.value = result.draft
+  if (!result.draft) {
+    newBackupSaved.value = false
+    return true
+  }
+  if (result.draft.payload.saved_after_create === true) {
+    resetNewDraftFields()
+    newBackupSaved.value = true
+    newBackupError.value = "服务器已保存此条目，但本机副本未能清理；请先清除副本，避免重复新增。"
+    newBackupStatus.value = ""
+    return true
+  }
+  newBackupSaved.value = false
+  applyNewDraftPayload(result.draft.payload)
+  newBackupError.value = ""
+  newBackupStatus.value = fromConcurrentUpdate
+    ? "另一页面更新的新增条目草稿已恢复；核对后再保存。"
+    : "已恢复本机新增条目草稿；核对面向和范围后再保存。"
+  return true
+}
+function clearNewDraftBackup() {
+  const draft = newBackupDraft.value
+  if (!draft) {
+    newBackupSaved.value = false
+    newBackupStatus.value = ""
+    newBackupError.value = ""
+    return { ok: true }
+  }
+  const result = clearLocalDraftBackup(getLocalDraftStorage(), draft)
+  if (!result.ok || result.changed) {
+    newBackupError.value = result.changed
+      ? "本机新增条目草稿已在其他页面更新；为保护该副本，未放弃当前输入。"
+      : "未能清除本机新增条目草稿；输入仍保留，请重试或复制后再离开。"
+    return result
+  }
+  newBackupDraft.value = null
+  newBackupSaved.value = false
+  newBackupStatus.value = ""
+  newBackupError.value = ""
+  return result
+}
+function resetNewDraftFields() {
   newDraft.facingKey = ""; newDraft.content = ""; newDraft.tagsText = ""; newDraft.visibility = "public"; newDraft.startSceneId = ""; newDraft.endSceneId = ""; newDraft.storyFieldKey = ""
 }
+function resetNewDraftState() {
+  resetNewDraftFields()
+  newBackupDraft.value = null
+  newBackupStatus.value = ""
+  newBackupError.value = ""
+  newBackupSaved.value = false
+}
+function discardNewDraft() {
+  if (!newDraftDirty.value || !getConfirm()("确定放弃尚未保存的新档案条目吗？本机草稿副本也会清除。")) return
+  persistNewDraft()
+  const result = clearNewDraftBackup()
+  if (!result.ok || result.changed) {
+    if (result.changed) restoreNewDraft({ fromConcurrentUpdate: true })
+    return
+  }
+  resetNewDraftFields()
+  newBackupStatus.value = "新增档案草稿已放弃。"
+  emitDirty()
+}
+function clearSavedNewDraftCopy() {
+  if (!newBackupSaved.value) return
+  const result = clearNewDraftBackup()
+  if (result.changed) {
+    restoreNewDraft({ fromConcurrentUpdate: true })
+    return
+  }
+  if (result.ok) newBackupStatus.value = "已清除服务器已保存条目的本机副本。"
+}
+
 
 async function loadAll({ confirmDiscard = false } = {}) {
   if (!props.projectId || !entityId.value) return
   if (confirmDiscard && (editDirty.value || newDraftDirty.value || templateDirty.value || conflict.value || importDirty.value)) {
     if (!getConfirm()("当前对象有未保存草稿，确定放弃并重新读取吗？")) return
+    if (newDraftDirty.value) {
+      persistNewDraft()
+      const cleared = clearNewDraftBackup()
+      if (!cleared.ok || cleared.changed) {
+        if (cleared.changed) restoreNewDraft({ fromConcurrentUpdate: true })
+        return
+      }
+    }
     resetData({ preserveCutoff: true })
   }
   const projectId = props.projectId; const id = entityId.value; const token = generation; const requestId = ++loadSequence
-  loading.value = true; loadError.value = ""; facetError.value = ""
+  facets.value = []; scenes.value = []
+  loading.value = true; loadError.value = ""; facetError.value = ""; sceneError.value = ""
   const api = getApi()
   const [dossierResult, facetResult, sceneResult] = await Promise.allSettled([
     api.world.getEntityDossier(id, projectId, { cache: "no-store", asOfSceneId: readCutoffSceneId.value || null }),
@@ -353,7 +663,13 @@ async function loadAll({ confirmDiscard = false } = {}) {
   else loadError.value = dossierResult.reason?.message || "对象档案暂时无法读取；不能据此判断档案为空。"
   if (facetResult.status === "fulfilled") facets.value = facetResult.value?.items || []
   else facetError.value = facetResult.reason?.message || "档案面向暂时无法读取，新增条目不可用。"
-  if (sceneResult.status === "fulfilled") scenes.value = Array.isArray(sceneResult.value) ? sceneResult.value : sceneResult.value?.items || []
+  if (sceneResult.status === "fulfilled") {
+    scenes.value = Array.isArray(sceneResult.value) ? sceneResult.value : sceneResult.value?.items || []
+    sceneError.value = ""
+  } else {
+    scenes.value = []
+    sceneError.value = sceneResult.reason?.message || "Story 场景范围暂时无法读取。"
+  }
   loading.value = false
   emitDirty()
 }
@@ -371,18 +687,57 @@ async function reloadDossier() {
   }
 }
 
-function beginEdit(entry) {
-  editingId.value = entry.id; editExpectedRevisionId.value = entry.id
-  editLegacyValue.value = Array.isArray(entry.legacy_value) ? JSON.parse(JSON.stringify(entry.legacy_value)) : null
-  editLegacyItemTemplate.value = editLegacyValue.value?.[0] ?? (entry.legacy_field_key?.endsWith("_entity_ids_json") ? "" : { name: "" })
-  editDraft.content = entry.content || ""; editDraft.tagsText = tagsText(entry.tags); editDraft.visibility = entry.visibility || "public"
-  editDraft.startAnchor = anchorValue(entry.validity?.start); editDraft.endAnchor = anchorValue(entry.validity?.end)
-  editDraft.storyFieldKey = entry.story_field_key || ""
-  conflict.value = null; actionError.value = ""; notice.value = ""
+function cancelEdit({ confirmed = false, clearBackup = true } = {}) {
+  const dirty = editDirty.value
+  if (dirty && !confirmed && !getConfirm()("有未保存的档案修改；确定放弃吗？")) return false
+  if (dirty && clearBackup) clearEditDraft()
+  editingId.value = ""
+  editExpectedRevisionId.value = ""
+  editLegacyValue.value = null
+  editLegacyItemTemplate.value = null
+  conflict.value = null
+  entryBackupConflict.value = null
+  actionError.value = ""
+  editBackupStatus.value = ""
   emitDirty()
+  return true
 }
-function cancelEdit() {
-  editingId.value = ""; editExpectedRevisionId.value = ""; editLegacyValue.value = null; editLegacyItemTemplate.value = null; conflict.value = null; actionError.value = ""; emitDirty()
+
+async function keepStaleEntryDraft() {
+  const pending = entryBackupConflict.value
+  if (!pending || editBackupRecovering.value) return
+  const projectId = props.projectId
+  const id = entityId.value
+  const token = generation
+  editBackupRecovering.value = true
+  editBackupError.value = ""
+  try {
+    const latest = await getApi().world.getEntityDossier(id, projectId, { cache: "no-store" })
+    if (!current(token, projectId, id)) return
+    const serverEntry = latest?.entries?.find(item => item.entry_group_id === pending.entryGroupId)
+    if (!serverEntry) {
+      editBackupError.value = "服务器已没有这条档案的当前修订；本机副本仍保留，不能安全重放。"
+      return
+    }
+    readCutoffSceneId.value = ""
+    dossier.value = latest
+    beginEdit(serverEntry, { payload: pending.draft.payload, sourceDraft: pending.draft, rebased: true })
+  } catch (error) {
+    if (current(token, projectId, id)) editBackupError.value = error?.message || "无法核对服务器当前修订；本机草稿仍保留。"
+  } finally {
+    if (current(token, projectId, id)) editBackupRecovering.value = false
+  }
+}
+
+function discardStaleEntryDraft() {
+  const pending = entryBackupConflict.value
+  if (!pending) return
+  if (!getConfirm()("确定放弃这份本机档案草稿吗？此操作不能撤销。")) return
+  if (!clearEditDraft(pending.draft)) return
+  entryBackupConflict.value = null
+  editBackupError.value = ""
+  editBackupStatus.value = "已放弃本机草稿；服务器条目保持不变。"
+  emitDirty()
 }
 
 function editingLegacyArray(entry) { return editingId.value === entry.id && Array.isArray(editLegacyValue.value) }
@@ -410,9 +765,10 @@ function addLegacyValue() {
 function removeLegacyValue(index) { editLegacyValue.value.splice(index, 1); syncLegacyValue() }
 
 async function saveEdit(entry) {
-  if (readOnly.value || busyKey.value || !editDirty.value || editingId.value !== entry.id) return
+  if (readOnly.value || busyKey.value || entryBackupConflict.value || !editDirty.value || editingId.value !== entry.id) return
   const projectId = props.projectId; const id = entityId.value; const token = generation
   busyKey.value = `edit:${entry.id}`; actionError.value = ""; notice.value = ""
+  persistEditDraft()
   try {
     await getApi().world.updateEntityDossierEntry(id, entry.id, projectId, {
       expected_revision_id: editExpectedRevisionId.value,
@@ -426,35 +782,67 @@ async function saveEdit(entry) {
       story_field_key: editDraft.storyFieldKey || null,
     })
     if (!current(token, projectId, id)) return
-    cancelEdit(); await reloadDossier()
+    clearEditDraft()
+    cancelEdit({ confirmed: true, clearBackup: false })
+    await reloadDossier()
     if (!current(token, projectId, id)) return
     notice.value = "档案新修订已保存。"; emit("saved", id)
   } catch (error) {
     if (!current(token, projectId, id)) return
     if (error?.status === 409) {
+      const localChanges = editDraftPayload()
       const latest = await reloadDossier()
       if (!current(token, projectId, id)) return
       const serverEntry = latest?.entries?.find((item) => item.entry_group_id === entry.entry_group_id) || null
       if (serverEntry) editingId.value = serverEntry.id
-      conflict.value = { revisionId: serverEntry?.id || entry.id, serverEntry, message: error.message || "档案已在别处更新。" }
+      conflict.value = { revisionId: serverEntry?.id || entry.id, serverEntry, localChanges, message: error.message || "档案已在别处更新。" }
     } else actionError.value = error?.message || "保存失败，草稿已保留。"
   } finally { if (current(token, projectId, id)) busyKey.value = ""; emitDirty() }
 }
 
 function resolveEditConflict(choice) {
-  const server = conflict.value?.serverEntry
-  if (choice === "reload" && server) beginEdit(server)
-  else if (choice === "reload") cancelEdit()
-  else if (choice === "keep" && server) { editExpectedRevisionId.value = server.id; conflict.value = null; actionError.value = "草稿已保留；再次保存会以服务器修订为基线。" }
-  else actionError.value = "服务器上没有可用的当前修订；请载入最新档案后重新编辑。"
+  const currentConflict = conflict.value
+  const server = currentConflict?.serverEntry
+  if (choice === "reload" && server) {
+    clearEditDraft()
+    beginEdit(server, { skipLocalBackup: true })
+  } else if (choice === "reload") cancelEdit({ confirmed: true })
+  else if (choice === "keep" && server) {
+    beginEdit(server, { payload: currentConflict.localChanges || {}, sourceDraft: editBackupDraft.value, rebased: true })
+  } else actionError.value = "服务器上没有可用的当前修订；请载入最新档案后重新编辑。"
   emitDirty()
 }
 
 async function createEntry() {
-  if (readOnly.value || busyKey.value || !newDraft.facingKey || !newDraft.content.trim()) return
-  const projectId = props.projectId; const id = entityId.value; const token = generation
+  if (readOnly.value || busyKey.value) return
+  if (loading.value || templateLoading.value) {
+    actionError.value = "正在核对档案面向、场景和状态字段，请稍后再保存。"
+    return
+  }
+  if (newBackupSaved.value) {
+    actionError.value = "本机仍有一条已保存副本；清除副本后才能新增，避免重复提交。"
+    return
+  }
+  if (!newDraft.facingKey || !newDraft.content.trim()) return
   const facet = selectedFacet.value
-  if (!facet) return
+  if (!facet) {
+    actionError.value = "档案面向已变化或不可用，请重新选择后再保存；草稿仍保留。"
+    return
+  }
+  const selectedSceneIds = [newDraft.startSceneId, newDraft.endSceneId].filter(Boolean)
+  if (selectedSceneIds.some((sceneId) => !scenes.value.some((scene) => scene.id === sceneId))) {
+    actionError.value = sceneError.value
+      ? "无法核对草稿中的 Story 场景范围；请重新读取场景或清除范围后再保存。"
+      : "草稿中的 Story 场景已变化，请重新选择或清除范围后再保存。"
+    return
+  }
+  if (newDraft.storyFieldKey && (!templateLoaded.value || !templateStateFields.value.some((field) => field.key === newDraft.storyFieldKey))) {
+    actionError.value = templateError.value
+      ? "无法核对草稿中的 Story 状态字段；请重新读取模板或清除此关联后再保存。"
+      : "草稿中的 Story 状态字段已变化，请重新选择或清除此关联后再保存。"
+    return
+  }
+  const projectId = props.projectId; const id = entityId.value; const token = generation
   const payload = {
     facing: facet.facing,
     content: newDraft.content,
@@ -466,11 +854,40 @@ async function createEntry() {
       end: newDraft.endSceneId ? { kind: "scene", id: newDraft.endSceneId } : null,
     } : null,
   }
+  persistNewDraft()
+  const storageAtSubmit = getLocalDraftStorage()
+  const backupAtSubmit = newBackupDraft.value
+  const scopeAtSubmit = newEntryDraftScope()
+  const draftAtSubmit = newDraftPayload()
   busyKey.value = "create"; actionError.value = ""; notice.value = ""
   try {
     await getApi().world.createEntityDossierEntry(id, projectId, payload)
-    if (!current(token, projectId, id)) return
-    clearNewDraft(); await reloadDossier()
+    const cleared = backupAtSubmit
+      ? clearLocalDraftBackup(storageAtSubmit, backupAtSubmit)
+      : { ok: true }
+    if (!current(token, projectId, id)) {
+      if (backupAtSubmit && !cleared.changed) {
+        const marker = writeLocalDraftBackup(storageAtSubmit, scopeAtSubmit, null, { ...draftAtSubmit, saved_after_create: true })
+        if (!marker.ok) getToast()("服务器已保存，但离开页面后无法标记本机副本；重新进入前请核对是否已创建。", "warning")
+      }
+      return
+    }
+    if (cleared.changed) restoreNewDraft({ fromConcurrentUpdate: true })
+    else if (cleared.ok) {
+      newBackupDraft.value = null
+      newBackupSaved.value = false
+      newBackupStatus.value = ""
+      newBackupError.value = ""
+      resetNewDraftFields()
+    } else {
+      const marker = writeLocalDraftBackup(storageAtSubmit, scopeAtSubmit, null, { ...draftAtSubmit, saved_after_create: true })
+      if (marker.ok) newBackupDraft.value = marker.draft
+      newBackupSaved.value = true
+      newBackupStatus.value = ""
+      newBackupError.value = "服务器已保存，但本机副本未能清理；请清除副本，避免重复新增。"
+      resetNewDraftFields()
+    }
+    await reloadDossier()
     if (!current(token, projectId, id)) return
     notice.value = "档案条目已保存。"; emit("saved", id)
   } catch (error) { if (current(token, projectId, id)) actionError.value = error?.message || "新增失败；输入已保留。" }
@@ -648,7 +1065,7 @@ function templateSnapshot() {
   try { displaySchema = JSON.parse(templateDisplaySchemaText.value || "{}") } catch { displaySchema = templateDisplaySchemaText.value }
   return JSON.stringify({ fields: templateFields.value, borrowed_facings: templateBorrowedFacings.value, state_fields: templateStateFields.value, display_schema: displaySchema })
 }
-function emitDirty() { emit("dirty", Boolean(editingId.value && editDirty.value || conflict.value || newDraftDirty.value || templateDirty.value || importDirty.value)) }
+function emitDirty() { emit("dirty", Boolean(editingId.value && editDirty.value || conflict.value || entryBackupConflict.value || newDraftDirty.value || templateDirty.value || importDirty.value)) }
 function tagsText(tags) { return Array.isArray(tags) ? tags.join(", ") : "" }
 function parseTags(value) { return [...new Set(String(value || "").split(",").map((item) => item.trim()).filter(Boolean))].slice(0, 24) }
 function facingKey(facing) { return facing?.kind === "project" ? `project:${facing.term_id}` : `core:${facing?.key || ""}` }
@@ -677,13 +1094,40 @@ function validityLabel(validity) {
 function revisionReason(reason) { return ({ author_edit: "作者编辑", author_restore: "作者恢复", author_cleared: "作者清除", legacy_import: "旧档案迁入" })[reason] || reason || "历史修订" }
 function formatDate(value) { const date = new Date(value); return Number.isNaN(date.getTime()) ? String(value) : date.toLocaleString() }
 
-watch(() => [props.projectId, entityId.value], () => { resetData(); if (props.projectId && entityId.value) void loadAll() })
-watch([editDirty, newDraftDirty, templateDirty], () => {
+watch(() => [props.projectId, entityId.value], () => {
+  resetData()
+  if (props.projectId && entityId.value) {
+    restoreNewDraft()
+    void loadAll()
+  }
+})
+watch([editDirty, newDraftDirty, templateDirty, entryBackupConflict], () => {
   if (templateDirty.value) templateSaved.value = null
   emitDirty()
 })
-onMounted(() => { if (props.projectId && entityId.value) { void loadAll(); void loadTemplate() } })
-onBeforeUnmount(() => { generation += 1; loadSequence += 1; dossierReadSequence += 1; emit("dirty", false) })
+watch([editDraft, editLegacyValue, editingId], () => {
+  if (!editingId.value || entryBackupConflict.value) return
+  if (editDirty.value) persistEditDraft()
+  else if (editBackupDraft.value && clearEditDraft()) editBackupStatus.value = ""
+}, { deep: true })
+watch(newDraft, () => {
+  if (skipNewDraftPersist) {
+    skipNewDraftPersist = false
+    return
+  }
+  persistNewDraft()
+}, { deep: true })
+onMounted(() => {
+  if (props.projectId && entityId.value) {
+    restoreNewDraft()
+    void loadAll()
+    void loadTemplate()
+  }
+})
+onBeforeUnmount(() => {
+  if (newDraftDirty.value && busyKey.value !== "create") persistNewDraft()
+  generation += 1; loadSequence += 1; dossierReadSequence += 1; emit("dirty", false)
+})
 </script>
 
 <style scoped>

@@ -96,7 +96,6 @@ afterEach(() => {
 })
 
 it.each([
-  ["关系", showRelationCreateForm, 2],
   ["别名", showAliasCreateForm, 1],
 ])("%s实体预取期间切换项目时不打开旧项目模态", async (_label, showCreateForm, expectedRequests) => {
   const state = { currentProjectId: "p-ra", currentView: "world" }
@@ -117,7 +116,6 @@ it.each([
 })
 
 it.each([
-  ["关系", showRelationCreateForm],
   ["别名", showAliasCreateForm],
 ])("%s实体预取期间离开当前子视图时不打开过期模态", async (_label, showCreateForm) => {
   const state = { currentProjectId: "p-ra", currentView: "world", currentSubView: "relations" }
@@ -135,14 +133,20 @@ it.each([
 })
 
 describe("showRelationCreateForm", () => {
-  it("打开新建模态并提交 createRelationship（实体选项同步嵌入 HTML）", async () => {
+  it('对象内新建关系预填当前源对象，即使它不在第一页', async () => {
+    await showRelationCreateForm({}, { source_id: 'e-outside-first-page', source_name: '远方人物' })
+    setBridgeOverrides({ showModalHtml: (title, html, buttons) => { captureModal(title, html, buttons); installModalHost(html) } })
+    await showRelationCreateForm({}, { source_id: 'e-outside-first-page', source_name: '远方人物' })
+    expect(document.getElementById('rel-source').value).toBe('e-outside-first-page')
+    expect(document.getElementById('rel-source-picker').textContent).toContain('远方人物')
+  })
+  it("新建关系复用可搜索端点并提交真实方向", async () => {
     await showRelationCreateForm()
     expect(modalCalls).toHaveLength(1)
     expect(modalCalls[0].title).toBe("新建关系")
-    // 实体选项应已完整嵌入 HTML（async 函数先 fetch 再 showModalHtml）
     expect(modalCalls[0].html).toContain('id="rel-source"')
-    expect(modalCalls[0].html).toContain('value="e1"')
-    expect(modalCalls[0].html).toContain('value="e2"')
+    expect(modalCalls[0].html).toContain('id="rel-source-picker"')
+    expect(modalCalls[0].html).toContain('id="rel-target-picker"')
     document.body.innerHTML = modalCalls[0].html
     document.getElementById("rel-source").value = "e1"
     document.getElementById("rel-target").value = "e2"

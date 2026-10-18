@@ -390,8 +390,9 @@ Compilation 的 `retrieve_focused_evidence` 将本层混合检索用于有界语
 ## 项目助手消费者
 
 ADR-0023 的 Agent 通过 Evidence facade 消费已有检索与原文回读，不直接读取索引表。
-本次接入不改变 embedding、chunk、版本并存、索引 fresh 判定或 reader/character 截止规则；
-角色工具仍只能使用固定 source revision 的资料包。
+Assistant 的 World-page `focus_ref` 是根 Evidence facade 通过 World 版本 reader 读取的一条明确作者资料，
+不经过本子域、不执行 RAG，也不改变 embedding、chunk、版本并存、索引 fresh 判定或
+reader/character 截止规则；角色工具仍只能使用固定 source revision 的资料包。
 
 检索 metrics 投影增加 `embedding_provider`，供前端结合既有 embedding_runtime 的健康状态区分本地检索准备与查询；不暴露凭据，也不把未知外部服务状态当作 ready。
 

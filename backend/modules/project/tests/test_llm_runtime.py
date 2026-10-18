@@ -667,3 +667,85 @@ async def test_account_max_effort_freezes_rp_quality_profile(db_session, test_pr
         db_session, test_project_id, snapshot
     )
     assert capability_from_execution_settings(restored) == profile
+
+
+async def test_approval_purpose_freezes_low_without_changing_business_runtime(
+    db_session, test_project_id
+):
+    from infrastructure.llm.schemas import LLMCallRequest
+
+    await _seed_account_connection(db_session)
+    snapshot = await build_project_llm_execution_snapshot(
+        db_session, test_project_id, purpose="approval_judgment"
+    )
+    assert snapshot["purpose"] == "approval_judgment"
+    assert snapshot["profile"]["model"] == "deepseek-flash"
+    assert snapshot["profile"]["reasoning_effort"] == "low"
+    assert snapshot["cost_routing"] == {}
+    assert "unit-test-account-key" not in str(snapshot)
+    async with open_project_llm_client(
+        db_session, test_project_id, purpose="approval_judgment"
+    ) as client:
+        resolved = client.resolve_request_defaults(
+            LLMCallRequest(response_format={"type": "json_object"})
+        )
+        assert resolved.extra["reasoning_effort"] == "low"
+        assert resolved.extra["thinking"] == {"type": "enabled"}
+        client._validate_input_budget(resolved)
+        resolved.extra["reasoning_effort"] = "max"
+        with pytest.raises(Exception, match="批准判断请求"):
+            client._validate_input_budget(resolved)
+    await _seed_account_connection(db_session, api_key="rotated-approval-key")
+    async with open_project_snapshot_llm_client(
+        db_session, test_project_id, snapshot
+    ) as client:
+        assert client._approval_judgment is True
+        assert client._provider._api_key == "rotated-approval-key"
+        assert client.cost_routing == {}
+    async with open_project_llm_client(db_session, test_project_id) as client:
+        assert client._approval_judgment is False
+        assert (
+            client.resolve_request_defaults(LLMCallRequest()).extra.get(
+                "reasoning_effort"
+            )
+            != "low"
+        )
+    with pytest.raises(ProjectLLMConfigurationError, match="生成质量覆盖"):
+        async with open_project_llm_client(
+            db_session, test_project_id, purpose="approval_judgment", high_quality=True
+        ):
+            pass
+
+
+async def test_approval_purpose_rejects_unconfigured_model_provider_and_forged_snapshot(
+    db_session, test_project_id
+):
+    from dataclasses import replace
+
+    await _seed_account_connection(db_session)
+    _, profile, _, _ = await llm_runtime._resolve_project_runtime_profile(
+        db_session, test_project_id
+    )
+    with pytest.raises(ProjectLLMConfigurationError, match="没有已指定"):
+        llm_runtime._purpose_profile(
+            replace(profile, provider_id="kimi"), "approval_judgment"
+        )
+    with pytest.raises(ProjectLLMConfigurationError, match="没有指定"):
+        llm_runtime._purpose_profile(
+            replace(profile, model="deepseek-v4-pro"), "approval_judgment"
+        )
+    snapshot = await build_project_llm_execution_snapshot(
+        db_session, test_project_id, purpose="approval_judgment"
+    )
+    snapshot["profile"]["reasoning_effort"] = "max"
+    snapshot["profile_hash"] = llm_runtime._stable_hash(
+        {k: v for k, v in snapshot.items() if k != "profile_hash"}
+    )
+    with pytest.raises(ProjectLLMConfigurationError, match="思考档位"):
+        await restore_project_llm_execution_settings(
+            db_session, test_project_id, snapshot
+        )
+    with pytest.raises(ProjectLLMConfigurationError, match="Unsupported"):
+        await build_project_llm_execution_snapshot(
+            db_session, test_project_id, purpose="other"
+        )

@@ -137,7 +137,8 @@ Embedding、streaming 和 `generate_simple()` 不是本 harness 的默认迁移�
 `infrastructure.llm.workflow_budget.AIRunEnvelope` 负责累计，`ai_run_scope()` 与
 `managed_step_scope()` 通过 ContextVar 把运行身份与当前 step 注入 provider 调用链。
 Goal v3 使用独立作者授权的冻结能力范围；Assistant 目录 v4 仅允许从服务端冻结的
-v9 目录导出的两项 C2 Story 子能力，子任务沿父 run 计数、期限和启动时间。
+v9 目录导出的两项 C2 Story 子能力，以及新任务显式开启时冻结的
+`assistant.approval.judge`；子任务沿父 run 计数、期限和启动时间，旧信封不扩权。
 恢复对比任务私有范围与信封，执行再核目录指纹；v4 在未知扣费或 80% 请求阈值后
 拒绝下一次 provider 预留，v1/v2 原有能力规则不扩宽。
 自动重试、恢复、requeue 与 manual resume 累加同一 run；只有作者显式续算或确认可能重复扣费
@@ -776,3 +777,11 @@ DB 本地配置上限 30 天，restic `--keep-within 30d`；对象按不超过 3
 author_export；每行支持 objects 下中文相对 file，拒绝穿越/重复/缺图。运维 ZIP 白名单解包后
 按目录恢复，先核对目标 DB 对象归属与可用 hash/size；作者 ZIP 恢复前须 chmod 600。
 图片包不恢复数据库或跨项目导入。生产启用仍须后续发布授权和只读对账。
+
+### 批准判断 low 隔离
+
+Project 显式 `approval_judgment` 用途可以构造专用 client：仅当前 provider 的
+`deepseek-flash`/`gpt-6-luna`、low、无工具且结构化请求；在请求预留与 I/O 前拒绝模型、
+档位或输出模式漂移。普通 Codex client 仍拒绝 low。专用 Codex 原生命令仅改 low 参数，
+保留原生工具关闭、只读沙箱、ignore-user-config/ignore-rules、schema 与身份重验；
+回执记录实际 low，不输出私有思考。该能力不证明判断器已校准或自动模式已开放。

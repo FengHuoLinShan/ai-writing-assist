@@ -6,7 +6,8 @@
 <template>
   <div>
     <p class="world-list-description">管理世界对象与人物之间的关系。</p>
-    <div class="world-relation-validity-filter">
+    <label>关系范围<select :value="session.relationListFilters.status || 'canonical'" @change="onStatusChange($event.target.value)"><option value="canonical">已采用关系</option><option value="deprecated">已移除关系与恢复记录</option></select></label>
+    <div v-if="session.relationListFilters.status !== 'deprecated'" class="world-relation-validity-filter">
       <label for="world-relation-validity-scene">按 Scene 核对作者有效期</label>
       <select id="world-relation-validity-scene" v-model="validitySceneId" @change="onValiditySceneChanged">
         <option value="">不读取 Story 有效期结果</option>
@@ -53,6 +54,7 @@
       </p>
 
       <WorldBulkToolbar
+        v-if="session.relationListFilters.status !== 'deprecated'"
         scope="world-relations"
         :actions="[
           { action: 'delete-relations', label: '批量删除', className: 'btn-danger' },
@@ -112,9 +114,10 @@
             </td>
             <td data-label="操作">
               <div class="row-actions">
-                <button class="btn btn-sm" data-action="edit-relation" :data-id="r.id || r.relationship_id" @click="onEditRelation(r.id || r.relationship_id)">编辑</button>
-                <button class="btn btn-sm btn-danger" data-action="delete-relation" :data-id="r.id || r.relationship_id" @click="onDeleteRelation(r.id || r.relationship_id)">删除</button>
+                <button v-if="r.status !== 'deprecated'" class="btn btn-sm" data-action="edit-relation" :data-id="r.id || r.relationship_id" @click="onEditRelation(r.id || r.relationship_id)">编辑类型与端点</button>
+                <button v-if="r.status !== 'deprecated'" class="btn btn-sm btn-danger" data-action="delete-relation" :data-id="r.id || r.relationship_id" @click="onDeleteRelation(r.id || r.relationship_id)">删除</button>
               </div>
+              <WorldRelationMaintenance v-if="projectId && !publicReadOnly" :project-id="projectId" :relation="r" @changed="onRelationChanged" />
             </td>
           </tr>
         </tbody>
@@ -134,7 +137,7 @@
 
 <script setup>
 import { computed, onBeforeUnmount, ref, watch } from "vue"
-import { getApi, getRouter, getConfirmAction, getToast } from "../../../bridge/index.js"
+import { getApi, getRouter, getConfirmAction, getToast, getPublicDemoReadOnly } from "../../../bridge/index.js"
 import { validityGapLabel } from "../logic/validityLabels.js"
 import { worldSession as session } from "../worldSession.js"
 import { deleteRelation, inlineRelationEvidencePairs as relationEvidencePairs, syncRelationsAliasesRegistry, runCanonicalBulkAction, showRelationReviewEditForm } from "../logic/worldRelationsAliasesOps.js"
@@ -145,6 +148,7 @@ import { detailTypeLabel, kindLabel } from "../logic/worldTypeCatalog.js"
 import WorldBulkToolbar from "./WorldBulkToolbar.vue"
 import WorldPager from "./WorldPager.vue"
 import WorldSelectionInput from "./WorldSelectionInput.vue"
+import WorldRelationMaintenance from "../library/WorldRelationMaintenance.vue"
 
 const props = defineProps({
   projectId: { type: String, default: null },
@@ -154,6 +158,7 @@ const props = defineProps({
   entityTypes: { type: Array, default: () => [] },
   reviewTypeCatalog: { type: Object, default: () => ({}) },
 })
+const publicReadOnly = computed(() => getPublicDemoReadOnly())
 
 const searchQuery = ref(session.relationListFilters.q || "")
 const scenes = ref([])
@@ -236,6 +241,20 @@ function onDeleteRelation(id) {
 function onEditRelation(id) {
   showRelationReviewEditForm(id)
 }
+function onStatusChange(status) {
+  if (!["canonical", "deprecated"].includes(status)) return
+  session.relationListFilters.status = status
+  session.relationListFilters.skip = 0
+  validitySceneId.value = ""
+  sceneResult.value = null
+  navigateRelations(session.relationListFilters)
+}
+function onRelationChanged(receipt) {
+  getToast()(receipt.label || "关系操作已完成", "success")
+  if (receipt.action === "remove") onStatusChange("deprecated")
+  else if (receipt.action === "restore") onStatusChange("canonical")
+  else getRouter()?.refresh?.()
+}
 
 function onPageChange(delta) {
   const filters = session.relationListFilters
@@ -261,7 +280,7 @@ function clearSearch() {
 }
 
 function navigateRelations(filters) {
-  getRouter()?.navigate?.("world", "relations", true, reviewQueryFromState(filters, ["q"]))
+  getRouter()?.navigate?.("world", "relations", true, reviewQueryFromState(filters, ["q", "status"]))
 }
 
 function retryLoad() {

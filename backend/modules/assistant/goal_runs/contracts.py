@@ -7,6 +7,8 @@ from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
+from modules.assistant.approval_contracts import TaskApprovalRequest
+
 
 class GoalModel(BaseModel):
     model_config = ConfigDict(extra="forbid")
@@ -105,6 +107,7 @@ class GoalPlanApproval(GoalModel):
     plan: GoalPlan
     budget: GoalBudget
     auto_r2: bool = False
+    approval: TaskApprovalRequest | None = None
 
 
 class GoalStepApproval(GoalModel):

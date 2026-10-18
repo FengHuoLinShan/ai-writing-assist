@@ -1951,6 +1951,8 @@ class EntityRelationService(
         db: AsyncSession,
         novel_id: str,
         entity_id: str,
+        *,
+        include_removed: bool = False,
     ) -> EntityRelationListResponse:
         """获取实体的关联关系（source + target）"""
         nid = parse_uuid(novel_id, "novel_id")
@@ -1960,12 +1962,14 @@ class EntityRelationService(
             nid,
             eid,
             limit=MAX_PAGE_SIZE,
+            include_removed=include_removed,
         )
         target_rels = await self.repo.get_by_target(
             db,
             nid,
             eid,
             limit=MAX_PAGE_SIZE,
+            include_removed=include_removed,
         )
         all_rels = source_rels + target_rels
         return EntityRelationListResponse(

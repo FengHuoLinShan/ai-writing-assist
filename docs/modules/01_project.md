@@ -82,9 +82,9 @@ async def require_active_project(db, novel_id, *, allow_demo_readonly=True) -> N
 async def lock_project_ids_for_owner(db, owner_id) -> list[UUID]
 
 @asynccontextmanager
-async def open_project_llm_client(db, novel_id, *, timeout_override=None, high_quality=False): ...
+async def open_project_llm_client(db, novel_id, *, timeout_override=None, high_quality=False, purpose="business"): ...
 async def build_project_llm_execution_snapshot(
-    db, novel_id, *, web_search_enabled=False, interaction_ensemble=False, provider_id=None
+    db, novel_id, *, web_search_enabled=False, interaction_ensemble=False, provider_id=None, purpose="business"
 ) -> dict: ...
 async def restore_project_llm_execution_settings(db, novel_id, snapshot): ...
 @asynccontextmanager
@@ -279,3 +279,11 @@ Codex执行快照对未设置的导入Phase 2超时采用本机Luna/max默认值
 Codex v3冻结快照显式保存包装版本和固定指令SHA256；旧/缺失包装stamp不恢复。每次原生请求在预留前回读当前Project owner已验证连接，断开或登录账户/CLI漂移后即使已打开客户端也停止。Token刷新可继续，旧local_agent文本快照仍关闭，读取历史回执不要求重启模型。
 
 新项目快照的 `cost_routing.llm_capability_profile` 固化同连接附加型号的输入能力，恢复与最终发送不借主型号预算。旧快照缺字段保留既有无额外输入额度规则，不读取当前设置重新盖章。
+
+### 批准判断专用模型用途
+
+`purpose="approval_judgment"` 是用户 2026-10-18 确认的 low 档例外：当前已验证 provider
+内固定 `deepseek-flash` 或 `gpt-6-luna`，其他 provider 或未配置模型失败关闭。用途、精确
+模型、low、能力与连接哈希进入快照；恢复使用当前有效凭据，禁止生成质量覆盖和成本路由。
+请求仍经过预算、账户与项目门禁；普通/旧快照继续 business，不放宽默认 Luna/max。
+该用途不是任务自动批准授权，模型校准和逐预览批准由 Assistant 负责。

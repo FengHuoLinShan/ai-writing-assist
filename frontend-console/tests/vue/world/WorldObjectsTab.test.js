@@ -572,3 +572,17 @@ describe("分页与批量", () => {
     expect(wrapper.find(".bulk-toolbar__status strong").text()).toBe("1")
   })
 })
+
+it('讨论本页选择冻结精确对象版本，不扩展到其他匹配对象', async () => {
+  const assistantOpener = vi.fn()
+  setBridgeOverrides({ assistantOpener })
+  const entities = ENTITIES.map(item => ({ ...item, updated_at: '2026-10-18T00:00:00Z' }))
+  const wrapper = mountTab({ entities })
+  await wrapper.find('input[data-action="bulk-toggle-one"][data-id="e1"]').setValue(true)
+  await wrapper.findAll('button').find(button => button.text() === '讨论所选对象').trigger('click')
+  await flushPromises()
+  expect(assistantOpener).toHaveBeenCalledWith(expect.objectContaining({ projectId: 'p-obj', context: {
+    page: 'world', scope: 'current', task_hint: 'organize',
+    selected_entities: [{ kind: 'entity', entity_id: 'e1', updated_at: '2026-10-18T00:00:00Z' }],
+  } }))
+})

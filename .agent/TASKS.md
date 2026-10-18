@@ -1,6 +1,8 @@
 # 开放任务
 
 
+
+
 - [T-20261015-character-world-progression](tasks/2026/T-20261015-character-world-progression/TASK.md) — 世界对象档案、场景导演、写作副驾驶与世界推进设计
 
 - [T-20261015-agent-operation-surface](tasks/2026/T-20261015-agent-operation-surface/TASK.md) — 全模块 AI 操作入口、目标运行与操作留痕设计

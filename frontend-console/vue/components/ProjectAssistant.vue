@@ -1,8 +1,8 @@
 <template>
-  <div v-if="state.enabled || projectId" v-show="open" ref="overlayRef" class="project-assistant" :class="{ 'project-assistant--mobile': narrow }">
-    <button v-if="narrow" type="button" class="project-assistant-backdrop" aria-label="关闭项目助手" @click="close"></button>
-    <aside id="project-assistant-panel" ref="dialogRef" class="project-assistant-panel" :role="narrow ? 'dialog' : 'complementary'" :aria-modal="narrow || undefined" aria-label="项目助手" tabindex="-1" @keydown="handleKeydown" @focusin="onFocusin">
-      <header class="project-assistant-header"><div><strong>项目助手</strong><p>查资料、理思路，准备可审阅的修改。</p></div><button class="btn btn-sm" type="button" aria-label="关闭项目助手" @click="close">关闭</button></header>
+  <div v-if="state.enabled || projectId" v-show="open" ref="overlayRef" class="project-assistant" :class="{ 'project-assistant--mobile': narrow, 'project-assistant--expanded': expanded }">
+    <button v-if="narrow || expanded" type="button" class="project-assistant-backdrop" aria-label="关闭项目助手" @click="close"></button>
+    <aside id="project-assistant-panel" ref="dialogRef" class="project-assistant-panel" :role="narrow || expanded ? 'dialog' : 'complementary'" :aria-modal="narrow || expanded || undefined" aria-label="项目助手" tabindex="-1" @keydown="handleKeydown" @focusin="onFocusin">
+      <header class="project-assistant-header"><div><strong>项目助手</strong><p>查资料、理思路，准备可审阅的修改。</p></div><div class="project-assistant-header-actions"><button v-if="!narrow" class="btn btn-sm" type="button" :aria-pressed="expanded" @click="expanded = !expanded">{{ expanded ? '收起工作区' : '扩大工作区' }}</button><button class="btn btn-sm" type="button" aria-label="关闭项目助手" @click="close">关闭</button></div></header>
       <div class="project-assistant-tabs" role="group" aria-label="助手页面">
         <button v-if="state.enabled" type="button" :aria-pressed="activeTab === 'chat'" @click="switchTab('chat')">讨论</button>
         <button v-if="state.enabled" type="button" :aria-pressed="activeTab === 'care'" @click="switchTab('care')">提醒</button>
@@ -11,6 +11,7 @@
         <button v-if="state.enabled" type="button" :aria-pressed="activeTab === 'creative'" @click="openCreative">试改</button>
         <button v-if="projectId" type="button" :aria-pressed="activeTab === 'rp'" @click="switchTab('rp')">RP旅程</button>
         <button v-if="goalAvailable" type="button" :aria-pressed="activeTab === 'goal'" @click="switchTab('goal')">目标</button>
+        <button v-if="projectId" type="button" :aria-pressed="activeTab === 'help'" @click="switchTab('help')">操作帮助</button>
       </div>
       <ProactiveCare v-if="state.enabled" v-show="activeTab === 'care'" :target-id="projectId" standalone @locate="locateAssistantSource" @editorial="openEditorialFromNotice" />
       <EditorialDesk v-if="state.enabled" v-show="activeTab === 'editorial'" :project-id="projectId" :active="open && activeTab === 'editorial'" :focus-chapter="editorialFocusChapter" :focus-issue-id="editorialFocusIssueId" />
@@ -25,12 +26,16 @@
       <button v-if="state.sessions.length < state.total" class="btn btn-sm" type="button" :disabled="state.loading" @click="assistant.moreSessions">更多讨论</button>
       <p v-if="state.backupError" class="project-assistant-error" role="alert">本地备份暂不可用。未提交的输入仍保留在此页，请勿刷新。</p>
       <div class="project-assistant-history" aria-label="讨论记录">
+      <TaskApprovalReceipt v-if="state.run?.approval_requested" :project-id="projectId" :run-id="state.run.id" :revision="state.run.updated_at" :live="running" />
+
         <button v-if="state.messages.length < state.messageTotal" class="btn btn-sm" type="button" :disabled="state.loading" @click="assistant.moreMessages">查看更早的讨论</button>
         <p v-if="state.loading" role="status">正在读取讨论…</p>
         <div v-if="!state.messages.length && !state.run && !state.loading" class="project-assistant-empty"><p>可以直接说你想完成的事。</p><button v-for="hint in hints" :key="hint" class="btn" type="button" @click="assistant.setInput(hint)">{{ hint }}</button></div>
         <article v-for="message in state.messages" :key="message.id" class="project-assistant-message" :class="{ 'is-author': message.role === 'author' }"><strong>{{ message.role === 'author' ? '你' : '助手' }}</strong><p>{{ message.content }}</p><button v-if="receiptMessageIds.has(message.id)" class="btn btn-sm" type="button" :disabled="state.busy || state.loading || running" @click="assistant.openRun(message.assistant_run_id)">查看本轮方案与结果</button><button v-if="message.outcome_suggestion_id" class="btn btn-sm" type="button" @click="locateAssistantSource({ type: message.outcome_kind === 'checkpoint' ? 'world_checkpoint' : 'world_suggestion', id: message.outcome_suggestion_id })">查看这次讨论的成果</button></article>
         <section v-if="state.run" class="project-assistant-result" aria-label="本次处理结果">
           <p role="status">{{ statusLabel }}</p>
+          <AssistantContextSummary v-if="state.run.context" :context="state.run.context" :result="state.run.result" fixed />
+          <p v-else class="project-assistant-selection">旧任务未提供固定目标摘要，请核对原讨论和具体修改来源。</p>
           <TeamProgress v-if="state.run.result?.collaboration" :collaboration="state.run.result.collaboration" @locate="locateAssistantSource" />
           <div v-if="state.run.result?.next_steps?.length" class="project-assistant-actions"><button v-for="destination in state.run.result.next_steps" :key="destination" type="button" class="btn btn-sm" @click="openAssistantDestination(destination, state.context || {})">{{ state.destinations?.find(item => item.id === destination)?.label || '打开相关工作区' }}</button></div><p v-if="state.run.error" class="project-assistant-error">{{ state.run.error }}</p>
           <button v-if="running" class="btn btn-sm" type="button" :disabled="state.busy" @click="assistant.stop">停止本次处理</button>
@@ -58,10 +63,13 @@
         </section>
       </div>
       <form class="project-assistant-composer" @submit.prevent="send">
+        <AssistantContextSummary v-if="state.context" :context="state.context" />
+        <TaskApprovalSettings v-if="!state.blueprint" v-model="state.approvalRequest" :availability="state.approvalAvailability" :scope-label="approvalScopeLabel" :budget-label="`本轮合计最多 ${state.approvalAvailability?.turn_budget?.requests || 12} 次模型请求，含查证、生成与判断`" :disabled="state.busy || running || state.pendingSubmission" @update:model-value="assistant.setInput(state.input)" />
         <label v-if="state.collaboration?.length" class="project-assistant-scope">处理方式 <select v-model="state.blueprint" :disabled="state.busy || running" @change="assistant.setInput(state.input)"><option :value="null">普通讨论</option><option v-for="item in state.collaboration" :key="item.id" :value="item.id" :disabled="!item.available">{{ item.label }}{{ item.available ? '（实验）' : '（尚未开启）' }}</option></select></label>
         <label v-if="['world_stress', 'cross_revision'].includes(state.blueprint)" class="project-assistant-selection">必须保留的设定或情节（每行一项）<textarea v-model="state.preservedConstraints" rows="2" :disabled="state.busy" @input="assistant.setInput(state.input)" /></label>
-        <p v-if="state.blueprint" class="project-assistant-selection">各专项分别查证并复核结论，将增加模型用量。可随时停止；修改须另行确认。</p><div class="project-assistant-context"><span>本次参考：{{ contextLabel }}</span><button class="btn btn-sm" type="button" :disabled="state.busy" @click="useCurrent">使用当前页面</button></div><label class="project-assistant-scope">参考范围 <select :value="state.context?.scope || 'current'" :disabled="state.busy || Boolean(state.context?.context_confirmation_id)" @change="setScope($event.target.value)"><option value="current">当前位置优先</option><option value="project">整个作品</option></select></label><label class="project-assistant-scope">这次要求 <select v-model="taskHint" :disabled="state.busy"><option value="unknown">不限</option><option value="continue">续写</option><option value="polish">只润色</option><option value="revise">修改</option><option value="design">设定设计</option><option value="retrieve">查证</option><option value="review">检查</option><option value="organize">整理</option></select></label><p v-if="state.context?.context_confirmation_id" class="project-assistant-selection">沿用已确认资料；“使用当前页面”会替换这份范围。</p><p v-if="state.context?.excluded_targets?.length" class="project-assistant-selection">沿用 {{ state.context.excluded_targets.length }} 项排除选择。<button class="btn btn-sm" type="button" :disabled="state.busy" @click="state.context = { ...state.context, excluded_targets: [] }; assistant.setInput(state.input)">清除排除项</button></p><p v-if="state.context?.selection" class="project-assistant-selection">选区：{{ state.context.selection.slice(0, 140) }}<button class="btn btn-sm" type="button" @click="clearSelection">移除选区</button></p><label class="sr-only" for="assistant-input">告诉助手你想完成什么</label><textarea id="assistant-input" :value="state.input" rows="3" maxlength="20000" placeholder="例如：核对这章的人物行为，给我具体修改建议" :disabled="state.busy" @input="assistant.setInput($event.target.value)"></textarea><div class="project-assistant-actions"><template v-if="!state.blueprint || state.blueprint === 'research'"><label><input :checked="state.allowWeb && !state.webUnavailableReason" type="checkbox" :disabled="state.busy || Boolean(state.webUnavailableReason)" @change="assistant.setAllowWeb($event.target.checked)" /> 允许通过本站搜索服务查证现实资料</label><small>仅发送通用事实问题至搜索网站并读取公开网页，不发送作品原文。</small><p v-if="state.webUnavailableReason" role="status">{{ state.webUnavailableReason }}</p></template><p v-if="state.modelUnavailableReason" role="status">{{ state.modelUnavailableReason }} <button type="button" class="btn btn-sm" @click="openAssistantDestination('model_settings')">连接模型</button></p><button class="btn btn-primary" type="submit" :disabled="!state.input.trim() || state.busy || running || Boolean(state.modelUnavailableReason)">{{ state.busy ? '提交中…' : '发送' }}</button></div></form>
+        <p v-if="state.blueprint" class="project-assistant-selection">各专项分别查证并复核结论，将增加模型用量。可随时停止；修改须另行确认。</p><div class="project-assistant-context"><span>本次参考：{{ contextLabel }}</span><button class="btn btn-sm" type="button" :disabled="state.busy" @click="useCurrent">使用当前页面</button></div><label class="project-assistant-scope">参考范围 <select :value="state.context?.scope || 'current'" :disabled="state.busy || Boolean(state.context?.context_confirmation_id)" @change="setScope($event.target.value)"><option value="current">当前位置优先</option><option value="project">整个作品</option></select></label><label class="project-assistant-scope">这次要求 <select v-model="taskHint" :disabled="state.busy"><option value="unknown">不限</option><option value="continue">续写</option><option value="polish">只润色</option><option value="revise">修改</option><option value="design">设定设计</option><option value="retrieve">查证</option><option value="review">检查</option><option value="organize">整理</option></select></label><p v-if="state.context?.context_confirmation_id" class="project-assistant-selection">沿用已确认资料；“使用当前页面”会替换这份范围。</p><p v-if="state.context?.temporary_draft_id" class="project-assistant-selection" role="status">{{ state.context.selection ? '当前引用尚未保存的正文；只发送选区用于讨论，正式修改前请先保存并重新选择。' : '当前正文尚未保存且没有选区，助手不会读取未保存正文。' }}</p><p v-if="state.context?.excluded_targets?.length" class="project-assistant-selection">沿用 {{ state.context.excluded_targets.length }} 项排除选择。<button class="btn btn-sm" type="button" :disabled="state.busy" @click="state.context = { ...state.context, excluded_targets: [] }; assistant.setInput(state.input)">清除排除项</button></p><p v-if="state.context?.selection" class="project-assistant-selection">选区：{{ state.context.selection.slice(0, 140) }}<button class="btn btn-sm" type="button" @click="clearSelection">移除选区</button></p><label class="sr-only" for="assistant-input">告诉助手你想完成什么</label><textarea id="assistant-input" :value="state.input" rows="3" maxlength="20000" placeholder="例如：核对这章的人物行为，给我具体修改建议" :disabled="state.busy" @input="assistant.setInput($event.target.value)"></textarea><div class="project-assistant-actions"><template v-if="!state.blueprint || state.blueprint === 'research'"><label><input :checked="state.allowWeb && !state.webUnavailableReason" type="checkbox" :disabled="state.busy || Boolean(state.webUnavailableReason)" @change="assistant.setAllowWeb($event.target.checked)" /> 允许通过本站搜索服务查证现实资料</label><small>仅发送通用事实问题至搜索网站并读取公开网页，不发送作品原文。</small><p v-if="state.webUnavailableReason" role="status">{{ state.webUnavailableReason }}</p></template><p v-if="state.modelUnavailableReason" role="status">{{ state.modelUnavailableReason }} <button type="button" class="btn btn-sm" @click="openAssistantDestination('model_settings')">连接模型</button></p><button class="btn btn-primary" type="submit" :disabled="!state.input.trim() || state.busy || running || Boolean(state.modelUnavailableReason)">{{ state.busy ? '提交中…' : '发送' }}</button></div></form>
       </div>
+      <AssistantProductHelp v-if="activeTab === 'help'" :guide="state.productHelp" :automatic-availability="state.approvalAvailability" />
     </aside>
   </div>
 </template>
@@ -75,12 +83,16 @@ import { useModalDialog } from "../composables/useModalDialog.js"
 import TeamProgress from "./TeamProgress.vue"
 import AssistantValue from "./AssistantValue.vue"
 import AssistantReviewResult from "./AssistantReviewResult.vue"
+import AssistantContextSummary from "./AssistantContextSummary.vue"
+import TaskApprovalSettings from "./TaskApprovalSettings.vue"
+import TaskApprovalReceipt from "./TaskApprovalReceipt.vue"
 import ProactiveCare from "./ProactiveCare.vue"
 import EditorialDesk from "./EditorialDesk.vue"
 import ForecastDock from "./ForecastDock.vue"
 import CreativeExperiments from "./CreativeExperiments.vue"
 import InteractionAuthorPanel from "./InteractionAuthorPanel.vue"
 import GoalRunsPanel from "./GoalRunsPanel.vue"
+import AssistantProductHelp from "./AssistantProductHelp.vue"
 import { locateAssistantSource, openAssistantDestination } from "../shared/assistantNavigation.js"
 
 const props = defineProps({ projectId: { type: String, default: null }, page: { type: String, default: "today" }, open: Boolean, initialContext: { type: Object, default: null } })
@@ -89,6 +101,7 @@ const assistant = createProjectAssistant()
 const state = assistant.state
 const receiptMessageIds = computed(() => new Set(new Map(state.messages.filter(message => message.assistant_run_id).map(message => [message.assistant_run_id, message.id])).values()))
 const narrow = ref(false)
+const expanded = ref(false)
 const activeTab = ref("chat")
 let tabChosenByAuthor = false
 const goalAvailable = ref(false)
@@ -106,15 +119,25 @@ function openForecast() { if (activeTab.value === "creative" && creativeRef.valu
 function openCreative() { try { experimentContext.value = withIntent(capture(true)); activeTab.value = "creative" } catch (error) { state.error = error.message } }
 let media
 const close = () => { if (activeTab.value !== "creative" || creativeRef.value?.canLeave?.() !== false) emit("close") }
-const { overlayRef, dialogRef, onKeydown, onFocusin } = useModalDialog({ isOpen: () => props.open && (state.enabled || props.projectId) && narrow.value, requestClose: close })
+const { overlayRef, dialogRef, onKeydown, onFocusin } = useModalDialog({ isOpen: () => props.open && (state.enabled || props.projectId) && (narrow.value || expanded.value), requestClose: close })
 const hints = ["检查当前章节的前后设定", "帮我整理已有正文", "把接下来要处理的事项理清楚"]
 const running = computed(() => ["pending", "running"].includes(state.run?.status))
 const batch = computed(() => state.run?.result?.batch)
 const statusLabel = computed(() => ({ pending: "已提交，等待处理。", running: "正在分析和查证，可离开后继续查看。", completed: "本次处理已完成。", waiting_approval: "修改方案已准备好，等待你确认。", failed: "本次处理未完成。", cancelled: "本次处理已停止。", budget_exceeded: "本次查证已达到预算。" })[state.run?.status] || "")
-const contextLabel = computed(() => state.context?.chapter_index ? `第 ${state.context.chapter_index} 章` : ({ world: "人物与世界", writing: "写作页面", outline: "故事结构", scene: "当前场景", map: "地图", rag: "查找结果" })[state.context?.page || props.page] || "当前作品")
+const contextLabel = computed(() => state.context?.focus_label || (state.context?.chapter_index ? `第 ${state.context.chapter_index} 章` : ({ world: "人物与世界", writing: "写作页面", outline: "故事结构", scene: "当前场景", map: "地图", rag: "查找结果" })[state.context?.page || props.page] || "当前作品"))
+const approvalScopeLabel = computed(() => {
+  const context = state.context
+  if (context?.temporary_draft_id) return ''
+  if (context?.selected_entities?.length) return `本页选定的 ${context.selected_entities.length} 个对象`
+  if (context?.focus_ref?.kind === 'entity') return context.focus_label || '当前明确选定的对象'
+  if (context?.focus_ref?.kind === 'relation') return context.focus_label || '当前明确选定的关系'
+  if (context?.page === 'writing' && context.draft_id && context.chapter_index) return `已保存的第 ${context.chapter_index} 章`
+  return ''
+})
+watch(() => [JSON.stringify(state.context), state.blueprint, taskHint.value], () => { state.approvalRequest = null }, { flush: 'sync' })
 function capture(refresh = false) {
   const original = props.initialContext?.projectId === props.projectId ? props.initialContext.context : null
-  if (original && (!refresh || original.context_confirmation_id)) return original
+  if (original && (!refresh || original.context_confirmation_id || original.focus_ref || original.selected_entities)) return original
   return { ...original, ...getAssistantWorkContext(props.projectId, props.page), excluded_targets: original?.excluded_targets || [] }
 }
 function handleKeydown(event) { if (!narrow.value && event.key === "Escape") { event.stopPropagation(); close() } else onKeydown(event) }
@@ -125,6 +148,17 @@ async function send() { try { await assistant.send(withIntent(state.context || c
 function dependencyTitles(action) { return action.depends_on.map(key => state.run.result.actions.find(item => item.key === key)?.title || "前置修改").join("、") }
 function safeUrl(value) { try { const url = new URL(value); return ["https:", "http:"].includes(url.protocol) && !url.username && !url.password } catch { return false } }
 function syncMedia() { narrow.value = media?.matches || false }
+function keepFocusedInputVisible() {
+  const focused = dialogRef.value?.ownerDocument.activeElement
+  if (props.open && narrow.value && dialogRef.value?.contains(focused) && focused?.matches('textarea,input,select')) focused.scrollIntoView({ block: 'nearest', inline: 'nearest' })
+}
+watch(dialogRef, (node, _previous, cleanup) => {
+  const view = node?.ownerDocument.defaultView
+  const observer = view?.ResizeObserver ? new view.ResizeObserver(keepFocusedInputVisible) : null
+  if (node) observer?.observe(node)
+  view?.visualViewport?.addEventListener('resize', keepFocusedInputVisible)
+  cleanup(() => { observer?.disconnect(); view?.visualViewport?.removeEventListener('resize', keepFocusedInputVisible) })
+}, { flush: 'post' })
 let loadPromise = Promise.resolve()
 let disposed = false
 const removeOpener = registerProjectAssistantOpener(async request => {
@@ -185,7 +219,11 @@ onBeforeUnmount(() => { disposed = true; removeOpener(); assistant.dispose(); me
 <style>
 .project-assistant-scope{display:flex;align-items:center;justify-content:space-between;gap:8px;font-size:12px;margin-top:8px}.project-assistant-scope select{min-height:40px;padding:6px;background:var(--bg-muted);color:inherit;border:1px solid var(--border);border-radius:6px}
 .project-assistant{flex:0 0 min(25rem,36vw);min-width:0;border-left:1px solid var(--border-color,var(--border));background:var(--bg-primary,var(--bg-base));color:var(--text-primary);height:100%;overflow:hidden}
-.project-assistant-chat{display:flex;flex-direction:column;flex:1;min-height:0}.project-assistant-tabs{display:flex;padding:6px 16px;gap:8px;border-bottom:1px solid var(--border-color,var(--border))}.project-assistant-tabs button{border:0;background:transparent;color:var(--text-secondary);padding:8px 16px;min-height:40px;cursor:pointer}.project-assistant-tabs button[aria-pressed=true]{color:var(--text-primary);background:var(--bg-muted);border-radius:6px;font-weight:600}.project-assistant-panel{height:100%;display:flex;flex-direction:column;min-width:0;outline:none}
+.project-assistant--expanded{position:fixed;inset:0;z-index:1300;border:none;background:transparent}
+.project-assistant--expanded .project-assistant-panel{position:absolute;inset:0 0 0 auto;width:min(100%,64rem);background:var(--bg-primary,var(--bg-base))}
+.project-assistant--expanded .project-assistant-backdrop{position:absolute;inset:0;border:0;background:rgba(0,0,0,.35)}
+.project-assistant-header-actions{display:flex;flex-wrap:wrap;justify-content:flex-end;gap:4px;flex-shrink:0}
+.project-assistant-chat{display:flex;flex-direction:column;flex:1;min-height:0}.project-assistant-tabs{display:flex;flex-wrap:wrap;padding:6px 16px;gap:4px;border-bottom:1px solid var(--border-color,var(--border))}.project-assistant-tabs button{flex:0 0 auto;white-space:nowrap;border:0;background:transparent;color:var(--text-secondary);padding:8px 16px;min-height:40px;cursor:pointer}.project-assistant-tabs button[aria-pressed=true]{color:var(--text-primary);background:var(--bg-muted);border-radius:6px;font-weight:600}.project-assistant-panel{height:100%;display:flex;flex-direction:column;min-width:0;outline:none}
 .project-assistant-goal{display:flex;flex:1;min-height:0;overflow:hidden}
 .project-assistant-header,.project-assistant-sessions,.project-assistant-composer{padding:14px 16px;border-bottom:1px solid var(--border-color,var(--border))}
 .project-assistant-header,.project-assistant-sessions,.project-assistant-actions,.project-assistant-context{display:flex;align-items:center;justify-content:space-between;gap:8px}

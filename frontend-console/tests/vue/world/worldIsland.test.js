@@ -36,7 +36,7 @@ describe("world island deep links", () => {
 
     await loadWorld()
 
-    expect(worldSession.relationListFilters).toEqual({ q: "雨夜", skip: 20, limit: 20 })
+    expect(worldSession.relationListFilters).toEqual({ q: "雨夜", status: "canonical", skip: 20, limit: 20 })
     expect(listRelationships).toHaveBeenCalledWith({
       novel_id: "novel-1",
       q: "雨夜",

@@ -22,6 +22,7 @@ from modules.assistant.schemas import (
 )
 
 DRAFT_ID = "11111111-1111-4111-8111-111111111111"
+TEMP_DRAFT_ID = "22222222-2222-4222-8222-222222222222"
 
 
 def _context(**overrides) -> WorkContext:
@@ -53,6 +54,107 @@ class TestSelectionRangeContract:
     def test_valid_offsets_pass(self) -> None:
         work = _context(selection_start=4, selection_end=7)
         assert work.selection_start == 4
+
+
+class TestWorldFocusContext:
+    def test_entity_dossier_and_relation_refs_are_typed(self) -> None:
+        entity_ref = {
+            "kind": "entity",
+            "entity_id": DRAFT_ID,
+            "updated_at": "2026-10-18T08:00:00Z",
+        }
+        work = WorkContext(
+            page="world",
+            target={"target_type": "world_entity", "target_id": DRAFT_ID},
+            focus_ref=entity_ref,
+            focus_label="对象：白石城",
+        )
+        assert work.focus_ref.kind == "entity"
+        assert "focus_label" not in work.model_dump_json(exclude={"focus_label"})
+        assert work.focus_ref.updated_at.isoformat() == "2026-10-18T08:00:00+00:00"
+
+        dossier = WorkContext(
+            page="world",
+            target={"target_type": "world_entity", "target_id": DRAFT_ID},
+            focus_ref={
+                "kind": "dossier_entry",
+                "entity_id": DRAFT_ID,
+                "entry_group_id": TEMP_DRAFT_ID,
+                "revision_id": "33333333-3333-4333-8333-333333333333",
+            },
+        )
+        relation = WorkContext(
+            page="world",
+            target={"target_type": "world_entity", "target_id": DRAFT_ID},
+            focus_ref={
+                "kind": "relation",
+                "entity_id": DRAFT_ID,
+                "relation_id": TEMP_DRAFT_ID,
+                "updated_at": "2026-10-18T08:00:00Z",
+            },
+        )
+        assert dossier.focus_ref.kind == "dossier_entry"
+        assert relation.focus_ref.kind == "relation"
+
+    def test_focus_must_belong_to_current_world_object_page(self) -> None:
+        focus_ref = {
+            "kind": "entity",
+            "entity_id": DRAFT_ID,
+            "updated_at": "2026-10-18T08:00:00Z",
+        }
+        with pytest.raises(ValidationError, match="只能来自世界对象页"):
+            _context(
+                page="writing",
+                target={"target_type": "world_entity", "target_id": DRAFT_ID},
+                focus_ref=focus_ref,
+            )
+        with pytest.raises(ValidationError, match="必须属于当前对象"):
+            WorkContext(
+                page="world",
+                target={
+                    "target_type": "world_entity",
+                    "target_id": TEMP_DRAFT_ID,
+                },
+                focus_ref=focus_ref,
+            )
+        with pytest.raises(ValidationError, match="对应的对象"):
+            WorkContext(page="world", focus_ref=focus_ref)
+
+    def test_world_focus_cannot_mix_with_draft_or_selection(self) -> None:
+        focus_ref = {
+            "kind": "entity",
+            "entity_id": DRAFT_ID,
+            "updated_at": "2026-10-18T08:00:00Z",
+        }
+        with pytest.raises(ValidationError, match="不能混入正文草稿"):
+            WorkContext(
+                page="world",
+                target={"target_type": "world_entity", "target_id": DRAFT_ID},
+                focus_ref=focus_ref,
+                draft_id=DRAFT_ID,
+            )
+
+
+class TestTemporaryDraftContext:
+    def test_temporary_context_does_not_bind_to_saved_draft(self) -> None:
+        work = _context(draft_id=None, temporary_draft_id=TEMP_DRAFT_ID)
+        assert work.temporary_draft_id == uuid.UUID(TEMP_DRAFT_ID)
+        assert work.draft_id is None
+        assert work.selection_start is None
+        assert work.selection_end is None
+
+    def test_temporary_context_rejects_saved_source_and_confirmations(self) -> None:
+        with pytest.raises(ValidationError, match="冒充已保存正文"):
+            _context(temporary_draft_id=TEMP_DRAFT_ID, source_hash="a" * 64)
+        with pytest.raises(ValidationError, match="不能沿用已确认资料"):
+            _context(
+                draft_id=None,
+                temporary_draft_id=TEMP_DRAFT_ID,
+                context_confirmation_id=TEMP_DRAFT_ID,
+                context_confirmation_action="writing.review",
+            )
+        with pytest.raises(ValidationError, match="只能来自写作页"):
+            _context(page="world", temporary_draft_id=TEMP_DRAFT_ID)
 
 
 class TestVerifySelectionRange:
@@ -92,6 +194,24 @@ class TestTaskHintDirective:
         assert "不得扩大情节" in directive
         assert work_directive(_context(task_hint="unknown")) == ""
 
+    def test_explicit_world_focus_requires_materialization_and_stays_author_only(
+        self,
+    ) -> None:
+        focus = WorkContext(
+            page="world",
+            target={"target_type": "world_entity", "target_id": DRAFT_ID},
+            focus_ref={
+                "kind": "entity",
+                "entity_id": DRAFT_ID,
+                "updated_at": "2026-10-18T08:00:00Z",
+            },
+            focus_label="UI-only label",
+        )
+        directive = work_directive(focus)
+        assert "inspect_current" in directive
+        assert "作者视角" in directive
+        assert "UI-only label" not in directive
+
     def test_unknown_hint_is_default(self) -> None:
         assert WorkContext().task_hint == "unknown"
         assert set(TASK_HINT_DIRECTIVES) < set(TASK_HINTS)
@@ -111,6 +231,76 @@ class TestTurnRequestCarriesChain:
         )
         assert payload.context.task_hint == "polish"
         assert payload.context.selection_start == 6
+
+    def test_turn_create_accepts_temporary_context_without_saved_source(self) -> None:
+        from modules.assistant.schemas import TurnCreate
+
+        context = _context(draft_id=None, temporary_draft_id=TEMP_DRAFT_ID).model_dump(
+            mode="json"
+        )
+        payload = TurnCreate(
+            novel_id=uuid.uuid4(),
+            operation_id=uuid.uuid4(),
+            message="讨论当前选区",
+            context=context,
+        )
+        assert payload.context.temporary_draft_id == uuid.UUID(TEMP_DRAFT_ID)
+        assert payload.context.draft_id is None
+
+    def test_unset_temp_marker_preserves_turn_idempotency(self) -> None:
+        from modules.assistant.service import _legacy_compatible_request_hash
+
+        legacy_payload = {
+            "message": "只讨论选区",
+            "context": {"draft_id": DRAFT_ID, "selection": "白石城"},
+        }
+        additive_payload = {
+            **legacy_payload,
+            "context": {
+                **legacy_payload["context"],
+                "temporary_draft_id": None,
+                "focus_ref": None,
+            },
+        }
+        unbound_payload = {
+            "message": "只讨论选区",
+            "context": {"selection": "白石城"},
+        }
+        temporary_payload = {
+            **unbound_payload,
+            "context": {
+                **unbound_payload["context"],
+                "temporary_draft_id": TEMP_DRAFT_ID,
+            },
+        }
+        focused_payload = {
+            **unbound_payload,
+            "context": {
+                **unbound_payload["context"],
+                "focus_ref": {
+                    "kind": "entity",
+                    "entity_id": DRAFT_ID,
+                    "updated_at": "2026-10-18T08:00:00Z",
+                },
+            },
+        }
+        focused_with_label = {
+            **focused_payload,
+            "context": {**focused_payload["context"], "focus_label": "对象甲"},
+        }
+
+        assert _legacy_compatible_request_hash(additive_payload) == (
+            _legacy_compatible_request_hash(legacy_payload)
+        )
+        assert _legacy_compatible_request_hash(temporary_payload) != (
+            _legacy_compatible_request_hash(unbound_payload)
+        )
+        assert _legacy_compatible_request_hash(focused_payload) != (
+            _legacy_compatible_request_hash(unbound_payload)
+        )
+        assert _legacy_compatible_request_hash(focused_with_label) == (
+            _legacy_compatible_request_hash(focused_payload)
+        )
 
     def test_work_json_dump_includes_new_fields_for_prompt(self) -> None:
         # execute() 把 work.model_dump_json 注入最终 user 消息——

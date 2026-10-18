@@ -13,6 +13,7 @@ from core.dependencies import DbSession
 from core.errors import NotFoundError
 from infrastructure.tasks.facade import cancel_exact_task
 from modules.account.facade import current_account_id, is_demo_readonly_principal
+from modules.assistant.approval_contracts import ApprovalRevocation
 from modules.assistant.editorial_contracts import (
     EditorialPolicyUpdate,
     IssueDecision,
@@ -30,6 +31,7 @@ from modules.assistant.operation_trace_service import (
     set_operation_trace_preference,
 )
 from modules.assistant.operations import catalog, decide_batch
+from modules.assistant.product_help import PRODUCT_HELP
 from modules.assistant.schemas import (
     CONTROLLED_DESTINATIONS,
     BatchDecision,
@@ -312,7 +314,16 @@ async def capabilities(db: DbSession, novel_id: UUID):
         if model_ready
         else "请先连接并验证当前模型，讨论记录仍可查看。"
     )
+    from modules.assistant.approval import approval_availability
+
+    automatic_approval = (
+        await approval_availability(db, str(novel_id), str(current_account_id()))
+        if reason is None
+        else {"available": False, "reason": reason}
+    )
     return {
+        "automatic_approval": automatic_approval,
+        "product_help": PRODUCT_HELP,
         "enabled": get_settings().assistant_enabled,
         "guided_flows": {
             "available": guided_flow_available(str(novel_id)),
@@ -453,6 +464,33 @@ async def submit_turn(db: DbSession, session_id: UUID, data: TurnCreate):
 async def get_run(db: DbSession, run_id: UUID, novel_id: UUID):
     await require_active_project(db, str(novel_id))
     return await service.get_run(db, str(novel_id), str(run_id))
+
+
+@router.get("/runs/{run_id}/approval")
+async def get_task_approval(db: DbSession, run_id: UUID, novel_id: UUID):
+    from modules.assistant.approval import grant_view
+
+    await require_active_project(db, str(novel_id))
+    return await grant_view(db, str(novel_id), str(run_id), str(current_account_id()))
+
+
+@router.post(
+    "/runs/{run_id}/approval/revoke",
+    openapi_extra={
+        "x-novelcraft-operation-exemption": (
+            "Revoke this task's automatic approval; never writes domain assets."
+        )
+    },
+)
+async def revoke_task_approval(
+    db: DbSession, run_id: UUID, novel_id: UUID, data: ApprovalRevocation
+):
+    from modules.assistant.approval import revoke_grant
+
+    await require_active_project(db, str(novel_id))
+    return await revoke_grant(
+        db, str(novel_id), str(run_id), str(current_account_id()), data.expected_version
+    )
 
 
 @router.post(

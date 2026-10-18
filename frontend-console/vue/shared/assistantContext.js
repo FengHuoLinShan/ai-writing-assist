@@ -1,6 +1,12 @@
 const pages = new Set(["today", "world", "writing", "outline", "scene", "map", "rag", "project", "generate"])
 const uuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i
 
+function temporaryDraftId() {
+  const id = globalThis.crypto?.randomUUID?.()
+  if (!uuid.test(id || "")) throw new Error("无法为未保存正文建立临时上下文，请保存后重试。")
+  return id
+}
+
 export function readWritingFocus(editor, draftId) {
   const start = Array.from(editor.value.slice(0, editor.selectionStart)).length
   const selection = editor.value.slice(editor.selectionStart, editor.selectionEnd)
@@ -24,11 +30,17 @@ export function captureWorkContext(state, router, projectId, page, activeElement
       const focus = readWritingFocus(editor, context.draft_id)
       context.selection = focus.selection
       const editorState = state._writingForecastState
-      const clean = !(editorState?.projectId === projectId && (editorState?.dirty || editorState?.saving))
-      if (context.selection && clean) {
-        // R00：选区带 SourceRange 语义——码点偏移（与服务端码点计数一致，
-        // 不用 UTF-16 下标，emoji 等增补平面字符不漂移）。未保存编辑期间
-        // 偏移必然与已存草稿漂移，只保留文本不带偏移。
+      const dirty = editorState?.projectId === projectId && (editorState?.dirty || editorState?.saving)
+      if (dirty) {
+        // The selected text is discussion-only. Do not bind it to the saved draft ID,
+        // hash, or offsets; that saved version is not the text currently in the editor.
+        context.temporary_draft_id = temporaryDraftId()
+        delete context.draft_id
+        delete context.source_hash
+        delete context.selection_start
+        delete context.selection_end
+      } else if (context.selection) {
+        // R00: source offsets use Unicode code points (Array.from), matching Python len().
         context.selection_start = focus.selection_start
         context.selection_end = focus.selection_end
       }

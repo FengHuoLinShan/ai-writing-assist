@@ -3,14 +3,25 @@
 from __future__ import annotations
 
 from typing import Literal
+from uuid import UUID
 
 from fastapi import Query
 
 from core.dependencies import DbSession
+from core.errors import ValidationError
+from infrastructure.stable_hash import stable_hash
+from modules.account.facade import current_account_id
 from modules.world.api._shared import (
     ActiveNovelIdQuery,
     _relation_service,
     router,
+)
+from modules.world.relation_changes import (
+    RelationChange,
+    RelationChangeConfirmed,
+    apply_change,
+    change_history,
+    preview_change,
 )
 from modules.world.relation_schemas import (
     WorldRelationMembershipBatchRequest,
@@ -189,6 +200,68 @@ async def review_edit_relation(
     novel_id: ActiveNovelIdQuery,
 ) -> dict[str, object]:
     return await _relation_service.review_edit(db, novel_id, rel_id, data)
+
+
+@router.get("/relations/{rel_id}/change-history")
+async def relation_change_history(
+    db: DbSession,
+    rel_id: UUID,
+    *,
+    novel_id: ActiveNovelIdQuery,
+    skip: int = Query(default=0, ge=0),
+    limit: int = Query(default=20, ge=1, le=50),
+):
+    return await change_history(db, novel_id, rel_id, skip=skip, limit=limit)
+
+
+@router.post(
+    "/relations/{rel_id}/change-preview",
+    openapi_extra={
+        "x-novelcraft-operation-exemption": (
+            "Read-only relationship edit/end/remove/restore preview; "
+            "never applies changes."
+        )
+    },
+)
+async def relation_change_preview(
+    db: DbSession, rel_id: UUID, data: RelationChange, *, novel_id: ActiveNovelIdQuery
+):
+    if data.relation_id != rel_id:
+        raise ValidationError("关系路径与所选目标不一致")
+    preview = await preview_change(db, novel_id, data)
+    return {"preview": preview, "preview_hash": stable_hash(preview)}
+
+
+@router.post(
+    "/relations/{rel_id}/changes",
+    openapi_extra={
+        "x-novelcraft-operation-exemption": (
+            "Polymorphic author-confirmed edit/end/remove/restore has versioned relation "
+            "history and operation receipts; no single assistant capability "
+            "covers all actions."
+        )
+    },
+)
+async def relation_change_confirm(
+    db: DbSession,
+    rel_id: UUID,
+    data: RelationChangeConfirmed,
+    *,
+    novel_id: ActiveNovelIdQuery,
+):
+    if data.relation_id != rel_id:
+        raise ValidationError("关系路径与所选目标不一致")
+    args = RelationChange.model_validate(
+        data.model_dump(exclude={"operation_id", "expected_preview_hash", "confirmed"})
+    )
+    return await apply_change(
+        db,
+        novel_id,
+        args,
+        operation_id=str(data.operation_id),
+        expected_preview_hash=data.expected_preview_hash,
+        actor=str(current_account_id()),
+    )
 
 
 @router.delete("/relations/{rel_id}", status_code=204)

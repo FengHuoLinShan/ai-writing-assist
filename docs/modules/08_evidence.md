@@ -107,6 +107,8 @@ Assistant v9 的 `evidence.object_dossier_brief.read` 经同一 Evidence facade 
 分别由 `OBJECT_DOSSIER_ENABLED_CAPABILITIES` 与
 `CHARACTER_PATTERN_ENABLED_CAPABILITIES` 显式设置消费能力，默认均关闭。
 
+世界页的显式 `WorkContext.focus_ref` 另经 Evidence facade 的 `read_assistant_world_focus()` 物化，只读取当前对象投影、一个当前档案修订或一条当前关系，不扩为整对象简报/相邻资料；作者视角结果带有可核对摘录，并在最终回答前重读和校验完整材料指纹。已有 confirmation 时不另加焦点，角色扮演任务不读取此作者资料；它不是角色已知证据，也不改变上述 Scene-bound 简报契约。
+
 每个 `ContextSection` 会携带审查台元数据：
 
 | 字段 | 含义 |

@@ -31,7 +31,7 @@ export const worldSession = reactive({
   bulkSelections: {},
 
   // 正式关系和别名都以 URL 恢复搜索与分页。
-  relationListFilters: { q: "", skip: 0, limit: 20 },
+  relationListFilters: { q: "", status: "canonical", skip: 0, limit: 20 },
   aliasListFilters: { q: "", skip: 0, limit: 20 },
 
   // bible 会话（vanilla worldBibleView 模块单例：跨进入保留"上次页面"）。
@@ -171,7 +171,7 @@ export function resetWorldSession() {
   worldSession.processingReviewIds = {}
   worldSession.reviewReceipt = null
   worldSession.bulkSelections = {}
-  worldSession.relationListFilters = { q: "", skip: 0, limit: 20 }
+  worldSession.relationListFilters = { q: "", status: "canonical", skip: 0, limit: 20 }
   worldSession.aliasListFilters = { q: "", skip: 0, limit: 20 }
   worldSession.bible = {
     activePageId: null,

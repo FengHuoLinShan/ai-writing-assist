@@ -9,6 +9,14 @@ async def require_operation_targets(db, novel_id, context, targets, *, aggregate
     if context is None:
         return
     work = context.work
+    if work.selected_entities:
+        selected_ids = {str(item.entity_id) for item in work.selected_entities}
+        if aggregate or any(
+            kind not in {"world_entity", "core_entity", "entity"}
+            or str(target_id) not in selected_ids
+            for kind, target_id in targets
+        ):
+            raise ConflictError("操作超出本次明确选择的对象集合，请重新选择后准备")
     excluded = {value.rsplit(":", 1)[-1] for value in work.excluded_targets}
     if any(str(target_id) in excluded for _, target_id in targets):
         raise ConflictError("本次操作涉及已排除资料，请在原范围内调整方案")

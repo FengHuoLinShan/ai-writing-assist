@@ -27,6 +27,13 @@ import {
   // ============================================================
 
 export const world = {
+    freezeEntityReviewScope: (novelId, payload) => post(withQuery('/world/entity-review-scopes', { novel_id: novelId }), payload),
+    recentEntityReviewScopes: (novelId) => request(withQuery('/world/entity-review-scopes', { novel_id: novelId }), { cache: 'no-store' }),
+    entityReviewScope: (novelId, id, skip = 0) => request(withQuery(`/world/entity-review-scopes/${encodeURIComponent(id)}`, { novel_id: novelId, skip }), { cache: 'no-store' }),
+    decideEntityReviewScope: (novelId, id, payload) => post(withQuery(`/world/entity-review-scopes/${encodeURIComponent(id)}/decisions`, { novel_id: novelId }), payload),
+    relationChangeHistory: (id, novelId, skip = 0) => request(withQuery(`/world/relations/${id}/change-history`, { novel_id: novelId, skip, limit: 20 }), { cache: "no-store" }),
+    previewRelationChange: (id, novelId, payload) => post(withQuery(`/world/relations/${id}/change-preview`, { novel_id: novelId }), payload),
+    confirmRelationChange: (id, novelId, payload) => post(withQuery(`/world/relations/${id}/changes`, { novel_id: novelId }), payload),
     async listMapAutoDrafts(novelId, options = {}) {
       return contractFetch("world.listMapAutoDrafts", { novelId }, options)
     },
@@ -107,7 +114,7 @@ export const world = {
       return request(withQuery("/world/characters", params))
     },
 
-    async getEntityRelations(id, novelId) { return request(withQuery(`/world/entities/${id}/relations`, { novel_id: novelId })) },
+    async getEntityRelations(id, novelId, { includeRemoved = false } = {}) { return request(withQuery(`/world/entities/${id}/relations`, { novel_id: novelId, ...(includeRemoved ? { include_removed: true } : {}) })) },
     async getEntityRevisions(id, novelId, options = {}) {
       const { skip = 0, limit = 20 } = options
       return request(withQuery(`/world/entities/${id}/revisions`, { novel_id: novelId, skip, limit }))

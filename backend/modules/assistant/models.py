@@ -83,12 +83,10 @@ class AssistantRun(Base, UUIDMixin, TimestampMixin, NovelMixin):
             "novel_id",
             unique=True,
             postgresql_where=text(
-                "mode = 'goal' AND status IN "
-                "('pending','running','waiting_approval')"
+                "mode = 'goal' AND status IN ('pending','running','waiting_approval')"
             ),
             sqlite_where=text(
-                "mode = 'goal' AND status IN "
-                "('pending','running','waiting_approval')"
+                "mode = 'goal' AND status IN ('pending','running','waiting_approval')"
             ),
         ),
     )
@@ -132,6 +130,48 @@ class AssistantActionBatch(Base, UUIDMixin, TimestampMixin, NovelMixin):
     actions_json: Mapped[list] = mapped_column(JSON, default=list)
     authorization_json: Mapped[dict] = mapped_column(JSON, default=dict)
     results_json: Mapped[list] = mapped_column(JSON, default=list)
+
+
+class AssistantApprovalGrant(Base, TimestampMixin, NovelMixin):
+    __tablename__ = "assistant_approval_grants"
+    __table_args__ = (
+        ForeignKeyConstraint(
+            ["novel_id", "run_id"],
+            ["assistant_runs.novel_id", "assistant_runs.id"],
+            ondelete="CASCADE",
+        ),
+        CheckConstraint(
+            "status IN ('active','revoked')", name="ck_approval_grant_status"
+        ),
+    )
+    run_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True)
+    version: Mapped[int] = mapped_column(Integer, default=1)
+    status: Mapped[str] = mapped_column(String(16), default="active")
+    policy_json: Mapped[dict] = mapped_column(JSON, default=dict)
+    model_snapshot_json: Mapped[dict] = mapped_column(JSON, default=dict)
+    attempts_json: Mapped[list] = mapped_column(JSON, default=list)
+
+
+class AssistantApprovalCalibration(Base, UUIDMixin, TimestampMixin, NovelMixin):
+    """Written by the explicit calibration runner, never by browser/API clients."""
+
+    __tablename__ = "assistant_approval_calibrations"
+    __table_args__ = (
+        UniqueConstraint(
+            "novel_id",
+            "owner_id",
+            "model_fingerprint",
+            "policy_version",
+            name="uq_approval_calibration",
+        ),
+    )
+    owner_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("accounts.id"), nullable=False
+    )
+    model_fingerprint: Mapped[str] = mapped_column(String(64))
+    policy_version: Mapped[str] = mapped_column(String(64))
+    suite_hash: Mapped[str] = mapped_column(String(64))
+    receipt_json: Mapped[dict] = mapped_column(JSON, default=dict)
 
 
 class AssistantNotice(Base, UUIDMixin, TimestampMixin, NovelMixin):

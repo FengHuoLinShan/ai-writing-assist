@@ -93,11 +93,11 @@ async def require_interaction_project(db, novel_id: str) -> None: ...
 
 @asynccontextmanager
 async def open_project_llm_client(
-    db, novel_id: str, *, timeout_override: int | None = None, high_quality: bool = False
+    db, novel_id: str, *, timeout_override: int | None = None, high_quality: bool = False, purpose: str = "business"
 ): ...
 
 async def build_project_llm_execution_snapshot(
-    db, novel_id: str
+    db, novel_id: str, *, purpose: str = "business"
 ) -> dict: ...
 
 async def restore_project_llm_execution_settings(
@@ -140,6 +140,11 @@ transaction lock 后重算项目 ID；调用方仍要按这些 ID 保持 `novel_
 `open_project_llm_client()` 获取项目 owner 当前已验证的账户连接。该 seam 统一执行
 项目存在性、owner、Key/Base URL/模型 fail-closed 校验、脱敏 runtime metadata 和
 成功/异常/取消时的 client 关闭；调用方不能传 provider/Key 绕过账户设置。
+批准判断可显式传 `purpose="approval_judgment"`：仅选择当前已验证连接内明确的
+DeepSeek `deepseek-flash` 或 Codex `gpt-6-luna`，当前连接的精确模型不符即停止，不从附加模型顺序猜测。
+固定 low 和结构化、无工具请求，不使用省钱路由或 high_quality 覆盖。secret-free snapshot
+冻结 purpose、模型、low 和能力，恢复取当前轮换凭据并重验连接；旧快照保持 business。
+该入口只提供专用模型配置，不代表代批已启用或模型校准完成。
 普通业务请求不填写 `LLMCallRequest.max_tokens` 时，由 client 物化项目有效默认值；
 当前系统默认是 `12000`。只有深度导入阶段预算和健康检查可以显式覆盖该值。
 新增业务 LLM 服务必须复用此 seam，不得直接构造 `LLMClient` 或调用

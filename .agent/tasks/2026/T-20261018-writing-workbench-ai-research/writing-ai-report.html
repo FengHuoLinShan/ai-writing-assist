@@ -1,0 +1,291 @@
+<div id="writing-ai-report">
+  <style>
+    #writing-ai-report { color:var(--foreground); }
+    #writing-ai-report .wr-header { padding:0 96px 16px 0; }
+    #writing-ai-report .wr-kicker { color:var(--muted-foreground); margin-bottom:8px; }
+    #writing-ai-report h2 { margin:0 0 8px; }
+    #writing-ai-report h3 { margin:20px 0 12px; }
+    #writing-ai-report .wr-panel { padding-top:20px; }
+    #writing-ai-report .wr-label { color:var(--muted-foreground); }
+    #writing-ai-report .wr-map { margin:20px 0 12px; display:grid; gap:0; }
+    #writing-ai-report .wr-example { display:grid; grid-template-columns:1fr 1fr; gap:24px; margin:18px 0; }
+    #writing-ai-report .wr-example-section { min-width:0; }
+    #writing-ai-report .wr-example-label { display:flex; flex-wrap:wrap; gap:8px; align-items:center; padding:10px 0; border-bottom:1px solid var(--border); }
+    #writing-ai-report .wr-excerpt { margin:16px 0; min-height:104px; overflow-wrap:anywhere; }
+    #writing-ai-report .wr-demo-track { display:flex; flex-wrap:wrap; gap:8px 12px; padding:16px 0; }
+    #writing-ai-report .wr-demo-marker { color:var(--muted-foreground); }
+    #writing-ai-report .wr-demo-marker.is-current { color:var(--foreground); font-weight:500; }
+    #writing-ai-report .wr-demo-output { display:grid; gap:8px; padding:14px 0; border-top:1px solid var(--border); }
+    #writing-ai-report .wr-diff { background:color-mix(in srgb,var(--viz-series-1) 14%,transparent); color:var(--foreground); text-decoration:none; }
+    #writing-ai-report .wr-demo-controls { margin-top:16px; }
+    #writing-ai-report .wr-stage { display:grid; grid-template-columns:92px minmax(0,1fr); column-gap:20px; padding:16px 0; border-bottom:1px solid var(--border); }
+    #writing-ai-report .wr-stage:last-child { border-bottom:0; }
+    #writing-ai-report .wr-stage-main { display:grid; gap:6px; min-width:0; }
+    #writing-ai-report .wr-strong { font-weight:500; }
+    #writing-ai-report .wr-note { margin-top:14px; color:var(--muted-foreground); }
+    #writing-ai-report .wr-layouts { display:grid; grid-template-columns:1fr 1fr; gap:28px; margin-top:20px; }
+    #writing-ai-report .wr-layout { min-width:0; }
+    #writing-ai-report .wr-schema { display:grid; grid-template-columns:46px minmax(0,1.5fr) minmax(0,1fr); gap:8px; min-height:200px; padding:14px 0; }
+    #writing-ai-report .wr-zone { background:var(--muted); color:var(--foreground); display:flex; flex-direction:column; justify-content:center; align-items:center; gap:12px; padding:12px 6px; text-align:center; min-width:0; overflow-wrap:anywhere; }
+    #writing-ai-report .wr-zone-main { background:color-mix(in srgb,var(--viz-series-1) 12%,transparent); }
+    #writing-ai-report .wr-stack { display:grid; grid-template-rows:1fr 1fr; gap:8px; min-width:0; }
+    #writing-ai-report .wr-state-line { padding:8px 0; border-top:1px solid var(--border); display:flex; flex-wrap:wrap; gap:6px 12px; }
+    #writing-ai-report .wr-tradeoff { display:grid; grid-template-columns:56px 1fr; gap:8px; margin-top:12px; }
+    #writing-ai-report .wr-detail { margin-top:18px; }
+    #writing-ai-report .wr-lifecycle { display:grid; grid-template-columns:repeat(5,minmax(0,1fr)); gap:12px; margin:24px 0; }
+    #writing-ai-report .wr-step { padding-top:14px; border-top:2px solid var(--border); display:grid; align-content:start; gap:10px; }
+    #writing-ai-report .wr-step.is-current { border-color:var(--viz-series-1); }
+    #writing-ai-report .wr-step-num { color:var(--muted-foreground); }
+    #writing-ai-report .wr-branch { padding:16px 0; border-top:1px solid var(--border); border-bottom:1px solid var(--border); display:grid; gap:8px; }
+    #writing-ai-report .wr-evidence { display:grid; gap:0; }
+    #writing-ai-report .wr-evidence-row { padding:14px 0; border-bottom:1px solid var(--border); display:grid; grid-template-columns:100px minmax(0,1fr); gap:14px; }
+    #writing-ai-report .wr-evidence-value { display:grid; gap:6px; }
+    #writing-ai-report .wr-roadmap { display:grid; grid-template-columns:52px minmax(0,1fr); gap:12px 16px; margin-top:16px; }
+    #writing-ai-report details { margin-top:16px; }
+    #writing-ai-report summary { color:var(--foreground); }
+    #writing-ai-report .wr-sources { display:grid; gap:10px; padding:14px 0; }
+    #writing-ai-report .wr-sources a { overflow-wrap:anywhere; }
+    #writing-ai-report .wr-footer { margin-top:20px; padding-top:12px; border-top:1px solid var(--border); color:var(--muted-foreground); }
+    @media(max-width:600px) {
+      #writing-ai-report .wr-example { grid-template-columns:1fr; gap:0; }
+      #writing-ai-report .wr-excerpt { min-height:0; }
+      #writing-ai-report .wr-layouts { grid-template-columns:1fr; gap:16px; }
+      #writing-ai-report .wr-lifecycle { grid-template-columns:1fr; gap:0; }
+      #writing-ai-report .wr-step { grid-template-columns:28px minmax(0,1fr); padding:12px 0; border-top:1px solid var(--border); gap:4px 8px; }
+      #writing-ai-report .wr-step .wr-label { grid-column:2; }
+      #writing-ai-report .wr-stage { grid-template-columns:64px minmax(0,1fr); gap:12px; }
+      #writing-ai-report .wr-evidence-row { grid-template-columns:76px minmax(0,1fr); gap:10px; }
+    }
+  </style>
+
+  <header class="wr-header">
+    <div class="wr-kicker text-small">NovelCraft · 研究结论可视化</div>
+    <h2>写作任务决定 AI 如何介入</h2>
+    <span class="text-small wr-label">产品机制已核查 · 布局与操作建议待作者验证</span>
+  </header>
+
+  <div class="nav nav-pills viz-row" role="tablist" aria-label="研究视角">
+    <button type="button" class="nav-link active" id="wr-tab-demo" role="tab" aria-controls="wr-demo" aria-selected="true" data-section="demo">协作演示</button>
+    <button type="button" class="nav-link" id="wr-tab-tasks" role="tab" aria-controls="wr-tasks" aria-selected="false" data-section="tasks">任务地图</button>
+    <button type="button" class="nav-link" id="wr-tab-layouts" role="tab" aria-controls="wr-layouts" aria-selected="false" data-section="layouts">布局对照</button>
+    <button type="button" class="nav-link" id="wr-tab-flow" role="tab" aria-controls="wr-flow" aria-selected="false" data-section="flow">采用与恢复</button>
+    <button type="button" class="nav-link" id="wr-tab-evidence" role="tab" aria-controls="wr-evidence" aria-selected="false" data-section="evidence">证据与优先级</button>
+  </div>
+
+  <section class="wr-panel" id="wr-demo" role="tabpanel" aria-labelledby="wr-tab-demo">
+    <div class="viz-row"><span class="viz-badge">局部修订</span><span class="wr-label text-small">虚构示例 · 不调用模型 · 不写入作品</span></div>
+    <div class="wr-demo-track" aria-label="四步协作过程">
+      <span class="wr-demo-marker is-current" data-demo-step="0">确定意图</span><span aria-hidden="true">→</span>
+      <span class="wr-demo-marker" data-demo-step="1">比较建议</span><span aria-hidden="true">→</span>
+      <span class="wr-demo-marker" data-demo-step="2">作者采用</span><span aria-hidden="true">→</span>
+      <span class="wr-demo-marker" data-demo-step="3">继续手改</span>
+    </div>
+    <div class="wr-state-line"><span class="wr-label">本次要求</span><span>对白更克制；保留拒绝的意思；不添加事实</span></div>
+    <div class="wr-state-line"><span class="wr-label">资料边界</span><span>示例场景：酒馆会面 · 林舟尚不知钥匙真假</span></div>
+    <div class="wr-example" aria-live="polite">
+      <div class="wr-example-section">
+        <div class="wr-example-label"><span class="wr-strong">示意工作稿</span><span class="text-small wr-label" id="wr-demo-draft-state">原文未改变</span></div>
+        <div class="wr-excerpt" id="wr-demo-draft">他把钥匙攥在手里。“我不会给你的。我不相信你。”</div>
+        <span class="text-small wr-label" id="wr-demo-draft-note">操作对象：所选对白；旁边的叙述保留。</span>
+      </div>
+      <div class="wr-example-section">
+        <div class="wr-example-label"><span class="wr-strong" id="wr-demo-candidate-title">准备修改范围</span><span class="text-small wr-label" id="wr-demo-candidate-state">尚无候选</span></div>
+        <div class="wr-excerpt" id="wr-demo-candidate">选中的对白：“我不会给你的。我不相信你。”</div>
+        <span class="text-small wr-label" id="wr-demo-candidate-note">资料提供给助手，不等于助手必然正确使用。</span>
+      </div>
+    </div>
+    <div class="wr-demo-output" aria-live="polite"><span class="wr-strong" id="wr-demo-outcome">作者决定改哪里、为什么改</span><span class="wr-label text-small" id="wr-demo-boundary">目标范围与正文版本绑定；之后移动光标不改变本次对象。</span></div>
+    <div class="viz-controls wr-demo-controls"><button class="btn" type="button" id="wr-demo-prev" disabled>上一步</button><span class="tabular-nums text-small wr-label" id="wr-demo-count">1 / 4</span><button class="btn btn-primary" type="button" id="wr-demo-next">查看候选</button></div>
+  </section>
+
+  <section class="wr-panel" id="wr-tasks" role="tabpanel" aria-labelledby="wr-tab-tasks" hidden>
+    <div class="viz-controls">
+      <label class="form-label" for="wr-task-choice">作者当前任务
+        <select class="form-select" id="wr-task-choice">
+          <option value="revise">改一段对白</option>
+          <option value="lookup">核对人物知道什么</option>
+          <option value="ideas">卡住了，想下一步</option>
+          <option value="review">审一整章</option>
+          <option value="director">探索人物反应与剧情</option>
+          <option value="write">继续专注写作</option>
+        </select>
+      </label>
+    </div>
+    <div class="wr-map" aria-live="polite" aria-label="所选任务的协作路径">
+      <div class="wr-stage"><span class="wr-label">作者意图</span><div class="wr-stage-main"><span class="wr-strong" id="wr-intent">更克制，保留拒绝的意思，不加新事实</span><span class="text-small wr-label" id="wr-trigger">选中对白 → 修改这里</span></div></div>
+      <div class="wr-stage"><span class="wr-label">资料边界</span><div class="wr-stage-main"><span id="wr-context">所选段落＋必要上下文＋保留要求</span><span class="text-small wr-label" id="wr-limit">绑定原稿与选区；移动光标不改变修改目标</span></div></div>
+      <div class="wr-stage"><span class="wr-label">AI 介入</span><div class="wr-stage-main"><span class="wr-strong" id="wr-shape">选区指令 → 局部修改对照</span><span class="text-small wr-label" id="wr-work">短要求直接给方案；复杂修改再展开诊断</span></div></div>
+      <div class="wr-stage"><span class="wr-label">作者决定</span><div class="wr-stage-main"><span id="wr-result">比较 → 接受／调整／拒绝 → 继续手改</span><span class="text-small wr-label" id="wr-exit">局部与整章对照互通；关联修改成组处理</span></div></div>
+    </div>
+    <div class="wr-state-line"><span class="text-small wr-label">当前已有</span><span id="wr-existing">批注定位、候选比较、采用与版本保护</span></div>
+    <div class="wr-state-line"><span class="text-small wr-label">待验证</span><span id="wr-hypothesis">就地修改能否减少往返；部分采用的安全契约</span></div>
+  </section>
+
+  <section class="wr-panel" id="wr-layouts" role="tabpanel" aria-labelledby="wr-tab-layouts" hidden>
+    <div class="viz-controls">
+      <label class="form-label" for="wr-mode">工作状态
+        <select class="form-select" id="wr-mode"><option value="draft">起草</option><option value="reference">边写边查</option><option value="review">修订</option><option value="explore">构思</option></select>
+      </label>
+    </div>
+    <div class="wr-layouts" aria-live="polite">
+      <div class="wr-layout">
+        <h3>单一辅助区</h3>
+        <div class="wr-schema" role="img" aria-label="章节目录、正文、一个按任务切换的辅助区">
+          <div class="wr-zone"><span>章<br>节</span></div>
+          <div class="wr-zone wr-zone-main"><span class="wr-strong">正文</span><span class="text-small" data-writing-label>保持编辑位置</span></div>
+          <div class="wr-zone"><span class="wr-strong" id="wr-one-focus">按需助手</span><span class="text-small" id="wr-one-sub">可关闭</span></div>
+        </div>
+        <div class="wr-tradeoff"><span class="wr-label">收益</span><span>减少多个面板同时争夺空间</span><span class="wr-label">代价</span><span>切换任务时，参考资料可能暂时消失</span></div>
+      </div>
+      <div class="wr-layout">
+        <h3>固定资料＋按需助手</h3>
+        <div class="wr-schema" role="img" aria-label="章节目录、正文、固定资料与临时助手两个区域">
+          <div class="wr-zone"><span>章<br>节</span></div>
+          <div class="wr-zone wr-zone-main"><span class="wr-strong">正文</span><span class="text-small" data-writing-label>保持编辑位置</span></div>
+          <div class="wr-stack"><div class="wr-zone"><span id="wr-two-reference">本场资料</span></div><div class="wr-zone"><span id="wr-two-focus">按需助手</span></div></div>
+        </div>
+        <div class="wr-tradeoff"><span class="wr-label">收益</span><span>资料连续可见，讨论时可以对照</span><span class="wr-label">代价</span><span>空间更紧，面板可能遮挡或竞争注意力</span></div>
+      </div>
+    </div>
+    <div class="wr-detail text-small wr-label" id="wr-layout-detail">起草默认保持安静；保留作者固定助手的选择。</div>
+    <hr>
+    <div class="wr-state-line"><span class="wr-label">窄屏</span><span>正文优先 → 辅助任务抽屉／全屏 → 返回原选区与位置</span></div>
+    <div class="wr-state-line"><span class="wr-label">决策依据</span><span>定位错误、面板切换、资料丢失、审阅负担；不以列数定优劣</span></div>
+  </section>
+
+  <section class="wr-panel" id="wr-flow" role="tabpanel" aria-labelledby="wr-tab-flow" hidden>
+    <div class="viz-controls"><label class="form-label" for="wr-source-state">建议返回时
+      <select class="form-select" id="wr-source-state"><option value="fresh">正文与资料未变</option><option value="draft">正文已改</option><option value="world">设定或知识边界已变</option><option value="failure">保存失败</option></select>
+    </label></div>
+    <div class="wr-lifecycle" aria-label="建议从产生到采用的五个阶段">
+      <div class="wr-step"><span class="wr-step-num">01</span><span class="wr-strong">确定意图</span><span class="wr-label text-small">范围／保留项</span></div>
+      <div class="wr-step"><span class="wr-step-num">02</span><span class="wr-strong">绑定来源</span><span class="wr-label text-small">原稿／资料／时点</span></div>
+      <div class="wr-step"><span class="wr-step-num">03</span><span class="wr-strong">生成候选</span><span class="wr-label text-small">保留结果／可停止</span></div>
+      <div class="wr-step is-current" id="wr-check-step"><span class="wr-step-num">04</span><span class="wr-strong">比较与复验</span><span class="wr-label text-small">定位／差异／来源</span></div>
+      <div class="wr-step" id="wr-adopt-step"><span class="wr-step-num">05</span><span class="wr-strong">作者采用</span><span class="wr-label text-small">写入／手改／撤销</span></div>
+    </div>
+    <div class="wr-branch" aria-live="polite"><span class="wr-strong" id="wr-state-title">通过适用审查后，由作者决定采用</span><span id="wr-state-action">接受／调整／拒绝；生成完成仍不等于已经采用。</span><span class="text-small wr-label" id="wr-state-keep">继续手改与撤销路径保持可用。</span></div>
+    <h3>四种状态分开呈现</h3>
+    <div class="viz-row"><span class="viz-badge">处理中</span><span aria-hidden="true">→</span><span class="viz-badge">待审阅</span><span aria-hidden="true">→</span><span class="viz-badge">已采用</span><span>／</span><span class="viz-badge">需要重新核对</span></div>
+    <div class="wr-note text-small">部分采用仍是研究建议；关联修改、事务与复审须先明确，不以勾选绕过现有门禁。</div>
+  </section>
+
+  <section class="wr-panel" id="wr-evidence" role="tabpanel" aria-labelledby="wr-tab-evidence" hidden>
+    <div class="wr-evidence">
+      <div class="wr-evidence-row"><span class="wr-strong">当前代码</span><div class="wr-evidence-value"><span>已有副驾驶、前瞻、批注、项目助手、候选与恢复</span><span class="wr-label text-small">静态入口存在 ≠ 在线无缺陷 ≠ 作者觉得好用</span></div></div>
+      <div class="wr-evidence-row"><span class="wr-strong">官方机制</span><div class="wr-evidence-value"><span>Sudowrite：探索候选与就地修改分开；Novelcrafter：上下文与成果去向</span><span class="wr-label text-small">厂商操作说明 ≠ 独立有效性证据</span></div></div>
+      <div class="wr-evidence-row"><span class="wr-strong">原始研究</span><div class="wr-evidence-value"><span>过程可观察、控制可介入；筛选负担与声音趋同值得关注</span><span class="wr-label text-small">英语短任务、小样本或旧模型 ≠ 中文长篇长期效果</span></div></div>
+      <div class="wr-evidence-row"><span class="wr-strong">待验证设计</span><div class="wr-evidence-value"><span>两种辅助布局、局部比较、上下文摘要、主动提示时机</span><span class="wr-label text-small">来源提供给模型 ≠ 模型实际利用 ≠ 结论正确</span></div></div>
+    </div>
+    <h3>从任务断点开始</h3>
+    <div class="wr-roadmap"><span class="wr-strong">P0</span><span>观察查资料／改局部／想下一步／审本章，定位真实断点</span><span class="wr-strong">P1</span><span>对照布局；优化上下文理解、比较采用与返回原文</span><span class="wr-strong">P2</span><span>优化导演参考回流、复杂任务与主动提醒</span></div>
+    <details><summary class="cursor-interaction">当前能力与建议调整</summary>
+      <div class="table-responsive"><table class="table table-sm"><caption class="sr-only">当前代码可见能力与尚需验证的体验调整</caption><thead><tr><th scope="col">当前已有</th><th scope="col">建议研究</th><th scope="col">验收问题</th></tr></thead><tbody>
+        <tr><td>项目助手与写作菜单</td><td>按当前任务组织入口</td><td>是否减少找入口与重复交代？</td></tr>
+        <tr><td>选区批注、候选比较</td><td>就地比较与关联修改组</td><td>能否看出语义偏移，安全采用？</td></tr>
+        <tr><td>本场／对象／提醒／导演</td><td>两种辅助布局对照</td><td>资料与讨论切换会不会丢位置？</td></tr>
+        <tr><td>前瞻与参考剧本</td><td>构思到正文的回流</td><td>候选能否作为思路，而不冒充正史？</td></tr>
+        <tr><td>来源复验、保存与恢复</td><td>风险反馈与任务返回</td><td>过期建议和失败能否被发现并恢复？</td></tr>
+      </tbody></table></div>
+      <span class="text-small wr-label">静态代码核查基线：98598127 · 不代表全部能力已通过在线或作者验收</span>
+    </details>
+    <details><summary class="cursor-interaction">查看关键来源与适用范围</summary><div class="wr-sources text-small">
+      <a href="https://coauthor.stanford.edu/" target="_blank" rel="noopener noreferrer">CoAuthor · 63 位作者，1,445 次英文写作会话 · 过程数据</a>
+      <a href="https://arxiv.org/abs/2211.05030" target="_blank" rel="noopener noreferrer">Wordcraft · 13 位已发表作品作者 · 专业作者体验</a>
+      <a href="https://www.cs.cmu.edu/~sherryw/assets/pubs/2022-chain.pdf" target="_blank" rel="noopener noreferrer">AI Chains · 20 人研究 · 可见中间步骤与控制感</a>
+      <a href="https://doi.org/10.1126/sciadv.adn5290" target="_blank" rel="noopener noreferrer">Doshi &amp; Hauser · 293 人、八句英文故事 · 创造性与多样性</a>
+      <a href="https://docs.sudowrite.com/using-sudowrite/1ow1qkGqof9rtcyGnrWUBS/quick-edit/2asL35fds36oHAFJN7bYzz" target="_blank" rel="noopener noreferrer">Sudowrite Quick Edit · 官方选区修改机制</a>
+      <a href="https://www.novelcrafter.com/help/faq/chat/chat-multiple-scenes" target="_blank" rel="noopener noreferrer">Novelcrafter · 多场景上下文推进至最晚场景</a>
+      <a href="https://www.literatureandlatte.com/blog/see-more-of-your-project-splitting-the-scrivener-editor" target="_blank" rel="noopener noreferrer">Scrivener · 非 AI 资料查阅与分屏对照</a>
+    </div></details>
+  </section>
+  <footer class="wr-footer text-small">依据 2026-10-18 研究报告 · 示意关系，不代表已实现的新界面 · 未开展作者实验</footer>
+
+  <script>
+    (() => {
+      const root = document.getElementById('writing-ai-report');
+      const find = id => root.querySelector('#' + id);
+      const tasks = {
+        revise: ['更克制，保留拒绝的意思，不加新事实','选中对白 → 修改这里','所选段落＋必要上下文＋保留要求','绑定原稿与选区；移动光标不改变修改目标','选区指令 → 局部修改对照','短要求直接给方案；复杂修改再展开诊断','比较 → 接受／调整／拒绝 → 继续手改','局部与整章对照互通；关联修改成组处理','批注定位、候选比较、采用与版本保护','就地修改能否减少往返；部分采用的安全契约'],
+        lookup: ['他在这里知道钥匙是假的吗？','人物／资料入口 → 查看依据，或向助手提问','人物资料＋前文证据＋有效故事时点','区分作者全知与角色可知；未知就显示缺口','直接查阅＋有依据的回答','能点开对应前文；查阅资料无需先问模型','看原文 → 纠正理解 → 返回原位置写作','没有有效知识边界时，不宣称已完成角色知识核验','对象资料、Evidence 入口、显式场景选择','作者能否理解截止点、发现错误资料与遗漏'],
+        ideas: ['不要揭露身份，帮我找下一步','当前位置 → 帮我想下一步','已保存正文＋场景资料＋保留要求','方案是可能性，不是已经发生的剧情','任务讨论 → 叙事策略不同的方向','比较前提与代价；可继续追问，也可保留原方向','选择方向 → 展开／存为参考 → 自己写或再求助','讨论结果有去向，不自动写入正文或正史','ForecastDock、保留要求、导演与参考剧本','筛选是否更轻松；前瞻与导演的任务分工'],
+        review: ['检查本章人物动机，先别修改','检查本章 → 选择审稿目标','本章版本＋适用证据＋审稿目标','事实核验、角色知识与审美意见分开','审读 → 可定位的意见清单','原文位置＋影响＋理由＋修订方向','选择意见 → 定向候选 → 比较与复验','允许保留原稿；必要来源与审查门禁继续有效','批注执行、深度审稿、编辑台与候选返修','意见是否重复；定位、判断和执行是否顺畅'],
+        director: ['看看几个人在这场冲突中会怎样反应','导演 → 明确本轮想看什么','人物差异＋在场状态＋时点知识＋保留项','导演发挥和已有事实区分；候选不当正史','独立探索空间 → 表演与素材分支','可以介入、重来、挑素材；正文暂退居次位','选择素材与角度 → 存参考 → 回正文创作','存为参考不等于采用正文；保留历史和返回位置','SceneDirectorPanel、参考剧本与场景资料','素材是否真有区分；发散后能否顺利回到写作'],
+        write: ['我想自己继续写，暂时不需要建议','收起辅助区 → 专注正文','不主动扩大资料范围或运行新任务','保存保护始终可见；不因沉浸隐藏风险','无 AI 路径；需要时再调用','已有授权的后台任务保留进度，按需查看','手写 → 保存 → 随时恢复资料与任务','不因开关面板丢选区、草稿或编辑会话','统一编辑会话、保存反馈、侧栏偏好与恢复','提醒是否打断；关闭助手后是否仍能高效完成任务']
+      };
+      const taskIds = ['wr-intent','wr-trigger','wr-context','wr-limit','wr-shape','wr-work','wr-result','wr-exit','wr-existing','wr-hypothesis'];
+      const layouts = {
+        draft:['按需助手','可关闭','本场资料','按需助手','保持编辑位置','起草默认保持安静；保留作者固定助手的选择。'],
+        reference:['当前资料','讨论时切换','固定原文','查证讨论','边写边对照','比较资料能否连续可见，以及切换时是否丢失原文位置。'],
+        review:['批注／比较','按问题定位','资料依据','意见／比较','定位受影响段落','局部与全章对照互通；比较审阅负担与联动修改的完整性。'],
+        explore:['导演／构思','按需放大','本轮约束','剧情探索','正文可退居次位','重任务可以全屏探索；返回时恢复原稿、参考选择与位置。']
+      };
+      const states = {
+        fresh:['通过适用审查后，由作者决定采用','接受／调整／拒绝；生成完成仍不等于已经采用。','继续手改与撤销路径保持可用。'],
+        draft:['正文已变化：旧建议保留，暂停直接采用','重新确认当前版本与范围，必要时重新审查；不追随新光标套用。','恢复已有结果与重新生成分开；再次调用模型须明确说明。'],
+        world:['正文未变，也需要复验资料与知识边界','设定、时点、授权范围或参考剧本变化，都会影响建议有效性。','保留旧候选与记录；版本绑定不能替代完整来源复验。'],
+        failure:['先保护作者文字，暂不覆盖或切换','明确保存风险，保留当前稿；提供重试、备份或导出保护路径。','没有持久化成功，不显示“已保存”；助手进度不掩盖保存失败。']
+      };
+      const demoSteps = [
+        {draft:'他把钥匙攥在手里。“我不会给你的。我不相信你。”', draftState:'原文未改变', draftNote:'操作对象：所选对白；旁边的叙述保留。', candidateTitle:'准备修改范围', candidateState:'尚无候选', candidate:'选中的对白：“我不会给你的。我不相信你。”', candidateNote:'资料提供给助手，不等于助手必然正确使用。', outcome:'作者决定改哪里、为什么改', boundary:'目标范围与正文版本绑定；之后移动光标不改变本次对象。',next:'查看候选'},
+        {draft:'他把钥匙攥在手里。“我不会给你的。我不相信你。”', draftState:'原文仍未改变', draftNote:'AI 建议产生，不触碰示意工作稿。', candidateTitle:'局部差异', candidateState:'待作者判断', removed:'“我不会给你的。我不相信你。”', inserted:'“钥匙还是放我这里吧。”', candidateNote:'拒绝更含蓄；不信任从直说变为暗示，作者需判断是否符合意图。', outcome:'先看具体变化，再决定是否接受', boundary:'这份示例并非真实审查结果；真实采用还须通过适用的来源复验与审查。',next:'演示采用'},
+        {draft:'他把钥匙攥在手里。“钥匙还是放我这里吧。”', draftState:'示意：候选已采用', draftNote:'左侧变化由作者采用触发；生成候选与采用分开。', candidateTitle:'本次修改记录', candidateState:'可对照', candidate:'原对白保留在修改记录中；本次仅替换选中的一句对白。', candidateNote:'撤销或恢复应有原稿与版本依据，不能只依赖聊天记录。', outcome:'采用后，写作控制权仍在作者手上', boundary:'示例只改变当前演示；真实产品须以持久化成功反馈采用结果。',next:'演示继续手改'},
+        {draft:'他把钥匙攥在手里。“钥匙，我先收着。”', draftState:'示意：作者进一步修改', draftNote:'作者在已采用建议上继续修改措辞。', candidateTitle:'作者的后续决定', candidateState:'保留过程', removed:'“钥匙还是放我这里吧。”', inserted:'“钥匙，我先收着。”', candidateNote:'编辑过不等于已逐句核验；记录来源也不等于认定权属。', outcome:'AI 建议是创作材料，最终表达由作者决定', boundary:'跨章返回、来源变化和失败恢复仍须保持；整章与局部对照可以互通。',next:'已到最后一步'}
+      ];
+      let current = {section:'demo', task:'revise', mode:'draft', source:'fresh',step:0};
+      const sections = ['demo','tasks','layouts','flow','evidence'];
+      function render() {
+        sections.forEach(key => {
+          const selected = current.section === key;
+          find('wr-tab-' + key).classList.toggle('active', selected);
+          find('wr-tab-' + key).setAttribute('aria-selected', String(selected));
+          find('wr-' + key).hidden = !selected;
+        });
+        find('wr-task-choice').value = current.task;
+        tasks[current.task].forEach((value,i) => { find(taskIds[i]).textContent = value; });
+        find('wr-mode').value = current.mode;
+        const layout = layouts[current.mode];
+        ['wr-one-focus','wr-one-sub','wr-two-reference','wr-two-focus'].forEach((id,i) => {find(id).textContent=layout[i];});
+        root.querySelectorAll('[data-writing-label]').forEach(el => {el.textContent=layout[4];});
+        find('wr-layout-detail').textContent=layout[5];
+        find('wr-source-state').value=current.source;
+        ['wr-state-title','wr-state-action','wr-state-keep'].forEach((id,i) => {find(id).textContent=states[current.source][i];});
+        const demo=demoSteps[current.step];
+        root.querySelectorAll('[data-demo-step]').forEach(el=>{const selected=Number(el.dataset.demoStep)===current.step;el.classList.toggle('is-current',selected);if(selected)el.setAttribute('aria-current','step');else el.removeAttribute('aria-current');});
+        for(const [id,key] of [['wr-demo-draft','draft'],['wr-demo-draft-state','draftState'],['wr-demo-draft-note','draftNote'],['wr-demo-candidate-title','candidateTitle'],['wr-demo-candidate-state','candidateState'],['wr-demo-candidate-note','candidateNote'],['wr-demo-outcome','outcome'],['wr-demo-boundary','boundary']])find(id).textContent=demo[key];
+        const candidate=find('wr-demo-candidate');
+        candidate.replaceChildren();
+        if(demo.removed){
+          const removed=document.createElement('del');removed.textContent=demo.removed;
+          const inserted=document.createElement('ins');inserted.className='wr-diff';inserted.textContent=demo.inserted;
+          candidate.append(removed,document.createElement('br'),inserted);
+        }else candidate.textContent=demo.candidate;
+        find('wr-demo-count').textContent=(current.step+1)+' / 4';
+        find('wr-demo-prev').disabled=current.step===0;
+        find('wr-demo-next').disabled=current.step===demoSteps.length-1;
+        find('wr-demo-next').textContent=demo.next;
+      }
+      function restore(saved) {
+        const value=saved?.modelContent;
+        if (!value || value.report !== 'writing-ai') return;
+        current={section:sections.includes(value.section)?value.section:'demo', task:Object.hasOwn(tasks,value.task)?value.task:'revise', mode:Object.hasOwn(layouts,value.mode)?value.mode:'draft', source:Object.hasOwn(states,value.source)?value.source:'fresh',step:Number.isInteger(value.step)&&value.step>=0&&value.step<demoSteps.length?value.step:0};
+        render();
+      }
+      function save() {
+        if (window.openai?.setWidgetState) window.openai.setWidgetState({modelContent:{report:'writing-ai',...current},privateContent:null}).catch(()=>{});
+      }
+      root.addEventListener('click', event => {
+        const tab=event.target.closest('[data-section]');
+        if (!tab || !root.contains(tab)) return;
+        current.section=tab.dataset.section; render(); save();
+      });
+      find('wr-task-choice').addEventListener('change',event=>{current.task=event.target.value;render();save();});
+      find('wr-mode').addEventListener('change',event=>{current.mode=event.target.value;render();save();});
+      find('wr-source-state').addEventListener('change',event=>{current.source=event.target.value;render();save();});
+      find('wr-demo-prev').addEventListener('click',()=>{current.step=Math.max(0,current.step-1);render();save();});
+      find('wr-demo-next').addEventListener('click',()=>{current.step=Math.min(demoSteps.length-1,current.step+1);render();save();});
+      window.addEventListener('openai:set_globals',event=>{if(event.detail?.globals?.widgetState)restore(event.detail.globals.widgetState);});
+      render(); restore(window.openai?.widgetState);
+    })();
+  </script>
+</div>

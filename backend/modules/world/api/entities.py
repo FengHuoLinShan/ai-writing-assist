@@ -19,6 +19,7 @@ from modules.project.facade import (
     build_project_llm_execution_snapshot,
     require_active_project,
 )
+from modules.world import review_scope
 from modules.world.api._shared import (
     ActiveNovelIdQuery,
     _alias_service,
@@ -62,6 +63,57 @@ from modules.world.world_object_images import (
     MAX_UPLOAD_BYTES as MAX_WORLD_OBJECT_IMAGE_BYTES,
 )
 from shared.constants import DEFAULT_PAGE_SIZE, MAX_PAGE_SIZE
+
+
+@router.post(
+    "/entity-review-scopes",
+    status_code=201,
+    openapi_extra={
+        "x-novelcraft-operation-exemption": (
+            "Freezes an author-selected review manifest with an idempotent receipt; "
+            "does not modify the listed world assets or authorize automatic edits."
+        )
+    },
+)
+async def freeze_entity_review_scope(
+    db: DbSession, *, novel_id: ActiveNovelIdQuery, data: review_scope.ScopeCreate
+):
+    return await review_scope.freeze(db, novel_id, data)
+
+
+@router.get("/entity-review-scopes")
+async def recent_entity_review_scopes(db: DbSession, *, novel_id: ActiveNovelIdQuery):
+    return await review_scope.recent(db, novel_id)
+
+
+@router.get("/entity-review-scopes/{scope_id}")
+async def read_entity_review_scope(
+    db: DbSession,
+    scope_id: uuid.UUID,
+    *,
+    novel_id: ActiveNovelIdQuery,
+    skip: int = Query(0, ge=0),
+):
+    return await review_scope.read_scope(db, novel_id, scope_id, skip=skip)
+
+
+@router.post(
+    "/entity-review-scopes/{scope_id}/decisions",
+    openapi_extra={
+        "x-novelcraft-operation-exemption": (
+            "Records manual checked/deferred/pending progress with revision CAS; "
+            "does not modify world assets or represent an AI review."
+        )
+    },
+)
+async def decide_entity_review_scope(
+    db: DbSession,
+    scope_id: uuid.UUID,
+    *,
+    novel_id: ActiveNovelIdQuery,
+    data: review_scope.ScopeDecision,
+):
+    return await review_scope.decide(db, novel_id, scope_id, data)
 
 
 @router.get("/entity-types", response_model=EntityTypeCatalogResponse)
@@ -595,6 +647,9 @@ async def get_entity_relations(
     entity_id: str,
     *,
     novel_id: ActiveNovelIdQuery,
+    include_removed: bool = Query(default=False),
 ) -> EntityRelationListResponse:
     """获取实体的关联关系"""
-    return await _relation_service.get_by_entity(db, novel_id, entity_id)
+    return await _relation_service.get_by_entity(
+        db, novel_id, entity_id, include_removed=include_removed
+    )

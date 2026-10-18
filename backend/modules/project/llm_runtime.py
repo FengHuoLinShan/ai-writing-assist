@@ -41,6 +41,25 @@ _RUNTIME_SOURCES_KEY = "_llm_runtime_sources"
 _service = ProjectService()
 
 
+def _purpose_profile(profile, purpose):
+    if purpose == "business":
+        return profile
+    if purpose != "approval_judgment":
+        raise ProjectLLMConfigurationError("Unsupported project LLM purpose")
+    model = {"codex": "gpt-6-luna", "deepseek": "deepseek-flash"}.get(profile.provider_id)
+    if model is None:
+        raise ProjectLLMConfigurationError("当前连接没有已指定的批准判断模型")
+    if profile.model != model:
+        raise ProjectLLMConfigurationError("当前已验证连接没有指定的批准判断模型")
+    capability = resolve_llm_capability_profile(profile.provider_id, model)
+    if capability.structured_output != "supported":
+        raise ProjectLLMConfigurationError("批准判断模型缺少结构化输出能力")
+    extra = {**profile.extra, "reasoning_effort": "low"}
+    if profile.provider_id == "deepseek":
+        extra["thinking"] = {"type": "enabled"}
+    return replace(profile, model=model, extra=extra)
+
+
 async def _resolve_project_runtime_profile(
     db: AsyncSession,
     novel_id: str,
@@ -99,6 +118,7 @@ async def build_project_llm_execution_snapshot(
     web_search_enabled: bool = False,
     interaction_ensemble: bool = False,
     provider_id: str | None = None,
+    purpose: str = "business",
 ) -> dict[str, Any]:
     """Freeze a secret-free project runtime profile for a resumable task.
 
@@ -118,6 +138,7 @@ async def build_project_llm_execution_snapshot(
         novel_id,
         provider_id=provider_id,
     )
+    profile = _purpose_profile(profile, purpose)
     summary = profile.sanitized_summary()
     public_profile = {
         "provider_id": summary["provider_id"],
@@ -147,6 +168,8 @@ async def build_project_llm_execution_snapshot(
         public_profile["connection_verified"] = bool(
             profile.extra.get("codex_connection_fingerprint")
         )
+    if purpose == "approval_judgment":
+        public_profile["reasoning_effort"] = "low"
     payload: dict[str, Any] = {
         "version": PROJECT_LLM_EXECUTION_SNAPSHOT_VERSION,
         "novel_id": str(novel_id),
@@ -164,10 +187,14 @@ async def build_project_llm_execution_snapshot(
         ),
         # B5：路由配置随快照固化（项目省钱开关 × 账户 verified 附加模型 ×
         # cheap 能力集），恢复任务按快照执行，不随账户当前配置漂移。
-        "cost_routing": await build_cost_routing(
+        "cost_routing": {}
+        if purpose == "approval_judgment"
+        else await build_cost_routing(
             db, novel_id, project_context=project_context, provider_id=profile.provider_id
         ),
     }
+    if purpose != "business":
+        payload["purpose"] = purpose
     if get_settings().interaction_agent_enabled or interaction_ensemble:
         context = project_context
         if context is not None and context.project_kind == "interaction":
@@ -262,6 +289,15 @@ async def restore_project_llm_execution_settings(
         novel_id,
         provider_id=str(public_profile.get("provider_id") or ""),
     )
+    purpose = snapshot.get("purpose", "business")
+    current_profile = _purpose_profile(current_profile, purpose)
+    if (
+        purpose == "approval_judgment"
+        and public_profile.get("model") != current_profile.model
+    ):
+        raise ProjectLLMConfigurationError("批准判断模型与冻结用途不符")
+    if purpose == "approval_judgment" and public_profile.get("reasoning_effort") != "low":
+        raise ProjectLLMConfigurationError("批准判断思考档位与冻结用途不符")
     if not current_profile.api_key and not (
         current_profile.provider_id == "codex"
         and current_profile.extra.get("codex_connection_fingerprint")
@@ -314,11 +350,12 @@ async def restore_project_llm_execution_settings(
         DEEP_IMPORT_FROZEN_SETTINGS_KEY: True,
         _RUNTIME_SOURCES_KEY: dict(sources),
         "_llm_execution_profile_hash": expected_hash,
+        "_llm_runtime_purpose": purpose,
         LLM_CAPABILITY_EXECUTION_KEY: capability,
     }
 
 
-def _bind_codex_authorization(client, profile, novel_id, *, db=None):
+def _bind_codex_authorization(client, profile, novel_id, *, db=None, purpose="business"):
     if profile.provider_id != "codex" or novel_id is None:
         return
 
@@ -337,6 +374,7 @@ def _bind_codex_authorization(client, profile, novel_id, *, db=None):
             _, current, _, _ = await _resolve_project_runtime_profile(
                 fresh, novel_id, provider_id="codex"
             )
+            current = _purpose_profile(current, purpose)
             if current.model != profile.model or current.extra != profile.extra:
                 raise ProjectLLMConfigurationError(
                     "Codex owner connection changed after client creation"
@@ -366,6 +404,19 @@ def create_project_snapshot_llm_client(
             f"{MAX_LLM_TIMEOUT_OVERRIDE_SECONDS} seconds"
         )
     profile = resolve_llm_profile(project_settings)
+    purpose = project_settings.get("_llm_runtime_purpose", "business")
+    if purpose not in {"business", "approval_judgment"} or (
+        high_quality and purpose != "business"
+    ):
+        raise ProjectLLMConfigurationError(
+            "Project LLM purpose and quality policy mismatch"
+        )
+    if purpose == "approval_judgment" and (
+        profile.model
+        != {"codex": "gpt-6-luna", "deepseek": "deepseek-flash"}.get(profile.provider_id)
+        or profile.extra.get("reasoning_effort") != "low"
+    ):
+        raise ProjectLLMConfigurationError("批准判断快照的模型或思考档位不符")
     if profile.provider_id == "codex" and not novel_id:
         raise ProjectLLMConfigurationError("Codex project text client requires novel_id")
     snapshot_sources = project_settings.get(_RUNTIME_SOURCES_KEY)
@@ -393,11 +444,16 @@ def create_project_snapshot_llm_client(
         profile,
         execution_capability=capability_from_execution_settings(project_settings),
         **({"high_quality": True} if high_quality else {}),
+        **({"approval_judgment": True} if purpose == "approval_judgment" else {}),
     )
-    _bind_codex_authorization(client, profile, novel_id)
+    _bind_codex_authorization(client, profile, novel_id, purpose=purpose)
     # B5：恢复任务按快照固化的路由配置执行；快照缺 cost_routing 键
     # （旧任务）时空路由回落主模型。
-    client.cost_routing = dict(project_settings.get("cost_routing") or {})
+    client.cost_routing = (
+        {}
+        if purpose == "approval_judgment"
+        else dict(project_settings.get("cost_routing") or {})
+    )
     bind_runtime_scope = getattr(client, "bind_runtime_scope", None)
     if callable(bind_runtime_scope) and novel_id is not None:
         bind_runtime_scope(
@@ -425,7 +481,13 @@ async def open_project_snapshot_llm_client(
     if timeout_override is not None:
         client_kwargs["timeout_override"] = timeout_override
     client = create_project_snapshot_llm_client(settings, **client_kwargs)
-    _bind_codex_authorization(client, resolve_llm_profile(settings), novel_id, db=db)
+    _bind_codex_authorization(
+        client,
+        resolve_llm_profile(settings),
+        novel_id,
+        db=db,
+        purpose=settings.get("_llm_runtime_purpose", "business"),
+    )
     try:
         yield client
     finally:
@@ -439,6 +501,7 @@ async def open_project_llm_client(
     *,
     timeout_override: int | None = None,
     high_quality: bool = False,
+    purpose: str = "business",
 ) -> AsyncIterator[LLMClient]:
     """Open one managed client for a novel-scoped business LLM workflow.
 
@@ -446,6 +509,8 @@ async def open_project_llm_client(
     account. ``novel_id`` remains the isolation and ownership gate. Callers may
     select quality-first execution or adjust the bounded request timeout.
     """
+    if high_quality and purpose != "business":
+        raise ProjectLLMConfigurationError("批准判断不能使用生成质量覆盖")
     if timeout_override is not None and not (
         1 <= timeout_override <= MAX_LLM_TIMEOUT_OVERRIDE_SECONDS
     ):
@@ -463,6 +528,7 @@ async def open_project_llm_client(
         db,
         novel_id,
     )
+    profile = _purpose_profile(profile, purpose)
     if timeout_override is not None:
         profile = replace(profile, timeout=timeout_override)
         sources["timeout"] = "timeout_override"
@@ -483,13 +549,19 @@ async def open_project_llm_client(
     if high_quality:
         profile = replace(profile, timeout=max(profile.timeout, 900))
     client = LLMClient.from_resolved_profile(
-        profile, **({"high_quality": True} if high_quality else {})
+        profile,
+        **({"high_quality": True} if high_quality else {}),
+        **({"approval_judgment": True} if purpose == "approval_judgment" else {}),
     )
-    _bind_codex_authorization(client, profile, novel_id, db=db)
+    _bind_codex_authorization(client, profile, novel_id, db=db, purpose=purpose)
     # B5：把生效的路由配置交给 client，由 managed step harness 按能力成本档
     # 覆盖 request.model；未启用时为空路由（永远回落主模型）。
-    client.cost_routing = await build_cost_routing(
-        db, novel_id, project_context=project_context, provider_id=profile.provider_id
+    client.cost_routing = (
+        {}
+        if purpose == "approval_judgment"
+        else await build_cost_routing(
+            db, novel_id, project_context=project_context, provider_id=profile.provider_id
+        )
     )
     bind_runtime_scope = getattr(client, "bind_runtime_scope", None)
     if callable(bind_runtime_scope):

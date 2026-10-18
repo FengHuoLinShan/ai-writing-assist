@@ -316,6 +316,7 @@ onBeforeUnmount(() => {
 
 /** vanilla：display_state=active 时才提供 融合/标记为别名（worldView.js:1513-1516）。 */
 const bulkActions = computed(() => [
+  { action: "ask-selected", label: "讨论所选对象" },
   ...(props.displayState === "active" ? [
     { action: "fuse-entities", label: "融合", className: "btn-primary" },
     { action: "alias-entities", label: "标记为别名", className: "btn-primary" },

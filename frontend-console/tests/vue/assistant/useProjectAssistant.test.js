@@ -35,6 +35,23 @@ beforeEach(() => {
 afterEach(() => { controller.dispose(); setBridgeOverrides({ api: undefined, state: undefined, writingFingerprint: undefined }); localStorage.clear() })
 
 describe("project assistant durable interaction", () => {
+  it.each([false, true])('freezes task approval in the original request and consumes it after acknowledgment (%s)', async recover => {
+    await controller.load('p1')
+    const approval = { preserve: ['保留姓名'], max_judgments: 2, timeout_seconds: 30 }
+    controller.state.approvalRequest = approval
+    controller.setInput('修改当前人物简介')
+    if (recover) api.submit.mockRejectedValueOnce(new Error('response lost'))
+    await controller.send({ page: 'world', focus_ref: { kind: 'entity', entity_id: 'object', updated_at: 'saved-v1' } })
+    const original = api.submit.mock.calls[0][1]
+    expect(original.approval).toEqual(approval)
+    if (recover) {
+      controller.state.approvalRequest = { preserve: ['后来输入'], max_judgments: 5, timeout_seconds: 30 }
+      api.run.mockRejectedValue(Object.assign(new Error('missing'), { status: 404 }))
+      await controller.recoverSubmission()
+      expect(api.submit.mock.calls[1][1]).toEqual(original)
+    }
+    expect(controller.state.approvalRequest).toBeNull()
+  })
   it("restores an uncertain team submission with the same receipt and no web permission", async () => {
     api.submitTeam = vi.fn().mockRejectedValueOnce(new Error("response lost")).mockImplementation(async (_id, body) => run(body))
     await controller.load("p1")

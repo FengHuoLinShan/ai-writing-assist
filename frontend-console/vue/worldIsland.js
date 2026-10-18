@@ -242,10 +242,11 @@ export async function loadWorld() {
   reconcileWorldEntry(projectId, subView)
   if (subView === "relations") {
     worldSession.relationListFilters = reviewFiltersFromQuery(
-      { q: "", skip: 0, limit: 20 },
-      ["q"],
+      { q: "", status: "canonical", skip: 0, limit: 20 },
+      ["q", "status"],
       query,
     )
+    if (!["canonical", "deprecated"].includes(worldSession.relationListFilters.status)) worldSession.relationListFilters.status = "canonical"
   }
   if (subView === "aliases") {
     worldSession.aliasListFilters = reviewFiltersFromQuery(
@@ -498,7 +499,7 @@ export async function loadWorld() {
         q: filters.q,
         skip: filters.skip,
         limit: filters.limit,
-        status: "canonical",
+        status: filters.status || "canonical",
       })
       props.relations = data.items || data || []
       props.relationsTotal = Number(data.total ?? props.relations.length) || 0
