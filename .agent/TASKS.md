@@ -1,5 +1,7 @@
 # 开放任务
 
+- [T-20261018-author-workspaces-ai-redesign](tasks/2026/T-20261018-author-workspaces-ai-redesign/TASK.md) — 写作台、世界对象与 AI 协作统一改造
+
 
 
 

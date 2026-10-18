@@ -1,14 +1,18 @@
 ---
 id: T-20261018-author-workspaces-ai-redesign
 title: 写作台、世界对象与 AI 协作统一改造
-status: completed
+status: active
 created: 2026-10-18T16:32:21+08:00
-updated: 2026-10-19T01:20:59+08:00
+updated: 2026-10-19T01:37:07+08:00
 ---
 
 # 写作台、世界对象与 AI 协作统一改造
 
 ## 恢复快照
+
+- PR CI 定位：旧 head 的浏览器分片2为169 passed/2 skipped/1 failed，唯一失败 `world.spec.js` 对象历史闭环点击隐藏的“改动历史”。详情改造后需先进入“经历与来源”；本轮只补该公开入口，全部备注/恢复/深链高亮/返回筛选断言保留。确切专用E2E库本地实际浏览器复验1 passed（11.8s，`/tmp/pr257-local-browser.log`），该文件ESLint通过；分片1及其余CI全部通过。合并前同步 main 的 #254（含PG历史失败测试修复与全PG门禁），随后推送本轮修复，等待当前SHA全部检查通过。
+
+- 2026-10-19T01:37:07+08:00 用户要求检查 PR #257、修复失败 CI，并在全部通过后合并，已授权本轮修复/推送与条件合并；不含部署。当前 PR head=`0fe067f696fc526c9d908907b764631bbe8bb72b`，工作区原本干净。CI Backend quality、PostgreSQL critical、前端 unit、架构/镜像/安全与 repo-gates 已通过；functional browser shard 2 失败，shard 1 仍运行。正在取 shard 2 具体日志，下一步定位失败并复现根因；不得绕过失败或直接合并。
 
 - 2026-10-19T01:20:59+08:00 当前分支完整实现已提交并推送，业务提交 `be537fbf8`；[PR #257](https://github.com/FengHuoLinShan/ai-writing-assist/pull/257) 已创建并附加当前聊天，目标 main，未合并/部署。提交后 repo-gates（0 二进制变化、76 个生产文件、发布证据、模块导入/依赖方向）与 secret hygiene、docs-check、diff 检查通过；Goal service 4653 行为非阻断提示。PR 已明确最新 3320 前端/1925 后端/14 WebKit 通过、既有 PG 基线失败及未验边界；远端 CI 刚触发，需按 PR 当前 SHA 核实，不宣称通过。此条交付记录另作纯文档提交并推送，后续合并或发布仍须授权。
 
