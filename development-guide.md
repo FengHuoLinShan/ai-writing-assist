@@ -2,14 +2,14 @@
 
 ## Project Overview
 
-AI 长篇小说结构化创作引擎 (AI Novel Structural Engine) v2.0 — a structured creation system for Chinese long-form novels. Backend: Python FastAPI + async SQLAlchemy + PostgreSQL 17 + pgvector + pg_trgm. Frontend: Vue 3 SFC console with the existing hash router retained as a narrow route-host seam (ADR-0009).
+AI 长篇小说结构化创作引擎 (AI Novel Structural Engine) v2.0 — a structured creation system for Chinese long-form novels. Backend: Python FastAPI + async SQLAlchemy + PostgreSQL 17 + pgvector + pg_trgm. Frontend: Vue 3 SFC console with the existing hash router retained as a narrow route-host seam (ADR-0009). 默认开发与交付为本地桌面应用（ADR-0043），FastAPI/Vue 是应用内部边界。
 
 ## Agent instruction sources
 
-本地实际运行 BGE 检索须安装运行 extra；CI 精简环境不能代替可体验的应用环境。
-隔离演示可用 `UV_PROJECT_ENVIRONMENT=<独立目录> uv --directory backend sync --locked --extra dev`
-安装独立运行环境；不要对正在运行的共享虚拟环境执行会卸载运行依赖的 CI 同步。
-应用与 worker 应从同一代码版本启动，显式核对 `DATABASE_URL`，并先备份真实演示库。
+默认用 `make desktop-prepare` 准备独立的 `desktop/build/venv` 环境和锁定的原生资源，
+再用 `make dev` 运行桌面源码。数据库、worker、图片和离线检索复用桌面运行时，
+不依赖分离服务或 Docker；仅在显式诊断/浏览器测试时使用旧服务入口和专用库。
+不要对正在运行的共享虚拟环境执行会卸载运行依赖的同步。
 
 `AGENTS.md` is the only shared coding-agent contract. Read the repository root file and the nearest
 directory-local `AGENTS.md`, then the target module README. `CLAUDE.md` files only import the adjacent
@@ -28,6 +28,12 @@ AI 小说程序在开发阶段的大量业务 LLM 调用使用 Codex `gpt-6-luna
 包括深度导入、世界演化、业务生成/抽取/补全及其批量质量复核与实测。
 代码开发、代码审查、工程诊断及已授权的工程子代理继续使用 Sol 或其他高级模型；
 开发 Agent 和小说程序调用的模型分别配置。共享约束以 [AGENTS.md](AGENTS.md#运行时-llm) 为准。
+
+2026-10-18 作者工作台改造的已确认窄例外：批准判断使用 Project 入口的
+`purpose="approval_judgment"`，按已验证连接固定 DeepSeek `deepseek-flash` 或 Codex
+`gpt-6-luna`，专用 `low` 档及结构化输出。快照冻结用途，恢复时继续核验当前 owner 连接；
+不跨供应商回退，不改变生成/抽取/审查的 max 约定。此用途不是自动执行授权；自动模式仍需
+固定案例与指定模型校准、任务范围授权和每次领域重验。付费供应商实测仍需专项授权。
 
 启动或恢复小说程序的模型任务前，完成以下核验：
 
@@ -81,18 +87,24 @@ RPM 是每模型的进程内 token bucket，默认关闭；正 RPM 部署仍按 
 
 ## Commands
 
-### One-command dev start
+### Desktop development (default)
 
 ```bash
-make dev                         # Kill old → PostgreSQL/MinIO → Alembic head guard → backend/worker/Vite
-make kill                        # Stop app services, PostgreSQL, and MinIO
-make kill-apps                   # Stop backend, worker, frontend; keep PostgreSQL and MinIO running
+make desktop-prepare             # Once: pinned native resources, isolated venv and frontend dependencies
+make dev                         # Rebuild UI → native window; no freezing/installer build
+make desktop-test                # CI-only dependencies; no native resources or installer build
+make desktop-build               # Explicit native bundle build; default macos-arm64
 make help                        # List all targets
 ```
 
-### Individual services
+### Explicit service diagnostics and browser-test tooling
 
 ```bash
+# Legacy split stack (not the default application)
+make dev-services
+make kill                        # Stop legacy services, PostgreSQL, MinIO
+make kill-apps                   # Stop legacy API/worker/Vite only; close desktop via its window
+
 # Backend
 cd backend
 pip install -e ".[dev]"          # Install dependencies
@@ -153,7 +165,7 @@ make docs-check                  # Current architecture inventory, AST task disc
 make docs-check BASE_REF=origin/main  # Plus current-branch architecture impact review
 make test-ci TEST_WORKERS=2     # One cross-stack quality gate; no PostgreSQL/browser/image suites
 make secret-hygiene              # Scan tracked/indexed files for credential regressions
-make lint                        # ruff check
+make lint                        # ruff check backend + desktop
 make lint-fix                    # ruff --fix
 make format                      # ruff format --check
 make format-fix                  # ruff format
@@ -270,7 +282,7 @@ the fixed-SHA release flow, rather than making a production root filesystem writ
 
 Backend reload watches `app/`, `core/`, `shared/`, `infrastructure/`, `modules/`,
 `prompts/`, and `alembic/`; worker reload watches the same schema-sensitive paths.
-`make dev` compares the database's current Alembic revision set with the migration
+The explicit legacy `make dev-services` compares the database's current Alembic revision set with the migration
 script heads after PostgreSQL becomes healthy, and refuses to start app processes
 when the local database is behind. If a new migration appears while the reload
 supervisors are already running, backend and worker children pause before importing
@@ -516,3 +528,24 @@ API 与 worker 使用相同 Compose runtime 环境。回退不降级表、不撤
 实验结果仅证明合成技术合同，不代表真实模型或作者验收。
 
 本机 Codex 文本开发（ADR-0033）：AUTH_MODE=local，已登录且支持 read-only/ignore-rules/output-schema 与工具关闭参数的 Codex CLI；多版本时设置 CODEX_CLI_COMMAND。账户设置实际验证后使用 Luna/max。公开服务不开放该连接。
+
+
+批准判断的合成校准入口为 `python -m tools.approval_model_calibration`（backend 目录）。
+必须指定作品及其当前 owner；默认只读核验 Project 判断配置，`--help` 不访问数据库。
+显式 `--execute --output-dir /仓库外/新的私有目录` 执行固定 18 案例；只使用已有已验证
+连接，不提供 API Key、provider 或模型覆盖参数。目录不可复用，保存 0600 账本/回执，
+未知结果先核对原账本及领域校准记录，不另建目录绕过未知门禁。详见 Assistant README。
+默认累计 token 上限 65536；只有显式授权了新额度才可通过 `--token-limit` 调整，
+不能因供应商宿主开销或本轮失败自行扩大预算。新契约需完整重校准，不拼接旧轮次通过案例。
+
+## 本地桌面构建
+
+桌面应用是后续默认开发与交付方向。`make dev` 使用正式前端构建与源码运行时，
+开发目录为当前工作树的 desktop/build/dev-data，不操作安装版作品或旧开发库。
+前端修改后关闭重开；打包仅用显式 `make desktop-build`，默认 Mac Apple Silicon，
+其他宿主须显式选择 DESKTOP_TARGET（不支持交叉编译）。
+版本、变更说明、固定 main SHA、签名及 Release 草稿操作见 [桌面发布流程](desktop/RELEASE.md)。
+PR/main 不自动构建安装包或旧服务器镜像，发布默认仅 ARM64，其余平台须显式选择。
+独立服务器部署退出产品方向，保留历史运维与显式诊断工具。
+目标 macOS/Windows 原生编译、资源锁定、构建与验收命令以 [桌面 README](desktop/README.md) 为准；
+不复用真实开发库，不读取或复制已有模型密钥、CLI 登录态或作品。

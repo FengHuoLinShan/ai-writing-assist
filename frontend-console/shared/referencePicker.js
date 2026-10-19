@@ -287,6 +287,16 @@ export function createReferencePicker({
     scheduleSearch()
   }
 
+  function handleResultMouseDown(event) {
+    event.preventDefault()
+  }
+
+  function handleFocusOut(event) {
+    if (root.contains(event.relatedTarget)) return
+    cancelPending()
+    closeResults()
+  }
+
   function handleKeydown(event) {
     const visible = results.filter((item) => !selected.has(refKey(item.kind, item.id)))
     const enabledIndexes = visible
@@ -352,6 +362,8 @@ export function createReferencePicker({
   }
 
   root.addEventListener("click", handleRootClick)
+  root.addEventListener("focusout", handleFocusOut)
+  resultsRoot.addEventListener("mousedown", handleResultMouseDown)
 
   renderSelected()
 
@@ -442,6 +454,8 @@ export function createReferencePicker({
       queryInput.removeEventListener("input", handleInput)
       queryInput.removeEventListener("focus", handleFocus)
       queryInput.removeEventListener("keydown", handleKeydown)
+      root.removeEventListener("focusout", handleFocusOut)
+      resultsRoot.removeEventListener("mousedown", handleResultMouseDown)
       kindSelect?.removeEventListener("change", handleKindChange)
       root.innerHTML = ""
       root.classList.remove("reference-picker")

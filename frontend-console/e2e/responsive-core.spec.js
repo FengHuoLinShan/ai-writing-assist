@@ -1,5 +1,5 @@
 import { test, expect } from './fixtures.js'
-import { createDraft, getLatestDraft } from './helpers/api-client.js'
+import { createDraft, getLatestDraft, createEntity, createCharacter } from './helpers/api-client.js'
 import { openWorkbench, waitWritingReady } from './helpers/workbench.js'
 import { expectActionReachable, expectResponsiveLayout, runResponsiveMatrix } from './helpers/responsive.js'
 import { mockRpApis, journeyId } from './helpers/rp-fixture.js'
@@ -14,6 +14,30 @@ async function openChapter(page, project) {
   await page.evaluate(() => window.router.navigate('writing', null, true, new URLSearchParams({ chapter_index: '1' })))
   await waitWritingReady(page, { editor: true })
   return page.getByRole('textbox', { name: '章节正文', exact: true })
+}
+
+for (const pointer of ['click', 'tap']) {
+  test(`引用选择器可通过 ${pointer} 选择对象，离开后关闭结果`, async ({ page, projectFactory, browserErrors }) => {
+    const project = await projectFactory({ title: '引用点选回归' })
+    const target = await createEntity(project.id, { name: '秘密组织', entity_type: 'organization', status: 'canonical' })
+    const character = await createEntity(project.id, { name: '主角', entity_type: 'character', status: 'canonical' })
+    await createCharacter(project.id, { entity_id: character.id, name: '主角' })
+    await openWorkbench(page, project, 'world', 'objects')
+    const row = page.locator('.world-object-table tr', { hasText: '主角' })
+    await row.locator('.action-menu-btn').click()
+    await row.locator('[data-action="knowledge-entity"]').click()
+    const picker = page.locator('#knowledge-target-picker')
+    const input = picker.locator('[data-reference-query]')
+    await input.fill(target.name)
+    await picker.locator('[data-reference-result]', { hasText: target.name })[pointer]()
+    await expect(picker.locator('[data-reference-selected]')).toContainText(target.name)
+    await expect(input).toBeFocused()
+    await input.fill('主角')
+    await expect(picker.locator('[data-reference-result]')).toBeVisible()
+    await page.locator('#knowledge-content').focus()
+    await expect(picker.locator('[data-reference-results]')).toBeHidden()
+    expect(browserErrors).toEqual([])
+  })
 }
 
 test('完整编辑器跨尺寸保留正文、选区、资料草稿和桌面侧栏偏好', async ({ page, projectFactory }) => {

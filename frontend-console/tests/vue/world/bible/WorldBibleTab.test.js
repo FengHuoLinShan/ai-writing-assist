@@ -683,6 +683,23 @@ describe("显示模式切换", () => {
     expect(body).toContain("未覆盖")
   })
 
+  it("影响来源核验后可回到原文，保留版本和偏移", async () => {
+    const modal = installModalHost()
+    const sourceRef = { draft_id: 'draft-source', chapter_index: 3, start_offset: 12, source_hash: 'a'.repeat(64) }
+    api.world.previewWorldImpact = vi.fn(async () => ({ sections: [{ section: 'prose', items: [{ kind: 'prose_chapter', id: '3', label: '第三章的提及', match_basis: 'literal', source_ref: sourceRef }], uncovered: [], truncated: false }] }))
+    api.world.readWorldImpactSource = vi.fn(async () => ({ label: '第三章的提及', text: '沈砚站在港边。', source_ref: sourceRef }))
+    const wrapper = mountTab()
+    await enterEditorFromReader(wrapper)
+    await wrapper.get("[data-action='bible-impact-preview']").trigger('click')
+    await vi.waitFor(() => expect(modal.body.textContent).toContain('可能提及 · 需要核对'))
+    modal.body.querySelector('[data-impact-source]').click()
+    await vi.waitFor(() => expect(modal.footer.textContent).toContain('回到对应原文'))
+    const action = showModalHtmlMock.mock.calls.at(-1)[2].find(item => item.text === '回到对应原文')
+    action.handler()
+    expect(navigateMock).toHaveBeenCalledWith('writing', null, true, new URLSearchParams({ chapter_index: '3', draft_id: 'draft-source', editorial_offset: '12', editorial_hash: 'a'.repeat(64) }))
+    modal.overlay.remove()
+  })
+
   it("关联资产保留对象深链并进入统一详情，未保存时仍受离开门禁保护", async () => {
     const wrapper = mountTab({
       worldCardFilters: { q: "港", kind: "entity", type: "location", state: "", layout: "list" },

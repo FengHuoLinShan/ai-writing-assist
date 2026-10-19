@@ -1,0 +1,23 @@
+NovelCraft 桌面版
+
+Mac：macOS 14 及以上，M 系列选择 macos-arm64，Intel 选择 macos-x64。
+打开 DMG，将 NovelCraft 拖入 Applications，双击启动。
+Windows：Windows 10 1903+/11 x64，运行 Setup.exe，安装后从桌面或开始菜单启动。
+按当前用户安装；系统缺少 WebView2 时安装器会自动补齐，此时需要联网。
+首次启动需要初始化数据，请等待启动页面完成。
+
+无需 Docker、Python、Node 或自行配置服务器。
+业务 AI 仍需在应用内配置并验证模型连接；订阅 CLI 未捆绑。
+
+数据目录：
+macOS：~/Library/Application Support/NovelCraft/
+Windows：%LOCALAPPDATA%\NovelCraft\
+卸载或重装程序不会自动删除数据。自动备份与恢复尚未提供。
+需要手动保留数据时，先完全退出应用，再复制整个数据目录到安全位置；
+必须一起保留 database、images、secrets.json 等文件，目录可能包含作品与凭据。
+不承诺跨版本降级数据库兼容，升级前请保留完整副本。
+
+升级：完全退出旧版，再安装新版。不要同时运行两个版本。
+故障反馈：记录安装包版本、系统与操作步骤；不要公开上传数据目录、密钥或完整日志。
+版本、来源提交、文件摘要与本版限制见 release.json、SHA256SUMS.txt 和 RELEASE-NOTES.md。
+alpha/beta/rc 为预览版；未签名预览包可能出现系统来源提示。

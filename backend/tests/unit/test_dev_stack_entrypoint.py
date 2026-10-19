@@ -66,7 +66,7 @@ def test_stop_apps_skips_unverified_stale_pid(monkeypatch, tmp_path) -> None:
     assert terminated == []
 
 
-def test_legacy_start_script_delegates_from_any_cwd_with_spaced_paths(
+def test_start_script_delegates_to_desktop_from_any_cwd_with_spaced_paths(
     tmp_path: Path,
 ) -> None:
     fake_root = tmp_path / "repo with spaces"
@@ -92,10 +92,8 @@ def test_legacy_start_script_delegates_from_any_cwd_with_spaced_paths(
 
     assert result.returncode == 23
     assert result.stdout.splitlines() == [
-        f"ARG={fake_root / 'scripts' / 'dev_stack.py'}",
-        "ARG=start",
+        f"ARG={fake_root / 'desktop' / 'dev.py'}",
     ]
-    assert "compatibility entrypoint" in result.stderr
 
 
 @pytest.mark.skipif(sys.platform == "win32", reason="start.sh requires POSIX signals")

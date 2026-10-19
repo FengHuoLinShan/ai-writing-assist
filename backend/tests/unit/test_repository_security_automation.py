@@ -27,7 +27,6 @@ SPLIT_WORKFLOW_CONTRACTS = {
         "frontend-unit-quality",
         "frontend-functional-browser",
     },
-    PRODUCTION_IMAGE_CI_WORKFLOW: {"production-image-contract"},
 }
 
 AUTOMATION_WORKFLOWS = tuple(
@@ -43,7 +42,7 @@ ALLOWED_ACTIONS = {
     "github/codeql-action/init",
 }
 ACTION_LINE_PATTERN = re.compile(
-    r"^\s*uses:\s+(?P<action>[^@\s]+)@(?P<sha>[0-9a-f]{40})"
+    r"^\s*(?:-\s+)?uses:\s+(?P<action>[^@\s]+)@(?P<sha>[0-9a-f]{40})"
     r"\s+#\s+(?P<version>v[0-9][0-9A-Za-z.\-]*)\s*$"
 )
 
@@ -92,10 +91,36 @@ def _workflow_action_lines(path: Path) -> list[tuple[str, str, str]]:
     ]
     parsed: list[tuple[str, str, str]] = []
     for line in action_lines:
+        local = re.fullmatch(
+            r"\s*uses:\s+(\./\.github/workflows/[A-Za-z0-9_-]+\.yml)\s*", line
+        )
+        if local:
+            target = REPOSITORY_ROOT / local[1]
+            assert target.is_file(), f"missing local reusable workflow: {target}"
+            assert "workflow_call" in _load_yaml(target)["on"]
+            continue
         match = ACTION_LINE_PATTERN.fullmatch(line)
         assert match is not None, f"unpinned or uncommented action in {path}: {line}"
         parsed.append((match["action"], match["sha"], match["version"]))
     return parsed
+
+
+@pytest.mark.parametrize(
+    "reference",
+    [
+        "actions/checkout@main",
+        "actions/checkout@" + "a" * 40,
+        "./.github/workflows/../../outside.yml",
+        "./.github/workflows/missing.yml",
+    ],
+)
+def test_workflow_reference_guard_rejects_unpinned_or_unsafe_calls(
+    tmp_path: Path, reference: str
+) -> None:
+    workflow = tmp_path / "unsafe.yml"
+    workflow.write_text("  uses: " + reference + "\n")
+    with pytest.raises(AssertionError):
+        _workflow_action_lines(workflow)
 
 
 def test_ci_actions_are_allowlisted_fully_pinned_and_consistent() -> None:
@@ -447,6 +472,12 @@ def test_production_image_contract_emits_sboms_before_vulnerability_gates() -> N
     assert isinstance(jobs, dict)
     job = jobs["production-image-contract"]
     assert isinstance(job, dict)
+    assert workflow["on"] == {
+        "workflow_dispatch": "",
+        "pull_request": "",
+        "push": {"branches": ["main"]},
+    }
+    assert job["if"] == "github.event_name == 'workflow_dispatch'"
     assert job["name"] == "Production image contract"
     assert job["runs-on"] == "ubuntu-24.04"
     assert job["timeout-minutes"] == "40"
@@ -463,7 +494,6 @@ def test_production_image_contract_emits_sboms_before_vulnerability_gates() -> N
     ordered_names = [step["name"] for step in steps if isinstance(step, dict)]
     assert ordered_names == [
         "Check out repository",
-        "Classify CI changes",
         "Build and smoke-test production images",
         "Create container SBOM artifact directory",
         "Generate backend image CycloneDX SBOM",
@@ -576,12 +606,51 @@ def test_production_image_contract_emits_sboms_before_vulnerability_gates() -> N
     assert action_names.count("actions/upload-artifact") == 1
 
 
+def test_postgresql_pr_and_nightly_run_the_same_complete_suite() -> None:
+    backend = _load_yaml(REPOSITORY_ROOT / ".github/workflows/backend-ci.yml")
+    nightly = _load_yaml(REPOSITORY_ROOT / ".github/workflows/backend-postgresql-e2e.yml")
+    pr_job = backend["jobs"]["postgresql-critical"]
+    assert pr_job["name"] == "PostgreSQL critical"
+    for job in (pr_job, nightly["jobs"]["postgresql-e2e"]):
+        assert job["timeout-minutes"] == "60"
+        assert job["env"]["DATABASE_URL"] == job["env"]["E2E_DATABASE_URL"]
+        steps = job["steps"]
+        full = next(
+            step for step in steps if "make -C .. test-e2e" in step.get("run", "")
+        )
+        assert full["run"] == (
+            "make -C .. test-e2e "
+            'ARGS="--timeout=180 --junitxml=.test-artifacts/postgresql-e2e.junit.xml"'
+        )
+        assert "continue-on-error" not in full
+        client = next(
+            step for step in steps if step["name"] == "Install PostgreSQL 17 client"
+        )
+        assert steps.index(client) < steps.index(full)
+        assert "postgresql-client-17" in client["run"]
+        assert "B97B0AFCAA1A47F044F244A07FCC7D46ACCC4CF8" in client["run"]
+        upload = next(
+            step for step in steps if _action_name(step) == "actions/upload-artifact"
+        )
+        assert "always()" in upload["if"]
+        assert (
+            "backend/.test-artifacts/postgresql-e2e.junit.xml" in upload["with"]["path"]
+        )
+        assert "backend/.test-artifacts/scale-*.json" in upload["with"]["path"]
+        assert upload["with"]["if-no-files-found"] == "error"
+    makefile = (REPOSITORY_ROOT / "Makefile").read_text()
+    target = makefile.split("\ntest-e2e:", 1)[1].split("\ntest-postgresql-critical:", 1)[
+        0
+    ]
+    assert 'pytest tests/e2e -m "not real_llm and not external_data"' in target
+    assert "-n " not in target
+
+
 def test_ci_selection_keeps_required_jobs_and_fails_closed() -> None:
     gates = {
         "backend-quality": "backend",
         "postgresql-critical": "postgresql",
         "frontend-unit-quality": "frontend",
-        "production-image-contract": "images",
     }
     for path in SPLIT_WORKFLOW_CONTRACTS:
         workflow_jobs = _load_yaml(path)["jobs"]

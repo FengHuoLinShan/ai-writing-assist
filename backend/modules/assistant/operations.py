@@ -751,6 +751,8 @@ async def prepare_actions(
     context: AssistantOperationContext,
     operations: dict[str, AssistantOperation] | None = None,
 ) -> list[dict]:
+    if proposals and context.work.temporary_draft_id:
+        raise ConflictError("临时正文仅供讨论，请先保存并重新准备修改方案")
     prepared = []
     targets: set[str] = set()
     affected_count = 0
@@ -795,7 +797,14 @@ async def prepare_actions(
     return _ordered(prepared)
 
 
-async def decide_batch(db, batch_id: str, decision: BatchDecision, owner_id: str) -> dict:
+async def decide_batch(
+    db,
+    batch_id: str,
+    decision: BatchDecision,
+    owner_id: str,
+    *,
+    approval_attempt_id: str | None = None,
+) -> dict:
     novel_id = str(decision.novel_id)
     await require_active_project(db, novel_id)
     batch = await db.scalar(
@@ -821,6 +830,9 @@ async def decide_batch(db, batch_id: str, decision: BatchDecision, owner_id: str
     selected = [item for item in batch.actions_json if item["key"] in keys]
     if len(keys) != len(decision.selected) or len(selected) != len(keys):
         raise ValidationError("所选操作不属于当前方案")
+    work = WorkContext.model_validate(run.request_json.get("context", {}))
+    if keys and work.temporary_draft_id:
+        raise ConflictError("临时正文仅供讨论，请先保存并重新准备修改方案")
     if batch.authorization_json:
         if (
             bool(batch.authorization_json.get("review_after", False))
@@ -849,6 +861,17 @@ async def decide_batch(db, batch_id: str, decision: BatchDecision, owner_id: str
     completed = {
         item["key"]: item for item in batch.results_json if item["status"] == "completed"
     }
+    approval_grant = None
+    if approval_attempt_id is not None:
+        from modules.assistant.approval import batch_preview, require_execution_approval
+
+        if decision.retry_operation_id or keys != {
+            item["key"] for item in batch.actions_json
+        }:
+            raise ConflictError("自动批准只适用于完整的原预览，变更选择须重新判断")
+        approval_grant, _attempt = await require_execution_approval(
+            db, run, approval_attempt_id, batch_preview(batch)
+        )
     available = (
         resolve_operations(
             runtime_protocol(run.request_json)["operations"],
@@ -866,7 +889,7 @@ async def decide_batch(db, batch_id: str, decision: BatchDecision, owner_id: str
         db,
         novel_id,
         owner_id,
-        WorkContext.model_validate(run.request_json.get("context", {})),
+        work,
         None,
         AgentRunBudget.model_validate(run.budget_json or {}),
         unused_checkpoint,
@@ -964,6 +987,11 @@ async def decide_batch(db, batch_id: str, decision: BatchDecision, owner_id: str
         "confirmed_at": datetime.now(UTC).isoformat(),
         "fingerprint": batch.fingerprint,
         "review_after": decision.review_after,
+        **(
+            {"mode": "automatic", "approval_attempt_id": approval_attempt_id}
+            if approval_attempt_id
+            else {}
+        ),
     }
     if decision.retry_operation_id:
         batch.authorization_json = {
@@ -995,8 +1023,10 @@ async def decide_batch(db, batch_id: str, decision: BatchDecision, owner_id: str
                     trace_call_id=str(
                         uuid.uuid5(uuid.NAMESPACE_URL, f"{run.id}:action:{item['key']}")
                     ),
-                    trace_actor_type="ui",
-                    trace_entrypoint="assistant.batch.confirm",
+                    trace_actor_type="assistant" if approval_attempt_id else "ui",
+                    trace_entrypoint="assistant.batch.automatic"
+                    if approval_attempt_id
+                    else "assistant.batch.confirm",
                     trace_enabled=bool(run.request_json.get("operation_trace_enabled")),
                     trace_session_id=str(run.session_id) if run.session_id else None,
                     trace_parent_call_id=str(run.id),
@@ -1111,7 +1141,7 @@ async def decide_batch(db, batch_id: str, decision: BatchDecision, owner_id: str
         await sessions.append_message(
             db,
             session,
-            role="author",
+            role="assistant" if approval_attempt_id else "author",
             kind="decision",
             task_id=str(run.task_id) if run.task_id else None,
             context_confirmation_id=(
@@ -1119,9 +1149,27 @@ async def decide_batch(db, batch_id: str, decision: BatchDecision, owner_id: str
                 if context.work.context_confirmation_id
                 else None
             ),
-            content=("重试未完成操作：" if decision.retry_operation_id else "已确认：")
+            content=(
+                "按本任务授权自动执行："
+                if approval_attempt_id
+                else "重试未完成操作："
+                if decision.retry_operation_id
+                else "已确认："
+            )
             + titles
             + ("。部分操作尚未完成。" if failed else "。"),
+        )
+    if approval_grant is not None:
+        from modules.assistant.approval import record_execution
+
+        record_execution(
+            approval_grant,
+            approval_attempt_id,
+            {
+                "status": batch.status,
+                "batch_id": str(batch.id),
+                "results": results,
+            },
         )
     await db.flush()
     return {

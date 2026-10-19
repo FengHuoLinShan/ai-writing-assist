@@ -362,6 +362,9 @@ WORLD_READ_PROJECT_VOCABULARY: ServiceKey[Callable[..., Any]] = ServiceKey(
 WORLD_READ_BIBLE_PAGE_REVISIONS: ServiceKey[Callable[..., Any]] = ServiceKey(
     "world.read_bible_page_revisions"
 )
+WORLD_READ_ASSISTANT_FOCUS: ServiceKey[Callable[..., Any]] = ServiceKey(
+    "world.read_assistant_focus"
+)
 WORLD_WORLDBUILDING_REQUIRE_LEGACY_CANON_WRITE_ALLOWED: ServiceKey[Callable[..., Any]] = (
     ServiceKey("world.worldbuilding.require_legacy_canon_write_allowed")
 )
@@ -531,6 +534,7 @@ ALL_SERVICE_KEYS: tuple[ServiceKey[Any], ...] = (
     WORLD_BUILD_MAP_AUTO_DRAFTS,
     WORLD_READ_SPATIAL_DISCOVERY_CONTEXT,
     WORLD_READ_BIBLE_PAGE_REVISIONS,
+    WORLD_READ_ASSISTANT_FOCUS,
     WORLD_WORLDBUILDING_REQUIRE_LEGACY_CANON_WRITE_ALLOWED,
     WORLD_WORLDBUILDING_MARK_SYNOPSIS_SOURCE_CHANGED,
     WORLD_WORLDBUILDING_FOCUSED_ADOPTION_AUTHORIZE,

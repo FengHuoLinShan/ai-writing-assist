@@ -108,6 +108,7 @@ from core.service_keys import (
     WORLD_BUILD_MAP_AUTO_DRAFTS,
     WORLD_READ_SPATIAL_DISCOVERY_CONTEXT,
     WORLD_READ_BIBLE_PAGE_REVISIONS,
+    WORLD_READ_ASSISTANT_FOCUS,
     WORLD_LIST_CHARACTERS,
     WORLD_GET_CHARACTERS_CONTEXT,
     WORLD_LIST_ENTITIES,
@@ -210,6 +211,7 @@ from modules.world.map_atlas_facade import (
 )
 from modules.world.facade import (
     read_world_bible_page_revisions as _world_read_bible_page_revisions,
+    read_assistant_world_focus as _world_read_assistant_focus,
 )
 from modules.imports.facade import (
     get_active_organization as _imports_get_active_organization,
@@ -613,6 +615,7 @@ def _container_services() -> Iterable[tuple[ServiceKey[Any], Any]]:
         (WORLD_BUILD_MAP_AUTO_DRAFTS, _world_build_map_auto_drafts),
         (WORLD_READ_SPATIAL_DISCOVERY_CONTEXT, _world_read_spatial_discovery_context),
         (WORLD_READ_BIBLE_PAGE_REVISIONS, _world_read_bible_page_revisions),
+        (WORLD_READ_ASSISTANT_FOCUS, _world_read_assistant_focus),
         # AO-5 第二批：evidence(L2)/writing(L2) 消费 assistant facade 能力经这些
         # DI 键，assistant 反方向顶层/函数内导入清零。
         (ASSISTANT_INSPECT_DISCUSSION, _assistant_inspect_discussion),

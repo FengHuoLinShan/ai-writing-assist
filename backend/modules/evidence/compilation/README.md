@@ -800,6 +800,10 @@ pattern section 明确标为解释而非事实。Context snapshot 保留入选�
 只读操作，直接调用此 Evidence facade；HTTP 和 Assistant 都核对 active project，不接受
 执行上下文之外的 `novel_id`。
 
+### 世界页显式焦点
+
+Assistant 的 `WorkContext.focus_ref` 经根级 Evidence facade `read_assistant_world_focus()` 物化；World 版本 reader 只返回当前对象投影、单条当前档案修订或单条关系。它不经过 Scene-bound `object_dossier_brief`，不扩为邻居或完整对象资料；结果标为作者视角，不证明任何角色已知。已有 Context confirmation 时不另读焦点，角色扮演不消费作者焦点。Assistant 在最终回答前重读该 Evidence 并比对完整材料指纹，避免关系端点名称等依赖材料漂移。
+
 旧 `GenericEntityProfile.data_json` 写入现经同一 Dossier 服务追加 `legacy_import` 修订；旧 GET/list
 只读投影当前修订，纯 GET 不物化。活动模板中唯一且有效的 key/facing 映射保留面向，未映射字段留在
 秘密区并作为未映射数量报告。旧导入修订没有伪造 Scene 有效期；进入 `author_full` 简报仍要求目标 Scene

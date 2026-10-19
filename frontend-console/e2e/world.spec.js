@@ -535,6 +535,7 @@ test("实体编辑历史展示元数据、补备注、恢复并从改动记录�
   }, entity.id)
   const detail = page.locator(".world-entity-detail")
   await expect(detail.locator("#world-entity-detail-title")).toHaveText("北境新城")
+  await detail.getByRole("tab", { name: "经历与来源", exact: true }).click()
   const historyPanel = detail.locator("details.world-entity-revision-history")
   await historyPanel.locator("summary").click()
   const firstRevision = historyPanel.locator("article").first()

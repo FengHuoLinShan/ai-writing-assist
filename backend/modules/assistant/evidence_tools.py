@@ -149,14 +149,26 @@ class AssistantToolContext:
         )
 
     def remember(self, payload: dict) -> dict | None:
-        target = payload.get("target_ref") or {}
+        target = payload.get("target_ref") or payload.get("_target_ref") or {}
         source = payload.get("source_ref") or {}
         target_id = str(target.get("target_id") or target.get("id") or "")
         target_type = str(target.get("target_type") or target.get("type") or "")
+        focus_ref = (payload.get("_world_focus") or {}).get("focus_ref") or {}
+        if self.work.selected_entities and (
+            target_type not in {"world_entity", "core_entity", "entity"}
+            or target_id
+            not in {str(item.entity_id) for item in self.work.selected_entities}
+        ):
+            return None
         identities = {
             target_id,
             str(source.get("draft_id", "")),
             f"{target_type}:{target_id}",
+            *(
+                str(focus_ref.get(field))
+                for field in ("entity_id", "entry_group_id", "revision_id", "relation_id")
+                if focus_ref.get(field) is not None
+            ),
         }
         excluded = set(self.work.excluded_targets) | {
             value.rsplit(":", 1)[-1] for value in self.work.excluded_targets
@@ -173,7 +185,10 @@ class AssistantToolContext:
             return None
         key = fingerprint(payload)
         self.evidence_refs[key] = payload
-        return {"evidence_id": key, **payload}
+        public_payload = {
+            name: value for name, value in payload.items() if not name.startswith("_")
+        }
+        return {"evidence_id": key, **public_payload}
 
     async def revalidate(self, keys: list[str]):
         await self.guard()
@@ -183,6 +198,19 @@ class AssistantToolContext:
                     "回答引用了本次未查证的资料", code="assistant_unknown_evidence"
                 )
             item = self.evidence_refs[key]
+            if item.get("_world_focus"):
+                focus = item["_world_focus"]
+                current = await evidence.read_assistant_world_focus(
+                    self.db,
+                    novel_id=self.novel_id,
+                    focus_ref=focus["focus_ref"],
+                )
+                if fingerprint(current) != focus["material_fingerprint"]:
+                    raise ConflictError(
+                        "回答使用的世界焦点已变化，请重新读取",
+                        code="assistant_source_stale",
+                    )
+                continue
             if item.get("spatial_advisory"):
                 from modules.assistant.map_spatial_advisories import _identity, _read
 
@@ -365,6 +393,14 @@ async def search_project(
     ):
         raise ModelRetry("请使用 manuscript、world 或 outline 范围与简短查询")
     await deps.guard()
+    if deps.work.selected_entities:
+        return {
+            "hits": [],
+            "coverage": "selected_objects_only",
+            "omission": (
+                "当前仅讨论明确选择的对象；请分页调用 inspect_current，不做集合外检索。"
+            ),
+        }
     if deps.fixed_context is not None:
         item = deps.remember(deps.fixed_context)
         await deps.db.commit()
@@ -501,7 +537,66 @@ async def inspect_current(ctx: RunContext[AssistantToolContext], offset: int = 0
     deps = ctx.deps
     await deps.guard()
     if deps.fixed_context:
-        result = deps.remember(deps.fixed_context)
+        confirmed = deps.remember(deps.fixed_context)
+        result = (
+            {
+                "confirmed_context": confirmed,
+                "omission": (
+                    "世界焦点不在本次已确认范围内，未额外读取；"
+                    "需要时请重新确认包含该焦点的资料。"
+                ),
+            }
+            if deps.work.focus_ref or deps.work.selected_entities
+            else confirmed or {"omission": "当前参考范围未读取"}
+        )
+    elif deps.work.selected_entities:
+        selected = deps.work.selected_entities
+        if not 0 <= offset < len(selected):
+            raise ModelRetry("对象集合位置越界，请使用返回的 next_offset")
+        objects = []
+        omitted = 0
+        for focus in selected[offset : offset + 5]:
+            ref = focus.model_dump(mode="json")
+            if str(focus.entity_id) in {
+                value.rsplit(":", 1)[-1] for value in deps.work.excluded_targets
+            }:
+                omitted += 1
+                continue
+            material = await evidence.read_assistant_world_focus(
+                deps.db, novel_id=deps.novel_id, focus_ref=ref
+            )
+            item = deps.remember(
+                {
+                    "title": material["title"],
+                    "snippet": material["snippet"],
+                    "world_focus": material,
+                    "_target_ref": {
+                        "target_type": "world_entity",
+                        "target_id": ref["entity_id"],
+                    },
+                    "_world_focus": {
+                        "focus_ref": ref,
+                        "material_fingerprint": fingerprint(material),
+                    },
+                }
+            )
+            if item:
+                objects.append(item)
+            else:
+                omitted += 1
+        result = {
+            "objects": objects,
+            "selected_count": len(selected),
+            "excluded_count": omitted,
+            "next_offset": offset + 5 if offset + 5 < len(selected) else None,
+        }
+    elif deps.work.focus_ref and deps.work.task_hint == "roleplay":
+        result = {
+            "omission": (
+                "世界焦点是作者视角资料，不能证明角色已知；"
+                "请提供场景和角色视角并确认可见资料。"
+            )
+        }
     elif deps.work.draft_id:
         from modules.writing.facade import build_manuscript_range_ref
 
@@ -562,6 +657,41 @@ async def inspect_current(ctx: RunContext[AssistantToolContext], offset: int = 0
                 "next_offset": end if end < len(text) else None,
             }
         )
+    elif deps.work.focus_ref:
+        focus_ref = deps.work.focus_ref.model_dump(mode="json")
+        excluded = set(deps.work.excluded_targets) | {
+            value.rsplit(":", 1)[-1] for value in deps.work.excluded_targets
+        }
+        focus_ids = {
+            str(focus_ref.get(field))
+            for field in ("entity_id", "entry_group_id", "revision_id", "relation_id")
+            if focus_ref.get(field) is not None
+        }
+        if focus_ids.intersection(excluded):
+            result = {"omission": "所选世界焦点已被排除，未读取其内容。"}
+        else:
+            material = await evidence.read_assistant_world_focus(
+                deps.db,
+                novel_id=deps.novel_id,
+                focus_ref=focus_ref,
+            )
+            result = deps.remember(
+                {
+                    "title": material["title"],
+                    "snippet": material["snippet"],
+                    "world_focus": material,
+                    "_target_ref": {
+                        "target_type": "world_entity",
+                        "target_id": focus_ref["entity_id"],
+                    },
+                    "_world_focus": {
+                        "focus_ref": focus_ref,
+                        "material_fingerprint": fingerprint(material),
+                    },
+                }
+            )
+            if result is None:
+                result = {"omission": "所选世界焦点已被排除，未提供其内容。"}
     elif deps.work.target:
         target = deps.work.target
         if target.get("target_type") == "map_atlas_node" and deps.work.excluded_targets:
@@ -597,7 +727,7 @@ async def project_overview(ctx: RunContext[AssistantToolContext]) -> dict:
     """查看当前作品的继续写作位置、待办和待处理事项；不是整部作品事实或检查结果。"""
     deps = ctx.deps
     await deps.guard()
-    if deps.fixed_context or deps.work.excluded_targets:
+    if deps.fixed_context or deps.work.excluded_targets or deps.work.selected_entities:
         await deps.db.commit()
         return {"omission": "当前限定资料范围，不扩展为全项目事项概览"}
     target = {"target_type": "project_workspace", "target_id": deps.novel_id}

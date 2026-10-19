@@ -766,6 +766,7 @@ def _read_ids(value: Any) -> set[str]:
 _TARGET_PARAMETER_FIELDS = frozenset(
     {
         "entity_id",
+        "relation_id",
         "node_id",
         "source_node_id",
         "target_node_id",
@@ -846,6 +847,8 @@ def _check_step_targets(
         if target_type == operation.target_type
     }
     field_names = set(_TARGET_PARAMETER_FIELDS)
+    if step.operation_id == "world.add_relation":
+        field_names.add("source_id")
     if step.operation_id == "project.update_task":
         field_names.add("task_id")
     actual = set().union(
@@ -1165,6 +1168,7 @@ async def _save_goal(
     status: str | None = None,
     budget_json: dict[str, Any] | None = None,
     commit: bool = True,
+    clear_pause_requested: bool = False,
 ) -> AssistantRun:
     """Merge goal state with fresh stop flags so pause/cancel can't be lost."""
     current = (
@@ -1180,6 +1184,13 @@ async def _save_goal(
     checkpoint = dict(current.checkpoint_json or {})
     persisted_goal = dict(checkpoint.get("goal") or {})
     for flag in ("cancel_requested", "pause_requested"):
+        # Resume acknowledges only the pause revision the author reviewed.
+        if (
+            flag == "pause_requested"
+            and clear_pause_requested
+            and goal.get("revision") == persisted_goal.get("revision")
+        ):
+            continue
         if persisted_goal.get(flag) and not goal.get(flag):
             goal[flag] = persisted_goal[flag]
     goal["revision"] = (
@@ -2170,6 +2181,7 @@ def _step_view(
         "depends_on_count": len(step.depends_on),
         "status": status,
         "status_label": status_label,
+        "automatic_decision": record.get("automatic_decision"),
         "preview_summary": str(preview.get("effect") or preview.get("title") or "")[:500],
         "diff": _flatten_diff(preview.get("before"), preview.get("after")),
         "fields": _parameter_fields(schema, params),
@@ -2273,6 +2285,7 @@ async def goal_view(
             },
         },
         "auto_r2": bool(goal.get("auto_r2")),
+        "automatic_approval": bool(goal.get("automatic_approval")),
         "stop_code": stop_code,
         "stop_reason": stop_reason,
         "stop_reason_label": _STOP_LABELS.get(stop_code, stop_reason),
@@ -2325,8 +2338,11 @@ async def goal_capabilities(
     _available, unavailable = _goal_planning_catalog(
         _operation_registry(), include_schema=False
     )
+    from modules.assistant.approval import approval_availability
+
     return {
         "enabled": True,
+        "automatic_approval": await approval_availability(db, novel_id, owner_id),
         "unavailable_operations": unavailable,
         "budget_limits": {
             "requests_max": 100,
@@ -2491,14 +2507,6 @@ async def _record_goal_plan_approval(
     accepted_plan: GoalPlan,
     operations: Mapping[str, AssistantOperation],
 ) -> None:
-    from modules.assistant.goal_runs.planning import _references
-
-    def arguments_for(step, operation):
-        # Plan approval binds typed references; domain validation follows resolution.
-        if _references(step.parameters):
-            return step.parameters
-        return operation.schema.model_validate(step.parameters).model_dump(mode="json")
-
     previous = (
         {step.step_id: step for step in previous_plan.steps} if previous_plan else {}
     )
@@ -2508,7 +2516,8 @@ async def _record_goal_plan_approval(
         old_operation = operations.get(old_step.operation_id)
         if old_operation is None:
             continue
-        old_arguments = arguments_for(old_step, old_operation)
+        # The validated plan may still contain typed references to future receipts.
+        old_arguments = old_step.parameters
         call_id = _goal_trace_call_id(run, goal, step_id)
         if new_step is None or new_step.operation_id != old_step.operation_id:
             await _record_goal_trace_event(
@@ -2533,12 +2542,12 @@ async def _record_goal_plan_approval(
                     new_operation,
                     "confirmed",
                     step_id=step_id,
-                    arguments=arguments_for(new_step, new_operation),
+                    arguments=new_step.parameters,
                     trace_call_id=call_id,
                 )
             continue
 
-        new_arguments = arguments_for(new_step, old_operation)
+        new_arguments = new_step.parameters
         changed_fields = sorted(
             name
             for name in old_operation.schema.model_fields
@@ -2580,7 +2589,7 @@ async def _record_goal_plan_approval(
             operation,
             "confirmed",
             step_id=step_id,
-            arguments=arguments_for(new_step, operation),
+            arguments=new_step.parameters,
             trace_call_id=_goal_trace_call_id(run, goal, step_id),
         )
 
@@ -2659,6 +2668,21 @@ async def approve_goal_plan(
             catalog_fingerprint=catalog_fingerprint,
         )
         capabilities = set(_scope_capabilities(plan, operations))
+        if data.approval is not None:
+            from modules.assistant.approval import create_grant, goal_targets
+            from modules.assistant.approval_contracts import APPROVAL_CAPABILITY
+
+            scope["approval"] = data.approval.model_dump(mode="json")
+            await create_grant(
+                db,
+                run,
+                data.approval,
+                intent=run.request_json["goal"],
+                targets=await goal_targets(db, novel_id, plan),
+                scope=scope,
+                budget=data.budget.model_dump(mode="json"),
+            )
+            capabilities.add(APPROVAL_CAPABILITY)
         capabilities.update(envelope.snapshot().authorized_step_capabilities)
         await envelope.authorize_goal_scope(
             sorted(capabilities), scope_fingerprint=digest(scope)
@@ -2678,6 +2702,10 @@ async def approve_goal_plan(
         goal["approved_scope_fingerprint"] = digest(scope)
         goal["approved_budget"] = data.budget.model_dump(mode="json")
         goal["auto_r2"] = data.auto_r2
+        goal["automatic_approval"] = data.approval is not None
+        for record in records.values():
+            if record.get("status") != "completed":
+                record.pop("automatic_approval_id", None)
         goal["scope_expansion_reasons"] = []
         goal["stop_reason"] = "计划已确认，正在按依赖顺序执行可自动处理的步骤"
         goal["stop_code"] = None
@@ -3815,10 +3843,36 @@ async def _execute_single_step(
     target_pairs: list[tuple[str, str]],
 ) -> AssistantRun:
     record = _step_records(goal).setdefault(step.step_id, {})
+    run_id, novel_id, owner_id = str(run.id), str(run.novel_id), str(run.owner_id)
     usage_before = envelope.snapshot()
     started = time.perf_counter()
     try:
         async with db.begin_nested():
+            approval_grant = None
+            approval_id = (
+                record.get("automatic_approval_id")
+                if not record.get("author_confirmed")
+                else None
+            )
+            if approval_id:
+                from modules.assistant.approval import (
+                    goal_preview,
+                    require_execution_approval,
+                )
+
+                approval_grant, _attempt = await require_execution_approval(
+                    db,
+                    run,
+                    approval_id,
+                    goal_preview(
+                        goal, step, parsed.model_dump(mode="json"), preview, target_pairs
+                    ),
+                )
+                current_preview = await operation.prepare(
+                    db, novel_id, parsed, context=context
+                )
+                if digest(current_preview) != digest(preview):
+                    raise ConflictError("判断后来源已变化，请重新准备预览")
             meter = GoalWorkflowCounter(
                 envelope,
                 budget,
@@ -3883,15 +3937,25 @@ async def _execute_single_step(
                 manifest["step_id"] = step.step_id
                 manifest["step_label"] = operation.label
                 goal.setdefault("changes", []).append(manifest)
+            if approval_grant is not None:
+                from modules.assistant.approval import record_execution
+
+                record_execution(
+                    approval_grant,
+                    approval_id,
+                    {
+                        "status": "completed",
+                        "step_id": step.step_id,
+                        "result": _json_copy(reference),
+                    },
+                )
             goal["stop_reason"] = ""
             goal["stop_code"] = None
             goal["phase"] = "executing"
             goal["envelope"] = envelope.snapshot().model_dump(mode="json")
             await _save_goal(db, run, goal, status="running", commit=False)
         await db.commit()
-        saved = await _load_goal_run(
-            db, str(run.novel_id), str(run.id), str(run.owner_id)
-        )
+        saved = await _load_goal_run(db, novel_id, run_id, owner_id)
         return saved
     except asyncio.CancelledError:
         await db.rollback()
@@ -3900,9 +3964,7 @@ async def _execute_single_step(
         duration_ms = int((time.perf_counter() - started) * 1000)
         usage = _goal_usage_delta(usage_before, envelope.snapshot())
         await db.rollback()
-        saved = await _load_goal_run(
-            db, str(run.novel_id), str(run.id), str(run.owner_id)
-        )
+        saved = await _load_goal_run(db, novel_id, run_id, owner_id)
         current_goal = _goal_state(saved)
         await _record_goal_trace_event(
             db,
@@ -4174,12 +4236,58 @@ async def _advance_steps_locked(
         if _step_is_manual(step, operation, goal, params) and not record.get(
             "author_confirmed"
         ):
-            record["status"] = "prepared"
-            goal["phase"] = "step_review"
-            goal["stop_code"] = "step_approval"
-            goal["stop_reason"] = "这一步需要你核对当前预览并单独确认。"
-            run = await _save_goal(db, run, goal, status="waiting_approval")
-            return await goal_view(db, run, owner_id=owner_id)
+            if goal.get("automatic_approval"):
+                from modules.assistant.approval import (
+                    goal_preview,
+                    goal_step_targets,
+                    judge_preview,
+                )
+
+                record.pop("automatic_approval_id", None)
+                run = await _save_goal(db, run, goal, status="running")
+                approval_run_id, approval_novel_id = str(run.id), str(run.novel_id)
+                meter = GoalWorkflowCounter(
+                    envelope,
+                    budget,
+                    time_80_acknowledged=bool(goal.get("time_80_acknowledged")),
+                )
+                with ai_run_scope(envelope), workflow_budget(meter, _noop_checkpoint):
+                    verdict = await judge_preview(
+                        db,
+                        run,
+                        preview=goal_preview(goal, step, params, preview, target_pairs),
+                        operations=[operation],
+                        targets=goal_step_targets(
+                            step, params, preview, plan=plan, records=records
+                        ),
+                        scope_fingerprint=goal["approved_scope_fingerprint"],
+                    )
+                run = await _load_goal_run(
+                    db, approval_novel_id, approval_run_id, owner_id
+                )
+                goal = _goal_state(run)
+                if run.status not in _ACTIVE_STATUSES:
+                    return await goal_view(db, run, owner_id=owner_id)
+                record = _step_records(goal).setdefault(step.step_id, {})
+                record["automatic_decision"] = {
+                    key: verdict[key]
+                    for key in ("id", "decision", "reason")
+                    if key in verdict
+                }
+                if goal.get("cancel_requested") or goal.get("pause_requested"):
+                    await _save_goal(db, run, goal, status="running")
+                    continue
+                if verdict["decision"] == "allow":
+                    record["automatic_approval_id"] = verdict["id"]
+            if record.get("automatic_approval_id"):
+                run = await _save_goal(db, run, goal, status="running")
+            else:
+                record["status"] = "prepared"
+                goal["phase"] = "step_review"
+                goal["stop_code"] = "step_approval"
+                goal["stop_reason"] = "这一步需要你核对当前预览并单独确认。"
+                run = await _save_goal(db, run, goal, status="waiting_approval")
+                return await goal_view(db, run, owner_id=owner_id)
         run = await _save_goal(db, run, goal, status="running")
         goal = _goal_state(run)
         context = _operation_context(
@@ -4581,6 +4689,8 @@ async def resume_goal(
             catalog_fingerprint=operation_catalog_fingerprint(operations),
         )
         approved_scope = goal.get("approved_scope") or {}
+        if "approval" in approved_scope:
+            proposed_scope["approval"] = approved_scope["approval"]
         expansions = compare_scope(proposed_scope, approved_scope)
         if any(item != "larger_budget" for item in expansions):
             raise ConflictError("继续预算之外的计划范围已变化，请重新审阅计划")
@@ -4588,6 +4698,12 @@ async def resume_goal(
             "catalog_fingerprint"
         ):
             raise ConflictError("操作目录已变化，请重新规划后继续")
+        if goal.get("automatic_approval"):
+            from modules.assistant.approval import resume_goal_grant
+
+            goal["automatic_approval"] = await resume_goal_grant(
+                db, run, approved_scope, proposed_scope
+            )
         await envelope.authorize_goal_scope(
             list(envelope.snapshot().authorized_step_capabilities),
             scope_fingerprint=digest(proposed_scope),
@@ -4609,6 +4725,7 @@ async def resume_goal(
             goal,
             status="running",
             budget_json={"goal": goal["approved_budget"]},
+            clear_pause_requested=True,
         )
         return await _advance_steps_locked(db, run, owner_id=owner_id)
 

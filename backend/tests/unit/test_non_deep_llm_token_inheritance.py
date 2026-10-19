@@ -30,6 +30,26 @@ _EXPLICIT_OUTPUT_BUDGET_ALLOWLIST = {
     "modules/world/services/worldbuilding/world_validation_service.py",
 }
 _GOAL_SERVICE = "modules/assistant/goal_runs/service.py"
+_APPROVAL_REPLY_FILES = {
+    "modules/assistant/approval.py",
+    "modules/assistant/approval_calibration.py",
+}
+
+
+def _approval_bounded_call_lines(path: Path) -> set[int]:
+    # The task-authorized three-field judgment and its calibration share 1024 tokens.
+    return {
+        node.lineno
+        for node in ast.walk(python_ast(path))
+        if isinstance(node, ast.Call)
+        and getattr(node.func, "id", None) == "LLMCallRequest"
+        and any(
+            item.arg == "max_tokens"
+            and isinstance(item.value, ast.Constant)
+            and item.value.value == 1024
+            for item in node.keywords
+        )
+    }
 
 
 def _llm_request_calls(path: Path) -> list[tuple[int, bool]]:
@@ -88,8 +108,13 @@ def test_only_approved_workflows_set_explicit_max_tokens() -> None:
         goal_bounded = (
             _goal_frozen_budget_call_lines(path) if relative == _GOAL_SERVICE else set()
         )
+        approval_bounded = (
+            _approval_bounded_call_lines(path)
+            if relative in _APPROVAL_REPLY_FILES
+            else set()
+        )
         for lineno, has_explicit_budget in _llm_request_calls(path):
-            if has_explicit_budget and lineno not in goal_bounded:
+            if has_explicit_budget and lineno not in goal_bounded | approval_bounded:
                 violations.append(f"{relative}:{lineno}")
 
     assert violations == []

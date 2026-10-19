@@ -32,7 +32,7 @@
             </option>
           </select>
         </label>
-        <label>
+        <label v-if="!entityId">
           <span>对象</span>
           <select v-model="filters.entityId">
             <option value="">全部对象</option>
@@ -80,6 +80,7 @@
             <template v-if="event.created_at"> · {{ formatDate(event.created_at) }}</template>
           </p>
           <p v-if="event.dimension" class="story-fact-timeline__dimension">{{ dimensionLabel(event.dimension) }}</p>
+          <button v-if="event.scene_id && event.current_scene_index != null" type="button" class="btn btn-sm" @click="openScene(event.scene_id)">查看场景资料</button>
           <dl v-if="eventFields(event.snapshot_after).length" class="story-fact-timeline__values">
             <div v-for="field in eventFields(event.snapshot_after)" :key="field.key">
               <dt>{{ field.key }}</dt><dd>{{ field.value }}</dd>
@@ -108,10 +109,13 @@
 </template>
 
 <script setup>
-import { computed, reactive, ref, watch } from "vue"
-import { getApi } from "../../../bridge/index.js"
+import { computed, onBeforeUnmount, reactive, ref, watch } from "vue"
+import { getApi, getRouter } from "../../../bridge/index.js"
 
-const props = defineProps({ projectId: { type: String, default: null } })
+const props = defineProps({
+  projectId: { type: String, default: null },
+  entityId: { type: String, default: "" },
+})
 const panel = ref(null)
 const pageSize = 50
 const pageStart = ref(0)
@@ -128,7 +132,7 @@ const entityCounts = computed(() => entityOptions.value.reduce((counts, entity) 
   return counts
 }, {}))
 
-watch(() => props.projectId, async () => {
+watch([() => props.projectId, () => props.entityId], async () => {
   const wasOpen = Boolean(panel.value?.open)
   requestGeneration.value += 1
   loading.value = false
@@ -145,6 +149,9 @@ watch(() => props.projectId, async () => {
     void loadFacts(true)
   }
 })
+onBeforeUnmount(() => { requestGeneration.value += 1 })
+
+function openScene(sceneId) { getRouter()?.navigate("scene", sceneId) }
 
 function onToggle(event) {
   if (event.currentTarget.open && !loaded.value) void loadFacts(true)
@@ -159,7 +166,7 @@ async function loadFacts(reset = false) {
   error.value = ""
   try {
     const next = await getApi().storyTimeline.listFacts(projectId, {
-      entityId: filters.entityId || null,
+      entityId: props.entityId || filters.entityId || null,
       cutoffSceneId: filters.cutoffSceneId || null,
       source: filters.source || null,
       status: filters.status || null,

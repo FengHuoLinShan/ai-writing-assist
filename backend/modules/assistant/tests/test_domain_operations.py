@@ -17,6 +17,66 @@ from modules.project.models import ProjectAuthorTask
 
 
 @pytest.mark.asyncio
+async def test_temporary_prose_cannot_prepare_or_confirm_formal_changes(
+    db_session, test_project_id
+):
+    owner_id = str(current_account_id())
+    work = WorkContext(page="writing", temporary_draft_id=uuid.uuid4())
+    action = ProposedAction(
+        key="edit", capability="test.unavailable", title="修改资料", arguments={}
+    )
+    with pytest.raises(ConflictError, match="临时正文"):
+        await prepare_actions(
+            db_session,
+            test_project_id,
+            [action],
+            context=AssistantOperationContext(str(uuid.uuid4()), owner_id, work),
+            operations={},
+        )
+    assert (
+        await prepare_actions(
+            db_session,
+            test_project_id,
+            [],
+            context=AssistantOperationContext(str(uuid.uuid4()), owner_id, work),
+            operations={},
+        )
+        == []
+    )
+    run = AssistantRun(
+        novel_id=uuid.UUID(test_project_id),
+        owner_id=uuid.UUID(owner_id),
+        request_hash="d" * 64,
+        request_json={"context": work.model_dump(mode="json")},
+        checkpoint_json={},
+    )
+    db_session.add(run)
+    await db_session.flush()
+    actions = [action.model_dump(mode="json")]
+    batch = AssistantActionBatch(
+        novel_id=run.novel_id,
+        run_id=run.id,
+        actions_json=actions,
+        fingerprint=fingerprint(actions),
+    )
+    db_session.add(batch)
+    await db_session.flush()
+    with pytest.raises(ConflictError, match="临时正文"):
+        await decide_batch(
+            db_session,
+            str(batch.id),
+            BatchDecision(
+                novel_id=test_project_id,
+                fingerprint=batch.fingerprint,
+                selected=["edit"],
+                confirmed=True,
+            ),
+            owner_id,
+        )
+    assert not batch.authorization_json and not batch.results_json
+
+
+@pytest.mark.asyncio
 async def test_author_task_update_uses_existing_version_guard(
     db_session, test_project_id
 ):

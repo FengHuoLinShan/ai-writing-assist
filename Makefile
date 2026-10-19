@@ -1,4 +1,4 @@
-.PHONY: dev dev-backend dev-worker dev-frontend kill kill-apps test test-fast-coverage test-e2e test-postgresql-critical test-real-llm test-map-atlas-live-image test-real-kimi test-interaction-long-context test-manual test-deploy test-frontend test-production-images test-restore-drill-real test-object-restore-drill-real audit-backend-deps audit-frontend-deps test-ci repo-gates binary-growth-gate file-size-gate release-evidence-gate module-import-gate scale-gate eval-corpus eval-fixture-manifest eval-generate eval-judge eval-qc eval-review-export eval-review-import eval-report eval-baseline-check eval-freeze eval-rag-prepare eval-run eval-rag eval-full eval-pilot eval-fast eval-rp-long-memory eval-rp-cost-baseline eval-ask-world eval-ask-world-model eval-context-planner lint lint-fix format format-fix secret-hygiene docs-check prompt-contracts prompt-contracts-json generate-e2e spreadsheet-e2e help db migrate schema-check doctor doctor-json doctor-llm
+.PHONY: desktop-prepare desktop-build desktop-test dev-services dev dev-backend dev-worker dev-frontend kill kill-apps test test-fast-coverage test-e2e test-postgresql-critical test-real-llm test-map-atlas-live-image test-real-kimi test-interaction-long-context test-manual test-deploy test-frontend test-production-images test-restore-drill-real test-object-restore-drill-real audit-backend-deps audit-frontend-deps test-ci repo-gates binary-growth-gate file-size-gate release-evidence-gate module-import-gate scale-gate eval-corpus eval-fixture-manifest eval-generate eval-judge eval-qc eval-review-export eval-review-import eval-report eval-baseline-check eval-freeze eval-rag-prepare eval-run eval-rag eval-full eval-pilot eval-fast eval-rp-long-memory eval-rp-cost-baseline eval-ask-world eval-ask-world-model eval-context-planner lint lint-fix format format-fix secret-hygiene docs-check prompt-contracts prompt-contracts-json generate-e2e spreadsheet-e2e help db migrate schema-check doctor doctor-json doctor-llm
 
 ROOT_DIR := $(dir $(abspath $(lastword $(MAKEFILE_LIST))))
 BACKEND_DIR := $(ROOT_DIR)backend
@@ -20,9 +20,26 @@ BACKEND_LOCKED_CI_RUN := uv run --locked --extra ci --
 BACKEND_EVAL_ENV ?= $(BACKEND_DIR)/.venv-eval
 BACKEND_LOCKED_EVAL_RUN := UV_PROJECT_ENVIRONMENT="$(BACKEND_EVAL_ENV)" uv run --python $(BACKEND_EVAL_PYTHON) --locked --
 
-# ─── Full Stack ─────────────────────────────────────
+DESKTOP_TARGET ?= macos-arm64
+DESKTOP_PYTHON := $(if $(filter macos-x64,$(DESKTOP_TARGET)),3.13.15,$(shell cat "$(BACKEND_DIR)/.python-version"))
+DESKTOP_RUN := UV_PROJECT_ENVIRONMENT="$(ROOT_DIR)desktop/build/venv" PYTHONUTF8=1 uv run --project "$(BACKEND_DIR)" --python $(DESKTOP_PYTHON) --locked --extra desktop --extra ci
 
-dev:  ## Start all dev services
+# ─── Desktop ─────────────────────────────────────
+
+dev:  ## Run the desktop app from source (no installer build)
+	$(DESKTOP_RUN) python "$(ROOT_DIR)desktop/dev.py"
+
+desktop-prepare:  ## Prepare pinned native resources and frontend dependencies once
+	$(DESKTOP_RUN) python "$(ROOT_DIR)desktop/build_assets.py"
+	npm ci --prefix "$(FRONTEND_DIR)"
+
+desktop-build:  ## Explicitly build a native installer bundle for this host only
+	$(DESKTOP_RUN) python "$(ROOT_DIR)desktop/build.py" --target "$(DESKTOP_TARGET)"
+
+desktop-test:  ## Run lightweight desktop tests without native resources or installers
+	uv run --project "$(BACKEND_DIR)" --locked --extra ci python -m pytest "$(ROOT_DIR)desktop/tests" -q
+
+dev-services:  ## Legacy split services for explicit diagnostics and test tooling
 	python scripts/dev_stack.py start
 
 # ─── Individual Services ────────────────────────────
@@ -118,6 +135,7 @@ audit-frontend-deps:  ## Fail on high/critical frontend dependency lockfile advi
 test-ci: docs-check secret-hygiene audit-backend-deps lint test-deploy audit-frontend-deps  ## Run local quality gates; excludes PostgreSQL, browser, and image suites
 	$(MAKE) test-fast-coverage TEST_WORKERS=$(TEST_WORKERS) ARGS="$(ARGS) -W error::RuntimeWarning"
 	$(MAKE) test-frontend FRONTEND_ARGS="$(FRONTEND_ARGS)"
+	$(MAKE) desktop-test
 
 eval-corpus:  ## Build a local corpus manifest without copying source text
 	cd $(BACKEND_DIR) && $(BACKEND_LOCKED_EVAL_RUN) python -m evals.cli corpus-manifest --variant $(or $(VARIANT),pilot) $(if $(OUTPUT),--output $(OUTPUT),)
@@ -191,11 +209,13 @@ eval-ask-world-model:  ## Run paid, non-blocking Ask World model-fidelity probes
 eval-context-planner:  ## Compare task-direct and planner-v1 on accepted RAG cases
 	cd $(BACKEND_DIR) && $(BACKEND_LOCKED_EVAL_RUN) python -m evals.cli context-planner $(or $(DATASET),evals/datasets/local/pilot-v2-work/pilot-v1.1.accepted.jsonl) --novel-id $(NOVEL_ID) --dataset-version $(or $(DATASET_VERSION),pilot-v1.1) --sut-profile $(or $(SUT_PROFILE),local) --output $(or $(OUTPUT),evals/artifacts/results/$(or $(SUT_PROFILE),local)/$(or $(DATASET_VERSION),pilot-v1.1)/context-planner.result.json) $(if $(LLM_PLANNER),--llm-planner,)
 
-lint:  ## Run ruff linter
+lint:  ## Run ruff on backend and desktop source
 	cd $(BACKEND_DIR) && $(BACKEND_LOCKED_CI_RUN) ruff check .
+	uv run --project "$(BACKEND_DIR)" --no-sync ruff check --config backend/pyproject.toml desktop
 
-lint-fix:  ## Run ruff auto-fix
+lint-fix:  ## Run ruff auto-fix on backend and desktop source
 	cd $(BACKEND_DIR) && $(BACKEND_LOCKED_CI_RUN) ruff check --fix .
+	uv run --project "$(BACKEND_DIR)" --no-sync ruff check --config backend/pyproject.toml --fix desktop
 
 format:  ## Check formatting
 	cd $(BACKEND_DIR) && $(BACKEND_LOCKED_CI_RUN) ruff format --check .

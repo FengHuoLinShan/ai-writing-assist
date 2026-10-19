@@ -1,0 +1,91 @@
+name: Desktop release draft
+
+on:
+  workflow_dispatch:
+    inputs:
+      target:
+        description: 'Release only the selected platform; all must be explicitly requested'
+        type: choice
+        default: macos-arm64
+        options: [macos-arm64, macos-x64, windows-x64, all]
+      source_sha:
+        description: 'Full 40-character origin/main commit with green CI'
+        required: true
+        type: string
+
+permissions:
+  contents: read
+  actions: read
+
+concurrency:
+  group: desktop-release
+  cancel-in-progress: false
+
+jobs:
+  prepare:
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-24.04
+    outputs:
+      version: ${{ steps.check.outputs.version }}
+      signed: ${{ steps.check.outputs.signed }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+      - name: Check main provenance, CI and unused version
+        id: check
+        env:
+          GH_TOKEN: ${{ github.token }}
+          SOURCE_SHA: ${{ inputs.source_sha }}
+        run: |
+          [[ "$SOURCE_SHA" =~ ^[0-9a-f]{40}$ ]]
+          git merge-base --is-ancestor "$SOURCE_SHA" origin/main
+          git checkout --detach "$SOURCE_SHA"
+          gh api --paginate --slurp "repos/$GITHUB_REPOSITORY/actions/runs?head_sha=$SOURCE_SHA&event=push&per_page=100" > "$RUNNER_TEMP/ci-runs.json"
+          python desktop/release.py verify-source "$SOURCE_SHA" --ci-runs "$RUNNER_TEMP/ci-runs.json" >> "$GITHUB_OUTPUT"
+          version=$(cat desktop/VERSION)
+          gh api --paginate --slurp "repos/$GITHUB_REPOSITORY/releases?per_page=100" > "$RUNNER_TEMP/releases.json"
+          python - "$RUNNER_TEMP/releases.json" "v$version" <<'PY'
+          import json, sys
+          releases = [r for page in json.load(open(sys.argv[1])) for r in page]
+          if any(r['tag_name'] == sys.argv[2] for r in releases):
+              raise SystemExit('Version already has a release/draft; do not replace its assets')
+          PY
+          tags=$(git ls-remote --tags origin "refs/tags/v$version")
+          test -z "$tags" || { echo 'Version tag already exists; choose a new version' >&2; exit 1; }
+
+  installers:
+    needs: prepare
+    permissions:
+      contents: read
+    uses: ./.github/workflows/desktop.yml
+    with:
+      source_sha: ${{ inputs.source_sha }}
+      target: ${{ inputs.target }}
+      signed: ${{ needs.prepare.outputs.signed == 'true' }}
+    secrets: inherit
+
+  draft:
+    needs: [prepare, installers]
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+      actions: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ inputs.source_sha }}
+      - name: Collect verified packages and create draft
+        env:
+          GH_TOKEN: ${{ github.token }}
+          SOURCE_SHA: ${{ inputs.source_sha }}
+          VERSION: ${{ needs.prepare.outputs.version }}
+          BUILD_TARGET: ${{ inputs.target }}
+        run: |
+          gh run download "$GITHUB_RUN_ID" --repo "$GITHUB_REPOSITORY" --pattern 'NovelCraft-*' --dir "$RUNNER_TEMP/packages"
+          python desktop/release.py assemble "$RUNNER_TEMP/packages" "$SOURCE_SHA" --target "$BUILD_TARGET"
+          args=()
+          if [[ "$VERSION" == *-* ]]; then args+=(--prerelease); fi
+          tags=$(git ls-remote --tags origin "refs/tags/v$VERSION")
+          test -z "$tags" || { echo 'Version tag appeared while building; stop and review' >&2; exit 1; }
+          gh release create "v$VERSION" "$RUNNER_TEMP/packages/release/"* --repo "$GITHUB_REPOSITORY" --target "$SOURCE_SHA" --draft --title "NovelCraft $VERSION" --notes-file "$RUNNER_TEMP/packages/release/RELEASE-NOTES.md" "${args[@]}"

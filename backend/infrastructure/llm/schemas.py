@@ -666,7 +666,7 @@ class AIRunEnvelopeV3(AIRunEnvelopeV1):
 
 
 _ASSISTANT_CATALOG_CHILD_CAPABILITIES = frozenset(
-    {"story.character_card", "story.reaction"}
+    {"story.character_card", "story.reaction", "assistant.approval.judge"}
 )
 
 
@@ -677,7 +677,7 @@ class AIRunEnvelopeV4(AIRunEnvelopeV1):
     budget_mode: Literal["assistant_catalog"] = "assistant_catalog"
     root_capability_id: Literal["assistant.turn"] = "assistant.turn"
     scope_fingerprint: str = Field(pattern=r"^[a-f0-9]{64}$")
-    authorized_step_capabilities: list[str] = Field(min_length=1, max_length=2)
+    authorized_step_capabilities: list[str] = Field(min_length=1, max_length=3)
 
     @field_validator("authorized_step_capabilities")
     @classmethod

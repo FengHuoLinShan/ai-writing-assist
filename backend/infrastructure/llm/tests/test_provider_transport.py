@@ -636,7 +636,10 @@ async def test_all_sdk_clients_use_native_httpx2_and_preserve_egress(monkeypatch
     from infrastructure.llm.image_client import OpenAIImageClient
 
     settings = Settings(
-        auth_mode="public", embedding_base_url="https://api.openai.com/v1"
+        auth_mode="public",
+        embedding_base_url="https://api.openai.com/v1",
+        llm_proxy_url="",
+        llm_trust_env=False,
     )
     monkeypatch.setattr("infrastructure.llm.providers.get_settings", lambda: settings)
     monkeypatch.setattr("infrastructure.llm.image_client.get_settings", lambda: settings)
@@ -657,6 +660,9 @@ async def test_all_sdk_clients_use_native_httpx2_and_preserve_egress(monkeypatch
             assert isinstance(sdk._client, httpx.AsyncClient)
             assert not isinstance(sdk._client, legacy_httpx.AsyncClient)
             assert sdk.max_retries == 0
+            sdk._client._transport = httpx.MockTransport(
+                lambda request: pytest.fail("Public guard must reject before network IO")
+            )
             # Real SDK request construction reaches the guard and stops before IO.
             with pytest.raises(APIConnectionError) as caught:
                 await sdk.models.list()

@@ -86,6 +86,8 @@ WORLD_FACADE_API = {
     "update_character_location",
     "update_entity",
     "upsert_relation",
+    "read_assistant_world_focus",
+    "validate_assistant_world_focus",
 }
 
 OUTLINE_FACADE_API = {

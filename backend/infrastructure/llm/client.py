@@ -675,6 +675,11 @@ class LLMClient:
 
     def __init__(self, provider_name: str = "openai", **provider_kwargs: Any) -> None:
         self._high_quality = bool(provider_kwargs.pop("high_quality", False))
+        self._approval_judgment = bool(provider_kwargs.pop("approval_judgment", False))
+        if self._approval_judgment and self._high_quality:
+            raise ValueError("批准判断不能使用生成质量覆盖")
+        if provider_name == "codex" and self._approval_judgment:
+            provider_kwargs["approval_judgment"] = True
         capability = provider_kwargs.pop("execution_capability", None)
         if provider_name == "codex":
             if capability is None:
@@ -875,6 +880,20 @@ class LLMClient:
         return resolved
 
     def _validate_input_budget(self, request):
+        if self._approval_judgment and (
+            request.model
+            != {"codex": "gpt-6-luna", "deepseek": "deepseek-flash"}.get(
+                self._limiter_provider_id
+            )
+            or request.extra.get("reasoning_effort") != "low"
+            or request.tools
+            or (request.response_format or {}).get("type")
+            not in {"json_schema", "json_object"}
+        ):
+            raise LLMError(
+                "批准判断请求不符合冻结的模型、low 档或结构化契约",
+                error_kind="approval_configuration",
+            )
         if self.provider == "codex":
             self._provider.validate_request(request)
             return

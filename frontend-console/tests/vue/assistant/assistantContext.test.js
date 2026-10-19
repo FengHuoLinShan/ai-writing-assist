@@ -8,10 +8,12 @@ it("captures an explicit writing selection only from the matching project DOM", 
   const editor = document.querySelector("textarea")
   editor.value = "甲乙丙丁"
   editor.setSelectionRange(1, 3)
-  const state = { currentProjectId: "p1", viewStates: { writing: { projectId: "p1" } }, _currentChapter: 3 }
+  const state = { currentProjectId: "p1", viewStates: { writing: { projectId: "p1" } }, _currentChapter: 3, _currentDraftId: "11111111-1111-4111-8111-111111111111" }
   const workspace = document.getElementById("workspace-content")
   const captured = captureWorkContext(state, null, "p1", "writing", editor, null, workspace)
   expect(captured.selection).toBe("乙丙")
+  expect(captured.draft_id).toBe("11111111-1111-4111-8111-111111111111")
+  expect(captured.temporary_draft_id).toBeUndefined()
   // R00：干净编辑器的选区带码点偏移（SourceRange 语义）。
   expect(captured.selection_start).toBe(1)
   expect(captured.selection_end).toBe(3)
@@ -40,10 +42,13 @@ it("omits selection offsets while the editor is dirty (saved draft would drift)"
   const state = {
     currentProjectId: "p1",
     viewStates: { writing: { projectId: "p1" } },
+    _currentDraftId: "11111111-1111-4111-8111-111111111111",
     _writingForecastState: { projectId: "p1", dirty: true },
   }
   const captured = captureWorkContext(state, null, "p1", "writing", editor, null, document.getElementById("workspace-content"))
-  expect(captured.selection).toBe("乙丙") // 文本保留既有行为
+  expect(captured.selection).toBe("乙丙") // 临时选区只能用于讨论
+  expect(captured.temporary_draft_id).toMatch(/^[0-9a-f-]{36}$/i)
+  expect(captured.draft_id).toBeUndefined()
   expect(captured.selection_start).toBeUndefined()
   expect(captured.selection_end).toBeUndefined()
 })

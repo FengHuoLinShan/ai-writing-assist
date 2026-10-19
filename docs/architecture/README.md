@@ -26,6 +26,10 @@
 当前架构文档的维护入口见
 [`documentation-maintenance.md`](documentation-maintenance.md)。
 
+默认运行形态为 [ADR-0043 的本地桌面应用](../adr/0043-local-desktop-distribution.md)，
+源码入口、隔离数据目录与手动平台选择见 [桌面说明](../../desktop/README.md)。
+图中的 Vue、API、worker、数据库表示应用内部职责，不要求以独立服务器交付。
+
 ## 自动门禁
 
 导演独立探索属于既有 Story 模块；跨尺度操作由 Assistant 编排，人物投影与知识审查归 Evidence。
@@ -208,3 +212,11 @@ LLM 的模型池与有限/已确认范围预算由基础设施和 ADR-0033 说�
 再看 [运行边界图](runtime-boundaries.html) 与 [可编辑图源](runtime-boundaries.drawio)。
 该图分开作者候选、演化、私人互动与本机图片的确认/恢复路径，不替代模块契约、
 现有模块/任务/表/路由目录，也不表示所有能力默认开启或完成真实质量验收。
+
+### 作者工作台与任务批准
+
+Writing 保持编辑会话，World 保持对象/档案/关系的事实归属；助手使用冻结精确焦点，Evidence 经 World 只读 DI 端口回读。任务级自动修改新增 Assistant 授权与校准回执表，使用原队列、根预算与领域写入，不新增调度服务。判断专用 low 快照仍经 Project；未校准、撤回、过期或未知结果转人工，旧运行不升级授权。
+
+本地桌面是额外的运行/分发配置，不改变上图业务模块、领域归属、服务端路由或资料流；
+其原生窗口、内置服务与本地存储说明见 [桌面 README](../../desktop/README.md) 和
+[ADR-0043](../adr/0043-local-desktop-distribution.md)。

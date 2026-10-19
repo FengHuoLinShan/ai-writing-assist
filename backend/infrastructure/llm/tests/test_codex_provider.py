@@ -738,3 +738,52 @@ async def test_stderr_notice_does_not_turn_completed_result_into_failure(tmp_pat
     )
     result = await run_cli_agent(spec(tmp_path, executable))
     assert result.answer == '{"value":"ok"}'
+
+
+@pytest.mark.asyncio
+async def test_approval_client_alone_allows_low_and_emits_low_native_config(
+    provider, tmp_path
+):
+    from dataclasses import replace
+
+    from infrastructure.llm.client import LLMClient
+
+    request = LLMCallRequest(
+        model="gpt-6-luna",
+        extra={"reasoning_effort": "low"},
+        response_format={
+            "type": "json_schema",
+            "json_schema": {"schema": Closed.model_json_schema()},
+        },
+    )
+    with pytest.raises(LLMError):
+        provider.validate_request(request)
+    approval = CodexProvider(approval_judgment=True)
+    approval.validate_request(request)
+    result = SimpleNamespace(
+        answer=json.dumps({"data": {"value": "allow"}}),
+        usage={"input_tokens": 1, "output_tokens": 1},
+        tool_attempts=0,
+    )
+    with patch(
+        "infrastructure.llm.codex_provider.run_cli_agent",
+        autospec=True,
+        return_value=result,
+    ) as run:
+        response = await approval.generate(request)
+    assert run.call_args.args[0].approval_judgment is True
+    assert response.raw["reasoning_effort"] == "low"
+    executable = fake_cli(tmp_path, completed())
+    args, _ = _command(replace(spec(tmp_path, executable), approval_judgment=True))
+    assert 'model_reasoning_effort="low"' in args
+    assert 'model_reasoning_effort="max"' not in args
+    with pytest.raises(LLMError):
+        approval.validate_request(
+            LLMCallRequest(model="gpt-6-luna", extra={"reasoning_effort": "max"})
+        )
+    with pytest.raises(LLMError, match="无工具"):
+        approval.validate_request(
+            LLMCallRequest(model="gpt-6-luna", extra={"reasoning_effort": "low"})
+        )
+    with pytest.raises(ValueError, match="生成质量覆盖"):
+        LLMClient(provider_name="codex", high_quality=True, approval_judgment=True)

@@ -231,6 +231,9 @@ Confirmation。tasks 只拥有提交/运行/恢复事实，不推导或持久领
 
 ### Control-loop liveness 与 task lease heartbeat
 
+Windows 的 marker 放在当前用户私有 AppData/Local/NovelCraft/ 下，按 ACL 保护；
+容器的 /tmp marker 与 PID 1 健康检查契约不变。桌面监督器检查所属进程，不使用容器健康 CLI。
+
 生产组合根向 `TaskWorker` 注入同步 control-loop observer。`run_forever()` 在 startup recovery
 与 reconciler 返回后、每次控制循环开始时更新 `/tmp` 中的 monotonic marker；
 `python infrastructure/tasks/liveness.py` 只在 PID 1 的独立 argv token 为 `run_worker.py` 且

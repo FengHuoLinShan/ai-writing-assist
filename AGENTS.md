@@ -47,7 +47,9 @@
 
 ### 架构与代码
 
-- 默认 FastAPI、PostgreSQL async task queue、Vue 3 SFC（ADR-0009）；hash router 仅作窄 route-host seam。业务页经 `vue/mountIsland.js` 注册，组件仅经 `vue/bridge/index.js` 访问 API/state/router/toast 等基建，禁裸全局。新增前端栈、数据库/队列/向量存储或强制类型门禁须用户确认或 ADR。
+- 默认开发与交付本地桌面应用（ADR-0043），`make dev` 为桌面源码入口。安装包仅手动构建/发布，默认 macOS ARM64；Intel/Windows/all 须用户明确指定。独立服务器模式退出后续产品方向，旧服务工具仅供显式诊断和历史环境运维，数据与发布安全门禁保留。命令与平台验收见 [桌面发布流程](desktop/RELEASE.md)。
+- 后续功能开发、重构和修复以桌面使用路径验收；单元与浏览器测试作为分层工具。涉及本机目录、会话、原生窗口或生命周期时补源码桌面验证，普通逻辑改动不要求重建安装包。
+- 应用内部保留 FastAPI、PostgreSQL async task queue、Vue 3 SFC（ADR-0009）；hash router 仅作窄 route-host seam。业务页经 `vue/mountIsland.js` 注册，组件仅经 `vue/bridge/index.js` 访问 API/state/router/toast 等基建，禁裸全局。新增前端栈、数据库/队列/向量存储或强制类型门禁须用户确认或 ADR。
 - 生产业务跨模块仅依赖 `contracts.py`、`facade.py` 或已注册 DI port，不直引实现。测试、Alembic、ORM metadata 注册及应用组合根可有限导入实现；组合根禁业务判断。
 - API/facade 仅适配参数、稳定返回和委托；非平凡编排归所属领域模块，不为分层增加无价值转发接口。
 - 用户/AI/API 动态内容须转义后进入 `innerHTML`；Vue 禁动态 `v-html`，用 `{{ }}` 转义。禁 `eval`/`exec` LLM 输出及硬编码、记录、返回 API Key。

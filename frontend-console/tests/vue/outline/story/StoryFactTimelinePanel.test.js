@@ -117,4 +117,26 @@ describe("StoryFactTimelinePanel", () => {
     expect(wrapper.text()).toContain("拿到钥匙")
     expect(wrapper.text()).not.toContain("project-1-scene-2")
   })
+
+  it("对象详情固定对象筛选，切换时丢弃旧响应并保留独立场景出口", async () => {
+    let resolveOld
+    const router = { navigate: vi.fn() }
+    api.storyTimeline.listFacts.mockReset()
+      .mockImplementationOnce(() => new Promise(resolve => { resolveOld = resolve }))
+      .mockResolvedValue({ ...resultFor('new'), items: [{ ...resultFor('new').items[0], scene_id: 'scene-new' }] })
+    setBridgeOverrides({ router })
+    wrapper = mount(StoryFactTimelinePanel, { props: { projectId: 'p', entityId: 'old' } })
+    wrapper.get('details').element.open = true
+    await wrapper.get('details').trigger('toggle')
+    expect(api.storyTimeline.listFacts).toHaveBeenCalledWith('p', expect.objectContaining({ entityId: 'old' }))
+    await wrapper.setProps({ entityId: 'new' })
+    await flushPromises()
+    resolveOld({ ...resultFor('old'), items: [{ ...resultFor('old').items[0], snapshot_after: { state: '过期事实' } }] })
+    await flushPromises()
+    expect(api.storyTimeline.listFacts).toHaveBeenLastCalledWith('p', expect.objectContaining({ entityId: 'new', skip: 0 }))
+    expect(wrapper.text()).not.toContain('过期事实')
+    expect(wrapper.findAll('.story-fact-timeline__filters select')).toHaveLength(3)
+    await wrapper.findAll('button').find(b => b.text() === '查看场景资料').trigger('click')
+    expect(router.navigate).toHaveBeenCalledWith('scene', 'scene-new')
+  })
 })

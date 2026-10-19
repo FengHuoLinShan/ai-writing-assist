@@ -64,6 +64,7 @@ from modules.writing.schemas import (
     PublicChapterSummaryItem,
     PublicWritingDraftResponse,
     VersionHistoryResponse,
+    WritingCandidateSelectionRequest,
     WritingCommentCreate,
     WritingCommentRunRequest,
     WritingCommentUpdate,
@@ -289,6 +290,33 @@ async def post_writing_comment_run(db: DbSession, data: WritingCommentRunRequest
     from modules.writing.comments import submit_comment_run
 
     return await submit_comment_run(db, data)
+
+
+@router.get("/drafts/{draft_id}/revision-groups")
+async def get_revision_groups(db: DbSession, draft_id: UUID, novel_id: NovelIdQuery):
+    from modules.writing.candidate_selection import selection_preview
+
+    await require_active_project(db, novel_id)
+    return await selection_preview(db, novel_id, str(draft_id))
+
+
+@router.post(
+    "/drafts/{draft_id}/revision-selections",
+    status_code=201,
+    openapi_extra={
+        "x-novelcraft-operation-exemption": (
+            "Author group selection queues writing.comment_revision with its own "
+            "operation receipt; candidate adoption remains separately confirmed."
+        )
+    },
+)
+async def post_revision_selection(
+    db: DbSession, draft_id: UUID, data: WritingCandidateSelectionRequest
+):
+    from modules.writing.candidate_selection import submit_selection
+
+    await require_active_project(db, data.novel_id)
+    return await submit_selection(db, str(draft_id), data)
 
 
 @router.post(

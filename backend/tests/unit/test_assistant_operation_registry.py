@@ -681,6 +681,13 @@ C0C_REVISED_SNAPSHOT = {
 }
 
 
+AUTHOR_WORKSPACE_RELATION_OPERATIONS = {
+    "world.maintain_relation",
+    "world.remove_relation",
+    "world.relation_history",
+}
+
+
 def _pre_c0c_manifest():
     from modules.assistant.operations import operation_manifest
 
@@ -693,6 +700,7 @@ def _pre_c0c_manifest():
         | C3_CHARACTER_ARC_OPERATIONS
         | A1_CHAPTER_TIMELINE_OPERATIONS
         | C6_EXPLORATION_OPERATIONS
+        | AUTHOR_WORKSPACE_RELATION_OPERATIONS
     )
     frozen = {
         name: value
@@ -724,6 +732,7 @@ def test_bootstrap_operation_catalog_matches_snapshot():
         | C3_CHARACTER_ARC_OPERATIONS
         | A1_CHAPTER_TIMELINE_OPERATIONS
         | C6_EXPLORATION_OPERATIONS
+        | AUTHOR_WORKSPACE_RELATION_OPERATIONS
     )
     mismatches = {
         name: {
@@ -797,6 +806,7 @@ def test_catalog_v2_metadata_and_trace_inventory_match_runtime_schemas():
         + len(C3_CHARACTER_ARC_OPERATIONS)
         + len(A1_CHAPTER_TIMELINE_OPERATIONS)
         + len(C6_EXPLORATION_OPERATIONS)
+        + len(AUTHOR_WORKSPACE_RELATION_OPERATIONS)
     )
     assert set(operations) == set(manifest)
     for op_id, operation in operations.items():
@@ -903,6 +913,7 @@ def test_v12_author_operations_do_not_enter_a_frozen_v11_directory():
             | C3_CHARACTER_ARC_OPERATIONS
             | A1_CHAPTER_TIMELINE_OPERATIONS
             | C6_EXPLORATION_OPERATIONS
+            | AUTHOR_WORKSPACE_RELATION_OPERATIONS
         )
     }
     assert not (set(resolve_operations(frozen_v11)) & A3_AUTHOR_OPERATIONS)
@@ -914,6 +925,7 @@ def test_v12_author_operations_do_not_enter_a_frozen_v11_directory():
         | C3_CHARACTER_ARC_OPERATIONS
         | A1_CHAPTER_TIMELINE_OPERATIONS
         | C6_EXPLORATION_OPERATIONS
+        | AUTHOR_WORKSPACE_RELATION_OPERATIONS
     )
 
 
@@ -935,6 +947,7 @@ def test_v13_transfer_is_r3_and_absent_from_a_frozen_v12_directory():
             | C3_CHARACTER_ARC_OPERATIONS
             | A1_CHAPTER_TIMELINE_OPERATIONS
             | C6_EXPLORATION_OPERATIONS
+            | AUTHOR_WORKSPACE_RELATION_OPERATIONS
         )
     }
     assert set(manifest) - set(frozen_v12) == (
@@ -944,6 +957,7 @@ def test_v13_transfer_is_r3_and_absent_from_a_frozen_v12_directory():
         | C3_CHARACTER_ARC_OPERATIONS
         | A1_CHAPTER_TIMELINE_OPERATIONS
         | C6_EXPLORATION_OPERATIONS
+        | AUTHOR_WORKSPACE_RELATION_OPERATIONS
     )
     assert not (set(resolve_operations(frozen_v12)) & C4_TRANSFER_OPERATIONS)
     operation = get("assistant.operations")[

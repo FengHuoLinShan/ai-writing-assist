@@ -360,7 +360,28 @@ async def test_main_composes_worker_through_sigterm_drain_wrapper() -> None:
         await main()
 
     configure.assert_called_once_with()
-    run_worker.assert_awaited_once_with(worker)
+    run_worker.assert_awaited_once_with(worker, shutdown_event=None)
+
+
+@pytest.mark.asyncio
+async def test_desktop_shutdown_event_drains_worker_without_os_signals():
+    started = asyncio.Event()
+    stopped = asyncio.Event()
+    shutdown = asyncio.Event()
+
+    class Worker:
+        async def run_forever(self):
+            started.set()
+            await stopped.wait()
+
+        def stop(self):
+            stopped.set()
+
+    task = asyncio.create_task(_run_task_worker(Worker(), shutdown_event=shutdown))
+    await asyncio.wait_for(started.wait(), timeout=1)
+    shutdown.set()
+    await asyncio.wait_for(task, timeout=1)
+    assert stopped.is_set()
 
 
 @pytest.mark.asyncio

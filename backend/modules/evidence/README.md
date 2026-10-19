@@ -37,6 +37,8 @@ Assistant v9 增加 `evidence.object_dossier_brief.read` R0：窄入口只接受
 对象简报由 compilation 子域按 Scene 截止点汇总 World 档案、Story 时点投影和可选的
 Evolution 台账参考；三个跨域读取均经组合根只读端口，角色视角只投影 Story 可见事实。
 接口与未知/省略语义见 [compilation README](compilation/README.md)。
+
+Assistant 的世界页 `WorkContext.focus_ref` 通过 `read_assistant_world_focus()` 读取明确选中的当前对象投影、单条档案修订或关系；Evidence facade 经注册的 `WORLD_READ_ASSISTANT_FOCUS` DI port 调用 World 的版本化 reader，再输出作者视角资料与可读来源摘录，Assistant 在最终回答前重读并比较完整材料指纹。该入口不会把定位 ID 当资料，也不会展开邻居、整对象简报或 Scene 资料。已存在 Context confirmation 时只返回原确认范围，不额外加入焦点；角色扮演任务也不读取作者焦点。它不授予角色知识，且不能替代 Scene 截止的 `evidence.object_dossier_brief.read`。来源摘录保留作者视角警告；关系摘录同时展示有向双方、详细类型、类别、强度（包括零）、采用状态及起止限制，具体锚点回原关系查看，不暗示当前场景仍有效。
 跨模块生产调用只允许使用 `modules.evidence.contracts` 与 `modules.evidence.facade`；调用方
 不得直接读取 `rag_chunks`。内部细节见 `indexing/README.md` 与 `compilation/README.md`。
 

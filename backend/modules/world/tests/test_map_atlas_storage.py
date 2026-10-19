@@ -70,6 +70,7 @@ async def test_missing_storage_leaves_structure_available_and_blocks_image_enque
 
 def _storage_settings(endpoint_url: str) -> SimpleNamespace:
     return SimpleNamespace(
+        world_images_directory="",
         map_atlas_s3_bucket="private",
         map_atlas_s3_region="us-east-1",
         map_atlas_s3_endpoint_url=endpoint_url,

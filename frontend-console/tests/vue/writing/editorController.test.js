@@ -372,6 +372,19 @@ describe("editorController", () => {
     controller.dispose()
   })
 
+  it('将核验来源的码点偏移转换为 textarea 的 UTF16 光标，旧 hash 不定位', async () => {
+    const { controller, api, toast } = makeController()
+    api.writing.get.mockResolvedValue({ id: 'd1', title: '来源', content: '甲😀乙丙', content_hash: 'source-hash', version_number: 1, status: 'draft' })
+    await controller.loadChapter(1, { draftId: 'd1', editorialOffset: 2, editorialHash: 'source-hash' })
+    document.body.innerHTML = '<textarea id="source-editor"></textarea>'
+    const editor = document.getElementById('source-editor')
+    controller.attach({ editor })
+    expect(editor.selectionStart).toBe(3)
+    await controller.loadChapter(1, { draftId: 'd1', editorialOffset: 1, editorialHash: 'old-hash' })
+    expect(toast).toHaveBeenCalledWith(expect.stringContaining('正文已变化'), 'info')
+    controller.dispose()
+  })
+
   it("光标移动只记录位置，不自动切换 Scene", async () => {
     const { controller } = makeController()
     await controller.loadChapter(1)
@@ -909,6 +922,30 @@ describe("editorController", () => {
     expect(await adopting).toBeNull()
     expect(controller.snapshot()).toMatchObject({ chapter: 2, draftId: "d1", content: "原文" })
     expect(toast).not.toHaveBeenCalledWith("已采用到工作稿", "success")
+    controller.dispose()
+  })
+
+  it("采用后版本列表迟到不覆盖作者立即开始的手改", async () => {
+    const { controller, api, onVersionChanged } = makeController()
+    api.writing.get.mockResolvedValueOnce({ id: "candidate", novel_id: "p1", title: "建议", content: "建议正文", version_number: 2, status: "candidate" })
+    await controller.loadChapter(1, { draftId: "candidate" })
+    document.body.innerHTML = '<input id="title"><textarea id="body"></textarea>'
+    const body = document.getElementById("body")
+    controller.attach({ title: document.getElementById("title"), editor: body })
+    const versions = deferred()
+    onVersionChanged.mockReturnValue(versions.promise)
+    api.writing.adoptDraftCandidate.mockResolvedValue({ draft: { id: "adopted", novel_id: "p1", title: "建议", content: "建议正文", version_number: 3, status: "draft" } })
+    const adopting = controller.adoptCandidate()
+    await vi.waitFor(() => expect(body.readOnly).toBe(false))
+    body.value = "建议正文，作者继续手改。"
+    body.dispatchEvent(new Event("input"))
+    versions.resolve()
+    await adopting
+    expect(onVersionChanged).toHaveBeenCalledOnce()
+    expect(controller.snapshot()).toMatchObject({ draftId: "adopted", content: "建议正文，作者继续手改。", dirty: true })
+    expect(api.writing.get).toHaveBeenCalledTimes(1)
+    await controller.autosave()
+    expect(api.writing.autosave).toHaveBeenCalledWith("adopted", expect.objectContaining({ content: "建议正文，作者继续手改。" }), "p1")
     controller.dispose()
   })
 

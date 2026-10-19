@@ -235,6 +235,8 @@ def _revision_reply(payload: dict) -> LLMCallResponse:
             for item in ranges
         ]
     }
+    if any("选组验收" in item.get("body", "") for item in payload.get("comments", [])):
+        value["groups"] = [[item["patch_id"]] for item in ranges]
     return LLMCallResponse(
         content=json.dumps(value, ensure_ascii=False),
         finish_reason="stop",
@@ -262,4 +264,31 @@ async def editorial_reply(request) -> LLMCallResponse | None:
         return _director_reply(request)
     if title == "WritingTargetedRevisionOutput":
         return _revision_reply(_user_payload(request))
+    if title == "WritingSemanticReviewChunkOutput":
+        payload = _user_payload(request)
+        if not all(
+            "选组验收" in item.get("content", "") for item in payload.get("targets", [])
+        ):
+            return None
+        return LLMCallResponse(
+            content=json.dumps(
+                {
+                    "findings": [],
+                    "not_checked": [],
+                    "coverage": [
+                        {
+                            "draft_id": item["draft_id"],
+                            "scene_contract": "not_applicable",
+                            "timeline_location": "checked",
+                            "identity_relation": "checked",
+                            "ability_world_rule": "checked",
+                            "knowledge_boundary": "not_applicable",
+                        }
+                        for item in payload["targets"]
+                    ],
+                }
+            ),
+            finish_reason="stop",
+            usage=_USAGE,
+        )
     return None

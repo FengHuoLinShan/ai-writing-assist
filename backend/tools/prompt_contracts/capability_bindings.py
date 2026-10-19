@@ -50,6 +50,8 @@ EXEMPT_FILES = frozenset(
 # 文件（相对 backend/ 的 POSIX 路径）→ 声明的 capability ID 集合。
 # 首个为该文件的主能力；同一文件服务多个能力时全部列出。
 CAPABILITY_BINDINGS: dict[str, tuple[str, ...]] = {
+    "modules/assistant/approval.py": ("assistant.approval.judge",),
+    "modules/assistant/approval_calibration.py": ("assistant.approval.judge",),
     # Writing
     "modules/writing/generation_service.py": ("writing.generate",),
     "modules/writing/semantic_review.py": (
@@ -57,6 +59,7 @@ CAPABILITY_BINDINGS: dict[str, tuple[str, ...]] = {
         "writing.targeted_revision",
     ),
     "modules/writing/comment_run.py": ("writing.comment_revision",),
+    "modules/writing/candidate_selection.py": ("writing.comment_revision",),
     "modules/writing/conflict_ai.py": (
         "writing.conflict_check.ai_review",
         "writing.conflict_check.ai_suggestion",

@@ -95,6 +95,12 @@
   </div>
 
   <section v-if="props.semanticReview" aria-label="深度审稿报告"><AssistantReviewResult :result="props.semanticReview" /><p>问题由你决定如何处理；可就地修改正文，保存后重新审稿。</p><button class="btn btn-sm" :disabled="vm.editorState.dirty || vm.editorState.saving" @click="openDeepReview">重新深度审稿</button></section>
+  <nav v-if="!vm.focusMode.value && !isBlankWork" class="writing-task-paths" aria-label="写作任务">
+    <button type="button" class="btn btn-sm" :disabled="!hasEditableChapter" @click="openWritingTask('lookup')">查这里</button>
+    <button type="button" class="btn btn-sm" :disabled="!hasEditableChapter || vm.editorState.readonly" @click="openWritingTask('revise')">修改这里</button>
+    <button type="button" class="btn btn-sm" :disabled="!hasEditableChapter" @click="openWritingTask('forecast')">想下一步</button>
+    <button type="button" class="btn btn-sm" :disabled="!hasEditableChapter" @click="openWritingTask('comments')">检查本章</button>
+  </nav>
   <WritingWorkflowBars
     :publish="vm.publishProgress"
     :conflict="vm.conflictState"
@@ -189,7 +195,7 @@
         @auto-extract="vm.openAutoExtraction"
         @open-deep-import-settings="vm.openDeepImportSettings"
         @open-ai-tools="openOwnerAi({ owner: 'writing' })"
-        @adopt="adoptCandidate"
+        @adopt="vm.adoptCandidate"
         @reject="rejectCandidate"
         @semantic-review="vm.reviewCandidate"
         @deep-review="openDeepReview"
@@ -198,6 +204,7 @@
         @targeted-revision="vm.reviseCandidate"
         @regenerate-candidate="vm.regenerateCandidate"
         @compare-candidate="vm.compareCandidateWithWorkingDraft"
+        @open-candidate="openFlowCandidate({ draft_id: $event })"
         @export="vm.exportChapter"
         @export-book="vm.exportWholeBook"
         @retry-load="vm.retryChapterLoad"
@@ -263,7 +270,14 @@
       aria-label="本章资料"
     >
       <div id="writing-panel-container">
+        <div class="writing-reference-tabs" role="group" aria-label="资料与当前任务">
+          <button class="btn btn-sm" :aria-pressed="referenceMode === 'reference'" @click="referenceMode = 'reference'">本场与参考</button>
+          <button class="btn btn-sm" :aria-pressed="referenceMode === 'comments'" @click="referenceMode = 'comments'">批注</button>
+          <button class="btn btn-sm" :aria-pressed="referenceMode === 'forecast'" @click="referenceMode = 'forecast'">前瞻</button>
+        </div>
+        <WritingReferenceSearch v-show="referenceMode === 'reference'" :project-id="props.projectId" :selection="referenceSearchSelection" :chapter-index="vm.selectedChapter.value" @open-object="openWorldObject" />
         <WritingCommentsPanel
+          v-show="referenceMode === 'comments'"
           :comments="writingComments.comments.value"
           :selection="writingComments.selection.value"
           :task="writingComments.task.value"
@@ -281,15 +295,17 @@
           @open-proposals="writingComments.openProposals($event)"
         />
         <ForecastDock
+          v-show="referenceMode === 'forecast'"
           v-if="vm.editorState.draftId && !vm.editorState.readonly && !vm.editorState.loading && !vm.editorState.loadError"
           data-writing-forecast-dock
           :project-id="props.projectId"
           :context="{ page: 'writing', draft_id: vm.editorState.draftId, ...(forecastFocus?.draft_id === vm.editorState.draftId ? forecastFocus : {}), scene_id: vm.currentScene.value?.id || null }"
           :editor="vm.editorState"
           :composing="forecastComposing"
-          :active="rightRailOpen"
+          :active="rightRailOpen && referenceMode === 'forecast'"
         />
         <SceneCockpit
+          v-show="referenceMode === 'reference'"
           :project-id="projectId"
           :chapter="vm.selectedChapter.value"
           :scene="vm.currentScene.value"
@@ -437,6 +453,8 @@
 <script setup>
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from "vue"
 import AssistantReviewResult from "../../components/AssistantReviewResult.vue"
+import WritingReferenceSearch from './components/WritingReferenceSearch.vue'
+import { readWritingObjectReturn, rememberWritingObjectReturn, writingContentHash } from "../../shared/writingObjectReturn.js"
 import ForecastDock from "../../components/ForecastDock.vue"
 import ChapterTree from "./components/ChapterTree.vue"
 import ChapterOrderDialog from "./components/ChapterOrderDialog.vue"
@@ -458,7 +476,7 @@ import AuthorExampleDialog from "./components/AuthorExampleDialog.vue"
 import WritingHomeView from "./home/WritingHomeView.vue"
 import { authorTaskPanelQuery } from "./home/authorTaskSource.js"
 import OwnerAiDrawer from "../../components/OwnerAiDrawer.vue"
-import { getRouter, getApi, getToast, getRouteQuery, openProjectAssistant, setForecastComposing } from "../../bridge/index.js"
+import { getRouter, getApi, getToast, getRouteQuery, getAssistantWorkContext, getLocalDraftAccountScope, openProjectAssistant, setForecastComposing } from "../../bridge/index.js"
 import { useWritingWorkspace } from "./useWritingWorkspace.js"
 import { useWritingComments } from "./useWritingComments.js"
 import { normalizeInvalidationNotice } from "./invalidationModel.js"
@@ -506,7 +524,36 @@ const commentCanRun = computed(() => Boolean(
   && !vm.editorState.dirty && !vm.editorState.saving && !vm.editorState.loading
 ))
 function openWritingComment(focus) {
-  if (writingComments.prepare(focus)) rightRailOpen.value = true
+  if (writingComments.prepare(focus)) { referenceMode.value = 'comments'; rightRailOpen.value = true }
+}
+const referenceMode = ref('reference')
+const taskKey = () => {
+  const account = getLocalDraftAccountScope()
+  return account && vm.selectedChapter.value ? `workspace-task:${account}:${props.projectId}:writing:${vm.selectedChapter.value}` : null
+}
+watch(taskKey, key => {
+  try {
+    const saved = key ? sessionStorage.getItem(key) : null
+    referenceMode.value = ['reference', 'comments', 'forecast'].includes(saved) ? saved : 'reference'
+  } catch { referenceMode.value = 'reference' }
+}, { immediate: true, flush: 'sync' })
+watch(referenceMode, value => {
+  const key = taskKey()
+  try { if (key) sessionStorage.setItem(key, value) } catch { /* This preference contains no author input. */ }
+}, { flush: 'sync' })
+const referenceSearchSelection = ref('')
+async function openWritingTask(task) {
+  if (task === 'revise') {
+    try {
+      const context = { ...getAssistantWorkContext(props.projectId, 'writing'), task_hint: 'revise' }
+      await openProjectAssistant({ projectId: props.projectId, context,
+        message: '请围绕当前选区准备修改建议。先和我明确修改意图与必须保留的内容，再准备可比较的方案。' })
+    } catch (error) { getToast()(error.message || '暂时无法打开修改讨论。', 'warning') }
+    return
+  }
+  referenceMode.value = task === 'lookup' ? 'reference' : task
+  if (task === 'lookup') referenceSearchSelection.value = forecastFocus.value?.selection || ''
+  rightRailOpen.value = true
 }
 
 /* 作者写作示例（B3 few-shot）：candidate 卡片与正文选区就地存例 */
@@ -654,6 +701,8 @@ async function openRecomputePanel(action) {
 }
 
 async function focusForecastDock() {
+  referenceMode.value = 'forecast'
+  rightRailOpen.value = true
   await nextTick()
   const dock = document.querySelector("[data-writing-forecast-dock]")
   if (!dock) {
@@ -664,10 +713,62 @@ async function focusForecastDock() {
   dock.querySelector("button:not([disabled])")?.focus({ preventScroll: true })
 }
 
-function openWorldObject(entityId) {
+async function openWorldObject(entityId) {
   if (!entityId) return
-  router?.navigate("world", "objects", true, new URLSearchParams({ entity_id: entityId }))
+  const editor = document.getElementById('writing-editor')
+  if (!editor || vm.editorState.loading || vm.editorState.saving) return
+  const content = editor.value
+  try {
+    const location = { entityId, chapterIndex: Number(vm.selectedChapter.value), draftId: vm.editorState.draftId,
+      contentHash: await writingContentHash(content), start: editor.selectionStart, end: editor.selectionEnd }
+    if (viewDisposed || editor.value !== content) throw new Error('正文已变化，请重新打开对象。')
+    rememberWritingObjectReturn(props.projectId, location)
+    await router?.navigate("world", "objects", true, new URLSearchParams({ entity_id: entityId }))
+  } catch (error) { getToast()(error.message || '无法保存原文位置，正文仍保留。', 'warning') }
 }
+
+let objectReturnHandled = false
+watch(() => [vm.editorState.loading, vm.editorState.draftId], async () => {
+  if (objectReturnHandled || vm.editorState.loading || !vm.editorState.draftId) return
+  const entityId = getRouteQuery().get('return_from_object')
+  if (!entityId) return
+  objectReturnHandled = true
+  const location = readWritingObjectReturn(props.projectId, entityId)
+  const content = vm.editorState.content
+  if (!location || location.chapterIndex !== Number(vm.selectedChapter.value)) return
+  try {
+    const contentHash = await writingContentHash(content)
+    if (viewDisposed || vm.editorState.content !== content) return
+    if (vm.editorState.draftId !== location.draftId || contentHash !== location.contentHash) {
+      getToast()('原文已变化，当前输入已保留；请核对后重新定位。', 'info')
+      return
+    }
+    await nextTick()
+    await writingEditorRef.value?.restoreObjectPosition(location)
+  } catch { getToast()('无法核对原文位置，当前正文仍保留。', 'warning') }
+}, { flush: 'post' })
+
+let sourceLocationHandled = null
+watch(() => [props.requestedLocation, vm.editorState.loading, vm.editorState.draftId, vm.editorState.contentHash], async () => {
+  const requested = props.requestedLocation
+  if (vm.editorState.loading || !vm.editorState.draftId
+    || !Number.isInteger(requested?.editorialOffset) || requested.editorialOffset < 0
+    || !requested.editorialHash || Number(requested.chapter) !== Number(vm.selectedChapter.value)
+    || (requested.draftId && requested.draftId !== vm.editorState.draftId)) return
+  const key = `${props.projectId}:${requested.chapter}:${requested.draftId}:${requested.editorialHash}:${requested.editorialOffset}`
+  if (sourceLocationHandled === key) return
+  sourceLocationHandled = key
+  const content = vm.editorState.content
+  const draftId = vm.editorState.draftId
+  try {
+    const hash = await writingContentHash(content)
+    if (viewDisposed || props.requestedLocation !== requested || vm.editorState.content !== content || vm.editorState.draftId !== draftId) return
+    if (hash !== requested.editorialHash) { getToast()('这条来源引用的正文已变化，请重新读取当前依据。', 'info'); return }
+    const start = Array.from(content).slice(0, requested.editorialOffset).join('').length
+    await nextTick()
+    if (!viewDisposed && props.requestedLocation === requested && vm.editorState.content === content && vm.editorState.draftId === draftId) await writingEditorRef.value?.restoreObjectPosition({ start, end: start })
+  } catch { getToast()('无法核对来源位置，当前正文仍保留。', 'warning') }
+}, { flush: 'post' })
 
 async function openCockpitNotice(item) {
   const action = (item?.actions || []).find((value) => value?.kind === "navigate") || {}
@@ -746,8 +847,7 @@ async function markEditorialReady() {
     const expectedHash = Array.from(bytes, byte => byte.toString(16).padStart(2, "0")).join("")
     const saved = await getApi().writing.markEditorialReady(draftId, props.projectId, expectedHash)
     if (draftId === state.draftId && chapter === vm.selectedChapter.value && !state.dirty && state.lastSavedContent === content) {
-      state.editorialReadyHash = saved.editorial_ready_hash
-      state.contentHash = saved.content_hash
+      vm.updateEditorialReady(saved)
     }
     getToast()("这版工作稿已交编辑；可在编辑台查看或开始审读。", "success")
   } catch (error) { getToast()(error.message || "交给编辑失败，工作稿仍保留。", "error"); return }
@@ -1000,11 +1100,6 @@ function toggleRail(rail, event) {
   try { sessionStorage.setItem(`workspace-rail:${props.projectId}:writing:${rail}`, current.value ? "open" : "closed") } catch { /* noop */ }
 }
 
-async function adoptCandidate() {
-  const result = await vm.adoptCandidate()
-  if (result && vm.selectedChapter.value) await vm.selectChapter(vm.selectedChapter.value, { draftId: result.id })
-}
-
 async function rejectCandidate() {
   if (await vm.rejectCandidate()) await vm.selectChapter(vm.selectedChapter.value)
 }
@@ -1016,3 +1111,9 @@ async function previewVersion(draftId) {
   requestAnimationFrame(focusWritingEditor)
 }
 </script>
+
+<style scoped>
+.writing-task-paths,.writing-reference-tabs{display:flex;flex-wrap:wrap;gap:8px;padding:8px 16px;border-bottom:1px solid var(--border-color,var(--border))}
+.writing-task-paths .btn,.writing-reference-tabs .btn{min-height:40px}
+.writing-reference-tabs [aria-pressed=true]{background:var(--bg-muted);font-weight:600}
+</style>

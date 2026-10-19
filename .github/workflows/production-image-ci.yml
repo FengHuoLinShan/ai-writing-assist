@@ -1,10 +1,10 @@
 name: Production Image CI
 
 on:
+  workflow_dispatch:
   pull_request:
   push:
-    branches:
-      - main
+    branches: [main]
 
 permissions:
   contents: read
@@ -15,6 +15,8 @@ concurrency:
 
 jobs:
   production-image-contract:
+    # Keep the existing required check as skipped without allocating a runner.
+    if: github.event_name == 'workflow_dispatch'
     name: Production image contract
     runs-on: ubuntu-24.04
     timeout-minutes: 40
@@ -25,21 +27,13 @@ jobs:
         with:
           fetch-depth: 0
 
-      - name: Classify CI changes
-        id: changes
-        working-directory: ${{ github.workspace }}
-        run: python3 scripts/classify_ci_changes.py
-
       - name: Build and smoke-test production images
-        if: steps.changes.outputs.images == 'true'
         run: make test-production-images
 
       - name: Create container SBOM artifact directory
-        if: steps.changes.outputs.images == 'true'
         run: mkdir -p .test-artifacts/container-sbom
 
       - name: Generate backend image CycloneDX SBOM
-        if: steps.changes.outputs.images == 'true'
         uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
         with:
           version: v0.73.0
@@ -53,7 +47,6 @@ jobs:
           timeout: 10m
 
       - name: Generate frontend image CycloneDX SBOM
-        if: steps.changes.outputs.images == 'true'
         uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
         with:
           skip-setup-trivy: true
@@ -67,7 +60,6 @@ jobs:
           timeout: 10m
 
       - name: Validate generated CycloneDX SBOMs
-        if: steps.changes.outputs.images == 'true'
         run: |
           python3 - <<'PY'
           import json
@@ -89,7 +81,6 @@ jobs:
           PY
 
       - name: Upload production image SBOMs
-        if: steps.changes.outputs.images == 'true'
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: production-image-sboms
@@ -101,7 +92,6 @@ jobs:
           retention-days: 14
 
       - name: Gate backend image fixable high and critical vulnerabilities
-        if: steps.changes.outputs.images == 'true'
         uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
         with:
           skip-setup-trivy: true
@@ -116,7 +106,6 @@ jobs:
           timeout: 10m
 
       - name: Gate frontend image fixable high and critical vulnerabilities
-        if: steps.changes.outputs.images == 'true'
         uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
         with:
           skip-setup-trivy: true

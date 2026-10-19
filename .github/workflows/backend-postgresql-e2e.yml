@@ -92,10 +92,8 @@ jobs:
 
       - name: Run the full serial PostgreSQL E2E suite
         run: >-
-          uv run --locked --extra ci -- pytest tests/e2e
-          -m "not real_llm and not external_data"
-          --timeout=180
-          --junitxml=.test-artifacts/postgresql-e2e.junit.xml
+          make -C .. test-e2e
+          ARGS="--timeout=180 --junitxml=.test-artifacts/postgresql-e2e.junit.xml"
 
       - name: Capture PostgreSQL diagnostics
         if: always()

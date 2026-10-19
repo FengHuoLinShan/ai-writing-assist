@@ -3,14 +3,43 @@
 from __future__ import annotations
 
 from datetime import datetime
-from typing import Any, Literal
+from typing import Annotated, Any, Literal
 from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
+from modules.assistant.approval_contracts import TaskApprovalRequest
+
 
 class StrictModel(BaseModel):
     model_config = ConfigDict(extra="forbid")
+
+
+class VersionedWorldFocusRef(StrictModel):
+    entity_id: UUID
+    updated_at: datetime
+
+
+class EntityFocusRef(VersionedWorldFocusRef):
+    kind: Literal["entity"]
+
+
+class DossierEntryFocusRef(StrictModel):
+    kind: Literal["dossier_entry"]
+    entity_id: UUID
+    entry_group_id: UUID
+    revision_id: UUID
+
+
+class RelationFocusRef(VersionedWorldFocusRef):
+    kind: Literal["relation"]
+    relation_id: UUID
+
+
+WorldFocusRef = Annotated[
+    EntityFocusRef | DossierEntryFocusRef | RelationFocusRef,
+    Field(discriminator="kind"),
+]
 
 
 TASK_HINTS = (
@@ -53,16 +82,28 @@ TASK_HINT_DIRECTIVES = {
 
 
 def work_directive(work: WorkContext) -> str:
-    """turn 最终 user 消息里的意图指令行；unknown 不注入。"""
-    lines = []
+    """Inject only the author's declared task and explicit-focus constraints."""
+    directives = []
     if work.task_hint in TASK_HINT_DIRECTIVES:
-        lines.append(f"作者意图：{TASK_HINT_DIRECTIVES[work.task_hint]}")
+        directives.append(f"作者意图：{TASK_HINT_DIRECTIVES[work.task_hint]}")
+    if work.focus_ref is not None:
+        directives.append(
+            "当前世界焦点只是定位，不是资料内容；"
+            "回答前调用 inspect_current 读取精确焦点。"
+            "若工具说明未读取、已过期或被范围排除，明确告知作者，不按名称或 ID 推测。"
+            "该资料属于作者视角，不证明任何角色已知。"
+        )
+    if work.selected_entities:
+        directives.append(
+            "当前目标是作者明确选择的对象集合，不是全部匹配资料；"
+            "回答前分页调用 inspect_current 核对，未读取项列入遗漏，不扩大目标集合。"
+        )
     if work.exploration_intent:
-        lines.append(
+        directives.append(
             "作者已选择的探索任务（开始参数必须一致）："
             + work.exploration_intent.model_dump_json()
         )
-    return "\n".join(lines)
+    return "\n".join(directives)
 
 
 def verify_selection_range(draft_content: str, work: WorkContext) -> None:
@@ -105,7 +146,13 @@ class WorkContext(StrictModel):
     chapter_index: int | None = Field(default=None, ge=1)
     scene_id: UUID | None = None
     target: dict[str, Any] | None = None
+    focus_ref: WorldFocusRef | None = None
+    selected_entities: list[EntityFocusRef] | None = Field(
+        default=None, min_length=1, max_length=20
+    )
+    focus_label: str | None = Field(default=None, min_length=1, max_length=180)
     draft_id: UUID | None = None
+    temporary_draft_id: UUID | None = None
     source_hash: str | None = Field(default=None, pattern=r"^[0-9a-f]{64}$")
     selection: str = Field(default="", max_length=30000)
     task_hint: TaskHint = "unknown"
@@ -115,6 +162,28 @@ class WorkContext(StrictModel):
     excluded_targets: list[str] = Field(default_factory=list, max_length=200)
     context_confirmation_id: UUID | None = None
     context_confirmation_action: str | None = Field(default=None, max_length=100)
+
+    @model_validator(mode="after")
+    def validate_selected_entities(self):
+        if self.selected_entities is None:
+            return self
+        if (
+            self.page != "world"
+            or self.focus_ref
+            or self.target
+            or self.draft_id
+            or self.temporary_draft_id
+            or self.selection
+            or self.scene_id
+            or self.chapter_index
+        ):
+            raise ValueError("对象集合须来自独立的世界对象选择，不能混入另一焦点")
+        ids = [str(item.entity_id) for item in self.selected_entities]
+        if len(set(ids)) != len(ids):
+            raise ValueError("对象集合不能重复")
+        if self.task_hint == "roleplay":
+            raise ValueError("作者对象集合不能作为角色已知资料")
+        return self
 
     @model_validator(mode="after")
     def require_selection_range_pair(self):
@@ -131,6 +200,49 @@ class WorkContext(StrictModel):
             raise ValueError("选区偏移必须绑定正文草稿")
         if len(self.selection) != end - start:
             raise ValueError("选区偏移与选区文本长度不一致")
+        return self
+
+    @model_validator(mode="after")
+    def validate_world_focus_scope(self):
+        if self.focus_ref is None:
+            if self.focus_label is not None:
+                raise ValueError("显示定位名称必须对应服务端定位")
+            return self
+        if self.page != "world":
+            raise ValueError("对象、档案条目和关系定位只能来自世界对象页")
+        target = self.target or {}
+        target_type = target.get("target_type") or target.get("type")
+        target_id = target.get("target_id") or target.get("id")
+        if target_type not in {"world_entity", "core_entity", "entity"}:
+            raise ValueError("精确世界定位需要对应的对象作为上下文")
+        if str(target_id or "") != str(self.focus_ref.entity_id):
+            raise ValueError("精确定位必须属于当前对象上下文")
+        if (
+            self.draft_id
+            or self.temporary_draft_id
+            or self.source_hash
+            or self.selection
+            or self.selection_start is not None
+            or self.selection_end is not None
+        ):
+            raise ValueError("世界对象焦点不能混入正文草稿或选区")
+        return self
+
+    @model_validator(mode="after")
+    def keep_temporary_draft_discussion_unbound(self):
+        if self.temporary_draft_id is None:
+            return self
+        if self.page != "writing":
+            raise ValueError("临时草稿上下文只能来自写作页")
+        if (
+            self.draft_id
+            or self.source_hash
+            or self.selection_start is not None
+            or self.selection_end is not None
+        ):
+            raise ValueError("临时草稿不能冒充已保存正文版本或来源范围")
+        if self.context_confirmation_id or self.context_confirmation_action:
+            raise ValueError("临时草稿不能沿用已确认资料；保存后请重新准备")
         return self
 
     @model_validator(mode="after")
@@ -155,6 +267,8 @@ class SessionCreate(StrictModel):
 
 class RunResponse(StrictModel):
     id: UUID
+    approval_requested: bool = False
+    context: dict[str, Any] | None = None
     session_id: UUID | None
     status: Literal[
         "pending",
@@ -212,6 +326,7 @@ class TurnCreate(StrictModel):
     context: WorkContext = Field(default_factory=WorkContext)
     allow_web: bool = True
     web_backend: Literal["searxng-v1"] | None = None
+    approval: TaskApprovalRequest | None = None
 
 
 class ProposedAction(StrictModel):
@@ -257,6 +372,8 @@ class AssistantAnswer(StrictModel):
             "writing",
             "world",
             "world_review",
+            "world_objects",
+            "world_relations",
             "story",
             "map",
             "references",
@@ -277,6 +394,8 @@ CONTROLLED_DESTINATIONS = {
     "writing": "打开正文与历史版本",
     "world": "打开世界资料",
     "world_review": "审阅世界成果",
+    "world_objects": "按冻结清单整理人物与设定",
+    "world_relations": "维护对象关系与有效期",
     "story": "打开故事结构",
     "map": "打开地图与图片工作台",
     "references": "查找与选择参考资料",

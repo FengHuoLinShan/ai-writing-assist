@@ -77,6 +77,7 @@
     </section>
 
     <!-- 热点概览（vanilla _renderHotOverview 1311-1344） -->
+    <WorldReviewScope v-if="!getPublicDemoReadOnly()" :project-id="projectId" :filters="objectFilters" />
     <section v-if="discoveryMode === 'hot'" class="world-hot-overview" aria-label="对象热点概览">
       <div class="world-hot-overview__facets">
         <button
@@ -163,7 +164,7 @@
 
 <script setup>
 import { computed, onMounted, reactive, watch } from "vue"
-import { getRouter } from "../../../bridge/index.js"
+import { getPublicDemoReadOnly, getRouter, getToast, openProjectAssistant } from "../../../bridge/index.js"
 import { importAuthorizationNotice } from "../../../../shared/importAuthorization.js"
 import ProjectOrganizationHistory from "../../../components/ProjectOrganizationHistory.vue"
 import WorkflowProgressCard from "../../../components/WorkflowProgressCard.vue"
@@ -174,11 +175,12 @@ import {
   WORLD_OBJECT_QUERY_KEYS,
   objectQueryFromState,
 } from "../logic/worldQuery.js"
-import { reconcileBulkSelection } from "../logic/worldBulkSelection.js"
+import { getBulkSelection, reconcileBulkSelection } from "../logic/worldBulkSelection.js"
 import { entityId, formatBatchTime, formatBatchTimeFull, isFreshBatch } from "../logic/worldEntityHelpers.js"
 import { runObjectsBulkAction, showEntityCreateForm, showKnowledgeForm, syncWorldListRegistry } from "../logic/worldEntityOps.js"
 import WorldEntityCollection from "./WorldEntityCollection.vue"
 import WorldPager from "./WorldPager.vue"
+import WorldReviewScope from "./WorldReviewScope.vue"
 
 const props = defineProps({
   projectId: { type: String, default: null },
@@ -370,7 +372,21 @@ onMounted(() => {
   if (props.knowledgeCharacterId) void showKnowledgeForm(props.knowledgeCharacterId)
 })
 
-function onBulkRun(action) {
+async function onBulkRun(action) {
+  if (action === 'ask-selected') {
+    if (getPublicDemoReadOnly()) return
+    const selected = getBulkSelection('world-objects')
+    const items = props.entities.filter(item => selected.has(entityId(item)))
+    if (!items.length || items.length > 20) { getToast()('一次讨论请选择当前页 1–20 个对象；全库范围需单独准备。', 'warning'); return }
+    if (items.some(item => !item.updated_at)) { getToast()('所选对象缺少保存版本，请刷新资料后再讨论。', 'warning'); return }
+    try {
+      await openProjectAssistant({ projectId: props.projectId, context: {
+        page: 'world', scope: 'current', task_hint: 'organize',
+        selected_entities: items.map(item => ({ kind: 'entity', entity_id: entityId(item), updated_at: item.updated_at })),
+      }, message: '只讨论这次明确选择的对象。先查证并说明覆盖和遗漏，再和我明确整理意图与保留要求。' })
+    } catch (error) { getToast()(error.message || '暂时无法打开所选对象讨论。', 'warning') }
+    return
+  }
   runObjectsBulkAction(action, props.entities)
 }
 

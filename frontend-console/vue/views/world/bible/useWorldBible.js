@@ -31,6 +31,7 @@ import { BIBLE_CATEGORY_PRESETS, BIBLE_PAGE_TYPES } from "../pages/worldBiblePre
 import { publishImpactHtml, publishReceiptHtml } from "../pages/worldBiblePublishing.js"
 import { captureModalOwner, ownsModalOwner } from "../logic/worldScopeGuards.js"
 import { createWorldBibleHistory } from "./worldBibleHistory.js"
+import { locateAssistantSource } from '../../../shared/assistantNavigation.js'
 
 const PROJECTION_TYPE = "context_brief"
 const BIBLE_DISPLAY_MODES = new Set(["editor", "gallery", "filter", "graph"])
@@ -2274,6 +2275,11 @@ export function useWorldBible(props) {
             if (!ownsProject(novelId) || !ownsModalOwner(owner)) return
             showModalHtml(`来源：${source.label}`, `<div class="world-bible-reader-body">${esc(source.text).replace(/\n/g, '<br>')}</div>${source.truncated ? '<p class="form-error">来源过长，此处仅显示部分内容。</p>' : ''}`, [
               { text: '返回影响清单', class: 'btn', handler: () => renderList(position) },
+              ...(source.source_ref ? [{ text: '回到对应原文', class: 'btn', handler: () => {
+                if (!ownsProject(novelId)) return
+                closeModal()
+                return locateAssistantSource({ source_ref: source.source_ref, start: source.source_ref.start_offset, content_hash: source.source_ref.source_hash })
+              } }] : []),
               { text: '关闭', class: 'btn-ghost', handler: getCloseModal() },
             ])
           } catch (err) {
