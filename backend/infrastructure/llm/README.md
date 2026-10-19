@@ -164,6 +164,9 @@ v4 的未知扣费或 80% 请求阈值在下一次 provider 预留前拒绝；v1
 `requests_settled` 是已取得含 usage 完整回执的请求，`requests_unknown` 是已发出但结果或用量
 证据不完整的请求（超时、中断、取消、崩溃、provider 未返回 usage）。未知用量记 `possible`
 且 `usage_complete=false`，不得写成零；有已知 usage 的失败请求同样记 `recorded`。
+受管 step 的模型摘要继承客户端已解析的项目模型，只有请求显式指定模型时才覆盖；请求 schema 的
+隐式默认值不改变运行身份。provider 校验完整响应失败时，结构化诊断保留异常携带的真实 usage，
+无 usage 仍记未知；异常与原有校验、重试门禁保持不变。
 `recent_attempts` 保留最近 256 条摘要（新条目挤掉最旧），溢出计入 `recent_attempts_overflow`，
 总请求、未知请求、重试与 usage 聚合不受影响。预算或 deadline 拒绝发生在任何计数之前，被拒绝的
 调用不产生扣费记录；恢复与进入终态前，未 settle 的请求一律收敛为 unknown/possible，而不是删除

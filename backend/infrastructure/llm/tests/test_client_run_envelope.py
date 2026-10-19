@@ -1140,3 +1140,82 @@ async def test_scope_checks_actual_provider_before_any_request(
     assert ledger.snapshot().requests_started == 0
     assert (provider.opens if streaming else len(provider.requests)) == 0
     await client.close()
+
+
+async def test_knowledge_audit_inherits_scope_model_and_rejects_explicit_override(
+    monkeypatch,
+):
+    from infrastructure.llm.agent_step_harness import run_managed_structured
+    from infrastructure.llm.workflow_budget import AIRunIdentityError
+    from modules.evidence.compilation.knowledge.group import (
+        GroupSource,
+        govern_group_output,
+    )
+    from modules.evidence.facade import build_group_audit_request
+
+    provider = _TextProvider(
+        contents=[
+            '{"verdict":"pass","findings":[],"dimensions":['
+            '{"dimension":"prior_prose","checked":true},'
+            '{"dimension":"imported_assets","checked":true}]}'
+        ]
+    )
+    client = _client(provider)
+    client._default_model = "gpt-6-luna"
+    client._limiter_provider_id = "codex"
+    client._profile_summary.update(provider_id="codex", model="gpt-6-luna")
+    client.bind_runtime_scope(novel_id="n", profile_source="project")
+    monkeypatch.setattr(
+        "infrastructure.llm.codex_identity.codex_login_identity",
+        lambda: "synthetic-scope",
+    )
+    ledger = new_ai_run_envelope(
+        operation_id="knowledge-scope",
+        run_id="knowledge-scope",
+        root_capability_id="imports.deep_import",
+        novel_id="n",
+        request_limit=None,
+        budget_mode="confirmed_scope",
+        scope_fingerprint="a" * 64,
+    )
+    audit_scope = {
+        "capability": "imports.scene_slicing",
+        "novel_id": "n",
+        "group_key": "window:1",
+        "sources": [
+            GroupSource(
+                source_key="source:1",
+                source_type="prior_prose",
+                content_hash="b" * 64,
+                dimensions=("prior_prose", "imported_assets"),
+            )
+        ],
+        "output": "Synthetic scene boundary",
+        "task_instruction": "Review the scene boundary",
+    }
+    step_name = "phase1a_scene_slicing.knowledge.verdict"
+    try:
+        with ai_run_scope(ledger):
+            result = await govern_group_output(
+                client, **audit_scope, step_prefix="phase1a_scene_slicing.knowledge"
+            )
+            assert result["status"] == "passed"
+            request, schema = build_group_audit_request(**audit_scope, context="")
+            assert "model" not in request.model_fields_set
+            with pytest.raises(AIRunIdentityError, match="different model"):
+                await run_managed_structured(
+                    client,
+                    request.model_copy(update={"model": "deepseek-flash"}),
+                    schema,
+                    step_name=step_name,
+                    max_fix_attempts=0,
+                    transport_retries=False,
+                )
+        snapshot = ledger.snapshot()
+        assert [request.model for request in provider.requests] == ["gpt-6-luna"]
+        assert snapshot.requests_started == snapshot.requests_settled == 1
+        assert snapshot.requests_unknown == 0
+        assert snapshot.steps[0].step_name == step_name
+        assert snapshot.steps[0].profile_summary["model"] == "gpt-6-luna"
+    finally:
+        await client.close()

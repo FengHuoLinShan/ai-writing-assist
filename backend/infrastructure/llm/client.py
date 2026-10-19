@@ -1423,6 +1423,17 @@ class LLMClient:
                 )
                 return validated
             except LLMError as exc:
+                if isinstance(exc, LLMInvalidResponseError):
+                    _append_structured_diagnostic(
+                        diagnostics,
+                        {
+                            "kind": "structured_usage",
+                            "status": "failed",
+                            "error_kind": _safe_error_kind(exc),
+                            "attempt": attempt + 1,
+                            **(exc.usage.model_dump() if exc.usage is not None else {}),
+                        },
+                    )
                 if exc.diagnostic:
                     _append_structured_diagnostic(
                         diagnostics,

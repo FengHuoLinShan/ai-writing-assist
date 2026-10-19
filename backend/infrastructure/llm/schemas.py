@@ -316,7 +316,7 @@ def sanitize_profile_summary(
         actual_model = safe_text(getattr(request, "model", ""))
         if default_model:
             summary["default_model"] = default_model
-        if actual_model:
+        if actual_model and "model" in request.model_fields_set:
             summary["model"] = actual_model
         for field_name in ("max_tokens", "temperature", "top_p"):
             request_value = getattr(request, field_name, None)

@@ -1863,6 +1863,68 @@ async def test_generate_structured_records_usage_without_cache_details() -> None
     assert usage["total_tokens"] == 45
 
 
+@pytest.mark.parametrize(
+    "usage",
+    [LLMUsage(prompt_tokens=40, completion_tokens=5, total_tokens=45), LLMUsage(), None],
+    ids=["known", "zero", "unknown"],
+)
+async def test_structured_provider_failure_preserves_usage_without_replay(usage):
+    from modules.evolution.llm_sampler import build_call_receipt
+    from modules.evolution.state_review import has_unreconciled_scene_calls
+
+    error = LLMInvalidResponseError(
+        "Provider rejected the output contract",
+        provider="fake",
+        raw_response="private generated output",
+        usage=usage,
+    )
+    error.diagnostic = {"exit_code": 0}
+
+    class Provider:
+        name = "fake"
+        calls = 0
+
+        async def generate(self, request):
+            self.calls += 1
+            raise error
+
+    client = LLMClient()
+    provider = Provider()
+    client._provider = provider
+    diagnostics = []
+    try:
+        with pytest.raises(LLMInvalidResponseError) as caught:
+            await client.generate_structured(
+                LLMCallRequest(model="fake", messages=[]),
+                _StructuredPayload,
+                max_fix_attempts=3,
+                format_repair_attempts=2,
+                transport_retries=False,
+                diagnostics=diagnostics,
+            )
+        assert caught.value is error
+        assert provider.calls == 1
+        assert sum(item["kind"] == "structured_usage" for item in diagnostics) == 1
+        assert sum(item["kind"] == "native_cli_failure" for item in diagnostics) == 1
+        assert "private generated output" not in repr(diagnostics)
+        receipt = build_call_receipt(
+            client, diagnostics, schema="_StructuredPayload", outcome="failed_final"
+        )
+        assert receipt["usage"]["attempts"] == 1
+        assert receipt["usage"]["succeeded_attempts"] == 0
+        assert receipt["usage"]["usage_complete"] is (usage is not None)
+        assert receipt["usage"]["unknown_attempts"] == int(usage is None)
+        for field in ("prompt_tokens", "completion_tokens", "total_tokens"):
+            assert receipt["usage"][field] == (
+                getattr(usage, field) if usage is not None else None
+            )
+        assert has_unreconciled_scene_calls(
+            {"scene_world": {"stage": "failed", "paid_call_receipt": receipt}}
+        )
+    finally:
+        await client.close()
+
+
 @pytest.mark.asyncio
 async def test_generate_structured_wraps_bare_list_for_single_list_schema() -> None:
     client = LLMClient()

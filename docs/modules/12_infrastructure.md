@@ -101,6 +101,8 @@ helper 进入，以统一 step name、journal、timeout 和错误分类。
 结构化调用首次发送前由 `LLMClient.generate_structured()` 补齐当前 Pydantic JSON schema，
 已有相同紧凑 schema 时不再追加；JSON 模式本身不代表模型知道字段合同。原请求保持不变，
 Pydantic 校验、受限格式修复与信封计量继续覆盖每次请求。
+受管 step 摘要只用显式请求模型覆盖客户端模型，未指定时继承已解析的项目身份。
+provider 拒绝完整响应所附的真实 usage 同样进入失败诊断，缺失时保留未知；这不放宽输出校验或重试。
 
 Context 自然语言调整使用同一 harness 的单次 `suggest + read_only` structured step：候选最多
 40 项、输出最多 20 个 include/exclude、120 秒超时、无工具、无自治循环且 transport retry
