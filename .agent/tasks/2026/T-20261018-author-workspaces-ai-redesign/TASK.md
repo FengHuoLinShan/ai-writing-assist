@@ -1,14 +1,16 @@
 ---
 id: T-20261018-author-workspaces-ai-redesign
 title: 写作台、世界对象与 AI 协作统一改造
-status: active
+status: completed
 created: 2026-10-18T16:32:21+08:00
-updated: 2026-10-19T01:37:07+08:00
+updated: 2026-10-19T02:37:03+08:00
 ---
 
 # 写作台、世界对象与 AI 协作统一改造
 
 ## 恢复快照
+
+- 2026-10-19T02:37:03+08:00 PR #257 CI 整改及用户授权的条件合并完成。最终测试 head=`49230d8886d90541623342a15ffab20531dca883` 的21项检查全部SUCCESS，涵盖后端质量/完整PG、完整前端/两浏览器分片/WebKit/助手/创作/编辑、三平台桌面构建与原生冒烟、CodeQL/密钥/镜像/文档/仓库门禁。修复对象历史新分区入口和窄屏抽屉强制点击竞态，未删业务断言；已同步main #254/#256并保留双方文档。PR 已 squash 合并为 `7c3cb04837f9b5561a9321940857975f6282453a`（API mergedAt=2026-10-18T18:36:26Z），fetch后确认origin/main可达。PR正文已更新最终证据；本机 `/tmp/pr257-final-ci.json`、`/tmp/pr257-merge-receipt.json` 为核验快照。未部署、未调用业务模型；合并后main新流水线须另看其实际结果。当前交接笔记与开放索引仅本地收口，不再为笔记另推送或直接提交main；本轮代码全部已合并，保留主题分支。下一步仅在新需求/CI异常时按PR与main实际状态处理，无本轮剩余实现或合并项。
 
 - 同步后head `6df9cc2f6`：后端、完整PG、浏览器分片2与三平台桌面构建均通过；分片1 functional为208 passed/1 failed。唯一失败 `focused-evidence.spec.js` 窄屏选章后强制点“关闭章节”，与产品自动收起竞争；trace含force点击，截图账户菜单打开并遮挡本章资料。已改为选章后等待章节dialog隐藏，刷新恢复也按实际选章路径等待，删除force和吞错；查证范围/部分结果/来源选择/刷新续跑断言全部保留。完整focused-evidence文件重复3轮，9 passed（实际结果见 `/tmp/pr257-local-browser.log`）；ESLint通过。下一步提交/推送此最小测试同步，再等新head全部CI后合并。
 
