@@ -242,10 +242,32 @@ Story 将世界推进保存在独立根、分支和不可变步骤中；每步�
 `story_world_progression` handler、Story router、9 项纯操作、`NOTICE_SOURCE_SPEC` 与 `world_progression_review` 引导流程已在应用组合根登记。持续授权默认关闭；Evolution 成功阅读回执在原事务投递免费检查，提交后仅以当前 canonical 正文的整章完整覆盖计数，未读/失败/局部 Scene、跳序号和同章改版重读不冒充新章节。章节重排撤销原序号授权，作者需重确认；Notice GET 保持只读。长篇/题材质量、势力路线图阶段 1/2、真实模型表现和作者验收分别保留为外部门禁。
 持续提醒仍绑定根运行的资料确认截止 Scene；读入新章只触发门槛，不扩大确认范围。最新已写 Scene 超出该截止点时，系统持久化停止原因并关闭自动续跑。作者需从最新 Scene 新建并确认推进后再开启提醒。
 
-## 导演多尺度独立探索（ADR-0042 第一批）
+## 导演多尺度独立探索（ADR-0042 分支实现）
 
-ADR-0042 的第一批在沙盘、事件、场景对白三档各交付一条紧凑任务：B1 沙盘回答"假设成立会怎样"的条件影响链（不读章节、不跑全城人物），B2 事件缺口诊断与显式请求后的补桥（不改原案、不自动建事件/Scene/正文），B3 场景一句对白（角色不得说出未知信息，一句即结束）。起点支持临时开局（`provisional`：作者问题 + 假设 + 候选主体，可不建 Scene）与已有 Scene 锚点（复用现有 Scene 截止与资料确认门禁）两条路径；每档一次模型请求，"说详细点"/局部修订每次追加授权，作者编辑保存零模型调用。结果全部为候选，落 `output_kind` 包装的既有推进步骤/导演回合，不写 World、continuity 或正文。
+沙盘回答条件影响，事件支持缺口诊断、显式补桥、信息差与导向路径，场景支持一句对白、
+人物差异和空间诊断；临时起点可另行明确展开完整排演。起点为 `provisional` 或已有 Scene
+锚点，不为探索创建假 Scene。结果由既有推进步骤/导演回合承载，不写 World、continuity
+或正文；锁定、作者编辑、局部修订和六向移交沿不可变历史与来源重验执行。
 
-`/api/story/exploration` 是默认关闭的域路由（gate `STORY_EXPLORATION_ENABLED`），九端点：`POST /preview`（确定性推荐 + 预算预览，无模型调用）、`POST /confirmation/preview` 与 `POST /confirmation`（经 Evidence facade 的探索确认）、`POST /start`（幂等入队，202）、`POST /results/{id}/detail` 与 `POST /results/{id}/revise`（追加授权的续写/补桥，202）、`POST /results/{id}/save-edit`（作者编辑新版本）、`POST /compare`（同 `start_fingerprint` 才可比，否则 409）与 `GET /history`。history/compare 不挂执行 gate，关闭后仍可读历史；provisional 根与 Scene 根在历史中分开列出。
+每个生成单元经过知识导演、生成、独立审查及至多一次返修复审，正常 3 次、最多 5 次
+物理请求；完整排演有 (N+1)×轮数 个单元。预算策略 v2 包含每请求 32k 包封/治理预留并
+绑定预览指纹，旧根保留原策略与累计额度。服务端先按作者/人物边界裁剪最小输入，导演
+排除任一必需包即阻断，不能删掉问题或知识后继续。导向路径无解时允许空步骤，完整排演
+的作者目标也参与预览与启动身份；详细字段与兼容规则见
+[Story 独立探索契约](../../backend/modules/story/README.md#导演多尺度独立探索adr-0042-分支实现)。
 
-助手侧经六项操作接入：`story.exploration.preview`（R0）、`start`、`detail`、`revise`（R2 confirm）、`compare`、`history`（R0），作者自由提问时由 `exploration_recommend.py` 的确定性函数推荐档位与详略，确认后经既有批量确认流执行。两个 task handler `story_exploration_progression_task`（B1/B2，写推进步骤）与 `story_exploration_scene_task`（B3，写导演回合）注册根能力 `story.exploration`，`never_retry`；旧导演/推进路径遇探索结果行或 provisional 根失败关闭（契约 §7 清单）。两根表迁移为 `20261017_exploration_start_kind`（`source_kind` 列 + `scene_id` 可空 CHECK，仅 provisional 可空）。实现边界见 [Story 模块实现](../../backend/modules/story/README.md)。
+审查按当前单元真实 system 指令、输出 schema 和可见包判断交付，完整起点仅供禁令、
+知识上限与事实冲突的负向核验。返修沿用该单元可见包，仅反馈自身 candidate、问题类型/
+级别及可核对定位，不回传审查秘密或合并的他人内容。
+
+`/api/story/exploration` 默认关闭。除推荐/预算、资料确认、幂等启动、detail/revise、编辑、
+比较和历史外，还提供锁定、移交及根/分支恢复预览与执行。history/compare 不挂执行 gate，
+关闭后仍能按作品与根读取结果历史。助手操作目录支持 handoff、confirmation_preview、
+confirm 及已有探索操作；已批准 Goal 内的确认与 R2 执行仍受原授权、总预算和回执核对约束。
+助手推荐预览只给名义预算；启动须引用同次资料预览的绑定预算、确认回执和一致的起点/尺度/
+焦点/动作。派生起点、确认 ID 与完成结果 ID 的实际字段路径由操作说明提供，见 Story README。
+Goal prepare 与 REST 共用目标校验，场景单目标对白的多候选起点须显式填 `target_ref`；
+遗漏在领域执行前按已知校验失败拒绝，不归为未知结果。
+两个探索 handler 仍为 `never_retry`，未知费用须核对后显式恢复。两根表的
+`20261017_exploration_start_kind` 迁移、项目隔离和旧路径失败关闭规则不变。ADR-0042 仍为
+Proposed，实现与工程检查不代表模型质量或作者验收。

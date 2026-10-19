@@ -14,6 +14,9 @@ World Authority 的规范字节夹具位于
 导演探索整改的离线证据须覆盖逐人物投影、每请求/持久化前 stale 拒绝、独立审查阻断、
 Goal 可能费用及实时增量、幂等授权、同根恢复、复杂条目锁和双保存失败；工程绿色不替代
 正式 PostgreSQL 并发、真实浏览器或 Luna 模型/作者验收。相关入口见 Story README。
+`test_exploration_required_inputs.py` 验证必需包排除后不生成、语义失败不误判为预算暂停；
+预算/API/schema 回归另覆盖 v2 的每请求 32k 预留、旧根 v1 兼容、完整排演作者目标指纹与导向无解。
+模型继承回归须保留显式覆盖的拒绝路径，不能通过移除固定模型身份检查来放行。
 
 小说业务批量实测前读取[开发阶段模型约定](development-guide.md#开发阶段模型约定)：
 被测业务及其批量质量复核使用 Codex `gpt-6-luna/max`；代码审查、测试开发和工程诊断
@@ -140,6 +143,7 @@ Evidence indexing/compilation 回归集中在 `backend/modules/evidence/`；
 | `RUN_E2E_TESTS=1 E2E_DATABASE_URL='<dedicated-postgresql-url>' uv run pytest tests/e2e/test_project_task_gate_concurrency.py -m "not real_llm and not external_data"` | Project delete vs atlas upload/cleanup race | Dedicated PostgreSQL at Alembic head |
 | `RUN_E2E_TESTS=1 E2E_DATABASE_URL='<dedicated-postgresql-url>' uv run pytest tests/e2e/test_task_coalescing_concurrency.py -m e2e` | Keyed coalescing and concurrent operation-receipt uniqueness | Dedicated PostgreSQL at Alembic head |
 | `RUN_E2E_TESTS=1 E2E_DATABASE_URL='<dedicated-postgresql-url>' uv run pytest tests/e2e/test_worldbook_dataset_import_concurrency.py -m e2e` | 资料集世界书导入 apply 的 dataset advisory-lock 串行化、过期建议锁内重放冲突、同 suggestion 重复 apply CAS 与过期指纹 409 | Dedicated PostgreSQL at Alembic head |
+| `RUN_E2E_TESTS=1 E2E_DATABASE_URL='<dedicated-postgresql-url>' uv --directory backend run --locked --extra ci pytest tests/e2e/test_exploration_review_concurrency.py -m e2e` | 探索根/分支 FK 与作者先提交后的旧父版本拒绝；纳入 critical | Dedicated PostgreSQL at Alembic head; synthetic candidates, no model calls |
 | `DATABASE_URL='<dedicated-postgresql-url>' PW_REUSE_EXISTING_SERVER=0 npm --prefix frontend-console run test:e2e:functional -- --workers=1 --retries=0` | Complete functional browser regression | Fresh dedicated PostgreSQL, local private MinIO buckets, and Chromium; automated on frontend-related PRs and every main push; backend-only PRs use test:e2e:smoke |
 | `DATABASE_URL='<dedicated-postgresql-url>' PW_REUSE_EXISTING_SERVER=0 npm --prefix frontend-console run test:e2e:responsive -- --workers=1 --retries=0` | 全站五档窗口、复杂工作台扩展、断点两侧、矮屏、触控操作与未保存状态/失败恢复 | 同一专用服务和 Chromium，合成资料；检查控件实际边界和 trial 点击，局部画布滚动允许，页面裁切不允许 |
 | `DATABASE_URL='<dedicated-postgresql-url>' PW_REUSE_EXISTING_SERVER=0 npm --prefix frontend-console run test:e2e:webkit -- --workers=1 --retries=0` | 移动 WebKit 写作、地图标注、RP 流式快照/阅读与只读演示核心流程 | 同一专用服务及 Playwright WebKit；模拟触控、字体放大和可视视口单元测试不代表实机键盘、安全区或真实浏览器缩放 |
@@ -745,6 +749,8 @@ quota，root 检查后只启动同一 operation id，并用精确 Scene task `ru
 导演独立探索的父版本并发回归为 `tests/e2e/test_exploration_review_concurrency.py`，
 已进入 `make test-postgresql-critical`：用 PostgreSQL 分支行锁验证作者版本先提交时，
 基于旧父版本的模型结果必须拒绝落盘。该用例只用合成候选，来源重验使用离线替身。
+`frontend-console/e2e/exploration.spec.js` 通过真实 Vue 与合成 HTTP 回执验证 390px 下编辑保存、
+刷新恢复、停止及服务端/本地双保存失败保护；它不覆盖真实探索 worker 或模型质量。
 
 ### 作者工作台任务批准回归
 

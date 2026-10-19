@@ -39,10 +39,23 @@ HTTP 入口为 `/api/assistant`；账户与项目身份由服务端验证。RP �
 明确确认预算后执行，并计入同一根 `AIRunEnvelope`；目标审批只冻结已注册 operation 的范围与服务端
 映射出的 task capability，不开放任意工具或 capability。规划先从 Goal 当前可执行操作中，
 用一次轻量目录选择请求挑选所需操作（至多 30 类），再用第二次请求仅查看选中操作的完整参数 schema；
+第一阶段须一并选择执行所需的资料预览、确认和结果来源操作，新任务不能假定已有确认或结果回执。
 两次均记入同一根账本，输入和输出按冻结的项目模型输出上限及剩余 80% token 额度预检；
 冻结上限缺失或额度不足时停止，请作者核对模型设置、缩小目标或增额。未接入根预算/稳定领域
 回执的模型操作和需独立授权的 R4 操作会在能力接口列明原因，并在计划确认及恢复执行时按同一
 规则重验。单轮助手的完整目录不受此过滤影响。
+
+两个规划阶段都从当前 Goal run 的 `novel_id` 注入 `project.novel_id`，覆盖旧项目摘要中的
+缺失或过期值，不改写旧摘要。计划参数原样复用该作品身份；未来产物、资料指纹和派生起点
+按所选操作说明的实际结果路径引用，不用作品标题代替 ID，也不编造未产生的标识。
+
+参数 `$ref.step_id` 和目标 `target_id` 引用的每个来源步骤，均须显式列入当前步骤的直接
+`depends_on`，传递依赖不能替代；原验证器保持严格校验，不自动补边。
+
+Goal 可由作者明确批准的 token 上限为 5,000,000；请求数与可能费用次数仍各最多 100，
+时限仍最多 7,200 秒。能力接口与 `GoalBudget` 共用同一上限。界面默认仍为 8 次请求、
+8 次可能费用、12,000 tokens、20 分钟；提高可选上限不增加在途或旧目标的已批准额度。
+探索领域步骤仍须先有足够总预算覆盖其包封/治理在内的申报上限，余量检查和审批不变。
 
 能力默认关闭：需同时开启 `ASSISTANT_ENABLED`、`ASSISTANT_GOAL_RUNS_ENABLED`，并把项目 ID 列入
 `ASSISTANT_GOAL_RUNS_PROJECT_ALLOWLIST`。请求仍须通过作者 owner、活跃 author project 和非 demo 门禁。
@@ -62,6 +75,8 @@ Goal 父任务经统一 enqueuer 保存为确定 ID 的 `inline_only` / `manual_
 新领域任务在入队时就带 inline_only/父任务身份，预算准入前普通 worker 不领取。
 探索 handoff/confirmation_preview/confirm 支持用前置步骤引用绑定派生起点与目标确认；
 confirm 在已批准目标范围执行，start/detail/revise 仅在显式 auto_r2 授权时自动执行。
+探索参数的 `operation_id` 是非空调用标记；Goal 实际执行 ID 由服务端按 run、步骤和参数
+指纹生成 UUID5。计划步骤本身的 `operation_id` 仍为目录操作 ID，操作 API、风险和批准规则不变。
 结果未知按 run 与 step 定位；作者提交当前 `expected_revision` 和 `applied`、`not_applied` 或 `still_unknown`。
 作者可先读取同一 run/step 的只读回执预览；预览核对当前修订号、原步骤 operation、调用标识和服务端保存的任务引用，只投影限长摘要及对应工作台定位，不返回完整原始结果，也不写检查点、入队或调用模型。只有预览中的终态领域回执明确证明结果时，界面才显示 `applied` 或 `not_applied` 确认入口。
 服务端收到决定后仍只使用原步骤已保存的 operation、调用标识和任务引用重新读取领域回执，并要求作者明确确认；缺少终态回执时失败关闭。

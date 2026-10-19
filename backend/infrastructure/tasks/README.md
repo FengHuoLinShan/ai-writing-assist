@@ -89,12 +89,15 @@ app task manifest 注册。
 它不调用模型、不新建根，只有原根剩余额度与授权仍有效时才可能排入前一个处理器。两者已由 app
 task manifest 注册；本地离线验证不代表真实模型输出质量或作者验收。
 
-`story_exploration_progression_task` 与 `story_exploration_scene_task` 是 ADR-0042 第一批探索的两个
-Story handler，同注册根能力 `story.exploration`，`never_retry`、单次模型请求。前者承担沙盘与事件
-（诊断/补桥），结果写 `story_world_progression_steps` 紧凑步骤；后者承担场景一句对白，写
-`story_scene_director_rounds`。worker 校验信封身份与冻结起点、重算 preview hash，provider 前后
-提交 pending_step_json / pending_round_json 检查点；"说详细点"与局部修订复用同一对 worker
-（meta.mode），每次须经追加授权。已由 app task manifest 注册。
+`story_exploration_progression_task` 与 `story_exploration_scene_task` 是 ADR-0042 探索的两个
+Story handler，同注册根能力 `story.exploration`，保留 `never_retry`、`max_attempts=1` 与
+关闭瞬时错误自动重试。每个生成单元经知识导演、生成、审查，至多一次返修与复审，正常
+3 次、最多 5 次物理请求；知识审查失败严格阻断，不由队列重试重发。前者承担沙盘与事件，
+结果写 `story_world_progression_steps`；后者承担对白、多目标、空间诊断和完整排演，写
+`story_scene_director_rounds`。worker 校验信封身份与冻结起点，按根保存的预算策略版本
+重算 preview hash，provider 前后提交 pending_step_json / pending_round_json 检查点；
+"说详细点"与局部修订复用同一对 worker（meta.mode），每次须经追加授权。暂停/未知恢复
+保留原根账本、快照和截止，不能以新策略自动增额。已由 app task manifest 注册。
 目标运行（ADR-0038）发起的探索步骤不并入目标信封：领域任务始终保留独立的 `story.exploration`
 根账本并在 worker 内做信封身份校验，目标侧只在该任务结算后导入已结算增量。
 

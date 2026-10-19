@@ -9,6 +9,8 @@ from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from modules.assistant.approval_contracts import TaskApprovalRequest
 
+GOAL_MAX_TOKENS = 5_000_000
+
 
 class GoalModel(BaseModel):
     model_config = ConfigDict(extra="forbid")
@@ -17,7 +19,7 @@ class GoalModel(BaseModel):
 class GoalBudget(GoalModel):
     requests: int = Field(ge=2, le=100)
     possible_charge_requests: int = Field(ge=2, le=100)
-    tokens: int = Field(ge=512, le=500_000)
+    tokens: int = Field(ge=512, le=GOAL_MAX_TOKENS)
     time_limit_seconds: int = Field(ge=60, le=7_200)
 
     @model_validator(mode="after")
@@ -28,7 +30,15 @@ class GoalBudget(GoalModel):
 
 
 class GoalReference(GoalModel):
-    step_id: str = Field(min_length=1, max_length=64, pattern=r"^[A-Za-z0-9_-]+$")
+    step_id: str = Field(
+        min_length=1,
+        max_length=64,
+        pattern=r"^[A-Za-z0-9_-]+$",
+        description=(
+            "引用来源的步骤 ID；参数 $ref 或 target_id 使用此引用时，该 ID 都必须显式"
+            "列入当前步骤 depends_on；传递依赖不能代替。"
+        ),
+    )
     path: list[str | int] = Field(min_length=1, max_length=8)
     value_type: Literal[
         "string", "identifier", "integer", "number", "boolean", "object", "array"
@@ -72,7 +82,14 @@ class GoalTarget(GoalModel):
 class GoalStep(GoalModel):
     step_id: str = Field(min_length=1, max_length=64, pattern=r"^[A-Za-z0-9_-]+$")
     operation_id: str = Field(min_length=3, max_length=160, pattern=r"^[a-zA-Z0-9_.-]+$")
-    depends_on: list[str] = Field(default_factory=list, max_length=30)
+    depends_on: list[str] = Field(
+        default_factory=list,
+        max_length=30,
+        description=(
+            "当前步骤显式依赖的步骤 ID。每个参数 $ref.step_id 或 target_id 引用的"
+            " step_id 必须列入；传递依赖不能代替直接依赖。"
+        ),
+    )
     targets: list[GoalTarget] = Field(default_factory=list, max_length=20)
     parameters: dict[str, Any] = Field(default_factory=dict)
     intent: str = Field(min_length=1, max_length=1200)

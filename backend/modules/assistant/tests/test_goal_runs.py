@@ -1,5 +1,6 @@
 """Goal runs use one durable plan/run ledger and preserve active uniqueness."""
 
+import json
 import uuid
 from contextlib import asynccontextmanager
 from dataclasses import replace
@@ -7,7 +8,7 @@ from datetime import UTC, datetime, timedelta
 from types import SimpleNamespace
 
 import pytest
-from pydantic import BaseModel
+from pydantic import BaseModel, ValidationError
 from sqlalchemy import func, select
 from sqlalchemy.exc import IntegrityError
 
@@ -30,6 +31,65 @@ from modules.assistant.goal_runs.contracts import (
     GoalStepApproval,
 )
 from modules.assistant.models import AssistantRun
+
+
+@pytest.mark.parametrize("tokens", [512, 500_001, 5_000_000])
+def test_goal_budget_accepts_explicit_token_limits_up_to_five_million(tokens):
+    budget = GoalBudget(
+        requests=100,
+        possible_charge_requests=100,
+        tokens=tokens,
+        time_limit_seconds=7200,
+    )
+    assert budget.tokens == tokens
+
+
+@pytest.mark.parametrize(
+    "override",
+    [
+        {"tokens": 511},
+        {"tokens": 5_000_001},
+        {"requests": 101},
+        {"possible_charge_requests": 101},
+        {"time_limit_seconds": 7201},
+    ],
+)
+def test_goal_budget_keeps_other_authorization_bounds(override):
+    with pytest.raises(ValidationError):
+        GoalBudget.model_validate(
+            {
+                "requests": 100,
+                "possible_charge_requests": 100,
+                "tokens": 12000,
+                "time_limit_seconds": 7200,
+                **override,
+            }
+        )
+
+
+async def test_goal_capabilities_reports_explicit_large_token_limit(monkeypatch):
+    from modules.assistant import approval
+    from modules.assistant.goal_runs import service
+
+    async def owned(*_args):
+        return None
+
+    async def unavailable(*_args):
+        return {"enabled": False}
+
+    monkeypatch.setattr(service, "_feature_enabled", lambda _novel_id: True)
+    monkeypatch.setattr(service, "is_demo_readonly_principal", lambda: False)
+    monkeypatch.setattr(service, "_require_goal_project", owned)
+    monkeypatch.setattr(service, "_operation_registry", lambda: {})
+    monkeypatch.setattr(approval, "approval_availability", unavailable)
+
+    capabilities = await service.goal_capabilities(None, "novel-a", "owner-a")
+    assert capabilities["budget_limits"] == {
+        "requests_max": 100,
+        "possible_charge_requests_max": 100,
+        "tokens_max": 5_000_000,
+        "time_limit_seconds_max": 7200,
+    }
 
 
 class ReadProject(BaseModel):
@@ -121,6 +181,203 @@ class _PlanningClient:
                 or list(dict.fromkeys(step.operation_id for step in self.plan.steps))
             )
         return self.plan
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "project_summary",
+    [
+        {},
+        {"title": "标题不能代替作品编号"},
+        {"novel_id": "stale-title", "title": "旧运行"},
+    ],
+)
+async def test_goal_both_planner_prompts_use_run_project_identity(
+    monkeypatch, exploration_gate, project_summary
+):
+    import modules.story.exploration_tasks  # noqa: F401
+    from app.assistant_operation_registry import story_exploration_operations
+    from infrastructure.llm.workflow_budget import new_ai_run_envelope
+    from modules.assistant.goal_runs import service
+
+    novel_id = uuid.uuid4()
+    plan = _exploration_goal_plan(str(novel_id))
+    operation_ids = [
+        "story.exploration." + name
+        for name in (
+            "preview",
+            "start",
+            "detail",
+            "confirmation_preview",
+            "confirm",
+            "handoff",
+        )
+    ]
+    operations = {key: story_exploration_operations[key] for key in operation_ids}
+    requests = []
+
+    class CapturingPlanner(_PlanningClient):
+        async def generate_structured(self, request, response_schema, **kwargs):
+            requests.append((request, response_schema))
+            return await super().generate_structured(request, response_schema, **kwargs)
+
+    @asynccontextmanager
+    async def planner(*_args):
+        yield CapturingPlanner(plan, selection_ids=operation_ids)
+
+    monkeypatch.setattr(service, "open_project_snapshot_llm_client", planner)
+    budget = GoalBudget(
+        requests=20, possible_charge_requests=20, tokens=200000, time_limit_seconds=600
+    )
+    run = SimpleNamespace(
+        id=uuid.uuid4(),
+        novel_id=novel_id,
+        request_hash="f" * 64,
+        request_json={"goal": "解释禁水规则如何影响一家人晚餐，并给孩子一句回应"},
+    )
+    original_summary = dict(project_summary)
+    goal = {
+        "llm_snapshot": _offline_snapshot(),
+        "project_summary": project_summary,
+        "requested_budget": budget.model_dump(mode="json"),
+    }
+    envelope = new_ai_run_envelope(
+        operation_id=str(uuid.uuid4()),
+        run_id=str(run.id),
+        root_capability_id=service.GOAL_PLAN_STEP,
+        novel_id=str(novel_id),
+        request_limit=budget.requests,
+        token_limit=budget.tokens,
+    )
+    result = await service._select_plan(
+        None, run, goal, operations, [], envelope=envelope, budget=budget
+    )
+
+    assert result == plan
+    assert [schema for _, schema in requests] == [GoalOperationSelection, GoalPlan]
+    for request, _ in requests:
+        payload = json.loads(
+            next(
+                message.content for message in request.messages if message.role == "user"
+            )
+        )
+        assert payload["project"]["novel_id"] == str(novel_id)
+    assert project_summary == original_summary
+    plan_payload = json.loads(requests[1][0].messages[1].content)
+    descriptors = {item["operation_id"]: item for item in plan_payload["catalog"]}
+    for operation_id, operation in operations.items():
+        assert descriptors[operation_id]["description"] == operation.description
+        assert (
+            descriptors[operation_id]["parameter_schema"]
+            == operation.schema.model_json_schema()
+        )
+    planning_system = requests[1][0].messages[0].content
+    assert "$ref.step_id" in planning_system
+    assert "targets[].target_id" in planning_system
+    assert "必须显式列入当前步骤的 depends_on" in planning_system
+    assert "传递依赖不能代替直接依赖" in planning_system
+    planning_schema = requests[1][1].model_json_schema()["$defs"]
+    for model, field in (("GoalReference", "step_id"), ("GoalStep", "depends_on")):
+        description = planning_schema[model]["properties"][field]["description"]
+        assert "参数" in description and "target_id" in description
+        assert "显式" in description and "传递依赖不能代替" in description
+    assert envelope.snapshot().requests_started == 2
+
+
+@pytest.mark.parametrize("reference_location", ["parameters", "targets"])
+def test_goal_reference_requires_explicit_dependency_even_when_transitively_reachable(
+    reference_location,
+):
+    from core.errors import ValidationError as DomainValidationError
+    from modules.assistant.goal_runs.planning import validate_plan
+
+    operation = _read_operation()
+    reference = {
+        "step_id": "source",
+        "path": ["result"],
+        "value_type": "identifier",
+    }
+    consumer = {
+        "step_id": "consumer",
+        "operation_id": "project.read",
+        "depends_on": ["middle"],
+        "parameters": {"query": "读取最后一项"},
+        "intent": "直接读取首步产物",
+    }
+    if reference_location == "parameters":
+        consumer["parameters"]["query"] = {"$ref": reference}
+    else:
+        consumer["targets"] = [{"target_type": "project", "target_id": reference}]
+    plan = GoalPlan.model_validate(
+        {
+            "title": "直接引用必须声明直接依赖",
+            "steps": [
+                {
+                    "step_id": "source",
+                    "operation_id": "project.read",
+                    "parameters": {"query": "读取首项"},
+                    "intent": "提供来源",
+                },
+                {
+                    "step_id": "middle",
+                    "operation_id": "project.read",
+                    "depends_on": ["source"],
+                    "parameters": {"query": "读取中间项"},
+                    "intent": "建立传递依赖",
+                },
+                consumer,
+            ],
+        }
+    )
+    before = plan.model_dump(mode="json")
+    with pytest.raises(DomainValidationError, match="参数引用必须同时声明为前置步骤"):
+        validate_plan(plan, {"project.read": operation})
+    assert plan.model_dump(mode="json") == before
+
+    plan.steps[-1].depends_on.append("source")
+    assert validate_plan(plan, {"project.read": operation}) == plan
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("name", ["start", "detail", "revise"])
+async def test_exploration_planner_descriptions_match_read_result_projection(
+    monkeypatch, name
+):
+    from app.assistant_operation_registry import story_exploration_operations
+    from modules.story import exploration_operations
+
+    novel_id, root_id, branch_id, result_id, task_id = (
+        str(uuid.uuid4()) for _ in range(5)
+    )
+    receipt = {
+        "status": "completed",
+        "root_id": root_id,
+        "branch_id": branch_id,
+        "result_id": result_id,
+        "output_kind": "story.exploration.sandbox",
+        "payload": _SANDOX_RECEIPT_PAYLOAD,
+    }
+    reference = {
+        "task_id": task_id,
+        "task_type": "story_exploration_progression_task",
+        "root_id": root_id,
+    }
+
+    async def completed_task(_db, **kwargs):
+        assert kwargs["novel_id"] == novel_id
+        assert kwargs["task_id"] == task_id
+        assert kwargs["task_type"] == reference["task_type"]
+        return SimpleNamespace(result=receipt)
+
+    monkeypatch.setattr(
+        exploration_operations, "get_completed_task_payload", completed_task
+    )
+    operation = story_exploration_operations["story.exploration." + name]
+    result = await operation.read_result(None, novel_id, reference)
+    assert result["status"] == "completed"
+    for field in ("result_id", "root_id", "branch_id", "output_kind", "payload"):
+        assert field in operation.description
+        assert result[field] == receipt[field]
 
 
 @pytest.mark.asyncio
@@ -2086,7 +2343,7 @@ async def test_goal_exploration_start_step_approval_and_domain_ledger_import(
     request = _start_request(uuid.UUID(test_project_id))
     request.budget.requests = 10
     request.budget.possible_charge_requests = 10
-    request.budget.tokens = 100000
+    request.budget.tokens = 200000
     prepared = await service.start_goal(db_session, request, owner_id)
     assert prepared["phase"] == "plan_review"
     approved = await service.approve_goal_plan(
@@ -2166,7 +2423,7 @@ async def test_goal_exploration_unknown_domain_usage_stops_goal_for_review(
     request = _start_request(uuid.UUID(test_project_id))
     request.budget.requests = 10
     request.budget.possible_charge_requests = 10
-    request.budget.tokens = 100000
+    request.budget.tokens = 200000
     prepared = await service.start_goal(db_session, request, owner_id)
     approved = await service.approve_goal_plan(
         db_session,
@@ -2412,7 +2669,7 @@ async def test_goal_handoff_binds_preview_confirmation_start_without_extra_appro
                     "depends_on": ["handoff", "preview", "confirm"],
                     "parameters": {
                         **base,
-                        "operation_id": str(uuid.uuid4()),
+                        "operation_id": "goal-start",
                         "context_confirmation_id": reference(
                             "confirm", "confirmation_id"
                         ),
@@ -2473,6 +2730,47 @@ async def test_goal_handoff_binds_preview_confirmation_start_without_extra_appro
     assert (
         task.meta["context_confirmation_id"]
         == records["confirm"]["result"]["confirmation_id"]
+    )
+
+    from app.assistant_operation_registry import story_exploration_operations
+    from modules.assistant.goal_runs.planning import resolve_reference, step_operation_id
+
+    results = service.records_to_results(records)
+    described_paths = {
+        "handoff": (("derived_start",),),
+        "preview": (("context_fingerprint",), ("budget", "preview_hash")),
+        "confirm": (("confirmation_id",),),
+        "start": (
+            ("result_id",),
+            ("root_id",),
+            ("branch_id",),
+            ("output_kind",),
+            ("payload",),
+        ),
+    }
+    for step_id, paths in described_paths.items():
+        step = next(item for item in plan.steps if item.step_id == step_id)
+        description = service._operation_prompt(
+            story_exploration_operations[step.operation_id], step.operation_id
+        )["description"]
+        for path in paths:
+            assert ".".join(path) in description
+            value_type = (
+                "object" if path in {("derived_start",), ("payload",)} else "string"
+            )
+            value = resolve_reference(
+                {
+                    "$ref": {
+                        "step_id": step_id,
+                        "path": list(path),
+                        "value_type": value_type,
+                    }
+                },
+                results,
+            )
+            assert value is not None
+    assert str(task.id) == step_operation_id(
+        str(run.id), "start", records["start"]["parameter_fingerprint"]
     )
 
 
@@ -2893,7 +3191,7 @@ async def test_goal_failed_exploration_keeps_imported_usage_and_baseline(
     )
     request = _start_request(uuid.UUID(test_project_id))
     request.budget.requests = request.budget.possible_charge_requests = 10
-    request.budget.tokens = 100000
+    request.budget.tokens = 200000
     prepared = await service.start_goal(db_session, request, owner_id)
     approved = await service.approve_goal_plan(
         db_session,

@@ -60,5 +60,4 @@
 
 
 - [T-20261015-audit-wave3](tasks/2026/T-20261015-audit-wave3/TASK.md) — 能力审计第三批执行
-
 - [T-20261017-director-scales-impl](tasks/2026/T-20261017-director-scales-impl/TASK.md) — 导演多尺度独立探索多批次实施

@@ -118,8 +118,9 @@ prompt/completion/total token、状态与错误分类；provider 返回 cache �
 project runtime 创建的 client 带有 secret-free `runtime_scope`。managed helper
 会自动把 `novel_id`、profile source 和脱敏 `profile_summary` 合并进 journal 的
 `quality_stats.llm_runtime`；测试 fake 没有该属性时仍可按既有构造注入。
-脱敏 summary 以 request 的实际 model/max_tokens/temperature/top_p 为准，
-同时可保留 profile 默认 model 作 `default_model`。task worker 用
+脱敏 summary 以实际生效的 model/max_tokens/temperature/top_p 为准；只有请求显式指定
+model 才覆盖连接模型，不能拿 schema 默认字符串覆盖继承值。同时可保留 profile 默认
+model 作 `default_model`。显式覆盖仍须通过冻结 provider/model 门禁。task worker 用
 task-local context collector 聚合这些记录，并在成功、失败和取消路径
 都合并到 result 的 `managed_llm_steps`；记录不包含 API Key、完整
 Base URL/query、prompt 或正文。

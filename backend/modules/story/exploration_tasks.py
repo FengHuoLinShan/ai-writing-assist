@@ -51,7 +51,10 @@ from modules.evidence.facade import (
 from modules.project.facade import open_project_snapshot_llm_client
 from modules.story.director_budget import budget_stop_reason
 from modules.story.director_service import get_director_branch, get_director_root
-from modules.story.exploration_budget import preview_exploration_budget
+from modules.story.exploration_budget import (
+    EXPLORATION_BUDGET_POLICY_VERSION,
+    exploration_preview_identity,
+)
 from modules.story.exploration_feature import require_story_exploration_enabled
 from modules.story.exploration_governance import ExplorationClient, knowledge_reviews
 from modules.story.exploration_schemas import (
@@ -459,8 +462,9 @@ def _require_preview_hash(
     multi_targets: list[str] | None = None,
     diagnostic_question: str | None = None,
     full_rehearsal: FullRehearsalRequest | None = None,
+    budget_policy_version: int = EXPLORATION_BUDGET_POLICY_VERSION,
 ) -> None:
-    current = preview_exploration_budget(
+    identity = exploration_preview_identity(
         novel_id=novel_id,
         scale=scale,
         start=start,
@@ -471,8 +475,9 @@ def _require_preview_hash(
         multi_targets=multi_targets,
         diagnostic_question=diagnostic_question,
         full_rehearsal=full_rehearsal,
+        budget_policy_version=budget_policy_version,
     )
-    if current.preview_hash != expected:
+    if content_hash(identity) != expected:
         raise ValueError("起点或焦点已变化，预算预览不一致，失败关闭")
 
 
@@ -1153,7 +1158,7 @@ def _classify_stop(error: Exception, guard: dict, envelope) -> str | None:
         return "provider_result_unknown"
     if type(error).__name__ in {"AIRunBudgetExceededError", "AIRunDeadlineExceededError"}:
         return stop or "goal_budget_reached"
-    return stop
+    return None
 
 
 async def _checkpoint(db, root, branch, *, error_message, extra=None):
@@ -1921,6 +1926,9 @@ async def handle_story_exploration_progression(db, task):
             counterfactual_of_result_id=counterfactual_of,
             changed_assumptions=changed_assumptions,
             event_mode_hint=event_mode_hint,
+            budget_policy_version=root_request.get(
+                "exploration_budget_policy_version", 1
+            ),
         )
 
     confirmed = await prepare_confirmed_ai_action(
@@ -2337,6 +2345,9 @@ async def handle_story_exploration_scene(db, task):
             multi_targets=multi_targets,
             diagnostic_question=diagnostic_question,
             full_rehearsal=rehearsal,
+            budget_policy_version=root_request.get(
+                "exploration_budget_policy_version", 1
+            ),
         )
 
     confirmed = await prepare_confirmed_ai_action(

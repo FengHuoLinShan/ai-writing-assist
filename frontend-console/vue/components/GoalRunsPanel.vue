@@ -49,7 +49,7 @@
           <input v-model.number="startBudget.possible_charge_requests" type="number" min="2" :max="budgetLimits.possible_charge_requests_max || 100" :disabled="busy || Boolean(pendingStart)" />
         </label>
         <label>模型令牌上限
-          <input v-model.number="startBudget.tokens" type="number" min="512" :max="budgetLimits.tokens_max || 500000" step="1" :disabled="busy || Boolean(pendingStart)" />
+          <input v-model.number="startBudget.tokens" type="number" min="512" :max="budgetLimits.tokens_max || 5000000" step="1" :disabled="busy || Boolean(pendingStart)" />
         </label>
         <label>最长运行时间（分钟）
           <input v-model.number="startBudget.time_limit_minutes" type="number" min="1" :max="Math.floor((budgetLimits.time_limit_seconds_max || 7200) / 60)" :disabled="busy || Boolean(pendingStart)" />
@@ -183,7 +183,7 @@
             <input v-model.number="planBudget.possible_charge_requests" type="number" min="2" :max="budgetLimits.possible_charge_requests_max || 100" :disabled="busy" />
           </label>
           <label>模型令牌上限
-            <input v-model.number="planBudget.tokens" type="number" min="512" :max="budgetLimits.tokens_max || 500000" step="1" :disabled="busy" />
+            <input v-model.number="planBudget.tokens" type="number" min="512" :max="budgetLimits.tokens_max || 5000000" step="1" :disabled="busy" />
           </label>
           <label>最长运行时间（分钟）
             <input v-model.number="planBudget.time_limit_minutes" type="number" min="1" :max="approvalTimeLimitMinutes" :disabled="busy" />
@@ -229,7 +229,7 @@
             <input v-model.number="resumeBudget.possible_charge_requests" type="number" :min="Math.max(2, goal.budget?.used?.requests || 0)" :max="budgetLimits.possible_charge_requests_max || 100" :disabled="busy" />
           </label>
           <label>模型令牌上限
-            <input v-model.number="resumeBudget.tokens" type="number" :min="goal.budget?.used?.tokens || 512" :max="budgetLimits.tokens_max || 500000" step="1" :disabled="busy" />
+            <input v-model.number="resumeBudget.tokens" type="number" :min="goal.budget?.used?.tokens || 512" :max="budgetLimits.tokens_max || 5000000" step="1" :disabled="busy" />
           </label>
           <label>最长运行时间（分钟）
             <input v-model.number="resumeBudget.time_limit_minutes" type="number" min="1" :max="Math.floor((goal.budget?.initial_limits?.time_limit_seconds || 7200) / 60)" :disabled="busy" />

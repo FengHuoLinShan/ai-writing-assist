@@ -101,6 +101,9 @@ ADR-0023 的 `agent_runtime.py` 通过 `ProjectGatewayModel` 接入锁定的 Pyd
 `from_resolved_profile` 构造的 client 携带 profile 请求默认：
 `resolve_request_defaults` 仅为请求未显式设置的 model / temperature / top_p / max_tokens
 填充 profile 值，并把 profile `extra` 按键合并为请求 extra 的底座（请求键优先）。
+运行步骤的安全 profile 摘要同样只在请求显式设置 `model` 时覆盖连接模型；请求 schema 的
+默认字符串不会把继承自项目连接的模型误记成另一模型。显式模型覆盖仍受原运行的
+provider/model 身份门禁限制，不匹配时在 provider 调用与请求计数前拒绝。
 `LLMCallRequest.temperature` 默认 None，未设置时继承 profile 默认（代码默认 0.3），
 不再内置 0.7。`extra` 只允许 provider 特定参数：正式 request 字段与其 token 同义词
 （`max_tokens`、`max_completion_tokens`、`temperature`、`top_p` 等）在项目设置

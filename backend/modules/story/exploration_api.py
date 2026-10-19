@@ -66,6 +66,7 @@ from modules.story.exploration_schemas import (
     PAYLOAD_MODELS_BY_BASE_KIND,
     SANDBOX_OUTPUT_KIND,
     SCENE_LINE_OUTPUT_KIND,
+    SCENE_TARGET_REF_DESCRIPTION,
     EventOutputV1,
     ExplorationBudgetPreview,
     ExplorationCompareRequest,
@@ -75,7 +76,6 @@ from modules.story.exploration_schemas import (
     ExplorationScale,
     ExplorationStartTaskRequest,
     FullRehearsalOutputV1,
-    FullRehearsalPreviewIntent,
     FullRehearsalRequest,
     SandboxOutputV1,
     SceneLineOutputV1,
@@ -173,7 +173,7 @@ class ExplorationPreviewApiRequest(_ApiModel):
     事件模式提示（M2）：``event_mode_hint`` 仅在显式指定事件尺度时接受。
     场景多目标/空间诊断（M2）：仅场景尺度接受，多目标预算 = 目标数。
     完整排演意图（M3-B）：``preview_full_rehearsal`` 仅场景尺度接受，响应带
-    ``work_steps`` 与 (目标数 + 1) × 轮次 的分开计量预算。
+    ``work_steps`` 与 (目标数 + 1) × 轮次 的分开计量预算，作者目标一同绑定预算指纹。
     """
 
     novel_id: str
@@ -193,7 +193,7 @@ class ExplorationPreviewApiRequest(_ApiModel):
         max_length=MULTI_TARGETS_MAX,
     )
     diagnostic: SceneSpatialDiagnosticRequest | None = None
-    preview_full_rehearsal: FullRehearsalPreviewIntent | None = None
+    preview_full_rehearsal: FullRehearsalRequest | None = None
 
     @model_validator(mode="after")
     def validate_counterfactual(self):
@@ -316,7 +316,12 @@ class ExplorationResumeRequest(_ApiModel):
 class ExplorationStartApiRequest(ExplorationStartTaskRequest):
     """start 端点在 P1 契约之上允许可选指定一句对白的目标角色。"""
 
-    target_ref: str | None = Field(default=None, min_length=1, max_length=64)
+    target_ref: str | None = Field(
+        default=None,
+        min_length=1,
+        max_length=64,
+        description=SCENE_TARGET_REF_DESCRIPTION,
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -471,12 +476,7 @@ async def build_exploration_preview(db, data: ExplorationPreviewApiRequest) -> d
             scale=data.scale or "sandbox",
             changed_assumptions=list(data.changed_assumptions or []),
         )
-    preview_rehearsal: FullRehearsalRequest | None = None
-    if data.preview_full_rehearsal is not None:
-        preview_rehearsal = FullRehearsalRequest(
-            targets=list(data.preview_full_rehearsal.targets),
-            rounds=data.preview_full_rehearsal.rounds,
-        )
+    preview_rehearsal = data.preview_full_rehearsal
     scale = data.scale or (
         "scene_line"
         if (data.multi_targets or data.diagnostic or preview_rehearsal)
@@ -551,7 +551,11 @@ async def build_exploration_preview(db, data: ExplorationPreviewApiRequest) -> d
             "每个生成单元预计 3–5 次模型请求"
             "（知识导演、生成、独立审查及至多一次返修复审）；续算会单独追加预算。"
         ),
-        "action": ACTION_BY_SCALE[scale],
+        "action": (
+            EVENT_BRIDGE_ACTION
+            if data.event_mode_hint == "goal"
+            else ACTION_BY_SCALE[scale]
+        ),
         "recommendation": {
             "type": "story_exploration_recommendation",
             "scale": scale,
@@ -746,12 +750,19 @@ async def confirm_exploration(db, data: ExplorationConfirmationRequest) -> dict:
 # ---------------------------------------------------------------------------
 
 
-def _resolve_scene_target(data: ExplorationStartApiRequest) -> str | None:
+def _resolve_scene_target(
+    data: ExplorationStartApiRequest | ExplorationStartOperationRequest,
+    *,
+    start: ExplorationStart | None = None,
+) -> str | None:
     """B3 目标角色解析：多目标/诊断/排演不产单目标；显式指定优先，唯一候选自动锁定。"""
     if data.scale != "scene_line":
         if data.target_ref:
             raise ValueError("只有场景一句对白需要指定目标角色")
         return None
+    start = start if start is not None else data.start
+    if isinstance(start, dict):
+        start = validate_start_dump(start)
     if data.full_rehearsal is not None:
         # 完整排演（M3-B）：目标由 full_rehearsal.targets 承载，无单目标。
         if data.target_ref:
@@ -765,18 +776,17 @@ def _resolve_scene_target(data: ExplorationStartApiRequest) -> str | None:
                 "空间诊断不需要指定单目标角色；主体请用 diagnostic.subject_ref"
             )
         subject = data.diagnostic.subject_ref
-        if subject and data.start is not None and data.start.kind == "provisional":
-            validate_scene_targets(data.start, [subject])
+        if subject and start is not None and start.kind == "provisional":
+            validate_scene_targets(start, [subject])
         return None
     if data.multi_targets:
         if data.target_ref:
             raise ValueError(
                 "multi_targets 与 target_ref 互斥；多目标请只传 multi_targets"
             )
-        if data.start is not None:
-            validate_scene_targets(data.start, data.multi_targets)
+        if start is not None:
+            validate_scene_targets(start, data.multi_targets)
         return None
-    start = data.start
     if start.kind != "provisional":
         if not data.target_ref:
             raise ValueError("场景一句对白请指定目标角色（正式角色 entity_id）")

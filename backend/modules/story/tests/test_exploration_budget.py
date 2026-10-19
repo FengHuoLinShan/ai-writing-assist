@@ -1,4 +1,4 @@
-"""探索预算预览：初始恰好 1 次请求、token 区间按输入包长度估算（P0 §5）。"""
+"""探索预算披露包含治理步骤及原生包封，不扩大实际请求次数。"""
 
 from __future__ import annotations
 
@@ -43,6 +43,7 @@ def test_initial_budget_includes_director_generation_audit_and_one_repair(scale)
     assert len(preview.preview_hash) == 64
     assert preview.token_estimate.minimum == preview.tokens_min
     assert preview.token_estimate.maximum == preview.tokens_max
+    assert preview.tokens_max >= 32000 * preview.requests_max
 
 
 def test_preview_hash_is_deterministic_and_binds_inputs():
@@ -70,6 +71,18 @@ def test_preview_hash_is_deterministic_and_binds_inputs():
         ).preview_hash
         != first.preview_hash
     )
+
+
+def test_new_token_reserve_requires_new_preview_but_legacy_identity_is_readable():
+    from infrastructure.llm.collaboration import content_hash
+
+    start = _start()
+    legacy = exploration_preview_identity(
+        novel_id="n", scale="sandbox", start=start, budget_policy_version=1
+    )
+    assert "budget_policy_version" not in legacy
+    current = preview_exploration_budget(novel_id="n", scale="sandbox", start=start)
+    assert current.preview_hash != content_hash(legacy)
 
 
 def test_longer_input_package_raises_token_floor():

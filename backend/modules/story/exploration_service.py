@@ -34,6 +34,7 @@ from modules.story.director_service import (
     get_director_branch,
     get_director_root,
 )
+from modules.story.exploration_budget import EXPLORATION_BUDGET_POLICY_VERSION
 from modules.story.exploration_schemas import (
     AFFECTED_ITEM_EXCERPT_MAX_LENGTH,
     AFFECTED_ITEMS_MAX,
@@ -99,14 +100,13 @@ def _uuid(value: str | uuid.UUID) -> uuid.UUID:
 
 
 async def _require_project(
-    db, novel_id: str, owner_id: str, *, for_update: bool = False
+    db, novel_id: str, owner_id: str, *, protect_write: bool = False
 ) -> None:
     """owner+novel 归属校验：项目缺失或不属于该作者一律 404，不泄露存在性。"""
-    context = await project_facade.get_any_project_context(
-        db,
-        novel_id,
-        **({"for_update": True} if for_update else {}),
-    )
+    if protect_write:
+        # 共享删除围栏足够；升级项目行锁会使同项目并发请求互相等待。
+        await project_facade.require_active_project(db, novel_id)
+    context = await project_facade.get_any_project_context(db, novel_id)
     if context is None or context.owner_id is None:
         raise NotFoundError("项目不存在")
     if str(context.owner_id) != str(_uuid(owner_id)):
@@ -192,7 +192,7 @@ async def create_exploration_root(
             raise DomainError("full_rehearsal 仅支持场景一句对白尺度")
         if not isinstance(start, ProvisionalStart):
             raise DomainError("full_rehearsal 仅支持临时假设起点")
-    await _require_project(db, novel_id, owner_id, for_update=True)
+    await _require_project(db, novel_id, owner_id, protect_write=True)
 
     if isinstance(start, ProvisionalStart):
         source_kind = PROVISIONAL_SOURCE_KIND
@@ -210,6 +210,7 @@ async def create_exploration_root(
     fingerprint = exploration_start_fingerprint(start, scale)
     request_json = {
         "exploration_scale": scale,
+        "exploration_budget_policy_version": EXPLORATION_BUDGET_POLICY_VERSION,
         "exploration_source_kind": source_kind,
         "exploration_start_fingerprint": fingerprint,
         "exploration_start": start.model_dump(mode="json"),
@@ -792,7 +793,7 @@ async def save_exploration_author_edit(
 ) -> tuple[Any, ExplorationOutputEnvelope]:
     """把作者编辑保存为新结果行；不可变行不修改，重复保存幂等返回同一行。"""
 
-    await _require_project(db, novel_id, owner_id, for_update=True)
+    await _require_project(db, novel_id, owner_id, protect_write=True)
     base_row, chain = await _locate_result_row(db, novel_id, base_result_id, lock=True)
     base_envelope = unpack_exploration_output(base_row)
     if base_envelope is None:
@@ -1002,7 +1003,7 @@ async def set_exploration_item_lock(
     已锁定项重复加锁按分支状态幂等返回当前 lock_set 行；解除未锁定项 409。
     """
 
-    await _require_project(db, novel_id, owner_id, for_update=True)
+    await _require_project(db, novel_id, owner_id, protect_write=True)
     base_row, chain = await _locate_result_row(db, novel_id, base_result_id, lock=True)
     base_envelope = unpack_exploration_output(base_row)
     if base_envelope is None:

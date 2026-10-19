@@ -626,6 +626,56 @@ def test_event_goal_path_bounds_and_unsolvable_is_legal():
         GoalPath.model_validate({**_goal_path_payload(), "steps": [incomplete]})
 
 
+@pytest.mark.parametrize("location", ["goal_path", "top", "both"])
+def test_goal_unsolvable_allows_empty_steps_and_normalizes_legacy_location(location):
+    conclusion = {"reason": "双方目标互斥，无法合作", "missing": ["共同目标"]}
+    goal = _goal_path_payload(steps=[])
+    payload = _event_payload(mode="goal", goal_path=goal)
+    if location in {"goal_path", "both"}:
+        goal["unsolvable"] = conclusion
+    if location in {"top", "both"}:
+        payload["unsolvable"] = conclusion
+    original = copy.deepcopy(payload)
+
+    result = EventOutputV1.model_validate(payload)
+
+    assert result.goal_path.steps == []
+    assert result.goal_path.unsolvable.model_dump() == conclusion
+    assert result.unsolvable is None
+    assert payload == original
+    assert EventOutputV1.model_validate_json(result.model_dump_json()) == result
+
+
+def test_goal_success_requires_steps_and_conflicting_unsolvable_is_rejected():
+    with pytest.raises(ValidationError):
+        GoalPath.model_validate(_goal_path_payload(steps=[]))
+    with pytest.raises(ValidationError):
+        EventOutputV1.model_validate(
+            _event_payload(mode="goal", goal_path=_goal_path_payload(steps=[]))
+        )
+    with pytest.raises(ValidationError, match="无解结论.*不一致"):
+        EventOutputV1.model_validate(
+            _event_payload(
+                mode="goal",
+                goal_path=_goal_path_payload(
+                    unsolvable={"reason": "没有共同目标", "missing": ["共同目标"]}
+                ),
+                unsolvable={"reason": "不知道地址", "missing": ["地址"]},
+            )
+        )
+
+
+def test_goal_top_unsolvable_accepts_existing_goal_model_without_mutating_it():
+    goal = GoalPath.model_validate(_goal_path_payload())
+    conclusion = {"reason": "双方目标互斥，无法合作", "missing": ["共同目标"]}
+    result = EventOutputV1.model_validate(
+        _event_payload(mode="goal", goal_path=goal, unsolvable=conclusion)
+    )
+    assert result.goal_path.unsolvable.model_dump() == conclusion
+    assert result.goal_path.steps == goal.steps
+    assert goal.unsolvable is None
+
+
 def test_start_task_request_event_mode_hint_scale_value_and_action_guard():
     base = {
         "novel_id": NOVEL_ID,
