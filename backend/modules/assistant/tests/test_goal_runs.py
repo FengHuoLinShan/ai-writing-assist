@@ -1843,3 +1843,1152 @@ async def test_goal_r2_dossier_restore_uses_revision_cas_after_author_edits(
         entry_group_id=str(baseline.entry_group_id),
     )
     assert active is not None and active["content"] == "作者后来修订"
+
+
+# ---------------------------------------------------------------------------
+# M4-B 切片 1：探索操作接入目标运行（goal runs）
+# ---------------------------------------------------------------------------
+
+
+@pytest.fixture
+def exploration_gate(monkeypatch):
+    from core.config import get_settings
+
+    monkeypatch.setenv("STORY_EXPLORATION_ENABLED", "true")
+    get_settings.cache_clear()
+    yield
+    monkeypatch.setenv("STORY_EXPLORATION_ENABLED", "false")
+    get_settings.cache_clear()
+
+
+def _provisional_start():
+    from modules.evidence.contracts import Assumption, ProvisionalStart
+
+    return ProvisionalStart(
+        kind="provisional",
+        question="这个城镇每天只有一小时重力减半，面包师的一天会怎样？",
+        assumptions=[Assumption(kind="world_rule", text="每天只有一小时重力减半")],
+        time_basis="assumed_now",
+    )
+
+
+_SANDOX_RECEIPT_PAYLOAD = {
+    "question": "重力减半后面包师的一天？",
+    "influence_chain": [
+        {
+            "condition": "揉面时间不变",
+            "mechanism": "重力降低让面团发酵更快",
+            "effect": "面包更松软",
+        }
+    ],
+    "preconditions": [],
+    "unknowns": ["无精确生产参数，不编造产出变化"],
+}
+
+
+def _exploration_start_parameters(novel_id: str) -> dict:
+    from modules.story.exploration_budget import preview_exploration_budget
+
+    start = _provisional_start()
+    budget = preview_exploration_budget(
+        novel_id=novel_id,
+        scale="sandbox",
+        start=start,
+        focus="",
+    )
+    return {
+        "novel_id": novel_id,
+        "scale": "sandbox",
+        "start": start.model_dump(mode="json"),
+        "focus": "",
+        "action": "story.exploration.sandbox.generate",
+        "context_confirmation_id": str(uuid.uuid4()),
+        "budget_preview_hash": budget.preview_hash,
+        "operation_id": str(uuid.uuid4()),
+        "time_budget_seconds": 3600,
+    }
+
+
+def _exploration_goal_plan(novel_id: str) -> GoalPlan:
+    return GoalPlan.model_validate(
+        {
+            "title": "沙盘看一条规则影响",
+            "steps": [
+                {
+                    "step_id": "explore",
+                    "operation_id": "story.exploration.start",
+                    "parameters": _exploration_start_parameters(novel_id),
+                    "intent": "看规则对日常的影响并停在结果",
+                }
+            ],
+        }
+    )
+
+
+def _stub_exploration_worker(
+    monkeypatch, *, usage: dict | None, fail: bool = False, fail_after_usage: bool = False
+):
+    """把两个探索任务类型的 handler 替换为离线桩：可产生账本用量或失败。"""
+    from infrastructure.llm.schemas import LLMUsage
+    from infrastructure.llm.workflow_budget import (
+        AIManagedStepContext,
+        AIStepCallKind,
+        current_ai_run_envelope,
+        managed_step_scope,
+    )
+    from infrastructure.tasks.registry import TaskRegistry
+
+    async def stub_handler(db, task):  # noqa: ARG001 - 与任务处理器签名一致
+        envelope = current_ai_run_envelope()
+        assert envelope is not None
+        assert envelope.run_id == str(task.meta["exploration_root_id"])
+        assert envelope.root_capability_id == "story.exploration"
+        if fail:
+            raise RuntimeError("stub exploration worker failure")
+        if usage is not None:
+            with managed_step_scope(
+                AIManagedStepContext(
+                    step_name="story.exploration.sandbox.generate",
+                    call_kind=AIStepCallKind.structured,
+                    capability_id="story.exploration",
+                )
+            ):
+                reservation = await envelope.reserve()
+                if usage.get("unknown"):
+                    await envelope.settle(reservation)
+                else:
+                    await envelope.settle(
+                        reservation,
+                        usage=LLMUsage(
+                            prompt_tokens=usage["prompt_tokens"],
+                            completion_tokens=usage["completion_tokens"],
+                            total_tokens=usage["total_tokens"],
+                        ),
+                    )
+        if fail_after_usage:
+            raise RuntimeError("stub failure after provider response")
+        return {
+            "status": "completed",
+            "root_id": str(task.meta["exploration_root_id"]),
+            "branch_id": str(task.meta["exploration_branch_id"]),
+            "result_id": str(uuid.uuid4()),
+            "output_kind": "story.exploration.sandbox",
+            "payload": _SANDOX_RECEIPT_PAYLOAD,
+        }
+
+    original = TaskRegistry.get_handler
+
+    def patched(self, task_type):
+        if task_type in {
+            "story_exploration_progression_task",
+            "story_exploration_scene_task",
+        }:
+            return stub_handler
+        return original(self, task_type)
+
+    monkeypatch.setattr(TaskRegistry, "get_handler", patched)
+
+
+def _stub_exploration_domain_inputs(monkeypatch, *, calls: list | None = None):
+    """替换 Evidence 确认与执行快照：确认重用同一 ID，不新建确认。"""
+    from types import SimpleNamespace
+
+    from modules.story import exploration_api
+
+    async def fresh_confirmation(_db, *, novel_id, action, confirmation_id):
+        if calls is not None:
+            calls.append({"action": action, "confirmation_id": confirmation_id})
+        return SimpleNamespace(
+            compile_options={
+                "exploration_start": _provisional_start().model_dump(mode="json"),
+                "exploration_scale": "sandbox",
+                "exploration_focus": "",
+            }
+        )
+
+    async def snapshot(_db, novel_id):
+        return {"novel_id": novel_id}
+
+    async def attach_ref(
+        _db, *, novel_id, confirmation_id, result_type, result_id, status
+    ):  # noqa: E501
+        return None
+
+    monkeypatch.setattr(exploration_api, "require_fresh_confirmation", fresh_confirmation)
+    # 操作目录 prepare 直接从 evidence facade 导入；与探索 API 共用同一桩。
+    import modules.evidence.facade as evidence_facade
+
+    monkeypatch.setattr(evidence_facade, "require_fresh_confirmation", fresh_confirmation)
+    monkeypatch.setattr(exploration_api, "build_project_llm_execution_snapshot", snapshot)
+    monkeypatch.setattr(exploration_api, "attach_result_ref", attach_ref)
+
+
+def _exploration_goal_env(monkeypatch, db_session, test_project_id, owner_id, plan):
+    from app.assistant_operation_registry import story_exploration_operations
+    from modules.assistant.goal_runs import service
+
+    async def no_project_gate(*_args, **_kwargs):
+        return None
+
+    async def project_context(*_args, **_kwargs):
+        return SimpleNamespace(
+            project_kind="author",
+            owner_id=owner_id,
+            title="测试小说",
+            genre="奇幻",
+            tone="沉静",
+            language="zh",
+            current_stage="世界构建",
+        )
+
+    async def trace_disabled(*_args, **_kwargs):
+        return False
+
+    async def project_snapshot(*_args, **_kwargs):
+        return _offline_snapshot()
+
+    @asynccontextmanager
+    async def offline_client(*_args, **_kwargs):
+        yield _PlanningClient(plan)
+
+    monkeypatch.setattr(service, "_require_goal_project", no_project_gate)
+    monkeypatch.setattr(service, "get_any_project_context", project_context)
+    monkeypatch.setattr(service, "_trace_enabled", trace_disabled)
+    monkeypatch.setattr(service, "build_project_llm_execution_snapshot", project_snapshot)
+    monkeypatch.setattr(service, "open_project_snapshot_llm_client", offline_client)
+    monkeypatch.setattr(
+        service, "_operation_registry", lambda: story_exploration_operations
+    )
+    return service
+
+
+@pytest.mark.asyncio
+async def test_goal_exploration_start_step_approval_and_domain_ledger_import(
+    db_session, test_project_id, monkeypatch, exploration_gate
+):
+    """探索 start：R2 步骤批准 → 领域独立账本执行 → 增量汇入目标总账。"""
+    import modules.story.exploration_tasks  # noqa: F401
+    from infrastructure.tasks.models import AsyncTask
+    from modules.story.world_progression_models import StoryWorldProgressionRoot
+
+    owner_id = str(current_account_id())
+    plan = _exploration_goal_plan(test_project_id)
+    service = _exploration_goal_env(
+        monkeypatch, db_session, test_project_id, owner_id, plan
+    )
+    confirmation_calls: list[dict] = []
+    _stub_exploration_domain_inputs(monkeypatch, calls=confirmation_calls)
+    _stub_exploration_worker(
+        monkeypatch,
+        usage={"prompt_tokens": 90, "completion_tokens": 30, "total_tokens": 120},
+    )
+
+    request = _start_request(uuid.UUID(test_project_id))
+    request.budget.requests = 10
+    request.budget.possible_charge_requests = 10
+    request.budget.tokens = 100000
+    prepared = await service.start_goal(db_session, request, owner_id)
+    assert prepared["phase"] == "plan_review"
+    approved = await service.approve_goal_plan(
+        db_session,
+        novel_id=test_project_id,
+        run_id=prepared["run_id"],
+        owner_id=owner_id,
+        data=GoalPlanApproval(
+            expected_revision=prepared["revision"],
+            plan=plan,
+            budget=request.budget,
+            auto_r2=False,
+        ),
+    )
+    # 探索 start 是 confirm/R2：计划批准后仍需作者步骤批准（现有 step 流程）。
+    assert approved["status"] == "waiting_approval"
+    assert approved["phase"] == "step_review"
+    assert approved["steps"][0]["status"] == "prepared"
+
+    completed = await service.approve_goal_step(
+        db_session,
+        novel_id=test_project_id,
+        run_id=prepared["run_id"],
+        owner_id=owner_id,
+        data=GoalStepApproval(
+            expected_revision=approved["revision"],
+            step_id="explore",
+            approve=True,
+        ),
+    )
+    assert completed["status"] == "completed", completed.get("stop_reason")
+    assert completed["steps"][0]["status"] == "completed"
+    # 目标总账 = 规划 2 次 + 探索任务增量 1 次；令牌含领域汇入的 120。
+    assert completed["budget"]["used"]["requests"] == 3
+    assert completed["budget"]["used"]["tokens"] == 40 + 120
+    assert completed["budget"]["used"]["charge_state"] == "recorded"
+
+    run = await service._load_goal_run(
+        db_session, test_project_id, prepared["run_id"], owner_id
+    )
+    goal = run.checkpoint_json["goal"]
+    record = service._step_records(goal)["explore"]
+    assert record["reference"]["task_type"] == "story_exploration_progression_task"
+    assert record["result"]["output_kind"] == "story.exploration.sandbox"
+    assert record["result"]["result_id"]
+    assert record["result"]["payload"]["influence_chain"]
+    # 领域任务绑定目标父任务；领域根账本镜像保留真实消耗。
+    task = await db_session.get(AsyncTask, uuid.UUID(record["reference"]["task_id"]))
+    assert task.meta["_parent_task_id"] == str(run.task_id)
+    root = await db_session.get(
+        StoryWorldProgressionRoot, uuid.UUID(record["reference"]["root_id"])
+    )
+    mirrored = root.run_envelope_json
+    assert mirrored["requests_started"] == 1
+    assert mirrored["usage"]["total_tokens"] == 120
+    # 同一确认被复用（prepare + apply），不逐层新建授权。
+    assert {item["confirmation_id"] for item in confirmation_calls} == {
+        plan.steps[0].parameters["context_confirmation_id"]
+    }
+
+
+@pytest.mark.asyncio
+async def test_goal_exploration_unknown_domain_usage_stops_goal_for_review(
+    db_session, test_project_id, monkeypatch, exploration_gate
+):
+    """领域未知计费汇入目标总账后按未知语义停止；不返还、不静默重发。"""
+    import modules.story.exploration_tasks  # noqa: F401
+
+    owner_id = str(current_account_id())
+    plan = _exploration_goal_plan(test_project_id)
+    service = _exploration_goal_env(
+        monkeypatch, db_session, test_project_id, owner_id, plan
+    )
+    _stub_exploration_domain_inputs(monkeypatch)
+    _stub_exploration_worker(monkeypatch, usage={"unknown": True})
+
+    request = _start_request(uuid.UUID(test_project_id))
+    request.budget.requests = 10
+    request.budget.possible_charge_requests = 10
+    request.budget.tokens = 100000
+    prepared = await service.start_goal(db_session, request, owner_id)
+    approved = await service.approve_goal_plan(
+        db_session,
+        novel_id=test_project_id,
+        run_id=prepared["run_id"],
+        owner_id=owner_id,
+        data=GoalPlanApproval(
+            expected_revision=prepared["revision"],
+            plan=plan,
+            budget=request.budget,
+            auto_r2=False,
+        ),
+    )
+    resolved = await service.approve_goal_step(
+        db_session,
+        novel_id=test_project_id,
+        run_id=prepared["run_id"],
+        owner_id=owner_id,
+        data=GoalStepApproval(
+            expected_revision=approved["revision"], step_id="explore", approve=True
+        ),
+    )
+    assert resolved["status"] == "waiting_approval"
+    assert resolved["stop_code"] == "unknown_charge", resolved.get("stop_reason")
+    assert resolved["budget"]["used"]["requests"] == 3
+    assert resolved["budget"]["used"]["charge_state"] == "possible"
+    envelope = service._envelope_from_run(
+        await service._load_goal_run(
+            db_session, test_project_id, prepared["run_id"], owner_id
+        )
+    ).snapshot()
+    assert envelope.requests_unknown == 1
+    # 步骤回执已完成，但目标在下一步骤前停止核对，不自动继续。
+    assert resolved["steps"][0]["status"] == "completed"
+
+
+def test_goal_domain_ledger_headroom_refuses_over_declared_allocation():
+    """领域申报上限超过目标剩余额度时，先拒绝执行而不是超支后无法归集。"""
+    from infrastructure.llm.workflow_budget import new_ai_run_envelope
+    from modules.assistant.goal_runs import service
+
+    budget = GoalBudget(
+        requests=4, possible_charge_requests=4, tokens=4096, time_limit_seconds=600
+    )
+    envelope = new_ai_run_envelope(
+        operation_id=str(uuid.uuid4()),
+        run_id=str(uuid.uuid4()),
+        root_capability_id="assistant.goal.run",
+        novel_id=str(uuid.uuid4()),
+        request_limit=budget.requests,
+        token_limit=budget.tokens,
+        budget_mode="goal",
+        scope_fingerprint="a" * 64,
+        authorized_step_capabilities=["assistant.goal.plan"],
+    )
+
+    class _Task:
+        task_type = "story_exploration_progression_task"
+        meta = {
+            "exploration_authorized_requests": 3,
+            "exploration_authorized_tokens": 5000,
+        }
+
+    reason = service._domain_ledger_headroom_reason(envelope, budget, _Task())
+    assert reason and "申报 3 次请求" in reason and "剩余 4 次" in reason
+    assert service._domain_ledger_declared_allocation(None) == (0, 0)
+
+    class _SmallTask:
+        task_type = "story_exploration_progression_task"
+        meta = {
+            "exploration_authorized_requests": 1,
+            "exploration_authorized_tokens": 400,
+        }
+
+    assert service._domain_ledger_headroom_reason(envelope, budget, _SmallTask()) is None
+
+
+@pytest.mark.parametrize(
+    "requests,tokens,reason",
+    [(9, 0, "80% 可能费用"), (11, 0, "可能产生费用"), (1, 800, "80% 令牌")],
+)
+def test_goal_counter_observes_live_detached_domain_ledger(requests, tokens, reason):
+    from infrastructure.llm.schemas import LLMUsage
+    from infrastructure.llm.workflow_budget import (
+        AIRunBudgetExceededError,
+        AIRunEnvelope,
+        ai_run_scope,
+        new_ai_run_envelope,
+    )
+    from modules.assistant.goal_runs import service
+
+    budget = GoalBudget(
+        requests=100, possible_charge_requests=10, tokens=1000, time_limit_seconds=600
+    )
+    parent = new_ai_run_envelope(
+        operation_id=str(uuid.uuid4()),
+        run_id=str(uuid.uuid4()),
+        root_capability_id="assistant.goal.run",
+        novel_id=str(uuid.uuid4()),
+        request_limit=100,
+        token_limit=1000,
+        budget_mode="goal",
+        scope_fingerprint="a" * 64,
+    )
+    snapshot = parent.snapshot().model_copy(deep=True)
+    snapshot.run_id = str(uuid.uuid4())
+    snapshot.requests_started = requests
+    snapshot.usage = LLMUsage(
+        prompt_tokens=tokens, completion_tokens=0, total_tokens=tokens
+    )
+    from infrastructure.llm.schemas import AIStepReceiptV1
+
+    snapshot.steps = [
+        AIStepReceiptV1(
+            step_name="assistant.goal.plan",
+            step_capability_id="assistant.goal.run",
+            call_kind="structured",
+            requests_started=requests,
+            requests_settled=requests,
+            usage=snapshot.usage,
+        )
+    ]
+    domain = AIRunEnvelope(snapshot)
+    meter = service.GoalWorkflowCounter(
+        parent,
+        budget,
+        domain_baseline={
+            "requests_started": 0,
+            "requests_unknown": 0,
+            "prompt_tokens": 0,
+            "completion_tokens": 0,
+        },
+    )
+    with ai_run_scope(domain), pytest.raises(AIRunBudgetExceededError, match=reason):
+        meter.reserve(requests=1)
+    assert parent.snapshot().requests_started == 0
+
+
+def test_goal_headroom_uses_possible_charge_limit_before_dispatch():
+    from infrastructure.llm.workflow_budget import new_ai_run_envelope
+    from modules.assistant.goal_runs import service
+
+    budget = GoalBudget(
+        requests=20, possible_charge_requests=2, tokens=10000, time_limit_seconds=600
+    )
+    envelope = new_ai_run_envelope(
+        operation_id=str(uuid.uuid4()),
+        run_id=str(uuid.uuid4()),
+        root_capability_id="assistant.goal.run",
+        novel_id=str(uuid.uuid4()),
+        request_limit=20,
+        token_limit=10000,
+        budget_mode="goal",
+        scope_fingerprint="a" * 64,
+    )
+    task = SimpleNamespace(
+        task_type="story_exploration_scene_task",
+        meta={
+            "exploration_authorized_requests": 3,
+            "exploration_authorized_tokens": 100,
+        },
+    )
+    assert "剩余 2 次" in service._domain_ledger_headroom_reason(envelope, budget, task)
+
+
+async def test_goal_handoff_binds_preview_confirmation_start_without_extra_approval(
+    db_session,
+    test_project_id,
+    monkeypatch,
+    exploration_gate,
+):
+    import modules.story.exploration_tasks  # noqa: F401
+    from modules.story import exploration_api
+    from modules.story.tests.test_exploration_handoff import (
+        _sandbox_envelope,
+        _sandbox_start,
+        _seed_source,
+    )
+
+    _root, _branch, source = await _seed_source(
+        db_session,
+        uuid.UUID(test_project_id),
+        scale="sandbox",
+        start=_sandbox_start(),
+        envelope=_sandbox_envelope(),
+    )
+
+    def reference(step, *path):
+        return {
+            "$ref": {
+                "step_id": step,
+                "path": list(path),
+                "value_type": "object" if path == ("derived_start",) else "string",
+            }
+        }
+
+    base = {
+        "novel_id": test_project_id,
+        "scale": "event",
+        "start": reference("handoff", "derived_start"),
+        "focus": "先看订单如何送达",
+        "action": "story.exploration.event.diagnose",
+    }
+    plan = GoalPlan.model_validate(
+        {
+            "title": "从条件影响推到事件路径",
+            "steps": [
+                {
+                    "step_id": "handoff",
+                    "operation_id": "story.exploration.handoff",
+                    "intent": "保留候选条件",
+                    "parameters": {
+                        "novel_id": test_project_id,
+                        "result_id": str(source.id),
+                        "target_scale": "event",
+                        "item_path": "chain:0",
+                        "reason": "考察影响如何形成具体事件",
+                    },
+                },
+                {
+                    "step_id": "preview",
+                    "operation_id": "story.exploration.confirmation_preview",
+                    "intent": "只读目标资料",
+                    "depends_on": ["handoff"],
+                    "parameters": base,
+                },
+                {
+                    "step_id": "confirm",
+                    "operation_id": "story.exploration.confirm",
+                    "intent": "在已批准目标内绑定资料",
+                    "depends_on": ["handoff", "preview"],
+                    "parameters": {
+                        **base,
+                        "expected_context_fingerprint": reference(
+                            "preview", "context_fingerprint"
+                        ),
+                    },
+                },
+                {
+                    "step_id": "start",
+                    "operation_id": "story.exploration.start",
+                    "intent": "在已批准预算内探索",
+                    "depends_on": ["handoff", "preview", "confirm"],
+                    "parameters": {
+                        **base,
+                        "operation_id": str(uuid.uuid4()),
+                        "context_confirmation_id": reference(
+                            "confirm", "confirmation_id"
+                        ),
+                        "budget_preview_hash": reference(
+                            "preview", "budget", "preview_hash"
+                        ),
+                    },
+                },
+            ],
+        }
+    )
+    owner = str(current_account_id())
+    service = _exploration_goal_env(monkeypatch, db_session, test_project_id, owner, plan)
+
+    async def snapshot(_db, novel_id):
+        return {"novel_id": novel_id}
+
+    monkeypatch.setattr(exploration_api, "build_project_llm_execution_snapshot", snapshot)
+    _stub_exploration_worker(
+        monkeypatch,
+        usage={"prompt_tokens": 10, "completion_tokens": 10, "total_tokens": 20},
+    )
+    request = _start_request(uuid.UUID(test_project_id))
+    request.budget = GoalBudget(
+        requests=20, possible_charge_requests=20, tokens=200000, time_limit_seconds=600
+    )
+    errors = []
+    original_error_code = service._error_code
+
+    def capture_error(error):
+        errors.append(str(error))
+        return original_error_code(error)
+
+    monkeypatch.setattr(service, "_error_code", capture_error)
+    prepared = await service.start_goal(db_session, request, owner)
+    assert prepared["phase"] == "plan_review", errors
+    result = await service.approve_goal_plan(
+        db_session,
+        novel_id=test_project_id,
+        run_id=prepared["run_id"],
+        owner_id=owner,
+        data=GoalPlanApproval(
+            expected_revision=prepared["revision"],
+            plan=plan,
+            budget=request.budget,
+            auto_r2=True,
+        ),
+    )
+    assert result["status"] == "completed", result
+    assert all(step["status"] == "completed" for step in result["steps"])
+    run = await db_session.get(AssistantRun, uuid.UUID(result["run_id"]))
+    records = service._step_records(run.checkpoint_json["goal"])
+    task = await db_session.get(
+        AsyncTask, uuid.UUID(records["start"]["reference"]["task_id"])
+    )
+    assert task.meta["_execution_mode"] == "inline_only"
+    assert task.meta["request"]["start"] == records["handoff"]["result"]["derived_start"]
+    assert (
+        task.meta["context_confirmation_id"]
+        == records["confirm"]["result"]["confirmation_id"]
+    )
+
+
+@pytest.mark.asyncio
+async def test_goal_exploration_receipt_preview_and_reconcile_use_result_location(
+    db_session, test_project_id, monkeypatch, exploration_gate
+):
+    """未知步骤核对：回执预览定位 exploration_result，作者确认后步骤完成。"""
+    from app.assistant_operation_registry import story_exploration_operations
+    from infrastructure.tasks.models import AsyncTask
+
+    owner_id = str(current_account_id())
+    plan = _exploration_goal_plan(test_project_id)
+    service = _exploration_goal_env(
+        monkeypatch, db_session, test_project_id, owner_id, plan
+    )
+    _stub_exploration_domain_inputs(monkeypatch)
+    _stub_exploration_worker(monkeypatch, usage=None)
+
+    request = _start_request(uuid.UUID(test_project_id))
+    request.budget.requests = 4
+    request.budget.possible_charge_requests = 4
+    request.budget.tokens = 8192
+    prepared = await service.start_goal(db_session, request, owner_id)
+    approved = await service.approve_goal_plan(
+        db_session,
+        novel_id=test_project_id,
+        run_id=prepared["run_id"],
+        owner_id=owner_id,
+        data=GoalPlanApproval(
+            expected_revision=prepared["revision"],
+            plan=plan,
+            budget=request.budget,
+            auto_r2=False,
+        ),
+    )
+    assert approved["phase"] == "step_review"
+    run = await service._load_goal_run(
+        db_session, test_project_id, prepared["run_id"], owner_id
+    )
+    goal = run.checkpoint_json["goal"]
+    step = plan.steps[0]
+    operation = story_exploration_operations[step.operation_id]
+    parameter_hash = service.parameter_fingerprint(operation, step.parameters)
+    stable_operation_id = service.step_operation_id(
+        str(run.id), step.step_id, parameter_hash
+    )
+    task_type = "story_exploration_progression_task"
+    root_id, branch_id, result_id = (
+        str(uuid.uuid4()),
+        str(uuid.uuid4()),
+        str(uuid.uuid4()),
+    )
+    reference = {
+        "type": task_type,
+        "task_id": stable_operation_id,
+        "task_type": task_type,
+        "operation_id": stable_operation_id,
+    }
+    db_session.add(
+        AsyncTask(
+            id=uuid.UUID(stable_operation_id),
+            novel_id=uuid.UUID(test_project_id),
+            task_type=task_type,
+            status="done",
+            meta={"_parent_task_id": str(run.task_id)},
+            result={
+                "status": "completed",
+                "root_id": root_id,
+                "branch_id": branch_id,
+                "result_id": result_id,
+                "output_kind": "story.exploration.sandbox",
+                "payload": _SANDOX_RECEIPT_PAYLOAD,
+            },
+        )
+    )
+    record = service._step_records(goal)[step.step_id]
+    record.update(
+        {
+            "status": "outcome_unknown",
+            "operation_id": stable_operation_id,
+            "parameter_fingerprint": parameter_hash,
+            "plan_step_fingerprint": service.digest(step.model_dump(mode="json")),
+            "resolved_parameters": step.parameters,
+            "reference": reference,
+            "read_result": {"status": "incomplete"},
+        }
+    )
+    goal["phase"] = "stopped"
+    goal["stop_code"] = "task_outcome_unknown"
+    goal["stop_reason"] = "原领域任务结果仍未落定。"
+    run = await service._save_goal(db_session, run, goal, status="waiting_approval")
+
+    preview = await service.goal_step_receipt_preview(
+        db_session,
+        test_project_id,
+        prepared["run_id"],
+        step.step_id,
+        int(goal["revision"]),
+        owner_id,
+    )
+    assert preview.status == "verified_applied"
+    assert "沙盘" in preview.summary
+    destination = preview.destination
+    assert destination.kind == "exploration_result"
+    assert str(destination.root_id) == root_id
+    assert str(destination.result_id) == result_id
+    assert destination.scale == "sandbox"
+
+    resolved = await service.reconcile_goal_step(
+        db_session,
+        test_project_id,
+        prepared["run_id"],
+        step.step_id,
+        GoalOutcomeReconciliation(
+            expected_revision=preview.expected_revision, decision="applied"
+        ),
+        owner_id,
+    )
+    assert resolved["steps"][0]["status"] == "completed"
+    assert resolved["stop_code"] == "step_receipt_applied"
+
+
+@pytest.mark.asyncio
+async def test_exploration_read_result_proves_outcomes_from_domain_state(
+    db_session, test_project_id, monkeypatch, exploration_gate
+):
+    """完成=applied；失败且根已失败/首次领取前取消=not_applied；暂停=未知。"""
+    from datetime import UTC, datetime, timedelta
+
+    from infrastructure.llm.workflow_budget import new_ai_run_envelope
+    from infrastructure.tasks.models import AsyncTask
+    from modules.story.exploration_operations import _read_exploration_task_result
+    from modules.story.exploration_service import create_exploration_root
+
+    novel_id = test_project_id
+    root, branch = await create_exploration_root(
+        db_session,
+        novel_id=novel_id,
+        owner_id=str(current_account_id()),
+        scale="sandbox",
+        start=_provisional_start(),
+        context_confirmation_id=str(uuid.uuid4()),
+    )
+    started_at = datetime.now(UTC)
+    root.run_envelope_json = (
+        new_ai_run_envelope(
+            operation_id=str(uuid.uuid4()),
+            run_id=str(root.id),
+            root_capability_id="story.exploration",
+            novel_id=novel_id,
+            request_limit=1,
+            budget_mode="bounded",
+            token_limit=400,
+            started_at=started_at,
+            deadline_at=started_at + timedelta(hours=1),
+        )
+        .snapshot()
+        .model_dump(mode="json")
+    )
+    await db_session.flush()
+
+    def _reference(task_id: str) -> dict:
+        return {
+            "task_id": task_id,
+            "task_type": "story_exploration_progression_task",
+            "operation_id": task_id,
+            "root_id": str(root.id),
+            "branch_id": str(branch.id),
+        }
+
+    # 1) done + completed 回执 → completed，含结果定位字段。
+    completed_task_id = str(uuid.uuid4())
+    db_session.add(
+        AsyncTask(
+            id=uuid.UUID(completed_task_id),
+            novel_id=uuid.UUID(novel_id),
+            task_type="story_exploration_progression_task",
+            status="done",
+            meta={"_parent_task_id": "parent"},
+            result={
+                "status": "completed",
+                "root_id": str(root.id),
+                "branch_id": str(branch.id),
+                "result_id": str(uuid.uuid4()),
+                "output_kind": "story.exploration.sandbox",
+                "payload": _SANDOX_RECEIPT_PAYLOAD,
+            },
+        )
+    )
+    receipt = await _read_exploration_task_result(
+        db_session, novel_id, _reference(completed_task_id)
+    )
+    assert receipt["status"] == "completed"
+    assert receipt["output_kind"] == "story.exploration.sandbox"
+    assert receipt["payload"]["influence_chain"]
+
+    # 2) done + paused_budget → incomplete，需作者在原工作台恢复。
+    paused_task_id = str(uuid.uuid4())
+    db_session.add(
+        AsyncTask(
+            id=uuid.UUID(paused_task_id),
+            novel_id=uuid.UUID(novel_id),
+            task_type="story_exploration_progression_task",
+            status="done",
+            meta={"_parent_task_id": "parent"},
+            result={
+                "status": "paused_budget",
+                "root_id": str(root.id),
+                "branch_id": str(branch.id),
+                "budget_stop": "paused_budget",
+            },
+        )
+    )
+    receipt = await _read_exploration_task_result(
+        db_session, novel_id, _reference(paused_task_id)
+    )
+    assert receipt["status"] == "incomplete"
+    assert receipt["needs_author_resume"] is True
+
+    # 3) 失败且探索根按失败收尾 → 可证明 not_applied。
+    root.status = "failed"
+    await db_session.flush()
+    failed_task_id = str(uuid.uuid4())
+    db_session.add(
+        AsyncTask(
+            id=uuid.UUID(failed_task_id),
+            novel_id=uuid.UUID(novel_id),
+            task_type="story_exploration_progression_task",
+            status="failed",
+            meta={"_parent_task_id": "parent"},
+            error_message="boom",
+        )
+    )
+    receipt = await _read_exploration_task_result(
+        db_session, novel_id, _reference(failed_task_id)
+    )
+    assert receipt["status"] == "not_applied"
+    assert receipt["proof"]["kind"] == "exploration_root_failed_without_result"
+
+    # 4) 首次领取前取消 → 可证明 not_applied（与目标核对语义一致）。
+    cancelled_task_id = str(uuid.uuid4())
+    db_session.add(
+        AsyncTask(
+            id=uuid.UUID(cancelled_task_id),
+            novel_id=uuid.UUID(novel_id),
+            task_type="story_exploration_progression_task",
+            status="cancelled",
+            attempt=0,
+        )
+    )
+    receipt = await _read_exploration_task_result(
+        db_session, novel_id, _reference(cancelled_task_id)
+    )
+    assert receipt["status"] == "not_applied"
+    assert receipt["proof"]["kind"] == "task_cancelled_before_first_claim"
+
+
+@pytest.mark.asyncio
+async def test_exploration_goal_apply_binds_stable_operation_parent_and_chain(
+    monkeypatch, exploration_gate
+):
+    """goal 模式 apply 用目标冻结 operation_id 入队并绑定父任务与链上任务类型。"""
+    from types import SimpleNamespace
+
+    from modules.story import exploration_api, exploration_operations
+
+    novel_id = str(uuid.uuid4())
+
+    async def no_active_project(*_args, **_kwargs):
+        return None
+
+    monkeypatch.setattr(
+        exploration_operations, "require_active_project", no_active_project
+    )
+
+    captured: dict = {}
+
+    async def fake_start(db, *, data, owner_id=None, internal_meta=None):
+        assert internal_meta["_execution_mode"] == "inline_only"
+        captured["operation_id"] = str(data.operation_id)
+        captured["internal_meta"] = internal_meta
+        return {
+            "task_id": str(data.operation_id),
+            "status": "pending",
+            "root_id": str(uuid.uuid4()),
+            "branch_id": str(uuid.uuid4()),
+        }
+
+    async def fake_follow_up(db, **kwargs):
+        captured["follow_up_operation_id"] = str(kwargs["operation_id"])
+        captured["follow_up_meta"] = kwargs["internal_meta"]
+        return {
+            "task_id": str(kwargs["operation_id"]),
+            "status": "pending",
+            "root_id": str(uuid.uuid4()),
+            "branch_id": str(uuid.uuid4()),
+        }
+
+    async def fake_locate(db, *, novel_id, result_id, lock=False):
+        return None, "scene", None
+
+    monkeypatch.setattr(exploration_api, "start_exploration_task", fake_start)
+    monkeypatch.setattr(exploration_api, "submit_exploration_follow_up", fake_follow_up)
+    monkeypatch.setattr(exploration_api, "_locate_exploration_result", fake_locate)
+
+    context = SimpleNamespace(
+        operation_id=str(uuid.uuid4()),
+        internal_meta={"_execution_mode": "inline_only", "_parent_task_id": "parent-1"},
+    )
+    args = exploration_operations.ExplorationStartOperationRequest.model_validate(
+        {
+            "novel_id": novel_id,
+            "scale": "sandbox",
+            "start": {"kind": "scene_anchor", "scene_id": str(uuid.uuid4())},
+            "action": "story.exploration.sandbox.generate",
+            "context_confirmation_id": "conf-1",
+            "budget_preview_hash": "a" * 64,
+            "operation_id": str(uuid.uuid4()),
+        }
+    )
+    receipt = await exploration_operations._apply_start(
+        None, novel_id, args, {}, context=context
+    )
+    assert captured["operation_id"] == context.operation_id
+    assert receipt["task_type"] == "story_exploration_progression_task"
+    assert receipt["operation_id"] == context.operation_id
+    assert captured["internal_meta"] == context.internal_meta
+
+    detail_args = exploration_operations.ExplorationDetailOperationRequest.model_validate(
+        {
+            "novel_id": novel_id,
+            "result_id": "result-1",
+            "operation_id": str(uuid.uuid4()),
+        }
+    )
+    receipt = await exploration_operations._apply_detail(
+        None, novel_id, detail_args, {}, context=context
+    )
+    assert captured["follow_up_operation_id"] == context.operation_id
+    assert captured["follow_up_meta"] == context.internal_meta
+    assert receipt["task_type"] == "story_exploration_scene_task"
+
+
+@pytest.mark.asyncio
+async def test_exploration_non_goal_apply_keeps_client_operation_id(
+    monkeypatch, exploration_gate
+):
+    """非 goal 模式保持既有行为：operation_id 来自请求，返回原 API 回执。"""
+
+    from modules.story import exploration_api, exploration_operations
+
+    novel_id = str(uuid.uuid4())
+
+    async def no_active_project(*_args, **_kwargs):
+        return None
+
+    monkeypatch.setattr(
+        exploration_operations, "require_active_project", no_active_project
+    )
+
+    captured: dict = {}
+
+    async def fake_start(db, *, data, owner_id=None):
+        captured["operation_id"] = str(data.operation_id)
+        return {
+            "task_id": "t-1",
+            "status": "pending",
+            "root_id": "r-1",
+            "branch_id": "b-1",
+        }
+
+    monkeypatch.setattr(exploration_api, "start_exploration_task", fake_start)
+
+    client_operation_id = str(uuid.uuid4())
+    args = exploration_operations.ExplorationStartOperationRequest.model_validate(
+        {
+            "novel_id": novel_id,
+            "scale": "sandbox",
+            "start": {"kind": "scene_anchor", "scene_id": str(uuid.uuid4())},
+            "action": "story.exploration.sandbox.generate",
+            "context_confirmation_id": "conf-1",
+            "budget_preview_hash": "a" * 64,
+            "operation_id": client_operation_id,
+        }
+    )
+    receipt = await exploration_operations._apply_start(
+        None, novel_id, args, {}, context=None
+    )
+    assert captured["operation_id"] == client_operation_id
+    assert receipt == {
+        "task_id": "t-1",
+        "status": "pending",
+        "root_id": "r-1",
+        "branch_id": "b-1",
+        "task_type": "story_exploration_progression_task",
+        "target_type": "story_exploration",
+        "scale": "sandbox",
+    }
+
+
+@pytest.mark.parametrize("unknown", [False, True])
+async def test_goal_failed_exploration_keeps_imported_usage_and_baseline(
+    db_session, test_project_id, monkeypatch, exploration_gate, unknown
+):
+    owner_id = str(current_account_id())
+    plan = _exploration_goal_plan(test_project_id)
+    service = _exploration_goal_env(
+        monkeypatch, db_session, test_project_id, owner_id, plan
+    )
+    _stub_exploration_domain_inputs(monkeypatch)
+    _stub_exploration_worker(
+        monkeypatch,
+        usage={"unknown": True}
+        if unknown
+        else {"prompt_tokens": 90, "completion_tokens": 30, "total_tokens": 120},
+        fail_after_usage=True,
+    )
+    request = _start_request(uuid.UUID(test_project_id))
+    request.budget.requests = request.budget.possible_charge_requests = 10
+    request.budget.tokens = 100000
+    prepared = await service.start_goal(db_session, request, owner_id)
+    approved = await service.approve_goal_plan(
+        db_session,
+        novel_id=test_project_id,
+        run_id=prepared["run_id"],
+        owner_id=owner_id,
+        data=GoalPlanApproval(
+            expected_revision=prepared["revision"],
+            plan=plan,
+            budget=request.budget,
+            auto_r2=False,
+        ),
+    )
+    result = await service.approve_goal_step(
+        db_session,
+        novel_id=test_project_id,
+        run_id=prepared["run_id"],
+        owner_id=owner_id,
+        data=GoalStepApproval(
+            expected_revision=approved["revision"], step_id="explore", approve=True
+        ),
+    )
+    assert result["stop_code"] == ("task_outcome_unknown" if unknown else "task_failed")
+    assert result["budget"]["used"]["requests"] == 3
+    assert result["budget"]["used"]["tokens"] == (40 if unknown else 160)
+    assert result["budget"]["used"]["charge_state"] == (
+        "possible" if unknown else "recorded"
+    )
+    run = await service._load_goal_run(
+        db_session, test_project_id, prepared["run_id"], owner_id
+    )
+    goal = service._goal_state(run)
+    record = service._step_records(goal)["explore"]
+    assert record["domain_ledger_baseline"]["requests_started"] == 1
+    from infrastructure.tasks.models import AsyncTask
+
+    task = await db_session.get(AsyncTask, uuid.UUID(record["reference"]["task_id"]))
+    ledger = service._envelope_from_run(run)
+    before = ledger.snapshot().model_dump(mode="json")
+    await service._import_domain_ledger_delta(ledger, task, record)
+    assert ledger.snapshot().model_dump(mode="json") == before
+
+
+async def test_domain_usage_import_settles_after_goal_deadline():
+    from datetime import UTC, datetime, timedelta
+    from types import SimpleNamespace
+
+    from infrastructure.llm.schemas import AI_RUN_ENVELOPE_KEY, LLMUsage
+    from infrastructure.llm.workflow_budget import (
+        AIManagedStepContext,
+        AIStepCallKind,
+        managed_step_scope,
+        new_ai_run_envelope,
+    )
+    from modules.assistant.goal_runs.service import _import_domain_ledger_delta
+
+    deadline = datetime.now(UTC) - timedelta(seconds=1)
+    goal = new_ai_run_envelope(
+        operation_id="goal-import",
+        run_id="goal-import",
+        novel_id=str(uuid.uuid4()),
+        root_capability_id="assistant.goal.run",
+        request_limit=5,
+        budget_mode="goal",
+        scope_fingerprint="a" * 64,
+        authorized_step_capabilities=["story.exploration"],
+        started_at=deadline - timedelta(seconds=10),
+        deadline_at=deadline,
+    )
+    # These are terminal source counts, not a new provider request.
+    domain = new_ai_run_envelope(
+        operation_id="domain",
+        run_id="domain",
+        root_capability_id="story.exploration",
+        novel_id=goal.snapshot().novel_id,
+        request_limit=5,
+    )
+    with managed_step_scope(
+        AIManagedStepContext(step_name="domain", call_kind=AIStepCallKind.structured)
+    ):
+        request = await domain.reserve()
+        await domain.settle(
+            request,
+            usage=LLMUsage(prompt_tokens=90, completion_tokens=30, total_tokens=120),
+        )
+    task = SimpleNamespace(
+        task_type="story_exploration_scene_task",
+        meta={AI_RUN_ENVELOPE_KEY: domain.snapshot().model_dump(mode="json")},
+    )
+    record = {}
+    await _import_domain_ledger_delta(goal, task, record)
+    assert goal.snapshot().requests_started == 1
+    assert goal.snapshot().usage.total_tokens == 120
+    assert record["domain_ledger_baseline"]["requests_started"] == 1
+    before = goal.snapshot().model_dump(mode="json")
+    await _import_domain_ledger_delta(goal, task, record)
+    assert goal.snapshot().model_dump(mode="json") == before
+    assert goal.snapshot().deadline_at == deadline

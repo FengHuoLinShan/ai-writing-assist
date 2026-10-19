@@ -43,8 +43,11 @@
     <div v-if="!railCollapsed && chapter && !scene" class="scene-cockpit-empty">关联场景后，可在这里查看本场摘要与统一提醒。</div>
 
     <template v-if="!railCollapsed && chapter && scene">
-      <div class="cockpit-tabs" role="tablist" aria-label="本章资料">
-        <button v-for="tab in tabs" :key="tab.key" class="cockpit-tab" :class="{ active: activeTab === tab.key }" role="tab" :aria-selected="activeTab === tab.key" @click="activeTab = tab.key">{{ tab.label }}</button>
+      <div class="scene-cockpit-tabs-row">
+        <div class="cockpit-tabs" role="tablist" aria-label="本章资料">
+          <button v-for="tab in tabs" :key="tab.key" class="cockpit-tab" :class="{ active: activeTab === tab.key }" role="tab" :aria-selected="activeTab === tab.key" @click="activeTab = tab.key">{{ tab.label }}</button>
+        </div>
+        <button type="button" class="btn btn-sm btn-ghost scene-cockpit-explore" @click="exploreInAssistant">在助手中探索这句/这场</button>
       </div>
       <div class="cockpit-body">
         <section v-if="activeTab === 'main'" class="cockpit-panel" data-panel="main">
@@ -151,6 +154,7 @@
 <script setup>
 import { computed, nextTick, reactive, ref } from "vue"
 import { useModalDialog } from "../../../composables/useModalDialog.js"
+import { getAssistantWorkContext, getToast, openProjectAssistant } from "../../../bridge/index.js"
 import SceneLensSummary from "./SceneLensSummary.vue"
 import ObjectDossierPanel from "./ObjectDossierPanel.vue"
 import UnifiedNoticesPanel from "./UnifiedNoticesPanel.vue"
@@ -251,6 +255,19 @@ async function submitNewScene() {
 function openWorkbench() {
   requestClose()
   emit("organize")
+}
+
+// M2 就地入口：带着当前场景和编辑器选区进入助手探索。context 只使用
+// captureWorkContext/opener 已支持的字段；选区过长等捕获失败时提示并保留本页。
+async function exploreInAssistant() {
+  if (!props.projectId || !props.scene) return
+  try {
+    const context = { page: "scene", scope: "current", task_hint: "design", scene_id: props.scene.id, selection: "" }
+    context.selection = (getAssistantWorkContext(props.projectId, "writing").selection || "").slice(0, 2000)
+    await openProjectAssistant({ projectId: props.projectId, context })
+  } catch (error) {
+    getToast()(error?.message || "暂时无法打开项目助手。", "error")
+  }
 }
 const { overlayRef, dialogRef, onKeydown, onFocusin } = useModalDialog({ isOpen: () => associateOpen.value, requestClose })
 

@@ -782,6 +782,7 @@ from modules.story import api as story_api  # noqa: E402
 from modules.story.character_arcs.api import router as story_character_arcs_router  # noqa: E402
 from modules.story.continuity import api as memory_api  # noqa: E402
 from modules.story.director_api import router as story_director_router  # noqa: E402
+from modules.story.exploration_api import router as story_exploration_router  # noqa: E402
 from modules.story.outline_state import api as outline_api  # noqa: E402
 from modules.story.world_progression_api import router as story_world_progression_router  # noqa: E402
 from modules.world import api as world_api  # noqa: E402
@@ -820,6 +821,7 @@ app.include_router(story_api.router)
 app.include_router(story_director_router)
 app.include_router(story_character_arcs_router)
 app.include_router(story_world_progression_router)
+app.include_router(story_exploration_router)
 app.include_router(tasks_api.router)
 if not _public_mode:
     app.include_router(debug_api.router)

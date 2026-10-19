@@ -544,6 +544,74 @@ C5_WORLD_PROGRESSION_OPERATIONS = {
     "story.world_progression.adopt_hook",
     "story.world_progression.read_continuous_authorization",
 }
+C6_EXPLORATION_OPERATIONS = {
+    "story.exploration.handoff",
+    "story.exploration.confirmation_preview",
+    "story.exploration.confirm",
+    "story.exploration.preview",
+    "story.exploration.start",
+    "story.exploration.detail",
+    "story.exploration.revise",
+    "story.exploration.compare",
+    "story.exploration.history",
+}
+# Runtime 18 的探索目录包含移交及目标资料确认，旧目录不得隐式扩展。
+C6_EXPLORATION_SNAPSHOT = {
+    "story.exploration.handoff": (
+        "按所选结果派生跨尺度起点",
+        "read",
+        "1",
+        "518ff861465f8e72e753ba5e0dcd763e43cb7886614ee5010d9089e368719912",
+    ),
+    "story.exploration.confirmation_preview": (
+        "预览目标探索资料",
+        "read",
+        "1",
+        "967e3cc6d7173840ece914fd360ec75a03949f3f9b34abbb2d978a1cb5662acd",
+    ),
+    "story.exploration.confirm": (
+        "确认目标探索资料",
+        "confirm",
+        "1",
+        "59b6f3fc70000183e49186669bf70aaa845221e6b3e3ecc01073bf5bc1a550c7",
+    ),
+    "story.exploration.compare": (
+        "比较同起点探索结果",
+        "read",
+        "1",
+        "3414905ca64099b65dd15f5e4cbe6445622dd10fc48a997d79efed3e79273c5d",
+    ),
+    "story.exploration.detail": (
+        "对探索结果说详细点",
+        "confirm",
+        "1",
+        "250caffc4ab1ce63cd1d46b787b3f396be182ad4511e1a9ff1d82da92f5cf610",
+    ),
+    "story.exploration.history": (
+        "查看独立探索历史",
+        "read",
+        "1",
+        "641a44f779fbff55713819d5fbbd8e35d512928503498fd52f184258a8e2612a",
+    ),
+    "story.exploration.preview": (
+        "预览独立探索推荐与预算",
+        "read",
+        "1",
+        "fba49c18b3fc8c8502669e6a4248d8e22cd52e107a1d093a00ac7896adebfb07",
+    ),
+    "story.exploration.revise": (
+        "局部修订探索结果",
+        "confirm",
+        "1",
+        "5f78b0b5501df770d594b2556e0a18217e8a02faf1f0744f353f7a922807ebaa",
+    ),
+    "story.exploration.start": (
+        "发起独立探索任务",
+        "confirm",
+        "1",
+        "f2d02707adcf91ab839ffbda6647f992ec8c667519631dc7e8ca4c9bccacbda7",
+    ),
+}
 C0_DOSSIER_INTERCHANGE_OPERATIONS = {
     "world.dossier.template.borrowed.read",
     "world.dossier.template.borrowed.edit",
@@ -631,6 +699,7 @@ def _pre_c0c_manifest():
         | C0_DOSSIER_INTERCHANGE_OPERATIONS
         | C3_CHARACTER_ARC_OPERATIONS
         | A1_CHAPTER_TIMELINE_OPERATIONS
+        | C6_EXPLORATION_OPERATIONS
         | AUTHOR_WORKSPACE_RELATION_OPERATIONS
     )
     frozen = {
@@ -662,6 +731,7 @@ def test_bootstrap_operation_catalog_matches_snapshot():
         | C0_DOSSIER_INTERCHANGE_OPERATIONS
         | C3_CHARACTER_ARC_OPERATIONS
         | A1_CHAPTER_TIMELINE_OPERATIONS
+        | C6_EXPLORATION_OPERATIONS
         | AUTHOR_WORKSPACE_RELATION_OPERATIONS
     )
     mismatches = {
@@ -672,17 +742,21 @@ def test_bootstrap_operation_catalog_matches_snapshot():
                 operation.revision,
                 fingerprint(operation.schema.model_json_schema()),
             ),
-            "expected": C0C_REVISED_SNAPSHOT.get(name, OPERATION_SNAPSHOT[name]),
+            "expected": C0C_REVISED_SNAPSHOT.get(
+                name, OPERATION_SNAPSHOT.get(name) or C6_EXPLORATION_SNAPSHOT[name]
+            ),
         }
         for name, operation in catalog.items()
-        if name in OPERATION_SNAPSHOT
+        if name in OPERATION_SNAPSHOT or name in C6_EXPLORATION_SNAPSHOT
         if (
             operation.label,
             operation.permission,
             operation.revision,
             fingerprint(operation.schema.model_json_schema()),
         )
-        != C0C_REVISED_SNAPSHOT.get(name, OPERATION_SNAPSHOT[name])
+        != C0C_REVISED_SNAPSHOT.get(
+            name, OPERATION_SNAPSHOT.get(name) or C6_EXPLORATION_SNAPSHOT[name]
+        )
     }
     assert not mismatches, mismatches
 
@@ -731,6 +805,7 @@ def test_catalog_v2_metadata_and_trace_inventory_match_runtime_schemas():
         + len(C0_DOSSIER_INTERCHANGE_OPERATIONS)
         + len(C3_CHARACTER_ARC_OPERATIONS)
         + len(A1_CHAPTER_TIMELINE_OPERATIONS)
+        + len(C6_EXPLORATION_OPERATIONS)
         + len(AUTHOR_WORKSPACE_RELATION_OPERATIONS)
     )
     assert set(operations) == set(manifest)
@@ -837,6 +912,7 @@ def test_v12_author_operations_do_not_enter_a_frozen_v11_directory():
             | C0_DOSSIER_INTERCHANGE_OPERATIONS
             | C3_CHARACTER_ARC_OPERATIONS
             | A1_CHAPTER_TIMELINE_OPERATIONS
+            | C6_EXPLORATION_OPERATIONS
             | AUTHOR_WORKSPACE_RELATION_OPERATIONS
         )
     }
@@ -848,6 +924,7 @@ def test_v12_author_operations_do_not_enter_a_frozen_v11_directory():
         | C0_DOSSIER_INTERCHANGE_OPERATIONS
         | C3_CHARACTER_ARC_OPERATIONS
         | A1_CHAPTER_TIMELINE_OPERATIONS
+        | C6_EXPLORATION_OPERATIONS
         | AUTHOR_WORKSPACE_RELATION_OPERATIONS
     )
 
@@ -869,6 +946,7 @@ def test_v13_transfer_is_r3_and_absent_from_a_frozen_v12_directory():
             | C0_DOSSIER_INTERCHANGE_OPERATIONS
             | C3_CHARACTER_ARC_OPERATIONS
             | A1_CHAPTER_TIMELINE_OPERATIONS
+            | C6_EXPLORATION_OPERATIONS
             | AUTHOR_WORKSPACE_RELATION_OPERATIONS
         )
     }
@@ -878,6 +956,7 @@ def test_v13_transfer_is_r3_and_absent_from_a_frozen_v12_directory():
         | C0_DOSSIER_INTERCHANGE_OPERATIONS
         | C3_CHARACTER_ARC_OPERATIONS
         | A1_CHAPTER_TIMELINE_OPERATIONS
+        | C6_EXPLORATION_OPERATIONS
         | AUTHOR_WORKSPACE_RELATION_OPERATIONS
     )
     assert not (set(resolve_operations(frozen_v12)) & C4_TRANSFER_OPERATIONS)
@@ -933,6 +1012,22 @@ def test_v17_chapter_timeline_operations_leave_v16_directory_unchanged():
     }
     assert set(manifest) - set(frozen_v16) == A1_CHAPTER_TIMELINE_OPERATIONS
     assert set(resolve_operations(frozen_v16)) == set(frozen_v16)
+    assert set(resolve_operations(manifest)) == set(manifest)
+
+
+def test_v18_exploration_operations_leave_v17_directory_unchanged():
+    from app.bootstrap import register_container_services
+    from modules.assistant.operations import operation_manifest, resolve_operations
+
+    register_container_services()
+    manifest = operation_manifest()
+    frozen_v17 = {
+        name: value
+        for name, value in manifest.items()
+        if name not in C6_EXPLORATION_OPERATIONS
+    }
+    assert set(manifest) - set(frozen_v17) == C6_EXPLORATION_OPERATIONS
+    assert set(resolve_operations(frozen_v17)) == set(frozen_v17)
     assert set(resolve_operations(manifest)) == set(manifest)
 
 

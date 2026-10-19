@@ -152,7 +152,8 @@ Goal v3 仅接受作者冻结的 Goal 范围；Assistant 目录 v4 只接受服�
 v4 的未知扣费或 80% 请求阈值在下一次 provider 预留前拒绝；v1/v2 能力规则不变。
 一次权威领域运行只有一个 run：自动重试、恢复、requeue 与 manual resume 都累加同一账本，
 只有作者明确续算或确认可能重复扣费时才通过 `authorize_additional_requests()` 追加请求或 Token 额度，
-至少一项为正。只追加 Token 时请求上限不变；授权回执记录新增请求为 0 与实际追加 Token，
+至少一项为正。追加授权 reason 枚举为 `duplicate_charge_confirmed | author_resume | author_detail_expand | author_revise`，
+后两者由导演探索的"说详细点"与局部修订使用；不改旧值语义。只追加 Token 时请求上限不变；授权回执记录新增请求为 0 与实际追加 Token，
 原请求计数、起始时间、未知请求和 deadline 均保留。旧正请求追加回执仍可原样读取。
 
 所有变更与 `on_change` checkpoint 在同一临界区内串行，持久化顺序与变更顺序一致，旧快照
@@ -412,6 +413,11 @@ Evolution `budget_total`/`budget_remaining` 允许成对为空；旧有限行原
 存在范围数据时迁移拒绝降级。旧未跟踪队列明确保留领域预算 seam，不能冒充已完整跟踪。
 
 新范围信封在预留前同时核验步骤上下文与实际执行 provider/最终 model，步骤标签不能授权其他来源。新 B5 路由把附加型号能力快照保存在 `cost_routing.llm_capability_profile` 并纳入项目签名；发送按最终型号选冻结输入预算，旧路由缺此字段时保留旧策略。冻结 tokenizer 方法与当前工具不一致在装包/最终发送前失败关闭，不重试或默默放宽输入。
+
+`AIRunEnvelope.record_external_usage` 只归集已经核验的终态领域消费，沿用 managed-step
+能力授权与根累计上限，不发起模型请求，不增加额度或延长 deadline。历史请求可在截止后结算；
+后续真实请求仍必须经过 `reserve()` 的时限/预算准入。物理 attempt 时点保留在原领域账本，
+目标只汇总其 step 用量，不伪造调用时间；重建账本后的请求序号仍高于累计已消费数量。
 
 ### 批准判断 low 隔离
 

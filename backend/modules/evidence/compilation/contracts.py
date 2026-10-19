@@ -109,6 +109,10 @@ SCENE_WORLD_STATE_ACTIONS = frozenset(
         "writing.generate",
         "writing.conflict_check.ai_review",
         "writing.conflict_check.ai_suggestion",
+        "story.exploration.sandbox.generate",
+        "story.exploration.event.diagnose",
+        "story.exploration.event.bridge",
+        "story.exploration.scene_line.generate",
     }
 )
 
@@ -272,6 +276,12 @@ class ContextConfirmationRequest:
     activation_profile_id: str | None = None
     activation_profile_version: int | None = None
     expected_context_fingerprint: str | None = None
+    exploration_start: dict | None = None
+    """story.exploration.* 确认冻结的起点判别联合 dump（kind 判别）；其他动作保持为空。"""
+    exploration_scale: str | None = None
+    """探索观察尺度：sandbox / event / scene_line；仅随探索确认冻结。"""
+    exploration_focus: str | None = None
+    """作者指定的焦点/详略；仅随探索确认冻结。"""
 
 
 @dataclass

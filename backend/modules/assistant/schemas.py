@@ -98,6 +98,11 @@ def work_directive(work: WorkContext) -> str:
             "当前目标是作者明确选择的对象集合，不是全部匹配资料；"
             "回答前分页调用 inspect_current 核对，未读取项列入遗漏，不扩大目标集合。"
         )
+    if work.exploration_intent:
+        directives.append(
+            "作者已选择的探索任务（开始参数必须一致）："
+            + work.exploration_intent.model_dump_json()
+        )
     return "\n".join(directives)
 
 
@@ -118,7 +123,14 @@ def verify_selection_range(draft_content: str, work: WorkContext) -> None:
         raise ValueError("选区与当前正文不一致，请重新选择")
 
 
+class ExplorationIntent(StrictModel):
+    question: str = Field(default="", max_length=4000)
+    scale: Literal["sandbox", "event", "scene_line"]
+    focus: str = Field(default="", max_length=2000)
+
+
 class WorkContext(StrictModel):
+    exploration_intent: ExplorationIntent | None = None
     timezone: str = Field(default="Asia/Shanghai", max_length=64)
     page: Literal[
         "today",

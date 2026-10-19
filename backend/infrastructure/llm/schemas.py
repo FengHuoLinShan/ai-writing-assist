@@ -392,6 +392,8 @@ class AIRunAuthorizationReason(StrEnum):
 
     author_resume = "author_resume"
     duplicate_charge_confirmed = "duplicate_charge_confirmed"
+    author_detail_expand = "author_detail_expand"
+    author_revise = "author_revise"
 
 
 class AITaskIdentityV1(BaseModel):

@@ -387,8 +387,11 @@ class AIRunEnvelope:
         self._persist_error: BaseException | None = None
         self._next_request_index = (
             max(
-                (attempt.request_index for attempt in self._envelope.recent_attempts),
-                default=self._envelope.requests_started,
+                self._envelope.requests_started,
+                max(
+                    (attempt.request_index for attempt in self._envelope.recent_attempts),
+                    default=0,
+                ),
             )
             + 1
         )
@@ -619,6 +622,46 @@ class AIRunEnvelope:
             retryable=retryable,
         )
         self._trim_evicted_attempts()
+        self._refresh_derived()
+        await self._notify_tolerant()
+
+    @_serialized
+    async def record_external_usage(
+        self,
+        *,
+        requests_started: int,
+        requests_unknown: int,
+        usage: LLMUsage,
+    ) -> None:
+        """归集已发生的领域消费；不准入新请求，不延长截止或增加授权。"""
+        if requests_started < 0 or not 0 <= requests_unknown <= requests_started:
+            raise ValueError("invalid external request counts")
+        if not requests_started and usage.total_tokens:
+            raise ValueError("external usage requires a request")
+        if (
+            self._envelope.request_limit is not None
+            and self._envelope.requests_started + requests_started
+            > self._envelope.request_limit
+        ):
+            raise AIRunBudgetExceededError(
+                "external usage exceeds the frozen request limit", run_id=self.run_id
+            )
+        context = current_managed_step_context()
+        if context is None:
+            raise AIManagedStepContextError(
+                "external usage has no managed step context", run_id=self.run_id
+            )
+        step = self._ensure_step(context, context.purpose)
+        settled = requests_started - requests_unknown
+        step.requests_started += requests_started
+        step.requests_settled += settled
+        step.requests_unknown += requests_unknown
+        step.usage = _add_usage(step.usage, usage)
+        self._envelope.requests_started += requests_started
+        self._envelope.requests_settled += settled
+        self._envelope.requests_unknown += requests_unknown
+        # Physical attempt timing remains in the source domain ledger.
+        self._next_request_index += requests_started
         self._refresh_derived()
         await self._notify_tolerant()
 

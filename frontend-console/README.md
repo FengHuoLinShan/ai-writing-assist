@@ -636,6 +636,14 @@ ProactiveCare 同时服务作者/RP，但 RP 仅以 journey ID 访问提醒，�
 只有模型IO采用合成数据。它验证确认、跨页/刷新恢复、提醒设置与390px；真实模型协议、
 故事质量和用户评审另有门禁，不能相互代替。
 
+### 导演多尺度探索结果卡（ADR-0042 第一批）
+
+`api/story.js` 的 `story.exploration*` 九个方法对接 `/api/story/exploration`；`ProjectAssistant.vue`
+以 `ExplorationResultCard.vue` 按 `output_kind`（沙盘/事件/场景对白/作者编辑）渲染探索结果，
+提供保存编辑、说详细点、局部修订与同起点比较，任务进度沿用 `pollTaskProgress` 就地更新，
+待确认与提交回执复用既有持久化。功能默认关闭（`STORY_EXPLORATION_ENABLED`），关闭时历史
+端点仍可读；Scene 工作台与推进面板对带 `output_kind` 的行只显示探索占位并指回助手。
+
 ### 真实演示流程验收修正
 
 - 地图编辑先显示缩放、查找与画布，阅读预览及专项查证位于画布下方；专注看图、来源校验和保存契约保持。

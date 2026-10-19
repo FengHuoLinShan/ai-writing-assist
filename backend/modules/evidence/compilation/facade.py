@@ -31,6 +31,7 @@ from modules.evidence.compilation.contracts import (
 from modules.evidence.compilation.markdown_renderer import (
     render_compiled_context as _render_compiled_context,
 )
+from modules.evidence.compilation.schemas import ExplorationContextRequest
 from modules.evidence.compilation.services import (
     ContextCompiler,
     ContextConfirmationService,
@@ -65,6 +66,14 @@ _generation_background_service = GenerationBackgroundService(
 )
 _hidden_guard_builder = HiddenGuardBuilder()
 _interaction_story_context_service = InteractionStoryContextService()
+
+
+async def project_confirmed_character_context(
+    db, *, confirmed_context, character_id: str
+):
+    return await _confirmed_ai_action_service.character_projection(
+        db, confirmed=confirmed_context, character_id=character_id
+    )
 
 
 async def compile_interaction_story_context(
@@ -716,6 +725,22 @@ async def confirm_context(
     return await _confirmation_service.confirm_context(db, request)
 
 
+async def preview_exploration_context(
+    db: AsyncSession,
+    request: ExplorationContextRequest,
+) -> dict:
+    """导演多尺度独立探索的确认预览；校验与冻结字段见 P0 冻结契约 §2。"""
+    return await _confirmation_service.preview_exploration(db, request)
+
+
+async def confirm_exploration_context(
+    db: AsyncSession,
+    request: ExplorationContextRequest,
+) -> ContextConfirmationContract:
+    """落一次探索确认；起点/尺度/焦点随 compile_options 冻结。"""
+    return await _confirmation_service.confirm_exploration(db, request)
+
+
 async def propose_context_selection(
     db: AsyncSession,
     *,
@@ -1142,9 +1167,18 @@ async def build_hidden_guard_context(
     db: AsyncSession,
     *,
     confirmed_context: ConfirmedAIActionContext,
+    viewpoint_character_id: str | None = None,
 ) -> list[HiddenGuardTerm]:
     """Build deterministic hidden guard terms for post-generation validation."""
-    return await _hidden_guard_builder.build(db, confirmed_context)
+    return await _hidden_guard_builder.build(
+        db,
+        confirmed_context,
+        **(
+            {"viewpoint_character_id": viewpoint_character_id}
+            if viewpoint_character_id
+            else {}
+        ),
+    )
 
 
 def confirmed_knowledge_source_count(confirmed_context: ConfirmedAIActionContext) -> int:

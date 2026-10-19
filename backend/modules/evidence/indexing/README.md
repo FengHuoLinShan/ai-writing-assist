@@ -10,6 +10,9 @@ embedding 经同一信封计量（provider 不返回用量，按 unknown/possibl
 
 ## 定位
 
+导演临时探索不以全书索引为前置；是否读取项目资料由 compilation 的原确认范围决定。
+逐人物投影和暂停恢复不会触发补检索来扩大确认读集，索引新鲜度仍按现有来源门禁处理。
+
 Evidence 的 indexing 子域负责从结构化小说知识库和文本片段中检索与当前创作任务相关的信息。
 Canonical API 前缀为 `/api/evidence/indexing`；旧 `/api/rag` 前缀已退场。
 

@@ -45,6 +45,7 @@ from infrastructure.llm.workflow_budget import (
     AIRunBudgetExceededError,
     AIRunCheckpointError,
     AIRunEnvelope,
+    AIRunEnvelopeError,
     ai_run_scope,
     managed_step_scope,
     new_ai_run_envelope,
@@ -57,6 +58,7 @@ from modules.assistant.contracts import AssistantOperation, AssistantOperationCo
 from modules.assistant.goal_runs.contracts import (
     GoalAction,
     GoalBudget,
+    GoalExplorationReceiptLocation,
     GoalOperationSelection,
     GoalOutcomeReconciliation,
     GoalPlan,
@@ -87,6 +89,9 @@ from modules.assistant.goal_runs.planning import (
     step_operation_id,
     validate_plan,
 )
+from modules.assistant.goal_runs.receipts import (
+    _receipt_preview_details,
+)
 from modules.assistant.models import AssistantRun
 from modules.assistant.schemas import WorkContext
 from modules.project.facade import (
@@ -112,13 +117,62 @@ class GoalPlanningScopeError(ConflictError):
 # These operations create exact, deterministically keyed domain tasks. The task
 # reference is persisted before running the task inline, so recovery can call
 # the original operation.read_result without enqueueing a second task.
+# A single-value mapping means the task type is fixed by the operation. A tuple
+# means the domain apply decides the exact type at submission time (exploration
+# start follows the requested scale; detail/revise follow the parent result's
+# chain); the returned receipt must bind one of the declared candidates and the
+# bound value is what recovery and reconciliation validate against.
 TASK_OPERATION_TYPES = {
     "writing.generate_candidate": "writing_generate",
     "writing.targeted_revision": "writing_targeted_revision",
     "project.scan_duplicates": "smart_dedup_scan",
     "story.character_card.generate": "story_character_card_generate",
     "story.reaction.generate": "story_reaction_propose",
+    "story.exploration.start": (
+        "story_exploration_progression_task",
+        "story_exploration_scene_task",
+    ),
+    "story.exploration.detail": (
+        "story_exploration_progression_task",
+        "story_exploration_scene_task",
+    ),
+    "story.exploration.revise": (
+        "story_exploration_progression_task",
+        "story_exploration_scene_task",
+    ),
 }
+
+# Exploration tasks keep their own bounded root ledger (root capability
+# story.exploration) with a strict envelope identity check inside the domain
+# worker, so they cannot settle into the goal envelope while it is the active
+# run. They run as a detached domain allocation instead and the goal imports
+# the settled delta afterwards (see _execute_task_step).
+_DOMAIN_LEDGER_TASK_OPERATIONS = frozenset(
+    {
+        "story.exploration.start",
+        "story.exploration.detail",
+        "story.exploration.revise",
+        "story.exploration.handoff",
+        "story.exploration.confirmation_preview",
+        "story.exploration.confirm",
+    }
+)
+_EXPLORATION_RESULT_KINDS = {
+    "story.exploration.sandbox": "sandbox",
+    "story.exploration.event": "event",
+    "story.exploration.scene_line": "scene_line",
+    "story.exploration.full_rehearsal": "scene_line",
+}
+
+
+def _task_types_for_operation(operation_id: str) -> tuple[str, ...]:
+    task_type = TASK_OPERATION_TYPES.get(operation_id)
+    if task_type is None:
+        return ()
+    if isinstance(task_type, str):
+        return (task_type,)
+    return tuple(task_type)
+
 
 # Capability IDs come from task-handler registrations, not model output. They
 # are frozen into a goal envelope only after the author approves the plan.
@@ -141,11 +195,13 @@ class GoalWorkflowCounter:
         *,
         time_80_acknowledged: bool = False,
         clock: Callable[[], datetime] | None = None,
+        domain_baseline: Mapping[str, int] | None = None,
     ):
         self.envelope = envelope
         self.budget = budget
         self.time_80_acknowledged = time_80_acknowledged
         self.clock = clock or (lambda: datetime.now(UTC))
+        self.domain_baseline = domain_baseline
 
     def reserve(
         self,
@@ -158,6 +214,29 @@ class GoalWorkflowCounter:
         if min(requests, tools, web, future_requests) < 0:
             raise ValueError("预算预留不能为负数")
         current = self.envelope.snapshot()
+        if self.domain_baseline is not None:
+            from infrastructure.llm.workflow_budget import current_ai_run_envelope
+
+            domain = current_ai_run_envelope()
+            if domain is None or domain is self.envelope:
+                raise AIRunBudgetExceededError(
+                    "领域预算账本不可恢复", run_id=current.run_id
+                )
+            detached = domain.snapshot()
+            current = current.model_copy(deep=True)
+            current.requests_started += max(
+                0, detached.requests_started - self.domain_baseline["requests_started"]
+            )
+            current.requests_unknown += max(
+                0, detached.requests_unknown - self.domain_baseline["requests_unknown"]
+            )
+            baseline_tokens = (
+                self.domain_baseline["prompt_tokens"]
+                + self.domain_baseline["completion_tokens"]
+            )
+            current.usage.total_tokens += max(
+                0, detached.usage.total_tokens - baseline_tokens
+            )
         if current.charge_state is AIChargeState.possible or current.requests_unknown:
             raise AIRunBudgetExceededError(
                 "计费结果未知，目标已暂停核对", run_id=current.run_id
@@ -504,15 +583,18 @@ def _scope_capabilities(
 ) -> list[str]:
     from infrastructure.tasks.registry import TaskRegistry
 
+    registry = TaskRegistry()
     capabilities: set[str] = {GOAL_PLAN_STEP}
     for step in plan.steps:
         operation = operations[step.operation_id]
-        task_type = TASK_OPERATION_TYPES.get(step.operation_id)
-        if task_type:
-            capability = TaskRegistry().get_root_capability(task_type)
+        resolved: set[str] = set()
+        for task_type in _task_types_for_operation(step.operation_id):
+            capability = registry.get_root_capability(task_type)
             if not capability:
                 raise ConflictError("操作任务没有注册根能力，不能纳入目标预算")
-            capabilities.add(capability)
+            resolved.add(capability)
+        if resolved:
+            capabilities.update(resolved)
         elif operation.risk_level == "R4":
             continue
         elif operation.fee_category != "free":
@@ -840,6 +922,29 @@ def _effective_transaction_mode(step: GoalStep, operation: AssistantOperation) -
     return operation.transaction_mode
 
 
+_EXPLORATION_GOAL_EXECUTION_OPS = frozenset(
+    {
+        "story.exploration.preview",
+        "story.exploration.start",
+        "story.exploration.detail",
+        "story.exploration.revise",
+    }
+)
+
+
+def _exploration_goal_gate_reason(operation_id: str) -> str | None:
+    """独立探索执行类操作在功能关闭时不进入目标计划（历史/比较仍可读）。"""
+    if operation_id not in _EXPLORATION_GOAL_EXECUTION_OPS:
+        return None
+    # 与 modules.story.exploration_feature 读同一个开关；这里只做目录可见性
+    # 判定，执行路径仍由领域侧 require_story_exploration_enabled 失败关闭。
+    from core.config import get_settings
+
+    if not get_settings().story_exploration_enabled:
+        return "独立探索尚未开启"
+    return None
+
+
 def _goal_operation_unavailable_reason(
     operation_id: str, operation: AssistantOperation, registry: Any
 ) -> str | None:
@@ -849,17 +954,22 @@ def _goal_operation_unavailable_reason(
         return "需在原工作台独立授权"
     if _is_map_author_decision_operation(operation_id):
         return "需在地图工作台核对作者决定来源"
+    gate_reason = _exploration_goal_gate_reason(operation_id)
+    if gate_reason:
+        return gate_reason
     plan_reason = operation_plan_unavailable_reason(operation)
     if plan_reason:
         return plan_reason
-    task_type = TASK_OPERATION_TYPES.get(operation_id)
-    if task_type:
-        if not (
-            operation.read_result
-            and registry.get_handler(task_type)
-            and registry.get_root_capability(task_type)
-        ):
+    task_types = _task_types_for_operation(operation_id)
+    if task_types:
+        if not operation.read_result:
             return "领域任务缺少稳定回执或根预算能力"
+        for task_type in task_types:
+            if not (
+                registry.get_handler(task_type)
+                and registry.get_root_capability(task_type)
+            ):
+                return "领域任务缺少稳定回执或根预算能力"
     elif operation.transaction_mode == "multi_stage":
         return "多阶段任务尚未接入目标运行"
     elif operation.fee_category != "free":
@@ -2749,9 +2859,21 @@ def _step_is_manual(
     if operation.risk_level == "R2":
         return not (
             bool(goal.get("auto_r2"))
-            and step.operation_id in R2_RESTORE_OPERATIONS
-            and _r2_restore_is_supported(step, operation, resolved_parameters)
+            and (
+                step.operation_id
+                in {
+                    "story.exploration.start",
+                    "story.exploration.detail",
+                    "story.exploration.revise",
+                }
+                or (
+                    step.operation_id in R2_RESTORE_OPERATIONS
+                    and _r2_restore_is_supported(step, operation, resolved_parameters)
+                )
+            )
         )
+    if step.operation_id == "story.exploration.confirm" and operation.risk_level == "R1":
+        return False
     return operation.permission == "confirm"
 
 
@@ -2801,6 +2923,153 @@ async def _stable_task_for_step(
     return task
 
 
+async def _probe_task_for_step(
+    db: AsyncSession,
+    run: AssistantRun,
+    task_types: tuple[str, ...],
+    task_id: str,
+    bound_task_type: str | None,
+) -> tuple[AsyncTask | None, str]:
+    """按候选类型定位本步骤的原任务；回执已绑定的类型优先精确匹配。"""
+    ordered = [bound_task_type] if bound_task_type else []
+    ordered.extend(item for item in task_types if item != bound_task_type)
+    fallback = bound_task_type or (task_types[0] if task_types else "")
+    for task_type in ordered:
+        task = await _stable_task_for_step(db, run, task_type, task_id)
+        if task is not None:
+            return task, task_type
+    return None, fallback
+
+
+def _domain_ledger_snapshot(task: AsyncTask | None) -> dict[str, int] | None:
+    """领域任务当前持有的根账本快照（无独立账本的任务返回 None）。"""
+    from infrastructure.llm.schemas import AI_RUN_ENVELOPE_KEY, read_ai_run_envelope
+
+    if task is None:
+        return None
+    payload = read_ai_run_envelope((task.meta or {}).get(AI_RUN_ENVELOPE_KEY))
+    if payload is None:
+        return None
+    return {
+        "requests_started": int(payload.requests_started),
+        "requests_unknown": int(payload.requests_unknown),
+        "prompt_tokens": int(payload.usage.prompt_tokens),
+        "completion_tokens": int(payload.usage.completion_tokens),
+    }
+
+
+def _domain_ledger_declared_allocation(task: AsyncTask | None) -> tuple[int, int]:
+    """本次领域任务在自己的根账本内申报的增量上限（请求次数、令牌）。
+
+    领域任务在 meta 中冻结这一有界分配（探索任务由提交路径写入）；目标是
+    在执行前确认目标剩余额度足以覆盖申报上限，避免领域账本消耗超出目标
+    总授权后无法完整归集。
+    """
+    if task is None:
+        return 0, 0
+    meta = task.meta or {}
+    try:
+        declared_requests = int(meta.get("exploration_authorized_requests") or 0)
+    except (TypeError, ValueError):
+        declared_requests = 0
+    try:
+        declared_tokens = int(meta.get("exploration_authorized_tokens") or 0)
+    except (TypeError, ValueError):
+        declared_tokens = 0
+    return max(0, declared_requests), max(0, declared_tokens)
+
+
+def _domain_ledger_headroom_reason(
+    envelope: AIRunEnvelope, budget: GoalBudget, task: AsyncTask | None
+) -> str | None:
+    declared_requests, declared_tokens = _domain_ledger_declared_allocation(task)
+    snapshot = envelope.snapshot()
+    remaining_requests = max(
+        0,
+        min(int(budget.requests), int(budget.possible_charge_requests))
+        - snapshot.requests_started,
+    )
+    remaining_tokens = max(0, int(budget.tokens) - snapshot.usage.total_tokens)
+    if declared_requests > remaining_requests or declared_tokens > remaining_tokens:
+        return (
+            "目标剩余额度不足以覆盖这一步的领域申报上限"
+            f"（申报 {declared_requests} 次请求 / {declared_tokens} 令牌，"
+            f"剩余 {remaining_requests} 次 / {remaining_tokens} 令牌）；"
+            "请核对计划并提高目标预算后再继续。"
+        )
+    return None
+
+
+async def _import_domain_ledger_delta(
+    envelope: AIRunEnvelope,
+    task: AsyncTask,
+    record: Mapping[str, Any],
+) -> dict[str, int] | None:
+    """把领域根账本在本步骤内的增量汇入目标总账。
+
+    目标只汇入"当前快照 − 持久化基线"的差值并随后推进基线，重复执行幂等；
+    领域请求中结果未知的部分按未知请求落账（未知用量不返还，目标随后停止
+    核对），已落定部分整并到本步骤最后一次落账的令牌差值上。返回推进后的
+    基线，供步骤完成路径写回同一条记录。
+    """
+    from infrastructure.llm.schemas import LLMUsage
+    from infrastructure.llm.workflow_budget import (
+        AIStepCallKind,
+        managed_step_scope,
+    )
+
+    current = _domain_ledger_snapshot(task)
+    if current is None:
+        return None
+    baseline = record.get("domain_ledger_baseline")
+    if not isinstance(baseline, dict):
+        baseline = {}
+    delta_requests = current["requests_started"] - int(
+        baseline.get("requests_started") or 0
+    )
+    delta_unknown = current["requests_unknown"] - int(
+        baseline.get("requests_unknown") or 0
+    )
+    delta_prompt = current["prompt_tokens"] - int(baseline.get("prompt_tokens") or 0)
+    delta_completion = current["completion_tokens"] - int(
+        baseline.get("completion_tokens") or 0
+    )
+    if min(delta_requests, delta_unknown, delta_prompt, delta_completion) < 0:
+        # 领域账本快照发生回退，无法可信归集差值：按一次未知请求保守停止。
+        delta_requests = max(delta_requests, 1)
+        delta_unknown = max(delta_unknown, 1)
+        delta_prompt = max(delta_prompt, 0)
+        delta_completion = max(delta_completion, 0)
+    delta_requests = max(int(delta_requests), 0)
+    delta_unknown = min(max(int(delta_unknown), 0), delta_requests)
+    if delta_requests == 0 and (delta_prompt or delta_completion):
+        delta_requests = 1
+    if delta_requests == 0:
+        record["domain_ledger_baseline"] = current
+        return current
+
+    from infrastructure.tasks.registry import TaskRegistry
+
+    capability = TaskRegistry().get_root_capability(str(task.task_type)) or ""
+    step_context = AIManagedStepContext(
+        step_name=str(task.task_type)[:120],
+        call_kind=AIStepCallKind.structured,
+        capability_id=capability,
+    )
+    with managed_step_scope(step_context):
+        await envelope.record_external_usage(
+            requests_started=delta_requests,
+            requests_unknown=delta_unknown,
+            usage=LLMUsage(
+                prompt_tokens=delta_prompt,
+                completion_tokens=delta_completion,
+                total_tokens=delta_prompt + delta_completion,
+            ),
+        )
+    record["domain_ledger_baseline"] = current
+    return current
+
+
 async def _unknown_step_task_context(
     db: AsyncSession,
     run: AssistantRun,
@@ -2827,13 +3096,17 @@ async def _unknown_step_task_context(
     reference = record.get("reference")
     stable_operation_id = record.get("operation_id")
     call_id = _goal_trace_call_id(run, goal, step_id)
-    task_type = TASK_OPERATION_TYPES.get(step.operation_id)
+    task_types = _task_types_for_operation(step.operation_id)
+    reference_task_type = (
+        str(reference.get("task_type") or "") if isinstance(reference, Mapping) else ""
+    )
     operation = _operation_registry().get(step.operation_id)
     parameter_hash = record.get("parameter_fingerprint")
     if (
         operation is None
         or operation.read_result is None
-        or task_type is None
+        or not task_types
+        or reference_task_type not in task_types
         or not isinstance(reference, Mapping)
         or not isinstance(stable_operation_id, str)
         or not isinstance(parameter_hash, str)
@@ -2841,8 +3114,7 @@ async def _unknown_step_task_context(
         or record.get("plan_step_fingerprint") != digest(step.model_dump(mode="json"))
         or reference.get("operation_id") not in {None, stable_operation_id}
         or reference.get("task_id") != stable_operation_id
-        or reference.get("task_type") != task_type
-        or reference.get("type") != task_type
+        or reference.get("type") != reference_task_type
     ):
         raise ConflictError("缺少与原步骤绑定的领域任务回执，仍须保持阻断")
 
@@ -2850,7 +3122,9 @@ async def _unknown_step_task_context(
     reference = {**reference, "operation_id": stable_operation_id}
 
     try:
-        task = await _stable_task_for_step(db, run, task_type, stable_operation_id)
+        task = await _stable_task_for_step(
+            db, run, reference_task_type, stable_operation_id
+        )
     except ValueError as error:
         raise ConflictError("原领域任务标识不可核实，目标仍保持阻断") from error
     if task is None:
@@ -2862,7 +3136,7 @@ async def _unknown_step_task_context(
         stable_operation_id,
         call_id,
         reference,
-        task_type,
+        reference_task_type,
         task,
     )
 
@@ -2893,29 +3167,6 @@ def _task_not_applied_receipt(task: AsyncTask) -> dict[str, Any] | None:
             "proof": {"kind": "task_cancelled_before_first_claim"},
         }
     return None
-
-
-def _safe_receipt_text(value: Any, *, limit: int = 320) -> str | None:
-    if not isinstance(value, str):
-        return None
-    text = " ".join(value.split())
-    if not text:
-        return None
-    text = re.sub(
-        r"(?i)(\b(?:api[_-]?key|access[_-]?token|refresh[_-]?token|password|secret|密钥|令牌)\s*[:=]\s*)\S+",
-        r"\1[已隐藏]",
-        text,
-    )
-    text = re.sub(r"(?i)\b(?:sk|rk|pk)[_-][A-Za-z0-9_-]{16,}\b", "[已隐藏凭据]", text)
-    text = re.sub(r"\bAIza[A-Za-z0-9_-]{24,}\b", "[已隐藏凭据]", text)
-    text = re.sub(r"(?i)\bBearer\s+[A-Za-z0-9._~+/-]+=*", "Bearer [已隐藏凭据]", text)
-    text = re.sub(
-        r"(?i)\b[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}\b",
-        "[已隐藏标识]",
-        text,
-    )
-    text = re.sub(r"(?i)\b[0-9a-f]{32,}\b", "[已隐藏标识]", text)
-    return text[:limit]
 
 
 def _safe_receipt_destination(
@@ -2961,108 +3212,25 @@ def _safe_receipt_destination(
             )
         except (ValueError, TypeError):
             return None
+    if operation_id in {
+        "story.exploration.start",
+        "story.exploration.detail",
+        "story.exploration.revise",
+    }:
+        scale = _EXPLORATION_RESULT_KINDS.get(str(receipt.get("output_kind") or ""))
+        if not scale:
+            return None
+        try:
+            return GoalExplorationReceiptLocation(
+                kind="exploration_result",
+                root_id=uuid.UUID(str(receipt.get("root_id"))),
+                result_id=uuid.UUID(str(receipt.get("result_id"))),
+                scale=scale,
+                output_kind=str(receipt.get("output_kind")),
+            )
+        except (ValueError, TypeError):
+            return None
     return None
-
-
-def _receipt_preview_details(
-    operation_id: str, receipt: Mapping[str, Any]
-) -> tuple[str, list[str]]:
-    details: list[str] = []
-    if operation_id in {"writing.generate_candidate", "writing.targeted_revision"}:
-        candidate = receipt.get("candidate")
-        candidate = candidate if isinstance(candidate, Mapping) else {}
-        title = _safe_receipt_text(candidate.get("title"), limit=180)
-        chapter_index = candidate.get("chapter_index")
-        if type(chapter_index) is int and chapter_index > 0:
-            summary = f"第 {chapter_index} 章的正文候选已生成"
-            if title:
-                summary += f"：《{title}》"
-        else:
-            summary = "正文候选已生成"
-            if title:
-                summary += f"：《{title}》"
-        details.append("候选仍需在写作工作台审阅；生成完成不代表已采用。")
-        return summary[:500], details
-
-    if operation_id == "project.scan_duplicates":
-        summary = _safe_receipt_text(receipt.get("summary"), limit=360)
-        scanned_counts = receipt.get("scanned_counts")
-        if isinstance(scanned_counts, Mapping):
-            total = sum(
-                value
-                for value in scanned_counts.values()
-                if type(value) is int and 0 <= value <= 10_000_000
-            )
-            if total:
-                details.append(f"本次扫描了 {total} 项资料。")
-        group_count = receipt.get("group_count")
-        if type(group_count) is int and 0 <= group_count <= 10_000_000:
-            details.append(f"形成 {group_count} 组相似建议。")
-        return (summary or "相似资料扫描已完成。"), details[:8]
-
-    preview = receipt.get("preview")
-    preview = preview if isinstance(preview, Mapping) else {}
-    if operation_id == "story.character_card.generate":
-        content = preview.get("content")
-        content = content if isinstance(content, Mapping) else {}
-        interpretations = content.get("interpretations")
-        interpretations = interpretations if isinstance(interpretations, list) else []
-        for item in interpretations[:6]:
-            if not isinstance(item, Mapping):
-                continue
-            category = _safe_receipt_text(item.get("category"), limit=60)
-            statement = _safe_receipt_text(item.get("statement"), limit=260)
-            if statement:
-                details.append(f"{f'{category}：' if category else ''}{statement}")
-        warnings = preview.get("warnings")
-        if isinstance(warnings, list):
-            details.extend(
-                f"提示：{value}"
-                for item in warnings[:2]
-                if (value := _safe_receipt_text(item, limit=260))
-            )
-        return (
-            f"人物卡预览已生成，包含 {len(interpretations)} 条解释建议；尚未写入正史。",
-            details[:8],
-        )
-
-    if operation_id == "story.reaction.generate":
-        proposals = preview.get("proposals")
-        proposals = proposals if isinstance(proposals, list) else []
-        for index, proposal in enumerate(proposals[:4], start=1):
-            if not isinstance(proposal, Mapping):
-                continue
-            performances = proposal.get("performances")
-            if isinstance(performances, list):
-                for performance in performances[:2]:
-                    if not isinstance(performance, Mapping):
-                        continue
-                    motivation = _safe_receipt_text(
-                        performance.get("motivation"), limit=90
-                    )
-                    action = _safe_receipt_text(performance.get("action"), limit=220)
-                    if action:
-                        prefix = f"第 {index} 组反应"
-                        details.append(
-                            f"{prefix}{f' · {motivation}' if motivation else ''}："
-                            f"{action}"
-                        )
-            else:
-                for key, label in (
-                    ("goal", "目标"),
-                    ("immediate_reaction", "即时反应"),
-                    ("intended_action", "行动"),
-                    ("internal_pressure", "内在压力"),
-                ):
-                    value = _safe_receipt_text(proposal.get(key), limit=220)
-                    if value:
-                        details.append(f"第 {index} 组反应 · {label}：{value}")
-        return (
-            f"人物反应预览已生成，包含 {len(proposals)} 组候选；尚未写入正史。",
-            details[:8],
-        )
-
-    return "原领域回执已完成。", details
 
 
 def _goal_receipt_preview(
@@ -3136,7 +3304,8 @@ async def _execute_task_step(
 ) -> AssistantRun:
     from infrastructure.tasks.facade import run_task_inline
 
-    task_type = TASK_OPERATION_TYPES[step.operation_id]
+    task_types = _task_types_for_operation(step.operation_id)
+    domain_ledger = step.operation_id in _DOMAIN_LEDGER_TASK_OPERATIONS
     operation_id = str(context.operation_id)
     task_id = operation_id
     run_novel_id = str(run.novel_id)
@@ -3145,6 +3314,12 @@ async def _execute_task_step(
     parent_task_id = str(run.task_id)
     record = _step_records(goal).setdefault(step.step_id, {})
     reference = record.get("reference")
+    bound_task_type = (
+        str(reference.get("task_type"))
+        if isinstance(reference, Mapping)
+        and str(reference.get("task_type")) in task_types
+        else None
+    )
 
     usage_before = envelope.snapshot()
     started = time.perf_counter()
@@ -3174,7 +3349,11 @@ async def _execute_task_step(
         )
 
     if reference is not None:
-        if reference.get("task_id") != task_id or reference.get("task_type") != task_type:
+        if (
+            reference.get("task_id") != task_id
+            or bound_task_type is None
+            or reference.get("type") not in (None, bound_task_type)
+        ):
             await trace_terminal(
                 run, goal, "outcome_unknown", error_code="task_receipt_mismatch"
             )
@@ -3187,7 +3366,9 @@ async def _execute_task_step(
                 code="task_receipt_mismatch",
                 status="outcome_unknown",
             )
-    task = await _stable_task_for_step(db, run, task_type, task_id)
+    task, task_type = await _probe_task_for_step(
+        db, run, task_types, task_id, bound_task_type
+    )
     if task is None:
         if record.get("status") in {"applying", "executing", "outcome_unknown"}:
             await trace_terminal(
@@ -3226,16 +3407,19 @@ async def _execute_task_step(
                 raise ConflictError("多阶段操作没有返回领域任务回执")
             if (
                 str(reference.get("task_id")) != task_id
-                or reference.get("task_type") != task_type
+                or reference.get("task_type") not in task_types
                 or reference.get("operation_id") != operation_id
             ):
                 raise ConflictError("领域任务回执没有使用目标冻结的稳定操作标识")
+            bound_task_type = str(reference["task_type"])
         except Exception:
             await db.rollback()
             run = await _load_goal_run(db, run_novel_id, run_id, owner_id)
             goal = _goal_state(run)
             record = _step_records(goal).setdefault(step.step_id, {})
-            task = await _stable_task_for_step(db, run, task_type, task_id)
+            task, task_type = await _probe_task_for_step(
+                db, run, task_types, task_id, bound_task_type
+            )
             if task is None:
                 await trace_terminal(
                     run, goal, "outcome_unknown", error_code="task_receipt_missing"
@@ -3270,7 +3454,9 @@ async def _execute_task_step(
         goal["envelope"] = envelope.snapshot().model_dump(mode="json")
         run = await _save_goal(db, run, goal, status="running")
 
-    task = await _stable_task_for_step(db, run, task_type, task_id)
+    task, task_type = await _probe_task_for_step(
+        db, run, task_types, task_id, bound_task_type or task_type
+    )
     if task is None:
         current_goal = _goal_state(run)
         await trace_terminal(
@@ -3300,6 +3486,28 @@ async def _execute_task_step(
             status="outcome_unknown",
         )
     if task.status == "pending":
+        if domain_ledger:
+            # 独立账本任务先确认目标剩余额度覆盖其申报上限，避免领域消耗
+            # 超出目标总授权后无法完整归集；再持久化归集基线，保证幂等。
+            headroom_reason = _domain_ledger_headroom_reason(envelope, budget, task)
+            if headroom_reason:
+                goal = _goal_state(run)
+                return await _record_step_failure(
+                    db,
+                    run,
+                    goal,
+                    step,
+                    reason=headroom_reason,
+                    code="domain_budget_headroom",
+                )
+            goal = _goal_state(run)
+            record = _step_records(goal).setdefault(step.step_id, {})
+            if not isinstance(record.get("domain_ledger_baseline"), dict):
+                baseline = _domain_ledger_snapshot(task)
+                if baseline is not None:
+                    record["domain_ledger_baseline"] = baseline
+                    goal["envelope"] = envelope.snapshot().model_dump(mode="json")
+                    run = await _save_goal(db, run, goal, status="running")
         previous_scope = db.info.get("task_scope")
         previous_checkpoint_enabled = getattr(db, "task_checkpoint_enabled", None)
         db.info["task_scope"] = {
@@ -3311,12 +3519,26 @@ async def _execute_task_step(
             envelope, budget, time_80_acknowledged=bool(goal.get("time_80_acknowledged"))
         )
         try:
-            with ai_run_scope(envelope), workflow_budget(meter, _noop_checkpoint):
-                await run_task_inline(
-                    db,
-                    task_id=task_id,
-                    expected_task_type=task_type,
-                )
+            if domain_ledger:
+                meter.domain_baseline = _step_records(_goal_state(run))[step.step_id][
+                    "domain_ledger_baseline"
+                ]
+                # 领域任务自带严格身份校验的根账本（story.exploration），不能
+                # 嵌套进目标 run；不带目标信封内联执行，由领域账本权威计量，
+                # 结束后把增量汇入目标总账（见 _import_domain_ledger_delta）。
+                with workflow_budget(meter, _noop_checkpoint):
+                    await run_task_inline(
+                        db,
+                        task_id=task_id,
+                        expected_task_type=task_type,
+                    )
+            else:
+                with ai_run_scope(envelope), workflow_budget(meter, _noop_checkpoint):
+                    await run_task_inline(
+                        db,
+                        task_id=task_id,
+                        expected_task_type=task_type,
+                    )
         except asyncio.CancelledError:
             raise
         except Exception:
@@ -3333,7 +3555,9 @@ async def _execute_task_step(
             else:
                 db.task_checkpoint_enabled = previous_checkpoint_enabled
         run = await _load_goal_run(db, run_novel_id, run_id, owner_id)
-        task = await _stable_task_for_step(db, run, task_type, task_id)
+        task, task_type = await _probe_task_for_step(
+            db, run, task_types, task_id, bound_task_type or task_type
+        )
     if task is None or task.status not in {"done", "failed", "cancelled"}:
         goal = _goal_state(run)
         await trace_terminal(
@@ -3348,6 +3572,25 @@ async def _execute_task_step(
             code="task_outcome_unknown",
             status="outcome_unknown",
         )
+
+    goal = _goal_state(run)
+    imported_baseline: dict[str, int] | None = None
+    if domain_ledger:
+        # 任务已终态：先把本次领域账本增量（含未知用量）汇入目标总账，再读
+        # 领域回执判定结果；未知汇入会让目标随后按未知语义停止。
+        # Import a terminal task without per-reservation commits: ledger and
+        # baseline must become durable together, including failed receipts.
+        envelope = AIRunEnvelope(envelope.snapshot())
+        try:
+            imported_baseline = await _import_domain_ledger_delta(
+                envelope, task, _step_records(goal).setdefault(step.step_id, {})
+            )
+        except AIRunEnvelopeError as error:
+            raise ConflictError(f"目标总账归集领域用量被拒绝：{error}") from error
+        goal["envelope"] = envelope.snapshot().model_dump(mode="json")
+        run = await _save_goal(db, run, goal)
+        goal = _goal_state(run)
+        envelope = _live_envelope(db, run)
 
     meter = GoalWorkflowCounter(
         envelope, budget, time_80_acknowledged=bool(goal.get("time_80_acknowledged"))
@@ -3400,6 +3643,8 @@ async def _execute_task_step(
             "plan_step_fingerprint": digest(step.model_dump(mode="json")),
         }
     )
+    if imported_baseline is not None:
+        record["domain_ledger_baseline"] = imported_baseline
     goal["stop_reason"] = ""
     goal["stop_code"] = None
     goal["phase"] = "executing"

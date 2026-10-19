@@ -24,6 +24,7 @@ from infrastructure.llm.web_search import search_snapshot, search_snapshot_match
 from infrastructure.llm.workflow_budget import current_ai_run_envelope, workflow_budget
 from infrastructure.tasks.facade import (
     enqueue_operation_task,
+    get_completed_task_payload,
     list_task_lifecycle_contracts,
     resume_manual_task,
 )
@@ -166,6 +167,7 @@ def _assistant_catalog_budget_scope(
         "15",
         "16",
         "17",
+        "18",
     } or not isinstance(frozen_operations, dict):
         return None
     current = operation_manifest()
@@ -194,6 +196,40 @@ def _assistant_catalog_budget_scope(
         ),
         "authorized_step_capabilities": children,
     }
+
+
+_DOMAIN_REFERENCE_BASE_KEYS = {
+    "type",
+    "id",
+    "task_id",
+    "task_type",
+    "target",
+    "target_kind",
+    "label",
+}
+# 导演多尺度探索（第一批）：两类探索引用按类型放行各自的扩展键，
+# 前端结果卡/推荐区按 output_kind 与 scale 渲染。
+_DOMAIN_REFERENCE_KEYS_BY_TYPE = {
+    "story_exploration_result": _DOMAIN_REFERENCE_BASE_KEYS
+    | {
+        "root_id",
+        "branch_id",
+        "result_id",
+        "scale",
+        "output_kind",
+        "payload",
+        "locked_items",
+        "needs_author_resume",
+        "status",
+    },
+    "story_exploration_recommendation": _DOMAIN_REFERENCE_BASE_KEYS
+    | {
+        "scale",
+        "focus_hint",
+        "reason",
+        "question",
+    },
+}
 
 
 def display_sources(references, keys):
@@ -239,15 +275,10 @@ def display_sources(references, keys):
                     name: value
                     for name, value in (ref.get("domain_reference") or {}).items()
                     if name
-                    in {
-                        "type",
-                        "id",
-                        "task_id",
-                        "task_type",
-                        "target",
-                        "target_kind",
-                        "label",
-                    }
+                    in _DOMAIN_REFERENCE_KEYS_BY_TYPE.get(
+                        (ref.get("domain_reference") or {}).get("type"),
+                        _DOMAIN_REFERENCE_BASE_KEYS,
+                    )
                 }
                 or None,
                 "review_result": ref.get("review_result"),
@@ -697,7 +728,7 @@ class AssistantService:
             if operation_names is None or name in operation_names
         }
         catalog_budget_scope = _assistant_catalog_budget_scope(
-            "17", frozen_operations, approval=data.approval is not None
+            "18", frozen_operations, approval=data.approval is not None
         )
         run = AssistantRun(
             id=data.operation_id,
@@ -708,7 +739,7 @@ class AssistantService:
             request_json=frozen_payload
             | {
                 "llm_snapshot": snapshot,
-                "runtime_version": "17",
+                "runtime_version": "18",
                 **({"team": team} if team else {}),
                 "web_search": search_snapshot()
                 if data.allow_web and data.web_backend == "searxng-v1"
@@ -716,7 +747,7 @@ class AssistantService:
                 "operations": frozen_operations,
                 "read_tools": {
                     tool.name: fingerprint(tool.function_schema.json_schema)
-                    for tool in author_read_tools(allow_web=True, version="17")
+                    for tool in author_read_tools(allow_web=True, version="18")
                     if tool.name
                     not in {
                         "map_spatial_brief",
@@ -825,6 +856,7 @@ class AssistantService:
             "15",
             "16",
             "17",
+            "18",
         } and (run.checkpoint_json or {}).get("operation_trace_incomplete"):
             result["operation_trace_incomplete"] = True
         return {
@@ -955,6 +987,67 @@ class AssistantService:
                     "results": batch.results_json,
                 },
             }
+            sources = list(view["result"].get("sources") or [])
+            for item in batch.results_json or []:
+                reference = item.get("result") or {}
+                if reference.get("target_type") != "story_exploration" and reference.get(
+                    "task_type"
+                ) not in {
+                    "story_exploration_progression_task",
+                    "story_exploration_scene_task",
+                }:
+                    continue
+                task_id = reference.get("task_id")
+                if not task_id:
+                    continue
+                for task_type, scale in (
+                    ("story_exploration_progression_task", None),
+                    ("story_exploration_scene_task", "scene_line"),
+                ):
+                    task = await get_completed_task_payload(
+                        db,
+                        task_id=str(task_id),
+                        task_type=task_type,
+                        novel_id=str(run.novel_id),
+                        include_cancelled=True,
+                    )
+                    payload = dict(task.result or {}) if task is not None else None
+                    if not payload or (
+                        payload.get("status") != "completed"
+                        and not payload.get("needs_author_resume")
+                    ):
+                        continue
+                    kind = payload.get("output_kind") or ""
+                    domain = {
+                        "type": "story_exploration_result",
+                        "task_id": str(task_id),
+                        **{
+                            key: payload.get(key)
+                            for key in (
+                                "root_id",
+                                "branch_id",
+                                "result_id",
+                                "output_kind",
+                                "payload",
+                                "locked_items",
+                                "needs_author_resume",
+                                "status",
+                            )
+                        },
+                        "scale": scale
+                        or reference.get("scale")
+                        or payload.get("scale")
+                        or ("sandbox" if kind.endswith("sandbox") else "event"),
+                    }
+                    sources.append(
+                        {
+                            "evidence_id": "exploration:" + str(task_id),
+                            "title": "探索结果",
+                            "domain_reference": domain,
+                        }
+                    )
+                    break
+            view["result"]["sources"] = sources
         return view
 
     async def recheck_batch(self, db, batch_id: str, data, owner_id: str):
@@ -1171,7 +1264,7 @@ class AssistantService:
         operations = resolve_operations(
             protocol["operations"],
             allow_stale=runtime_version
-            in {"7", "8", "9", "10", "11", "12", "13", "14", "15", "16", "17"},
+            in {"7", "8", "9", "10", "11", "12", "13", "14", "15", "16", "17", "18"},
         )
         read_tools = {
             tool.name: tool
@@ -1292,6 +1385,7 @@ class AssistantService:
                             "15",
                             "16",
                             "17",
+                            "18",
                         }
                         else verified_native_search(profile.provider_id, profile.model)
                     )
@@ -1321,7 +1415,20 @@ class AssistantService:
                     content=(
                         _V7_INSTRUCTIONS
                         if runtime_version
-                        in {"7", "8", "9", "10", "11", "12", "13", "14", "15", "16", "17"}
+                        in {
+                            "7",
+                            "8",
+                            "9",
+                            "10",
+                            "11",
+                            "12",
+                            "13",
+                            "14",
+                            "15",
+                            "16",
+                            "17",
+                            "18",
+                        }
                         else _INSTRUCTIONS
                     )
                     + f"\n本次请求的日历日期为 {today}（{work.timezone}）。"
@@ -1461,6 +1568,7 @@ class AssistantService:
                             "15",
                             "16",
                             "17",
+                            "18",
                         },
                         operations=operations,
                     )

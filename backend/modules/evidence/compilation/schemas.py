@@ -7,10 +7,14 @@ Context Pydantic Schema 定义
 from __future__ import annotations
 
 import uuid
-from typing import Any, Literal
+from typing import Annotated, Any, Literal
 
 from pydantic import BaseModel, Field, field_validator, model_validator
 
+from modules.evidence.compilation.exploration_start import (
+    ProvisionalStart,
+    SceneAnchorStart,
+)
 from shared.target_ref import normalize_target_ref
 
 
@@ -523,6 +527,53 @@ class ContextConfirmRequest(ContextSelectionRequest):
         max_length=64,
         description="作者刚审查过的 Context 指纹",
     )
+
+
+ExplorationStartField = Annotated[
+    SceneAnchorStart | ProvisionalStart,
+    Field(discriminator="kind"),
+]
+"""探索起点判别联合；反序列化按 ``kind`` 判别。"""
+
+
+class ExplorationContextRequest(ContextSelectionRequest):
+    """导演多尺度独立探索的确认/预览请求（P0 冻结契约 §2.1）。"""
+
+    action: str = Field(..., min_length=1, max_length=128, description="手动 AI 操作标识")
+    exploration_scale: Literal["sandbox", "event", "scene_line"] = Field(
+        ...,
+        description="观察尺度：沙盘 / 事件 / 场景",
+    )
+    focus: str = Field(
+        default="",
+        max_length=2000,
+        description="作者指定焦点/详略，可空",
+    )
+    start: ExplorationStartField = Field(..., description="起点判别联合")
+    expected_context_fingerprint: str | None = Field(
+        default=None,
+        min_length=64,
+        max_length=64,
+        description="作者刚审查过的 Context 指纹",
+    )
+
+    @model_validator(mode="after")
+    def validate_exploration_start(self):
+        if not self.action.startswith("story.exploration."):
+            raise ValueError("探索确认 action 必须以 story.exploration. 为前缀")
+        if self.start.kind == "provisional":
+            if self.scene_id:
+                raise ValueError("临时假设起点不能绑定 Scene，请清空 scene_id")
+        else:
+            if self.scene_id and self.scene_id != self.start.scene_id:
+                raise ValueError("scene_id 必须与 scene_anchor 起点的 Scene 一致")
+            # scene_id 缺省时由服务端回填为锚点 Scene；character POV 的
+            # 可见截止同样默认锚点 Scene（与 CompileOptions 的 author_safe
+            # 自动回填语义对齐）。
+            self.scene_id = self.start.scene_id
+            if self.reveal_mode == "character" and not self.visible_until_scene_id:
+                self.visible_until_scene_id = self.start.scene_id
+        return self
 
 
 class ContextSelectionProposalRequest(ContextSelectionRequest):

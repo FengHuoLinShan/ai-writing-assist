@@ -266,6 +266,13 @@ regex、随机概率或任意表达式。draft 只用于编辑和 dry-run，发�
 服务端重编译一致后只写一条。worker 通过 `prepare_confirmed_ai_action()` 第三次物化，比较
 `compile_options.compiled_context_fingerprint` 后才可调用 provider。
 
+导演多尺度探索（ADR-0042 第一批）经并列的 `ExplorationContextRequest` 走同一确认流：action
+前缀 `story.exploration.`，起点支持 `scene_anchor`（复用 Scene 截止校验）与 `provisional`
+临时开局（无 Scene/大纲；重物化跳过 outline/scene_state 指纹门、保留核心指纹，空资料集合法）。
+`author_private` 只进作者包；候选临时主体不进 hidden guard 目标集，canonical 角色照常受限；
+请求直传 `web_refs` 失败关闭。三条能力 `story.exploration.sandbox/event/scene_line` 均要求
+确认，gate `STORY_EXPLORATION_ENABLED` 默认关闭。
+
 character 模式下，前端完整展示 `role_visible_knowledge`，并把它与 `director_only` 等
 “仅供作者约束”的 section 分组。作者可从确认弹窗打开既有的人物知识管理器修正检查点；
 修正不会自动重新编译或调用模型，返回后仍需作者明确触发“重新整理”。

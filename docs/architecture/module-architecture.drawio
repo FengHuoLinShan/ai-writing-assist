@@ -18,7 +18,7 @@
         <mxCell id="5" value="account 账号&#10;身份 · 会话 · owner 边界&#10;账户连接 · 全局偏好" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ede9fe;strokeColor=#7c3aed;fontColor=#3b0764;fontSize=13;fontStyle=1;spacing=8;" vertex="1" parent="4">
           <mxGeometry x="20" y="55" width="280" height="75" as="geometry" />
         </mxCell>
-        <mxCell id="assistant" value="assistant 项目助手&#10;讨论 · 引导流程 · 任务批准 · 提醒&#10;Evidence 精确回读 · 领域事务与回执" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ede9fe;strokeColor=#7c3aed;fontColor=#3b0764;fontSize=13;fontStyle=1;spacing=8;" vertex="1" parent="4">
+        <mxCell id="assistant" value="assistant 项目助手&#10;讨论 · 跨尺度探索 · 任务批准 · 提醒&#10;Evidence 精确回读 · 领域事务与回执" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ede9fe;strokeColor=#7c3aed;fontColor=#3b0764;fontSize=13;fontStyle=1;spacing=8;" vertex="1" parent="4">
           <mxGeometry x="320" y="55" width="280" height="75" as="geometry" />
         </mxCell>
         <mxCell id="35" value="interaction RP 互动旅程&#10;有限 Agent + 私人分支 / 回顾 / 看海&#10;只读固定作品版本；旅程不写回原作" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ede9fe;strokeColor=#7c3aed;fontColor=#3b0764;fontSize=13;fontStyle=1;spacing=8;" vertex="1" parent="4">
@@ -57,7 +57,7 @@
         <mxCell id="15" value="imports&#10;两次文件校验 · full/append&#10;深度导入 / checkpoint / 恢复" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#d5e8d4;strokeColor=#82b366;fontColor=#14532d;fontSize=13;fontStyle=1;spacing=8;" vertex="1" parent="14">
           <mxGeometry x="30" y="50" width="250" height="95" as="geometry" />
         </mxCell>
-        <mxCell id="16" value="evidence&#10;indexing：draft/hash 并存与 manifest 过滤&#10;compilation：回读 / 可见性 / snapshot / guard&#10;interaction.story：16K 版本化参考包&#10;HTTP：/api/evidence/*" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#d5e8d4;strokeColor=#82b366;fontColor=#14532d;fontSize=12;fontStyle=1;spacing=8;" vertex="1" parent="14">
+        <mxCell id="16" value="evidence&#10;indexing：draft/hash 并存与 manifest 过滤&#10;compilation：确认 / 逐人物投影 / 独立审查&#10;interaction.story：16K 版本化参考包&#10;HTTP：/api/evidence/*" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#d5e8d4;strokeColor=#82b366;fontColor=#14532d;fontSize=12;fontStyle=1;spacing=8;" vertex="1" parent="14">
           <mxGeometry x="325" y="50" width="545" height="95" as="geometry" />
         </mxCell>
         <mxCell id="18" value="writing&#10;正文工作稿 / 已发布版本&#10;发布后触发索引与记忆更新" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#d5e8d4;strokeColor=#82b366;fontColor=#14532d;fontSize=13;fontStyle=1;spacing=8;" vertex="1" parent="14">

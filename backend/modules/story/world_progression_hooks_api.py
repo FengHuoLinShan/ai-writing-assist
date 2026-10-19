@@ -72,6 +72,9 @@ async def _resolve_hook(db, novel_id: str, root_id: str, step_id: str, hook_id: 
     step = await get_progression_step(db, novel_id, step_id)
     if str(step.root_id) != str(root.id):
         raise ConflictError("钩子来源步骤不属于该推进根")
+    from modules.story.exploration_service import require_legacy_progression_root
+
+    require_legacy_progression_root(root, step)
     await get_progression_branch(db, novel_id, str(step.branch_id))
     hooks = list((step.result_json or {}).get("plot_hooks") or [])
     for index, raw in enumerate(hooks):

@@ -35,6 +35,10 @@ Writing 在任务入队时冻结经确认的副本；执行期间来源删除或
 
 ## 定位
 
+独立探索确认同时绑定起点、尺度、焦点和核心资料。正式角色投影使用同一确认读集的交集，
+不补回排除资产或截止后事实；候选角色只使用显式知识包。对白参考 section 包含实际 line/action，
+候选人物副本仅限作者，角色视角只读同一正式人物且已核验可知内容的副本。
+
 Evidence 的 compilation 子域决定本次 AI 操作能看到哪些资料、哪些资料要被裁剪，以及哪些
 confirmation 需要在资产变化后标脏。
 Canonical API 前缀为 `/api/evidence/compilation`；旧 `/api/context` 前缀已退场。
@@ -716,6 +720,19 @@ Imports 的 review_resolution 通过本域读取完整场景/章节并保存 Con
 ADR-0027 协作通过原 confirmation 和调用者范围重新物化资料。作者调查输出继承全部 source keys；
 角色回合与盲读分别使用人物/读者投影，标题、后文与作者目标不能回流读者阶段。
 `import_review_resolution` 只对作者物化请求的疑难组，不能由一个组展开其他组或扩大采用授权。
+
+## 导演探索确认（ADR-0042 第一批）
+
+`ExplorationContextRequest`（`action` 前缀 `story.exploration.`、`exploration_scale`、`focus`、
+`start` 判别联合）是与 `ContextCompileRequest` 并列的新请求类型；preview/confirm 共用
+`validate_exploration_request`：action 限定四动作，`scene_anchor` 复用 Scene 存在性与
+可见截止校验，`provisional` 要求无 scene_id、假设 ≥1、canonical 引用与 knowledge 主体
+归属本作品，直传 `web_refs` 失败关闭。确认时 `compile_options` 冻结 `start_kind`、
+`exploration_start`、`exploration_scale`、`exploration_focus`；`compile_from_confirmation`
+对 `provisional` 跳过 outline/scene_state 指纹门、仍重编译并核对核心指纹（空资料集合法），
+hidden guard 只按 canonical_refs 重建，并把冻结 `exploration_start` 回传调用方核对。
+能力注册新增根 `story.exploration` 与 `story.exploration.sandbox/event/scene_line` 三条
+（均 `CONFIRMATION_REQUIRED`，gate `STORY_EXPLORATION_ENABLED` 默认关）。
 
 ## 父级回读契约
 

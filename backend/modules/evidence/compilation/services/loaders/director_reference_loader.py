@@ -23,6 +23,20 @@ _ALLOWED_ACTIONS = frozenset({"writing.generate", "writing.targeted_revision"})
 def _character_projection(item: dict, viewpoint_character_id: str) -> dict | None:
     """Keep only self-performance and materials with a deterministic POV receipt."""
     source_copy = item.get("content_copy") or {}
+    if source_copy.get("line"):
+        if str(
+            source_copy.get("target_ref") or ""
+        ) != viewpoint_character_id or source_copy.get("candidate_only"):
+            return None
+        return {
+            **item,
+            "content_copy": {
+                "line": source_copy["line"],
+                "action": source_copy.get("action"),
+                "target_ref": viewpoint_character_id,
+            },
+            "annotation": "",
+        }
     materials = []
     for raw in source_copy.get("materials") or []:
         if not isinstance(raw, dict) or raw.get("candidate_only"):

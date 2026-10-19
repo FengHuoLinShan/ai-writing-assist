@@ -113,6 +113,16 @@ CAPABILITY_BINDINGS: dict[str, tuple[str, ...]] = {
     "modules/story/outline_state/structure_dedup.py": ("story.structure_dedup",),
     "modules/story/outline_state/scene_fusion_draft.py": ("story.scene_fusion",),
     "modules/story/director_tasks.py": ("story.scene_director",),
+    "modules/story/exploration_tasks.py": (
+        "story.exploration.sandbox",
+        "story.exploration.event",
+        "story.exploration.scene_line",
+    ),
+    "modules/story/exploration_governance.py": (
+        "story.exploration.sandbox",
+        "story.exploration.event",
+        "story.exploration.scene_line",
+    ),
     "modules/story/world_progression_tasks.py": ("story.world_progression",),
     # Imports
     "modules/imports/workflow_scene_phase.py": (

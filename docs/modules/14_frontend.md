@@ -640,6 +640,12 @@ ProjectAssistant 的“目标”标签仅在 `/api/assistant/goals/capabilities`
 409 刷新服务器状态但保留未提交输入。切换作品和延迟响应按项目及请求代次隔离；窄屏使用单列字段，作者不需要查看
 JSON 或内部运行标识。
 
+导演多尺度探索（ADR-0042 第一批）在助手内经 `story.exploration*` API（`api/story.js`）与
+`ExplorationResultCard.vue` 结果卡交付：按 `output_kind` 三态渲染紧凑结果，提供保存编辑、
+说详细点、局部修订与同起点比较按钮，任务经既有 `pollTaskProgress` 就地渲染；功能默认关闭，
+开启前仅保留入口说明。Scene 工作台与推进面板对带 `output_kind` 的历史行显示“探索任务”占位并
+指回助手，不崩溃、不混入探索结果。
+
 ### 演示流程的状态与反馈
 
 - 自动整理确认复用共享流水线授权文案；可靠结果可自动采用，需判断的内容待审。进度步骤使用中文，内部批次编号不在主进度卡展示。
