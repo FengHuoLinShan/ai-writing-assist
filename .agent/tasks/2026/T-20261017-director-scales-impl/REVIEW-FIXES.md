@@ -134,3 +134,7 @@ start schema 哈希；保持旧冻结目录隔离断言，未弱化安全门、�
 [PR #255](https://github.com/FengHuoLinShan/ai-writing-assist/pull/255) 已创建。固定提交的
 `make repo-gates docs-check BASE_REF=origin/main` 通过（文件大小门禁 2 条非失败 warning）；
 与当时 origin/main `083843474` 的 merge-tree 无冲突。未合并、未部署；远端 CI 不以本地门禁代替。
+
+## 2026-10-19 主干集成
+
+用户在工作树整理任务中授权提交与合并。集成 main `bdc6e3037`，保留作者工作台的精确焦点/对象集合、任务批准、扩大工作区及输入保护；与探索结果卡和未保存编辑保护组合。Goal计划审批沿用新主干已验证参数/引用，目录信封使用runtime18并保留approval用途。补no-op迁移汇合，避免两条链产生双head；回执展示与脱敏函数移至goal_runs/receipts.py，服务低于5000行，未放宽文件门禁。原固定head CI不算本次验收；新门禁执行中。未改变真实模型/作者验收或默认开关边界。
