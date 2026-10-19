@@ -65,6 +65,10 @@ jobs:
           make test-fast-coverage TEST_WORKERS=2
           ARGS="-W error::RuntimeWarning"
 
+      - name: Desktop source boundary tests (no installer build)
+        if: steps.changes.outputs.backend == 'true'
+        run: make desktop-test
+
       - name: Ask World offline launch gate (non-blocking diagnostic)
         if: steps.changes.outputs.backend == 'true' && github.event_name == 'push'
         continue-on-error: true

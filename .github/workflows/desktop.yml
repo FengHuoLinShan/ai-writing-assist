@@ -2,8 +2,17 @@ name: Desktop installers
 
 on:
   workflow_dispatch:
+    inputs:
+      target:
+        description: 'Build only the selected platform; all must be explicitly requested'
+        type: choice
+        default: macos-arm64
+        options: [macos-arm64, macos-x64, windows-x64, all]
   workflow_call:
     inputs:
+      target:
+        type: string
+        default: macos-arm64
       source_sha:
         required: true
         type: string
@@ -27,16 +36,6 @@ on:
         required: false
       WINDOWS_CERTIFICATE_PASSWORD:
         required: false
-  push:
-    branches: [main]
-    paths: ['desktop/**', 'backend/**', 'frontend-console/**', '.gitattributes', '.github/workflows/desktop*.yml']
-  pull_request:
-    paths:
-      - '.gitattributes'
-      - 'desktop/**'
-      - '.github/workflows/desktop*.yml'
-      - 'backend/**'
-      - 'frontend-console/**'
 
 permissions:
   contents: read
@@ -45,7 +44,22 @@ env:
   PYTHONUTF8: '1'
 
 jobs:
+  select:
+    runs-on: ubuntu-24.04
+    outputs:
+      matrix: ${{ steps.targets.outputs.matrix }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ inputs.source_sha || github.sha }}
+      - name: Select requested platforms
+        id: targets
+        env:
+          BUILD_TARGET: ${{ inputs.target }}
+        run: python3 desktop/release.py matrix "$BUILD_TARGET" >> "$GITHUB_OUTPUT"
+
   build:
+    needs: select
     if: ${{ !inputs.signed || github.ref == 'refs/heads/main' }}
     concurrency:
       group: desktop-${{ github.workflow }}-${{ inputs.source_sha || github.ref }}-${{ matrix.os }}
@@ -53,16 +67,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        include:
-          - os: macos-15
-            python: '3.14.8'
-            platform: macos-arm64
-          - os: macos-15-intel
-            python: '3.13.15'
-            platform: macos-x64
-          - os: windows-2025
-            python: '3.14.8'
-            platform: windows-x64
+        include: ${{ fromJSON(needs.select.outputs.matrix) }}
     runs-on: ${{ matrix.os }}
     timeout-minutes: 60
     steps:
@@ -119,7 +124,8 @@ jobs:
         if: runner.os == 'macOS'
         env:
           NOVELCRAFT_CODESIGN_IDENTITY: ${{ inputs.signed && secrets.MACOS_SIGNING_IDENTITY || '' }}
-        run: backend/.venv/bin/python desktop/build.py
+          BUILD_TARGET: ${{ matrix.platform }}
+        run: backend/.venv/bin/python desktop/build.py --target "$BUILD_TARGET"
       - name: Build Windows app
         if: runner.os == 'Windows'
         shell: cmd
@@ -130,7 +136,7 @@ jobs:
           if errorlevel 1 exit /b 1
           set CC=cl
           set CXX=cl
-          backend\.venv\Scripts\python.exe desktop\build.py
+          backend\.venv\Scripts\python.exe desktop\build.py --target windows-x64
       - name: Sign Windows executables
         if: runner.os == 'Windows' && inputs.signed
         env:

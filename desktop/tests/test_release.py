@@ -81,7 +81,7 @@ def test_ci_requires_the_exact_sha_and_latest_main_push_run():
         release.verify_ci([*runs, {**runs[0], "id": 999, "conclusion": "failure"}], sha)
 
 
-def artifacts(root):
+def artifacts(root, target=release.DEFAULT_TARGET):
     metadata = release.build_metadata(root)
     assets = root / "desktop/build/assets"
     assets.mkdir(parents=True)
@@ -89,21 +89,62 @@ def artifacts(root):
     payload = assets / "synthetic-installer"
     payload.write_bytes(b"synthetic artifact, no executable code")
     directory = root / "artifacts"
-    for platform in release.PLATFORMS:
+    for platform in release.selected_platforms(target):
         release.package(payload, platform, False, directory / platform, root)
     return metadata, directory
 
 
-def test_assembly_emits_three_packages_checksums_and_instructions(source):
-    metadata, directory = artifacts(source)
-    release.assemble(directory, metadata["commit"], source)
+@pytest.mark.parametrize("target", release.TARGETS)
+def test_assembly_emits_only_requested_packages_checksums_and_instructions(
+    source, target
+):
+    metadata, directory = artifacts(source, target)
+    if target == release.DEFAULT_TARGET:
+        release.assemble(directory, metadata["commit"], source)
+    else:
+        release.assemble(directory, metadata["commit"], source, target)
     output = directory / "release"
     manifest = json.loads((output / "release.json").read_text())
-    assert len(manifest["artifacts"]) == 3
+    assert tuple(
+        r["platform"] for r in manifest["artifacts"]
+    ) == release.selected_platforms(target)
     for artifact in manifest["artifacts"]:
         assert release.digest(output / artifact["file"]) == artifact["sha256"]
-    assert len((output / "SHA256SUMS.txt").read_text().splitlines()) == 3
+    assert len((output / "SHA256SUMS.txt").read_text().splitlines()) == len(
+        manifest["artifacts"]
+    )
     assert (output / "安装说明.txt").read_text() == "Install instructions\n"
+
+
+def test_assembly_rejects_unrequested_duplicate_or_missing_platforms(source):
+    metadata, directory = artifacts(source, "all")
+    with pytest.raises(ValueError, match="Unrequested platform"):
+        release.assemble(directory, metadata["commit"], source)
+    (directory / "windows-x64/windows-x64.json").unlink()
+    with pytest.raises(ValueError, match="exactly one artifact for windows-x64"):
+        release.assemble(directory, metadata["commit"], source, "all")
+    extra = directory / "duplicate"
+    extra.mkdir()
+    (extra / "macos-arm64.json").write_bytes(
+        (directory / "macos-arm64/macos-arm64.json").read_bytes()
+    )
+    with pytest.raises(ValueError, match="exactly one artifact for macos-arm64"):
+        release.assemble(directory, metadata["commit"], source, "all")
+    assert not (directory / "release").exists()
+
+
+@pytest.mark.parametrize("target", release.TARGETS)
+def test_build_matrix_selects_only_explicit_platforms(target):
+    rows = release.build_matrix(target)
+    assert tuple(row["platform"] for row in rows) == release.selected_platforms(target)
+    assert len({row["os"] for row in rows}) == len(rows)
+
+
+def test_unknown_build_target_fails_closed(source):
+    with pytest.raises(ValueError, match="Unknown build target"):
+        release.build_matrix("ALL")
+    with pytest.raises(ValueError, match="Unknown build target"):
+        release.assemble(source, "a" * 40, source, "")
 
 
 @pytest.mark.parametrize("fault", ["checksum", "commit", "missing", "stable-unsigned"])

@@ -1,7 +1,8 @@
 # 桌面版发布流程
 
-桌面安装包是主要交付物，共用源码，分别提供 macOS ARM64、macOS x64 与 Windows x64。
-服务器部署继续遵守 deploy/README.md；本流程不调用服务器 release.sh，不修改线上数据。
+桌面应用是默认开发与交付方向。日常 PR/main 不构建安装包；仅手动命令触发，
+默认只发布 Mac M 芯片（macOS ARM64）版。Intel Mac、Windows x64 或全平台须当次明确选择。
+旧服务器退出产品开发方向；历史环境维护仍遵守 deploy/README.md，本流程不修改线上数据。
 
 ## 一次版本发布
 
@@ -10,24 +11,29 @@
    桌面版本格式为 X.Y.Z 或 X.Y.Z-alpha.N / beta.N / rc.N（N 从 1 开始）。
    backend/frontend 包版本有各自用途，无需跟随修改；构建自动写入应用信息、Windows 安装器和来源清单。
 2. 完成受影响测试、文档检查与 PR 评审，取得合并授权后合入 main。等待目标 main 提交的
-   Backend CI（含 PostgreSQL critical）、Frontend CI、CodeQL、Architecture docs、repo-gates、
-   Production Image CI 全部成功。源码、原生运行与人工验收的证据分别记录。
+   Backend CI（含 PostgreSQL critical 与轻量桌面源码测试）、Frontend CI、CodeQL、
+   Architecture docs、repo-gates 全部成功。服务器镜像已改为手动历史维护流程，不是桌面发布前置。源码、原生运行与人工验收的证据分别记录。
 3. 记录完整 40 位 main 提交 SHA，从 main 手动运行 **Desktop release draft**：
 
    ```sh
    gh workflow run desktop-release.yml --ref main -f source_sha=完整40位提交SHA
    ```
 
+   此命令默认 target=macos-arm64。只有用户明确要求时才加 `-f target=macos-x64`、
+   `-f target=windows-x64` 或 `-f target=all`，不自动补齐另外两个版本。
+   例如仅 Windows：`gh workflow run desktop-release.yml --ref main -f source_sha=完整40位提交SHA -f target=windows-x64`。
+
    流程拒绝主题分支、非 main 可达提交、脏工作区、未通过或缺失的目标 SHA CI、缺少版本说明、
    已存在的版本/tag。网络查询失败会停止。失败后修复原因重试；若已有部分草稿，先人工检查并清理，
    不使用 --clobber 覆盖现有版本。
-4. 同一套 Desktop installers 工作流分别构建三平台，测试冻结程序的本地模型、中文检索、
+4. 同一套 Desktop installers 工作流只构建本次选定平台，测试冻结程序的本地模型、中文检索、
    会话保护、作品持久化、单实例和重开；Windows 另实际安装、从安装目录运行并检查卸载。
    稳定版在构建中签名，Mac 还须 Apple 公证及 stapler 验证；任一步失败均不进入草稿创建。
-5. 汇总同版本同 SHA 的三个包，重新核对摘要、大小、签名状态，创建 **Release 草稿**。
-   草稿附件包含三个版本化安装包、SHA256SUMS.txt、release.json、安装说明.txt、RELEASE-NOTES.md。
+5. 汇总选定平台的同版本同 SHA 安装包，重新核对摘要、大小、签名状态，创建 **Release 草稿**。
+   缺少选定包、混入未选平台、重复包或校验失败均停止；只发 ARM64 时不要求另外两个包。
+   草稿附件包含选定平台安装包、SHA256SUMS.txt、release.json、安装说明.txt、RELEASE-NOTES.md。
    preview 版本勾选 prerelease；此流程没有自动公开发布、自动更新或服务器部署动作。
-6. 下载草稿附件，对三个系统逐项记录：安装/启动、空态、新建作品、中文正文保存、退出重开、
+6. 下载草稿附件，仅对本次发布的系统逐项记录：安装/启动、空态、新建作品、中文正文保存、退出重开、
    系统保存对话框导出、已有安装的覆盖升级及数据保留。记录系统、包摘要、结果与已知问题；
    工程 smoke 不能代替原生窗口或作者验收。核对 release.json 的 commit 和版本，再由负责人
    在 GitHub Release 页面点击 Publish。稳定版须先关闭已知阻断问题；公开发布需当次明确授权。
@@ -60,7 +66,7 @@ Mac 使用临时 runner keychain，由 PyInstaller 以 Developer ID/hardened run
 不把 PFX 配置当成所有证书供应商的通用方案。
 
 证书采购、账户申请和签名服务付费未自动执行。配置存在也不等于签名已实测；
-首个稳定版必须记录真实三平台签名、公证、下载与系统验证结果。
+每次稳定版必须记录本次所选平台的真实签名、公证（Mac）、下载与系统验证结果。
 步骤依据 [PyInstaller 签名文档](https://pyinstaller.org/en/stable/feature-notes.html#macos-binary-code-signing)
 与 [Apple 公证说明](https://developer.apple.com/documentation/security/notarizing-macos-software-before-distribution)。
 
@@ -75,8 +81,14 @@ Mac 使用临时 runner keychain，由 PyInstaller 以 Developer ID/hardened run
 
 ## 开发与验证入口
 
-普通 PR/main 改动 backend、frontend 或 desktop 时自动构建三个平台；它们只上传测试产物。
+普通 PR/main 复用 Backend CI 的轻量桌面源码/边界/发布测试，不构建安装包。
+需要安装包时，手动运行 `gh workflow run desktop.yml --ref 分支名`，默认仅 ARM64；
+另外两个平台或 all 仍须当次明确传 target。它只上传测试产物，不创建或公开 Release。
 Release 工作流复用相同构建，不复制另一套打包命令。所有第三方 Actions 固定 commit SHA。
-手动构建也可使用 desktop/build.py、desktop/smoke.py --frozen；生成包位于 desktop/dist/。
+本机 `make desktop-build` 默认 ARM64；Intel/Windows 须显式传 DESKTOP_TARGET 并使用对应宿主。
+然后运行 desktop/smoke.py --frozen；生成包位于 desktop/dist/，详见桌面 README。
 release.py 的 verify-source/package/assemble 分别负责来源门禁、产物记录和汇总校验，
-对应失败路径测试位于 desktop/tests/test_release.py。
+对应失败路径与手动触发约束测试位于 desktop/tests/test_release.py、test_workflows.py。
+
+每个版本只包含本次明确选择的平台；以后需要增加其他平台时使用新版本重新走流程，
+不覆盖已有草稿/公开版本，也不静默补包。未选择平台的原生安装验收不计入本次必需范围。

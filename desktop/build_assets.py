@@ -59,7 +59,11 @@ def source(name: str, url: str, sha: str) -> Path:
 
 
 def run(*args: str, cwd: Path, env=None):
-    subprocess.run(args, cwd=cwd, env=env, check=True)
+    # PostgreSQL must generate headers as a top-level make, even under our Makefile.
+    environment = dict(os.environ if env is None else env)
+    for name in ("MAKELEVEL", "MAKEFLAGS", "MFLAGS", "MAKEOVERRIDES"):
+        environment.pop(name, None)
+    subprocess.run(args, cwd=cwd, env=environment, check=True)
 
 
 def main():

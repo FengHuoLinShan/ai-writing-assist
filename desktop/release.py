@@ -16,14 +16,34 @@ PLATFORMS = {
     "macos-x64": ".dmg",
     "windows-x64": "-Setup.exe",
 }
+DEFAULT_TARGET = "macos-arm64"
+TARGETS = (*PLATFORMS, "all")
 REQUIRED_WORKFLOWS = {
     "backend-ci.yml",
     "frontend-ci.yml",
     "codeql.yml",
     "architecture-docs.yml",
     "repo-gates.yml",
-    "production-image-ci.yml",
 }
+
+
+def selected_platforms(target: str) -> tuple[str, ...]:
+    if target not in TARGETS:
+        raise ValueError(f"Unknown build target: {target}")
+    return tuple(PLATFORMS) if target == "all" else (target,)
+
+
+def build_matrix(target: str, root: Path = ROOT) -> list[dict]:
+    python = (root / "backend/.python-version").read_text().strip()
+    runners = {
+        "macos-arm64": ("macos-15", python),
+        "macos-x64": ("macos-15-intel", "3.13.15"),
+        "windows-x64": ("windows-2025", python),
+    }
+    return [
+        {"platform": platform, "os": runners[platform][0], "python": runners[platform][1]}
+        for platform in selected_platforms(target)
+    ]
 
 
 def version(root: Path = ROOT) -> str:
@@ -115,10 +135,14 @@ def package(source: Path, platform: str, signed: bool, output: Path, root: Path 
     (output / (platform + ".json")).write_text(json.dumps(record, indent=2) + "\n")
 
 
-def assemble(directory: Path, sha: str, root: Path = ROOT):
+def assemble(directory: Path, sha: str, root: Path = ROOT, target: str = DEFAULT_TARGET):
     v = version(root)
-    records = []
+    platforms = selected_platforms(target)
     for platform in PLATFORMS:
+        if platform not in platforms and list(directory.rglob(platform + ".json")):
+            raise ValueError(f"Unrequested platform artifact: {platform}")
+    records = []
+    for platform in platforms:
         matches = list(directory.rglob(platform + ".json"))
         if len(matches) != 1:
             raise ValueError(f"Expected exactly one artifact for {platform}")
@@ -161,6 +185,8 @@ def assemble(directory: Path, sha: str, root: Path = ROOT):
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     commands = parser.add_subparsers(dest="command", required=True)
+    matrix = commands.add_parser("matrix")
+    matrix.add_argument("target", choices=TARGETS, nargs="?", default=DEFAULT_TARGET)
     verify = commands.add_parser("verify-source")
     verify.add_argument("sha")
     verify.add_argument("--ci-runs", type=Path, required=True)
@@ -172,8 +198,11 @@ def main():
     collect = commands.add_parser("assemble")
     collect.add_argument("directory", type=Path)
     collect.add_argument("sha")
+    collect.add_argument("--target", choices=TARGETS, default=DEFAULT_TARGET)
     args = parser.parse_args()
-    if args.command == "verify-source":
+    if args.command == "matrix":
+        print("matrix=" + json.dumps(build_matrix(args.target)))
+    elif args.command == "verify-source":
         metadata = verify_source(args.sha)
         pages = json.loads(args.ci_runs.read_text())
         verify_ci([run for page in pages for run in page["workflow_runs"]], args.sha)
@@ -182,7 +211,7 @@ def main():
     elif args.command == "package":
         package(args.source, args.platform, args.signed, args.output)
     else:
-        assemble(args.directory, args.sha)
+        assemble(args.directory, args.sha, target=args.target)
 
 
 if __name__ == "__main__":

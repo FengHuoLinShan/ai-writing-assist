@@ -201,16 +201,18 @@ RP 只使用选中分支和获准的固定来源版本，不反写原作。地�
 | 检索 | pgvector、分块与混合召回、来源绑定及上下文编译；高级 Planner/Reranker 按开关启用。 |
 | AI 运行 | PydanticAI、OpenAI-compatible client、账户级连接与统一运行信封；以仓库配置和真实门禁支持的模型为准。 |
 | 异步执行 | PostgreSQL 持久任务、独立 worker、lease、checkpoint、恢复和提交重验。 |
-| 交付与质量 | Docker、GitHub Actions、Ruff、pytest、浏览器回归、固定 SHA 发布与恢复脚本。 |
+| 交付与质量 | pywebview / PyInstaller 桌面应用、GitHub Actions、Ruff、pytest、浏览器回归、固定 SHA 手动发布。 |
 
 依赖以 [backend/pyproject.toml](backend/pyproject.toml)、[backend/uv.lock](backend/uv.lock) 与 [frontend-console/package.json](frontend-console/package.json) 为准。SQLite 测试依赖不意味着生产语义可以等价地用 SQLite 验收。
 
 ## 本地运行
 
+后续开发以完整本地桌面应用为默认方向；Vue、FastAPI 与 worker 是应用内部实现。
+
 ### 安装桌面版（主要交付方式）
 
 从 [Releases](https://github.com/FengHuoLinShan/ai-writing-assist/releases) 选择版本与系统：
-macOS 14+ 分 Apple Silicon / Intel，Windows 10 1903+/11 选择 x64 安装器。
+默认提供 macOS 14+ Apple Silicon 版；Intel Mac 与 Windows x64 只在明确要求时构建，以该版本实际附件为准。
 无需 Docker、Python、Node 或另配服务器；业务 AI 连接在应用内配置并验证。
 安装与数据保留见 [桌面说明](desktop/README.md)，发布与版本维护见
 [桌面发布流程](desktop/RELEASE.md)。当前仍处于 Alpha；以 Release 中的实际产物与验收记录为准。
@@ -222,40 +224,36 @@ AI 小说程序在开发阶段的大量业务 LLM 调用使用 **Codex GPT-6 Lun
 付费供应商不自动回退。配置核验与运行边界见
 [开发阶段模型约定](development-guide.md#开发阶段模型约定)，Agent 共享规则见 [AGENTS.md](AGENTS.md#运行时-llm)。
 
-#### 前置条件
+#### 默认桌面开发入口
 
-准备 Python 3.12+、uv、与前端锁定依赖兼容的 Node.js/npm、Docker Compose 和 Make。以下命令适用于 macOS/Linux shell；Windows 可在 WSL 等相应开发环境中执行。
-
-```bash
-git clone https://github.com/FengHuoLinShan/ai-writing-assist.git
-cd ai-writing-assist
-
-# 安装锁定依赖；开发工具位于 dev extra。
-(cd backend && uv sync --locked --extra dev)
-(cd frontend-console && npm ci)
-
-# 仅首次创建；已有配置时不要覆盖 backend/.env。
-[ -f backend/.env ] || cp backend/.env.example backend/.env
-source backend/.venv/bin/activate
-
-make db
-make migrate
-make dev
-```
-
-`make migrate` 显式升级到 Alembic head。开发服务会检查 schema 状态，不应依赖启动过程悄悄迁移数据库。后端默认开发端口为 `8000`，前端脚本默认为 `8080`，具体以终端输出和环境配置为准。
-
-#### 配置注意事项
-
-业务模型连接在账户设置中管理。需要持久保存模型密钥时，配置 `LLM_SETTINGS_ENCRYPTION_KEY`，可用下列命令生成并安全保存：
+在原生 macOS / Windows 开发，准备仓库锁定版本的 Python/uv、Node/npm、Make 和原生编译工具，
+详见 [桌面说明](desktop/README.md)。不需要 Docker、MinIO 或分开启动 API / worker / Vite。
 
 ```bash
-python -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())"
+make desktop-prepare   # 首次：独立虚拟环境、固定数据库/模型资源与前端依赖
+make dev               # 构建当前界面并打开原生窗口；不生成安装包
+make desktop-test      # 轻量桌面单测；不构建安装包
 ```
 
-不要提交 `.env`、API Key、真实稿件或生产数据。示例数据库密码与 `AUTH_MODE=local` 仅用于本地开发；公开部署需另外配置会话密钥、邮件、来源限制、正向速率限制及受控出站访问。连接验证或真实模型测试可能产生费用。
+`./start.sh` 进入同一桌面源码流程。开发数据默认写入当前工作树的 `desktop/build/dev-data/`，
+与安装版作品分开；可用 `NOVELCRAFT_DESKTOP_DATA_DIR` 显式选择开发目录。
+前端修改后关闭窗口，再运行 `make dev`；后端源码随下次启动生效。
+应用监督器管理本机数据库、API 与 worker；关闭窗口经确认后只关闭本实例所属进程。
+不读取 backend/.env，不自动导入或删除旧开发库，也不自动把安装版数据迁入开发目录。
+模型连接仍在应用内配置并验证；开发原始稿件和模型调用遵守既有授权门禁。
 
-Embedding 服务、首次启动和公开部署细节见 [development-guide.md](development-guide.md) 与 [deploy/README.md](deploy/README.md)。本文命令由仓库配置静态核对，不构成本次端到端启动验收记录。
+前后端目录是应用内部实现边界。独立服务启动保留为显式诊断工具 `make dev-services`，
+不再作为产品开发与交付的默认路径；浏览器回归仍使用专用测试服务和数据库。
+服务器 Docker 镜像不再随 PR/main 自动构建，历史运维入口见 [部署说明](deploy/README.md)。
+
+默认手动发布命令仅生成 Mac M 芯片版 Release 草稿：
+
+```bash
+gh workflow run desktop-release.yml --ref main -f source_sha=完整40位提交SHA
+```
+
+Intel、Windows 或全部版本须显式传入 `-f target=macos-x64`、`windows-x64` 或 `all`；
+日常改动不构建安装包。来源、测试、签名与公开发布门禁见 [桌面发布流程](desktop/RELEASE.md)。
 
 ## 测试与工程证据
 

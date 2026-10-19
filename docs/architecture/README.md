@@ -26,6 +26,10 @@
 当前架构文档的维护入口见
 [`documentation-maintenance.md`](documentation-maintenance.md)。
 
+默认运行形态为 [ADR-0043 的本地桌面应用](../adr/0043-local-desktop-distribution.md)，
+源码入口、隔离数据目录与手动平台选择见 [桌面说明](../../desktop/README.md)。
+图中的 Vue、API、worker、数据库表示应用内部职责，不要求以独立服务器交付。
+
 ## 自动门禁
 
 ```bash

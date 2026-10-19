@@ -4,9 +4,11 @@ from __future__ import annotations
 
 import ast
 import io
+import json
 import re
 import shlex
 import subprocess
+import sys
 import tokenize
 import tomllib
 from pathlib import Path
@@ -406,14 +408,25 @@ def test_production_toolchain_uses_pinned_images_and_consistent_versions() -> No
                 if "python-version" in options:
                     if options["python-version"] == "${{ matrix.python }}":
                         assert path.name == "desktop.yml"
+                        assert (
+                            job["strategy"]["matrix"]["include"]
+                            == "${{ fromJSON(needs.select.outputs.matrix) }}"
+                        )
+                        result = subprocess.check_output(
+                            [
+                                sys.executable,
+                                str(repo_root / "desktop/release.py"),
+                                "matrix",
+                                "all",
+                            ],
+                            text=True,
+                        )
+                        rows = json.loads(result.removeprefix("matrix="))
                         # Intel's last ONNX Runtime wheel requires Python 3.13.
-                        assert [
-                            {key: row[key] for key in ("os", "python")}
-                            for row in job["strategy"]["matrix"]["include"]
-                        ] == [
-                            {"os": "macos-15", "python": python_version},
-                            {"os": "macos-15-intel", "python": "3.13.15"},
-                            {"os": "windows-2025", "python": python_version},
+                        assert [(row["os"], row["python"]) for row in rows] == [
+                            ("macos-15", python_version),
+                            ("macos-15-intel", "3.13.15"),
+                            ("windows-2025", python_version),
                         ]
                     else:
                         assert options["python-version"] == python_version

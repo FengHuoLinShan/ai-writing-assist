@@ -80,6 +80,10 @@ World/Story 相关提案各自确认；源版本变化时批注标为定位失�
 
 ## 快速启动
 
+默认以桌面应用开发：在仓库根运行 `make desktop-prepare`，再 `make dev`。
+本目录是应用内的 Vue 界面实现；以下 Vite/独立服务命令供显式界面诊断与浏览器回归，
+不再作为产品默认启动或交付方式，详见 [桌面说明](../desktop/README.md)。
+
 开发时使用 Vite dev server，支持 CSS 热更新和 JS/HTML 自动刷新。AI 地图册是普通 Vue SFC，图片通过同源鉴权 API 读取。
 
 ```bash
