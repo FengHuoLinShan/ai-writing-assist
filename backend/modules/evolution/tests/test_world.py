@@ -40,6 +40,7 @@ def test_unknown_usage_never_qualifies_for_world_format_deferral():
 
 async def test_codex_invalid_inner_json_reaches_world_deferral_without_replay(
     monkeypatch,
+    tmp_path,
 ):
     from unittest.mock import patch
 
@@ -56,6 +57,13 @@ async def test_codex_invalid_inner_json_reaches_world_deferral_without_replay(
     monkeypatch.setattr(
         "infrastructure.llm.codex_provider.codex_connection_fingerprint",
         lambda: "synthetic-fingerprint",
+    )
+    monkeypatch.setattr(
+        "infrastructure.llm.codex_identity.codex_login_identity",
+        lambda: "synthetic-account",
+    )
+    monkeypatch.setattr(
+        "infrastructure.llm.model_admission._admission_directory", lambda: tmp_path
     )
     profile = ResolvedLLMProfile(
         provider_id="codex",
