@@ -3,7 +3,7 @@ id: T-20261017-director-scales-impl
 title: 导演多尺度独立探索多批次实施
 status: active
 created: 2026-10-17T19:30:00+08:00
-updated: 2026-10-18T12:54:22+08:00
+updated: 2026-10-19T11:50:00+08:00
 ---
 
 # 导演多尺度独立探索：多批次实施
@@ -18,7 +18,8 @@ updated: 2026-10-18T12:54:22+08:00
 - 阶段证据：完整 test-ci 通过（后端 9505/85.48%，前端 3335，部署 324），专用 PG critical 112 项通过。
   最终后端全量 9508 passed / 2 skipped，覆盖率 85.48%；详细证据见 REVIEW-FIXES.md。
 - 已提交推送并创建 [PR #255](https://github.com/FengHuoLinShan/ai-writing-assist/pull/255)；固定修复提交 a12c80169 的 repo-gates/docs-check 通过，与 origin/main 083843474 可无冲突合并。
-- 下一步：核对 PR 远端 CI；后续合并、第五批真实模型/作者验收仍需相应授权，不自动执行。
+- 2026-10-19：用户授权整理合并，PR #255最终head8691ab9cf全部必需检查通过后普通合入main，merge404f597c1100280564812eb73d47794e1852d7b0；最新修复见REVIEW-FIXES.md及T-20261019-worktree-housekeeping。
+- 下一步：第五批保持离线准备，真实模型/作者验收仍须相应授权。
 - 真实数据库、业务模型与作者验收未获本轮新增授权；ADR-0042 仍 Proposed。
 - 上轮工程证据保留在 REVIEW-FIXES.md；上轮“未见剩余缺陷”已被本轮反例推翻。
 
@@ -36,7 +37,7 @@ updated: 2026-10-18T12:54:22+08:00
 
 - 主实施区：`/Users/tywww/项目/ai-writing-assist/.worktrees/director-scales-impl`，
   分支 `codex/director-scales-impl`，基线 origin/main `6004d3703`（2026-10-17 与本地 main 一致）。
-- 规划参考区：`.worktrees/director-scales-plan`（只读参考，不再写入）。
+- 原规划参考树已清理；计划与契约保留在main及本任务目录，私有归档见T-20261019-worktree-housekeeping。
 - 并行代理按独立 worktree/分支规则工作；主区负责集成与验证。
 
 ## 批次与并行结构（依赖序）
@@ -68,4 +69,4 @@ updated: 2026-10-18T12:54:22+08:00
 
 ## 下一步
 
-- 本轮工程修复和 PR 创建已完成，远端 CI 以 PR 当前状态为准；第五批独立验收仍待，当前不合并或部署。
+- 工程修复、最新main集成与PR #255合并已完成；第五批独立验收仍待，任务保持active，不自动运行真实模型或部署。

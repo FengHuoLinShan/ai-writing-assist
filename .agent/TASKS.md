@@ -1,6 +1,5 @@
 # 开放任务
 
-- [T-20261019-worktree-housekeeping](tasks/2026/T-20261019-worktree-housekeeping/TASK.md) — 闲置工作树清理与成果收口
 
 
 
