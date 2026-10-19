@@ -20,6 +20,7 @@
 from __future__ import annotations
 
 from contextlib import nullcontext
+from math import isfinite
 from typing import Any, Literal, Protocol
 
 from pydantic import BaseModel, ConfigDict, Field
@@ -720,12 +721,17 @@ def build_call_receipt(
     """
     attempts = [item for item in diagnostics if item.get("kind") == "structured_usage"]
     usage_fields = ("prompt_tokens", "completion_tokens", "total_tokens")
+    measured_fields = (*usage_fields, "cache_hit_tokens", "cache_miss_tokens")
+
+    def token_value(item, field):
+        value = item.get(field)
+        return value if type(value) is int and value >= 0 else None
 
     def _field_total(field: str) -> int | None:
         values: list[int] = []
         for item in attempts:
-            value = item.get(field)
-            if isinstance(value, bool) or not isinstance(value, int):
+            value = token_value(item, field)
+            if value is None:
                 return None
             values.append(value)
         return sum(values) if values else None
@@ -733,12 +739,43 @@ def build_call_receipt(
     unknown_attempts = sum(
         1
         for item in attempts
-        if any(
-            isinstance(item.get(field), bool) or not isinstance(item.get(field), int)
-            for field in usage_fields
-        )
+        if any(token_value(item, field) is None for field in usage_fields)
     )
     profile = getattr(client, "profile_summary", {}) or {}
+    timing_calls = []
+
+    def duration(value):
+        return (
+            value
+            if type(value) in {int, float} and isfinite(value) and value >= 0
+            else None
+        )
+
+    for item in diagnostics:
+        if item.get("kind") != "call_timing":
+            continue
+        timing_calls.append(
+            {
+                "status": item["status"],
+                "admission_wait_ms": duration(item.get("admission_wait_ms")),
+                "elapsed_ms": duration(item.get("elapsed_ms")),
+                "provider_attempts": [
+                    {
+                        "attempt": attempt["attempt"],
+                        "status": attempt["status"],
+                        "elapsed_ms": duration(attempt.get("elapsed_ms")),
+                    }
+                    for attempt in item["provider_attempts"]
+                ],
+            }
+        )
+
+    def duration_total(values):
+        return sum(values) if values and all(v is not None for v in values) else None
+
+    physical_attempts = [
+        attempt for call in timing_calls for attempt in call["provider_attempts"]
+    ]
     return {
         "provider": profile.get("provider_id")
         or getattr(client, "provider_id", None)
@@ -748,10 +785,33 @@ def build_call_receipt(
         or getattr(client, "model_id", None),
         "schema": schema,
         "outcome": outcome,
+        # A provider may reject its input before network/CLI IO. These are
+        # method attempts; actual dispatched/paid calls need native evidence.
+        "provider_attempt_count": len(physical_attempts) if timing_calls else None,
+        "timing": {
+            "admission_wait_ms": duration_total(
+                [call["admission_wait_ms"] for call in timing_calls]
+            ),
+            "provider_elapsed_ms": duration_total(
+                [attempt["elapsed_ms"] for attempt in physical_attempts]
+            ),
+            "client_elapsed_ms": duration_total(
+                [call["elapsed_ms"] for call in timing_calls]
+            ),
+            "pure_generation_ms": None,
+            "admission_scope": "once_per_generate_including_transport_retries",
+            "calls": timing_calls,
+        },
         "usage": {
-            "prompt_tokens": _field_total("prompt_tokens"),
-            "completion_tokens": _field_total("completion_tokens"),
-            "total_tokens": _field_total("total_tokens"),
+            **{field: _field_total(field) for field in measured_fields},
+            "known_subtotals": {
+                field: sum(token_value(item, field) or 0 for item in attempts)
+                for field in measured_fields
+            },
+            "unavailable_attempts": {
+                field: sum(token_value(item, field) is None for item in attempts)
+                for field in measured_fields
+            },
             "attempts": len(attempts),
             "succeeded_attempts": sum(
                 1 for item in attempts if item.get("status") == "succeeded"
@@ -765,7 +825,7 @@ def build_call_receipt(
             {
                 "attempt": item.get("attempt"),
                 "status": item.get("status"),
-                "completion_tokens": item.get("completion_tokens"),
+                **{field: token_value(item, field) for field in measured_fields},
                 **({"error_kind": item["error_kind"]} if item.get("error_kind") else {}),
             }
             for item in attempts

@@ -1863,6 +1863,68 @@ async def test_generate_structured_records_usage_without_cache_details() -> None
     assert usage["total_tokens"] == 45
 
 
+@pytest.mark.parametrize(
+    "usage",
+    [LLMUsage(prompt_tokens=40, completion_tokens=5, total_tokens=45), LLMUsage(), None],
+    ids=["known", "zero", "unknown"],
+)
+async def test_structured_provider_failure_preserves_usage_without_replay(usage):
+    from modules.evolution.llm_sampler import build_call_receipt
+    from modules.evolution.state_review import has_unreconciled_scene_calls
+
+    error = LLMInvalidResponseError(
+        "Provider rejected the output contract",
+        provider="fake",
+        raw_response="private generated output",
+        usage=usage,
+    )
+    error.diagnostic = {"exit_code": 0}
+
+    class Provider:
+        name = "fake"
+        calls = 0
+
+        async def generate(self, request):
+            self.calls += 1
+            raise error
+
+    client = LLMClient()
+    provider = Provider()
+    client._provider = provider
+    diagnostics = []
+    try:
+        with pytest.raises(LLMInvalidResponseError) as caught:
+            await client.generate_structured(
+                LLMCallRequest(model="fake", messages=[]),
+                _StructuredPayload,
+                max_fix_attempts=3,
+                format_repair_attempts=2,
+                transport_retries=False,
+                diagnostics=diagnostics,
+            )
+        assert caught.value is error
+        assert provider.calls == 1
+        assert sum(item["kind"] == "structured_usage" for item in diagnostics) == 1
+        assert sum(item["kind"] == "native_cli_failure" for item in diagnostics) == 1
+        assert "private generated output" not in repr(diagnostics)
+        receipt = build_call_receipt(
+            client, diagnostics, schema="_StructuredPayload", outcome="failed_final"
+        )
+        assert receipt["usage"]["attempts"] == 1
+        assert receipt["usage"]["succeeded_attempts"] == 0
+        assert receipt["usage"]["usage_complete"] is (usage is not None)
+        assert receipt["usage"]["unknown_attempts"] == int(usage is None)
+        for field in ("prompt_tokens", "completion_tokens", "total_tokens"):
+            assert receipt["usage"][field] == (
+                getattr(usage, field) if usage is not None else None
+            )
+        assert has_unreconciled_scene_calls(
+            {"scene_world": {"stage": "failed", "paid_call_receipt": receipt}}
+        )
+    finally:
+        await client.close()
+
+
 @pytest.mark.asyncio
 async def test_generate_structured_wraps_bare_list_for_single_list_schema() -> None:
     client = LLMClient()
@@ -2312,3 +2374,221 @@ def test_one_extraneous_closer_keeps_business_content_and_strict_shape():
             _parse_structured_json(
                 value, _StructuredPayload, allow_truncated_recovery=recover
             )
+
+
+@pytest.mark.asyncio
+async def test_call_timing_counts_one_admission_and_each_transport_attempt(monkeypatch):
+    clock = SimpleNamespace(now=0.0)
+    monkeypatch.setattr("infrastructure.llm.client.monotonic", lambda: clock.now)
+
+    async def admitted(call, **kwargs):
+        clock.now += 2
+        return await call()
+
+    monkeypatch.setattr(
+        "infrastructure.llm.client.get_llm_limiter",
+        lambda: SimpleNamespace(run=admitted),
+    )
+    calls = 0
+
+    class Provider:
+        name = "fake"
+
+        async def generate(self, request):
+            nonlocal calls
+            calls += 1
+            clock.now += 3 if calls == 1 else 4
+            if calls == 1:
+                raise LLMTimeoutError("synthetic timeout")
+            return LLMCallResponse(content="ok")
+
+    client = LLMClient()
+    client._provider = Provider()
+    client._settings = SimpleNamespace(
+        llm_retry_max_attempts=2, llm_retry_base_delay=0, llm_retry_max_delay=0
+    )
+    diagnostics = []
+    await client.generate(LLMCallRequest(model="fake"), diagnostics=diagnostics)
+    assert diagnostics == [
+        {
+            "kind": "call_timing",
+            "status": "succeeded",
+            "admission_wait_ms": 2000,
+            "elapsed_ms": 9000,
+            "provider_attempts": [
+                {"attempt": 1, "status": "failed", "elapsed_ms": 3000},
+                {"attempt": 2, "status": "succeeded", "elapsed_ms": 4000},
+            ],
+        }
+    ]
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("phase", ["admission", "provider"])
+async def test_call_timing_cancel_preserves_exception_and_attempt_count(
+    monkeypatch, phase
+):
+    entered = asyncio.Event()
+    release = asyncio.Event()
+
+    async def admitted(call, **kwargs):
+        if phase == "admission":
+            entered.set()
+            await release.wait()
+        return await call()
+
+    monkeypatch.setattr(
+        "infrastructure.llm.client.get_llm_limiter",
+        lambda: SimpleNamespace(run=admitted),
+    )
+
+    class Provider:
+        name = "fake"
+
+        async def generate(self, request):
+            entered.set()
+            await release.wait()
+            return LLMCallResponse(content="ok")
+
+    client = LLMClient()
+    client._provider = Provider()
+    diagnostics = []
+    task = asyncio.create_task(
+        client.generate(LLMCallRequest(model="fake"), diagnostics=diagnostics)
+    )
+    await asyncio.wait_for(entered.wait(), 2)
+    task.cancel("original cancellation")
+    with pytest.raises(asyncio.CancelledError, match="original cancellation"):
+        await task
+    timing = diagnostics[0]
+    assert timing["status"] == "cancelled" and timing["elapsed_ms"] >= 0
+    if phase == "admission":
+        assert timing["admission_wait_ms"] is None and not timing["provider_attempts"]
+    else:
+        assert timing["admission_wait_ms"] >= 0
+        assert len(timing["provider_attempts"]) == 1
+        assert timing["provider_attempts"][0]["status"] == "cancelled"
+
+
+@pytest.mark.asyncio
+async def test_structured_parallel_success_failure_collectors_are_isolated(monkeypatch):
+    entered = 0
+    both_entered = asyncio.Event()
+    failure = LLMInvalidResponseError("private failure", usage=LLMUsage(prompt_tokens=7))
+
+    async def admitted(call, **kwargs):
+        return await call()
+
+    monkeypatch.setattr(
+        "infrastructure.llm.client.get_llm_limiter",
+        lambda: SimpleNamespace(run=admitted),
+    )
+
+    class Provider:
+        name = "fake"
+
+        async def generate(self, request):
+            nonlocal entered
+            entered += 1
+            if entered >= 2:
+                both_entered.set()
+            await both_entered.wait()
+            if request.messages[0].content == "bad":
+                raise failure
+            return LLMCallResponse(content='{"value":"ok"}')
+
+    client = LLMClient()
+    client._provider = Provider()
+    good, bad = [], []
+    results = await asyncio.gather(
+        *(
+            client.generate_structured(
+                LLMCallRequest(
+                    model="fake", messages=[LLMMessage(role="user", content=value)]
+                ),
+                _StructuredPayload,
+                max_fix_attempts=0,
+                diagnostics=diagnostics,
+            )
+            for value, diagnostics in (("good", good), ("bad", bad))
+        ),
+        return_exceptions=True,
+    )
+    assert results[0].value == "ok" and results[1] is failure
+    for diagnostics, status in ((good, "succeeded"), (bad, "failed")):
+        timings = [d for d in diagnostics if d["kind"] == "call_timing"]
+        assert len(timings) == 1 and timings[0]["status"] == status
+        assert len(timings[0]["provider_attempts"]) == 1
+        assert timings[0]["provider_attempts"][0]["status"] == status
+        assert "private failure" not in repr(diagnostics)
+    before = (len(good), len(bad))
+    await client.generate(
+        LLMCallRequest(model="fake", messages=[LLMMessage(role="user", content="good")])
+    )
+    assert before == (len(good), len(bad))
+
+
+@pytest.mark.asyncio
+async def test_call_timing_budget_rejection_has_zero_provider_attempts(monkeypatch):
+    from infrastructure.llm.workflow_budget import AIRunBudgetExceededError
+
+    failure = AIRunBudgetExceededError("synthetic budget exhausted")
+
+    async def admitted(call, **kwargs):
+        return await call()
+
+    async def reserve(**kwargs):
+        raise failure
+
+    monkeypatch.setattr(
+        "infrastructure.llm.client.get_llm_limiter",
+        lambda: SimpleNamespace(run=admitted),
+    )
+    monkeypatch.setattr("infrastructure.llm.client._reserve_ai_run_request", reserve)
+    diagnostics = []
+    with pytest.raises(AIRunBudgetExceededError) as caught:
+        await LLMClient().generate(LLMCallRequest(model="fake"), diagnostics=diagnostics)
+    assert caught.value is failure
+    assert diagnostics[0]["status"] == "failed"
+    assert diagnostics[0]["provider_attempts"] == []
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("repair", ["structured", "format"])
+async def test_each_structured_or_format_repair_has_its_own_timing(monkeypatch, repair):
+    async def admitted(call, **kwargs):
+        return await call()
+
+    monkeypatch.setattr(
+        "infrastructure.llm.client.get_llm_limiter",
+        lambda: SimpleNamespace(run=admitted),
+    )
+    count = 0
+
+    class Provider:
+        name = "fake"
+
+        async def generate(self, request):
+            nonlocal count
+            count += 1
+            return LLMCallResponse(
+                content="invalid JSON" if count == 1 else '{"value":"ok"}'
+            )
+
+    client = LLMClient()
+    client._provider = Provider()
+    client._settings = SimpleNamespace(
+        llm_retry_max_attempts=1, llm_retry_base_delay=0, llm_retry_max_delay=0
+    )
+    diagnostics = []
+    result = await client.generate_structured(
+        LLMCallRequest(model="fake"),
+        _StructuredPayload,
+        max_fix_attempts=int(repair == "structured"),
+        format_repair_attempts=int(repair == "format"),
+        diagnostics=diagnostics,
+    )
+    assert result.value == "ok" and count == 2
+    timings = [item for item in diagnostics if item["kind"] == "call_timing"]
+    assert len(timings) == 2
+    assert all(len(item["provider_attempts"]) == 1 for item in timings)

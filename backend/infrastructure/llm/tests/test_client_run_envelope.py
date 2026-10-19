@@ -266,8 +266,9 @@ async def test_assistant_catalog_stops_before_provider_io_at_eighty_percent_or_u
         scope_fingerprint="a" * 64,
         authorized_step_capabilities=["story.character_card"],
     )
-    with ai_run_scope(ledger), managed_step_scope(
-        _step(capability_id="story.character_card")
+    with (
+        ai_run_scope(ledger),
+        managed_step_scope(_step(capability_id="story.character_card")),
     ):
         for _ in range(4):
             await client.generate(_request())
@@ -288,8 +289,9 @@ async def test_assistant_catalog_stops_before_provider_io_at_eighty_percent_or_u
         scope_fingerprint="a" * 64,
         authorized_step_capabilities=["story.character_card"],
     )
-    with ai_run_scope(unknown), managed_step_scope(
-        _step(capability_id="story.character_card")
+    with (
+        ai_run_scope(unknown),
+        managed_step_scope(_step(capability_id="story.character_card")),
     ):
         with pytest.raises(LLMTimeoutError):
             await failed_client.generate(_request())
@@ -1087,8 +1089,9 @@ async def test_complete_stream_structured_counts_once_and_never_replays(
     assert budget.requests == 1 and budget.pending_usage == 0
     assert budget.usage_unknown is broken
     if outcome == "content_filter":
-        assert diagnostics[0]["error_kind"] == "content_filter"
-        assert diagnostics[0]["total_tokens"] == 5
+        usage = next(item for item in diagnostics if item["kind"] == "structured_usage")
+        assert usage["error_kind"] == "content_filter"
+        assert usage["total_tokens"] == 5
         from modules.evolution.llm_sampler import build_call_receipt
 
         receipt = build_call_receipt(

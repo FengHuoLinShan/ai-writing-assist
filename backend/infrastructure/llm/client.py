@@ -18,8 +18,10 @@ import re
 import typing
 from collections.abc import AsyncIterator, Iterator
 from contextlib import contextmanager
+from contextvars import ContextVar
 from copy import deepcopy
 from dataclasses import replace
+from time import monotonic
 from typing import TYPE_CHECKING, Any, TypeVar
 
 from pydantic import BaseModel, TypeAdapter, ValidationError
@@ -72,6 +74,19 @@ _TOKEN_LIMIT_PROXIMITY = 0.95
 _FORMAT_REPAIR_RAW_RESPONSE_LIMIT = 12000
 _FORMAT_REPAIR_ERROR_LIMIT = 4000
 _EXPIRED_DEADLINE_CALL_TIMEOUT_SECONDS = 0.05
+_CALL_DIAGNOSTICS: ContextVar[list[dict[str, Any]] | None] = ContextVar(
+    "llm_call_diagnostics", default=None
+)
+
+
+@contextmanager
+def _call_timing_scope(diagnostics):
+    token = _CALL_DIAGNOSTICS.set(diagnostics)
+    try:
+        yield
+    finally:
+        _CALL_DIAGNOSTICS.reset(token)
+
 
 # 修复用途同时是重试证据：每个修复请求都算一次对应类型的自动重试，
 # 落在该请求自己的 step receipt 上；transport 重试只记 transport，不重复计修复。
@@ -990,6 +1005,7 @@ class LLMClient:
         *,
         transport_retries: bool = True,
         complete_stream: bool = False,
+        diagnostics: list[dict[str, Any]] | None = None,
     ) -> LLMCallResponse:
         """执行 LLM 调用（带自动重试）
 
@@ -1000,6 +1016,7 @@ class LLMClient:
             request: 调用请求参数
             transport_retries: 是否在传输错误后自动重试
             complete_stream: 原生流完整聚合；不自动重放，复用单次计量和总超时
+            diagnostics: 可选的安全计时数字，不包含请求或响应内容
 
         Returns:
             LLM 调用响应
@@ -1013,6 +1030,12 @@ class LLMClient:
         from infrastructure.llm.workflow_budget import current_workflow_budget
 
         attempts = 0
+        started = monotonic()
+        admitted_at = None
+        provider_attempts = []
+        call_diagnostics = (
+            diagnostics if diagnostics is not None else _CALL_DIAGNOSTICS.get()
+        )
 
         async def provider_request():
             nonlocal attempts
@@ -1034,16 +1057,34 @@ class LLMClient:
                     await ledger.discard(reservation)
                 raise
             await _record_ai_run_retry(ledger, reservation, attempt=attempts)
+
+            async def send_provider():
+                provider_started = monotonic()
+                status = "failed"
+                try:
+                    result = await (
+                        self._provider.generate(resolved_request, complete_stream=True)
+                        if complete_stream
+                        else self._provider.generate(resolved_request)
+                    )
+                    status = "succeeded"
+                    return result
+                except asyncio.CancelledError:
+                    status = "cancelled"
+                    raise
+                finally:
+                    provider_attempts.append(
+                        {
+                            "attempt": attempts,
+                            "status": status,
+                            "elapsed_ms": max(monotonic() - provider_started, 0.0) * 1000,
+                        }
+                    )
+
             try:
                 response = await asyncio.wait_for(
                     _send_admitted_request(
-                        lambda: (
-                            self._provider.generate(
-                                resolved_request, complete_stream=True
-                            )
-                            if complete_stream
-                            else self._provider.generate(resolved_request)
-                        ),
+                        send_provider,
                         ledger,
                         reservation,
                         meter=meter,
@@ -1084,6 +1125,8 @@ class LLMClient:
         if transport_retries and not complete_stream and transport_retries_enabled():
 
             async def call():
+                nonlocal admitted_at
+                admitted_at = monotonic()
                 return await retry_with_backoff(
                     provider_request,
                     max_attempts=self._settings.llm_retry_max_attempts,
@@ -1093,11 +1136,37 @@ class LLMClient:
         else:
 
             async def call():
+                nonlocal admitted_at
+                admitted_at = monotonic()
                 return await provider_request()
 
-        return await limiter.run(
-            call, limiter_scope=self._limiter_scope("chat", resolved_request.model)
-        )
+        status = "failed"
+        admission_started = monotonic()
+        try:
+            response = await limiter.run(
+                call, limiter_scope=self._limiter_scope("chat", resolved_request.model)
+            )
+            status = "succeeded"
+            return response
+        except asyncio.CancelledError:
+            status = "cancelled"
+            raise
+        finally:
+            if call_diagnostics is not None:
+                call_diagnostics.append(
+                    {
+                        "kind": "call_timing",
+                        "status": status,
+                        # Admission is held across transport retry/backoff. Count
+                        # its wait once per generate, not once per physical attempt.
+                        "admission_wait_ms": max(admitted_at - admission_started, 0.0)
+                        * 1000
+                        if admitted_at is not None
+                        else None,
+                        "elapsed_ms": max(monotonic() - started, 0.0) * 1000,
+                        "provider_attempts": provider_attempts,
+                    }
+                )
 
     async def generate_stream(
         self,
@@ -1346,8 +1415,11 @@ class LLMClient:
 
         for attempt in range(max_fix_attempts + 1):
             try:
-                with _managed_step_overrides(
-                    purpose=AIStepPurpose.schema_repair if attempt else None
+                with (
+                    _managed_step_overrides(
+                        purpose=AIStepPurpose.schema_repair if attempt else None
+                    ),
+                    _call_timing_scope(diagnostics),
                 ):
                     if complete_stream:
                         response = await self.generate(
@@ -1423,6 +1495,17 @@ class LLMClient:
                 )
                 return validated
             except LLMError as exc:
+                if isinstance(exc, LLMInvalidResponseError):
+                    _append_structured_diagnostic(
+                        diagnostics,
+                        {
+                            "kind": "structured_usage",
+                            "status": "failed",
+                            "error_kind": _safe_error_kind(exc),
+                            "attempt": attempt + 1,
+                            **(exc.usage.model_dump() if exc.usage is not None else {}),
+                        },
+                    )
                 if exc.diagnostic:
                     _append_structured_diagnostic(
                         diagnostics,
@@ -1644,7 +1727,10 @@ class LLMClient:
                 ),
             ]
             try:
-                with _managed_step_overrides(purpose=AIStepPurpose.format_repair):
+                with (
+                    _managed_step_overrides(purpose=AIStepPurpose.format_repair),
+                    _call_timing_scope(diagnostics),
+                ):
                     if transport_retries:
                         response = await self.generate(repair_req)
                     else:

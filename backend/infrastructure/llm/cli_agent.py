@@ -280,6 +280,9 @@ def _usage(event: dict) -> dict[str, int] | None:
         and not isinstance(value, bool)
         and value >= 0
     }
+    cached = source.get("cached_input_tokens")
+    if result and type(cached) is int and cached >= 0:
+        result["cached_input_tokens"] = cached
     return result or None
 
 

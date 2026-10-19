@@ -967,15 +967,18 @@ def world_group_apply_inputs(result, group, resolved_new_refs=()):
     }
 
 
-async def freeze_value(db, store, frozen, key, prepare):
-    await store.require_project_owner(frozen.run_id)
-    await store.load_run(frozen.run_id, for_update=True)
-    frozen = await store.load_frozen(frozen.run_id, frozen.attempt_id)
-    if key not in frozen.payload:
-        value = await prepare(frozen.payload)
-        frozen = frozen.model_copy(update={"payload": {**frozen.payload, key: value}})
-        await store.replace_frozen_payload(frozen)
-    await db.commit()
+async def freeze_value(db, store, frozen, key, prepare, *, session_gate=None):
+    from modules.evolution.pipeline import _scene_session
+
+    async with _scene_session(db, session_gate):
+        await store.require_project_owner(frozen.run_id)
+        await store.load_run(frozen.run_id, for_update=True)
+        frozen = await store.load_frozen(frozen.run_id, frozen.attempt_id)
+        if key not in frozen.payload:
+            value = await prepare(frozen.payload)
+            frozen = frozen.model_copy(update={"payload": {**frozen.payload, key: value}})
+            await store.replace_frozen_payload(frozen)
+        await db.commit()
     return frozen
 
 
@@ -984,7 +987,20 @@ async def finish_scene_world(db, store, frozen, source, call):
         "world_result"
     ):
         return frozen
-    from modules.evolution.pipeline import _run_scene_call
+    from modules.evolution.pipeline import _run_scene_call, _scene_session
+
+    session_gate = getattr(call, "session_gate", None)
+
+    async def freeze(current, key, prepare):
+        return await freeze_value(
+            db, store, current, key, prepare, session_gate=session_gate
+        )
+
+    async def reload_frozen():
+        async with _scene_session(db, session_gate):
+            current = await store.load_frozen(frozen.run_id, frozen.attempt_id)
+            await db.commit()
+            return current
 
     async def prepare_world(payload):
         terms = [
@@ -1005,7 +1021,7 @@ async def finish_scene_world(db, store, frozen, source, call):
             ),
         }
 
-    frozen = await freeze_value(db, store, frozen, "world_preparation", prepare_world)
+    frozen = await freeze(frozen, "world_preparation", prepare_world)
 
     async def execute(**inputs):
         return await call("execute_world_request", **inputs)
@@ -1026,7 +1042,7 @@ async def finish_scene_world(db, store, frozen, source, call):
             },
             call_inputs=spec,
             call=execute,
-            session_gate=getattr(call, "session_gate", None),
+            session_gate=session_gate,
         )
 
     from modules.evolution.state_review import SceneCallFailedError
@@ -1044,7 +1060,7 @@ async def finish_scene_world(db, store, frozen, source, call):
                 payload["world_preparation"]["context"], "世界资料抽取"
             )
 
-        return await freeze_value(db, store, frozen, "world_result", defer_world)
+        return await freeze(frozen, "world_result", defer_world)
 
     async def prepare_relations(payload):
         first = payload["world_preparation"]["context"]
@@ -1092,9 +1108,7 @@ async def finish_scene_world(db, store, frozen, source, call):
             else None,
         }
 
-    frozen = await freeze_value(
-        db, store, frozen, "relations_preparation", prepare_relations
-    )
+    frozen = await freeze(frozen, "relations_preparation", prepare_relations)
     prepared = frozen.payload["relations_preparation"]
     if prepared["call"]:
         try:
@@ -1108,7 +1122,7 @@ async def finish_scene_world(db, store, frozen, source, call):
                     payload["relations_preparation"]["context"], "别名关系抽取"
                 )
 
-            return await freeze_value(db, store, frozen, "world_result", defer_relations)
+            return await freeze(frozen, "world_result", defer_relations)
     relations = (frozen.payload.get("scene_relations") or {}).get(
         "result", {"aliases": [], "relations": [], "uncertain_items": []}
     )
@@ -1127,11 +1141,12 @@ async def finish_scene_world(db, store, frozen, source, call):
                 attempt_id=frozen.attempt_id,
             )
 
-        frozen = await freeze_value(
-            db, store, frozen, "world_review_preparation", prepare_review
-        )
+        frozen = await freeze(frozen, "world_review_preparation", prepare_review)
         spec = frozen.payload["world_review_preparation"]
-        if spec != await prepare_review(frozen.payload):
+        async with _scene_session(db, session_gate):
+            current_spec = await prepare_review(frozen.payload)
+            await db.commit()
+        if spec != current_spec:
             raise ConflictError(
                 "世界审查冻结范围或方法已变化，旧结果保留且不能重新盖章",
                 code="scene_world_review_scope_changed",
@@ -1195,7 +1210,7 @@ async def finish_scene_world(db, store, frozen, source, call):
             await drain_ready(
                 [partial(audit, group) for group in spec["groups"]], parallelism
             )
-            frozen = await store.load_frozen(frozen.run_id, frozen.attempt_id)
+            frozen = await reload_frozen()
         review_groups = []
         budget_exhausted = False
         for planned in spec["groups"]:
@@ -1265,7 +1280,7 @@ async def finish_scene_world(db, store, frozen, source, call):
                     review_groups.append(group)
                     continue
                 except SceneCallFailedError:
-                    frozen = await store.load_frozen(frozen.run_id, frozen.attempt_id)
+                    frozen = await reload_frozen()
                     if not settled_output_failure(frozen.payload.get(journal_key) or {}):
                         raise
                     group.update(
@@ -1324,7 +1339,7 @@ async def finish_scene_world(db, store, frozen, source, call):
             "review": review,
         }
 
-    return await freeze_value(db, store, frozen, "world_result", finish)
+    return await freeze(frozen, "world_result", finish)
 
 
 async def relation_history(store, frozen, context):

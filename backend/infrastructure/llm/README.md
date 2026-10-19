@@ -39,6 +39,8 @@ infrastructure/llm/
 - 记录 token 和调用耗时
 - 结构化调用的每次首发/修复都向可选受控诊断写入 prompt/completion/total token；provider 提供时
   再附加 cache-hit/cache-miss token。诊断不含 Prompt、响应正文或 Key，缓存统计不参与质量门禁
+- Codex 完整响应的 JSON/输出契约失败分别保留 `invalid_json`/`schema_validation` 和已知用量，
+  供上层既有失败处理使用；缺少原生完成回执仍记未知，不自动重发。
 - 提供受控 LLM step harness，用于 text / structured generation 的统一
   envelope、journal、timeout 和错误分类
 - 提供地图册使用的 `OpenAIImageClient`，支持生成、整图编辑、蒙版、多参考图和连续派生
@@ -140,6 +142,16 @@ provider/model 身份门禁限制，不匹配时在 provider 调用与请求计�
 受管 provenance 会保留白名单内的字段来源；`account` 表示 provider/model 来自项目
 owner 当前账户连接，不得被净化为 `unknown`。
 
+显式 diagnostics 还保留每次 `generate` 的 `call_timing`：模型槽、跨进程准入及 RPM 等待只计一次，
+transport 重试分别记录 provider 方法的调用墙钟。计时 collector 按异步上下文隔离，失败、取消及
+未获准发送仍保留已知数字，原异常不变。provider 墙钟包含本机 CLI、网络与解码，客户端墙钟另含
+本次预算检查及传输重试退避；修复调用分别计时。该数值不含调用之间的解析/编排，
+不把差值当纯数据库时间，纯模型计算时间不可测时为 null。
+Codex 仅透传原生已提供且合法的缓存输入数，缺失不补 0。
+Evolution 的 `paid_call_receipt` 白名单保留这些计时、输入/输出及缓存用量，缺项总数为 null、
+已知小计与缺失次数分列。`provider_attempt_count` 是 provider 方法进入次数，可能在 I/O 前失败，
+不能代替已发原生请求或已付费次数；旧回执没有计时则保持未知。
+
 `context_budget` 默认只作为 step envelope 元数据传入，不会自动截断或重写
 request messages。需要主动裁剪上下文时，应显式使用 `ContextBudgetGuard`。
 本 harness 不实现自治 agent loop、工具自主选择或跨模块业务编排。
@@ -167,6 +179,9 @@ v4 的未知扣费或 80% 请求阈值在下一次 provider 预留前拒绝；v1
 `requests_settled` 是已取得含 usage 完整回执的请求，`requests_unknown` 是已发出但结果或用量
 证据不完整的请求（超时、中断、取消、崩溃、provider 未返回 usage）。未知用量记 `possible`
 且 `usage_complete=false`，不得写成零；有已知 usage 的失败请求同样记 `recorded`。
+受管 step 的模型摘要继承客户端已解析的项目模型，只有请求显式指定模型时才覆盖；请求 schema 的
+隐式默认值不改变运行身份。provider 校验完整响应失败时，结构化诊断保留异常携带的真实 usage，
+无 usage 仍记未知；异常与原有校验、重试门禁保持不变。
 `recent_attempts` 保留最近 256 条摘要（新条目挤掉最旧），溢出计入 `recent_attempts_overflow`，
 总请求、未知请求、重试与 usage 聚合不受影响。预算或 deadline 拒绝发生在任何计数之前，被拒绝的
 调用不产生扣费记录；恢复与进入终态前，未 settle 的请求一律收敛为 unknown/possible，而不是删除

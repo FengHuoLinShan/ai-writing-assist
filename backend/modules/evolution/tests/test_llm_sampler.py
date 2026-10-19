@@ -658,3 +658,87 @@ async def test_project_llm_provider_resolve_paths() -> None:
     ) as sampler:
         payload = await sampler.sample(scene_text="x", input_manifest={})
         assert payload == {"observations": [], "scene_events": []}
+
+
+def test_call_receipt_preserves_timing_cache_missing_values_and_safe_fields():
+    from modules.evolution.llm_sampler import build_call_receipt
+
+    diagnostics = [
+        {
+            "kind": "call_timing",
+            "status": "failed",
+            "admission_wait_ms": 2,
+            "elapsed_ms": 12,
+            "raw": "PRIVATE",
+            "provider_attempts": [
+                {"attempt": 1, "status": "failed", "elapsed_ms": 10, "raw": "PRIVATE"}
+            ],
+        },
+        {
+            "kind": "call_timing",
+            "status": "succeeded",
+            "admission_wait_ms": 3,
+            "elapsed_ms": 23,
+            "provider_attempts": [
+                {"attempt": 1, "status": "succeeded", "elapsed_ms": 20}
+            ],
+        },
+        {
+            "kind": "structured_usage",
+            "attempt": 1,
+            "status": "failed",
+            "prompt_tokens": 10,
+            "completion_tokens": 1,
+            "total_tokens": 11,
+            "cache_hit_tokens": 0,
+            "cache_miss_tokens": 10,
+        },
+        {
+            "kind": "structured_usage",
+            "attempt": 2,
+            "status": "succeeded",
+            "completion_tokens": 2,
+        },
+    ]
+    receipt = build_call_receipt(
+        object(), diagnostics, schema="synthetic", outcome="succeeded"
+    )
+    assert receipt["provider_attempt_count"] == 2
+    timing = receipt["timing"]
+    assert timing["admission_wait_ms"] == 5
+    assert timing["provider_elapsed_ms"] == 30 and timing["client_elapsed_ms"] == 35
+    assert timing["pure_generation_ms"] is None
+    usage = receipt["usage"]
+    assert usage["prompt_tokens"] is None and usage["cache_hit_tokens"] is None
+    assert usage["known_subtotals"]["prompt_tokens"] == 10
+    assert usage["known_subtotals"]["cache_hit_tokens"] == 0
+    assert usage["unavailable_attempts"]["cache_hit_tokens"] == 1
+    assert receipt["attempts_detail"][0]["cache_hit_tokens"] == 0
+    assert receipt["attempts_detail"][1]["cache_hit_tokens"] is None
+    assert "PRIVATE" not in repr(receipt)
+
+
+def test_call_receipt_distinguishes_legacy_missing_timing_from_no_provider_attempt():
+    from modules.evolution.llm_sampler import build_call_receipt
+
+    missing = build_call_receipt(object(), [], schema="synthetic", outcome="failed_final")
+    assert missing["provider_attempt_count"] is None
+    assert missing["timing"]["provider_elapsed_ms"] is None
+    assert missing["timing"]["admission_wait_ms"] is None
+    zero = build_call_receipt(
+        object(),
+        [
+            {
+                "kind": "call_timing",
+                "status": "cancelled",
+                "admission_wait_ms": None,
+                "elapsed_ms": 5,
+                "provider_attempts": [],
+            }
+        ],
+        schema="synthetic",
+        outcome="failed_final",
+    )
+    assert zero["provider_attempt_count"] == 0
+    assert zero["timing"]["provider_elapsed_ms"] is None
+    assert zero["timing"]["client_elapsed_ms"] == 5
