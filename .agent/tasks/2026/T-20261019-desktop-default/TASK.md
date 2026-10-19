@@ -1,9 +1,9 @@
 ---
 id: T-20261019-desktop-default
 title: 桌面应用默认开发与按需平台发布迁移
-status: active
+status: completed
 created: 2026-10-19T02:40:00+08:00
-updated: 2026-10-19T10:15:00+08:00
+updated: 2026-10-19T10:37:00+08:00
 ---
 
 # 目标与验收
@@ -45,7 +45,7 @@ updated: 2026-10-19T10:15:00+08:00
 
 首轮本地实现、测试及权威文档完成时，分支 codex/desktop-default 尚未提交或发布；当前按下方审查续轮交付，远端状态须实时核验。原有 WIP 保留，未改变真实数据库/稿件或现有模型连接。日常进入 make dev；发布命令见 desktop/RELEASE.md，默认只生成 ARM64 草稿，公开发布仍需当次授权。
 
-当前下一步：推送下述浏览器 fixture 修复，等待 PR #259 新 head 所有执行的 CI 成功后按用户授权合入 main。Intel/Windows 只有用户明确要求时才构建与原生验收。
+当前结果：PR #259 固定 head `9ec7deedc4c2c286b95b6c753be6f082ccaf147d` 的所有执行检查成功，已按用户授权 squash 合入 main，合并 SHA `bdc6e303793d64774d5701a59006db255ef2b0fe`，fetch 确认 origin/main 可达。本轮无剩余实现或合并项；main 合并后流水线仍在运行，不能当作已全绿。Intel/Windows 只有用户明确要求时才构建与原生验收。
 
 ## 2026-10-19 审查与主干交付续轮
 
@@ -65,3 +65,11 @@ updated: 2026-10-19T10:15:00+08:00
 首轮 CI：Backend 9310 passed/2 skipped（覆盖率 85.30%）、desktop 47 passed/2 skipped、PostgreSQL critical、前端单测、浏览器分片 1、CodeQL 与文档/治理门禁成功。浏览器分片 2 为 169 passed/2 skipped/1 failed：固定参考恢复的 390px 用例先在 1280px 进入再 resize，WritingView 的窄屏 watcher 关闭章节栏与 fixture 读取旧 aria-expanded 竞态，trace/screenshot 证实；未合并失败版本。
 
 修复仅将该固定尺寸用例的目标 viewport 前置到进入工作区之前，保留所有功能断言，两路审查中的 Spec reviewer 复核通过。真实 Chromium + 全新隔离 PostgreSQL 中 1280/390 各重复 3 次，6 passed（35.1s），无 retry；日志 /tmp/pr259-browser-check.log。本机首次复测因缺少新版 Chromium 未启动，安装对应测试浏览器后通过。测试结束仅关闭专用 PG，未访问真实作品或调用业务模型。ESLint、docs-check 与 diff 检查通过；等待新提交完整 CI。
+
+最终 head `9ec7deedc` CI 进度：Backend 9310 passed/2 skipped、coverage 85.30%，desktop 47 passed/2 skipped，部署工具合同 323 passed/1 skipped；PostgreSQL 417 passed/7 deselected；前端单测、浏览器分片 2、全部 CodeQL、架构文档与治理门禁成功。仅分片 1（含 WebKit/助手/创作/编辑合成 harness）尚在运行，未合并。日志 /tmp/pr259-final-backend.log、/tmp/pr259-final-postgres.log、/tmp/desktop-default-pr259-final-checks.log；工作流 39189102438/39189102520。Production image contract 按策略 skipped；桌面安装包/发布工作流未触发。重复 Architecture docs 的旧 run 因并发规则 cancelled，新的同名检查已成功，无需重复执行。
+
+### 最终交付
+
+2026-10-19T10:36:15+08:00，固定 head 的 18 项当前检查核验：17 SUCCESS，仅 Production image contract 按新策略 SKIPPED。分片 1 常规 209 passed/1 skipped、分片 2 为 170 passed/2 skipped；WebKit 14、助手 14、创作 9、编辑 10 全部通过。补充 PR 正文后触发的文档检查也成功。随后以 --match-head-commit squash 合并，API 确认 MERGED，远端 main 为 `bdc6e303793d64774d5701a59006db255ef2b0fe`；未绕过保护规则。证据 /tmp/pr259-final-ci.json、/tmp/pr259-merge-receipt.json、/tmp/pr259-final-browser-shard1.log 与 shard2.log。
+
+合并后 main 已启动常规 Backend/Frontend/CodeQL/repo-gates；Architecture docs 成功，Production Image CI skipped，未启动 Desktop installers/桌面发布。未构建安装包、未发布或部署、未调用业务模型、未读写真实稿件。源码 native/作者人工验收和 Intel/Windows 原生运行不在本轮验证范围。本地停留 codex/desktop-default；本任务收口笔记与索引仅本地，不为笔记另提交 main 或重复推送。原有作者工作台收口 WIP 及执行期间新增的 novel-data-readiness-research 未跟踪目录均保留、不纳入本 PR。
