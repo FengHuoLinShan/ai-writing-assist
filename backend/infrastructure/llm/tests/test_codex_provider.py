@@ -831,3 +831,42 @@ async def test_native_cached_input_usage_reaches_safe_structured_diagnostic(
         assert diagnostic["cache_hit_tokens"] == cached
         assert diagnostic["cache_miss_tokens"] == input_tokens - cached
     assert "private output" not in repr(diagnostic)
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("cached", [None, 0, 3, 5, -1, True])
+async def test_native_event_cache_survives_cli_decoder(provider, tmp_path, cached):
+    from infrastructure.llm.client import _cache_usage_diagnostic
+
+    events = completed('{"content":"private output"}')
+    if cached is not None:
+        events[-1]["usage"]["cached_input_tokens"] = cached
+    provider.command = str(fake_cli(tmp_path, events))
+    response = await provider.generate(LLMCallRequest(model="gpt-6-luna"))
+    diagnostic = _cache_usage_diagnostic(response)
+    assert diagnostic["prompt_tokens"] == 4
+    assert response.usage.completion_tokens == 2
+    if type(cached) is int and 0 <= cached <= 4:
+        assert diagnostic["cache_hit_tokens"] == cached
+        assert diagnostic["cache_miss_tokens"] == 4 - cached
+    else:
+        assert "cache_hit_tokens" not in diagnostic
+        assert "cache_miss_tokens" not in diagnostic
+    assert "private output" not in repr(diagnostic)
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "usage",
+    [
+        {"cached_input_tokens": 3},
+        {"input_tokens": True, "output_tokens": -1, "cached_input_tokens": 0},
+    ],
+)
+async def test_cache_alone_cannot_settle_unknown_native_usage(provider, tmp_path, usage):
+    events = completed('{"content":"private output"}')
+    events[-1]["usage"] = usage
+    provider.command = str(fake_cli(tmp_path, events))
+    with pytest.raises(LLMError) as caught:
+        await provider.generate(LLMCallRequest(model="gpt-6-luna"))
+    assert caught.value.error_kind == "codex_result_unknown"
