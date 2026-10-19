@@ -31,7 +31,7 @@ classifiers = [
 ]
 
 dependencies = [
-    "authlib>=1.7.0,<1.9",
+    "authlib>=1.7.0,<1.10",
     "beautifulsoup4>=4.12.0",
     "boto3>=1.42.0,<2.0",
     "chardet>=7.5.1",
@@ -61,7 +61,7 @@ dependencies = [
     "joserfc>=1.7.4,<2.0",
     "pypinyin>=0.50",
     "pyyaml>=6.0.3,<7.0",
-    "pydantic-ai-slim==2.55.0",
+    "pydantic-ai-slim==2.57.0",
     "openpyxl>=3.1.5",
 ]
 
@@ -69,8 +69,8 @@ dependencies = [
 desktop = [
     "pywebview==6.2.1",
     "pyinstaller==6.22.3",
-    "onnxruntime>=1.22,<2; sys_platform != 'darwin' or platform_machine != 'x86_64'",
-    "onnxruntime==1.23.2; sys_platform == 'darwin' and platform_machine == 'x86_64'",
+    "onnxruntime<2,>=1.22; sys_platform != 'darwin' or platform_machine != 'x86_64'",
+    "onnxruntime==1.31.0; sys_platform == 'darwin' and platform_machine == 'x86_64'",
     "tokenizers>=0.21,<1",
     "pywin32>=311; sys_platform == 'win32'",
 ]
