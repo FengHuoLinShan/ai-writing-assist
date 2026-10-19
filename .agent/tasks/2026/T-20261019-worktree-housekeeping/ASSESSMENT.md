@@ -1,16 +1,15 @@
 # 工作树处置与保留
 
-2026-10-19 核对45个原工作树，新增一个整理工作树。39个闲置树已移除，现共7个；任务结束将移除整理树。
+2026-10-19 核对45个原工作树，新增一个整理工作树。39个闲置树已移除，保留6个任务工作区；额外整理临时树在关闭记录合入后移除。
 
 | 保留工作区 | 用途与边界 |
 |---|---|
-| 仓库根目录 | 主工作区；近期收口记录已提交，研究output保留本机 |
+| 仓库根目录 | 新地图联动codex/map-linkage-impl及未提交笔记；研究output保留本机 |
 | `/Users/tywww/.codex/worktrees/desktop-local-app/ai-writing-assist` | 桌面发行验收；`codex/desktop-release-acceptance`，签名/公证、最终原生窗口和升级验收仍待 |
-| `.worktrees/director-scales-impl` | 多尺度探索主实施与第五批准备；最新main集成验证与PR #255，真实模型/作者验收仍待 |
+| `.worktrees/director-scales-impl` | 多尺度探索主实施与第五批准备；PR #255已合并，第五批真实模型/作者验收仍待 |
 | `.worktrees/wave3-evidence` | 第三批A2/G7b/P4-E未完成，不自动合入3个独立提交 |
 | `.worktrees/wave3-guimi-v3` | 固定v3现场、冻结运行脚本和标记；保存额外快照提交但原HEAD/index不变 |
 | `.worktrees/wave3-r1` | 第三批历史与恢复笔记；保存额外快照提交但原HEAD/index不变 |
-| `.worktrees/worktree-housekeeping` | 本次整理与文档交付，结束后清理 |
 
 移除范围：临时基线检查、CI工作树、24个导演实施子树、导演规划树、9个map-fix树、旧文档刷新树、旧模型池树、G6b树。后13个dirty树均先形成仅本地归档提交；旧补丁已有主干交付/后继修订，不重放旧实现。
 
