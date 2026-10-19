@@ -66,3 +66,35 @@ it("B10-F1: 采用和检查确认先显示作者可读范围，技术回执留�
   expect(budget.get("details").text()).toContain("tokens")
   expect(budget.get("details").text()).toContain("独立复核连接指纹")
 })
+
+
+it("waits for a pending check before adopting an already checked trial", async () => {
+  const trial = { id: "trial-a", label: "保留动机", status: "sealed", stale: false, revision_id: "revision-a", changes: [{ resource: { kind: "writing_draft", id: "draft-a" }, label: "正文", operation: "replace", before: "旧稿", after: "试改" }], check: { verdict: "passed" }, can_seal: true }
+  let status = "running"
+  localStorage.setItem("novel_creative_v2:local:project-a", JSON.stringify({ caseId: "case-a", goal: "保留动机" }))
+  const api = {
+    capabilities: vi.fn(async () => ({ enabled: true, recipes: [] })),
+    cases: vi.fn(async () => ({ items: [] })),
+    getCase: vi.fn(async () => ({ id: "case-a", goal: "保留动机", constraints: [], recipe: { id: "revision" }, grant: { resources: [] } })),
+    runs: vi.fn(async () => ({ items: [{ id: "check-a", status }] })),
+    run: vi.fn(async () => ({ id: "check-a", status })),
+    workspaces: vi.fn(async () => ({ items: [trial] })),
+    diff: vi.fn(async () => trial),
+    seal: vi.fn(),
+  }
+  setBridgeOverrides({ api: { collaboration: api } })
+  const wrapper = mount(CreativeExperiments, { props: { projectId: "project-a" }, global: { stubs: { CognitionPanel: true, CreativeTrialEditor: true } } })
+  await flushPromises()
+  await wrapper.get(".creative-trial-button").trigger("click")
+  await flushPromises()
+  const adopt = wrapper.findAll("button").find(button => button.text() === "采用这一版…")
+  expect(adopt.element.disabled).toBe(true)
+  await adopt.trigger("click")
+  expect(api.seal).not.toHaveBeenCalled()
+
+  status = "completed"
+  await wrapper.get('[aria-label="查看一次调查"]').setValue("check-a")
+  await wrapper.findAll("button").find(button => button.text() === "刷新").trigger("click")
+  await flushPromises()
+  expect(adopt.element.disabled).toBe(false)
+})
