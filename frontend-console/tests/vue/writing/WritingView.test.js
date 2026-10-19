@@ -95,9 +95,10 @@ describe("WritingView", () => {
       await flushPromises()
       const ready = wrapper.findAll("button").find(button => button.text() === "本章写完，交给编辑看")
       await ready.trigger("click")
-      await flushPromises()
-      expect(api.writing.markEditorialReady).toHaveBeenCalledWith("d1", "p1", expect.stringMatching(/^[0-9a-f]{64}$/))
-      expect(wrapper.text()).toContain("本版已交编辑")
+      await vi.waitFor(() => {
+        expect(api.writing.markEditorialReady).toHaveBeenCalledWith("d1", "p1", expect.stringMatching(/^[0-9a-f]{64}$/))
+        expect(wrapper.text()).toContain("本版已交编辑")
+      })
 
       await wrapper.find("#writing-editor").trigger("blur")
       await flushPromises()
