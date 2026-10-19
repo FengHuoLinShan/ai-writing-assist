@@ -7,6 +7,7 @@ from types import SimpleNamespace
 
 import pytest
 
+from core.errors import ConflictError
 from infrastructure.llm.schemas import LLMCallRequest, LLMMessage
 from modules.evidence.compilation.knowledge.llm_schemas import (
     AuditDimensionCheck,
@@ -358,3 +359,93 @@ async def test_repair_receives_only_local_candidate_and_verifiable_finding_excer
         "MERGED_OTHER_ITEM_SECRET",
     ):
         assert secret not in text
+
+
+@pytest.mark.parametrize("target", ["c_one", CANONICAL])
+async def test_actor_director_receives_material_only_when_projection_has_content(
+    unit_context, target
+):
+    start = _start()
+    data = exploration_tasks._scene_line_user_data(
+        start=start,
+        focus="CURRENT_FOCUS",
+        target_ref=target,
+        confirmed=unit_context,
+        mode="start",
+        parent_payload=None,
+        instruction="",
+    )
+    calls = await _run(
+        start,
+        unit_context,
+        data,
+        exploration_tasks._SYSTEM_PROMPTS[exploration_tasks.SCENE_LINE_ACTION],
+        _line(target),
+    )
+    director = next(request for schema, request in calls if schema is DirectorShardPlan)
+    director_text = "\n".join(message.content for message in director.messages)
+    generation = next(request for schema, request in calls if schema is SceneLineOutputV1)
+    packet = json.loads(next(m.content for m in generation.messages if m.role == "user"))
+    if target == CANONICAL:
+        assert "packet:confirmed_material" in director_text
+        assert packet["confirmed_material"] == "CANONICAL_VISIBLE_PROJECTION"
+    else:
+        assert "packet:confirmed_material" not in director_text
+        assert "confirmed_material" not in packet
+    assert packet["target"]["ref"] == target
+    assert packet["mode"] == "start"
+
+
+@pytest.mark.parametrize(
+    "target,excluded",
+    [
+        ("c_one", "target"),
+        ("c_one", "target_knowledge"),
+        ("c_one", "mode"),
+        ("c_one", "output_rule"),
+        ("c_one", "accumulated_observations"),
+        (CANONICAL, "confirmed_material"),
+    ],
+)
+async def test_empty_material_change_keeps_nonempty_and_control_packets_required(
+    monkeypatch, unit_context, target, excluded
+):
+    seen_schemas = []
+    original = ScriptedClient.generate_structured
+
+    async def exclude_required(self, request, schema, **kwargs):
+        seen_schemas.append(schema)
+        result = await original(self, request, schema, **kwargs)
+        if schema is DirectorShardPlan:
+            selected = [
+                item
+                for item in result.dispositions
+                if item.source_key == "packet:" + excluded
+            ]
+            assert len(selected) == 1
+            selected[0].disposition = "director_audit_only"
+        return result
+
+    monkeypatch.setattr(ScriptedClient, "generate_structured", exclude_required)
+    start = _start()
+    data = exploration_tasks._rehearsal_performance_packet(
+        start=start,
+        focus="CURRENT_FOCUS",
+        target_ref=target,
+        confirmed=unit_context,
+        round_number=2,
+        previous_round=None,
+    )
+    data["accumulated_observations"] = ["OWN_PREVIOUSLY_OBSERVED"]
+    output = FullRehearsalPerformance(
+        target_ref=target, line_or_beat="LOCAL_BEAT", rationale="OWN_PREVIOUSLY_OBSERVED"
+    )
+    with pytest.raises(ConflictError, match="未保留本次探索必需"):
+        await _run(
+            start,
+            unit_context,
+            data,
+            exploration_tasks.FULL_REHEARSAL_CARD_PROMPT,
+            output,
+        )
+    assert seen_schemas == [DirectorShardPlan]

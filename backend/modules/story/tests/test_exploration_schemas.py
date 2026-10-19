@@ -628,6 +628,8 @@ def test_event_goal_path_bounds_and_unsolvable_is_legal():
 
 @pytest.mark.parametrize("location", ["goal_path", "top", "both"])
 def test_goal_unsolvable_allows_empty_steps_and_normalizes_legacy_location(location):
+    from modules.story.exploration_schemas import GeneratedEventOutputV1
+
     conclusion = {"reason": "双方目标互斥，无法合作", "missing": ["共同目标"]}
     goal = _goal_path_payload(steps=[])
     payload = _event_payload(mode="goal", goal_path=goal)
@@ -637,24 +639,26 @@ def test_goal_unsolvable_allows_empty_steps_and_normalizes_legacy_location(locat
         payload["unsolvable"] = conclusion
     original = copy.deepcopy(payload)
 
-    result = EventOutputV1.model_validate(payload)
+    result = GeneratedEventOutputV1.model_validate(payload)
 
     assert result.goal_path.steps == []
     assert result.goal_path.unsolvable.model_dump() == conclusion
     assert result.unsolvable is None
     assert payload == original
-    assert EventOutputV1.model_validate_json(result.model_dump_json()) == result
+    assert GeneratedEventOutputV1.model_validate_json(result.model_dump_json()) == result
 
 
 def test_goal_success_requires_steps_and_conflicting_unsolvable_is_rejected():
+    from modules.story.exploration_schemas import GeneratedEventOutputV1
+
     with pytest.raises(ValidationError):
         GoalPath.model_validate(_goal_path_payload(steps=[]))
     with pytest.raises(ValidationError):
-        EventOutputV1.model_validate(
+        GeneratedEventOutputV1.model_validate(
             _event_payload(mode="goal", goal_path=_goal_path_payload(steps=[]))
         )
     with pytest.raises(ValidationError, match="无解结论.*不一致"):
-        EventOutputV1.model_validate(
+        GeneratedEventOutputV1.model_validate(
             _event_payload(
                 mode="goal",
                 goal_path=_goal_path_payload(
@@ -666,9 +670,11 @@ def test_goal_success_requires_steps_and_conflicting_unsolvable_is_rejected():
 
 
 def test_goal_top_unsolvable_accepts_existing_goal_model_without_mutating_it():
+    from modules.story.exploration_schemas import GeneratedEventOutputV1
+
     goal = GoalPath.model_validate(_goal_path_payload())
     conclusion = {"reason": "双方目标互斥，无法合作", "missing": ["共同目标"]}
-    result = EventOutputV1.model_validate(
+    result = GeneratedEventOutputV1.model_validate(
         _event_payload(mode="goal", goal_path=goal, unsolvable=conclusion)
     )
     assert result.goal_path.unsolvable.model_dump() == conclusion
@@ -1651,3 +1657,161 @@ def test_envelope_wraps_full_rehearsal_as_sixth_kind():
             schema_version=1,
             payload=payload,
         )
+
+
+@pytest.mark.parametrize("location", ["top", "both", "conflicting_both"])
+async def test_legacy_goal_handoff_preserves_frozen_source_identity(
+    monkeypatch, location
+):
+    from types import SimpleNamespace
+
+    from core.errors import ConflictError
+    from infrastructure.llm.collaboration import content_hash
+    from modules.evidence.contracts import HandoffRef
+    from modules.story import exploration_service
+
+    conclusion = {"reason": "缺少成立条件", "missing": ["合作动机"]}
+    goal = _goal_path_payload()
+    if location != "top":
+        goal["unsolvable"] = (
+            {"reason": "另一项旧结论", "missing": ["地址"]}
+            if location == "conflicting_both"
+            else copy.deepcopy(conclusion)
+        )
+    stored = {
+        "output_kind": EVENT_OUTPUT_KIND,
+        "schema_version": 1,
+        "payload": {
+            "mode": "goal",
+            "original_excerpt": "旧导向结果",
+            "gaps": [],
+            "bridge_candidates": [],
+            "goal_path": goal,
+            "info_boundary": [],
+            "unsolvable": conclusion,
+            "unknowns": [],
+            "warnings": [],
+        },
+    }
+    frozen = copy.deepcopy(stored)
+    row = SimpleNamespace(
+        id=uuid.uuid4(),
+        root_id=uuid.uuid4(),
+        branch_id=uuid.uuid4(),
+        input_json={"mode": "start"},
+        result_json=stored,
+    )
+    source_start = ProvisionalStart.model_validate(_provisional_payload())
+    start_dump = source_start.model_dump(mode="json")
+    confirmed = SimpleNamespace(
+        compile_options={"character_ids": []},
+        confirmation=SimpleNamespace(context_fingerprint="e" * 64),
+    )
+
+    async def branch(*args):
+        return SimpleNamespace(
+            request_json={
+                "context_confirmation_id": "original-confirmation",
+                "confirmation_action": "story.exploration.event.bridge",
+            }
+        )
+
+    async def root(*args):
+        return SimpleNamespace(request_json={"exploration_start": start_dump})
+
+    async def confirmation(*args, **kwargs):
+        return confirmed
+
+    async def locate(*args):
+        return row, "progression"
+
+    monkeypatch.setattr(exploration_service, "get_progression_branch", branch)
+    monkeypatch.setattr(exploration_service, "_root_for_chain", root)
+    monkeypatch.setattr(exploration_service, "_locate_result_row", locate)
+    monkeypatch.setattr(
+        exploration_service.evidence, "prepare_confirmed_ai_action", confirmation
+    )
+    expected = content_hash(
+        {
+            "result_id": str(row.id),
+            "scale": "event",
+            "item_path": "",
+            "output": frozen,
+            "source_input": row.input_json,
+            "start": start_dump,
+            "confirmation_id": "original-confirmation",
+            "context": "e" * 64,
+            "character_boundaries": {},
+        }
+    )
+    assert (
+        exploration_service.unpack_exploration_output(row).model_dump(mode="json")
+        == frozen
+    )
+    actual, _ = await exploration_service._handoff_source_fingerprint(
+        None, NOVEL_ID, row, "progression", "event", ""
+    )
+    assert actual == expected
+    derived = source_start.model_copy(
+        update={
+            "derived_from": HandoffRef(
+                source_result_id=str(row.id),
+                source_scale="event",
+                item_path="",
+                selector="author",
+                reason="旧移交回执",
+                source_fingerprint=expected,
+            )
+        }
+    )
+    assert (
+        await exploration_service.validate_exploration_handoff(None, NOVEL_ID, derived)
+        == confirmed.compile_options
+    )
+    assert stored == frozen
+    stored["payload"]["original_excerpt"] = "真实来源已变化"
+    with pytest.raises(ConflictError, match="移交来源或人物知识已变化"):
+        await exploration_service.validate_exploration_handoff(None, NOVEL_ID, derived)
+    stored["payload"]["original_excerpt"] = frozen["payload"]["original_excerpt"]
+    confirmed.confirmation.context_fingerprint = "f" * 64
+    with pytest.raises(ConflictError, match="移交来源或人物知识已变化"):
+        await exploration_service.validate_exploration_handoff(None, NOVEL_ID, derived)
+
+
+@pytest.mark.parametrize(
+    "action", ["story.exploration.event.diagnose", "story.exploration.event.bridge"]
+)
+async def test_new_event_generation_uses_normalizing_schema(action):
+    from modules.story import exploration_tasks
+    from modules.story.exploration_schemas import GeneratedEventOutputV1
+
+    payload = _event_payload(
+        mode="goal",
+        gaps=[],
+        goal_path=_goal_path_payload(steps=[]),
+        unsolvable={"reason": "缺少成立条件", "missing": ["合作动机"]},
+    )
+    seen = []
+
+    class Client:
+        model_name = "synthetic"
+
+        async def generate_structured(self, request, schema, **kwargs):
+            seen.append(schema)
+            return schema.model_validate(payload)
+
+    result = await exploration_tasks._generate_exploration_payload(
+        client=Client(), action=action, user_data={}
+    )
+    assert seen == [GeneratedEventOutputV1]
+    generated_schema = GeneratedEventOutputV1.model_json_schema()
+    persisted_schema = EventOutputV1.model_json_schema()
+    for schema in (generated_schema, persisted_schema):
+        schema.pop("title")
+        schema.pop("description")
+    assert generated_schema == persisted_schema
+    assert result.goal_path.steps == []
+    assert result.goal_path.unsolvable.missing == ["合作动机"]
+    assert result.unsolvable is None
+    stored = result.model_dump(mode="json")
+    assert EventOutputV1.model_validate(stored).model_dump(mode="json") == stored

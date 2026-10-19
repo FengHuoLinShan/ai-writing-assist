@@ -222,8 +222,9 @@ class GoalPathStep(ExplorationModel):
 
 
 class GoalPath(ExplorationModel):
-    """事件导向路径（M2）：指定结果的最小行动链；缺条件走 unsolvable，
-    允许无解时步骤为空，不编造巧合或性格突变。"""
+    """事件导向路径（M2）：指定结果的最小行动链。可由获允许且有依据的
+    行动建立的前提列入步骤条件，不当作已发生；关键条件无支持的建立路径或
+    违反固定约束才走 unsolvable，允许无解时步骤为空，不编造巧合或性格突变。"""
 
     goal: str = Field(min_length=1, max_length=1000)
     steps: list[GoalPathStep] = Field(max_length=8)
@@ -266,31 +267,6 @@ class EventOutputV1(ExplorationModel):
         _check_text_list("event text list", values, max_length=1000)
         return values
 
-    @model_validator(mode="before")
-    @classmethod
-    def normalize_goal_unsolvable(cls, data: Any) -> Any:
-        if (
-            not isinstance(data, dict)
-            or data.get("mode") != "goal"
-            or data.get("unsolvable") is None
-        ):
-            return data
-        goal_path = data.get("goal_path")
-        if isinstance(goal_path, GoalPath):
-            goal_path = goal_path.model_dump()
-        if not isinstance(goal_path, dict):
-            return data
-        conclusion = EventUnsolvable.model_validate(data["unsolvable"])
-        nested = goal_path.get("unsolvable")
-        if nested is not None and EventUnsolvable.model_validate(nested) != conclusion:
-            raise ValueError("顶层与导向路径的无解结论不一致")
-        # 兼容旧顶层写法，移交与结果界面统一读取 goal_path.unsolvable。
-        return {
-            **data,
-            "goal_path": {**goal_path, "unsolvable": conclusion},
-            "unsolvable": None,
-        }
-
     @model_validator(mode="after")
     def validate_event_mode(self):
         if self.mode == "diagnose":
@@ -311,6 +287,35 @@ class EventOutputV1(ExplorationModel):
             if self.bridge_candidates:
                 raise ValueError("goal 模式不得给出补桥候选")
         return self
+
+
+class GeneratedEventOutputV1(EventOutputV1):
+    """仅模型生成使用的解析 schema；持久结果继续按 EventOutputV1 原样读取。"""
+
+    @model_validator(mode="before")
+    @classmethod
+    def normalize_goal_unsolvable(cls, data: Any) -> Any:
+        if (
+            not isinstance(data, dict)
+            or data.get("mode") != "goal"
+            or data.get("unsolvable") is None
+        ):
+            return data
+        goal_path = data.get("goal_path")
+        if isinstance(goal_path, GoalPath):
+            goal_path = goal_path.model_dump()
+        if not isinstance(goal_path, dict):
+            return data
+        conclusion = EventUnsolvable.model_validate(data["unsolvable"])
+        nested = goal_path.get("unsolvable")
+        if nested is not None and EventUnsolvable.model_validate(nested) != conclusion:
+            raise ValueError("顶层与导向路径的无解结论不一致")
+        # 仅新模型输出归一化；历史 payload 的位置与来源指纹保持原样。
+        return {
+            **data,
+            "goal_path": {**goal_path, "unsolvable": conclusion},
+            "unsolvable": None,
+        }
 
 
 class SpatialAssessment(ExplorationModel):
@@ -1054,6 +1059,7 @@ __all__ = [
     "AuthorEditPayloadV1",
     "BridgePath",
     "EventOutputV1",
+    "GeneratedEventOutputV1",
     "EventUnsolvable",
     "ExplorationAction",
     "ExplorationBudgetPreview",

@@ -80,6 +80,7 @@ from modules.story.exploration_schemas import (
     FullRehearsalRequest,
     FullRehearsalRound,
     FullRehearsalRoundOrchestration,
+    GeneratedEventOutputV1,
     SandboxOutputV1,
     SceneLineOutputV1,
     SpatialAssessment,
@@ -176,8 +177,14 @@ EVENT_INFO_GAP_PROMPT = (
 EVENT_GOAL_PROMPT = (
     "你是小说作者的事件导向路径规划器。针对作者指定结果给出最小行动—响应—后果"
     "链：每步写行动、成立条件、对方响应、后果与代价或风险；遵守作者给定的规则"
-    "约束（如禁止巧合、禁止性格突变）；缺条件就返回 unsolvable 并列出缺项，"
-    "不编造巧合或让角色突然改性格。不自动创建事件、Scene 或正文。"
+    "约束（如禁止巧合、禁止性格突变）。先从人物当前已知需求与获允许的行动出发，"
+    "检查能否通过主动询问、公开寻找、交流或协商建立接触、知情与交付条件；"
+    "未证实的响应与条款写入步骤的 condition 及代价或风险，不宣称已发生或必然成功。"
+    "人物只有在对应获取信息的步骤成立后才能使用所得知识，作者知道双方互补不等于"
+    "人物一开始就知道彼此身份、资源或位置。关键前提既缺证据、又没有可支持且获"
+    "允许的建立路径，或与固定约束冲突时，才返回 unsolvable 并列缺项；不得用"
+    "任意条件包装未知资源、可达性或越权知识，不编造巧合或让角色突然改性格。"
+    "不自动创建事件、Scene 或正文。"
 )
 
 _EVENT_HINT_PROMPT_BY_HINT = {
@@ -1234,6 +1241,9 @@ async def _generate_exploration_payload(
 ):
     """按动作调用一次有界结构化生成；system_content 缺省用该动作基础 prompt。"""
     client.audit_output = audit_output
+    schema = PAYLOAD_MODEL_BY_ACTION[action]
+    if schema is EventOutputV1:
+        schema = GeneratedEventOutputV1
     return await run_managed_structured(
         client,
         LLMCallRequest(
@@ -1248,7 +1258,7 @@ async def _generate_exploration_payload(
                 ),
             ],
         ),
-        PAYLOAD_MODEL_BY_ACTION[action],
+        schema,
         step_name=STEP_NAME_BY_ACTION[action],
         capability_id=EXPLORATION_CAPABILITY,
         max_fix_attempts=0,

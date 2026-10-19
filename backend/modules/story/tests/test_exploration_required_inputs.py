@@ -21,7 +21,6 @@ pytest_plugins = ["modules.story.tests.test_exploration_worker"]
     [
         ("sandbox", "author_packet", None),
         ("scene_line", "target_knowledge", None),
-        ("scene_line", "confirmed_material", None),
         ("scene_line", "question", "能抱箱子通过桌边吗？"),
         ("scene_line", "spatial_material", "能抱箱子通过桌边吗？"),
     ],

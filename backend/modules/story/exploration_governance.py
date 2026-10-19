@@ -58,7 +58,7 @@ class ExplorationClient:
         if target:
             data.pop("author_context", None)
             data.pop("scene", None)
-            data["confirmed_material"] = ""
+            data.pop("confirmed_material", None)
             if not target.startswith("c_"):
                 projected = await project_confirmed_character_context(
                     self.db, confirmed_context=confirmed, character_id=target
