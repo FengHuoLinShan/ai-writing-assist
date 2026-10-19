@@ -23,6 +23,8 @@ directory-local `AGENTS.md`, then the target module README. `CLAUDE.md` files on
 
 导演独立探索的离线回归含知识导演、生成、审查与返修计量；正常每单元 3 次、最多 5 次请求。
 暂停恢复沿用原项目快照与根账本，测试不得把恢复当作可切换供应商或重置未知费用的新任务。
+探索预算策略 v2 每请求另预留 32k 输入，旧根仍按原策略与额度恢复；预留不是实际用量，
+也不增加物理请求数。完整契约见 [Story README](backend/modules/story/README.md#导演多尺度独立探索adr-0042-分支实现)。
 
 AI 小说程序在开发阶段的大量业务 LLM 调用使用 Codex `gpt-6-luna`，推理档位 `max`，
 包括深度导入、世界演化、业务生成/抽取/补全及其批量质量复核与实测。
@@ -145,6 +147,7 @@ E2E_DATABASE_URL='<dedicated-postgresql-url>' make test-postgresql-critical  # S
 RUN_E2E_TESTS=1 E2E_DATABASE_URL='<dedicated-postgresql-url>' uv --directory backend run pytest tests/e2e/test_rp_source_versions.py -m e2e  # RP source version/FK/concurrency lifecycle
 RUN_E2E_TESTS=1 E2E_DATABASE_URL='<dedicated-postgresql-url>' uv run pytest tests/e2e/test_project_task_gate_concurrency.py -m "not real_llm and not external_data"  # Project delete vs atlas upload/cleanup race
 RUN_E2E_TESTS=1 E2E_DATABASE_URL='<dedicated-postgresql-url>' uv run pytest tests/e2e/test_worldbook_dataset_import_concurrency.py -m e2e  # 资料集导入 apply 的 dataset advisory-lock/CAS/过期冲突并发行为
+RUN_E2E_TESTS=1 E2E_DATABASE_URL='<dedicated-postgresql-url>' uv --directory backend run --locked --extra ci pytest tests/e2e/test_exploration_review_concurrency.py -m e2e  # 探索根/分支 FK 与作者先提交后的旧父版本拒绝；纳入 critical
 make test-real-llm               # Explicit SQLite real-model acceptance
 RUN_INTERACTION_REAL_KIMI=1 KIMI_API_KEY='<temporary-key>' DEEPSEEK_API_KEY='<temporary-key>' make test-real-kimi  # Explicit paid Kimi K3 compatibility gate; enabled only in the test process
 RUN_INTERACTION_LONG_CONTEXT_CALIBRATION=1 KIMI_LONG_CONTEXT_COST_APPROVED=1 KIMI_API_KEY='<temporary-key>' KIMI_CONTEXT_LIMIT_TOKENS='<official-limit>' E2E_DATABASE_URL='<dedicated-postgresql-url>' make test-interaction-long-context  # Paid usage calibration + PostgreSQL 530K journey gate

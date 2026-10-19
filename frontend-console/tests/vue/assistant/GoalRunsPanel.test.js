@@ -21,7 +21,7 @@ const capabilities = {
   budget_limits: {
     requests_max: 100,
     possible_charge_requests_max: 100,
-    tokens_max: 500000,
+    tokens_max: 5000000,
     time_limit_seconds_max: 7200,
   },
 }
@@ -189,6 +189,29 @@ it("accepts the default and saved integer token budgets in native forms", async 
   const api = setupApi({ recentGoals: vi.fn().mockResolvedValue([goalView()]) })
   const review = await mountedPanel(api)
   expect(review.get(".goal-runs-plan").element.checkValidity()).toBe(true)
+})
+
+it.each([true, false])("accepts explicitly larger budgets without raising defaults (server limit: %s)", async (hasServerLimit) => {
+  const limits = { ...capabilities.budget_limits }
+  if (!hasServerLimit) delete limits.tokens_max
+  for (const state of ["start", "plan", "resume"]) {
+    const current = state === "start" ? [] : [goalView({ can_resume: state === "resume" })]
+    const api = setupApi({
+      goalCapabilities: vi.fn().mockResolvedValue({ ...capabilities, budget_limits: limits }),
+      recentGoals: vi.fn().mockResolvedValue(current),
+    })
+    const wrapper = await mountedPanel(api, { projectId: `large-budget-${state}-${hasServerLimit}` })
+    const input = wrapper.get(`.goal-runs-${state} input[type="number"][step="1"]`)
+    expect(input.element.value).toBe("12000")
+    expect(input.element.max).toBe("5000000")
+    await input.setValue(5000000)
+    expect(input.element.checkValidity()).toBe(true)
+    await input.setValue(5000001)
+    expect(input.element.checkValidity()).toBe(false)
+    expect(api.startGoal).not.toHaveBeenCalled()
+    expect(api.approveGoal).not.toHaveBeenCalled()
+    expect(api.resumeGoal).not.toHaveBeenCalled()
+  }
 })
 
 it("uses translated plan option labels and hides unsupported internal enum values", () => {

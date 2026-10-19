@@ -505,8 +505,8 @@ Evolution 成功回执经稳定 DI 端口投递免费检查，Story 只通过 Ev
 
 ## 导演多尺度独立探索（ADR-0042 分支实现）
 
-`STORY_EXPLORATION_ENABLED` 默认关闭。ADR-0042 仍为 Proposed；分支离线实现不代表采纳、
-真实模型或作者验收。API、助手操作和两个 worker 共用开关；历史/比较关闭后仍可读取。
+`STORY_EXPLORATION_ENABLED` 默认关闭。ADR-0042 仍为 Proposed；分支实现不代表采纳、
+模型质量或作者验收。API、助手操作和两个 worker 共用开关；历史/比较关闭后仍可读取。
 
 `/api/story/exploration` 提供推荐/预算预览、资料预览/确认、幂等启动、detail/revise、作者编辑、
 锁定、比较、历史、跨尺度移交，以及 `/roots/{root_id}/branches/{branch_id}/resume` 的 GET 预览
@@ -523,22 +523,55 @@ material、observation 定位条目。detail/revise 复用原根确认并重验�
 3 次、最多 5 次物理请求，不隐藏格式/传输重试。每次请求与最终写结果前重物化原确认，
 保留审查回执。作者问题、假设和私享仅给作者侧；候选人物只收本人知识/观察/误信包，正式
 角色只收原确认读集内按 POV 和 Scene 截止投影的资料，并逐人物检查 hidden guard。
+服务端先完成上述裁剪，再把最小输入包交给知识导演；导演不能扩大可见范围，也不能删除任一
+packet 后继续生成。问题、人物知识/刺激、空间资料及跟进父版本等任一包被排为仅审查或禁止时，
+以 `exploration_required_input_excluded` 阻断，不强制放回资料绕过导演决定。
+候选人物没有正式角色投影，构造范围前省略其空 `confirmed_material` 槽；正式角色投影仍入范围。
+
+审查以当前单元的真实 system 指令、输出 schema 和可见包为交付合同，完整起点仅作禁令、
+知识上限与事实冲突的负向核验背景。返修沿用该单元可见包，反馈只带自身 candidate、问题
+类型/级别及 candidate 内可核对定位，不回传审查秘密或合并的他人内容。
+
+预算策略 v2 为每次物理请求预留 32,000 tokens 的原生包封与知识治理输入，仍按同一组
+3–5 次请求计量；预留不代表额外调用或实际用量。策略版本进入 `budget_preview_hash`，
+旧预览不能用于新启动。根保存 `exploration_budget_policy_version`；缺字段的旧根按 v1
+核对历史预览，继续使用原持久账本与额度，不因新估算自动增额。续算仍须显式追加授权。
+
+事件导向的 `event_mode_hint=goal` 对应 `event.bridge` 动作，结果使用 `mode=goal`。
+成功路径至少一个步骤；有 `goal_path.unsolvable` 时允许 `steps=[]`，不要求编造失败动作。
+仅新生成将导向模式的顶层 `unsolvable` 归入 `goal_path.unsolvable`，两处结论不一致则拒绝；
+持久结果按原位置读取，保留旧合法序列化与移交指纹。普通补桥的顶层无解合同不变。
+可由获允许且有依据的主动询问或协商建立的前提列入步骤条件，不能当作已发生；
+关键前提缺证据且无可支持的建立路径、或违反固定约束时仍返回无解。
 
 完整排演仅支持 provisional + 场景尺度，与多目标/空间诊断互斥。targets 最多 74（起点候选
 50 + 正式角色 24 的容量），轮数由作者与总预算约束，不设 6 人/3 轮产品上限。每轮 N 张
 独立人物卡与一次作者统筹，共 (N+1)×轮数 个生成单元，预算披露为其 3–5 倍请求。
 `author_goal` 只进统筹；各人物累计自己历轮观察，不接收作者状态摘要或他人私享。
+`/preview` 的 `preview_full_rehearsal` 与确认/启动的 `full_rehearsal` 使用同一组
+targets、rounds、author_goal；三者均绑定预算指纹，作者目标改变后须重新预览。
 多目标对白、复杂结果续算的每个条目，以及排演的每张卡和每轮均保存检查点；
 恢复跳过已完成单元并保留原审查回执。
 
 暂停恢复绑定原 root/branch、当前累计账本和 checkpoint hash，未知计费须核对数量并显式
 允许可能重复费用；相同 operation_id 重放只返回原回执，不再次追加预算。恢复不延长原始
 截止、不换模型快照、不重置累计用量；Goal 子任务暂停后由作者显式恢复和目标回执核对。
+未知请求或不完整用量优先进入核对；知识审查等语义失败不会因累计用量碰到 80% 软阈值而
+伪装成预算暂停，仍按失败关闭处理。
 
 助手目录包括 preview/compare/history/handoff/confirmation_preview（R0）、confirm（R1），
 start/detail/revise（R2）。Goal 先以 inline_only 保存领域回执，通过请求、可能费用、token
 与时间准入后执行；每个领域请求实时观察目标剩余额度，结束只导入增量。已批准目标内的
 资料确认可自动执行；三个 R2 探索操作还需作者显式开启 auto_r2。其他 R2/R3/R4 门禁不变。
+助手操作 `story.exploration.preview` 不接收起点，只返回推荐与名义预算，不能把其 hash 用于
+启动。绑定预算取自 `confirmation_preview.budget.preview_hash`；资料指纹取自该步骤的
+`context_fingerprint`，传入 `confirm.expected_context_fingerprint`。确认返回的
+`confirmation_id` 供 `start.context_confirmation_id` 引用；同次资料预览、确认与启动复用
+`novel_id/scale/start/focus/action`。跨尺度起点引用 handoff 的 `derived_start`。
+Goal 的 prepare 与 REST 启动共用目标校验：场景单目标对白有多个候选时必须填写
+`target_ref`；遗漏在领域执行前以已知校验失败拒绝，不进入未知结果核对。
+Goal 的 start/detail/revise 完成回执在顶层提供 `result_id/root_id/branch_id/output_kind/payload`，
+后续结果引用直接指向这些字段，不额外嵌套 `result` 或 `task`；调用 ID 由 Goal 服务端生成。
 普通助手回执携带类型并投影实际完成或暂停结果；手动尺度/焦点绑定原问题。前端保存任务
 身份并恢复轮询、支持真实停止，移交重试复用同一启动请求；未保存编辑按结果和条目备份，
 双保存失败时阻止离开/切换，成功编辑使用新版本 ID。

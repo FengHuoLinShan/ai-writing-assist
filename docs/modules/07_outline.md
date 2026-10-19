@@ -3,7 +3,7 @@
 大纲生成、分析、P20 与 Scene fusion handler 在领取时冻结各自 root capability、请求额度和
 可选 deadline；重排/恢复累计同一 run，信封不进入 outline 或 Scene 的公开结果。
 Scene 工作台的排演入口在 Story Scene 子域；排演、大纲生成与 Scene fusion 均使用项目账户
-连接，本机 CLI 只用于图片生成（[ADR-0029](../adr/0029-local-cli-image-only.md)）。
+连接。独立的本机图片入口见 [ADR-0029](../adr/0029-local-cli-image-only.md)。
 
 > 当前生产 owner 是 `modules.story.outline_state`。旧 `modules.outline` Python import
 > 兼容入口已退场；`/api/outline/*` 继续保持稳定。
@@ -14,6 +14,9 @@ Scene 工作台的排演入口在 Story Scene 子域；排演、大纲生成与 
 
 导演独立探索可无 Scene/大纲开始，结果由 Story 探索根承载；不会为临时起点伪造普通 Scene。
 绑定 Scene 的探索仍遵守原确认的来源和可见截止；参考副本与采用后的剧本分开。
+人物投影、场景刺激和跟进父版本均先按确认范围裁剪，知识导演删包即阻断后续生成，
+不降低原 Scene 的来源约束。完整排演的显式展开、作者目标指纹及旧根预算兼容见
+[Story 探索契约](../../backend/modules/story/README.md#导演多尺度独立探索adr-0042-分支实现)。
 
 Story outline_state 子域负责把事实层资产组织成“可执行的剧情计划”。
 

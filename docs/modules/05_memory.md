@@ -2,8 +2,8 @@
 
 Memory/continuity 不直接拥有 provider 任务；若由 Story 任务触发 AI 检查，预算与恢复归该
 Story root 的统一运行信封，memory event/snapshot 的持久化与 rollback 契约不变。
-Memory 不接收本机设备凭据；本机 CLI 只用于图片生成（[ADR-0029](../adr/0029-local-cli-image-only.md)），
-Scene 排演使用项目账户连接，也不绕过 continuity 来源与确认门禁。
+Memory 不接收本机设备凭据；Scene 排演使用项目账户连接及其可恢复快照，不绕过 continuity
+来源与确认门禁。独立的本机图片入口见 [ADR-0029](../adr/0029-local-cli-image-only.md)。
 
 > 当前生产 owner 是 `modules.story.continuity`。旧 `modules.memory` Python import
 > 兼容入口已退场；`/api/novels/{novel_id}/memories`
@@ -14,6 +14,10 @@ Scene 排演使用项目账户连接，也不绕过 continuity 来源与确认�
 
 导演探索各轮的观察保存在探索分支检查点，按人物累计，不写入 continuity 正史事件/快照。
 临时假设和跨层移交结果不能通过恢复任务绕过正式采用与 Scene 截止。
+人物知识与累计观察先由服务端按可见范围裁剪；知识导演删除任一最小输入包时，后续生成
+直接阻断，不以剩余包继续传播观察。预算与旧根恢复归
+[Story 探索契约](../../backend/modules/story/README.md#导演多尺度独立探索adr-0042-分支实现)，
+不改变 memory event/snapshot 的写入或回滚权限。
 
 Story continuity 子域维护小说世界的“变化历史”，不是再存一份正史对象库。
 

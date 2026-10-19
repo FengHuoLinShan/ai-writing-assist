@@ -22,6 +22,10 @@ from modules.story.exploration_schemas import (
 _OUTPUT_LOW_CHARS_BY_SCALE = {"sandbox": 900, "event": 900, "scene_line": 300}
 _OUTPUT_HIGH_CHARS_BY_SCALE = {"sandbox": 2600, "event": 2600, "scene_line": 900}
 
+# 原生 Codex 包封与知识治理 Prompt 也占输入，沿用原生适配器的 32k 保守预留。
+_PER_REQUEST_PROMPT_RESERVE_TOKENS = 32000
+EXPLORATION_BUDGET_POLICY_VERSION = 2
+
 
 def _start_input_chars(start: ExplorationStart) -> int:
     if isinstance(start, ProvisionalStart):
@@ -68,6 +72,7 @@ def exploration_preview_identity(
     multi_targets: list[str] | None = None,
     diagnostic_question: str | None = None,
     full_rehearsal: FullRehearsalRequest | None = None,
+    budget_policy_version: int = EXPLORATION_BUDGET_POLICY_VERSION,
 ) -> dict:
     """预算预览身份：起点、尺度与焦点任一变化都会改变 preview_hash。
 
@@ -87,6 +92,10 @@ def exploration_preview_identity(
         "input_chars": _start_input_chars(start),
         "start": start.model_dump(mode="json"),
     }
+    if budget_policy_version not in (1, EXPLORATION_BUDGET_POLICY_VERSION):
+        raise ValueError("未知的探索预算策略版本")
+    if budget_policy_version != 1:
+        identity["budget_policy_version"] = budget_policy_version
     if event_mode_hint is not None:
         identity["event_mode_hint"] = str(event_mode_hint)
     if multi_targets:
@@ -133,7 +142,9 @@ def preview_exploration_budget(
     output_low = _OUTPUT_LOW_CHARS_BY_SCALE[scale] // 3 * request_count
     output_high = _OUTPUT_HIGH_CHARS_BY_SCALE[scale] // 3 * request_count
     tokens_min = (input_low + output_low) * 3
-    tokens_max = ((input_high + 4000) * request_count + output_high) * 5
+    tokens_max = (
+        (input_high + _PER_REQUEST_PROMPT_RESERVE_TOKENS) * request_count + output_high
+    ) * 5
     if full_rehearsal:
         tokens_max += output_high * max(0, full_rehearsal.rounds - 1)
     return ExplorationBudgetPreview(
@@ -145,7 +156,9 @@ def preview_exploration_budget(
         token_estimate=ExplorationTokenEstimate(
             minimum=tokens_min,
             maximum=tokens_max,
-            method="按输入包字符长度估算，实际用量以运行账本为准",
+            method=(
+                "按输入包字符长度及每请求 32k 包封/治理预留估算，实际用量以运行账本为准"
+            ),
         ),
         preview_hash=content_hash(
             exploration_preview_identity(

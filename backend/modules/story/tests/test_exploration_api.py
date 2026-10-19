@@ -19,6 +19,7 @@ from modules.story.exploration_schemas import (
     SandboxOutputV1,
     apply_changed_assumptions,
     exploration_start_fingerprint,
+    validate_start_dump,
 )
 from modules.story.exploration_service import (
     create_exploration_root,
@@ -313,8 +314,17 @@ async def test_gate_blocks_execution_but_keeps_history_and_compare_readable(
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("scale", "event_mode_hint", "action"),
+    [
+        ("sandbox", None, "story.exploration.sandbox.generate"),
+        ("event", None, "story.exploration.event.diagnose"),
+        ("event", "info_gap", "story.exploration.event.diagnose"),
+        ("event", "goal", "story.exploration.event.bridge"),
+    ],
+)
 async def test_confirmation_preview_and_confirm_round_trip(
-    async_client, test_project_id, monkeypatch
+    async_client, db_session, test_project_id, monkeypatch, scale, event_mode_hint, action
 ):
     from modules.evidence import facade as evidence_facade
     from modules.evidence.contracts import ExplorationContextRequest
@@ -350,11 +360,18 @@ async def test_confirmation_preview_and_confirm_round_trip(
     start = _provisional_start()
     preview_body = {
         "novel_id": test_project_id,
-        "scale": "sandbox",
-        "action": "story.exploration.sandbox.generate",
+        "scale": scale,
         "focus": "",
         "start": start.model_dump(mode="json"),
     }
+    if event_mode_hint:
+        preview_body["event_mode_hint"] = event_mode_hint
+    budget_preview = await async_client.post(
+        "/api/story/exploration/preview", json=preview_body
+    )
+    assert budget_preview.status_code == 200, budget_preview.json()
+    assert budget_preview.json()["action"] == action
+    preview_body["action"] = budget_preview.json()["action"]
     previewed = await async_client.post(
         "/api/story/exploration/confirmation/preview", json=preview_body
     )
@@ -370,6 +387,23 @@ async def test_confirmation_preview_and_confirm_round_trip(
     body = confirmed.json()
     assert body["confirmation_id"] == "ctx-record-1"
     assert body["result_status"] == "confirmed"
+    assert seen["confirmed"].action == action
+
+    _stub_confirmation(monkeypatch, start, scale=scale)
+    started = await async_client.post(
+        "/api/story/exploration/start",
+        json={
+            **preview_body,
+            "context_confirmation_id": body["confirmation_id"],
+            "budget_preview_hash": budget_preview.json()["budget"]["preview_hash"],
+            "operation_id": str(uuid.uuid4()),
+        },
+    )
+    assert started.status_code == 202, started.json()
+    from infrastructure.tasks.models import AsyncTask
+
+    task = await db_session.get(AsyncTask, uuid.UUID(started.json()["task_id"]))
+    assert task.meta["action"] == action
 
 
 # ---------------------------------------------------------------------------
@@ -445,6 +479,7 @@ async def test_start_enqueues_is_idempotent_and_persists_root(
     )
     assert root_row is not None
     assert root_row.run_envelope_json
+    assert root_row.request_json["exploration_budget_policy_version"] == 2
     assert root_row.current_task_id == uuid.UUID(payload["task_id"])
     task = await db_session.get(AsyncTask, uuid.UUID(payload["task_id"]))
     assert task.status == "pending"
@@ -455,6 +490,29 @@ async def test_start_enqueues_is_idempotent_and_persists_root(
     assert again.status_code == 202
     assert again.json()["task_id"] == payload["task_id"]
     assert again.json()["root_id"] == payload["root_id"]
+
+
+async def test_new_start_rejects_legacy_budget_preview(
+    async_client, test_project_id, monkeypatch
+):
+    from infrastructure.llm.collaboration import content_hash
+    from modules.story.exploration_budget import exploration_preview_identity
+
+    _enable_exploration(monkeypatch)
+    start = _provisional_start()
+    _stub_confirmation(monkeypatch, start)
+    body = _start_body(test_project_id, start, operation_id=uuid.uuid4())
+    body["budget_preview_hash"] = content_hash(
+        exploration_preview_identity(
+            novel_id=str(test_project_id),
+            scale="sandbox",
+            start=start,
+            budget_policy_version=1,
+        )
+    )
+    response = await async_client.post("/api/story/exploration/start", json=body)
+    assert response.status_code == 409
+    assert "重新预览预算" in response.json()["detail"]
 
 
 @pytest.mark.asyncio
@@ -1084,6 +1142,224 @@ def _scene_start_data(**overrides):
     return ExplorationStartApiRequest.model_validate(payload)
 
 
+@pytest.mark.parametrize(
+    ("overrides", "message"),
+    [
+        ({}, "多个可能目标"),
+        ({"target_ref": "c_stranger"}, "不在本次探索"),
+        (
+            {"start": {"kind": "scene_anchor", "scene_id": str(uuid.uuid4())}},
+            "正式角色 entity_id",
+        ),
+        (
+            {
+                "scale": "sandbox",
+                "action": "story.exploration.sandbox.generate",
+                "target_ref": "c_franks",
+            },
+            "只有场景一句对白",
+        ),
+        (
+            {"target_ref": "c_franks", "multi_targets": ["c_franks", "c_evasive"]},
+            "互斥",
+        ),
+        (
+            {"target_ref": "c_franks", "diagnostic": {"question": "能从桌边走过吗？"}},
+            "空间诊断",
+        ),
+        (
+            {"target_ref": "c_franks", "full_rehearsal": {"targets": ["c_franks"]}},
+            "互斥",
+        ),
+    ],
+)
+async def test_prepare_scene_start_rejects_target_before_confirmation(
+    monkeypatch, overrides, message
+):
+    from app.assistant_operation_registry import story_exploration_operations
+    from core.errors import ValidationError
+    from modules.evidence import facade as evidence_facade
+    from modules.story import exploration_operations
+
+    _enable_exploration(monkeypatch)
+    data = _scene_start_data(**overrides)
+    operation = story_exploration_operations["story.exploration.start"]
+    args = operation.schema.model_validate(
+        data.model_dump(mode="json", exclude_none=True)
+    )
+    confirmations = []
+
+    async def active(*_args):
+        return None
+
+    async def confirmation(_db, **kwargs):
+        confirmations.append(kwargs)
+        return SimpleNamespace(
+            compile_options={
+                "exploration_start": args.start,
+                "exploration_scale": args.scale,
+                "exploration_focus": args.focus,
+            }
+        )
+
+    monkeypatch.setattr(exploration_operations, "require_active_project", active)
+    monkeypatch.setattr(evidence_facade, "require_fresh_confirmation", confirmation)
+    with pytest.raises(ValidationError, match=message):
+        await operation.prepare(None, data.novel_id, args)
+    assert confirmations == []
+
+
+@pytest.mark.parametrize(
+    "mode",
+    [
+        "explicit",
+        "single_candidate",
+        "single_canonical",
+        "scene_anchor",
+        "diagnostic",
+        "multi",
+        "full",
+    ],
+)
+async def test_prepare_scene_start_accepts_supported_target_modes(monkeypatch, mode):
+    from app.assistant_operation_registry import story_exploration_operations
+    from modules.evidence import facade as evidence_facade
+    from modules.story import exploration_operations
+
+    _enable_exploration(monkeypatch)
+    payload = _scene_start_data().model_dump(mode="json", exclude_none=True)
+    if mode == "explicit":
+        payload["target_ref"] = "c_franks"
+    elif mode == "single_candidate":
+        payload["start"]["candidates"] = payload["start"]["candidates"][:1]
+    elif mode == "single_canonical":
+        payload["start"]["candidates"] = []
+        payload["start"]["canonical_refs"] = [str(uuid.uuid4())]
+    elif mode == "scene_anchor":
+        payload["start"] = {"kind": "scene_anchor", "scene_id": str(uuid.uuid4())}
+        payload["target_ref"] = str(uuid.uuid4())
+    elif mode == "diagnostic":
+        payload["diagnostic"] = {
+            "question": "能从桌边走过吗？",
+            "subject_ref": "c_franks",
+        }
+    elif mode == "multi":
+        payload["multi_targets"] = ["c_franks", "c_evasive"]
+    else:
+        payload["full_rehearsal"] = {"targets": ["c_franks", "c_evasive"]}
+    operation = story_exploration_operations["story.exploration.start"]
+    args = operation.schema.model_validate(payload)
+    args.budget_preview_hash = preview_exploration_budget(
+        novel_id=args.novel_id,
+        scale=args.scale,
+        start=validate_start_dump(args.start),
+        focus=args.focus,
+        event_mode_hint=args.event_mode_hint,
+        multi_targets=args.multi_targets,
+        diagnostic_question=args.diagnostic.question if args.diagnostic else None,
+        full_rehearsal=args.full_rehearsal,
+    ).preview_hash
+    confirmations = []
+
+    async def active(*_args):
+        return None
+
+    async def confirmation(_db, **kwargs):
+        confirmations.append(kwargs)
+        return SimpleNamespace(
+            compile_options={
+                "exploration_start": args.start,
+                "exploration_scale": args.scale,
+                "exploration_focus": args.focus,
+            }
+        )
+
+    monkeypatch.setattr(exploration_operations, "require_active_project", active)
+    monkeypatch.setattr(evidence_facade, "require_fresh_confirmation", confirmation)
+    preview = await operation.prepare(None, payload["novel_id"], args)
+    assert preview["confirmed"] is True
+    assert len(confirmations) == 1
+    assert confirmations[0]["novel_id"] == payload["novel_id"]
+    expected_target = (
+        "c_franks"
+        if mode in {"explicit", "single_candidate"}
+        else payload["start"]["canonical_refs"][0]
+        if mode == "single_canonical"
+        else payload["target_ref"]
+        if mode == "scene_anchor"
+        else None
+    )
+    from modules.story.exploration_api import (
+        ExplorationStartApiRequest,
+        _resolve_scene_target,
+    )
+
+    assert _resolve_scene_target(args) == expected_target
+    assert (
+        _resolve_scene_target(ExplorationStartApiRequest.model_validate(payload))
+        == expected_target
+    )
+
+
+@pytest.mark.parametrize(
+    "mismatch",
+    [
+        "confirmation_start",
+        "confirmation_scale",
+        "confirmation_focus",
+        "budget_hash",
+        "intent",
+    ],
+)
+async def test_prepare_start_rejects_known_preflight_errors(monkeypatch, mismatch):
+    from app.assistant_operation_registry import story_exploration_operations
+    from core.errors import ValidationError
+    from modules.evidence import facade as evidence_facade
+    from modules.story import exploration_operations
+
+    _enable_exploration(monkeypatch)
+    start = _provisional_start()
+    body = _start_body(str(uuid.uuid4()), start, operation_id=uuid.uuid4())
+    operation = story_exploration_operations["story.exploration.start"]
+    args = operation.schema.model_validate(body)
+    options = {
+        "exploration_start": start.model_dump(mode="json"),
+        "exploration_scale": args.scale,
+        "exploration_focus": args.focus,
+    }
+    context = None
+    if mismatch == "confirmation_start":
+        options["exploration_start"]["question"] = "另一个已确认的问题"
+    elif mismatch == "confirmation_scale":
+        options["exploration_scale"] = "event"
+    elif mismatch == "confirmation_focus":
+        options["exploration_focus"] = "另一个已确认的焦点"
+    elif mismatch == "budget_hash":
+        args.budget_preview_hash = "f" * 64
+    else:
+        context = SimpleNamespace(
+            work=SimpleNamespace(
+                exploration_intent=SimpleNamespace(
+                    scale="event", focus=args.focus, question=""
+                )
+            )
+        )
+    confirmations = []
+
+    async def active(*_args):
+        return None
+
+    async def confirmation(_db, **kwargs):
+        confirmations.append(kwargs)
+        return SimpleNamespace(compile_options=options)
+
+    monkeypatch.setattr(exploration_operations, "require_active_project", active)
+    monkeypatch.setattr(evidence_facade, "require_fresh_confirmation", confirmation)
+    with pytest.raises(ValidationError):
+        await operation.prepare(None, args.novel_id, args, context=context)
+    assert len(confirmations) == (0 if mismatch == "intent" else 1)
+
+
 def test_resolve_scene_target_rejects_multi_with_target_ref():
     """multi_targets 与 target_ref 互斥；目标必须落在候选/正式角色内。"""
     from modules.story.exploration_api import _resolve_scene_target
@@ -1616,8 +1892,9 @@ async def test_start_full_rehearsal_membership_violation_is_409(
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize("author_goal", ["", "看两人对离职话题的不同反应"])
 async def test_start_full_rehearsal_enqueues_with_frozen_rehearsal_and_budget(
-    async_client, db_session, test_project_id, monkeypatch
+    async_client, db_session, test_project_id, monkeypatch, author_goal
 ):
     """合法排演启动：根/任务冻结排演意图，预算信封按 (N+1)×轮次 授权。"""
     _enable_exploration(monkeypatch)
@@ -1627,8 +1904,23 @@ async def test_start_full_rehearsal_enqueues_with_frozen_rehearsal_and_budget(
     start = ProvisionalStart.model_validate(_rehearsal_start())
     _stub_confirmation(monkeypatch, start, scale="scene_line")
     body = _full_rehearsal_start_body(
-        test_project_id, start, operation_id=uuid.uuid4(), rounds=2
+        test_project_id,
+        start,
+        operation_id=uuid.uuid4(),
+        rounds=2,
+        author_goal=author_goal,
     )
+    preview = await async_client.post(
+        "/api/story/exploration/preview",
+        json={
+            "novel_id": test_project_id,
+            "scale": "scene_line",
+            "start": body["start"],
+            "preview_full_rehearsal": body["full_rehearsal"],
+        },
+    )
+    assert preview.status_code == 200, preview.json()
+    body["budget_preview_hash"] = preview.json()["budget"]["preview_hash"]
 
     response = await async_client.post("/api/story/exploration/start", json=body)
     assert response.status_code == 202, response.json()
@@ -1639,7 +1931,7 @@ async def test_start_full_rehearsal_enqueues_with_frozen_rehearsal_and_budget(
     assert root_row.request_json["full_rehearsal"] == {
         "targets": ["c_franks", "c_evasive"],
         "rounds": 2,
-        "author_goal": "看两人对离职话题的不同反应",
+        "author_goal": author_goal,
     }
     envelope = root_row.run_envelope_json
     assert envelope["request_limit"] == (2 + 1) * 2 * 5

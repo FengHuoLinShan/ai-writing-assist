@@ -17,6 +17,7 @@ from uuid import UUID, uuid4
 
 from sqlalchemy import select
 
+from core.errors import ValidationError
 from infrastructure.llm.collaboration import content_hash
 from infrastructure.tasks.facade import get_completed_task_payload
 from infrastructure.tasks.models import AsyncTask
@@ -219,14 +220,18 @@ async def _prepare_start(db, novel_id, args, *, context=None):
     _require_project(novel_id, args)
     _require_gate()
     await require_active_project(db, novel_id)
-    start = validate_start_dump(dict(args.start))
+    try:
+        start = validate_start_dump(dict(args.start))
+        exploration_api._resolve_scene_target(args, start=start)
+    except ValueError as error:
+        raise ValidationError(str(error)) from error
     intent = getattr(getattr(context, "work", None), "exploration_intent", None)
     if intent is not None and (
         args.scale != intent.scale
         or args.focus != intent.focus
         or (intent.question and getattr(start, "question", "") != intent.question)
     ):
-        raise ValueError(
+        raise ValidationError(
             "探索参数与作者在推荐卡中选择的任务不一致，请沿用指定问题、尺度和焦点"
         )
     confirmation = await evidence_facade.require_fresh_confirmation(
@@ -241,6 +246,8 @@ async def _prepare_start(db, novel_id, args, *, context=None):
         and str(options.get("exploration_scale") or "") == args.scale
         and str(options.get("exploration_focus") or "") == str(args.focus or "")
     )
+    if not consistent:
+        raise ValidationError("资料确认的探索起点、尺度或焦点不一致，请重新确认")
     budget = preview_exploration_budget(
         novel_id=novel_id,
         scale=args.scale,
@@ -253,6 +260,8 @@ async def _prepare_start(db, novel_id, args, *, context=None):
         ),
         full_rehearsal=args.full_rehearsal,
     )
+    if budget.preview_hash != args.budget_preview_hash:
+        raise ValidationError("起点或焦点已变化，请重新预览预算")
     return {
         "confirmed": consistent,
         "preview_hash": budget.preview_hash,
@@ -646,7 +655,12 @@ OPERATIONS_SPEC = {
         "apply": None,
         "permission": "read",
         **_metadata(
-            description="只读取所选条目并保留条件、未知和知识边界；必须记录移交理由。",
+            description=(
+                "只读取所选条目并保留条件、未知和知识边界；必须记录移交理由。"
+                "返回 derived_start（对象），后续目标尺度 confirmation_preview、confirm、"
+                "start 的 start 均引用此字段，不是 start 字段；新尺度必须重新确认资料。"
+                "result_id 引用已完成 start/detail/revise 的顶层 result_id。"
+            ),
             risk="R0",
             fee="free",
             produces=("exploration_derived_start",),
@@ -662,7 +676,16 @@ OPERATIONS_SPEC = {
         "apply": None,
         "permission": "read",
         **_metadata(
-            description="读取目标起点、尺度与焦点绑定的资料指纹；不调用模型。",
+            description=(
+                "读取目标起点、尺度与焦点绑定的资料指纹；不调用模型。"
+                "返回 context_fingerprint（字符串）及 budget.preview_hash（字符串）；"
+                "confirm.expected_context_fingerprint 引用前者，start.budget_preview_ha"
+                "sh 引用后者。"
+                "同次 preview、confirm、start 的 novel_id/scale/start/focus/action 必须"
+                "一致；"
+                "首次 start 按本操作的起点 schema 构造，"
+                "跨尺度 start 引用 handoff.derived_start。"
+            ),
             risk="R0",
             fee="free",
             produces=("exploration_context_preview",),
@@ -678,7 +701,14 @@ OPERATIONS_SPEC = {
         "apply": _apply_confirmation,
         "permission": "confirm",
         **_metadata(
-            description="重验目标资料预览后冻结确认；目标运行仅在作者批准的计划与范围内执行。",
+            description=(
+                "重验目标资料预览后冻结确认；目标运行仅在作者批准的计划与范围内执行。"
+                "expected_context_fingerprint 引用 confirmation_preview 的 context_fing"
+                "erprint，"
+                "novel_id/scale/start/focus/action 原样复用同次预览。"
+                "返回 confirmation_id（字符串），供 start.context_confirmation_id 引用；"
+                "不是 context_confirmation_id 字段。"
+            ),
             risk="R1",
             fee="free",
             produces=("exploration_context_confirmation",),
@@ -697,6 +727,10 @@ OPERATIONS_SPEC = {
             description=(
                 "按作者问题确定性推荐观察尺度（沙盘/事件/场景对白），给出请求"
                 "与 Token 预算区间和所需确认范围；不请求模型。"
+                "返回 recommended_scale、recommendation 与 budget；这里不接收起点，"
+                "budget.preview_hash 仅为名义预算，不可传给 start。"
+                "要启动须按输入 schema 构造起点，再调用 confirmation_preview 获取绑定预"
+                "算。"
             ),
             risk="R0",
             fee="free",
@@ -719,6 +753,21 @@ OPERATIONS_SPEC = {
                 "补桥、一句场景对白，或对临时起点显式展开的完整排演"
                 "（full_rehearsal，按 (目标数+1)×轮次 分开计量）；结果只进探索"
                 "历史，不写正史。"
+                "场景单目标对白 target_ref 在多个候选时必须显式选择，"
+                "scene_anchor 必须填正式角色 entity_id；唯一候选可自动确定。"
+                "target_ref 与 multi_targets、diagnostic、full_rehearsal 互斥；"
+                "其他尺度不得填写，准备阶段即校验目标。"
+                "novel_id/scale/start/focus/action 复用同次 confirmation_preview/confir"
+                "m，"
+                "context_confirmation_id 引用 confirm.confirmation_id，"
+                "budget_preview_hash 引用 confirmation_preview.budget.preview_hash。"
+                "Goal 完成步骤的结果来自 read_result，顶层返回 result_id、root_id、bran"
+                "ch_id、"
+                "output_kind、payload；后续引用 result_id，不要嵌套 result 或 task。"
+                "参数 operation_id 是非空调用标记；Goal 实际执行 ID 由服务端按 run、步"
+                "骤、"
+                "参数指纹生成 UUID5，无需模型生成 UUID；步骤 operation_id 仍须为目录操"
+                "作 ID。"
             ),
             risk="R2",
             fee="possible_model_charge",
@@ -743,6 +792,10 @@ OPERATIONS_SPEC = {
             description=(
                 "绑定当前探索结果追加一次有界生成；不扩大尺度、资料或联网范围，"
                 "同根按生成条目追加最多 5 次模型请求（含导演与审查）。"
+                "result_id 引用前序 start/detail/revise 完成结果的顶层 result_id；"
+                "本步骤完成同样返回顶层 result_id、root_id、branch_id、output_kind、pay"
+                "load。"
+                "参数 operation_id 是非空调用标记，Goal 实际执行 ID 由服务端生成 UUID5。"
             ),
             risk="R2",
             fee="possible_model_charge",
@@ -768,6 +821,10 @@ OPERATIONS_SPEC = {
                 "按条目路径选择父结果中的一个条目（含多目标、空间与排演）"
                 "重生成，item_text 与父内容比对防漂移；其余内容服务端原样保留，"
                 "新结果行指向父行。"
+                "result_id 引用前序 start/detail/revise 完成结果的顶层 result_id；"
+                "本步骤完成同样返回顶层 result_id、root_id、branch_id、output_kind、pay"
+                "load。"
+                "参数 operation_id 是非空调用标记，Goal 实际执行 ID 由服务端生成 UUID5。"
             ),
             risk="R2",
             fee="possible_model_charge",

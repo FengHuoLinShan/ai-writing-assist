@@ -609,7 +609,7 @@ C6_EXPLORATION_SNAPSHOT = {
         "发起独立探索任务",
         "confirm",
         "1",
-        "f2d02707adcf91ab839ffbda6647f992ec8c667519631dc7e8ca4c9bccacbda7",
+        "f7a1a2cb9e91182ec334d6ed489fcabc0b17d3f0af4ebc0b02344757e785584f",
     ),
 }
 C0_DOSSIER_INTERCHANGE_OPERATIONS = {

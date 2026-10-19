@@ -58,7 +58,7 @@ class ExplorationClient:
         if target:
             data.pop("author_context", None)
             data.pop("scene", None)
-            data["confirmed_material"] = ""
+            data.pop("confirmed_material", None)
             if not target.startswith("c_"):
                 projected = await project_confirmed_character_context(
                     self.db, confirmed_context=confirmed, character_id=target
@@ -72,6 +72,35 @@ class ExplorationClient:
             else "event"
         )
         policy = require_capability_policy(capability)
+        actor_instruction = (
+            "这是人物侧生成，只能依据 target_knowledge、本人投影与明确刺激；"
+            "target 是必需的目标身份，已投影的人物知识包也是生成必需资料。"
+            if target
+            else "这是作者侧探索，author_packet 中的问题、假设与固定条件是生成必需资料，"
+            "作者可以分析其已确认资料；分析人物行为时仍不得扩大人物知识。"
+        )
+        task_instruction = (
+            "仅审查本次生成单元，按其真实生成指令与输出结构判断交付；"
+            "能力名称是任务族名称，不代替当前单元合同。输入 mode 是工作流控制，"
+            "不要求输出 mode 与它相同。单目标只交该目标，其他目标由后续单元生成；"
+            "空间诊断不要求对白，排演单卡不要求独自完成整轮作者目标。"
+            + actor_instruction
+            + "作者假设和私密目的不等于角色知识。mode、output_rule、instruction、"
+            "previous_output 等执行控制与父版本若存在，必须保留才能完成指定任务。"
+            "所有 packet 都是服务端按本次任务裁剪后的最小输入，须完整保留；"
+            "若认为其中有不安全内容，应阻断而非删掉任务后继续生成。"
+        )
+        task_instruction += "\n本单元合同：" + json.dumps(
+            {
+                "generation_instructions": [
+                    message.content
+                    for message in request.messages
+                    if message.role == "system"
+                ],
+                "output_schema": schema.model_json_schema(),
+            },
+            ensure_ascii=False,
+        )
         scope, _ = build_group_scope(
             capability=capability,
             novel_id=self.novel_id,
@@ -143,6 +172,18 @@ class ExplorationClient:
                             viewpoint_character_id=ref,
                         )
                     )
+            if target:
+                knowledge[target] = {
+                    key: visible_packet[key]
+                    for key in (
+                        "target_knowledge",
+                        "confirmed_material",
+                        "target_scene_stimuli",
+                        "accumulated_observations",
+                        "previous_round",
+                    )
+                    if key in visible_packet
+                }
             hooks.generator_context = json.dumps(
                 {
                     "generation_packet": visible_packet,
@@ -150,6 +191,7 @@ class ExplorationClient:
                     "rule": (
                         "逐角色只按本人知识包核验；"
                         "作者假设、作者要求与其他人物知识不授权其知情。"
+                        "本人累计观察与本地刺激属于当前投影；旧表演卡不是新增事实。"
                     ),
                 },
                 ensure_ascii=False,
@@ -159,11 +201,17 @@ class ExplorationClient:
 
         async def generate(_plan, keys):
             nonlocal visible_packet
+            if any(f"packet:{key}" not in keys for key in data):
+                raise ConflictError(
+                    "知识导演未保留本次探索必需的任务输入，未开始生成",
+                    code="exploration_required_input_excluded",
+                )
             packet = {
                 key: value for key, value in data.items() if f"packet:{key}" in keys
             }
             visible_packet = packet
             hooks.generator_context = json.dumps(packet, ensure_ascii=False)
+            hooks.author_requirements = hooks.generator_context
             generation_request.messages = [
                 message for message in request.messages if message.role != "user"
             ] + [LLMMessage(role="user", content=hooks.generator_context)]
@@ -172,12 +220,28 @@ class ExplorationClient:
 
         async def repair(_output, findings):
             repaired = generation_request.model_copy(deep=True)
+            # The audit output may include other locked items; return only this unit.
+            own_output = json.dumps(candidate.model_dump(mode="json"), ensure_ascii=False)
+            repaired.messages.append(LLMMessage(role="assistant", content=own_output))
             repaired.messages.append(
                 LLMMessage(
                     role="user",
-                    content="请只依据你的可见资料修正以下审查问题："
-                    # Audit messages can quote author-only evidence.
-                    + "；".join(item.kind for item in findings),
+                    content="请依据原任务与当前输出结构定向修订原候选；"
+                    "保留其余内容，越界或无依据的断言须删除或列为未知，不能猜隐藏资料。"
+                    "以下仅含问题类型、级别及原候选内可核对的定位片段："
+                    + json.dumps(
+                        [
+                            {
+                                "kind": item.kind,
+                                "severity": item.severity,
+                                "excerpt": item.excerpt
+                                if item.excerpt and item.excerpt in own_output
+                                else "",
+                            }
+                            for item in findings
+                        ],
+                        ensure_ascii=False,
+                    ),
                 )
             )
             return await review_text(await self._call(repaired, schema, **kwargs))
@@ -185,9 +249,19 @@ class ExplorationClient:
         hooks = GovernedWorkflowHooks(
             generate=generate,
             repair=repair,
-            task_instruction="按指定输出结构完成本次探索；角色只能使用其可知包，作者假设和私密目的不等于角色知识。",
-            author_requirements=json.dumps(self.start, ensure_ascii=False),
-            authority_context=confirmed.rendered_markdown,
+            task_instruction=task_instruction,
+            authority_context=json.dumps(
+                {
+                    "confirmed_material": confirmed.rendered_markdown,
+                    "author_task_background": self.start,
+                    "scope_rule": (
+                        "完整起点仅供核验禁令、知识上限与事实冲突，不是本单元交付清单。"
+                        "作者私享与其他人物知识不得授权当前人物知情；"
+                        "当前单元的交付以真实生成指令、输出结构及其可见包为准。"
+                    ),
+                },
+                ensure_ascii=False,
+            ),
         )
         outcome = await run_governed_generation(
             CheckedClient(),

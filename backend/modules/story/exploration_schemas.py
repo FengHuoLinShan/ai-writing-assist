@@ -55,6 +55,12 @@ FULL_REHEARSAL_OUTPUT_KIND = "story.exploration.full_rehearsal"
 MULTI_TARGETS_MIN = 2
 MULTI_TARGETS_MAX = 4
 TARGET_REF_MAX_LENGTH = 64
+SCENE_TARGET_REF_DESCRIPTION = (
+    "scene_line 单目标对白的目标人物。临时起点有多个候选时必须显式选择；"
+    "仅一个候选，或无候选且仅一个正式角色时可省略并自动确定。"
+    "scene_anchor 起点必须填写正式角色 entity_id。"
+    "target_ref 与 multi_targets、diagnostic、full_rehearsal 互斥；其他尺度不得填写。"
+)
 
 # 临时起点完整排演（M3-B）：显式展开的多轮排演，目标 1..6 个、轮次 1..3 轮。
 FULL_REHEARSAL_TARGETS_MIN = 1
@@ -216,11 +222,12 @@ class GoalPathStep(ExplorationModel):
 
 
 class GoalPath(ExplorationModel):
-    """事件导向路径（M2）：指定结果的最小行动链；缺条件走 unsolvable，
-    不编造巧合或性格突变。"""
+    """事件导向路径（M2）：指定结果的最小行动链。可由获允许且有依据的
+    行动建立的前提列入步骤条件，不当作已发生；关键条件无支持的建立路径或
+    违反固定约束才走 unsolvable，允许无解时步骤为空，不编造巧合或性格突变。"""
 
     goal: str = Field(min_length=1, max_length=1000)
-    steps: list[GoalPathStep] = Field(min_length=1, max_length=8)
+    steps: list[GoalPathStep] = Field(max_length=8)
     rule_constraints: list[str] = Field(default_factory=list, max_length=10)
     unsolvable: EventUnsolvable | None = None
 
@@ -229,6 +236,12 @@ class GoalPath(ExplorationModel):
     def validate_rule_constraints(cls, values: list[str]) -> list[str]:
         _check_text_list("goal_path.rule_constraints", values, max_length=500)
         return values
+
+    @model_validator(mode="after")
+    def validate_success_has_steps(self):
+        if not self.steps and self.unsolvable is None:
+            raise ValueError("导向路径无解时必须说明 unsolvable；成功路径至少一个环节")
+        return self
 
 
 class EventOutputV1(ExplorationModel):
@@ -274,6 +287,35 @@ class EventOutputV1(ExplorationModel):
             if self.bridge_candidates:
                 raise ValueError("goal 模式不得给出补桥候选")
         return self
+
+
+class GeneratedEventOutputV1(EventOutputV1):
+    """仅模型生成使用的解析 schema；持久结果继续按 EventOutputV1 原样读取。"""
+
+    @model_validator(mode="before")
+    @classmethod
+    def normalize_goal_unsolvable(cls, data: Any) -> Any:
+        if (
+            not isinstance(data, dict)
+            or data.get("mode") != "goal"
+            or data.get("unsolvable") is None
+        ):
+            return data
+        goal_path = data.get("goal_path")
+        if isinstance(goal_path, GoalPath):
+            goal_path = goal_path.model_dump()
+        if not isinstance(goal_path, dict):
+            return data
+        conclusion = EventUnsolvable.model_validate(data["unsolvable"])
+        nested = goal_path.get("unsolvable")
+        if nested is not None and EventUnsolvable.model_validate(nested) != conclusion:
+            raise ValueError("顶层与导向路径的无解结论不一致")
+        # 仅新模型输出归一化；历史 payload 的位置与来源指纹保持原样。
+        return {
+            **data,
+            "goal_path": {**goal_path, "unsolvable": conclusion},
+            "unsolvable": None,
+        }
 
 
 class SpatialAssessment(ExplorationModel):
@@ -1017,6 +1059,7 @@ __all__ = [
     "AuthorEditPayloadV1",
     "BridgePath",
     "EventOutputV1",
+    "GeneratedEventOutputV1",
     "EventUnsolvable",
     "ExplorationAction",
     "ExplorationBudgetPreview",
@@ -1262,7 +1305,12 @@ class ExplorationStartOperationRequest(BaseModel):
     budget_preview_hash: str = Field(pattern="^[a-f0-9]{64}$")
     operation_id: str = Field(min_length=1, max_length=64)
     time_budget_seconds: int = Field(default=3600, ge=1, le=6 * 3600)
-    target_ref: str | None = Field(default=None, min_length=1, max_length=64)
+    target_ref: str | None = Field(
+        default=None,
+        min_length=1,
+        max_length=64,
+        description=SCENE_TARGET_REF_DESCRIPTION,
+    )
     event_mode_hint: EVENT_HINT_LITERAL | None = None
     multi_targets: list[str] | None = Field(
         default=None,

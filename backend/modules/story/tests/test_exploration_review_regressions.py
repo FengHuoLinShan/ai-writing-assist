@@ -180,7 +180,7 @@ async def test_character_provider_never_receives_author_question_or_assumptions(
     assert task.status == "done", task.error_message
     packet = json.loads(flow.provider.generation_requests[0].messages[1].content)
     assert packet["target_knowledge"]["knows"] == ["自己每天三点起床"]
-    assert packet["confirmed_material"] == ""
+    assert "confirmed_material" not in packet
     text = json.dumps(packet, ensure_ascii=False)
     assert "密令在钟楼" not in text and "掌柜实际是密探" not in text
     assert "每天只有一小时重力减半" not in text

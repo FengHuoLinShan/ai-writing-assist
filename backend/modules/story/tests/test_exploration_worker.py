@@ -1039,6 +1039,9 @@ async def test_goal_hint_injects_goal_prompt_and_persists_goal_path(exploration_
     assert "导向路径" in system
     assert "行动—响应—后果" in system
     assert "不编造巧合" in system
+    assert "主动询问、公开寻找、交流或协商" in system
+    assert "对应获取信息的步骤成立后" in system
+    assert "没有可支持且获允许的建立路径" in system
     assert "事件补桥器" not in system  # 基础补桥 prompt 被变体替换
     _step, envelope_row, _root = await _load_event_step(flow, spec)
     assert envelope_row.payload.mode == "goal"
