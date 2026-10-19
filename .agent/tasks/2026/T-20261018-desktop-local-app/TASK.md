@@ -10,7 +10,7 @@ updated: 2026-10-19T01:42:20+08:00
 
 ## 恢复快照
 
-- 工作区：/Users/tywww/.codex/worktrees/desktop-local-app/ai-writing-assist；本地分支codex/desktop-local-app，HEAD511e9e1a47285fcb5558e23cecbf23e90561074e。仅本任务笔记未提交，未覆盖原项目工作区。
+- 工作区：/Users/tywww/.codex/worktrees/desktop-local-app/ai-writing-assist；整理任务已将收口笔记提交，并从最新main建立codex/desktop-release-acceptance，保留本树用于后续发行验收。原实现固定head为511e9e1a47285fcb5558e23cecbf23e90561074e；后续实际版本以Git为准。
 - 本轮用户明确授权审查、修复并在无阻断后合并main。按code-review双轴+ponytail-review完成完整diff与关联调用链审查；两个只读审查者复核修复后无阻断。
 - 修复4c7cccb14+511e9e1a4：真实Mac包因COLLECT继承console runtime而错设LSBackgroundOnly=True，现显式False，Mac两架构smoke从实际冻结包Info.plist验证；源码desktop roles原会补读backend/.env，现共用load_env_file在监督器token存在时跳过，普通模式保持。合成dotenv回归在旧代码失败、新代码通过；未读取真实.env内容/调用业务模型。
 - 本地相关226 passed/2 Windows-only skipped，源码完整smoke通过，backend工作目录完整Ruff及desktop Ruff通过。4c最初backend CI仅import分组失败（root运行ruff判断不同），511修复并重验；没有削弱门禁。docs inventory、BASE_REF支持的no-change-reason复核及diff检查通过。
