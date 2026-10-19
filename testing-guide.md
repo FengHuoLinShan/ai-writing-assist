@@ -121,7 +121,7 @@ Evidence indexing/compilation 回归集中在 `backend/modules/evidence/`；
 | `uv --directory backend run pytest -q evals/tests/test_rp_context.py` | RP source context 对照账本与盲评汇总契约；只保存 corpus/scenario hash、SourceRangeRef 和 rubric | None；该测试不调用模型，也不代表用户验证或实际减少出戏 |
 | `make docs-check` | Architecture registry, modules, ORM tables, API prefixes, AST-discovered `*tasks.py` handlers (including string constants), routes, Prompt/ADR inventory, links and Draw.io structure | Python 3.12 standard library only |
 | `make docs-check BASE_REF=origin/main` | Full inventory plus current-branch document-impact coverage | Local `origin/main` ref |
-| `make test-ci TEST_WORKERS=2` | Cross-stack local quality gate: docs, secrets, dependency audits, Ruff, deploy contracts, backend coverage/RuntimeWarning, and frontend Vitest | Locked backend/frontend dependencies; excludes PostgreSQL, browser, image, and paid/manual suites |
+| `make test-ci TEST_WORKERS=2` | Cross-stack local quality gate: docs, secrets, dependency audits, Ruff, deploy contracts, backend coverage/RuntimeWarning, desktop boundary tests, and frontend Vitest | Locked backend/frontend dependencies; excludes PostgreSQL, browser, image, and paid/manual suites |
 | `make test-deploy` | Deployment static/CLI contract tests in `deploy/tests`, including committed Alembic graph and pre-checkout migration compatibility cases | Self-contained: `uv` resolves Python 3.14.8 from `backend/.python-version`, locked `backend/uv.lock` `ci` dependencies, and backend pytest config; no external service |
 | `make test-production-images` | Build the pinned backend/frontend production images; verify backend non-root/no-uv/no-pip/import and frontend nginx/assets | Docker daemon plus image registry access; intentionally outside `make test-ci` |
 | `make test-object-restore-drill-real` | Restore DB-paired synthetic images into two isolated private buckets; verify hashes, decoding, metadata, permissions, missing/interrupted controls and measured RPO/RTO | Docker daemon and cached pinned PG/MinIO/mc plus locked backend runtime image; no production data or network; outside `make test-ci` |
@@ -235,11 +235,15 @@ or silently fall back to the developer database.
 
 ### Continuous integration
 
-GitHub Actions 在 pull request 与 `main` push 上并行运行三个职责清晰的主工作流：
+GitHub Actions 在 pull request 与 `main` push 上并行运行两个应用源码主工作流：
 `Backend CI` 包含 `Backend quality` 与 `PostgreSQL critical`，`Frontend CI` 包含
 `Frontend unit quality` 与 `Frontend functional browser`（浏览器执行由前置
 `Browser change classification` job 与分片 matrix 完成，聚合到该必需检查名），
-`Production Image CI` 包含 `Production image contract`。
+`Backend quality` 通过 `make lint` 同时检查 backend/desktop，并复用 `make desktop-test`；
+后者仅安装 ci 依赖，不编译数据库、不冻结程序，也不构建安装包。
+`Production Image CI` 的镜像 job 仅在手动触发时执行完整镜像/SBOM/漏洞门禁，
+PR/main 显式跳过该 job，不分配 runner；保留现有保护规则所需的检查名，不代表执行了镜像测试。
+桌面发布不依赖镜像结果。安装包 workflow 仅手动运行，默认 ARM64。
 仓库治理门由独立的 `repo-gates` 工作流始终运行：二进制增长门（B11）、生产文件
 大小门（P8）、发布证据门（B6，校验 `docs/evidence/` 账本与 main 可达性）以及
 跨模块导入门（B2，`scripts/check_module_imports.py`）。
@@ -253,10 +257,10 @@ PR 多类变更取并集：
 | 后端 tests 目录中的 test_*.py | 后端；tests/e2e 另加 PostgreSQL critical |
 | 前端 tests 中的 JS/Vue | 前端 |
 | 历史截图 PNG | 仅始终执行的检查；不比较像素、不要求重建 |
-| 其他后端目录（包括共享 fixture/support） | 后端、PostgreSQL critical、浏览器冒烟、生产镜像 |
-| 前端目录（除 Dockerfile） | 前端单测、完整功能浏览器回归、生产镜像（含构建）；CSS、主题、组件、入口、依赖及测试变更均覆盖全站用户任务 |
-| 两个 Dockerfile 或 deploy 目录 | 后端及部署合同、生产镜像及恢复演练 |
-| Markdown 文档 | 仅始终执行的检查；根 README.md 额外运行镜像 |
+| 其他后端目录（包括共享 fixture/support） | 后端、PostgreSQL critical、浏览器冒烟 |
+| 前端目录（除 Dockerfile） | 前端单测、完整功能浏览器回归；CSS、主题、组件、入口、依赖及测试变更均覆盖全站用户任务 |
+| 两个 Dockerfile 或 deploy 目录 | 后端及部署合同；镜像及恢复演练另行手动 |
+| Markdown 文档 | 仅始终执行的检查 |
 | CI、脚本、Makefile、其他未知路径 | 全部，浏览器使用完整功能套件 |
 
 Markdown 规则优先于目录规则。文档门禁、secret hygiene 和 CodeQL 始终执行。
@@ -741,11 +745,12 @@ quota，root 检查后只启动同一 operation id，并用精确 Scene task `ru
 ## 本地桌面分发验收
 
 发布前还需 desktop/tests 的版本、main 来源、CI 状态、混合/损坏产物与稳定版签名门禁回归。
-三平台来自同一固定 SHA；汇总 release.json、SHA256SUMS、安装说明和本版说明，
-缺任一平台或摘要不符即停止。Release 草稿不会自动公开，人工验收与签名证据按
+PR/main 仅自动运行轻量 desktop/tests，不构建安装包；旧服务器镜像也仅手动运行。
+发布默认仅 ARM64，Intel/Windows/all 须当次明确选择。所选平台来自同一固定 SHA；
+汇总 release.json、SHA256SUMS、安装说明和本版说明，缺少选定平台、混入未选平台或摘要不符即停止。Release 草稿不会自动公开，人工验收与签名证据按
 [桌面发布流程](desktop/RELEASE.md) 记录；不得用源码测试代替安装包验收。
 
-使用 desktop extra 在各目标系统运行 desktop/tests，验证 loopback Host/Origin/会话边界和
+使用 desktop extra 在本次明确选择的目标系统运行 desktop/tests，验证 loopback Host/Origin/会话边界和
 真实跨进程文件锁。desktop/smoke.py --frozen 必须在打包完成后串行执行，使用专用临时目录
 验证真实本地 ONNX 推理、初次建库、创建作品、重复启动保护、退出及重开持久化。
 不调用业务模型、不读取真实稿件，失败保留隔离证据。macOS ARM64 通过不代表 Windows/Intel 通过；

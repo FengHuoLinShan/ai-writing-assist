@@ -95,4 +95,4 @@ ADR-0033 的 2026-10-14 已授权修订登记独立模型池、Luna 500k 完整�
 
 2026-10-18：[ADR-0038](0038-ai-operation-catalog-goal-runs-and-trace.md) 增补任务级批准判断契约：独立授权及 low 用途，不升级旧 auto_r2；实现与校准状态见对应作者工作台任务。
 
-- [ADR-0043 — 完整本地桌面分发](0043-local-desktop-distribution.md)
+- [ADR-0043 — 完整本地桌面分发](0043-local-desktop-distribution.md)：默认桌面开发；手动 ARM64 发布，其他平台显式选择

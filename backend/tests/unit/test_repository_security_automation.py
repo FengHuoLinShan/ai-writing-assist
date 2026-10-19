@@ -27,7 +27,6 @@ SPLIT_WORKFLOW_CONTRACTS = {
         "frontend-unit-quality",
         "frontend-functional-browser",
     },
-    PRODUCTION_IMAGE_CI_WORKFLOW: {"production-image-contract"},
 }
 
 AUTOMATION_WORKFLOWS = tuple(
@@ -473,6 +472,12 @@ def test_production_image_contract_emits_sboms_before_vulnerability_gates() -> N
     assert isinstance(jobs, dict)
     job = jobs["production-image-contract"]
     assert isinstance(job, dict)
+    assert workflow["on"] == {
+        "workflow_dispatch": "",
+        "pull_request": "",
+        "push": {"branches": ["main"]},
+    }
+    assert job["if"] == "github.event_name == 'workflow_dispatch'"
     assert job["name"] == "Production image contract"
     assert job["runs-on"] == "ubuntu-24.04"
     assert job["timeout-minutes"] == "40"
@@ -489,7 +494,6 @@ def test_production_image_contract_emits_sboms_before_vulnerability_gates() -> N
     ordered_names = [step["name"] for step in steps if isinstance(step, dict)]
     assert ordered_names == [
         "Check out repository",
-        "Classify CI changes",
         "Build and smoke-test production images",
         "Create container SBOM artifact directory",
         "Generate backend image CycloneDX SBOM",
@@ -647,7 +651,6 @@ def test_ci_selection_keeps_required_jobs_and_fails_closed() -> None:
         "backend-quality": "backend",
         "postgresql-critical": "postgresql",
         "frontend-unit-quality": "frontend",
-        "production-image-contract": "images",
     }
     for path in SPLIT_WORKFLOW_CONTRACTS:
         workflow_jobs = _load_yaml(path)["jobs"]

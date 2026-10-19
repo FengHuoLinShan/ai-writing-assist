@@ -2,7 +2,9 @@
 set -euo pipefail
 
 ROOT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
-PYTHON_BIN="${PYTHON:-python}"
+export PYTHONUTF8=1
 
-echo "start.sh is a compatibility entrypoint; starting the managed dev stack." >&2
-exec "$PYTHON_BIN" "$ROOT_DIR/scripts/dev_stack.py" start
+if [[ -n "${PYTHON:-}" ]]; then
+  exec "$PYTHON" "$ROOT_DIR/desktop/dev.py"
+fi
+exec make -C "$ROOT_DIR" dev

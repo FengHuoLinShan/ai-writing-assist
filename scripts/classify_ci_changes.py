@@ -8,15 +8,13 @@ import re
 import subprocess
 from pathlib import Path
 
-GATES = frozenset({"backend", "postgresql", "frontend", "browser", "images"})
+GATES = frozenset({"backend", "postgresql", "frontend", "browser"})
 
 
 def classify(paths: list[str]) -> set[str]:
     selected: set[str] = set()
     for path in paths:
-        if path == "README.md":
-            selected.add("images")
-        elif path.endswith(".md"):
+        if path.endswith(".md"):
             continue
         elif path.startswith("frontend-console/e2e/") and re.search(
             r"\.spec\.js-snapshots/[^/]+\.png$", path
@@ -38,11 +36,11 @@ def classify(paths: list[str]) -> set[str]:
             "backend/Dockerfile",
             "frontend-console/Dockerfile",
         } or path.startswith("deploy/"):
-            selected.update({"backend", "images"})
+            selected.add("backend")
         elif path.startswith("backend/"):
-            selected.update({"backend", "postgresql", "browser", "images"})
+            selected.update({"backend", "postgresql", "browser"})
         elif path.startswith("frontend-console/"):
-            selected.update({"frontend", "browser", "images"})
+            selected.update({"frontend", "browser"})
         else:
             selected.update(GATES)
     return selected

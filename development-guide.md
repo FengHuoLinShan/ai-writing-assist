@@ -2,14 +2,14 @@
 
 ## Project Overview
 
-AI 长篇小说结构化创作引擎 (AI Novel Structural Engine) v2.0 — a structured creation system for Chinese long-form novels. Backend: Python FastAPI + async SQLAlchemy + PostgreSQL 17 + pgvector + pg_trgm. Frontend: Vue 3 SFC console with the existing hash router retained as a narrow route-host seam (ADR-0009).
+AI 长篇小说结构化创作引擎 (AI Novel Structural Engine) v2.0 — a structured creation system for Chinese long-form novels. Backend: Python FastAPI + async SQLAlchemy + PostgreSQL 17 + pgvector + pg_trgm. Frontend: Vue 3 SFC console with the existing hash router retained as a narrow route-host seam (ADR-0009). 默认开发与交付为本地桌面应用（ADR-0043），FastAPI/Vue 是应用内部边界。
 
 ## Agent instruction sources
 
-本地实际运行 BGE 检索须安装运行 extra；CI 精简环境不能代替可体验的应用环境。
-隔离演示可用 `UV_PROJECT_ENVIRONMENT=<独立目录> uv --directory backend sync --locked --extra dev`
-安装独立运行环境；不要对正在运行的共享虚拟环境执行会卸载运行依赖的 CI 同步。
-应用与 worker 应从同一代码版本启动，显式核对 `DATABASE_URL`，并先备份真实演示库。
+默认用 `make desktop-prepare` 准备独立的 `desktop/build/venv` 环境和锁定的原生资源，
+再用 `make dev` 运行桌面源码。数据库、worker、图片和离线检索复用桌面运行时，
+不依赖分离服务或 Docker；仅在显式诊断/浏览器测试时使用旧服务入口和专用库。
+不要对正在运行的共享虚拟环境执行会卸载运行依赖的同步。
 
 `AGENTS.md` is the only shared coding-agent contract. Read the repository root file and the nearest
 directory-local `AGENTS.md`, then the target module README. `CLAUDE.md` files only import the adjacent
@@ -84,18 +84,24 @@ RPM 是每模型的进程内 token bucket，默认关闭；正 RPM 部署仍按 
 
 ## Commands
 
-### One-command dev start
+### Desktop development (default)
 
 ```bash
-make dev                         # Kill old → PostgreSQL/MinIO → Alembic head guard → backend/worker/Vite
-make kill                        # Stop app services, PostgreSQL, and MinIO
-make kill-apps                   # Stop backend, worker, frontend; keep PostgreSQL and MinIO running
+make desktop-prepare             # Once: pinned native resources, isolated venv and frontend dependencies
+make dev                         # Rebuild UI → native window; no freezing/installer build
+make desktop-test                # CI-only dependencies; no native resources or installer build
+make desktop-build               # Explicit native bundle build; default macos-arm64
 make help                        # List all targets
 ```
 
-### Individual services
+### Explicit service diagnostics and browser-test tooling
 
 ```bash
+# Legacy split stack (not the default application)
+make dev-services
+make kill                        # Stop legacy services, PostgreSQL, MinIO
+make kill-apps                   # Stop legacy API/worker/Vite only; close desktop via its window
+
 # Backend
 cd backend
 pip install -e ".[dev]"          # Install dependencies
@@ -156,7 +162,7 @@ make docs-check                  # Current architecture inventory, AST task disc
 make docs-check BASE_REF=origin/main  # Plus current-branch architecture impact review
 make test-ci TEST_WORKERS=2     # One cross-stack quality gate; no PostgreSQL/browser/image suites
 make secret-hygiene              # Scan tracked/indexed files for credential regressions
-make lint                        # ruff check
+make lint                        # ruff check backend + desktop
 make lint-fix                    # ruff --fix
 make format                      # ruff format --check
 make format-fix                  # ruff format
@@ -273,7 +279,7 @@ the fixed-SHA release flow, rather than making a production root filesystem writ
 
 Backend reload watches `app/`, `core/`, `shared/`, `infrastructure/`, `modules/`,
 `prompts/`, and `alembic/`; worker reload watches the same schema-sensitive paths.
-`make dev` compares the database's current Alembic revision set with the migration
+The explicit legacy `make dev-services` compares the database's current Alembic revision set with the migration
 script heads after PostgreSQL becomes healthy, and refuses to start app processes
 when the local database is behind. If a new migration appears while the reload
 supervisors are already running, backend and worker children pause before importing
@@ -531,10 +537,12 @@ API 与 worker 使用相同 Compose runtime 环境。回退不降级表、不撤
 
 ## 本地桌面构建
 
-桌面安装包为主要交付物。版本、变更说明、固定 main SHA、签名及 Release 草稿操作见
-[桌面发布流程](desktop/RELEASE.md)；开发容器和服务器部署仍保留各自用途。
-
-完整本地分发复用生产前端构建，不使用 make dev 的容器和热更新进程。
-在独立 worktree 的虚拟环境安装 backend 的 desktop extra，再运行 desktop/build.py。
+桌面应用是后续默认开发与交付方向。`make dev` 使用正式前端构建与源码运行时，
+开发目录为当前工作树的 desktop/build/dev-data，不操作安装版作品或旧开发库。
+前端修改后关闭重开；打包仅用显式 `make desktop-build`，默认 Mac Apple Silicon，
+其他宿主须显式选择 DESKTOP_TARGET（不支持交叉编译）。
+版本、变更说明、固定 main SHA、签名及 Release 草稿操作见 [桌面发布流程](desktop/RELEASE.md)。
+PR/main 不自动构建安装包或旧服务器镜像，发布默认仅 ARM64，其余平台须显式选择。
+独立服务器部署退出产品方向，保留历史运维与显式诊断工具。
 目标 macOS/Windows 原生编译、资源锁定、构建与验收命令以 [桌面 README](desktop/README.md) 为准；
 不复用真实开发库，不读取或复制已有模型密钥、CLI 登录态或作品。

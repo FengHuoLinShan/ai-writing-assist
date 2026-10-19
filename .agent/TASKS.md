@@ -1,5 +1,7 @@
 # 开放任务
 
+- [T-20261019-desktop-default](tasks/2026/T-20261019-desktop-default/TASK.md) — 桌面应用默认开发与按需平台发布迁移
+
 - [T-20261018-author-workspaces-ai-redesign](tasks/2026/T-20261018-author-workspaces-ai-redesign/TASK.md) — 写作台、世界对象与 AI 协作统一改造
 
 - [T-20261018-desktop-local-app](tasks/2026/T-20261018-desktop-local-app/TASK.md) — macOS 与 Windows 完整本地桌面应用
