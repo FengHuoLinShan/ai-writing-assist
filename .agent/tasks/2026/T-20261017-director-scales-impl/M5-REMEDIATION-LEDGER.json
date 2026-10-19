@@ -1,0 +1,3271 @@
+{
+  "status": "completed",
+  "updated_at": "2026-10-19T06:35:22.216894+00:00",
+  "base_sha": "b4a42119a2c2a05552072669baaf99e31798d82c",
+  "waves": [
+    {
+      "wave": "r1",
+      "code_commit": "f3573945f61de832bb55fa5cb8b823c7e927727f",
+      "frozen_code_hash": "a91c15e0f03f7445f4fa18ac91d9bd2dd6ab71a38f11e8403a78794d9eb23ca7",
+      "manifest_sha256": "c994ba1fb40ddc1b1f07ba943eaecb1324f0b31a371be3f0fa7d89481c9e894f",
+      "selected_case_ids": [
+        "b2-bridge",
+        "m2-goal",
+        "m2-voices",
+        "m2-voices-private",
+        "m2-spatial-missing",
+        "m3-full-unknown",
+        "b1-sandbox",
+        "b2-diagnose-only",
+        "m2-goal-impossible",
+        "b3-line"
+      ],
+      "private_root": "/Users/tywww/.codex/private/director-scales-m5-remediation-20261019"
+    },
+    {
+      "wave": "r2",
+      "code_commit": "5583632f924f26dbbeb796df0adeacc75701e152",
+      "frozen_code_hash": "ca7ef4fc6be20e1307d43cd88b2d0a169293d6c84724df9c760524616cfeec62",
+      "manifest_sha256": "d90c527bd321b18b0f33e8556c8daee6d8ef415d044c42839e756fd316a9f0ab",
+      "selected_case_ids": [
+        "b2-bridge",
+        "m2-goal",
+        "m2-voices",
+        "m2-voices-private",
+        "m2-spatial-missing",
+        "m3-full-unknown",
+        "m2-goal-impossible"
+      ],
+      "private_root": "/Users/tywww/.codex/private/director-scales-m5-remediation-v2-20261019"
+    }
+  ],
+  "provider": "codex",
+  "model": "gpt-6-luna",
+  "effort": "max",
+  "human_validated": false,
+  "independent_teacher": "not_run",
+  "fee_limit": null,
+  "actual_currency_cost": null,
+  "summary": {
+    "requests": 91,
+    "observer_states": {
+      "settled": 89,
+      "unknown": 1,
+      "completed_invalid": 1
+    },
+    "native_completions": {
+      "settled": 89,
+      "completed_invalid": 2
+    },
+    "known_usage_receipts": 91,
+    "known_total_tokens": 1293168,
+    "median_native_seconds": 20.424778959015384,
+    "max_native_seconds": 97.34140487504192,
+    "reconciled_receipts": 1
+  },
+  "attempts": [
+    {
+      "wave": "r1",
+      "case": "b1-sandbox",
+      "status": "completed",
+      "checks": {
+        "chain": true
+      },
+      "seconds": 347.0322894169949,
+      "error_type": null,
+      "classification": null,
+      "task_status": "done",
+      "goal_status": null,
+      "goal_cleanup_status": null,
+      "private_case_sha256": "89f4d271b50791f388e1a21931f35c2ceb59d8c8b5889d67aecb1187d3f61b47"
+    },
+    {
+      "wave": "r1",
+      "case": "b2-bridge",
+      "status": "completed",
+      "checks": {
+        "bridge": true
+      },
+      "seconds": 375.87114945903886,
+      "error_type": null,
+      "classification": null,
+      "task_status": "done",
+      "goal_status": null,
+      "goal_cleanup_status": null,
+      "private_case_sha256": "4d9521b4d1868f9602c1229845540b7aec06206f5d2d58d088842cb881cded80"
+    },
+    {
+      "wave": "r1",
+      "case": "b2-diagnose-only",
+      "status": "completed",
+      "checks": {
+        "diagnose": true
+      },
+      "seconds": 645.8648043749854,
+      "error_type": null,
+      "classification": null,
+      "task_status": "done",
+      "goal_status": null,
+      "goal_cleanup_status": null,
+      "private_case_sha256": "b3a97b956edef268474aaf4aa1afa3197ac467c62a8171e87fa4a6407ae92b14"
+    },
+    {
+      "wave": "r1",
+      "case": "b3-line",
+      "status": "completed",
+      "checks": {
+        "line": true,
+        "no_private": true
+      },
+      "seconds": 364.51943466695957,
+      "error_type": null,
+      "classification": null,
+      "task_status": "done",
+      "goal_status": null,
+      "goal_cleanup_status": null,
+      "private_case_sha256": "f395065d10207eae82421d8830872c608c94b4dd02656c0e3b82df0da5675a7b"
+    },
+    {
+      "wave": "r1",
+      "case": "goal-cross",
+      "status": "completed",
+      "checks": {
+        "plan_completed": true,
+        "no_canonical_changes": true,
+        "no_automatic_approval": true,
+        "cross_layer_chosen": true
+      },
+      "seconds": 665.0528171249898,
+      "error_type": null,
+      "classification": null,
+      "task_status": null,
+      "goal_status": "completed",
+      "goal_cleanup_status": null,
+      "private_case_sha256": "c912c655b8565f9a8a15cd5f4f1e316ffff8ad205d6a57542cd6be191adb2924"
+    },
+    {
+      "wave": "r1",
+      "case": "goal-cross-feature-preflight",
+      "status": "failed",
+      "checks": null,
+      "seconds": 0.0884239999577403,
+      "error_type": "AssertionError",
+      "classification": "harness_preflight_feature_disabled_no_goal_created_no_model_call",
+      "task_status": null,
+      "goal_status": null,
+      "goal_cleanup_status": null,
+      "private_case_sha256": "d09b979c52e79ec2c47d59a0eb7c55c3b993db9e31dd9a8d06cf061ddc17a9de"
+    },
+    {
+      "wave": "r1",
+      "case": "goal-single",
+      "status": "failed",
+      "checks": null,
+      "seconds": 68.11027754098177,
+      "error_type": "AssertionError",
+      "classification": null,
+      "task_status": null,
+      "goal_status": "waiting_approval",
+      "goal_cleanup_status": "cancelled",
+      "private_case_sha256": "92f5648af6e9edb3d23243f60ce8cb244485a054a5431bbf81c7d905ff18e8de"
+    },
+    {
+      "wave": "r1",
+      "case": "goal-stop",
+      "status": "completed",
+      "checks": {
+        "cancelled_before_approval": true,
+        "no_domain_approval_sent": true,
+        "no_canonical_changes": true
+      },
+      "seconds": 126.44559870904777,
+      "error_type": null,
+      "classification": null,
+      "task_status": null,
+      "goal_status": "cancelled",
+      "goal_cleanup_status": null,
+      "private_case_sha256": "d9c9410e7555e5b8f9297ac8e92a6c04ff60fe4e8cf544d961984f739942c408"
+    },
+    {
+      "wave": "r1",
+      "case": "m2-goal",
+      "status": "completed",
+      "checks": {
+        "goal": false
+      },
+      "seconds": 266.25698558299337,
+      "error_type": null,
+      "classification": null,
+      "task_status": "done",
+      "goal_status": null,
+      "goal_cleanup_status": null,
+      "private_case_sha256": "f7298dc5e1c3317d0cd649d221ff4719ff0229413e4dfa2bdb612dada7563cf7"
+    },
+    {
+      "wave": "r1",
+      "case": "m2-goal-impossible",
+      "status": "completed",
+      "checks": {
+        "goal_unsolvable": true
+      },
+      "seconds": 224.64810466696508,
+      "error_type": null,
+      "classification": null,
+      "task_status": "done",
+      "goal_status": null,
+      "goal_cleanup_status": null,
+      "private_case_sha256": "f873545988cd8855e3722e107f341d3dda5a2b7145abdd81bd378d1a0ed9fcab"
+    },
+    {
+      "wave": "r1",
+      "case": "m2-spatial-missing",
+      "status": "completed",
+      "checks": {
+        "spatial_unknown": true
+      },
+      "seconds": 86.359816125012,
+      "error_type": null,
+      "classification": null,
+      "task_status": "done",
+      "goal_status": null,
+      "goal_cleanup_status": null,
+      "private_case_sha256": "bf31e72e7d014fa5e0ed06a65557f7bbea780a67fe4da3afc17ab86aa81bbe43"
+    },
+    {
+      "wave": "r1",
+      "case": "m2-voices",
+      "status": "completed",
+      "checks": {
+        "variants": true
+      },
+      "seconds": 324.9070713330293,
+      "error_type": null,
+      "classification": null,
+      "task_status": "done",
+      "goal_status": null,
+      "goal_cleanup_status": null,
+      "private_case_sha256": "c92a49ac5c3dae214c52a8d6999d4bcf02d8234568ca29deec04748bec3da634"
+    },
+    {
+      "wave": "r1",
+      "case": "m2-voices-private",
+      "status": "product_failed_",
+      "checks": null,
+      "seconds": 147.00410008395556,
+      "error_type": null,
+      "classification": "required_input_excluded",
+      "task_status": "failed",
+      "goal_status": null,
+      "goal_cleanup_status": null,
+      "private_case_sha256": "6b0807e6c238c5e39969cbfee79a0d062e10480f470b739b5ce50ab0dd2fcfda"
+    },
+    {
+      "wave": "r1",
+      "case": "m3-full-unknown",
+      "status": "completed",
+      "checks": {
+        "full": true
+      },
+      "seconds": 192.3841765000252,
+      "error_type": null,
+      "classification": null,
+      "task_status": "done",
+      "goal_status": null,
+      "goal_cleanup_status": null,
+      "private_case_sha256": "377c1c3802041ec737446c03a1b118d67ce4a4ff46b3e3255b89b2456f6e9587"
+    },
+    {
+      "wave": "r2",
+      "case": "b2-bridge",
+      "status": "completed",
+      "checks": {
+        "bridge": true
+      },
+      "seconds": 92.4045580419479,
+      "error_type": null,
+      "classification": null,
+      "task_status": "done",
+      "goal_status": null,
+      "goal_cleanup_status": null,
+      "private_case_sha256": "292fa726bfd38fe8a1313729939d0aa7d1d67df96a0d02a142bb465b3b9c4625"
+    },
+    {
+      "wave": "r2",
+      "case": "goal-cross",
+      "status": "failed",
+      "checks": null,
+      "seconds": 97.72609024995472,
+      "error_type": "AssertionError",
+      "classification": null,
+      "task_status": null,
+      "goal_status": "waiting_approval",
+      "goal_cleanup_status": "cancelled",
+      "private_case_sha256": "9a12764d041ec54f79673ee74d9785e94602c3416318ce8ddbd3a01540f35267"
+    },
+    {
+      "wave": "r2",
+      "case": "m2-goal",
+      "status": "completed",
+      "checks": {
+        "goal": true
+      },
+      "seconds": 174.12222283298615,
+      "error_type": null,
+      "classification": null,
+      "task_status": "done",
+      "goal_status": null,
+      "goal_cleanup_status": null,
+      "private_case_sha256": "d856a10e7808d301f1f22fd5559dcead6d0d12c79ca2765a88a198e1353e2482"
+    },
+    {
+      "wave": "r2",
+      "case": "m2-goal-impossible",
+      "status": "completed",
+      "checks": {
+        "goal_unsolvable": true
+      },
+      "seconds": 71.84624608291779,
+      "error_type": null,
+      "classification": null,
+      "task_status": "done",
+      "goal_status": null,
+      "goal_cleanup_status": null,
+      "private_case_sha256": "f2acf9f3327ceb9e6036248c433887bbb827e6e54595c7c006dfea2bb95f07e5"
+    },
+    {
+      "wave": "r2",
+      "case": "m2-spatial-missing",
+      "status": "completed",
+      "checks": {
+        "spatial_unknown": true
+      },
+      "seconds": 97.06671429204289,
+      "error_type": null,
+      "classification": null,
+      "task_status": "done",
+      "goal_status": null,
+      "goal_cleanup_status": null,
+      "private_case_sha256": "b035e406d731d7f9aa370cf912b56b177388e5b07baa8423be0048f7be3c4bdd"
+    },
+    {
+      "wave": "r2",
+      "case": "m2-voices",
+      "status": "completed",
+      "checks": {
+        "variants": true
+      },
+      "seconds": 211.65365662495606,
+      "error_type": null,
+      "classification": null,
+      "task_status": "done",
+      "goal_status": null,
+      "goal_cleanup_status": null,
+      "private_case_sha256": "0c2003be42e774346537237fdf8a9371f87137d651163a0f6f00532e0fdb076c"
+    },
+    {
+      "wave": "r2",
+      "case": "m2-voices-private",
+      "status": "completed",
+      "checks": {
+        "variants": true
+      },
+      "seconds": 234.91122891602572,
+      "error_type": null,
+      "classification": null,
+      "task_status": "done",
+      "goal_status": null,
+      "goal_cleanup_status": null,
+      "private_case_sha256": "0b180daa78b4591557b6f30645586a5ed9eeb5a54b304ecab6e61cf30d3dfc96"
+    },
+    {
+      "wave": "r2",
+      "case": "m3-full-unknown",
+      "status": "completed",
+      "checks": {
+        "full": true
+      },
+      "seconds": 253.20945154188666,
+      "error_type": null,
+      "classification": null,
+      "task_status": "done",
+      "goal_status": null,
+      "goal_cleanup_status": null,
+      "private_case_sha256": "39dd9b155400bc9e69f9e9c2cc5a54faa137c11693b6b7b81d720bc735133fc8"
+    }
+  ],
+  "requests": [
+    {
+      "wave": "r1",
+      "id": "a27577fa-5cc1-4fed-89e9-42ba986ccd3f",
+      "case": "b1-sandbox",
+      "request_hash": "8a5b0be6c52487d6a30c437825b2f2ab68cbc2cd2048823c868ce945cc09d8d6",
+      "provider": "codex",
+      "model": "gpt-6-luna",
+      "effort": "max",
+      "started_at": "2026-10-19T06:04:17.429304+00:00",
+      "finished_at": "2026-10-19T06:04:31.195789+00:00",
+      "seconds": 13.76442120806314,
+      "error_type": null,
+      "observer_status": "settled",
+      "completion": "settled",
+      "response_provider": "codex",
+      "response_model": "gpt-6-luna",
+      "usage": {
+        "prompt_tokens": 10871,
+        "completion_tokens": 402,
+        "total_tokens": 11273
+      },
+      "private_receipt_sha256": "1bfca29d63d5d43e7135b4a3a4d7a5028dc41d54aad911a129e5702510e66d08"
+    },
+    {
+      "wave": "r1",
+      "id": "7a589494-112d-4e60-b81c-62cae9033fc7",
+      "case": "b3-line",
+      "request_hash": "ea07fb37844d103b179bba0530c57c322a5ec1afb1fdde865fb6ac22906aa2ef",
+      "provider": "codex",
+      "model": "gpt-6-luna",
+      "effort": "max",
+      "started_at": "2026-10-19T06:05:10.218817+00:00",
+      "finished_at": "2026-10-19T06:05:37.196189+00:00",
+      "seconds": 26.976625166018493,
+      "error_type": null,
+      "observer_status": "settled",
+      "completion": "settled",
+      "response_provider": "codex",
+      "response_model": "gpt-6-luna",
+      "usage": {
+        "prompt_tokens": 11023,
+        "completion_tokens": 1600,
+        "total_tokens": 12623
+      },
+      "private_receipt_sha256": "2a2af05fd782e8c54a99f7061189eb4bfb585e6e12ec3056fca31f8eaa9cac8a"
+    },
+    {
+      "wave": "r1",
+      "id": "217043f1-9b13-4092-b5c8-3fc4a973d0c5",
+      "case": "b1-sandbox",
+      "request_hash": "4647b03eb768c87a33620280917186d11df0a3d64bba715f2d78e88c9a970514",
+      "provider": "codex",
+      "model": "gpt-6-luna",
+      "effort": "max",
+      "started_at": "2026-10-19T06:05:37.274744+00:00",
+      "finished_at": "2026-10-19T06:05:57.683492+00:00",
+      "seconds": 20.408205166924745,
+      "error_type": null,
+      "observer_status": "settled",
+      "completion": "settled",
+      "response_provider": "codex",
+      "response_model": "gpt-6-luna",
+      "usage": {
+        "prompt_tokens": 10788,
+        "completion_tokens": 1222,
+        "total_tokens": 12010
+      },
+      "private_receipt_sha256": "ea5b2de7d3a2584748b9494471caca6c378923260659c978f40305b34e7a41ca"
+    },
+    {
+      "wave": "r1",
+      "id": "5df6a9a8-03ce-483f-9e98-d5992da7b8db",
+      "case": "goal-cross",
+      "request_hash": "77b788a4a5581810d4343386144dcb47a6b9ce6c65f24637fdfdd0a947077976",
+      "provider": "codex",
+      "model": "gpt-6-luna",
+      "effort": "max",
+      "started_at": "2026-10-19T06:05:57.793293+00:00",
+      "finished_at": "2026-10-19T06:06:26.804265+00:00",
+      "seconds": 29.010339667089283,
+      "error_type": null,
+      "observer_status": "settled",
+      "completion": "settled",
+      "response_provider": "codex",
+      "response_model": "gpt-6-luna",
+      "usage": {
+        "prompt_tokens": 12501,
+        "completion_tokens": 2046,
+        "total_tokens": 14547
+      },
+      "private_receipt_sha256": "338d4e6efd600733e6fcd892b1b82ddec4088c0b21f699c55c86cd274f9d443a"
+    },
+    {
+      "wave": "r1",
+      "id": "61c3aad7-2acc-4f5f-a403-4b3cf3bbcd6f",
+      "case": "b2-bridge",
+      "request_hash": "6eb215160b9bea3f7c9b3476a1ec80051e219cfd0c7c703e5453e89d62d2b60b",
+      "provider": "codex",
+      "model": "gpt-6-luna",
+      "effort": "max",
+      "started_at": "2026-10-19T06:06:26.900682+00:00",
+      "finished_at": "2026-10-19T06:06:44.091960+00:00",
+      "seconds": 17.19070358306635,
+      "error_type": null,
+      "observer_status": "settled",
+      "completion": "settled",
+      "response_provider": "codex",
+      "response_model": "gpt-6-luna",
+      "usage": {
+        "prompt_tokens": 12027,
+        "completion_tokens": 752,
+        "total_tokens": 12779
+      },
+      "private_receipt_sha256": "82384b4993c51be73f97e1e1e0ad37dc9618f902541642e02c6b64cc30c6f009"
+    },
+    {
+      "wave": "r1",
+      "id": "f62f5b4f-3c25-4ada-984e-0356f439b71b",
+      "case": "goal-cross",
+      "request_hash": "70aa326d797ce633996f539f1dd373e3b6e0bec8988f7ddf51ebc227992a29d0",
+      "provider": "codex",
+      "model": "gpt-6-luna",
+      "effort": "max",
+      "started_at": "2026-10-19T06:06:44.213835+00:00",
+      "finished_at": "2026-10-19T06:08:20.241515+00:00",
+      "seconds": 96.02628879097756,
+      "error_type": null,
+      "observer_status": "settled",
+      "completion": "settled",
+      "response_provider": "codex",
+      "response_model": "gpt-6-luna",
+      "usage": {
+        "prompt_tokens": 19452,
+        "completion_tokens": 10600,
+        "total_tokens": 30052
+      },
+      "private_receipt_sha256": "35b0bbfbfbb188d1edb8df4ae69a73ed5e8bfb106940711827e892801693a3ce"
+    },
+    {
+      "wave": "r1",
+      "id": "54bcdf7f-5214-427e-b993-e2556d626e04",
+      "case": "b2-bridge",
+      "request_hash": "9b3a03045147da5794c188548a721d1d1b7760638fb8fadc57739288c0c72d65",
+      "provider": "codex",
+      "model": "gpt-6-luna",
+      "effort": "max",
+      "started_at": "2026-10-19T06:06:57.814226+00:00",
+      "finished_at": "2026-10-19T06:07:40.715416+00:00",
+      "seconds": 42.898559333058074,
+      "error_type": null,
+      "observer_status": "settled",
+      "completion": "settled",
+      "response_provider": "codex",
+      "response_model": "gpt-6-luna",
+      "usage": {
+        "prompt_tokens": 14148,
+        "completion_tokens": 3642,
+        "total_tokens": 17790
+      },
+      "private_receipt_sha256": "d7057d98a7d99daa10f943ca1a01f464d864686b45bc9cf052f9dcc965753067"
+    },
+    {
+      "wave": "r1",
+      "id": "5b1a62c5-eb06-4360-b0b9-6b89b7eed939",
+      "case": "b1-sandbox",
+      "request_hash": "678730e344fc8058ebce781544aef83b2243762eb90c3944712196069effe582",
+      "provider": "codex",
+      "model": "gpt-6-luna",
+      "effort": "max",
+      "started_at": "2026-10-19T06:07:12.662687+00:00",
+      "finished_at": "2026-10-19T06:07:35.313926+00:00",
+      "seconds": 22.650539833004586,
+      "error_type": null,
+      "observer_status": "settled",
+      "completion": "settled",
+      "response_provider": "codex",
+      "response_model": "gpt-6-luna",
+      "usage": {
+        "prompt_tokens": 14276,
+        "completion_tokens": 935,
+        "total_tokens": 15211
+      },
+      "private_receipt_sha256": "5a67e3e22412d1d6721b3b203c12a32e5f1ad24b9b0fa65d2fbeeb1496707f31"
+    },
+    {
+      "wave": "r1",
+      "id": "5b8edba9-8205-4d08-83ba-4deb9a807858",
+      "case": "b3-line",
+      "request_hash": "459cb581a72cf254be5a55e98bfcf4e4c61d69a8957400e8f890de5aff3f324a",
+      "provider": "codex",
+      "model": "gpt-6-luna",
+      "effort": "max",
+      "started_at": "2026-10-19T06:07:15.372019+00:00",
+      "finished_at": "2026-10-19T06:07:29.819336+00:00",
+      "seconds": 14.4467897079885,
+      "error_type": null,
+      "observer_status": "settled",
+      "completion": "settled",
+      "response_provider": "codex",
+      "response_model": "gpt-6-luna",
+      "usage": {
+        "prompt_tokens": 11183,
+        "completion_tokens": 372,
+        "total_tokens": 11555
+      },
+      "private_receipt_sha256": "e454a5a08091d2569c5aef44481dcff3828048f85ed76990e2f669c230b82b6e"
+    },
+    {
+      "wave": "r1",
+      "id": "4a13816a-2c22-47d0-b69f-997761fc4ded",
+      "case": "b2-diagnose-only",
+      "request_hash": "2a7fff1fa32f8e56f5b076e58a7409adfd064da777d63616b8334c0f039c5003",
+      "provider": "codex",
+      "model": "gpt-6-luna",
+      "effort": "max",
+      "started_at": "2026-10-19T06:07:30.077823+00:00",
+      "finished_at": "2026-10-19T06:07:56.832328+00:00",
+      "seconds": 26.753570207976736,
+      "error_type": null,
+      "observer_status": "settled",
+      "completion": "settled",
+      "response_provider": "codex",
+      "response_model": "gpt-6-luna",
+      "usage": {
+        "prompt_tokens": 12015,
+        "completion_tokens": 1335,
+        "total_tokens": 13350
+      },
+      "private_receipt_sha256": "de1d9a5fc290bbd269fd0ec7cfd85f5131b6d3ac80d6ae970ab75d41adb88f2a"
+    },
+    {
+      "wave": "r1",
+      "id": "180ba71c-9a88-4a0d-80d3-00f017b5fcbf",
+      "case": "b3-line",
+      "request_hash": "3d70fde177e6b2227684d827e045a3ceb6d0cb0caa349ea9789ceba5d3517680",
+      "provider": "codex",
+      "model": "gpt-6-luna",
+      "effort": "max",
+      "started_at": "2026-10-19T06:07:32.852414+00:00",
+      "finished_at": "2026-10-19T06:07:52.986891+00:00",
+      "seconds": 20.133625374990515,
+      "error_type": null,
+      "observer_status": "settled",
+      "completion": "settled",
+      "response_provider": "codex",
+      "response_model": "gpt-6-luna",
+      "usage": {
+        "prompt_tokens": 13733,
+        "completion_tokens": 768,
+        "total_tokens": 14501
+      },
+      "private_receipt_sha256": "b6e9fa5a4a812ed953185e015423f19fd6d0f25157b4f0e850d2446336be9b70"
+    },
+    {
+      "wave": "r1",
+      "id": "6d951f80-fbee-44d2-908c-0d28b97f5818",
+      "case": "m2-goal",
+      "request_hash": "ae2ae7456d088e94aea13b771c1ed195123ed88e9c62022f103159c1fedb0143",
+      "provider": "codex",
+      "model": "gpt-6-luna",
+      "effort": "max",
+      "started_at": "2026-10-19T06:07:36.189658+00:00",
+      "finished_at": "2026-10-19T06:07:53.694112+00:00",
+      "seconds": 17.504002874949947,
+      "error_type": null,
+      "observer_status": "settled",
+      "completion": "settled",
+      "response_provider": "codex",
+      "response_model": "gpt-6-luna",
+      "usage": {
+        "prompt_tokens": 12043,
+        "completion_tokens": 566,
+        "total_tokens": 12609
+      },
+      "private_receipt_sha256": "997914ee9e92da89e41413967e0fb812d47f4fe4e6f27da05eaad03d29c148e8"
+    },
+    {
+      "wave": "r1",
+      "id": "47d3841c-fe46-440b-b33a-66a52027ce30",
+      "case": "b2-bridge",
+      "request_hash": "1875a022170213104de8cfe4d5193ad2ca2ddcfecb8f6921db62e194612c37f5",
+      "provider": "codex",
+      "model": "gpt-6-luna",
+      "effort": "max",
+      "started_at": "2026-10-19T06:07:40.805888+00:00",
+      "finished_at": "2026-10-19T06:08:04.363932+00:00",
+      "seconds": 23.55748333397787,
+      "error_type": null,
+      "observer_status": "settled",
+      "completion": "settled",
+      "response_provider": "codex",
+      "response_model": "gpt-6-luna",
+      "usage": {
+        "prompt_tokens": 15631,
+        "completion_tokens": 1466,
+        "total_tokens": 17097
+      },
+      "private_receipt_sha256": "4fddee23456655a4c34fb928aacd9605079512f1cb7a044f00d4dce88bd8fc3b"
+    },
+    {
+      "wave": "r1",
+      "id": "5b4df348-19f6-4870-a914-43a949467e6a",
+      "case": "m2-goal-impossible",
+      "request_hash": "ae2ae7456d088e94aea13b771c1ed195123ed88e9c62022f103159c1fedb0143",
+      "provider": "codex",
+      "model": "gpt-6-luna",
+      "effort": "max",
+      "started_at": "2026-10-19T06:07:53.489145+00:00",
+      "finished_at": "2026-10-19T06:08:14.004764+00:00",
+      "seconds": 20.515115750022233,
+      "error_type": null,
+      "observer_status": "settled",
+      "completion": "settled",
+      "response_provider": "codex",
+      "response_model": "gpt-6-luna",
+      "usage": {
+        "prompt_tokens": 12045,
+        "completion_tokens": 602,
+        "total_tokens": 12647
+      },
+      "private_receipt_sha256": "0757044185acfd08ef6e31215b65864f3074da5161fa36440f02be011ae1b4ca"
+    },
+    {
+      "wave": "r1",
+      "id": "921fe8e1-067d-4a87-ac03-ea121082c0a6",
+      "case": "m2-goal",
+      "request_hash": "703545443faba7212d0f4cf130d482824e4d8429e6cb31ea522f7ae1756b2e5c",
+      "provider": "codex",
+      "model": "gpt-6-luna",
+      "effort": "max",
+      "started_at": "2026-10-19T06:07:53.784886+00:00",
+      "finished_at": "2026-10-19T06:08:55.611392+00:00",
+      "seconds": 61.82558383396827,
+      "error_type": null,
+      "observer_status": "settled",
+      "completion": "settled",
+      "response_provider": "codex",
+      "response_model": "gpt-6-luna",
+      "usage": {
+        "prompt_tokens": 14128,
+        "completion_tokens": 5700,
+        "total_tokens": 19828
+      },
+      "private_receipt_sha256": "a0bc766cd633435f90359e56a284c894f990bd8be0e0a5fc8481e76beaf6de76"
+    },
+    {
+      "wave": "r1",
+      "id": "ccf93050-007f-4bb0-b604-9121d9a92dde",
+      "case": "b2-diagnose-only",
+      "request_hash": "94a5ebd61cc731e5755db25fce9a073cebe957a205235546699245dd980c007c",
+      "provider": "codex",
+      "model": "gpt-6-luna",
+      "effort": "max",
+      "started_at": "2026-10-19T06:07:56.919208+00:00",
+      "finished_at": "2026-10-19T06:08:18.177778+00:00",
+      "seconds": 21.257969375001267,
+      "error_type": null,
+      "observer_status": "settled",
+      "completion": "settled",
+      "response_provider": "codex",
+      "response_model": "gpt-6-luna",
+      "usage": {
+        "prompt_tokens": 14159,
+        "completion_tokens": 988,
+        "total_tokens": 15147
+      },
+      "private_receipt_sha256": "34a15cac27f4580a3ed783ef6d1dfbdae14ec6da2e9c086ef55cad2a0575af21"
+    },
+    {
+      "wave": "r1",
+      "id": "d2364d5d-46fb-444b-9bbf-25d8a48f473d",
+      "case": "m2-voices",
+      "request_hash": "ea07fb37844d103b179bba0530c57c322a5ec1afb1fdde865fb6ac22906aa2ef",
+      "provider": "codex",
+      "model": "gpt-6-luna",
+      "effort": "max",
+      "started_at": "2026-10-19T06:08:14.085479+00:00",
+      "finished_at": "2026-10-19T06:08:29.563778+00:00",
+      "seconds": 15.477760457899421,
+      "error_type": null,
+      "observer_status": "settled",
+      "completion": "settled",
+      "response_provider": "codex",
+      "response_model": "gpt-6-luna",
+      "usage": {
+        "prompt_tokens": 11025,
+        "completion_tokens": 510,
+        "total_tokens": 11535
+      },
+      "private_receipt_sha256": "4f40e3001afb9e6a9c1581e0edc4050ba2e673602f31792c846825a116aaa9e5"
+    },
+    {
+      "wave": "r1",
+      "id": "ca741292-bc05-496e-a291-0598c9b3026e",
+      "case": "m2-goal-impossible",
+      "request_hash": "a88ba7c46cdc82a019e3bf99e0678630ad17022f3b7a379c3cd75f99b83e54b3",
+      "provider": "codex",
+      "model": "gpt-6-luna",
+      "effort": "max",
+      "started_at": "2026-10-19T06:08:20.356234+00:00",
+      "finished_at": "2026-10-19T06:08:46.954525+00:00",
+      "seconds": 26.5975708339829,
+      "error_type": null,
+      "observer_status": "settled",
+      "completion": "settled",
+      "response_provider": "codex",
+      "response_model": "gpt-6-luna",
+      "usage": {
+        "prompt_tokens": 14133,
+        "completion_tokens": 1710,
+        "total_tokens": 15843
+      },
+      "private_receipt_sha256": "bdc9601456797c15cb98afbf500db871b4ebeffdb0ed8eb3687b2ee3bfb6f09f"
+    },
+    {
+      "wave": "r1",
+      "id": "51ec58e4-a79c-4122-96a7-077e4384e2b4",
+      "case": "goal-cross",
+      "request_hash": "8a5b0be6c52487d6a30c437825b2f2ab68cbc2cd2048823c868ce945cc09d8d6",
+      "provider": "codex",
+      "model": "gpt-6-luna",
+      "effort": "max",
+      "started_at": "2026-10-19T06:08:47.065427+00:00",
+      "finished_at": "2026-10-19T06:09:03.977929+00:00",
+      "seconds": 16.912035749992356,
+      "error_type": null,
+      "observer_status": "settled",
+      "completion": "settled",
+      "response_provider": "codex",
+      "response_model": "gpt-6-luna",
+      "usage": {
+        "prompt_tokens": 10869,
+        "completion_tokens": 513,
+        "total_tokens": 11382
+      },
+      "private_receipt_sha256": "da424d99169ca10415ab76008a6d5838469e1db1587d900bad1a69aba780cd1c"
+    },
+    {
+      "wave": "r1",
+      "id": "ea04b6da-9208-424a-a788-05b82411843f",
+      "case": "m2-voices",
+      "request_hash": "68b53a03dddf407579f0973618d8222a7c17cc49828e4253045228f0793b3dc5",
+      "provider": "codex",
+      "model": "gpt-6-luna",
+      "effort": "max",
+      "started_at": "2026-10-19T06:08:55.714384+00:00",
+      "finished_at": "2026-10-19T06:09:13.312991+00:00",
+      "seconds": 17.598139290930703,
+      "error_type": null,
+      "observer_status": "settled",
+      "completion": "settled",
+      "response_provider": "codex",
+      "response_model": "gpt-6-luna",
+      "usage": {
+        "prompt_tokens": 11194,
+        "completion_tokens": 503,
+        "total_tokens": 11697
+      },
+      "private_receipt_sha256": "331bc726a1d7ab0675ea1c0a80357313d3ecd3f0e20081be2a0c56eda1b11d85"
+    },
+    {
+      "wave": "r1",
+      "id": "1be24985-2647-45f5-b69a-ccfa4fb490ec",
+      "case": "goal-cross",
+      "request_hash": "2afc4be4daee418d2f3e725d8eab770a74a37d27ee749a9b5cbecb0a47de637d",
+      "provider": "codex",
+      "model": "gpt-6-luna",
+      "effort": "max",
+      "started_at": "2026-10-19T06:10:40.448244+00:00",
+      "finished_at": "2026-10-19T06:11:10.741916+00:00",
+      "seconds": 30.29293416591827,
+      "error_type": null,
+      "observer_status": "settled",
+      "completion": "settled",
+      "response_provider": "codex",
+      "response_model": "gpt-6-luna",
+      "usage": {
+        "prompt_tokens": 11070,
+        "completion_tokens": 2185,
+        "total_tokens": 13255
+      },
+      "private_receipt_sha256": "ea3fdf40e0053f799b668e66071b20f23cc178e914719a7484f77b9870c4e69e"
+    },
+    {
+      "wave": "r1",
+      "id": "b0a11916-f020-4a69-a3ad-cab907369b5c",
+      "case": "m2-goal-impossible",
+      "request_hash": "06086eb911f6d3f063a4dfd7fd0f13710a8ea4f9067a76bd35e1e908b6e54a72",
+      "provider": "codex",
+      "model": "gpt-6-luna",
+      "effort": "max",
+      "started_at": "2026-10-19T06:11:10.818848+00:00",
+      "finished_at": "2026-10-19T06:11:37.685935+00:00",
+      "seconds": 26.86635408399161,
+      "error_type": null,
+      "observer_status": "settled",
+      "completion": "settled",
+      "response_provider": "codex",
+      "response_model": "gpt-6-luna",
+      "usage": {
+        "prompt_tokens": 15129,
+        "completion_tokens": 1971,
+        "total_tokens": 17100
+      },
+      "private_receipt_sha256": "fd4c30e6a53f77368ec4f74e183087ba61cbff5cc20f24966cb750fdf54e68d5"
+    },
+    {
+      "wave": "r1",
+      "id": "c403385a-b83a-4850-b91d-0ea40fa6b5b0",
+      "case": "m2-goal",
+      "request_hash": "a3295f73bb176c297764d6f40c44de744b1aef4598014b649ff6bae0783a2c16",
+      "provider": "codex",
+      "model": "gpt-6-luna",
+      "effort": "max",
+      "started_at": "2026-10-19T06:11:36.174095+00:00",
+      "finished_at": "2026-10-19T06:12:01.736148+00:00",
+      "seconds": 25.561427125008777,
+      "error_type": null,
+      "observer_status": "settled",
+      "completion": "settled",
+      "response_provider": "codex",
+      "response_model": "gpt-6-luna",
+      "usage": {
+        "prompt_tokens": 15165,
+        "completion_tokens": 1354,
+        "total_tokens": 16519
+      },
+      "private_receipt_sha256": "2edf0a69662fcac4b81ff0b487d1b847fd04d1009fb21fd2215d56f863a92650"
+    },
+    {
+      "wave": "r1",
+      "id": "28b4ff16-51b0-42f8-bfce-8a71d3502113",
+      "case": "goal-cross",
+      "request_hash": "eef95df8fffd7e0779dd209ce27dc80dbad3a1119835cb542cbfb91247d0e9f3",
+      "provider": "codex",
+      "model": "gpt-6-luna",
+      "effort": "max",
+      "started_at": "2026-10-19T06:11:51.225208+00:00",
+      "finished_at": "2026-10-19T06:12:23.192389+00:00",
+      "seconds": 31.966511291917413,
+      "error_type": null,
+      "observer_status": "settled",
+      "completion": "settled",
+      "response_provider": "codex",
+      "response_model": "gpt-6-luna",
+      "usage": {
+        "prompt_tokens": 15319,
+        "completion_tokens": 2012,
+        "total_tokens": 17331
+      },
+      "private_receipt_sha256": "8b02a9e73f485a459f8d639cd37971e74cf4a5b93155fd1eb66e2ceb9b133d21"
+    },
+    {
+      "wave": "r1",
+      "id": "b9754eda-2316-4ad8-ae11-f704fc09b0d4",
+      "case": "m2-voices",
+      "request_hash": "b3f1750941c074ae3a8590a8b08c0d3b7afb7136609039a8c4a8ae09d4a622f8",
+      "provider": "codex",
+      "model": "gpt-6-luna",
+      "effort": "max",
+      "started_at": "2026-10-19T06:12:01.825416+00:00",
+      "finished_at": "2026-10-19T06:12:17.526445+00:00",
+      "seconds": 15.700098540983163,
+      "error_type": null,
+      "observer_status": "settled",
+      "completion": "settled",
+      "response_provider": "codex",
+      "response_model": "gpt-6-luna",
+      "usage": {
+        "prompt_tokens": 13785,
+        "completion_tokens": 527,
+        "total_tokens": 14312
+      },
+      "private_receipt_sha256": "52a6b91633849831199ff57c7cc914efb36b68ddf37b79145ee465740a3e3b98"
+    },
+    {
+      "wave": "r1",
+      "id": "377d3ef5-89fc-436b-97fe-6c3f93460109",
+      "case": "m2-voices-private",
+      "request_hash": "ea07fb37844d103b179bba0530c57c322a5ec1afb1fdde865fb6ac22906aa2ef",
+      "provider": "codex",
+      "model": "gpt-6-luna",
+      "effort": "max",
+      "started_at": "2026-10-19T06:12:04.534178+00:00",
+      "finished_at": "2026-10-19T06:12:23.325702+00:00",
+      "seconds": 18.790946915978566,
+      "error_type": null,
+      "observer_status": "settled",
+      "completion": "settled",
+      "response_provider": "codex",
+      "response_model": "gpt-6-luna",
+      "usage": {
+        "prompt_tokens": 11019,
+        "completion_tokens": 1022,
+        "total_tokens": 12041
+      },
+      "private_receipt_sha256": "9f7a83a2f08b01098c46160a46158eaf42266ab126af889c058e397fa2668de5"
+    },
+    {
+      "wave": "r1",
+      "id": "bb7db223-70e9-42ed-a5f8-5681c48dc605",
+      "case": "b2-diagnose-only",
+      "request_hash": "895f41077a5d6b6eb4a01b4b50ace3f7fc4134a2641bec036c4fe9e84c7c048a",
+      "provider": "codex",
+      "model": "gpt-6-luna",
+      "effort": "max",
+      "started_at": "2026-10-19T06:12:17.623019+00:00",
+      "finished_at": "2026-10-19T06:12:34.333094+00:00",
+      "seconds": 16.709397499915212,
+      "error_type": null,
+      "observer_status": "settled",
+      "completion": "settled",
+      "response_provider": "codex",
+      "response_model": "gpt-6-luna",
+      "usage": {
+        "prompt_tokens": 15098,
+        "completion_tokens": 323,
+        "total_tokens": 15421
+      },
+      "private_receipt_sha256": "e7e8f739d42aec87f45f362278d7549c7de231d4e572df68cd88629a22d0c401"
+    },
+    {
+      "wave": "r1",
+      "id": "6b99ae55-6c26-4634-b360-7b45a22ba8c2",
+      "case": "m2-voices",
+      "request_hash": "ea07fb37844d103b179bba0530c57c322a5ec1afb1fdde865fb6ac22906aa2ef",
+      "provider": "codex",
+      "model": "gpt-6-luna",
+      "effort": "max",
+      "started_at": "2026-10-19T06:12:23.271173+00:00",
+      "finished_at": "2026-10-19T06:12:39.866521+00:00",
+      "seconds": 16.59479658305645,
+      "error_type": null,
+      "observer_status": "settled",
+      "completion": "settled",
+      "response_provider": "codex",
+      "response_model": "gpt-6-luna",
+      "usage": {
+        "prompt_tokens": 11023,
+        "completion_tokens": 628,
+        "total_tokens": 11651
+      },
+      "private_receipt_sha256": "0d2228e39096d2687ed70f60d61418413549e8386898c3e9576f9232d1f36d5d"
+    },
+    {
+      "wave": "r1",
+      "id": "6427eafc-4396-4f01-8c98-7fd1597d3aca",
+      "case": "m2-spatial-missing",
+      "request_hash": "fb3f728f7018f4d3cca72d9fb5eb8f3893eb03968cefa5794e851a9036f6424d",
+      "provider": "codex",
+      "model": "gpt-6-luna",
+      "effort": "max",
+      "started_at": "2026-10-19T06:12:23.386448+00:00",
+      "finished_at": "2026-10-19T06:12:40.616388+00:00",
+      "seconds": 17.229391791974194,
+      "error_type": null,
+      "observer_status": "settled",
+      "completion": "settled",
+      "response_provider": "codex",
+      "response_model": "gpt-6-luna",
+      "usage": {
+        "prompt_tokens": 11148,
+        "completion_tokens": 542,
+        "total_tokens": 11690
+      },
+      "private_receipt_sha256": "bde2911eda157ea0cb1d3a5f8199337c9cd199955ad2c3b1bb2d8dc96a19d8ca"
+    },
+    {
+      "wave": "r1",
+      "id": "cc4efe74-e2c8-4e07-9477-2724e5e4da10",
+      "case": "m2-voices-private",
+      "request_hash": "a6fe5db765f5feef708d788b0411cf0f39df404d4ef2eb5902b40fec222c5ebf",
+      "provider": "codex",
+      "model": "gpt-6-luna",
+      "effort": "max",
+      "started_at": "2026-10-19T06:12:34.407625+00:00",
+      "finished_at": "2026-10-19T06:12:47.499449+00:00",
+      "seconds": 13.091223416966386,
+      "error_type": null,
+      "observer_status": "settled",
+      "completion": "settled",
+      "response_provider": "codex",
+      "response_model": "gpt-6-luna",
+      "usage": {
+        "prompt_tokens": 11209,
+        "completion_tokens": 400,
+        "total_tokens": 11609
+      },
+      "private_receipt_sha256": "93f3f3142e6f341f4a3968a1258dad7a539eddab7d0abbd493ff449b74dce27e"
+    },
+    {
+      "wave": "r1",
+      "id": "5a7b3b3b-4d4c-4ea7-968c-09a2be09bd50",
+      "case": "m3-full-unknown",
+      "request_hash": "7cfcf29c7ff2688db22e50a10462ed9d3921900422ff143a61b2cc82d2ecc302",
+      "provider": "codex",
+      "model": "gpt-6-luna",
+      "effort": "max",
+      "started_at": "2026-10-19T06:12:39.921308+00:00",
+      "finished_at": "2026-10-19T06:13:11.293884+00:00",
+      "seconds": 31.371929749962874,
+      "error_type": null,
+      "observer_status": "settled",
+      "completion": "settled",
+      "response_provider": "codex",
+      "response_model": "gpt-6-luna",
+      "usage": {
+        "prompt_tokens": 10656,
+        "completion_tokens": 2443,
+        "total_tokens": 13099
+      },
+      "private_receipt_sha256": "5cfea2c411edb8916e9f57045835aa6bd77943550d13c3c978442c6976758e41"
+    },
+    {
+      "wave": "r1",
+      "id": "bbd79f66-976b-49a0-8155-c821fe08ef5b",
+      "case": "goal-cross",
+      "request_hash": "ea07fb37844d103b179bba0530c57c322a5ec1afb1fdde865fb6ac22906aa2ef",
+      "provider": "codex",
+      "model": "gpt-6-luna",
+      "effort": "max",
+      "started_at": "2026-10-19T06:12:40.682035+00:00",
+      "finished_at": "2026-10-19T06:12:59.155905+00:00",
+      "seconds": 18.473294708062895,
+      "error_type": null,
+      "observer_status": "settled",
+      "completion": "settled",
+      "response_provider": "codex",
+      "response_model": "gpt-6-luna",
+      "usage": {
+        "prompt_tokens": 11023,
+        "completion_tokens": 655,
+        "total_tokens": 11678
+      },
+      "private_receipt_sha256": "b1ab8893248595124e975141dbe91b52a4a804d2da509d8d0f2c3e5a25babdcd"
+    },
+    {
+      "wave": "r1",
+      "id": "e71a8f75-d85f-4c28-a404-63dea9c8931b",
+      "case": "m2-spatial-missing",
+      "request_hash": "62dcba5a423ca49cc2e511e5821cb3cc2d7fa2061e2b8bb6a80996fd12e70e17",
+      "provider": "codex",
+      "model": "gpt-6-luna",
+      "effort": "max",
+      "started_at": "2026-10-19T06:12:47.549781+00:00",
+      "finished_at": "2026-10-19T06:13:03.753208+00:00",
+      "seconds": 16.202875958988443,
+      "error_type": null,
+      "observer_status": "settled",
+      "completion": "settled",
+      "response_provider": "codex",
+      "response_model": "gpt-6-luna",
+      "usage": {
+        "prompt_tokens": 11461,
+        "completion_tokens": 550,
+        "total_tokens": 12011
+      },
+      "private_receipt_sha256": "b8b776176cb450dd50c557394b6bb203fdd65856ec8395c4ae880aa85fda848b"
+    },
+    {
+      "wave": "r1",
+      "id": "e78b165c-e8e8-4f4f-90ba-5b148ced970e",
+      "case": "m2-voices",
+      "request_hash": "dc3b44b77a6bb781bdfc2d9e1a9f126c5ede3748ac38e0a30738b06e0b52c7b0",
+      "provider": "codex",
+      "model": "gpt-6-luna",
+      "effort": "max",
+      "started_at": "2026-10-19T06:12:56.327570+00:00",
+      "finished_at": "2026-10-19T06:13:10.608763+00:00",
+      "seconds": 14.280622374964878,
+      "error_type": null,
+      "observer_status": "settled",
+      "completion": "settled",
+      "response_provider": "codex",
+      "response_model": "gpt-6-luna",
+      "usage": {
+        "prompt_tokens": 11201,
+        "completion_tokens": 468,
+        "total_tokens": 11669
+      },
+      "private_receipt_sha256": "a360dc9becc876d097da8848b18d71b69b7c9a06d44d566cd1fa06584cfe29e1"
+    },
+    {
+      "wave": "r1",
+      "id": "33063f0b-3c35-423c-8a0a-8ab664f87f73",
+      "case": "m2-voices-private",
+      "request_hash": "051b3d2e3d230fb80d8bee3e4a55c829e02120f1ccdbe48892ab6cbaede32dcb",
+      "provider": "codex",
+      "model": "gpt-6-luna",
+      "effort": "max",
+      "started_at": "2026-10-19T06:12:59.222440+00:00",
+      "finished_at": "2026-10-19T06:13:38.722090+00:00",
+      "seconds": 39.49870620795991,
+      "error_type": null,
+      "observer_status": "settled",
+      "completion": "settled",
+      "response_provider": "codex",
+      "response_model": "gpt-6-luna",
+      "usage": {
+        "prompt_tokens": 13851,
+        "completion_tokens": 3242,
+        "total_tokens": 17093
+      },
+      "private_receipt_sha256": "cd2cccff0ae033f8c6162cc309670fa0ea2f6b5bfa23bc24e1e0d8f41ed6cf23"
+    },
+    {
+      "wave": "r1",
+      "id": "baa33278-7b5b-4626-b304-0b09ada62289",
+      "case": "goal-cross",
+      "request_hash": "f23f1eef06edf8eabcce4a242d5764ec3cfdd4522fb450917b59dc620b28d4f0",
+      "provider": "codex",
+      "model": "gpt-6-luna",
+      "effort": "max",
+      "started_at": "2026-10-19T06:13:03.818488+00:00",
+      "finished_at": "2026-10-19T06:13:23.197738+00:00",
+      "seconds": 19.378676500055008,
+      "error_type": null,
+      "observer_status": "settled",
+      "completion": "settled",
+      "response_provider": "codex",
+      "response_model": "gpt-6-luna",
+      "usage": {
+        "prompt_tokens": 11235,
+        "completion_tokens": 688,
+        "total_tokens": 11923
+      },
+      "private_receipt_sha256": "469bbb2d4df537d646eeba06ba943cde45e7c30fe510e73e4fc16faed8bd764d"
+    },
+    {
+      "wave": "r1",
+      "id": "c0d2dc73-db08-4d83-bf79-bd308a5b67ef",
+      "case": "m2-spatial-missing",
+      "request_hash": "51d5ab765d7d92fb613c715f36c07d02846ad1e04c6692a87e1d38b4f57a4b6b",
+      "provider": "codex",
+      "model": "gpt-6-luna",
+      "effort": "max",
+      "started_at": "2026-10-19T06:13:10.668099+00:00",
+      "finished_at": "2026-10-19T06:13:28.077914+00:00",
+      "seconds": 17.40916650008876,
+      "error_type": null,
+      "observer_status": "settled",
+      "completion": "settled",
+      "response_provider": "codex",
+      "response_model": "gpt-6-luna",
+      "usage": {
+        "prompt_tokens": 14002,
+        "completion_tokens": 529,
+        "total_tokens": 14531
+      },
+      "private_receipt_sha256": "0c29dc1771547a0063e12aebdb22ebdbf491f052beebb8474aa8fd48adfa2539"
+    },
+    {
+      "wave": "r1",
+      "id": "9ddeb15e-94e5-4fb4-a9ac-b2dbdf67a553",
+      "case": "m2-voices",
+      "request_hash": "f1fda45ef5c49cd8696484f388b685272f45b4e4a366f7b1bf04d6a6699d5630",
+      "provider": "codex",
+      "model": "gpt-6-luna",
+      "effort": "max",
+      "started_at": "2026-10-19T06:13:11.383909+00:00",
+      "finished_at": "2026-10-19T06:13:29.240886+00:00",
+      "seconds": 17.856192750041373,
+      "error_type": null,
+      "observer_status": "settled",
+      "completion": "settled",
+      "response_provider": "codex",
+      "response_model": "gpt-6-luna",
+      "usage": {
+        "prompt_tokens": 13787,
+        "completion_tokens": 392,
+        "total_tokens": 14179
+      },
+      "private_receipt_sha256": "9dec32f2de9f69c4283bec41acefd9adb158f450230ecf28a4be55c7726b8563"
+    },
+    {
+      "wave": "r1",
+      "id": "10d5dc62-bf98-417d-babc-13201cd455bd",
+      "case": "m3-full-unknown",
+      "request_hash": "994011913aab4a1e577a5a31612b80c5f5268d758a1e83c45f95ad8f69e65c3b",
+      "provider": "codex",
+      "model": "gpt-6-luna",
+      "effort": "max",
+      "started_at": "2026-10-19T06:13:17.379831+00:00",
+      "finished_at": "2026-10-19T06:13:33.406923+00:00",
+      "seconds": 16.026646750047803,
+      "error_type": null,
+      "observer_status": "settled",
+      "completion": "settled",
+      "response_provider": "codex",
+      "response_model": "gpt-6-luna",
+      "usage": {
+        "prompt_tokens": 10064,
+        "completion_tokens": 565,
+        "total_tokens": 10629
+      },
+      "private_receipt_sha256": "e33580e8390702c6e0848621f794960a77cc04c57458944eda92f4161cdda08c"
+    },
+    {
+      "wave": "r1",
+      "id": "1c7be365-d9ed-4be6-b321-088b63d95db3",
+      "case": "goal-cross",
+      "request_hash": "78474b21584f685c1163488d7797b3246f339d42e45e7797e825fe0c5f9d3928",
+      "provider": "codex",
+      "model": "gpt-6-luna",
+      "effort": "max",
+      "started_at": "2026-10-19T06:13:23.338941+00:00",
+      "finished_at": "2026-10-19T06:13:41.056811+00:00",
+      "seconds": 17.7170288329944,
+      "error_type": null,
+      "observer_status": "settled",
+      "completion": "settled",
+      "response_provider": "codex",
+      "response_model": "gpt-6-luna",
+      "usage": {
+        "prompt_tokens": 15387,
+        "completion_tokens": 701,
+        "total_tokens": 16088
+      },
+      "private_receipt_sha256": "a386f272424242e23afc2df4b75665e5ba7a04a45d2fc9ab8e2f243d2e646da8"
+    },
+    {
+      "wave": "r1",
+      "id": "9696cb6a-2542-4501-bbba-0fb028588d85",
+      "case": "m3-full-unknown",
+      "request_hash": "d8092b7ca1f057962c405eb0ed315717c44270ac13446931fd08823317c5cf2e",
+      "provider": "codex",
+      "model": "gpt-6-luna",
+      "effort": "max",
+      "started_at": "2026-10-19T06:13:33.493719+00:00",
+      "finished_at": "2026-10-19T06:13:52.282393+00:00",
+      "seconds": 18.788162417011335,
+      "error_type": null,
+      "observer_status": "settled",
+      "completion": "settled",
+      "response_provider": "codex",
+      "response_model": "gpt-6-luna",
+      "usage": {
+        "prompt_tokens": 13390,
+        "completion_tokens": 707,
+        "total_tokens": 14097
+      },
+      "private_receipt_sha256": "2a0f7b62f534eb9b54e01ea06f118946efb2c9fed9d8fb92aa67cc13b8cbc28d"
+    },
+    {
+      "wave": "r1",
+      "id": "a15a105e-ef8a-4f43-b9f9-74d79583e950",
+      "case": "m2-voices-private",
+      "request_hash": "ea07fb37844d103b179bba0530c57c322a5ec1afb1fdde865fb6ac22906aa2ef",
+      "provider": "codex",
+      "model": "gpt-6-luna",
+      "effort": "max",
+      "started_at": "2026-10-19T06:13:38.910160+00:00",
+      "finished_at": "2026-10-19T06:14:04.748229+00:00",
+      "seconds": 25.837574583943933,
+      "error_type": null,
+      "observer_status": "settled",
+      "completion": "settled",
+      "response_provider": "codex",
+      "response_model": "gpt-6-luna",
+      "usage": {
+        "prompt_tokens": 11023,
+        "completion_tokens": 1104,
+        "total_tokens": 12127
+      },
+      "private_receipt_sha256": "7bfa0e559dddde0e7984d6293670c7dfdde691b28834ee5451441e4a364ab128"
+    },
+    {
+      "wave": "r1",
+      "id": "8bb24f7f-18fb-4a64-a280-698ef914105d",
+      "case": "m3-full-unknown",
+      "request_hash": "7cfcf29c7ff2688db22e50a10462ed9d3921900422ff143a61b2cc82d2ecc302",
+      "provider": "codex",
+      "model": "gpt-6-luna",
+      "effort": "max",
+      "started_at": "2026-10-19T06:13:52.597182+00:00",
+      "finished_at": "2026-10-19T06:14:14.874097+00:00",
+      "seconds": 22.27630400005728,
+      "error_type": null,
+      "observer_status": "settled",
+      "completion": "settled",
+      "response_provider": "codex",
+      "response_model": "gpt-6-luna",
+      "usage": {
+        "prompt_tokens": 10658,
+        "completion_tokens": 980,
+        "total_tokens": 11638
+      },
+      "private_receipt_sha256": "c19cc115e37980239f7cf90bad7b9d443dea80d6bddae6b1067f7a63b84fbb50"
+    },
+    {
+      "wave": "r1",
+      "id": "20b81f2e-626f-46fd-a986-ee6d02df977b",
+      "case": "m3-full-unknown",
+      "request_hash": "829c49e9fa7f99e798304ada24be48858ba34ef67bf6666dcc2cba34b5655adf",
+      "provider": "codex",
+      "model": "gpt-6-luna",
+      "effort": "max",
+      "started_at": "2026-10-19T06:14:14.963839+00:00",
+      "finished_at": "2026-10-19T06:14:33.120147+00:00",
+      "seconds": 18.155817207996733,
+      "error_type": null,
+      "observer_status": "settled",
+      "completion": "settled",
+      "response_provider": "codex",
+      "response_model": "gpt-6-luna",
+      "usage": {
+        "prompt_tokens": 10069,
+        "completion_tokens": 769,
+        "total_tokens": 10838
+      },
+      "private_receipt_sha256": "e3892a2d3153adeb98a7bc2c40ad369c435b71d07ca2f563eeddfdaf543f9e31"
+    },
+    {
+      "wave": "r1",
+      "id": "05512651-99cf-40a6-813b-8c8c330ed9e2",
+      "case": "m3-full-unknown",
+      "request_hash": "ea4ba73a6bfa2292342842e4f361832452d8a6f6bc1ca1499fbac5b67b2ef0d0",
+      "provider": "codex",
+      "model": "gpt-6-luna",
+      "effort": "max",
+      "started_at": "2026-10-19T06:14:33.207885+00:00",
+      "finished_at": "2026-10-19T06:14:50.637538+00:00",
+      "seconds": 17.429191207978874,
+      "error_type": null,
+      "observer_status": "settled",
+      "completion": "settled",
+      "response_provider": "codex",
+      "response_model": "gpt-6-luna",
+      "usage": {
+        "prompt_tokens": 13401,
+        "completion_tokens": 714,
+        "total_tokens": 14115
+      },
+      "private_receipt_sha256": "8e7c9ed8e1f1ef4938485131c48a8212315ad4674d1672743886a01e74ded713"
+    },
+    {
+      "wave": "r1",
+      "id": "b5be45eb-3972-4c29-aa63-54d258412217",
+      "case": "m3-full-unknown",
+      "request_hash": "82f5da95bba3cd7b2a8c8f6e2b1b130f49efe3f9c14f7264b39840e384ae5a6b",
+      "provider": "codex",
+      "model": "gpt-6-luna",
+      "effort": "max",
+      "started_at": "2026-10-19T06:14:50.868344+00:00",
+      "finished_at": "2026-10-19T06:15:05.119087+00:00",
+      "seconds": 14.250286041991785,
+      "error_type": null,
+      "observer_status": "settled",
+      "completion": "settled",
+      "response_provider": "codex",
+      "response_model": "gpt-6-luna",
+      "usage": {
+        "prompt_tokens": 10972,
+        "completion_tokens": 337,
+        "total_tokens": 11309
+      },
+      "private_receipt_sha256": "734199420385f12309d5eac100f575ddd020ad2001b1e98b88511eafc22e82b3"
+    },
+    {
+      "wave": "r1",
+      "id": "6caa1d01-2671-42e6-bf7d-ac5ebeb434ea",
+      "case": "m3-full-unknown",
+      "request_hash": "9150208ebdbfdad90440256ec9e7222b48808aff38a255e2c3ead2b8b578d4e3",
+      "provider": "codex",
+      "model": "gpt-6-luna",
+      "effort": "max",
+      "started_at": "2026-10-19T06:15:05.215944+00:00",
+      "finished_at": "2026-10-19T06:15:24.221283+00:00",
+      "seconds": 19.00481304200366,
+      "error_type": null,
+      "observer_status": "settled",
+      "completion": "settled",
+      "response_provider": "codex",
+      "response_model": "gpt-6-luna",
+      "usage": {
+        "prompt_tokens": 11535,
+        "completion_tokens": 998,
+        "total_tokens": 12533
+      },
+      "private_receipt_sha256": "9b948cd7bf2d340b69dc60ce799ea51c87d24f981e08946b0b277c70a55a0970"
+    },
+    {
+      "wave": "r1",
+      "id": "31a125ae-4d12-49bd-845a-5d576fdae7c1",
+      "case": "m3-full-unknown",
+      "request_hash": "f8c660955efd8a35ff420ebfba72342f9b0af128df9a4e2cf4a0a30709b0afee",
+      "provider": "codex",
+      "model": "gpt-6-luna",
+      "effort": "max",
+      "started_at": "2026-10-19T06:15:24.319063+00:00",
+      "finished_at": "2026-10-19T06:15:46.712849+00:00",
+      "seconds": 22.393055957974866,
+      "error_type": null,
+      "observer_status": "settled",
+      "completion": "settled",
+      "response_provider": "codex",
+      "response_model": "gpt-6-luna",
+      "usage": {
+        "prompt_tokens": 14604,
+        "completion_tokens": 994,
+        "total_tokens": 15598
+      },
+      "private_receipt_sha256": "44324d4885cfa3b8025800ab9ff90f9156f4e0d77f605719d6bac916ddd67c25"
+    },
+    {
+      "wave": "r1",
+      "id": "d918b55b-32be-444c-b96b-28cb83c7687e",
+      "case": "goal-single",
+      "request_hash": "56f8cbf5666e3f7daac91c1c83ad796b7c0160e3053b86c9e2f091c9ceb46321",
+      "provider": "codex",
+      "model": "gpt-6-luna",
+      "effort": "max",
+      "started_at": "2026-10-19T06:15:49.450187+00:00",
+      "finished_at": "2026-10-19T06:16:12.259971+00:00",
+      "seconds": 22.80919987510424,
+      "error_type": null,
+      "observer_status": "settled",
+      "completion": "settled",
+      "response_provider": "codex",
+      "response_model": "gpt-6-luna",
+      "usage": {
+        "prompt_tokens": 12475,
+        "completion_tokens": 1590,
+        "total_tokens": 14065
+      },
+      "private_receipt_sha256": "943e57f620a109722c511ffa7d1fc7c0092852bcafd6baa773ff39dd374da7be"
+    },
+    {
+      "wave": "r1",
+      "id": "21e1d823-750a-41be-910a-a868d28532f9",
+      "case": "goal-single",
+      "request_hash": "8ec12c92788f1075ada330c28842b891df8ee98eb7c1d0da35274bc5a1623ae4",
+      "provider": "codex",
+      "model": "gpt-6-luna",
+      "effort": "max",
+      "started_at": "2026-10-19T06:16:12.376597+00:00",
+      "finished_at": "2026-10-19T06:16:57.165265+00:00",
+      "seconds": 44.78766395896673,
+      "error_type": "LLMInvalidResponseError",
+      "observer_status": "unknown",
+      "completion": "completed_invalid",
+      "response_provider": null,
+      "response_model": null,
+      "usage": {
+        "total_tokens": 22969,
+        "breakdown_available": false
+      },
+      "private_receipt_sha256": "a249e2ffc4b789f1d39eb8a624b85f6dd3d07fa363621551521fdb52da89fe69",
+      "reconciliation": {
+        "kind": "product_persisted_budget_minus_other_settled_planning_request",
+        "receipt_sha256": "d2ec735d701aa72899a20ef308a9bd920d16674f62190fd72b4ac218f307def8",
+        "raw_response_missing": true
+      }
+    },
+    {
+      "wave": "r1",
+      "id": "db9834ab-37a6-4392-b5e6-cc30ed976424",
+      "case": "goal-stop",
+      "request_hash": "56f8cbf5666e3f7daac91c1c83ad796b7c0160e3053b86c9e2f091c9ceb46321",
+      "provider": "codex",
+      "model": "gpt-6-luna",
+      "effort": "max",
+      "started_at": "2026-10-19T06:18:55.136088+00:00",
+      "finished_at": "2026-10-19T06:19:16.282760+00:00",
+      "seconds": 21.145792499999516,
+      "error_type": null,
+      "observer_status": "settled",
+      "completion": "settled",
+      "response_provider": "codex",
+      "response_model": "gpt-6-luna",
+      "usage": {
+        "prompt_tokens": 12475,
+        "completion_tokens": 1140,
+        "total_tokens": 13615
+      },
+      "private_receipt_sha256": "2ff7328b348ffde9c8da32c1224dd463299139a9ffcbabb3156c7f89accd5d8d"
+    },
+    {
+      "wave": "r1",
+      "id": "d1d6a982-1855-4218-bff1-a8ec5a105452",
+      "case": "goal-stop",
+      "request_hash": "8ec12c92788f1075ada330c28842b891df8ee98eb7c1d0da35274bc5a1623ae4",
+      "provider": "codex",
+      "model": "gpt-6-luna",
+      "effort": "max",
+      "started_at": "2026-10-19T06:19:16.403154+00:00",
+      "finished_at": "2026-10-19T06:20:01.471806+00:00",
+      "seconds": 45.06670387496706,
+      "error_type": null,
+      "observer_status": "settled",
+      "completion": "settled",
+      "response_provider": "codex",
+      "response_model": "gpt-6-luna",
+      "usage": {
+        "prompt_tokens": 19124,
+        "completion_tokens": 4397,
+        "total_tokens": 23521
+      },
+      "private_receipt_sha256": "f805c478af7c4f308e29ccab33d79debab679ee03bb7cce2c7b789039e59bd56"
+    },
+    {
+      "wave": "r2",
+      "id": "aaea306a-f017-4c3e-bb9f-236ca3b05bd2",
+      "case": "goal-cross",
+      "request_hash": "77b788a4a5581810d4343386144dcb47a6b9ce6c65f24637fdfdd0a947077976",
+      "provider": "codex",
+      "model": "gpt-6-luna",
+      "effort": "max",
+      "started_at": "2026-10-19T06:22:52.636797+00:00",
+      "finished_at": "2026-10-19T06:23:11.930483+00:00",
+      "seconds": 19.293092209030874,
+      "error_type": null,
+      "observer_status": "settled",
+      "completion": "settled",
+      "response_provider": "codex",
+      "response_model": "gpt-6-luna",
+      "usage": {
+        "prompt_tokens": 12507,
+        "completion_tokens": 881,
+        "total_tokens": 13388
+      },
+      "private_receipt_sha256": "5e1ca06f7c6de21bb00e7d9befb76c64970ed8ba0f1fadb15493cb96b0f3a520"
+    },
+    {
+      "wave": "r2",
+      "id": "fa365e77-e7f0-4966-b577-58ffd023cf39",
+      "case": "m2-voices",
+      "request_hash": "fc1fcf60e180e1313d05b9b5b4f35ef669ffda2743f73f30ff9b8dcb289d70da",
+      "provider": "codex",
+      "model": "gpt-6-luna",
+      "effort": "max",
+      "started_at": "2026-10-19T06:22:53.063434+00:00",
+      "finished_at": "2026-10-19T06:23:13.688340+00:00",
+      "seconds": 20.624236416071653,
+      "error_type": null,
+      "observer_status": "settled",
+      "completion": "settled",
+      "response_provider": "codex",
+      "response_model": "gpt-6-luna",
+      "usage": {
+        "prompt_tokens": 11001,
+        "completion_tokens": 525,
+        "total_tokens": 11526
+      },
+      "private_receipt_sha256": "30d5ce7e174c07c3ddd763df636e034594793f286f707f549497be6e3baa5b97"
+    },
+    {
+      "wave": "r2",
+      "id": "c6a3e681-153a-4f90-a8e6-f33953822845",
+      "case": "m2-goal-impossible",
+      "request_hash": "29c473e955cd12c27a74270589e999edb76e91f3a850afe5fcf9ae7c9f12c14e",
+      "provider": "codex",
+      "model": "gpt-6-luna",
+      "effort": "max",
+      "started_at": "2026-10-19T06:22:53.080844+00:00",
+      "finished_at": "2026-10-19T06:23:14.052490+00:00",
+      "seconds": 20.97114604199305,
+      "error_type": null,
+      "observer_status": "settled",
+      "completion": "settled",
+      "response_provider": "codex",
+      "response_model": "gpt-6-luna",
+      "usage": {
+        "prompt_tokens": 12168,
+        "completion_tokens": 581,
+        "total_tokens": 12749
+      },
+      "private_receipt_sha256": "ddf4644f2100d43d7e03e75c1f445a5d8c013722445c2b65c3386cf975c8ff23"
+    },
+    {
+      "wave": "r2",
+      "id": "0bcd9189-787c-41d3-bdd9-5fc71fd3c391",
+      "case": "m2-goal",
+      "request_hash": "29c473e955cd12c27a74270589e999edb76e91f3a850afe5fcf9ae7c9f12c14e",
+      "provider": "codex",
+      "model": "gpt-6-luna",
+      "effort": "max",
+      "started_at": "2026-10-19T06:22:53.096698+00:00",
+      "finished_at": "2026-10-19T06:23:13.870858+00:00",
+      "seconds": 20.77362704195548,
+      "error_type": null,
+      "observer_status": "settled",
+      "completion": "settled",
+      "response_provider": "codex",
+      "response_model": "gpt-6-luna",
+      "usage": {
+        "prompt_tokens": 12170,
+        "completion_tokens": 790,
+        "total_tokens": 12960
+      },
+      "private_receipt_sha256": "2f9abb38dc0b936f27706eab3dc031f875c22d4106bda14b3d6bd28b4c59cde4"
+    },
+    {
+      "wave": "r2",
+      "id": "87bc94cd-eb27-4a9a-b5fa-df3e688cd476",
+      "case": "b2-bridge",
+      "request_hash": "3afd65bfd350e13d78b5e5062fee064ba178e20979e4bd2f22113e8ab3be1d47",
+      "provider": "codex",
+      "model": "gpt-6-luna",
+      "effort": "max",
+      "started_at": "2026-10-19T06:22:53.107687+00:00",
+      "finished_at": "2026-10-19T06:23:07.366828+00:00",
+      "seconds": 14.258460499928333,
+      "error_type": null,
+      "observer_status": "settled",
+      "completion": "settled",
+      "response_provider": "codex",
+      "response_model": "gpt-6-luna",
+      "usage": {
+        "prompt_tokens": 12002,
+        "completion_tokens": 398,
+        "total_tokens": 12400
+      },
+      "private_receipt_sha256": "591805440707d471da3d208e6b7df38b4e9ac7ea9d20521a054b1663f612dfe5"
+    },
+    {
+      "wave": "r2",
+      "id": "18be9c8b-633b-43c9-82af-8000e4765ee3",
+      "case": "b2-bridge",
+      "request_hash": "6d80eb62c91b1ccda6fe2f56b42ac4ee9bcbc83e266d5f01e65c923c7bf232b5",
+      "provider": "codex",
+      "model": "gpt-6-luna",
+      "effort": "max",
+      "started_at": "2026-10-19T06:23:07.444160+00:00",
+      "finished_at": "2026-10-19T06:23:41.952895+00:00",
+      "seconds": 34.508116458076984,
+      "error_type": null,
+      "observer_status": "settled",
+      "completion": "settled",
+      "response_provider": "codex",
+      "response_model": "gpt-6-luna",
+      "usage": {
+        "prompt_tokens": 14064,
+        "completion_tokens": 2478,
+        "total_tokens": 16542
+      },
+      "private_receipt_sha256": "4ff4fa2fd53191b3419779cba712ebaa8b5ab6c5d9aa4cd238f2fc891cc4f2d1"
+    },
+    {
+      "wave": "r2",
+      "id": "a60ee5d1-ab8e-4481-8335-43f18560de53",
+      "case": "goal-cross",
+      "request_hash": "70aa326d797ce633996f539f1dd373e3b6e0bec8988f7ddf51ebc227992a29d0",
+      "provider": "codex",
+      "model": "gpt-6-luna",
+      "effort": "max",
+      "started_at": "2026-10-19T06:23:12.012756+00:00",
+      "finished_at": "2026-10-19T06:24:29.899241+00:00",
+      "seconds": 77.88532670901623,
+      "error_type": "LLMInvalidResponseError",
+      "observer_status": "completed_invalid",
+      "completion": "completed_invalid",
+      "response_provider": null,
+      "response_model": null,
+      "usage": {
+        "prompt_tokens": 19454,
+        "completion_tokens": 8444,
+        "total_tokens": 27898
+      },
+      "private_receipt_sha256": "1d4c495121c09182d13997f20f6d409e7c5c3f81184b7fc6bca71663b5ccd471"
+    },
+    {
+      "wave": "r2",
+      "id": "a96e4925-8b5a-4b70-ba1a-b0a1f84c4790",
+      "case": "m2-voices",
+      "request_hash": "d233074bc7af10a4d82da4f5c4531a5da2262d71dc368e6ee42a977727c08c8c",
+      "provider": "codex",
+      "model": "gpt-6-luna",
+      "effort": "max",
+      "started_at": "2026-10-19T06:23:13.762073+00:00",
+      "finished_at": "2026-10-19T06:23:33.462689+00:00",
+      "seconds": 19.70014791598078,
+      "error_type": null,
+      "observer_status": "settled",
+      "completion": "settled",
+      "response_provider": "codex",
+      "response_model": "gpt-6-luna",
+      "usage": {
+        "prompt_tokens": 11185,
+        "completion_tokens": 472,
+        "total_tokens": 11657
+      },
+      "private_receipt_sha256": "d4e9b2aa0fdc2bdf3e9a8a91b82e1ed572afb5fbb7ba442976054f98aa343d60"
+    },
+    {
+      "wave": "r2",
+      "id": "a1cde892-7275-4d3b-94b8-1545a500d7fc",
+      "case": "m2-goal",
+      "request_hash": "283acf240316d0da6f0f78e50210a3de1938f114c8d38ab96fde589cfca1bc2e",
+      "provider": "codex",
+      "model": "gpt-6-luna",
+      "effort": "max",
+      "started_at": "2026-10-19T06:23:13.943869+00:00",
+      "finished_at": "2026-10-19T06:24:51.286498+00:00",
+      "seconds": 97.34140487504192,
+      "error_type": null,
+      "observer_status": "settled",
+      "completion": "settled",
+      "response_provider": "codex",
+      "response_model": "gpt-6-luna",
+      "usage": {
+        "prompt_tokens": 14198,
+        "completion_tokens": 9066,
+        "total_tokens": 23264
+      },
+      "private_receipt_sha256": "073de2337d115497c9cb417d33241bcc6b9cc49b632977528e7240e8c2baf025"
+    },
+    {
+      "wave": "r2",
+      "id": "19bb04b2-fcc0-4d81-87e9-053e75d75e39",
+      "case": "m2-goal-impossible",
+      "request_hash": "16891f341d1e0065e642dc299ec79ff72194dac2089b279a69f52ae6157093fe",
+      "provider": "codex",
+      "model": "gpt-6-luna",
+      "effort": "max",
+      "started_at": "2026-10-19T06:23:14.132132+00:00",
+      "finished_at": "2026-10-19T06:23:39.295738+00:00",
+      "seconds": 25.16307379095815,
+      "error_type": null,
+      "observer_status": "settled",
+      "completion": "settled",
+      "response_provider": "codex",
+      "response_model": "gpt-6-luna",
+      "usage": {
+        "prompt_tokens": 14199,
+        "completion_tokens": 1487,
+        "total_tokens": 15686
+      },
+      "private_receipt_sha256": "d6611fe605a6370843aaaff092495b4510936c1c0a1c6f20a0a49213c643c905"
+    },
+    {
+      "wave": "r2",
+      "id": "e27381b2-e3b6-4745-b60c-900ddab82531",
+      "case": "m2-voices",
+      "request_hash": "f6fdb397cb8e82d6bd314f9a21a01b96f432f58f387ddd3595bdf4e772c5b43e",
+      "provider": "codex",
+      "model": "gpt-6-luna",
+      "effort": "max",
+      "started_at": "2026-10-19T06:23:39.353303+00:00",
+      "finished_at": "2026-10-19T06:24:23.265805+00:00",
+      "seconds": 43.911754750064574,
+      "error_type": null,
+      "observer_status": "settled",
+      "completion": "settled",
+      "response_provider": "codex",
+      "response_model": "gpt-6-luna",
+      "usage": {
+        "prompt_tokens": 13749,
+        "completion_tokens": 3168,
+        "total_tokens": 16917
+      },
+      "private_receipt_sha256": "5849597b81a6c3a53fed30b49916852cecd6b09fd6358ca2fc20fb1a6031563c"
+    },
+    {
+      "wave": "r2",
+      "id": "7ca4cc08-a020-44f2-98a0-b42d5e2bb567",
+      "case": "m2-goal-impossible",
+      "request_hash": "5f1234d39f58da3b914b793f2f04db4813feaad4f562b2c0633ded03bcd18a29",
+      "provider": "codex",
+      "model": "gpt-6-luna",
+      "effort": "max",
+      "started_at": "2026-10-19T06:23:42.030610+00:00",
+      "finished_at": "2026-10-19T06:24:04.011677+00:00",
+      "seconds": 21.973644000012428,
+      "error_type": null,
+      "observer_status": "settled",
+      "completion": "settled",
+      "response_provider": "codex",
+      "response_model": "gpt-6-luna",
+      "usage": {
+        "prompt_tokens": 15261,
+        "completion_tokens": 1019,
+        "total_tokens": 16280
+      },
+      "private_receipt_sha256": "23e6ac0539c55b7cc57cc69e15d8a36353b66c1ac1ffe86d009dc652a829e665"
+    },
+    {
+      "wave": "r2",
+      "id": "065905da-0de6-4486-a66c-2c6700645a9a",
+      "case": "b2-bridge",
+      "request_hash": "ed193aa6babe0e6bc27c33b8efae535e715a8cdc5a14756a131a27eb21e00f84",
+      "provider": "codex",
+      "model": "gpt-6-luna",
+      "effort": "max",
+      "started_at": "2026-10-19T06:24:01.215101+00:00",
+      "finished_at": "2026-10-19T06:24:24.572552+00:00",
+      "seconds": 23.356814624974504,
+      "error_type": null,
+      "observer_status": "settled",
+      "completion": "settled",
+      "response_provider": "codex",
+      "response_model": "gpt-6-luna",
+      "usage": {
+        "prompt_tokens": 15596,
+        "completion_tokens": 1140,
+        "total_tokens": 16736
+      },
+      "private_receipt_sha256": "7858b3f88548bb0f04088a88341eddb5d7ba1e26888d3a63af35824b739ce8b7"
+    },
+    {
+      "wave": "r2",
+      "id": "199ac838-c6f4-46f3-9a68-cee0887f287e",
+      "case": "m2-voices-private",
+      "request_hash": "fc1fcf60e180e1313d05b9b5b4f35ef669ffda2743f73f30ff9b8dcb289d70da",
+      "provider": "codex",
+      "model": "gpt-6-luna",
+      "effort": "max",
+      "started_at": "2026-10-19T06:24:23.314095+00:00",
+      "finished_at": "2026-10-19T06:24:43.468556+00:00",
+      "seconds": 20.153927291976288,
+      "error_type": null,
+      "observer_status": "settled",
+      "completion": "settled",
+      "response_provider": "codex",
+      "response_model": "gpt-6-luna",
+      "usage": {
+        "prompt_tokens": 10999,
+        "completion_tokens": 326,
+        "total_tokens": 11325
+      },
+      "private_receipt_sha256": "dfadd5b1231e692a9633e129aa338ee3274daebf3489adbd2442f566055d8e0e"
+    },
+    {
+      "wave": "r2",
+      "id": "d72cbf8c-57c6-44df-9a6e-d84c50a3cb0c",
+      "case": "m2-voices",
+      "request_hash": "e609809b03bf8ac889fc47821ffef607f3f9caa6b6d3f53b60b47f71bf1b3efe",
+      "provider": "codex",
+      "model": "gpt-6-luna",
+      "effort": "max",
+      "started_at": "2026-10-19T06:24:24.614129+00:00",
+      "finished_at": "2026-10-19T06:24:44.308331+00:00",
+      "seconds": 19.693691250053234,
+      "error_type": null,
+      "observer_status": "settled",
+      "completion": "settled",
+      "response_provider": "codex",
+      "response_model": "gpt-6-luna",
+      "usage": {
+        "prompt_tokens": 11466,
+        "completion_tokens": 816,
+        "total_tokens": 12282
+      },
+      "private_receipt_sha256": "237477b96592d16994907728e876442ac4f8dca140262ba97b0367c2bfa741c5"
+    },
+    {
+      "wave": "r2",
+      "id": "2208cfd8-005d-4dbc-9a89-3edbc2460a6b",
+      "case": "m2-spatial-missing",
+      "request_hash": "fb3f728f7018f4d3cca72d9fb5eb8f3893eb03968cefa5794e851a9036f6424d",
+      "provider": "codex",
+      "model": "gpt-6-luna",
+      "effort": "max",
+      "started_at": "2026-10-19T06:24:29.970463+00:00",
+      "finished_at": "2026-10-19T06:24:53.641866+00:00",
+      "seconds": 23.67090304195881,
+      "error_type": null,
+      "observer_status": "settled",
+      "completion": "settled",
+      "response_provider": "codex",
+      "response_model": "gpt-6-luna",
+      "usage": {
+        "prompt_tokens": 11152,
+        "completion_tokens": 1189,
+        "total_tokens": 12341
+      },
+      "private_receipt_sha256": "c4e20a1f2006dd8e26cd9fea640b3d286dc44df637006148a7d17a04e8a2aca9"
+    },
+    {
+      "wave": "r2",
+      "id": "26ad6470-d7d5-4e51-acf8-d1fd299f3c4d",
+      "case": "m2-voices",
+      "request_hash": "896870dfd78150c76a61f352569fcf590bf73622d742f15eccad47f4ad213fce",
+      "provider": "codex",
+      "model": "gpt-6-luna",
+      "effort": "max",
+      "started_at": "2026-10-19T06:24:51.004598+00:00",
+      "finished_at": "2026-10-19T06:25:15.188216+00:00",
+      "seconds": 24.182998417061754,
+      "error_type": null,
+      "observer_status": "settled",
+      "completion": "settled",
+      "response_provider": "codex",
+      "response_model": "gpt-6-luna",
+      "usage": {
+        "prompt_tokens": 13769,
+        "completion_tokens": 966,
+        "total_tokens": 14735
+      },
+      "private_receipt_sha256": "7ca6cbd6c5e92c11fe035748fc79ba12c3e9a90d6ef969d3b1272eb4c8eba31c"
+    },
+    {
+      "wave": "r2",
+      "id": "849a34e5-a497-4d60-8113-8344bc71f197",
+      "case": "m2-voices-private",
+      "request_hash": "24b778df7b2299ed5cfd985e52b4763251b8b232ff90bdad64ad588f2ab06287",
+      "provider": "codex",
+      "model": "gpt-6-luna",
+      "effort": "max",
+      "started_at": "2026-10-19T06:24:53.715620+00:00",
+      "finished_at": "2026-10-19T06:25:12.338661+00:00",
+      "seconds": 18.622605375014246,
+      "error_type": null,
+      "observer_status": "settled",
+      "completion": "settled",
+      "response_provider": "codex",
+      "response_model": "gpt-6-luna",
+      "usage": {
+        "prompt_tokens": 11200,
+        "completion_tokens": 472,
+        "total_tokens": 11672
+      },
+      "private_receipt_sha256": "5f46fbbbad38a503f1507477e4c53361a251fcb96bcda767b18e09931803e2f6"
+    },
+    {
+      "wave": "r2",
+      "id": "c433dcb4-2ecd-499a-9802-24ce714a4b35",
+      "case": "m2-spatial-missing",
+      "request_hash": "62dcba5a423ca49cc2e511e5821cb3cc2d7fa2061e2b8bb6a80996fd12e70e17",
+      "provider": "codex",
+      "model": "gpt-6-luna",
+      "effort": "max",
+      "started_at": "2026-10-19T06:25:12.439980+00:00",
+      "finished_at": "2026-10-19T06:25:26.044979+00:00",
+      "seconds": 13.604426833917387,
+      "error_type": null,
+      "observer_status": "settled",
+      "completion": "settled",
+      "response_provider": "codex",
+      "response_model": "gpt-6-luna",
+      "usage": {
+        "prompt_tokens": 11461,
+        "completion_tokens": 335,
+        "total_tokens": 11796
+      },
+      "private_receipt_sha256": "3e725956e2a820a786455596d6cd1f1b6e9e37b436a7240cdcd617dc29e2b3ff"
+    },
+    {
+      "wave": "r2",
+      "id": "fe4fdee3-fa44-4163-b6a3-009e9c2de300",
+      "case": "m2-goal",
+      "request_hash": "2ef0b9e738ae456f8e1ecff9936a7123ec2cef797b68e6aaf4b58de38140094c",
+      "provider": "codex",
+      "model": "gpt-6-luna",
+      "effort": "max",
+      "started_at": "2026-10-19T06:25:15.241408+00:00",
+      "finished_at": "2026-10-19T06:25:46.217246+00:00",
+      "seconds": 30.975195833016187,
+      "error_type": null,
+      "observer_status": "settled",
+      "completion": "settled",
+      "response_provider": "codex",
+      "response_model": "gpt-6-luna",
+      "usage": {
+        "prompt_tokens": 16303,
+        "completion_tokens": 2206,
+        "total_tokens": 18509
+      },
+      "private_receipt_sha256": "883a6f30db70dfdc0c29bfb9622acc3c3c4a929ebc393728798d7b8d7b61bda2"
+    },
+    {
+      "wave": "r2",
+      "id": "063b10a4-4f48-4c7d-89e1-0d70a3ca43d7",
+      "case": "m2-voices",
+      "request_hash": "fc1fcf60e180e1313d05b9b5b4f35ef669ffda2743f73f30ff9b8dcb289d70da",
+      "provider": "codex",
+      "model": "gpt-6-luna",
+      "effort": "max",
+      "started_at": "2026-10-19T06:25:26.142221+00:00",
+      "finished_at": "2026-10-19T06:25:40.976762+00:00",
+      "seconds": 14.830448666005395,
+      "error_type": null,
+      "observer_status": "settled",
+      "completion": "settled",
+      "response_provider": "codex",
+      "response_model": "gpt-6-luna",
+      "usage": {
+        "prompt_tokens": 10997,
+        "completion_tokens": 426,
+        "total_tokens": 11423
+      },
+      "private_receipt_sha256": "9918077e14be5b4911ba8b8cc398e7e1f00afde327149c4c6e8632b1e12e4de1"
+    },
+    {
+      "wave": "r2",
+      "id": "6089249d-7e3a-471c-a642-5b7ada3efe93",
+      "case": "m2-voices-private",
+      "request_hash": "1ea1b4df3cac940b8b5ca036b6a8764accca8e579ca0fa7970ba54efa402080b",
+      "provider": "codex",
+      "model": "gpt-6-luna",
+      "effort": "max",
+      "started_at": "2026-10-19T06:25:36.485650+00:00",
+      "finished_at": "2026-10-19T06:26:07.622592+00:00",
+      "seconds": 31.13623633305542,
+      "error_type": null,
+      "observer_status": "settled",
+      "completion": "settled",
+      "response_provider": "codex",
+      "response_model": "gpt-6-luna",
+      "usage": {
+        "prompt_tokens": 13830,
+        "completion_tokens": 2024,
+        "total_tokens": 15854
+      },
+      "private_receipt_sha256": "8516ed4c4d229b3b0d25f6bf8c92893a6086bceedcb5980ce6eacf1660223002"
+    },
+    {
+      "wave": "r2",
+      "id": "cfe12b50-587c-44d2-977a-2aca40679946",
+      "case": "m2-spatial-missing",
+      "request_hash": "172efcb26a63a41db601ea1dd2ef1eda9b24f4162f667420bca1ef9f5ea6e165",
+      "provider": "codex",
+      "model": "gpt-6-luna",
+      "effort": "max",
+      "started_at": "2026-10-19T06:25:41.046446+00:00",
+      "finished_at": "2026-10-19T06:26:01.471796+00:00",
+      "seconds": 20.424778959015384,
+      "error_type": null,
+      "observer_status": "settled",
+      "completion": "settled",
+      "response_provider": "codex",
+      "response_model": "gpt-6-luna",
+      "usage": {
+        "prompt_tokens": 13944,
+        "completion_tokens": 488,
+        "total_tokens": 14432
+      },
+      "private_receipt_sha256": "356554c68700a2aafac79583d7a157753c856d40049163c5c1acf9f80f10d645"
+    },
+    {
+      "wave": "r2",
+      "id": "1b447860-fbb7-4a88-ab35-5e537ce624e9",
+      "case": "m2-voices",
+      "request_hash": "ecfd6743c157fd9b4ebf50910bfff38488b6dbcc340bbd054ccc6292ad443d70",
+      "provider": "codex",
+      "model": "gpt-6-luna",
+      "effort": "max",
+      "started_at": "2026-10-19T06:25:46.312812+00:00",
+      "finished_at": "2026-10-19T06:26:05.306171+00:00",
+      "seconds": 18.9928007919807,
+      "error_type": null,
+      "observer_status": "settled",
+      "completion": "settled",
+      "response_provider": "codex",
+      "response_model": "gpt-6-luna",
+      "usage": {
+        "prompt_tokens": 11190,
+        "completion_tokens": 552,
+        "total_tokens": 11742
+      },
+      "private_receipt_sha256": "52d6fe0ab17c5a0918008e721afbbda385a1ae9c00ba17d6a54c49a3c9c267de"
+    },
+    {
+      "wave": "r2",
+      "id": "8245c829-b0b1-4799-a4d0-64ad0c37cb1d",
+      "case": "m3-full-unknown",
+      "request_hash": "a0d4972ba00ab93f251dba672d7a779eb600e93ced3f0f420a0c560e4b3a9947",
+      "provider": "codex",
+      "model": "gpt-6-luna",
+      "effort": "max",
+      "started_at": "2026-10-19T06:26:01.580103+00:00",
+      "finished_at": "2026-10-19T06:26:50.990306+00:00",
+      "seconds": 49.40942020795774,
+      "error_type": null,
+      "observer_status": "settled",
+      "completion": "settled",
+      "response_provider": "codex",
+      "response_model": "gpt-6-luna",
+      "usage": {
+        "prompt_tokens": 10632,
+        "completion_tokens": 3718,
+        "total_tokens": 14350
+      },
+      "private_receipt_sha256": "877ee3897b48a5eb66146cf3b0239a66e2f4b2d8f210011b0225dca7f2105875"
+    },
+    {
+      "wave": "r2",
+      "id": "7318b746-8926-485e-9e08-b9eba3b70ae1",
+      "case": "m2-voices",
+      "request_hash": "abc4a2786af926fe961b5c0dc22feb9f7a8c3de66753a2aa09f6547e860c7337",
+      "provider": "codex",
+      "model": "gpt-6-luna",
+      "effort": "max",
+      "started_at": "2026-10-19T06:26:05.393311+00:00",
+      "finished_at": "2026-10-19T06:26:23.767872+00:00",
+      "seconds": 18.37404487503227,
+      "error_type": null,
+      "observer_status": "settled",
+      "completion": "settled",
+      "response_provider": "codex",
+      "response_model": "gpt-6-luna",
+      "usage": {
+        "prompt_tokens": 13787,
+        "completion_tokens": 749,
+        "total_tokens": 14536
+      },
+      "private_receipt_sha256": "a0de04a2e44b8245c264e2b68951d0ad2773efcc4696ad912cb1fd9ea929e794"
+    },
+    {
+      "wave": "r2",
+      "id": "55c373c3-8f9d-426c-8a30-8c66837779df",
+      "case": "m2-voices-private",
+      "request_hash": "b3a1bb794191fcd95f9c6e002b52b5af609909703a8c3c4fa7224b24c122fd7d",
+      "provider": "codex",
+      "model": "gpt-6-luna",
+      "effort": "max",
+      "started_at": "2026-10-19T06:26:07.714675+00:00",
+      "finished_at": "2026-10-19T06:26:25.463357+00:00",
+      "seconds": 17.7481518330751,
+      "error_type": null,
+      "observer_status": "settled",
+      "completion": "settled",
+      "response_provider": "codex",
+      "response_model": "gpt-6-luna",
+      "usage": {
+        "prompt_tokens": 11486,
+        "completion_tokens": 458,
+        "total_tokens": 11944
+      },
+      "private_receipt_sha256": "e409beb1aa197ff7faaa062722d3a6a1088f33efa8964fe3cb84471722795caa"
+    },
+    {
+      "wave": "r2",
+      "id": "6045657a-58f5-4338-8d4b-d21f6c10deab",
+      "case": "m2-voices-private",
+      "request_hash": "993d574c42b07770df01fdb7f43feffca899ec6d56cea26f79e2a50ba7fc91fa",
+      "provider": "codex",
+      "model": "gpt-6-luna",
+      "effort": "max",
+      "started_at": "2026-10-19T06:26:25.536269+00:00",
+      "finished_at": "2026-10-19T06:26:46.981904+00:00",
+      "seconds": 21.445101666962728,
+      "error_type": null,
+      "observer_status": "settled",
+      "completion": "settled",
+      "response_provider": "codex",
+      "response_model": "gpt-6-luna",
+      "usage": {
+        "prompt_tokens": 13819,
+        "completion_tokens": 737,
+        "total_tokens": 14556
+      },
+      "private_receipt_sha256": "a98089a719d76af659cd6b12a5135c1ade8eac4478b99a956b78b1a910b0f011"
+    },
+    {
+      "wave": "r2",
+      "id": "c758fb59-745c-4703-9783-474d416e1655",
+      "case": "m2-voices-private",
+      "request_hash": "fc1fcf60e180e1313d05b9b5b4f35ef669ffda2743f73f30ff9b8dcb289d70da",
+      "provider": "codex",
+      "model": "gpt-6-luna",
+      "effort": "max",
+      "started_at": "2026-10-19T06:26:51.067735+00:00",
+      "finished_at": "2026-10-19T06:27:06.665065+00:00",
+      "seconds": 15.596686083939858,
+      "error_type": null,
+      "observer_status": "settled",
+      "completion": "settled",
+      "response_provider": "codex",
+      "response_model": "gpt-6-luna",
+      "usage": {
+        "prompt_tokens": 10999,
+        "completion_tokens": 456,
+        "total_tokens": 11455
+      },
+      "private_receipt_sha256": "9fb223465ec6b3e264ec2d2174b08d60303143f3aeeb9e0445e224f74046acc5"
+    },
+    {
+      "wave": "r2",
+      "id": "9de7e223-6548-443b-aaee-4d6bc7b2066b",
+      "case": "m3-full-unknown",
+      "request_hash": "e5872629b6fecf576f4d4daf1b3eb32be5e1e3fd1c2c5f0deccc7be47d84ab73",
+      "provider": "codex",
+      "model": "gpt-6-luna",
+      "effort": "max",
+      "started_at": "2026-10-19T06:27:06.869551+00:00",
+      "finished_at": "2026-10-19T06:27:26.939391+00:00",
+      "seconds": 20.068901333026588,
+      "error_type": null,
+      "observer_status": "settled",
+      "completion": "settled",
+      "response_provider": "codex",
+      "response_model": "gpt-6-luna",
+      "usage": {
+        "prompt_tokens": 10064,
+        "completion_tokens": 757,
+        "total_tokens": 10821
+      },
+      "private_receipt_sha256": "3dcf6d652f0aa5aa8a571c39ebb17b5e247d725ece8952067d75b50ca81a51e0"
+    },
+    {
+      "wave": "r2",
+      "id": "26dc9cbd-88b6-43c3-8f57-b6f5923f487d",
+      "case": "m2-voices-private",
+      "request_hash": "ecfd6743c157fd9b4ebf50910bfff38488b6dbcc340bbd054ccc6292ad443d70",
+      "provider": "codex",
+      "model": "gpt-6-luna",
+      "effort": "max",
+      "started_at": "2026-10-19T06:27:11.670192+00:00",
+      "finished_at": "2026-10-19T06:27:32.402358+00:00",
+      "seconds": 20.73160891700536,
+      "error_type": null,
+      "observer_status": "settled",
+      "completion": "settled",
+      "response_provider": "codex",
+      "response_model": "gpt-6-luna",
+      "usage": {
+        "prompt_tokens": 11194,
+        "completion_tokens": 555,
+        "total_tokens": 11749
+      },
+      "private_receipt_sha256": "53af6c866e20798ea45a6d50bccf740e95a1b46b3b6bf107c9b5361083ac0b1c"
+    },
+    {
+      "wave": "r2",
+      "id": "6700654c-1ed7-4239-8ffd-fa34856f9e87",
+      "case": "m3-full-unknown",
+      "request_hash": "2187e7acf55cc425c85ff9f761cbf6abcc114a6f7f30babfb8b2d247de46c675",
+      "provider": "codex",
+      "model": "gpt-6-luna",
+      "effort": "max",
+      "started_at": "2026-10-19T06:27:27.067484+00:00",
+      "finished_at": "2026-10-19T06:27:48.615558+00:00",
+      "seconds": 21.547568624955602,
+      "error_type": null,
+      "observer_status": "settled",
+      "completion": "settled",
+      "response_provider": "codex",
+      "response_model": "gpt-6-luna",
+      "usage": {
+        "prompt_tokens": 13352,
+        "completion_tokens": 621,
+        "total_tokens": 13973
+      },
+      "private_receipt_sha256": "ee1c61eee42861d38f6ec0e5d17da86f01e16ae7a3b155fde8f0ed9939bffc06"
+    },
+    {
+      "wave": "r2",
+      "id": "c9b47fcf-cfb5-42fc-af35-583b099ae451",
+      "case": "m2-voices-private",
+      "request_hash": "68b4d71f991ea2952a9339831e5fc2fc682c59efaa94ba266a0ce110a0712b35",
+      "provider": "codex",
+      "model": "gpt-6-luna",
+      "effort": "max",
+      "started_at": "2026-10-19T06:27:32.499904+00:00",
+      "finished_at": "2026-10-19T06:27:58.766715+00:00",
+      "seconds": 26.26627341704443,
+      "error_type": null,
+      "observer_status": "settled",
+      "completion": "settled",
+      "response_provider": "codex",
+      "response_model": "gpt-6-luna",
+      "usage": {
+        "prompt_tokens": 13825,
+        "completion_tokens": 515,
+        "total_tokens": 14340
+      },
+      "private_receipt_sha256": "74b74a4e655e37cfb9d1e86ec8de5986ecae5f3c3d71c08087d351856fc3f8cf"
+    },
+    {
+      "wave": "r2",
+      "id": "96225807-311e-4882-acb1-39903f61f9d9",
+      "case": "m3-full-unknown",
+      "request_hash": "a0d4972ba00ab93f251dba672d7a779eb600e93ced3f0f420a0c560e4b3a9947",
+      "provider": "codex",
+      "model": "gpt-6-luna",
+      "effort": "max",
+      "started_at": "2026-10-19T06:27:48.869808+00:00",
+      "finished_at": "2026-10-19T06:28:05.358996+00:00",
+      "seconds": 16.4886792920297,
+      "error_type": null,
+      "observer_status": "settled",
+      "completion": "settled",
+      "response_provider": "codex",
+      "response_model": "gpt-6-luna",
+      "usage": {
+        "prompt_tokens": 10634,
+        "completion_tokens": 407,
+        "total_tokens": 11041
+      },
+      "private_receipt_sha256": "2fdb9c37ce7cc7b45994b67bea7bad276de53c8ac24b62444bc22c208c3baaef"
+    },
+    {
+      "wave": "r2",
+      "id": "48b2aea9-70cb-4267-b7a5-0979ea242f8f",
+      "case": "m3-full-unknown",
+      "request_hash": "bd2a77d8e0e3ebaf5c397cb719143005900fd479654f766a151fb1c527bccb7d",
+      "provider": "codex",
+      "model": "gpt-6-luna",
+      "effort": "max",
+      "started_at": "2026-10-19T06:28:05.445777+00:00",
+      "finished_at": "2026-10-19T06:28:20.115409+00:00",
+      "seconds": 14.669189624954015,
+      "error_type": null,
+      "observer_status": "settled",
+      "completion": "settled",
+      "response_provider": "codex",
+      "response_model": "gpt-6-luna",
+      "usage": {
+        "prompt_tokens": 10059,
+        "completion_tokens": 387,
+        "total_tokens": 10446
+      },
+      "private_receipt_sha256": "559f85960044bca6e2e5d2da96954ee68356eaa936e5e9ad10bed5ee76800699"
+    },
+    {
+      "wave": "r2",
+      "id": "3ec164f5-2541-4261-aac0-1b6f90e7d051",
+      "case": "m3-full-unknown",
+      "request_hash": "233913e4fbf363e68a0bcf8a260daee787662b5cd3e3fbe18dc383bf74a2c410",
+      "provider": "codex",
+      "model": "gpt-6-luna",
+      "effort": "max",
+      "started_at": "2026-10-19T06:28:20.229229+00:00",
+      "finished_at": "2026-10-19T06:28:59.007262+00:00",
+      "seconds": 38.7772845410509,
+      "error_type": null,
+      "observer_status": "settled",
+      "completion": "settled",
+      "response_provider": "codex",
+      "response_model": "gpt-6-luna",
+      "usage": {
+        "prompt_tokens": 13331,
+        "completion_tokens": 3012,
+        "total_tokens": 16343
+      },
+      "private_receipt_sha256": "3427b53c2a930b90742dad06a377d09cfac0223761ca10d14c1faab948204fb2"
+    },
+    {
+      "wave": "r2",
+      "id": "fff7f3db-fca3-47c3-a976-54e3f71672c7",
+      "case": "m3-full-unknown",
+      "request_hash": "82f5da95bba3cd7b2a8c8f6e2b1b130f49efe3f9c14f7264b39840e384ae5a6b",
+      "provider": "codex",
+      "model": "gpt-6-luna",
+      "effort": "max",
+      "started_at": "2026-10-19T06:28:59.306394+00:00",
+      "finished_at": "2026-10-19T06:29:17.506467+00:00",
+      "seconds": 18.199487957987003,
+      "error_type": null,
+      "observer_status": "settled",
+      "completion": "settled",
+      "response_provider": "codex",
+      "response_model": "gpt-6-luna",
+      "usage": {
+        "prompt_tokens": 10976,
+        "completion_tokens": 558,
+        "total_tokens": 11534
+      },
+      "private_receipt_sha256": "c94be2106814165c85b424aea72053774ecc3017a19085834f0f295395286ec0"
+    },
+    {
+      "wave": "r2",
+      "id": "fb53dbbc-4ec3-4cb2-973f-fe231d903d2d",
+      "case": "m3-full-unknown",
+      "request_hash": "700f0a6ce9fbe344d14a651c742160b2f197e6240f1166b466e6f5c4a50a12ff",
+      "provider": "codex",
+      "model": "gpt-6-luna",
+      "effort": "max",
+      "started_at": "2026-10-19T06:29:17.889027+00:00",
+      "finished_at": "2026-10-19T06:29:41.339993+00:00",
+      "seconds": 23.450178665923886,
+      "error_type": null,
+      "observer_status": "settled",
+      "completion": "settled",
+      "response_provider": "codex",
+      "response_model": "gpt-6-luna",
+      "usage": {
+        "prompt_tokens": 11521,
+        "completion_tokens": 1248,
+        "total_tokens": 12769
+      },
+      "private_receipt_sha256": "5bfa39f6adb4c1d16bd0a07fe04740e332766be99bd71400e38148eb99830af7"
+    },
+    {
+      "wave": "r2",
+      "id": "c6051bb8-a3ed-482c-9a29-c3bf7c821813",
+      "case": "m3-full-unknown",
+      "request_hash": "4e83944b460e7330df4ed72eb2a2c6649dca0a249f18ed65fec25bafc88ddfa3",
+      "provider": "codex",
+      "model": "gpt-6-luna",
+      "effort": "max",
+      "started_at": "2026-10-19T06:29:41.567202+00:00",
+      "finished_at": "2026-10-19T06:29:59.473691+00:00",
+      "seconds": 17.905918542062864,
+      "error_type": null,
+      "observer_status": "settled",
+      "completion": "settled",
+      "response_provider": "codex",
+      "response_model": "gpt-6-luna",
+      "usage": {
+        "prompt_tokens": 14528,
+        "completion_tokens": 939,
+        "total_tokens": 15467
+      },
+      "private_receipt_sha256": "286e2c70d2b14fd3f35059d3bd6283a7f56b651f073d65027029b307d127b7ac"
+    }
+  ],
+  "audit_outcomes": [
+    {
+      "wave": "r1",
+      "request_id": "b0a11916-f020-4a69-a3ad-cab907369b5c",
+      "case": "m2-goal-impossible",
+      "verdict": "pass",
+      "findings": [],
+      "dimensions": [
+        {
+          "dimension": "character_knowledge",
+          "checked": true
+        },
+        {
+          "dimension": "world_entities",
+          "checked": true
+        }
+      ]
+    },
+    {
+      "wave": "r1",
+      "request_id": "9696cb6a-2542-4501-bbba-0fb028588d85",
+      "case": "m3-full-unknown",
+      "verdict": "pass",
+      "findings": [],
+      "dimensions": [
+        {
+          "dimension": "character_knowledge",
+          "checked": true
+        },
+        {
+          "dimension": "world_entities",
+          "checked": true
+        },
+        {
+          "dimension": "scene_state",
+          "checked": true
+        }
+      ]
+    },
+    {
+      "wave": "r1",
+      "request_id": "b9754eda-2316-4ad8-ae11-f704fc09b0d4",
+      "case": "m2-voices",
+      "verdict": "pass",
+      "findings": [],
+      "dimensions": [
+        {
+          "dimension": "character_knowledge",
+          "checked": true
+        },
+        {
+          "dimension": "world_entities",
+          "checked": true
+        },
+        {
+          "dimension": "scene_state",
+          "checked": true
+        }
+      ]
+    },
+    {
+      "wave": "r1",
+      "request_id": "c0d2dc73-db08-4d83-bf79-bd308a5b67ef",
+      "case": "m2-spatial-missing",
+      "verdict": "pass",
+      "findings": [],
+      "dimensions": [
+        {
+          "dimension": "character_knowledge",
+          "checked": true
+        },
+        {
+          "dimension": "world_entities",
+          "checked": true
+        },
+        {
+          "dimension": "scene_state",
+          "checked": true
+        }
+      ]
+    },
+    {
+      "wave": "r1",
+      "request_id": "c403385a-b83a-4850-b91d-0ea40fa6b5b0",
+      "case": "m2-goal",
+      "verdict": "pass",
+      "findings": [],
+      "dimensions": [
+        {
+          "dimension": "character_knowledge",
+          "checked": true
+        },
+        {
+          "dimension": "world_entities",
+          "checked": true
+        }
+      ]
+    },
+    {
+      "wave": "r1",
+      "request_id": "9ddeb15e-94e5-4fb4-a9ac-b2dbdf67a553",
+      "case": "m2-voices",
+      "verdict": "pass",
+      "findings": [],
+      "dimensions": [
+        {
+          "dimension": "character_knowledge",
+          "checked": true
+        },
+        {
+          "dimension": "world_entities",
+          "checked": true
+        },
+        {
+          "dimension": "scene_state",
+          "checked": true
+        }
+      ]
+    },
+    {
+      "wave": "r1",
+      "request_id": "05512651-99cf-40a6-813b-8c8c330ed9e2",
+      "case": "m3-full-unknown",
+      "verdict": "pass",
+      "findings": [],
+      "dimensions": [
+        {
+          "dimension": "character_knowledge",
+          "checked": true
+        },
+        {
+          "dimension": "world_entities",
+          "checked": true
+        },
+        {
+          "dimension": "scene_state",
+          "checked": true
+        }
+      ]
+    },
+    {
+      "wave": "r1",
+      "request_id": "33063f0b-3c35-423c-8a0a-8ab664f87f73",
+      "case": "m2-voices-private",
+      "verdict": "pass",
+      "findings": [],
+      "dimensions": [
+        {
+          "dimension": "character_knowledge",
+          "checked": true
+        },
+        {
+          "dimension": "world_entities",
+          "checked": true
+        },
+        {
+          "dimension": "scene_state",
+          "checked": true
+        }
+      ]
+    },
+    {
+      "wave": "r1",
+      "request_id": "28b4ff16-51b0-42f8-bfce-8a71d3502113",
+      "case": "goal-cross",
+      "verdict": "pass",
+      "findings": [],
+      "dimensions": [
+        {
+          "dimension": "character_knowledge",
+          "checked": true
+        },
+        {
+          "dimension": "world_entities",
+          "checked": true
+        }
+      ]
+    },
+    {
+      "wave": "r1",
+      "request_id": "180ba71c-9a88-4a0d-80d3-00f017b5fcbf",
+      "case": "b3-line",
+      "verdict": "pass",
+      "findings": [],
+      "dimensions": [
+        {
+          "dimension": "character_knowledge",
+          "checked": true
+        },
+        {
+          "dimension": "world_entities",
+          "checked": true
+        },
+        {
+          "dimension": "scene_state",
+          "checked": true
+        }
+      ]
+    },
+    {
+      "wave": "r1",
+      "request_id": "47d3841c-fe46-440b-b33a-66a52027ce30",
+      "case": "b2-bridge",
+      "verdict": "pass",
+      "findings": [],
+      "dimensions": [
+        {
+          "dimension": "character_knowledge",
+          "checked": true
+        },
+        {
+          "dimension": "world_entities",
+          "checked": true
+        }
+      ]
+    },
+    {
+      "wave": "r1",
+      "request_id": "1c7be365-d9ed-4be6-b321-088b63d95db3",
+      "case": "goal-cross",
+      "verdict": "pass",
+      "findings": [],
+      "dimensions": [
+        {
+          "dimension": "character_knowledge",
+          "checked": true
+        },
+        {
+          "dimension": "world_entities",
+          "checked": true
+        },
+        {
+          "dimension": "scene_state",
+          "checked": true
+        }
+      ]
+    },
+    {
+      "wave": "r1",
+      "request_id": "5b1a62c5-eb06-4360-b0b9-6b89b7eed939",
+      "case": "b1-sandbox",
+      "verdict": "pass",
+      "findings": [],
+      "dimensions": [
+        {
+          "dimension": "character_knowledge",
+          "checked": true
+        },
+        {
+          "dimension": "world_entities",
+          "checked": true
+        }
+      ]
+    },
+    {
+      "wave": "r1",
+      "request_id": "bb7db223-70e9-42ed-a5f8-5681c48dc605",
+      "case": "b2-diagnose-only",
+      "verdict": "pass",
+      "findings": [],
+      "dimensions": [
+        {
+          "dimension": "character_knowledge",
+          "checked": true
+        },
+        {
+          "dimension": "world_entities",
+          "checked": true
+        }
+      ]
+    },
+    {
+      "wave": "r1",
+      "request_id": "31a125ae-4d12-49bd-845a-5d576fdae7c1",
+      "case": "m3-full-unknown",
+      "verdict": "pass",
+      "findings": [],
+      "dimensions": [
+        {
+          "dimension": "character_knowledge",
+          "checked": true
+        },
+        {
+          "dimension": "world_entities",
+          "checked": true
+        },
+        {
+          "dimension": "scene_state",
+          "checked": true
+        }
+      ]
+    },
+    {
+      "wave": "r2",
+      "request_id": "cfe12b50-587c-44d2-977a-2aca40679946",
+      "case": "m2-spatial-missing",
+      "verdict": "pass",
+      "findings": [],
+      "dimensions": [
+        {
+          "dimension": "character_knowledge",
+          "checked": true
+        },
+        {
+          "dimension": "world_entities",
+          "checked": true
+        },
+        {
+          "dimension": "scene_state",
+          "checked": true
+        }
+      ]
+    },
+    {
+      "wave": "r2",
+      "request_id": "065905da-0de6-4486-a66c-2c6700645a9a",
+      "case": "b2-bridge",
+      "verdict": "pass",
+      "findings": [],
+      "dimensions": [
+        {
+          "dimension": "character_knowledge",
+          "checked": true
+        },
+        {
+          "dimension": "world_entities",
+          "checked": true
+        }
+      ]
+    },
+    {
+      "wave": "r2",
+      "request_id": "3ec164f5-2541-4261-aac0-1b6f90e7d051",
+      "case": "m3-full-unknown",
+      "verdict": "pass",
+      "findings": [],
+      "dimensions": [
+        {
+          "dimension": "character_knowledge",
+          "checked": true
+        },
+        {
+          "dimension": "world_entities",
+          "checked": true
+        },
+        {
+          "dimension": "scene_state",
+          "checked": true
+        }
+      ]
+    },
+    {
+      "wave": "r2",
+      "request_id": "fe4fdee3-fa44-4163-b6a3-009e9c2de300",
+      "case": "m2-goal",
+      "verdict": "pass",
+      "findings": [],
+      "dimensions": [
+        {
+          "dimension": "character_knowledge",
+          "checked": true
+        },
+        {
+          "dimension": "world_entities",
+          "checked": true
+        }
+      ]
+    },
+    {
+      "wave": "r2",
+      "request_id": "6700654c-1ed7-4239-8ffd-fa34856f9e87",
+      "case": "m3-full-unknown",
+      "verdict": "pass",
+      "findings": [],
+      "dimensions": [
+        {
+          "dimension": "character_knowledge",
+          "checked": true
+        },
+        {
+          "dimension": "world_entities",
+          "checked": true
+        },
+        {
+          "dimension": "scene_state",
+          "checked": true
+        },
+        {
+          "dimension": "object_dossier",
+          "checked": true
+        },
+        {
+          "dimension": "character_pattern",
+          "checked": true
+        }
+      ]
+    },
+    {
+      "wave": "r2",
+      "request_id": "7318b746-8926-485e-9e08-b9eba3b70ae1",
+      "case": "m2-voices",
+      "verdict": "pass",
+      "findings": [],
+      "dimensions": [
+        {
+          "dimension": "character_knowledge",
+          "checked": true
+        },
+        {
+          "dimension": "world_entities",
+          "checked": true
+        },
+        {
+          "dimension": "scene_state",
+          "checked": true
+        }
+      ]
+    },
+    {
+      "wave": "r2",
+      "request_id": "c6051bb8-a3ed-482c-9a29-c3bf7c821813",
+      "case": "m3-full-unknown",
+      "verdict": "pass",
+      "findings": [],
+      "dimensions": [
+        {
+          "dimension": "character_knowledge",
+          "checked": true
+        },
+        {
+          "dimension": "world_entities",
+          "checked": true
+        },
+        {
+          "dimension": "scene_state",
+          "checked": true
+        }
+      ]
+    },
+    {
+      "wave": "r2",
+      "request_id": "c9b47fcf-cfb5-42fc-af35-583b099ae451",
+      "case": "m2-voices-private",
+      "verdict": "pass",
+      "findings": [],
+      "dimensions": [
+        {
+          "dimension": "character_knowledge",
+          "checked": true
+        },
+        {
+          "dimension": "world_entities",
+          "checked": true
+        },
+        {
+          "dimension": "scene_state",
+          "checked": true
+        }
+      ]
+    },
+    {
+      "wave": "r2",
+      "request_id": "6045657a-58f5-4338-8d4b-d21f6c10deab",
+      "case": "m2-voices-private",
+      "verdict": "pass",
+      "findings": [],
+      "dimensions": [
+        {
+          "dimension": "character_knowledge",
+          "checked": true
+        },
+        {
+          "dimension": "world_entities",
+          "checked": true
+        },
+        {
+          "dimension": "scene_state",
+          "checked": true
+        }
+      ]
+    },
+    {
+      "wave": "r2",
+      "request_id": "e27381b2-e3b6-4745-b60c-900ddab82531",
+      "case": "m2-voices",
+      "verdict": "blocked",
+      "findings": [
+        {
+          "kind": "out_of_scope_knowledge",
+          "severity": "blocker",
+          "dimension": "character_knowledge"
+        }
+      ],
+      "dimensions": [
+        {
+          "dimension": "character_knowledge",
+          "checked": true
+        },
+        {
+          "dimension": "world_entities",
+          "checked": true
+        },
+        {
+          "dimension": "scene_state",
+          "checked": true
+        }
+      ]
+    },
+    {
+      "wave": "r2",
+      "request_id": "7ca4cc08-a020-44f2-98a0-b42d5e2bb567",
+      "case": "m2-goal-impossible",
+      "verdict": "pass",
+      "findings": [],
+      "dimensions": [
+        {
+          "dimension": "character_knowledge",
+          "checked": true
+        },
+        {
+          "dimension": "world_entities",
+          "checked": true
+        }
+      ]
+    },
+    {
+      "wave": "r2",
+      "request_id": "6089249d-7e3a-471c-a642-5b7ada3efe93",
+      "case": "m2-voices-private",
+      "verdict": "blocked",
+      "findings": [
+        {
+          "kind": "out_of_scope_knowledge",
+          "severity": "blocker",
+          "dimension": "character_knowledge"
+        }
+      ],
+      "dimensions": [
+        {
+          "dimension": "character_knowledge",
+          "checked": true
+        },
+        {
+          "dimension": "world_entities",
+          "checked": true
+        },
+        {
+          "dimension": "scene_state",
+          "checked": true
+        }
+      ]
+    },
+    {
+      "wave": "r2",
+      "request_id": "26ad6470-d7d5-4e51-acf8-d1fd299f3c4d",
+      "case": "m2-voices",
+      "verdict": "pass",
+      "findings": [],
+      "dimensions": [
+        {
+          "dimension": "character_knowledge",
+          "checked": true
+        },
+        {
+          "dimension": "world_entities",
+          "checked": true
+        },
+        {
+          "dimension": "scene_state",
+          "checked": true
+        }
+      ]
+    }
+  ],
+  "pre_call_harness_exceptions": [
+    {
+      "kind": "system python missing tiktoken",
+      "native_requests": 0,
+      "files": [
+        "pre-provider-interpreter-cases.log",
+        "pre-provider-interpreter-goal.log"
+      ]
+    },
+    {
+      "kind": "Goal allowlist absent in copied base env; corrected to prior verified final-v4 env same DB/profile",
+      "native_requests": 0,
+      "case": "goal-cross-feature-preflight"
+    }
+  ],
+  "observer_limitation": {
+    "r1_complete_invalid_response_missing": 1,
+    "original_observer_unknown_record_preserved": true,
+    "reconciliation_basis": "persisted Goal budget and complete-invalid exception; no native resend or replan",
+    "r2_captures_complete_invalid_raw_and_usage_privately": true
+  },
+  "payload_redacted": {
+    "raw_requests_outputs_in_repository": false,
+    "method": "only provenance, hashes, enum states/findings and mechanical checks; raw messages/excerpts/content excluded"
+  },
+  "prior_evidence": "M5-LEDGER.json (160 settled requests; preserved unchanged)",
+  "data_proof": {
+    "source_compared_tables": 153,
+    "source_changes": [],
+    "copy_changed_tables": [
+      {
+        "table": "alembic_version",
+        "before_rows": 1,
+        "after_rows": 1
+      },
+      {
+        "table": "account_llm_credentials",
+        "before_rows": 1,
+        "after_rows": 1
+      },
+      {
+        "table": "memory_scene_snapshots",
+        "before_rows": 0,
+        "after_rows": 1
+      },
+      {
+        "table": "async_tasks",
+        "before_rows": 130,
+        "after_rows": 196
+      },
+      {
+        "table": "assistant_runs",
+        "before_rows": 0,
+        "after_rows": 10
+      },
+      {
+        "table": "memory_scene_checkpoints",
+        "before_rows": 0,
+        "after_rows": 6
+      },
+      {
+        "table": "context_confirmation_asset_refs",
+        "before_rows": 0,
+        "after_rows": 281
+      },
+      {
+        "table": "context_confirmations",
+        "before_rows": 0,
+        "after_rows": 55
+      },
+      {
+        "table": "context_retrieval_traces",
+        "before_rows": 0,
+        "after_rows": 9
+      }
+    ],
+    "protected_tables": [
+      "world_canon_revisions",
+      "world_canon_heads",
+      "world_library_favorites",
+      "world_library_recents",
+      "world_library_topic_members",
+      "world_revision_notes",
+      "knowledge_tag_exclusions",
+      "world_library_topics",
+      "world_cocreation_messages",
+      "knowledge_visibility_policies",
+      "world_bible_page_revisions",
+      "character_knowledge",
+      "world_bible_synopsis_revisions",
+      "scenes",
+      "story_outline_heads",
+      "world_library_workspace_profiles",
+      "world_validation_review_items",
+      "world_bible_page_template_revisions",
+      "world_assertions",
+      "world_object_image_candidates",
+      "world_bible_synopsis_heads",
+      "character_knowledge_tags",
+      "world_bible_categories",
+      "world_bible_page_projections",
+      "world_cocreation_sessions",
+      "knowledge_tags",
+      "outline_arcs",
+      "plot_threads",
+      "core_entities",
+      "world_bible_page_templates",
+      "characters",
+      "story_outline_revisions",
+      "world_bible_page_drafts",
+      "world_bible_pages",
+      "world_validation_runs",
+      "scene_spans",
+      "writing_drafts"
+    ],
+    "copy_protected_changes": [],
+    "writing_drafts": {
+      "name": "writing_drafts",
+      "rows": 120,
+      "fingerprint": "9a445445ee8a8db08c236189a2929ced"
+    },
+    "fingerprint_method": "MD5 over canonical JSONB rows with original source column set; sorted complete row text; counts included",
+    "raw_content_in_report": false
+  },
+  "canary_proof": {
+    "actor_generation_or_repair_requests": 15,
+    "by_wave": {
+      "r1": 7,
+      "r2": 8
+    },
+    "marker_scope": [
+      "M5-Q7",
+      "M5-R8"
+    ],
+    "marker_hits": 0,
+    "forbidden_actor_packet_keys_found": 0,
+    "r2_private_second_target_requests": 1,
+    "r2_private_second_target_private_fact_terms_found": 0,
+    "scope_limit": "selected literal markers and known private-fact terms in actual actor requests, not a general semantic non-leakage proof"
+  },
+  "final_verification": {
+    "physical_requests": 91,
+    "provider_model_effort_drift": 0,
+    "inflight_requests": 0,
+    "unknown_request_resends": 0,
+    "r2_frozen_code_unchanged": true,
+    "frozen_code_hash": "ca7ef4fc6be20e1307d43cd88b2d0a169293d6c84724df9c760524616cfeec62",
+    "source_commit": "5583632f924f26dbbeb796df0adeacc75701e152",
+    "old_observer_unknown_reconciled_as_complete_invalid": 1,
+    "complete_invalid_requests": 2,
+    "raw_complete_invalid_response_missing": 1,
+    "credential_rotation": {
+      "rotated_at": "2026-10-19T06:30:34.009261+00:00",
+      "scope": "task-only loopback PostgreSQL container, all three task databases",
+      "old_credential_rejected": true,
+      "new_credential_verified": true,
+      "credential_values_in_report": false,
+      "original_source_container_changed": false
+    },
+    "engineering": {
+      "full_test_ci": {
+        "status": "passed",
+        "backend_passed": 9691,
+        "backend_skipped": 2,
+        "backend_coverage_percent": 85.52,
+        "frontend_passed": 3406,
+        "deploy_passed": 324,
+        "desktop_passed": 47,
+        "desktop_skipped": 2
+      },
+      "story_targeted_passed": 124,
+      "postgresql_lifecycle_migration_concurrency_passed": 10
+    },
+    "review": {
+      "standards": "no_remaining_blocker; P2 historical source fingerprint fixed and verified",
+      "spec": "no_blocker; no gate relaxation"
+    },
+    "limits": [
+      "native Goal JSON format reliability not accepted",
+      "one r1 invalid raw response unavailable; billing reconciled from persisted Goal budget",
+      "independent teacher and human author acceptance not run",
+      "no deployment or merge"
+    ]
+  },
+  "closed_at": "2026-10-19T06:35:22.094487+00:00",
+  "conclusion": "six original regressions and genuine-unsolvable control passed in final frozen wave; native Goal format failures preserved, default off",
+  "delivery": {
+    "pull_request": "https://github.com/FengHuoLinShan/ai-writing-assist/pull/263",
+    "branch": "codex/director-scales-followup",
+    "source_commit": "5583632f924f26dbbeb796df0adeacc75701e152",
+    "local_full_ci_passed": true,
+    "remote_ci": "see current PR fixed-head checks",
+    "merged": false,
+    "deployed": false
+  },
+  "quality_gates": {
+    "product_luna_governance_regression": "passed final seven cases",
+    "native_goal_json_reliability": "not_accepted",
+    "independent_teacher": "not_run",
+    "human_author_acceptance": "not_run",
+    "default_feature_enabled": false
+  }
+}
