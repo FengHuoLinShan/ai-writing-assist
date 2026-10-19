@@ -14,6 +14,7 @@ FAST_TEST_TIMEOUT_SECONDS ?= 120
 BACKEND_POSTGRESQL_CRITICAL_TESTS += tests/e2e/test_exploration_review_concurrency.py
 BACKEND_POSTGRESQL_CRITICAL_TESTS += tests/e2e/test_open_issue_contracts.py tests/e2e/test_evolution_scope_budget.py
 BACKEND_POSTGRESQL_CRITICAL_TESTS += tests/e2e/test_project_vocabulary_postgres.py tests/e2e/test_map_spatial_storage_postgres.py
+BACKEND_POSTGRESQL_CRITICAL_TESTS += tests/e2e/test_evolution_scene_parallel.py
 TEST_WORKERS ?= auto
 BACKEND_EVAL_PYTHON ?= 3.13
 BACKEND_LOCKED_CI_RUN := uv run --locked --extra ci --

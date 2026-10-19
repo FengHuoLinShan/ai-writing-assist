@@ -117,6 +117,16 @@ request messages；需要裁剪时显式使用 `ContextBudgetGuard`。
 prompt/completion/total token、状态与错误分类；provider 返回 cache 明细时再附加 hit/miss。
 这些计数不包含 Prompt、响应正文或 Key，缺失值不能由上层补成 0 或冒充完整费用。
 
+显式 diagnostics 还保留每次 `generate` 的 `call_timing`：模型槽、跨进程准入及 RPM 等待只计一次，
+transport 重试分别记录 provider 方法的调用墙钟。计时 collector 按异步上下文隔离，失败、取消及
+未获准发送仍保留已知数字，原异常不变。provider 墙钟包含本机 CLI、网络与解码，客户端墙钟另含
+本次预算检查及传输重试退避；修复调用分别计时。该数值不含调用之间的解析/编排，
+不把差值当纯数据库时间，纯模型计算时间不可测时为 null。
+Codex 仅透传原生已提供且合法的缓存输入数，缺失不补 0。
+Evolution 的 `paid_call_receipt` 白名单保留这些计时、输入/输出及缓存用量，缺项总数为 null、
+已知小计与缺失次数分列。`provider_attempt_count` 是 provider 方法进入次数，可能在 I/O 前失败，
+不能代替已发原生请求或已付费次数；旧回执没有计时则保持未知。
+
 project runtime 创建的 client 带有 secret-free `runtime_scope`。managed helper
 会自动把 `novel_id`、profile source 和脱敏 `profile_summary` 合并进 journal 的
 `quality_stats.llm_runtime`；测试 fake 没有该属性时仍可按既有构造注入。

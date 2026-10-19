@@ -24,8 +24,9 @@ async def finish_scene_enrichment(db, store, frozen, source, call):
         return frozen
     if frozen.payload.get("enrichment_result"):
         return frozen
-    from modules.evolution.pipeline import _run_scene_call
+    from modules.evolution.pipeline import _run_scene_call, _scene_session
 
+    session_gate = getattr(call, "session_gate", None)
     payload = frozen.payload
     prepared = imports.prepare_scene_enrichment(
         payload["scene_card"],
@@ -53,6 +54,7 @@ async def finish_scene_enrichment(db, store, frozen, source, call):
         inputs={"method": "imports.scene_enrichment.v1", **identity},
         call_inputs={"payload": prepared},
         call=generate,
+        session_gate=session_gate,
     )
     candidate = imports.materialize_scene_enrichment(
         prepared, frozen.payload["scene_enrichment"]["result"]
@@ -104,24 +106,29 @@ async def finish_scene_enrichment(db, store, frozen, source, call):
             "context": json.dumps(prepared, ensure_ascii=False, sort_keys=True),
         },
         call=review,
+        session_gate=session_gate,
     )
-    await store.require_project_owner(frozen.run_id)
-    await store.load_run(frozen.run_id, for_update=True)
-    frozen = await store.load_frozen(frozen.run_id, frozen.attempt_id)
-    if frozen.payload.get("enrichment_result"):
-        await db.commit()
-        return frozen
-    review_result = materialize_group_audit(
-        **scope, result=frozen.payload["scene_enrichment_review"]["result"]
-    )
-    frozen = frozen.model_copy(
-        update={
-            "payload": {
-                **frozen.payload,
-                "enrichment_result": {"candidate": candidate, "review": review_result},
+    async with _scene_session(db, session_gate):
+        await store.require_project_owner(frozen.run_id)
+        await store.load_run(frozen.run_id, for_update=True)
+        frozen = await store.load_frozen(frozen.run_id, frozen.attempt_id)
+        if frozen.payload.get("enrichment_result"):
+            await db.commit()
+            return frozen
+        review_result = materialize_group_audit(
+            **scope, result=frozen.payload["scene_enrichment_review"]["result"]
+        )
+        frozen = frozen.model_copy(
+            update={
+                "payload": {
+                    **frozen.payload,
+                    "enrichment_result": {
+                        "candidate": candidate,
+                        "review": review_result,
+                    },
+                }
             }
-        }
-    )
-    await store.replace_frozen_payload(frozen)
-    await db.commit()
+        )
+        await store.replace_frozen_payload(frozen)
+        await db.commit()
     return frozen

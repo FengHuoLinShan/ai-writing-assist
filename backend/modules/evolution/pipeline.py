@@ -32,13 +32,18 @@ Project owner 门禁止与 legacy deep_import 双写。
 
 from __future__ import annotations
 
+import asyncio
+import logging
 import re
+import time
 from collections.abc import Awaitable, Callable
-from contextlib import nullcontext
+from contextlib import asynccontextmanager, nullcontext
+from functools import partial
 from typing import Any, Protocol
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
+from core.logging_context import novel_id_for_log, token_for_log
 from infrastructure.llm.collaboration import content_hash
 from modules.evolution.commit import (
     ApplierResult,
@@ -66,6 +71,8 @@ from modules.evolution.state_review import (
 )
 from modules.evolution.store import BudgetExhaustedError, PostgresAttemptStore
 from modules.story import facade as story_facade
+
+logger = logging.getLogger(__name__)
 
 
 class SceneSampler(Protocol):
@@ -1239,7 +1246,7 @@ async def _run_scene_call(
     session_gate=None,
 ):
     """Claim/settle serialized journals; never hold their gate over provider I/O."""
-    async with session_gate or nullcontext():
+    async with _scene_session(db, session_gate):
         await store.require_project_owner(frozen.run_id)
         await store.load_run(frozen.run_id, for_update=True)
         frozen = await store.load_frozen(frozen.run_id, frozen.attempt_id)
@@ -1464,7 +1471,7 @@ async def _return_unissued_scene_call(
     db, store, frozen, journal_key, inputs, *, session_gate=None
 ):
     """Return only this proven-zero-I/O claim; preserve every peer's journal."""
-    async with session_gate or nullcontext():
+    async with _scene_session(db, session_gate):
         await store.require_project_owner(frozen.run_id)
         run = await store.load_run(frozen.run_id, for_update=True)
         current = await store.load_frozen(frozen.run_id, frozen.attempt_id)
@@ -1532,7 +1539,7 @@ async def _settle_scene_call(
 ):
     # Another independent review may already have settled. Reload under the run
     # lock, preserving every peer's real result and any newer frozen fields.
-    async with session_gate or nullcontext():
+    async with _scene_session(db, session_gate):
         await store.require_project_owner(frozen.run_id)
         await store.load_run(frozen.run_id, for_update=True)
         current = await store.load_frozen(frozen.run_id, frozen.attempt_id)
@@ -1557,14 +1564,137 @@ async def _finish_scene_results(db, store, frozen, source, reviewer, caller):
 
     if frozen.payload.get("world_version", 0) < 2:
         frozen = await _finish_state_review(db, store, frozen, source, reviewer)
-    frozen = await finish_scene_enrichment(db, store, frozen, source, caller)
-    frozen = await finish_scene_world(db, store, frozen, source, caller)
+    gate = getattr(caller, "session_gate", None)
+    parallel = False
+    if (
+        gate is not None
+        and getattr(caller, "discovery_parallelism", 1) > 1
+        and frozen.payload.get("world_version") == 3
+        and frozen.payload.get("enrichment_version") == 1
+        and not frozen.payload.get("enrichment_result")
+        and not frozen.payload.get("world_result")
+    ):
+        from infrastructure.llm.model_limits import confirmed_scope_eligible
+
+        async with _scene_session(db, gate):
+            await store.require_project_owner(frozen.run_id)
+            run = await store.load_run(frozen.run_id, for_update=True)
+            frozen = await store.load_frozen(frozen.run_id, frozen.attempt_id)
+            parallel = (
+                run.budget_remaining is None
+                and (run.reading_plan_json or {}).get("budget_mode") == "confirmed_scope"
+                and confirmed_scope_eligible(run.llm_snapshot_json)
+                and not frozen.payload.get("enrichment_result")
+                and not frozen.payload.get("world_result")
+            )
+            if parallel:
+                _require_parallel_scene_journals(frozen)
+            await db.commit()
+
+    async def enrich():
+        return await _scene_stage_wall(
+            frozen,
+            "enrichment",
+            partial(finish_scene_enrichment, db, store, frozen, source, caller),
+            reused=bool(frozen.payload.get("enrichment_result")),
+            enabled=frozen.payload.get("enrichment_version") == 1,
+        )
+
+    async def world():
+        return await _scene_stage_wall(
+            frozen,
+            "world",
+            partial(finish_scene_world, db, store, frozen, source, caller),
+            reused=bool(frozen.payload.get("world_result")),
+            enabled=frozen.payload.get("world_version") in {1, 2, 3},
+        )
+
+    if parallel:
+        from modules.evolution.ready import drain_ready
+
+        await drain_ready([enrich, world], 2)
+        async with _scene_session(db, gate):
+            frozen = await store.load_frozen(frozen.run_id, frozen.attempt_id)
+            await db.commit()
+    else:
+        frozen = await enrich()
+        frozen = await world()
     if frozen.payload.get("world_version") in {2, 3}:
-        frozen = await _finish_state_review(db, store, frozen, source, reviewer)
+        frozen = await _scene_stage_wall(
+            frozen,
+            "state_review",
+            partial(_finish_state_review, db, store, frozen, source, reviewer),
+            reused=(frozen.payload.get("state_review") or {}).get("stage") == "sampled",
+        )
     if frozen.payload.get("optional_stage_version") == 1:
         return frozen
     frozen = await finish_scene_discovery(db, store, frozen, source, caller)
     return await finish_scene_spatial(db, store, frozen, source, caller)
+
+
+def _require_parallel_scene_journals(frozen):
+    from modules.evolution.state_review import scene_call_journals, settled_output_failure
+
+    for key in scene_call_journals(frozen.payload):
+        journal = frozen.payload.get(key) or {}
+        if (
+            not journal
+            or journal.get("stage") == "sampled"
+            or key.startswith(("scene_world_review_group_", "scene_discovery_"))
+            and settled_output_failure(journal)
+        ):
+            continue
+        raise SamplePendingReconciliationError(key, "preserve existing scene call")
+
+
+@asynccontextmanager
+async def _scene_session(db, gate):
+    async with gate or nullcontext():
+        try:
+            yield
+        except BaseException as error:
+            if gate is not None:
+                from infrastructure.llm.limits import stop_request_admission
+                from modules.evolution.optional_step_budget import (
+                    OptionalStepQuotaExhaustedError,
+                )
+
+                if not isinstance(
+                    error, (BudgetExhaustedError, OptionalStepQuotaExhaustedError)
+                ):
+                    stop_request_admission(error)
+                await db.rollback()
+            raise
+
+
+async def _scene_stage_wall(frozen, phase, work, *, reused, enabled=True):
+    started = time.monotonic()
+    status = "succeeded" if enabled else "not_run"
+    try:
+        return await work()
+    except asyncio.CancelledError:
+        status = "cancelled"
+        raise
+    except BaseException:
+        status = "failed"
+        raise
+    finally:
+        logger.info(
+            "scene_stage_wall novel_id=%s run_id=%s attempt_id=%s scene_index=%s "
+            "phase=%s status=%s enabled=%s reused=%s wall_ms=%.3f",
+            novel_id_for_log(frozen.novel_id),
+            token_for_log(frozen.run_id),
+            token_for_log(frozen.attempt_id),
+            frozen.payload["scene_index"]
+            if type(frozen.payload.get("scene_index")) is int
+            and frozen.payload["scene_index"] >= 0
+            else "<invalid>",
+            phase,
+            status,
+            enabled,
+            reused,
+            max(time.monotonic() - started, 0) * 1000,
+        )
 
 
 async def _finish_state_review(db, store, frozen, source, reviewer):

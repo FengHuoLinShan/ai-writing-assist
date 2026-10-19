@@ -787,3 +787,47 @@ async def test_approval_client_alone_allows_low_and_emits_low_native_config(
         )
     with pytest.raises(ValueError, match="生成质量覆盖"):
         LLMClient(provider_name="codex", high_quality=True, approval_judgment=True)
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "input_tokens,cached,accepted",
+    [
+        (4, None, False),
+        (4, 0, True),
+        (4, 3, True),
+        (4, -1, False),
+        (4, True, False),
+        (4, 5, False),
+        (None, 0, False),
+        (True, 0, False),
+        (-1, 0, False),
+    ],
+)
+async def test_native_cached_input_usage_reaches_safe_structured_diagnostic(
+    provider, input_tokens, cached, accepted
+):
+    from infrastructure.llm.client import _cache_usage_diagnostic
+
+    usage = {"output_tokens": 2}
+    if input_tokens is not None:
+        usage["input_tokens"] = input_tokens
+    if cached is not None:
+        usage["cached_input_tokens"] = cached
+    with patch(
+        "infrastructure.llm.codex_provider.run_cli_agent",
+        autospec=True,
+        return_value=SimpleNamespace(
+            answer='{"content":"private output"}', usage=usage, tool_attempts=0
+        ),
+    ):
+        response = await provider.generate(LLMCallRequest(model="gpt-6-luna"))
+    diagnostic = _cache_usage_diagnostic(response)
+    assert diagnostic["prompt_tokens"] == (input_tokens or 0)
+    if not accepted:
+        assert "cache_hit_tokens" not in diagnostic
+        assert "cache_miss_tokens" not in diagnostic
+    else:
+        assert diagnostic["cache_hit_tokens"] == cached
+        assert diagnostic["cache_miss_tokens"] == input_tokens - cached
+    assert "private output" not in repr(diagnostic)

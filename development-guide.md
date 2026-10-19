@@ -142,6 +142,7 @@ make test ARGS="-k test_create"  # Filter by test name
 make test TESTS=tests/integration  # Select a backend path with native pytest syntax
 E2E_DATABASE_URL='<dedicated-postgresql-url>' make test-e2e  # Explicit test DB at Alembic head
 E2E_DATABASE_URL='<dedicated-postgresql-url>' make test-postgresql-critical  # Serial PostgreSQL merge-gate subset; retries=0
+RUN_E2E_TESTS=1 E2E_DATABASE_URL='<dedicated-postgresql-url>' uv --directory backend run --locked --extra ci pytest tests/e2e/test_evolution_scene_parallel.py -m e2e  # 同场补全/World 并行、逆序落定、汇合及恢复免调用；已纳入 critical
 RUN_E2E_TESTS=1 E2E_DATABASE_URL='<dedicated-postgresql-url>' uv --directory backend run pytest tests/e2e/test_rp_source_versions.py -m e2e  # RP source version/FK/concurrency lifecycle
 RUN_E2E_TESTS=1 E2E_DATABASE_URL='<dedicated-postgresql-url>' uv run pytest tests/e2e/test_project_task_gate_concurrency.py -m "not real_llm and not external_data"  # Project delete vs atlas upload/cleanup race
 RUN_E2E_TESTS=1 E2E_DATABASE_URL='<dedicated-postgresql-url>' uv run pytest tests/e2e/test_worldbook_dataset_import_concurrency.py -m e2e  # 资料集导入 apply 的 dataset advisory-lock/CAS/过期冲突并发行为

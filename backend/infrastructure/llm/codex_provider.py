@@ -336,6 +336,17 @@ class CodexProvider:
                 "native_tool_attempts": result.tool_attempts,
                 "output_token_limit_enforced": False,
                 "delayed_stream": True,
+                "usage": {
+                    "prompt_tokens_details": {
+                        "cached_tokens": native_usage["cached_input_tokens"]
+                    }
+                }
+                if type(native_usage.get("input_tokens")) is int
+                and type(native_usage.get("cached_input_tokens")) is int
+                and 0
+                <= native_usage["cached_input_tokens"]
+                <= native_usage["input_tokens"]
+                else {},
             },
         )
 
