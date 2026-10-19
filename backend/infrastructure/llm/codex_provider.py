@@ -318,6 +318,9 @@ class CodexProvider:
                 model=CODEX_MODEL,
                 raw_response=result.answer,
                 usage=usage,
+                error_kind="invalid_json"
+                if isinstance(exc, json.JSONDecodeError)
+                else "schema_validation",
             ) from exc
         return LLMCallResponse(
             content=content,

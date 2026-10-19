@@ -113,10 +113,11 @@ class LLMInvalidResponseError(LLMError):
         model: str = "",
         raw_response: str = "",
         usage: LLMUsage | None = None,
+        error_kind: str = "",
     ) -> None:
         self.raw_response = raw_response
         self.usage = usage
-        super().__init__(message, provider=provider, model=model)
+        super().__init__(message, provider=provider, model=model, error_kind=error_kind)
 
 
 class LLMAuthError(LLMError):

@@ -103,6 +103,8 @@ helper 进入，以统一 step name、journal、timeout 和错误分类。
 Pydantic 校验、受限格式修复与信封计量继续覆盖每次请求。
 受管 step 摘要只用显式请求模型覆盖客户端模型，未指定时继承已解析的项目身份。
 provider 拒绝完整响应所附的真实 usage 同样进入失败诊断，缺失时保留未知；这不放宽输出校验或重试。
+Codex 完整输出的 JSON 语法错误记 `invalid_json`，其余输出契约错误记 `schema_validation`，
+让上层既有的已知格式失败处理可消费同一分类；原生完成未知仍独立失败关闭。
 
 Context 自然语言调整使用同一 harness 的单次 `suggest + read_only` structured step：候选最多
 40 项、输出最多 20 个 include/exclude、120 秒超时、无工具、无自治循环且 transport retry

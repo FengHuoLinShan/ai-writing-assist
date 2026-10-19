@@ -38,6 +38,69 @@ def test_unknown_usage_never_qualifies_for_world_format_deferral():
     assert not _known_format_failure(error)
 
 
+async def test_codex_invalid_inner_json_reaches_world_deferral_without_replay(
+    monkeypatch,
+):
+    from unittest.mock import patch
+
+    from infrastructure.llm.client import LLMClient
+    from infrastructure.llm.profiles import ResolvedLLMProfile
+    from modules.evolution.llm_sampler import ProjectLLMSampler
+    from modules.evolution.state_review import (
+        SceneCallFailedError,
+        has_unreconciled_scene_calls,
+    )
+    from modules.evolution.world import request_spec
+    from modules.imports.facade import build_scene_world_request
+
+    monkeypatch.setattr(
+        "infrastructure.llm.codex_provider.codex_connection_fingerprint",
+        lambda: "synthetic-fingerprint",
+    )
+    profile = ResolvedLLMProfile(
+        provider_id="codex",
+        label="Codex",
+        api_key="",
+        base_url="codex://local",
+        model="gpt-6-luna",
+        timeout=900,
+        max_tokens=32768,
+        temperature=None,
+        top_p=None,
+        extra={"reasoning_effort": "max"},
+        sources={},
+    )
+    client = LLMClient.from_resolved_profile(profile)
+    response = SimpleNamespace(
+        answer=json.dumps({"content": '{"entities":[]:"invalid"}'}),
+        usage={"input_tokens": 10, "output_tokens": 5},
+        tool_attempts=0,
+    )
+    try:
+        with patch(
+            "infrastructure.llm.codex_provider.run_cli_agent",
+            autospec=True,
+            return_value=response,
+        ) as native:
+            with pytest.raises(SceneCallFailedError) as caught:
+                await ProjectLLMSampler(client).execute_world_request(
+                    **request_spec(*build_scene_world_request(TEXT, {}))
+                )
+        native.assert_awaited_once()
+        receipt = caught.value.receipt
+        assert receipt["outcome"] == "failed_final"
+        assert receipt["usage"]["usage_complete"] is True
+        assert receipt["usage"]["unknown_attempts"] == 0
+        assert receipt["usage"]["total_tokens"] == 15
+        assert receipt["attempts_detail"][-1]["error_kind"] == "invalid_json"
+        assert _known_format_failure(caught.value)
+        assert has_unreconciled_scene_calls(
+            {"scene_world": {"stage": "failed", "paid_call_receipt": receipt}}
+        )
+    finally:
+        await client.close()
+
+
 def test_unknown_fee_world_review_failure_is_not_reconciled():
     from modules.evolution.state_review import (
         has_unreconciled_scene_calls,

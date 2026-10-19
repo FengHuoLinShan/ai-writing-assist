@@ -39,6 +39,8 @@ infrastructure/llm/
 - 记录 token 和调用耗时
 - 结构化调用的每次首发/修复都向可选受控诊断写入 prompt/completion/total token；provider 提供时
   再附加 cache-hit/cache-miss token。诊断不含 Prompt、响应正文或 Key，缓存统计不参与质量门禁
+- Codex 完整响应的 JSON/输出契约失败分别保留 `invalid_json`/`schema_validation` 和已知用量，
+  供上层既有失败处理使用；缺少原生完成回执仍记未知，不自动重发。
 - 提供受控 LLM step harness，用于 text / structured generation 的统一
   envelope、journal、timeout 和错误分类
 - 提供地图册使用的 `OpenAIImageClient`，支持生成、整图编辑、蒙版、多参考图和连续派生

@@ -617,14 +617,25 @@ def test_uncapped_codex_output_does_not_imply_truncation():
 
 
 @pytest.mark.asyncio
-async def test_completed_invalid_envelope_retains_known_receipt_usage(provider):
+@pytest.mark.parametrize(
+    "answer,error_kind",
+    [
+        ("not JSON", "invalid_json"),
+        ('{"content":"not JSON"}', "invalid_json"),
+        ('{"content":"[]"}', "schema_validation"),
+        ('{"content":123}', "schema_validation"),
+    ],
+)
+async def test_completed_invalid_envelope_retains_known_receipt_usage(
+    provider, answer, error_kind
+):
     from unittest.mock import create_autospec
 
     from infrastructure.llm.client import _settle_ai_run_request
     from infrastructure.llm.workflow_budget import AIRequestOutcome, AIRunEnvelope
 
     result = SimpleNamespace(
-        answer='{"content":"not JSON"}',
+        answer=answer,
         usage={"input_tokens": 4, "output_tokens": 2},
         tool_attempts=0,
     )
@@ -640,11 +651,14 @@ async def test_completed_invalid_envelope_retains_known_receipt_usage(provider):
                 )
             )
     assert caught.value.usage.total_tokens == 6
+    assert caught.value.error_kind == error_kind
+    assert LLMInvalidResponseError().error_kind == ""
     ledger = create_autospec(AIRunEnvelope, instance=True)
     reservation = object()
     await _settle_ai_run_request(ledger, reservation, usage=None, error=caught.value)
     assert ledger.settle.await_args.kwargs["usage"] == caught.value.usage
     assert ledger.settle.await_args.kwargs["outcome"] == AIRequestOutcome.failed
+    assert ledger.settle.await_args.kwargs["error_kind"] == error_kind
 
 
 @pytest.mark.asyncio
