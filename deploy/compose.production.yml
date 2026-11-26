@@ -118,7 +118,7 @@ x-ops-environment: &ops-environment
 
 services:
   searxng:
-    image: searxng/searxng@sha256:ba0a344c566ecc6e4429e81d02d93a01fa05c80e9fb6d08f0a1e57a729aa6d87
+    image: searxng/searxng@sha256:a7fc607aa6723f5a8982105bcc5ffba4d1b9fc7c6922a31a88d6e4cba49ef12a
     profiles: [search]
     restart: unless-stopped
     logging: *bounded-logging
